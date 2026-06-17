@@ -1,0 +1,61 @@
+{
+    "name": "neonflux-workspace",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "A multi functional bot for fluxer",
+    "license": "MIT",
+    "packageManager": "pnpm@11.6.0",
+    "keywords": [
+        "fluxer",
+        "bot",
+        "typescript",
+        "javascript"
+    ],
+    "engines": {
+        "node": "24.16.0",
+        "pnpm": ">=11.0.0 <12"
+    },
+    "devEngines": {
+        "runtime": {
+            "name": "node",
+            "version": "24.16.0",
+            "onFail": "download"
+        }
+    },
+    "scripts": {
+        "dev:bot": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
+        "clean": "pnpm -r clean",
+        "build": "pnpm -r build",
+        "check": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+        "typecheck": "pnpm -r typecheck && pnpm typecheck:configs",
+        "typecheck:configs": "tsc -p tsconfig.eslint.json --noEmit",
+        "lint": "eslint . && pnpm --filter neonflux-web lint",
+        "lint:fix": "eslint . --fix && pnpm --filter neonflux-web lint:fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "vitest run",
+        "test:watch": "vitest watch",
+        "db:generate": "drizzle-kit generate",
+        "db:migrate": "drizzle-kit migrate",
+        "db:validate:pglite": "tsx packages/db/scripts/validate-pglite-migrations.ts"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^25.9.3",
+        "@types/pg": "^8.20.0",
+        "@vitest/eslint-plugin": "^1.6.20",
+        "dotenv": "^17.4.2",
+        "drizzle-kit": "^0.31.10",
+        "eslint": "^10.5.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-n": "^18.1.0",
+        "globals": "^17.6.0",
+        "prettier": "^3.8.4",
+        "prettier-plugin-tailwindcss": "^0.8.0",
+        "tsx": "^4.22.4",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.61.1",
+        "vitest": "^4.1.9"
+    }
+}
