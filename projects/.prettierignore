@@ -1,0 +1,14 @@
+**/dist
+**/coverage
+**/node_modules
+**/data
+**/.local
+**/.output
+**/.nitro
+**/.tanstack
+**/.vinxi
+.env
+.env.*
+apps/web/src/routeTree.gen.ts
+packages/db/drizzle
+pnpm-lock.yaml

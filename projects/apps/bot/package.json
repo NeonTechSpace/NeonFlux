@@ -1,0 +1,23 @@
+{
+    "name": "@neonflux/bot",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./dist/index.js",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "start": "node --enable-source-maps dist/index.js",
+        "build": "tsc -p tsconfig.json",
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@neonflux/config": "workspace:*",
+        "@neonflux/core": "workspace:*",
+        "@neonflux/db": "workspace:*",
+        "@neonflux/fluxer": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "^4.22.4"
+    }
+}

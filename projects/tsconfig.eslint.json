@@ -1,0 +1,26 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "allowJs": true,
+        "checkJs": true,
+        "declaration": false,
+        "declarationMap": false,
+        "jsx": "react-jsx",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "noEmit": true,
+        "rootDir": ".",
+        "types": ["node", "vitest/globals"]
+    },
+    "include": [
+        "apps/**/*.ts",
+        "apps/**/*.tsx",
+        "packages/**/*.ts",
+        "*.config.js",
+        "*.config.ts",
+        "eslint.config.js",
+        "prettier.config.js",
+        "vitest.config.ts"
+    ],
+    "exclude": ["**/dist", "node_modules", "apps/web/**", "packages/db/drizzle"]
+}

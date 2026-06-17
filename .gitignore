@@ -1,0 +1,17 @@
+/Research/
+/.env
+/.env.*
+/projects/.env
+/projects/.env.*
+!/projects/.env.example
+
+/projects/node_modules/
+/projects/**/dist/
+/projects/**/coverage/
+/projects/**/.vitest/
+/projects/**/data/
+/projects/**/.local/
+/projects/**/.output/
+/projects/**/.nitro/
+/projects/**/.tanstack/
+/projects/**/.vinxi/
