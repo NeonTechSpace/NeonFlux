@@ -10,33 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
+  id: '/auth/fluxer/login',
+  path: '/auth/fluxer/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/auth/fluxer/login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/auth/fluxer/login'
+  id: '__root__' | '/' | '/auth/fluxer/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/fluxer/login': {
+      id: '/auth/fluxer/login'
+      path: '/auth/fluxer/login'
+      fullPath: '/auth/fluxer/login'
+      preLoaderRoute: typeof AuthFluxerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

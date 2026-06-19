@@ -9,6 +9,8 @@
 - `INSTANCE_MODE` behavior must be handled with `switch` statements.
 - Shared logic belongs in `packages/*`, not copied between bot and web.
 - Bot and web packages should depend on shared packages through workspace package imports when those packages exist.
+- Use `neverthrow` in runtime packages for expected recoverable failures and typed result flow.
+- Any package that imports `neverthrow` must declare it directly instead of relying on another workspace package.
 - Never commit secrets, `.env`, generated `dist`, local DB data, or machine-specific absolute paths.
 - Treat uncommitted changes as user-owned. Do not stage, commit, push, squash, rebase, or run mutating VCS commands without explicit permission.
 - Keep handwritten production files under 555 LOC unless a narrow exception is justified.

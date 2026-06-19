@@ -25,7 +25,8 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
-        "evlog": "^2.19.1"
+        "evlog": "^2.19.1",
+        "neverthrow": "^8.2.0"
     },
     "devDependencies": {
         "@neonflux/config": "workspace:*"

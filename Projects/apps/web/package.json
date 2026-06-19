@@ -19,6 +19,8 @@
         "check": "pnpm format:check && pnpm lint && pnpm typecheck"
     },
     "dependencies": {
+        "@neonflux/config": "workspace:*",
+        "@neonflux/fluxer": "workspace:*",
         "@tailwindcss/vite": "^4.1.18",
         "@tanstack/react-devtools": "latest",
         "@tanstack/react-router": "latest",
@@ -27,12 +29,14 @@
         "@tanstack/react-start": "latest",
         "@tanstack/router-plugin": "^1.132.0",
         "lucide-react": "^0.545.0",
+        "neverthrow": "^8.2.0",
         "nitro": "^3.0.260610-beta",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "tailwindcss": "^4.1.18"
     },
     "devDependencies": {
+        "@babel/core": "^8.0.1",
         "@eslint-react/eslint-plugin": "^5.9.0",
         "@rolldown/plugin-babel": "^0.2.3",
         "@tanstack/devtools-vite": "latest",
@@ -42,6 +46,7 @@
         "@tanstack/router-cli": "^1.132.0",
         "@testing-library/dom": "^10.4.1",
         "@testing-library/react": "^16.3.0",
+        "@types/babel__core": "^7.20.5",
         "@types/node": "^22.10.2",
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
