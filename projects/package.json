@@ -25,6 +25,7 @@
     },
     "scripts": {
         "dev:bot": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
+        "dev:web": "pnpm -r --filter \"./packages/*\" build && pnpm --filter neonflux-web dev",
         "clean": "pnpm -r clean",
         "build": "pnpm -r build",
         "check": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",

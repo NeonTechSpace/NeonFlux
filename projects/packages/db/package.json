@@ -22,6 +22,7 @@
     },
     "dependencies": {
         "drizzle-orm": "^0.45.2",
+        "neverthrow": "^8.2.0",
         "pg": "^8.21.0"
     },
     "devDependencies": {
