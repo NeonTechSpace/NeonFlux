@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
+import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,30 +23,39 @@ const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
   path: '/auth/fluxer/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthFluxerCallbackRoute = AuthFluxerCallbackRouteImport.update({
+  id: '/auth/fluxer/callback',
+  path: '/auth/fluxer/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth/fluxer/login'
+  fullPaths: '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/fluxer/login'
-  id: '__root__' | '/' | '/auth/fluxer/login'
+  to: '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
+  id: '__root__' | '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
 
@@ -65,11 +75,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthFluxerLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/fluxer/callback': {
+      id: '/auth/fluxer/callback'
+      path: '/auth/fluxer/callback'
+      fullPath: '/auth/fluxer/callback'
+      preLoaderRoute: typeof AuthFluxerCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }
 export const routeTree = rootRouteImport

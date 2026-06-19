@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFluxerAuthorizeUrl } from './oauth.js';
+import {
+    buildFluxerAuthorizeUrl,
+    exchangeFluxerAuthorizationCode,
+    FLUXER_OAUTH_TOKEN_URL,
+    type FluxerOAuthFetch,
+} from './oauth.js';
 
 describe('buildFluxerAuthorizeUrl', () => {
     it('builds the dev login URL', () => {
@@ -37,6 +42,28 @@ describe('buildFluxerAuthorizeUrl', () => {
         ).toContain('scope=guilds+identify+bot');
     });
 
+    it('builds a URL with state', () => {
+        expect(
+            buildFluxerAuthorizeUrl({
+                appId: 'app-id',
+                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+                scopes: ['identify', 'guilds'],
+                state: 'oauth-state',
+            })
+        ).toContain('state=oauth-state');
+    });
+
+    it('encodes state', () => {
+        expect(
+            buildFluxerAuthorizeUrl({
+                appId: 'app-id',
+                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+                scopes: ['identify'],
+                state: 'state with symbols /+=',
+            })
+        ).toContain('state=state+with+symbols+%2F%2B%3D');
+    });
+
     it('throws for empty app id', () => {
         expect(() =>
             buildFluxerAuthorizeUrl({
@@ -66,4 +93,206 @@ describe('buildFluxerAuthorizeUrl', () => {
             })
         ).toThrow('scopes is required');
     });
+
+    it('throws for empty state when provided', () => {
+        expect(() =>
+            buildFluxerAuthorizeUrl({
+                appId: 'app-id',
+                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+                scopes: ['identify'],
+                state: ' ',
+            })
+        ).toThrow('state is required');
+    });
 });
+
+describe('exchangeFluxerAuthorizationCode', () => {
+    it('exchanges an authorization code for normalized token data', async () => {
+        let capturedInput: string | URL | undefined;
+        let capturedInit: RequestInit | undefined;
+        const testFetch: FluxerOAuthFetch = (input, init) => {
+            capturedInput = input;
+            capturedInit = init;
+
+            return Promise.resolve(
+                jsonResponse({
+                    access_token: 'access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'refresh-token',
+                    scope: 'identify guilds',
+                })
+            );
+        };
+
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: testFetch,
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            accessToken: 'access-token',
+            tokenType: 'Bearer',
+            expiresIn: 3600,
+            refreshToken: 'refresh-token',
+            scope: 'identify guilds',
+        });
+        expect(capturedInput).toBe(FLUXER_OAUTH_TOKEN_URL);
+        expect(capturedInit?.method).toBe('POST');
+
+        const body = capturedInit?.body;
+
+        if (!(body instanceof FormData)) {
+            throw new Error('Expected OAuth token request body to be FormData.');
+        }
+
+        expect(body.get('grant_type')).toBe('authorization_code');
+        expect(body.get('code')).toBe('authorization-code');
+        expect(body.get('redirect_uri')).toBe('http://localhost:3000/auth/fluxer/callback');
+        expect(body.get('client_id')).toBe('app-id');
+        expect(body.get('client_secret')).toBe('client-secret');
+    });
+
+    it('fails when app id is missing', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: ' ',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'appId' });
+    });
+
+    it('fails when client secret is missing', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: ' ',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'clientSecret' });
+    });
+
+    it('fails when code is missing', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: ' ',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'code' });
+    });
+
+    it('fails when redirect URL is missing', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: ' ',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'redirectUrl' });
+    });
+
+    it('returns request-failed for non-2xx responses', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: () =>
+                Promise.resolve(jsonResponse({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' })),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'request-failed',
+            status: 400,
+            statusText: 'Bad Request',
+        });
+    });
+
+    it('returns invalid-response for invalid JSON responses', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: () => Promise.resolve(new Response('not-json')),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
+
+    it('returns invalid-response for missing token response fields', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: () =>
+                Promise.resolve(
+                    jsonResponse({
+                        access_token: 'access-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600,
+                        scope: 'identify guilds',
+                    })
+                ),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
+
+    it('returns invalid-response for invalid token expiration values', async () => {
+        const result = await exchangeFluxerAuthorizationCode({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            code: 'authorization-code',
+            redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+            fetch: () =>
+                Promise.resolve(
+                    jsonResponse({
+                        access_token: 'access-token',
+                        token_type: 'Bearer',
+                        expires_in: -1,
+                        refresh_token: 'refresh-token',
+                        scope: 'identify guilds',
+                    })
+                ),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
+});
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+    return new Response(JSON.stringify(body), {
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        ...init,
+    });
+}
+
+function createUnusedFetch(): FluxerOAuthFetch {
+    return () => Promise.reject(new Error('Fetch should not be called.'));
+}

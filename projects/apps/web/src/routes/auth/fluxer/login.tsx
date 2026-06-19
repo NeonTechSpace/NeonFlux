@@ -1,38 +1,20 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { createServerOnlyFn } from '@tanstack/react-start';
 
-import { loadConfig } from '@neonflux/config';
-import { buildFluxerAuthorizeUrl } from '@neonflux/fluxer/oauth';
+const createRoute = createFileRoute('/auth/fluxer/login');
 
-export const Route = createFileRoute('/auth/fluxer/login')({
+const handleFluxerLogin = createServerOnlyFn(async (): Promise<Response> => {
+    const { handleFluxerLoginRequest } = await import('../../../server/fluxer-login.server.js');
+
+    return handleFluxerLoginRequest();
+});
+
+export const fluxerLoginRouteOptions = {
     server: {
         handlers: {
             GET: handleFluxerLogin,
         },
     },
-});
+} satisfies NonNullable<Parameters<typeof createRoute>[0]>;
 
-function handleFluxerLogin(): Response {
-    const config = loadConfig();
-    const appId = requireConfigValue(config.fluxerAppId, 'FLUXER_APP_ID');
-    const redirectUrl = requireConfigValue(config.fluxerOauthRedirectUrl, 'FLUXER_OAUTH_REDIRECT_URL');
-    const authorizeUrl = buildFluxerAuthorizeUrl({
-        appId,
-        redirectUrl,
-        scopes: ['identify', 'guilds'],
-    });
-
-    return new Response(null, {
-        status: 302,
-        headers: {
-            Location: authorizeUrl,
-        },
-    });
-}
-
-function requireConfigValue(value: string | undefined, name: string): string {
-    if (!value) {
-        throw new Error(`${name} is required`);
-    }
-
-    return value;
-}
+export const Route = createRoute(fluxerLoginRouteOptions);
