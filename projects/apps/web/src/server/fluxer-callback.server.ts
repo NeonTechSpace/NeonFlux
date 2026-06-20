@@ -1,30 +1,26 @@
 import '@tanstack/react-start/server-only';
 
 import { loadConfig } from '@neonflux/config';
+import { createWebSession as createWebSessionRecord } from '@neonflux/db';
 import { exchangeFluxerAuthorizationCode } from '@neonflux/fluxer/oauth';
-import type { FluxerOAuthFetch, FluxerOAuthTokenExchangeError } from '@neonflux/fluxer/oauth';
+import type { FluxerOAuthTokenExchangeError } from '@neonflux/fluxer/oauth';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
+import { getWebDatabaseClient } from './database.server.js';
 import { createClearFluxerOAuthStateCookie, validateFluxerOAuthCallbackState } from './oauth-state.js';
+import {
+    createSessionCookie,
+    createSessionId as createDefaultSessionId,
+    SESSION_COOKIE_MAX_AGE_SECONDS,
+} from './session-cookie.js';
 
-type HandleFluxerCallbackRequestOptions = {
-    env?: NodeJS.ProcessEnv;
-    fetch?: FluxerOAuthFetch;
-};
-
-export async function handleFluxerCallbackRequest(
-    request: Request,
-    options: HandleFluxerCallbackRequestOptions = {}
-): Promise<Response> {
-    const config = loadConfig(options.env);
+export async function handleFluxerCallbackRequest(request: Request): Promise<Response> {
+    const config = loadConfig();
     const stateResult = validateFluxerOAuthCallbackState({
         request,
         url: new URL(request.url),
     });
-    const headers = {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Set-Cookie': createClearFluxerOAuthStateCookie(config.appEnv),
-    };
+    const headers = createCallbackHeaders(config.appEnv);
 
     if (stateResult.isErr()) {
         return new Response('Invalid Fluxer OAuth callback.', {
@@ -41,7 +37,6 @@ export async function handleFluxerCallbackRequest(
         clientSecret,
         code: stateResult.value.code,
         redirectUrl,
-        ...(options.fetch ? { fetch: options.fetch } : {}),
     });
 
     if (tokenResult.isErr()) {
@@ -53,7 +48,6 @@ export async function handleFluxerCallbackRequest(
 
     const currentUserResult = await getFluxerCurrentUser({
         accessToken: tokenResult.value.accessToken,
-        ...(options.fetch ? { fetch: options.fetch } : {}),
     });
 
     if (currentUserResult.isErr()) {
@@ -63,10 +57,57 @@ export async function handleFluxerCallbackRequest(
         });
     }
 
-    return new Response('Fluxer OAuth current user validated.', {
+    const sessionSecret = requireConfigValue(config.sessionSecret, 'SESSION_SECRET');
+    const sessionId = createDefaultSessionId();
+    const sessionCookieResult = createSessionCookie({
+        sessionId,
+        sessionSecret,
+        appEnv: config.appEnv,
+    });
+
+    if (sessionCookieResult.isErr()) {
+        return new Response('Fluxer OAuth session creation failed.', {
+            status: 500,
+            headers,
+        });
+    }
+
+    const now = new Date();
+    const sessionResult = await createDefaultWebSession({
+        sessionId,
+        fluxerUserId: currentUserResult.value.id,
+        expiresAt: new Date(now.getTime() + SESSION_COOKIE_MAX_AGE_SECONDS * 1000),
+    });
+
+    if (sessionResult.isErr()) {
+        return new Response('Fluxer OAuth session creation failed.', {
+            status: 500,
+            headers,
+        });
+    }
+
+    headers.append('Set-Cookie', sessionCookieResult.value);
+
+    return new Response('Fluxer OAuth session created.', {
         status: 200,
         headers,
     });
+}
+
+async function createDefaultWebSession(input: { sessionId: string; fluxerUserId: string; expiresAt: Date }) {
+    const database = getWebDatabaseClient();
+
+    return createWebSessionRecord(database.db, input);
+}
+
+function createCallbackHeaders(appEnv: 'development' | 'production'): Headers {
+    const headers = new Headers({
+        'Content-Type': 'text/plain; charset=utf-8',
+    });
+
+    headers.append('Set-Cookie', createClearFluxerOAuthStateCookie(appEnv));
+
+    return headers;
 }
 
 function requireConfigValue(value: string | undefined, name: string): string {

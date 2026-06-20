@@ -11,7 +11,7 @@ export const SESSION_COOKIE_NAME = 'neonflux_session';
 
 const sessionIdByteLength = 32;
 const sessionCookiePath = '/';
-const sessionMaxAgeSeconds = 7 * 24 * 60 * 60;
+export const SESSION_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const sessionIdPattern = /^[A-Za-z0-9_-]{43}$/;
 
 export type SessionCookieError = 'missing-cookie' | 'invalid-cookie' | 'invalid-signature' | 'missing-secret';
@@ -36,7 +36,7 @@ export function createSessionCookie(input: {
     const signature = signSessionId(input.sessionId, input.sessionSecret);
     const value = `${input.sessionId}.${signature}`;
 
-    return ok(createSessionCookieHeader(value, input.appEnv, sessionMaxAgeSeconds));
+    return ok(createSessionCookieHeader(value, input.appEnv, SESSION_COOKIE_MAX_AGE_SECONDS));
 }
 
 export function readSessionCookie(input: {
