@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +37,52 @@ const AuthFluxerCallbackRoute = AuthFluxerCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dashboard': typeof DashboardRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
+  fullPaths: '/' | '/dashboard' | '/auth/fluxer/callback' | '/auth/fluxer/login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
-  id: '__root__' | '/' | '/auth/fluxer/callback' | '/auth/fluxer/login'
+  to: '/' | '/dashboard' | '/auth/fluxer/callback' | '/auth/fluxer/login'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/auth/fluxer/callback'
+    | '/auth/fluxer/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DashboardRoute: typeof DashboardRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +109,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DashboardRoute: DashboardRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }
