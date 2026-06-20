@@ -20,6 +20,7 @@
     },
     "dependencies": {
         "@neonflux/config": "workspace:*",
+        "@neonflux/db": "workspace:*",
         "@neonflux/fluxer": "workspace:*",
         "@tailwindcss/vite": "^4.1.18",
         "@tanstack/react-devtools": "latest",

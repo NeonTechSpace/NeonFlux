@@ -21,6 +21,7 @@ The first feature areas are:
 - Reaction roles and verification
 - Suggestions and voting
 - Message and embed posting
+- Profile / about me embed builder
 - Autorole
 - Import/export for roles, channels, categories, emojis, and permissions
 
