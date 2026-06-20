@@ -14,6 +14,8 @@ import {
     SESSION_COOKIE_MAX_AGE_SECONDS,
 } from './session-cookie.js';
 
+const dashboardPath = '/dashboard';
+
 export async function handleFluxerCallbackRequest(request: Request): Promise<Response> {
     const config = loadConfig();
     const stateResult = validateFluxerOAuthCallbackState({
@@ -87,9 +89,10 @@ export async function handleFluxerCallbackRequest(request: Request): Promise<Res
     }
 
     headers.append('Set-Cookie', sessionCookieResult.value);
+    headers.set('Location', dashboardPath);
 
-    return new Response('Fluxer OAuth session created.', {
-        status: 200,
+    return new Response(null, {
+        status: 302,
         headers,
     });
 }

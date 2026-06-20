@@ -54,7 +54,7 @@ describe('handleFluxerCallbackRequest', () => {
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
 
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(302);
         expect(capturedRequests).toHaveLength(2);
         expect(capturedRequests[0]?.input).toBe(FLUXER_OAUTH_TOKEN_URL);
         expect(capturedRequests[0]?.init?.method).toBe('POST');
@@ -86,13 +86,13 @@ describe('handleFluxerCallbackRequest', () => {
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
         const sessionInput = getCreatedSessionInput();
 
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(302);
         expect(sessionInput.sessionId).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(sessionInput.fluxerUserId).toBe('1517169145576165376');
         expect(sessionInput.expiresAt).toStrictEqual(expectedExpiresAt);
     });
 
-    it('returns 200, clears the state cookie, and sets a readable signed session cookie when login succeeds', async () => {
+    it('redirects to dashboard, clears the state cookie, and sets a readable signed session cookie when login succeeds', async () => {
         stubValidEnv();
         vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
 
@@ -109,8 +109,9 @@ describe('handleFluxerCallbackRequest', () => {
             sessionSecret,
         });
 
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('Fluxer OAuth session created.');
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/dashboard');
+        expect(await response.text()).toBe('');
         expect(setCookies).toHaveLength(2);
         expect(setCookies).toContain(createDevelopmentClearCookie());
         expect(sessionCookie).toContain(`${SESSION_COOKIE_NAME}=`);
@@ -129,10 +130,12 @@ describe('handleFluxerCallbackRequest', () => {
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
         const responseText = await response.text();
 
+        expect(response.headers.get('Location')).toBe('/dashboard');
         expect(responseText).not.toContain('access-token');
         expect(responseText).not.toContain('refresh-token');
         expect(responseText).not.toContain('1517169145576165376');
         expect(responseText).not.toContain('neonsy');
+        expect(responseText).not.toContain(getCreatedSessionInput().sessionId);
     });
 
     it('returns 400, clears the state cookie, and does not call Fluxer or create a session when callback state is invalid', async () => {

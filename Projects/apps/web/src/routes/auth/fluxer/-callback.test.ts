@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe('/auth/fluxer/callback', () => {
-    it('returns 200 and clears the state cookie when callback state is valid', async () => {
+    it('redirects to dashboard and clears the state cookie when callback state is valid', async () => {
         stubFluxerEnv();
         vi.stubGlobal('fetch', createSequentialFetch([createTokenResponse(), createCurrentUserResponse()]));
 
@@ -58,8 +58,8 @@ describe('/auth/fluxer/callback', () => {
             ),
         });
 
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('Fluxer OAuth session created.');
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/dashboard');
 
         const setCookies = getSetCookieHeaders(response);
 
