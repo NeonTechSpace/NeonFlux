@@ -50,3 +50,18 @@ export const botEvents = pgTable(
         index('bot_events_event_name_idx').on(table.eventName),
     ]
 );
+
+export const webSessions = pgTable(
+    'web_sessions',
+    {
+        id: text('id').primaryKey(),
+        fluxerUserId: text('fluxer_user_id').notNull(),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+        revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    },
+    (table) => [
+        index('web_sessions_fluxer_user_id_idx').on(table.fluxerUserId),
+        index('web_sessions_expires_at_idx').on(table.expiresAt),
+    ]
+);
