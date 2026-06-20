@@ -29,6 +29,7 @@ export default defineConfig([
             '**/.vitest/**',
             'node_modules/**',
             'apps/web/**',
+            'scripts/**/*.mjs',
             '**/data/**',
             '**/.local/**',
             'packages/db/drizzle/**',

@@ -1,6 +1,6 @@
 import { loadConfig } from '@neonflux/config';
 import { createLogger } from '@neonflux/core/logging';
-import { createDatabaseClient } from '@neonflux/db';
+import { createDatabaseClient, runDatabaseMigrations } from '@neonflux/db';
 import { createFluxerBot } from '@neonflux/fluxer';
 
 const config = loadConfig();
@@ -15,6 +15,10 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     process.exit(0);
 }
 
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 process.once('SIGINT', () => {
     void shutdown('SIGINT');
 });
@@ -23,8 +27,24 @@ process.once('SIGTERM', () => {
     void shutdown('SIGTERM');
 });
 
-const started = await bot.start();
+async function start(): Promise<void> {
+    const migration = await runDatabaseMigrations(database, {
+        autoMigrate: config.autoMigrate,
+    });
 
-if (!started) {
+    logger.info('database.migration', { status: migration.status });
+
+    const started = await bot.start();
+
+    if (!started) {
+        await database.close();
+    }
+}
+
+try {
+    await start();
+} catch (error) {
+    logger.error('process.startup_failed', { error: getErrorMessage(error) });
     await database.close();
+    process.exit(1);
 }
