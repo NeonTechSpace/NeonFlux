@@ -41,4 +41,12 @@ Use `pnpm` from the `projects` folder.
 
 Environment values live in `projects/.env`. The tracked template is `projects/.env.example`.
 
+Generate a strong session secret from the `projects` folder:
+
+```bash
+pnpm generate:session-secret
+```
+
+Put the output in `SESSION_SECRET`.
+
 Production uses real Postgres. PGlite is only for local migration checks.

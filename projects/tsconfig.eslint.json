@@ -16,6 +16,7 @@
         "apps/**/*.ts",
         "apps/**/*.tsx",
         "packages/**/*.ts",
+        "scripts/**/*.ts",
         "*.config.js",
         "*.config.ts",
         "eslint.config.js",
