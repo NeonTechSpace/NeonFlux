@@ -11,9 +11,9 @@ It supports two modes:
 - Single instance: one bot for one configured guild.
 - Multi instance: one bot can serve multiple guilds.
 
-The first feature areas are:
+The planned feature areas are:
 
-- Tickets
+- Public and private tickets
 - Moderation
 - Logging
 - XP and levels
@@ -21,7 +21,7 @@ The first feature areas are:
 - Reaction roles and verification
 - Suggestions and voting
 - Message and embed posting
-- Profile / about me embed builder
+- Profile / about me embed builder with admin approval settings
 - Autorole
 - Import/export for roles, channels, categories, emojis, and permissions
 
@@ -51,3 +51,9 @@ pnpm generate:session-secret
 Put the output in `SESSION_SECRET`.
 
 Production uses real Postgres. PGlite is only for local migration checks.
+
+## Docker
+
+Docker users can run NeonFlux with the published GHCR images for the bot and web app.
+
+See [Docs/Docker.md](Docs/Docker.md) for the Docker Compose guide.

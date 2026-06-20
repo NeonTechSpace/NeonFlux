@@ -25,9 +25,22 @@ describe('loadConfig', () => {
         });
 
         expect(config).toMatchObject({
+            autoMigrate: true,
             instanceMode: 'multi',
         });
         expect('singleGuildId' in config).toBe(false);
+    });
+
+    it('defaults AUTO_MIGRATE to true', () => {
+        expect(loadConfig({}).autoMigrate).toBe(true);
+    });
+
+    it('loads AUTO_MIGRATE=false', () => {
+        expect(loadConfig({ AUTO_MIGRATE: 'false' }).autoMigrate).toBe(false);
+    });
+
+    it('rejects invalid AUTO_MIGRATE values', () => {
+        expect(() => loadConfig({ AUTO_MIGRATE: 'yes' })).toThrow('Invalid environment');
     });
 
     it('rejects staging because the project only has dev and prod bots', () => {

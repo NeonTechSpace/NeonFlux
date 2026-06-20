@@ -1,0 +1,74 @@
+name: Release images
+
+on:
+    push:
+        tags:
+            - "web-v*"
+            - "bot-v*"
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    release:
+        name: Build and publish component image
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Reject deleted or moved release tag
+              env:
+                  BEFORE_SHA: ${{ github.event.before }}
+                  EVENT_DELETED: ${{ github.event.deleted }}
+              run: |
+                  if [ "$EVENT_DELETED" = "true" ]; then
+                    echo "::error title=Release tag deleted::Release tag $GITHUB_REF_NAME was deleted. Release tags are immutable; do not delete or move published release tags."
+                    exit 1
+                  fi
+
+                  if [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+                    echo "::error title=Release tag already existed::Release tag $GITHUB_REF_NAME updates an existing tag from $BEFORE_SHA to $GITHUB_SHA. Release tags are immutable; create a newer web-vX.Y.Z or bot-vX.Y.Z tag instead."
+                    exit 1
+                  fi
+
+            - name: Check out repository
+              uses: actions/checkout@v5
+              with:
+                  fetch-depth: 0
+
+            - name: Validate release tag version
+              id: release
+              run: node Projects/scripts/validate-release-tag.mjs "$GITHUB_REF_NAME" "$GITHUB_OUTPUT"
+
+            - name: Ensure release tag is on main
+              run: |
+                  git fetch origin main:refs/remotes/origin/main --tags --force
+
+                  if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+                    echo "::error title=Release tag is not on main::Release tag $GITHUB_REF_NAME points to $GITHUB_SHA, which is not reachable from origin/main. Move the tag to a main commit and push it again."
+                    exit 1
+                  fi
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to GHCR
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build and publish image
+              uses: docker/build-push-action@v6
+              with:
+                  context: ./Projects
+                  file: ./Projects/Dockerfile
+                  target: ${{ steps.release.outputs.component }}
+                  push: true
+                  tags: |
+                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:${{ steps.release.outputs.version }}
+                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:latest
+                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:sha-${{ github.sha }}
+                  cache-from: type=gha,scope=neonflux-${{ steps.release.outputs.component }}
+                  cache-to: type=gha,scope=neonflux-${{ steps.release.outputs.component }},mode=max

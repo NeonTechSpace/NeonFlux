@@ -9,6 +9,7 @@
         "dev": "vite dev --port 3000",
         "generate-routes": "tsr generate",
         "build": "vite build",
+        "start": "node ../../scripts/start-web.mjs",
         "preview": "vite preview",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",

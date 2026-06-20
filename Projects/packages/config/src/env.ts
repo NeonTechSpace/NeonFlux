@@ -10,12 +10,14 @@ const appEnv = type("'development' | 'production'");
 const instanceMode = type("'single' | 'multi'");
 const logLevel = type("'debug' | 'info' | 'warn' | 'error'");
 const nodeEnv = type("'development' | 'test' | 'production'");
+const autoMigrate = type("'true' | 'false'");
 
 const rawEnv = type({
     'APP_ENV?': appEnv,
     'INSTANCE_MODE?': instanceMode,
     'SINGLE_GUILD_ID?': 'string',
     'DATABASE_URL?': 'string',
+    'AUTO_MIGRATE?': autoMigrate,
     'FLUXER_APP_ID?': 'string',
     'FLUXER_CLIENT_SECRET?': 'string',
     'FLUXER_BOT_TOKEN?': 'string',
@@ -35,6 +37,7 @@ export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { inst
 export type AppConfig = AppMode & {
     appEnv: AppEnv;
     databaseUrl: string;
+    autoMigrate: boolean;
     fluxerAppId?: string;
     fluxerClientSecret?: string;
     fluxerBotToken?: string;
@@ -103,6 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const baseConfig = {
         appEnv: appEnvValue,
         databaseUrl,
+        autoMigrate: parsed.AUTO_MIGRATE !== 'false',
         ...(fluxerAppId ? { fluxerAppId } : {}),
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
