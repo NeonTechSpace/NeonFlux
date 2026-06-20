@@ -17,6 +17,10 @@
         "./permissions": {
             "types": "./src/permissions.ts",
             "import": "./dist/permissions.js"
+        },
+        "./users": {
+            "types": "./src/users.ts",
+            "import": "./dist/users.js"
         }
     },
     "scripts": {
