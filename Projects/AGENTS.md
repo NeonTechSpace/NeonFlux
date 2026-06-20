@@ -7,6 +7,7 @@
 - `INSTANCE_MODE` behavior must be handled with `switch` statements.
 - Keep shared logic in `packages/*`; bot and web consume it through workspace package imports.
 - Use `neverthrow` for expected recoverable runtime failures. Each importing package must declare it directly.
+- Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests; mock only real runtime boundaries such as network, DB, env, clock, and randomness.
 - Releases are tag-driven from `main`: use `web-vX.Y.Z` and/or `bot-vX.Y.Z` only for affected images. GHCR images get version, `latest`, and commit SHA tags.
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
 - Shared package changes do not force every image to release, but DB migrations must stay compatible with deployed bot and web versions.

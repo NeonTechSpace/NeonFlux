@@ -1,7 +1,44 @@
+import type { WebSessionRecord } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FLUXER_OAUTH_STATE_COOKIE_NAME } from '../../../server/oauth-state.js';
+import { SESSION_COOKIE_NAME } from '../../../server/session-cookie.js';
 import { fluxerCallbackRouteOptions } from './callback.js';
+
+vi.mock('../../../server/database.server.js', () => ({
+    getWebDatabaseClient: () => ({
+        db: {},
+    }),
+}));
+
+vi.mock('@neonflux/db', async (importActual) => {
+    const actual = await importActual<typeof NeonFluxDb>();
+    const { ok } = await import('neverthrow');
+
+    return {
+        ...actual,
+        createWebSession: vi.fn(
+            (
+                _db: unknown,
+                input: {
+                    sessionId: string;
+                    fluxerUserId: string;
+                    expiresAt: Date;
+                }
+            ) =>
+                Promise.resolve(
+                    ok({
+                        id: input.sessionId,
+                        fluxerUserId: input.fluxerUserId,
+                        createdAt: new Date('2026-06-21T00:00:00.000Z'),
+                        expiresAt: input.expiresAt,
+                        revokedAt: null,
+                    } satisfies WebSessionRecord)
+                )
+        ),
+    };
+});
 
 afterEach(() => {
     vi.unstubAllEnvs();
@@ -22,10 +59,14 @@ describe('/auth/fluxer/callback', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(await response.text()).toBe('Fluxer OAuth current user validated.');
-        expect(response.headers.get('Set-Cookie')).toBe(
+        expect(await response.text()).toBe('Fluxer OAuth session created.');
+
+        const setCookies = getSetCookieHeaders(response);
+
+        expect(setCookies).toContain(
             `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`
         );
+        expect(setCookies.some((cookie) => cookie.startsWith(`${SESSION_COOKIE_NAME}=`))).toBe(true);
     });
 
     it('returns 400 and clears the state cookie when callback state is invalid', async () => {
@@ -38,9 +79,9 @@ describe('/auth/fluxer/callback', () => {
 
         expect(response.status).toBe(400);
         expect(await response.text()).toBe('Invalid Fluxer OAuth callback.');
-        expect(response.headers.get('Set-Cookie')).toBe(
-            `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`
-        );
+        expect(getSetCookieHeaders(response)).toEqual([
+            `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`,
+        ]);
     });
 });
 
@@ -67,6 +108,7 @@ function stubFluxerEnv(): void {
     vi.stubEnv('FLUXER_APP_ID', 'app-id');
     vi.stubEnv('FLUXER_CLIENT_SECRET', 'client-secret');
     vi.stubEnv('FLUXER_OAUTH_REDIRECT_URL', 'http://localhost:3000/auth/fluxer/callback');
+    vi.stubEnv('SESSION_SECRET', 'session-secret');
 }
 
 function createTokenResponse(): Response {
@@ -115,4 +157,8 @@ function createSequentialFetch(responses: Response[]): typeof fetch {
 
         return Promise.resolve(response);
     };
+}
+
+function getSetCookieHeaders(response: Response): string[] {
+    return response.headers.getSetCookie();
 }
