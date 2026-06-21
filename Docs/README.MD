@@ -1,6 +1,20 @@
-# NeonFlux
+<h1 align="center">NeonFlux</h1>
 
-A multi functional bot for fluxer.
+<h3 align="center">A multi functional bot for Fluxer</h3>
+
+<div align="center">
+
+[![CI](https://img.shields.io/github/actions/workflow/status/NeonTechSpace/NeonFlux/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=fff&labelColor=0B1221&color=237DBE&label=CI)](https://github.com/NeonTechSpace/NeonFlux/actions/workflows/ci.yml)
+
+</div>
+
+<div align="center">
+
+[![Bot Release](https://img.shields.io/static/v1?style=for-the-badge&label=Bot%20Release&message=Pending&logo=github&logoColor=fff&labelColor=0B1221&color=5A1730)](https://github.com/NeonTechSpace/NeonFlux/tags)
+&nbsp;&nbsp;&nbsp;&nbsp;
+[![Web Release](https://img.shields.io/static/v1?style=for-the-badge&label=Web%20Release&message=Pending&logo=github&logoColor=fff&labelColor=0B1221&color=1E40AF)](https://github.com/NeonTechSpace/NeonFlux/tags)
+
+</div>
 
 ## Initial Plan
 
@@ -33,6 +47,26 @@ The planned feature areas are:
 - XP / levels
 
 The goal is to build the bot in small, clear pieces and keep shared logic reusable between the bot and web app.
+
+## Repo Beats
+
+![Alt](https://repobeats.axiom.co/api/embed/79b0b7006e59290b742ddcd8cacb309dd81e0fff.svg "Repobeats analytics image")
+
+## Star Map
+
+<a href="https://www.star-history.com/?repos=NeonTechSpace%2FNeonFlux&amp;type=date&amp;legend=top-left">
+    <picture>
+        <source
+            media="(prefers-color-scheme: dark)"
+            srcset="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&amp;type=date&amp;legend=top-left&amp;theme=dark" />
+        <source
+            media="(prefers-color-scheme: light)"
+            srcset="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&amp;type=date&amp;legend=top-left" />
+        <img
+            alt="Star History Chart"
+            src="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&amp;type=date&amp;legend=top-left" />
+    </picture>
+</a>
 
 ## Project Shape
 
