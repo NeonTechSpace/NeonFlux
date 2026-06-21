@@ -8,11 +8,11 @@
 - Keep shared logic in `packages/*`; bot and web consume it through workspace package imports.
 - Use `neverthrow` for expected recoverable runtime failures. Each importing package must declare it directly.
 - Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests; mock only real runtime boundaries such as network, DB, env, clock, and randomness.
-- Releases are tag-driven from `main`: use `web-vX.Y.Z` and/or `bot-vX.Y.Z` only for affected images. GHCR images get version, `latest`, and commit SHA tags.
+- Releases are tag-driven from `main`: use `web-vX.Y.Z` for web outputs and/or `bot-vX.Y.Z` for bot. GHCR images get version, `latest`, and commit SHA tags.
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
 - Shared package changes do not force every image to release, but DB migrations must stay compatible with deployed bot and web versions.
 - Keep startup migration behavior in application-owned bootstrap code, not Docker shell command chains, so Docker and local production-style starts share the same locked migration path.
-- When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`: current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit; since last release tag aggregates unreleased impact since the latest relevant `web-vX.Y.Z` and/or `bot-vX.Y.Z` tag. State web, bot, both, or none for each section.
+- When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`: current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit; since last release tag aggregates unreleased impact since the latest relevant release tag. Current deployable outputs are `bot`, `web`, and `web-docs`, so state `bot`, `web`, `web-docs`, `both web variants`, `both`, or `none` for each section. Use `both web variants` when `web` and `web-docs` are affected but `bot` is not. Use `both` when `bot` and at least one web output are affected.
 - Never commit secrets, `.env`, generated `dist`, local DB data, or machine-specific absolute paths.
 - Do not stage, commit, tag, push, squash, rebase, or run mutating VCS commands without explicit permission.
 - Keep handwritten production files under 555 LOC unless a narrow exception is justified.
