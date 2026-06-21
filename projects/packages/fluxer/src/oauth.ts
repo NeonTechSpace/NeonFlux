@@ -24,6 +24,13 @@ export type ExchangeFluxerAuthorizationCodeInput = {
     fetch?: FluxerOAuthFetch;
 };
 
+export type RefreshFluxerOAuthTokenInput = {
+    appId: string;
+    clientSecret: string;
+    refreshToken: string;
+    fetch?: FluxerOAuthFetch;
+};
+
 export type FluxerOAuthTokenResponse = {
     accessToken: string;
     tokenType: string;
@@ -34,6 +41,12 @@ export type FluxerOAuthTokenResponse = {
 
 export type FluxerOAuthTokenExchangeError =
     | { type: 'missing-input'; field: 'appId' | 'clientSecret' | 'code' | 'redirectUrl' }
+    | { type: 'request-failed'; status: number; statusText: string }
+    | { type: 'network-error'; error: unknown }
+    | { type: 'invalid-response' };
+
+export type FluxerOAuthTokenRefreshError =
+    | { type: 'missing-input'; field: 'appId' | 'clientSecret' | 'refreshToken' }
     | { type: 'request-failed'; status: number; statusText: string }
     | { type: 'network-error'; error: unknown }
     | { type: 'invalid-response' };
@@ -98,12 +111,58 @@ export async function exchangeFluxerAuthorizationCode(
     body.set('client_id', appId);
     body.set('client_secret', clientSecret);
 
+    return submitFluxerOAuthTokenRequest({ body, fetch: input.fetch });
+}
+
+export async function refreshFluxerOAuthToken(
+    input: RefreshFluxerOAuthTokenInput
+): Promise<Result<FluxerOAuthTokenResponse, FluxerOAuthTokenRefreshError>> {
+    const appId = input.appId.trim();
+    const clientSecret = input.clientSecret.trim();
+    const refreshToken = input.refreshToken.trim();
+
+    if (!appId) {
+        return err({ type: 'missing-input', field: 'appId' });
+    }
+
+    if (!clientSecret) {
+        return err({ type: 'missing-input', field: 'clientSecret' });
+    }
+
+    if (!refreshToken) {
+        return err({ type: 'missing-input', field: 'refreshToken' });
+    }
+
+    const body = new FormData();
+    body.set('grant_type', 'refresh_token');
+    body.set('refresh_token', refreshToken);
+    body.set('client_id', appId);
+    body.set('client_secret', clientSecret);
+
+    return submitFluxerOAuthTokenRequest({ body, fetch: input.fetch });
+}
+
+function requireValue(value: string, name: string): void {
+    if (value.length === 0) {
+        throw new Error(`${name} is required`);
+    }
+}
+
+type FluxerOAuthTokenRequestError =
+    | { type: 'request-failed'; status: number; statusText: string }
+    | { type: 'network-error'; error: unknown }
+    | { type: 'invalid-response' };
+
+async function submitFluxerOAuthTokenRequest(input: {
+    body: FormData;
+    fetch: FluxerOAuthFetch | undefined;
+}): Promise<Result<FluxerOAuthTokenResponse, FluxerOAuthTokenRequestError>> {
     let response: Response;
 
     try {
         response = await (input.fetch ?? fetch)(FLUXER_OAUTH_TOKEN_URL, {
             method: 'POST',
-            body,
+            body: input.body,
         });
     } catch (error) {
         return err({ type: 'network-error', error });
@@ -132,12 +191,6 @@ export async function exchangeFluxerAuthorizationCode(
     }
 
     return ok(tokenResponse);
-}
-
-function requireValue(value: string, name: string): void {
-    if (value.length === 0) {
-        throw new Error(`${name} is required`);
-    }
 }
 
 function parseFluxerOAuthTokenResponse(value: unknown): FluxerOAuthTokenResponse | undefined {

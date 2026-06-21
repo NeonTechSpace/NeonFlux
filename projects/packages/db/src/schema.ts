@@ -2,6 +2,13 @@ import { boolean, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, u
 
 export const logSeverity = pgEnum('log_severity', ['debug', 'info', 'warn', 'error']);
 
+export type EncryptedOAuthTokenPayload = {
+    version: string;
+    iv: string;
+    ciphertext: string;
+    authTag: string;
+};
+
 export const botInstallations = pgTable('bot_installations', {
     guildId: text('guild_id').primaryKey(),
     installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
@@ -57,5 +64,24 @@ export const webSessions = pgTable(
     (table) => [
         index('web_sessions_fluxer_user_id_idx').on(table.fluxerUserId),
         index('web_sessions_expires_at_idx').on(table.expiresAt),
+    ]
+);
+
+export const fluxerOauthTokens = pgTable(
+    'fluxer_oauth_tokens',
+    {
+        fluxerUserId: text('fluxer_user_id').primaryKey(),
+        accessToken: jsonb('access_token').$type<EncryptedOAuthTokenPayload>().notNull(),
+        refreshToken: jsonb('refresh_token').$type<EncryptedOAuthTokenPayload>(),
+        tokenType: text('token_type').notNull(),
+        accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }).notNull(),
+        scopes: text('scopes').array().notNull(),
+        invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        index('fluxer_oauth_tokens_access_token_expires_at_idx').on(table.accessTokenExpiresAt),
+        index('fluxer_oauth_tokens_invalidated_at_idx').on(table.invalidatedAt),
     ]
 );

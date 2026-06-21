@@ -1,4 +1,6 @@
-import type { WebSessionRecord } from '@neonflux/db';
+import { Buffer } from 'node:buffer';
+
+import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,6 +20,32 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
+        upsertFluxerOAuthTokenSet: vi.fn(
+            (
+                _db: unknown,
+                input: {
+                    fluxerUserId: string;
+                    accessToken: FluxerOAuthTokenRecord['accessToken'];
+                    refreshToken?: FluxerOAuthTokenRecord['refreshToken'];
+                    tokenType: string;
+                    accessTokenExpiresAt: Date;
+                    scopes: readonly string[];
+                }
+            ) =>
+                Promise.resolve(
+                    ok({
+                        fluxerUserId: input.fluxerUserId,
+                        accessToken: input.accessToken,
+                        refreshToken: input.refreshToken ?? null,
+                        tokenType: input.tokenType,
+                        accessTokenExpiresAt: input.accessTokenExpiresAt,
+                        scopes: [...input.scopes],
+                        invalidatedAt: null,
+                        createdAt: new Date('2026-06-21T00:00:00.000Z'),
+                        updatedAt: new Date('2026-06-21T00:00:00.000Z'),
+                    } satisfies FluxerOAuthTokenRecord)
+                )
+        ),
         createWebSession: vi.fn(
             (
                 _db: unknown,
@@ -115,6 +143,7 @@ function stubFluxerEnv(): void {
     vi.stubEnv('FLUXER_APP_ID', 'app-id');
     vi.stubEnv('FLUXER_CLIENT_SECRET', 'client-secret');
     vi.stubEnv('FLUXER_OAUTH_REDIRECT_URL', 'http://localhost:3000/auth/fluxer/callback');
+    vi.stubEnv('FLUXER_TOKEN_ENCRYPTION_KEY', Buffer.alloc(32, 1).toString('base64url'));
     vi.stubEnv('SESSION_SECRET', 'session-secret');
 }
 

@@ -65,4 +65,12 @@ describe('loadConfig', () => {
             })
         ).not.toThrow();
     });
+
+    it('loads the optional Fluxer token encryption key', () => {
+        const config = loadConfig({
+            FLUXER_TOKEN_ENCRYPTION_KEY: ' encryption-key ',
+        });
+
+        expect(config.fluxerTokenEncryptionKey).toBe('encryption-key');
+    });
 });
