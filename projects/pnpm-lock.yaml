@@ -90,6 +90,9 @@ importers:
       '@neonflux/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@neonflux/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@neonflux/db':
         specifier: workspace:*
         version: link:../../packages/db
