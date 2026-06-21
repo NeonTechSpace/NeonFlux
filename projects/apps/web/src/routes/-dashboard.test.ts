@@ -1,54 +1,164 @@
-import { ok } from 'neverthrow';
+// @vitest-environment jsdom
+
+import { isRedirect } from '@tanstack/react-router';
+import { render, screen } from '@testing-library/react';
+import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadDashboardGuildAccess } from '../server/dashboard-guild-access.server.js';
-import { dashboardRouteOptions } from './dashboard.js';
+import { loadDashboardData } from '../server/dashboard.server.js';
+import {
+    DashboardPageContent,
+    dashboardRouteOptions,
+    loadDashboardRouteResult,
+    resolveDashboardRouteResult,
+} from './dashboard.js';
+import type { DashboardRouteData } from './dashboard.js';
 
-vi.mock('../server/dashboard-guild-access.server.js', () => ({
-    loadDashboardGuildAccess: vi.fn(),
+const request = new Request('http://localhost:3000/dashboard');
+const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
+const fluxerUserId = '1517169145576165376';
+const accessToken = 'fresh-access-token';
+
+vi.mock('../server/dashboard.server.js', () => ({
+    loadDashboardData: vi.fn(),
 }));
 
 describe('/dashboard', () => {
     beforeEach(() => {
-        vi.mocked(loadDashboardGuildAccess).mockResolvedValue(
-            ok({
-                type: 'authorized',
-                mode: {
-                    instanceMode: 'multi',
-                },
-                guilds: [
-                    {
-                        id: 'guild-1',
-                        name: 'Guild One',
-                        canManage: true,
-                        botInstalled: true,
-                    },
-                ],
-            })
-        );
+        vi.mocked(loadDashboardData).mockResolvedValue(createDashboardData());
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
-    it('returns 200 when the route GET handler validates dashboard guild access', async () => {
-        const handler = getDashboardGetHandler();
-        const response = await handler({
-            request: new Request('http://localhost:3000/dashboard'),
-        });
+    it('configures a route loader and component', () => {
+        expect(typeof dashboardRouteOptions.loader).toBe('function');
+        expect(typeof dashboardRouteOptions.component).toBe('function');
+    });
 
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('NeonFlux dashboard guild access validated.');
+    it('maps dashboard data into route data', async () => {
+        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual(createDashboardRouteData());
+    });
+
+    it('redirects unauthenticated route results to Fluxer login', () => {
+        let thrownError: unknown;
+
+        try {
+            resolveDashboardRouteResult({ type: 'auth-required' });
+        } catch (error) {
+            thrownError = error;
+        }
+
+        expect(thrownError).toBeInstanceOf(Response);
+        expect(isRedirect(thrownError)).toBe(true);
+        expect(JSON.stringify(thrownError)).toContain('/auth/fluxer/login');
+    });
+
+    it('carries an unavailable status for database failures', async () => {
+        vi.mocked(loadDashboardData).mockResolvedValueOnce({ type: 'database-error' });
+
+        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual({
+            type: 'unavailable',
+            status: 500,
+            message: 'NeonFlux dashboard unavailable.',
+        });
+    });
+
+    it('renders authorized dashboard communities', () => {
+        render(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
+
+        expect(screen.getByRole('heading', { name: 'NeonFlux Dashboard' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Communities' })).toBeTruthy();
+        expect(screen.getByText('Guild One')).toBeTruthy();
+    });
+
+    it('renders the single-instance unauthorized state', () => {
+        render(
+            createElement(DashboardPageContent, {
+                data: {
+                    type: 'dashboard',
+                    viewModel: {
+                        type: 'single-unauthorized',
+                        configuredGuildId: 'guild-1',
+                        configuredGuildName: 'Configured Community',
+                    },
+                },
+            })
+        );
+
+        expect(screen.getByRole('heading', { name: 'Not authorized' })).toBeTruthy();
+        expect(screen.getByText('You are not authorized to modify Configured Community.')).toBeTruthy();
+    });
+
+    it('renders the multi-instance empty state', () => {
+        render(
+            createElement(DashboardPageContent, {
+                data: {
+                    type: 'dashboard',
+                    viewModel: {
+                        type: 'multi-empty',
+                    },
+                },
+            })
+        );
+
+        expect(screen.getByRole('heading', { name: 'No manageable communities' })).toBeTruthy();
+        expect(screen.getByText('No communities are available for this account.')).toBeTruthy();
+    });
+
+    it('renders generic dashboard unavailable errors', () => {
+        render(
+            createElement(DashboardPageContent, {
+                data: {
+                    type: 'unavailable',
+                    status: 502,
+                    message: 'NeonFlux dashboard unavailable.',
+                },
+            })
+        );
+
+        expect(screen.getByRole('heading', { name: 'Dashboard unavailable' })).toBeTruthy();
+        expect(screen.getByText('NeonFlux dashboard unavailable.')).toBeTruthy();
+    });
+
+    it('does not render session, token, or Fluxer user data', () => {
+        render(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
+
+        expect(document.body.textContent).not.toContain(sessionId);
+        expect(document.body.textContent).not.toContain(fluxerUserId);
+        expect(document.body.textContent).not.toContain(accessToken);
     });
 });
 
-function getDashboardGetHandler(): NonNullable<typeof dashboardRouteOptions.server.handlers>['GET'] {
-    const handler = dashboardRouteOptions.server.handlers.GET;
+function createDashboardData(): Awaited<ReturnType<typeof loadDashboardData>> {
+    return {
+        type: 'dashboard',
+        viewModel: {
+            type: 'guild-list',
+            mode: 'multi',
+            guilds: [
+                {
+                    id: 'guild-1',
+                    name: 'Guild One',
+                },
+            ],
+        },
+    };
+}
 
-    if (typeof handler !== 'function') {
-        throw new Error('Dashboard GET handler is missing.');
-    }
-
-    return handler;
+function createDashboardRouteData(): DashboardRouteData {
+    return {
+        type: 'dashboard',
+        viewModel: {
+            type: 'guild-list',
+            mode: 'multi',
+            guilds: [
+                {
+                    id: 'guild-1',
+                    name: 'Guild One',
+                },
+            ],
+        },
+    };
 }
