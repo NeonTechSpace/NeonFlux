@@ -48,7 +48,14 @@ afterEach(() => {
 describe('/auth/fluxer/callback', () => {
     it('redirects to dashboard and clears the state cookie when callback state is valid', async () => {
         stubFluxerEnv();
-        vi.stubGlobal('fetch', createSequentialFetch([createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal(
+            'fetch',
+            createSequentialFetch([
+                createTokenResponse(),
+                createCurrentUserResponse(),
+                createCurrentUserGuildsResponse(),
+            ])
+        );
 
         const handler = getFluxerCallbackGetHandler();
         const response = await handler({
@@ -139,6 +146,23 @@ function createCurrentUserResponse(): Response {
             bot: false,
             system: false,
         }),
+        {
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        }
+    );
+}
+
+function createCurrentUserGuildsResponse(): Response {
+    return new Response(
+        JSON.stringify([
+            {
+                id: 'guild-1',
+                name: 'NeonFlux Lab',
+                permissions: '32',
+            },
+        ]),
         {
             headers: {
                 'Content-Type': 'application/json',
