@@ -25,6 +25,7 @@
     },
     "scripts": {
         "dev:bot": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
+        "dev:bot:smoke": "tsx scripts/dev-bot-smoke.ts",
         "dev:web": "pnpm -r --filter \"./packages/*\" build && pnpm --filter neonflux-web dev",
         "dev:reset": "tsx scripts/reset-dev-database.ts",
         "clean": "pnpm -r clean",

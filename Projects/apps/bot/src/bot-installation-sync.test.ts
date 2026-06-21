@@ -23,7 +23,7 @@ describe('recordBotInstallationEvent', () => {
     });
 
     it('records the target guild in single mode', async () => {
-        upsertBotInstallationMock.mockResolvedValue(ok(createInstallation({ guildId: 'target', mode: 'single' })));
+        upsertBotInstallationMock.mockResolvedValue(ok(createInstallation('target')));
 
         const result = await recordBotInstallationEvent(testDb, createSingleMode(), {
             guildId: ' target ',
@@ -36,7 +36,6 @@ describe('recordBotInstallationEvent', () => {
         });
         expect(upsertBotInstallationMock).toHaveBeenCalledWith(testDb, {
             guildId: 'target',
-            mode: 'single',
         });
     });
 
@@ -51,7 +50,7 @@ describe('recordBotInstallationEvent', () => {
     });
 
     it('records any guild in multi mode', async () => {
-        upsertBotInstallationMock.mockResolvedValue(ok(createInstallation({ guildId: 'guild-1', mode: 'multi' })));
+        upsertBotInstallationMock.mockResolvedValue(ok(createInstallation('guild-1')));
 
         const result = await recordBotInstallationEvent(testDb, createMultiMode(), {
             guildId: 'guild-1',
@@ -64,7 +63,6 @@ describe('recordBotInstallationEvent', () => {
         });
         expect(upsertBotInstallationMock).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
-            mode: 'multi',
         });
     });
 
@@ -102,7 +100,7 @@ describe('removeBotInstallationEvent', () => {
     });
 
     it('removes the target guild in single mode', async () => {
-        deleteBotInstallationMock.mockResolvedValue(ok(createInstallation({ guildId: 'target', mode: 'single' })));
+        deleteBotInstallationMock.mockResolvedValue(ok(createInstallation('target')));
 
         const result = await removeBotInstallationEvent(testDb, createSingleMode(), {
             guildId: ' target ',
@@ -129,7 +127,7 @@ describe('removeBotInstallationEvent', () => {
     });
 
     it('removes any guild in multi mode', async () => {
-        deleteBotInstallationMock.mockResolvedValue(ok(createInstallation({ guildId: 'guild-1', mode: 'multi' })));
+        deleteBotInstallationMock.mockResolvedValue(ok(createInstallation('guild-1')));
 
         const result = await removeBotInstallationEvent(testDb, createMultiMode(), {
             guildId: 'guild-1',
@@ -197,12 +195,11 @@ function createMultiMode(): AppMode {
     };
 }
 
-function createInstallation(input: { guildId: string; mode: BotInstallationRecord['mode'] }): BotInstallationRecord {
+function createInstallation(guildId: string): BotInstallationRecord {
     const timestamp = new Date('2026-06-21T00:00:00.000Z');
 
     return {
-        guildId: input.guildId,
-        mode: input.mode,
+        guildId,
         installedAt: timestamp,
         updatedAt: timestamp,
     };
