@@ -1,21 +1,15 @@
 import { boolean, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 export const logSeverity = pgEnum('log_severity', ['debug', 'info', 'warn', 'error']);
-export const instanceMode = pgEnum('instance_mode', ['single', 'multi']);
 
-export const botInstallations = pgTable(
-    'bot_installations',
-    {
-        guildId: text('guild_id').primaryKey(),
-        mode: instanceMode('mode').notNull().default('multi'),
-        installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
-        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [index('bot_installations_mode_idx').on(table.mode)]
-);
+export const botInstallations = pgTable('bot_installations', {
+    guildId: text('guild_id').primaryKey(),
+    installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
-export const featureSettings = pgTable(
-    'feature_settings',
+export const guildFeatureSettings = pgTable(
+    'guild_feature_settings',
     {
         id: uuid('id').primaryKey().defaultRandom(),
         guildId: text('guild_id')
@@ -28,8 +22,8 @@ export const featureSettings = pgTable(
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
-        uniqueIndex('feature_settings_guild_feature_idx').on(table.guildId, table.feature),
-        index('feature_settings_guild_idx').on(table.guildId),
+        uniqueIndex('guild_feature_settings_guild_feature_idx').on(table.guildId, table.feature),
+        index('guild_feature_settings_guild_idx').on(table.guildId),
     ]
 );
 

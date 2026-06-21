@@ -38,7 +38,6 @@ export async function recordBotInstallationEvent(
 
     const result = await upsertBotInstallation(db, {
         guildId,
-        mode: mode.instanceMode,
     });
 
     if (result.isErr()) {

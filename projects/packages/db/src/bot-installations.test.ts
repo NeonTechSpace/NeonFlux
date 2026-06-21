@@ -34,30 +34,28 @@ describe('upsertBotInstallation', () => {
     });
 
     it('upserts a new installation and returns normalized camelCase fields', async () => {
-        const installation = await upsertInstallation(' guild-1 ', 'multi');
+        const installation = await upsertInstallation(' guild-1 ');
 
         expect(installation).toMatchObject({
             guildId: 'guild-1',
-            mode: 'multi',
         });
         expect(installation.installedAt).toBeInstanceOf(Date);
         expect(installation.updatedAt).toBeInstanceOf(Date);
     });
 
-    it('updates mode and updatedAt when upserting the same guild', async () => {
+    it('preserves installedAt and updates updatedAt when upserting the same guild', async () => {
         const firstUpdatedAt = new Date('2026-06-21T00:00:00.000Z');
         const secondUpdatedAt = new Date('2026-06-22T00:00:00.000Z');
 
         vi.useFakeTimers();
         vi.setSystemTime(firstUpdatedAt);
-        const firstInstallation = await upsertInstallation('guild-1', 'multi');
+        const firstInstallation = await upsertInstallation('guild-1');
 
         vi.setSystemTime(secondUpdatedAt);
-        const secondInstallation = await upsertInstallation('guild-1', 'single');
+        const secondInstallation = await upsertInstallation('guild-1');
 
         expect(secondInstallation).toMatchObject({
             guildId: 'guild-1',
-            mode: 'single',
             installedAt: firstInstallation.installedAt,
             updatedAt: secondUpdatedAt,
         });
@@ -66,7 +64,6 @@ describe('upsertBotInstallation', () => {
     it('rejects a blank guild id', async () => {
         const result = await upsertBotInstallation(getDb(), {
             guildId: '   ',
-            mode: 'multi',
         });
 
         expect(result.isErr()).toBe(true);
@@ -85,9 +82,9 @@ describe('listBotInstallationGuildIds', () => {
     });
 
     it('lists installed guild IDs sorted by guild id', async () => {
-        await upsertInstallation('guild-c', 'multi');
-        await upsertInstallation('guild-a', 'multi');
-        await upsertInstallation('guild-b', 'single');
+        await upsertInstallation('guild-c');
+        await upsertInstallation('guild-a');
+        await upsertInstallation('guild-b');
 
         const result = await listBotInstallationGuildIds(getDb());
 
@@ -107,7 +104,7 @@ describe('deleteBotInstallation', () => {
     });
 
     it('deletes an existing installation', async () => {
-        await upsertInstallation('guild-1', 'multi');
+        await upsertInstallation('guild-1');
 
         const result = await deleteBotInstallation(getDb(), {
             guildId: ' guild-1 ',
@@ -117,7 +114,6 @@ describe('deleteBotInstallation', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toMatchObject({
             guildId: 'guild-1',
-            mode: 'multi',
         });
         expect(remainingGuildIds.isOk()).toBe(true);
         expect(remainingGuildIds._unsafeUnwrap()).toStrictEqual([]);
@@ -142,13 +138,9 @@ describe('deleteBotInstallation', () => {
     });
 });
 
-async function upsertInstallation(
-    guildId: string,
-    mode: Parameters<typeof upsertBotInstallation>[1]['mode']
-): Promise<BotInstallationRecord> {
+async function upsertInstallation(guildId: string): Promise<BotInstallationRecord> {
     const result = await upsertBotInstallation(getDb(), {
         guildId,
-        mode,
     });
 
     expect(result.isOk()).toBe(true);

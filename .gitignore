@@ -10,6 +10,7 @@
 /projects/**/coverage/
 /projects/**/.vitest/
 /projects/**/data/
+/projects/data/dev-bot-smoke/**
 /projects/**/.local/
 /projects/**/.output/
 /projects/**/.nitro/

@@ -11,7 +11,7 @@ import * as schema from '../src/schema.js';
 const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
 const dataDir = join(projectRoot, 'data', 'pglite-migration-check');
-const expectedTables = ['bot_events', 'bot_installations', 'feature_settings', 'web_sessions'];
+const expectedTables = ['bot_events', 'bot_installations', 'guild_feature_settings', 'web_sessions'];
 
 await rm(dataDir, { recursive: true, force: true });
 await mkdir(dataDir, { recursive: true });

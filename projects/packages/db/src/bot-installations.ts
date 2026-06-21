@@ -1,4 +1,3 @@
-import type { InstanceMode } from '@neonflux/config';
 import { asc, eq } from 'drizzle-orm';
 import type { PgDatabase } from 'drizzle-orm/pg-core/db';
 import type { PgQueryResultHKT } from 'drizzle-orm/pg-core/session';
@@ -9,7 +8,6 @@ import { botInstallations } from './schema.js';
 
 export type BotInstallationRecord = {
     guildId: string;
-    mode: InstanceMode;
     installedAt: Date;
     updatedAt: Date;
 };
@@ -21,7 +19,7 @@ type BotInstallationRow = typeof botInstallations.$inferSelect;
 
 export async function upsertBotInstallation(
     db: BotInstallationDatabase,
-    input: { guildId: string; mode: InstanceMode }
+    input: { guildId: string }
 ): Promise<Result<BotInstallationRecord, BotInstallationRepositoryError>> {
     const guildIdResult = normalizeGuildId(input.guildId);
 
@@ -36,13 +34,11 @@ export async function upsertBotInstallation(
             .insert(botInstallations)
             .values({
                 guildId: guildIdResult.value,
-                mode: input.mode,
                 updatedAt,
             })
             .onConflictDoUpdate({
                 target: botInstallations.guildId,
                 set: {
-                    mode: input.mode,
                     updatedAt,
                 },
             })
@@ -114,7 +110,6 @@ function normalizeGuildId(guildId: string): Result<string, 'missing-guild-id'> {
 function toBotInstallationRecord(installation: BotInstallationRow): BotInstallationRecord {
     return {
         guildId: installation.guildId,
-        mode: installation.mode,
         installedAt: installation.installedAt,
         updatedAt: installation.updatedAt,
     };
