@@ -13,17 +13,24 @@ It supports two modes:
 
 The planned feature areas are:
 
-- Public and private tickets
-- Moderation
-- Logging
-- XP and levels
-- Voice channel generator
-- Reaction roles and verification
-- Suggestions and voting
-- Message and embed posting
-- Profile / about me embed builder with admin approval settings
 - Autorole
+- Bot installation sync and reconciliation
+- Dashboard access for single and multi instance
+- Docker / GHCR deployment
+- Fumadocs documentation under `/docs`
 - Import/export for roles, channels, categories, emojis, and permissions
+- Logging and audit events
+- Message and embed posting
+- Moderation
+- OAuth login, sessions, and refreshed permissions
+- Profile / about me embed builder
+- Public/private tickets
+- Public web URL and generated links
+- Reaction roles
+- Suggestion voting
+- Verification reaction roles
+- Voice channel generator
+- XP / levels
 
 The goal is to build the bot in small, clear pieces and keep shared logic reusable between the bot and web app.
 
@@ -50,7 +57,9 @@ pnpm generate:session-secret
 
 Put the output in `SESSION_SECRET`.
 
-Production uses real Postgres. PGlite is only for local migration checks.
+Local development does not require running Postgres on this machine. PGlite is used for local migration checks.
+
+Real bot/web smoke tests do require a reachable Postgres-compatible database through `DATABASE_URL`.
 
 ## Docker
 

@@ -23,12 +23,16 @@ services:
             dockerfile: Dockerfile
             target: bot
         restart: unless-stopped
-        env_file:
-            - .env
         environment:
             APP_ENV: production
             NODE_ENV: production
+            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
             AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
+            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
+            FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+            OWNER_IDS: ${OWNER_IDS:-}
         depends_on:
             db:
                 condition: service_healthy
@@ -40,14 +44,21 @@ services:
             dockerfile: Dockerfile
             target: web
         restart: unless-stopped
-        env_file:
-            - .env
         environment:
             APP_ENV: production
             NODE_ENV: production
+            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
             AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
-            HOST: 0.0.0.0
-            PORT: 3000
+            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
+            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
+            FLUXER_APP_ID: ${FLUXER_APP_ID:?FLUXER_APP_ID is required}
+            FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?FLUXER_CLIENT_SECRET is required}
+            FLUXER_OAUTH_REDIRECT_URL: ${FLUXER_OAUTH_REDIRECT_URL:?FLUXER_OAUTH_REDIRECT_URL is required}
+            SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+            OWNER_IDS: ${OWNER_IDS:-}
+            HOST: '0.0.0.0'
+            PORT: '3000'
         ports:
             - '${WEB_PORT:-3000}:3000'
         depends_on:
