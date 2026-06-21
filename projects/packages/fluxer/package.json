@@ -10,6 +10,10 @@
             "types": "./src/index.ts",
             "import": "./dist/index.js"
         },
+        "./guilds": {
+            "types": "./src/guilds.ts",
+            "import": "./dist/guilds.js"
+        },
         "./oauth": {
             "types": "./src/oauth.ts",
             "import": "./dist/oauth.js"
