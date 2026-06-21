@@ -4,6 +4,7 @@ import {
     buildFluxerAuthorizeUrl,
     exchangeFluxerAuthorizationCode,
     FLUXER_OAUTH_TOKEN_URL,
+    refreshFluxerOAuthToken,
     type FluxerOAuthFetch,
 } from './oauth.js';
 
@@ -273,6 +274,156 @@ describe('exchangeFluxerAuthorizationCode', () => {
                         access_token: 'access-token',
                         token_type: 'Bearer',
                         expires_in: -1,
+                        refresh_token: 'refresh-token',
+                        scope: 'identify guilds',
+                    })
+                ),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
+});
+
+describe('refreshFluxerOAuthToken', () => {
+    it('refreshes a token set with normalized token data', async () => {
+        let capturedInput: string | URL | undefined;
+        let capturedInit: RequestInit | undefined;
+        const testFetch: FluxerOAuthFetch = (input, init) => {
+            capturedInput = input;
+            capturedInit = init;
+
+            return Promise.resolve(
+                jsonResponse({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token',
+                    scope: 'identify guilds',
+                })
+            );
+        };
+
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'old-refresh-token',
+            fetch: testFetch,
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            accessToken: 'new-access-token',
+            tokenType: 'Bearer',
+            expiresIn: 3600,
+            refreshToken: 'new-refresh-token',
+            scope: 'identify guilds',
+        });
+        expect(capturedInput).toBe(FLUXER_OAUTH_TOKEN_URL);
+        expect(capturedInit?.method).toBe('POST');
+
+        const body = capturedInit?.body;
+
+        if (!(body instanceof FormData)) {
+            throw new Error('Expected OAuth refresh request body to be FormData.');
+        }
+
+        expect(body.get('grant_type')).toBe('refresh_token');
+        expect(body.get('refresh_token')).toBe('old-refresh-token');
+        expect(body.get('client_id')).toBe('app-id');
+        expect(body.get('client_secret')).toBe('client-secret');
+        expect(body.get('code')).toBeNull();
+        expect(body.get('redirect_uri')).toBeNull();
+    });
+
+    it('fails when app id is missing', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: ' ',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'appId' });
+    });
+
+    it('fails when client secret is missing', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: ' ',
+            refreshToken: 'refresh-token',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'clientSecret' });
+    });
+
+    it('fails when refresh token is missing', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: ' ',
+            fetch: createUnusedFetch(),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'refreshToken' });
+    });
+
+    it('returns request-failed for non-2xx responses', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+            fetch: () =>
+                Promise.resolve(jsonResponse({ error: 'invalid_grant' }, { status: 401, statusText: 'Unauthorized' })),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'request-failed',
+            status: 401,
+            statusText: 'Unauthorized',
+        });
+    });
+
+    it('returns network-error for fetch failures', async () => {
+        const networkError = new Error('Network unavailable.');
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+            fetch: () => Promise.reject(networkError),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: networkError });
+    });
+
+    it('returns invalid-response for invalid JSON responses', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+            fetch: () => Promise.resolve(new Response('not-json')),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
+
+    it('returns invalid-response for malformed token responses', async () => {
+        const result = await refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+            fetch: () =>
+                Promise.resolve(
+                    jsonResponse({
+                        access_token: 'access-token',
+                        token_type: 'Bearer',
                         refresh_token: 'refresh-token',
                         scope: 'identify guilds',
                     })

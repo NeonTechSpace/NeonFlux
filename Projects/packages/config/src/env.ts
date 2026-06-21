@@ -22,6 +22,7 @@ const rawEnv = type({
     'FLUXER_CLIENT_SECRET?': 'string',
     'FLUXER_BOT_TOKEN?': 'string',
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
+    'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
     'SESSION_SECRET?': 'string',
     'LOG_LEVEL?': logLevel,
     'NODE_ENV?': nodeEnv,
@@ -42,6 +43,7 @@ export type AppConfig = AppMode & {
     fluxerClientSecret?: string;
     fluxerBotToken?: string;
     fluxerOauthRedirectUrl?: string;
+    fluxerTokenEncryptionKey?: string;
     sessionSecret?: string;
     logLevel: LogLevel;
     nodeEnv: 'development' | 'test' | 'production';
@@ -92,6 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
     const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
+    const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
     const sessionSecret = optionalValue(parsed.SESSION_SECRET);
 
     if (appEnvValue === 'production') {
@@ -106,6 +109,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
+        ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
         ...(sessionSecret ? { sessionSecret } : {}),
         logLevel: parsed.LOG_LEVEL ?? 'info',
         nodeEnv: parsed.NODE_ENV ?? 'development',

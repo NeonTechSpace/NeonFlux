@@ -40,6 +40,7 @@
         "test": "vitest run",
         "test:watch": "vitest watch",
         "generate:session-secret": "tsx scripts/generate-session-secret.ts",
+        "generate:token-encryption-key": "tsx scripts/generate-token-encryption-key.ts",
         "db:generate": "drizzle-kit generate",
         "db:migrate": "drizzle-kit migrate",
         "db:validate:pglite": "tsx packages/db/scripts/validate-pglite-migrations.ts"
