@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@neonflux/config": "workspace:*",
+        "@neonflux/core": "workspace:*",
         "@neonflux/db": "workspace:*",
         "@neonflux/fluxer": "workspace:*",
         "@tailwindcss/vite": "^4.1.18",

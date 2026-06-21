@@ -1,138 +1,133 @@
-import { findActiveWebSessionById } from '@neonflux/db';
-import type { WebSessionRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createSessionCookie, SESSION_COOKIE_NAME } from './session-cookie.js';
+import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
+import type { DashboardGuildAccess, DashboardGuildAccessError } from './dashboard-guild-access.server.js';
 import { handleDashboardRequest } from './dashboard.server.js';
 
-const sessionSecret = 'session-secret';
+const request = new Request('http://localhost:3000/dashboard');
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
-const otherSessionId = '9876543210abcdefghijklmnopqrstuvwxyzABCDEFG';
-const activeSession = {
-    id: sessionId,
-    fluxerUserId: '1517169145576165376',
-    createdAt: new Date('2026-06-21T00:00:00.000Z'),
-    expiresAt: new Date('2026-06-28T00:00:00.000Z'),
-    revokedAt: null,
-} satisfies WebSessionRecord;
+const fluxerUserId = '1517169145576165376';
+const accessToken = 'fresh-access-token';
+const guildId = 'guild-1';
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
-        db: {},
-    }),
+vi.mock('./dashboard-guild-access.server.js', () => ({
+    loadDashboardGuildAccess: vi.fn(),
 }));
-
-vi.mock('@neonflux/db', async (importActual) => {
-    const actual = await importActual<typeof NeonFluxDb>();
-
-    return {
-        ...actual,
-        findActiveWebSessionById: vi.fn(),
-    };
-});
 
 describe('handleDashboardRequest', () => {
     beforeEach(() => {
-        stubSessionEnv();
-        vi.mocked(findActiveWebSessionById).mockResolvedValue(ok(activeSession));
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValue(ok(createAuthorizedGuildAccess()));
     });
 
     afterEach(() => {
-        vi.unstubAllEnvs();
         vi.clearAllMocks();
     });
 
-    it('returns 200 when the request has a valid active session', async () => {
-        const response = await handleDashboardRequest(createDashboardRequest(createValidSessionCookie(sessionId)));
+    it('returns 200 when dashboard guild access is authorized', async () => {
+        const response = await handleDashboardRequest(request);
 
         expect(response.status).toBe(200);
-        expect(await response.text()).toBe('NeonFlux dashboard session validated.');
+        expect(await response.text()).toBe('NeonFlux dashboard guild access validated.');
     });
 
-    it('redirects to Fluxer login when the session cookie is missing', async () => {
-        const response = await handleDashboardRequest(createDashboardRequest('other=value'));
-
-        expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/auth/fluxer/login');
-        expect(findActiveWebSessionById).not.toHaveBeenCalled();
-    });
-
-    it('redirects to Fluxer login when the session cookie is invalid', async () => {
-        const response = await handleDashboardRequest(createDashboardRequest(`${SESSION_COOKIE_NAME}=invalid`));
-
-        expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/auth/fluxer/login');
-        expect(findActiveWebSessionById).not.toHaveBeenCalled();
-    });
-
-    it('redirects to Fluxer login when the session cookie signature is invalid', async () => {
-        const tamperedCookie = createValidSessionCookie(sessionId).replace(
-            `${SESSION_COOKIE_NAME}=${sessionId}.`,
-            `${SESSION_COOKIE_NAME}=${otherSessionId}.`
+    it('returns 403 when single-instance guild access is unauthorized', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
+            ok({
+                type: 'unauthorized',
+                mode: {
+                    instanceMode: 'single',
+                    singleGuildId: guildId,
+                },
+                configuredGuildId: guildId,
+                configuredGuildName: 'Configured Community',
+            })
         );
 
-        const response = await handleDashboardRequest(createDashboardRequest(tamperedCookie));
+        const response = await handleDashboardRequest(request);
+
+        expect(response.status).toBe(403);
+        expect(await response.text()).toBe('You are not authorized to modify the configured community.');
+    });
+
+    it('returns 200 when multi-instance access has no manageable guilds', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
+            ok({
+                type: 'no-manageable-guilds',
+                mode: {
+                    instanceMode: 'multi',
+                },
+            })
+        );
+
+        const response = await handleDashboardRequest(request);
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('No manageable communities found.');
+    });
+
+    it.each([
+        'missing-cookie',
+        'invalid-cookie',
+        'invalid-signature',
+        'not-found',
+        'missing-token-set',
+        'token-expired',
+        'missing-refresh-token',
+        'token-refresh-failed',
+        'invalid-token-payload',
+        'decrypt-failed',
+    ] satisfies DashboardGuildAccessError[])('redirects to Fluxer login for recoverable %s errors', async (error) => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err(error));
+
+        const response = await handleDashboardRequest(request);
 
         expect(response.status).toBe(302);
         expect(response.headers.get('Location')).toBe('/auth/fluxer/login');
-        expect(findActiveWebSessionById).not.toHaveBeenCalled();
     });
 
-    it('redirects to Fluxer login when the session is not active', async () => {
-        vi.mocked(findActiveWebSessionById).mockResolvedValueOnce(err('not-found'));
+    it('returns 500 when dashboard access hits a database error', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('database-error'));
 
-        const response = await handleDashboardRequest(createDashboardRequest(createValidSessionCookie(sessionId)));
-
-        expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/auth/fluxer/login');
-    });
-
-    it('returns 500 when session validation hits a DB error', async () => {
-        vi.mocked(findActiveWebSessionById).mockResolvedValueOnce(err('database-error'));
-
-        const response = await handleDashboardRequest(createDashboardRequest(createValidSessionCookie(sessionId)));
+        const response = await handleDashboardRequest(request);
 
         expect(response.status).toBe(500);
         expect(await response.text()).toBe('NeonFlux dashboard unavailable.');
     });
 
-    it('does not expose session or user identifiers in the response body', async () => {
-        const response = await handleDashboardRequest(createDashboardRequest(createValidSessionCookie(sessionId)));
+    it('returns 502 when Fluxer guild lookup fails', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('guild-lookup-failed'));
+
+        const response = await handleDashboardRequest(request);
+
+        expect(response.status).toBe(502);
+        expect(await response.text()).toBe('NeonFlux dashboard unavailable.');
+    });
+
+    it('does not expose session, user, token, or guild identifiers in response bodies', async () => {
+        const response = await handleDashboardRequest(request);
         const responseText = await response.text();
 
         expect(responseText).not.toContain(sessionId);
-        expect(responseText).not.toContain(activeSession.fluxerUserId);
+        expect(responseText).not.toContain(fluxerUserId);
+        expect(responseText).not.toContain(accessToken);
+        expect(responseText).not.toContain(guildId);
     });
 });
 
-function stubSessionEnv(): void {
-    vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'multi');
-    vi.stubEnv('SESSION_SECRET', sessionSecret);
-}
-
-function createDashboardRequest(cookie: string): Request {
-    return new Request('http://localhost:3000/dashboard', {
-        headers: {
-            Cookie: cookie,
+function createAuthorizedGuildAccess(): DashboardGuildAccess {
+    return {
+        type: 'authorized',
+        mode: {
+            instanceMode: 'multi',
         },
-    });
-}
-
-function createValidSessionCookie(id: string): string {
-    const cookieResult = createSessionCookie({
-        sessionId: id,
-        sessionSecret,
-        appEnv: 'development',
-    });
-
-    expect(cookieResult.isOk()).toBe(true);
-
-    const cookiePair = cookieResult._unsafeUnwrap().split(';')[0];
-
-    expect(cookiePair).toBeDefined();
-
-    return cookiePair;
+        guilds: [
+            {
+                id: guildId,
+                name: 'Guild One',
+                canManage: true,
+                botInstalled: true,
+            },
+        ],
+    };
 }
