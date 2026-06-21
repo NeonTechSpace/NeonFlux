@@ -3,10 +3,33 @@ import { createLogger } from '@neonflux/core/logging';
 import { createDatabaseClient, runDatabaseMigrations } from '@neonflux/db';
 import { createFluxerBot } from '@neonflux/fluxer';
 
+import { recordBotInstallationEvent, removeBotInstallationEvent } from './bot-installation-sync.js';
+
 const config = loadConfig();
 const logger = createLogger(config);
 const database = createDatabaseClient(config.databaseUrl);
-const bot = createFluxerBot(config, logger);
+const bot = createFluxerBot(config, logger, {
+    async guildCreated(event) {
+        const result = await recordBotInstallationEvent(database.db, config, event);
+
+        if (result.isErr()) {
+            logger.error('bot.installation_record_failed', {
+                guildId: event.guildId,
+                error: result.error,
+            });
+        }
+    },
+    async guildDeleted(event) {
+        const result = await removeBotInstallationEvent(database.db, config, event);
+
+        if (result.isErr()) {
+            logger.error('bot.installation_remove_failed', {
+                guildId: event.guildId,
+                error: result.error,
+            });
+        }
+    },
+});
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
     logger.info('process.shutdown', { signal });
