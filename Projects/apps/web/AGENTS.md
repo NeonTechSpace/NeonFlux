@@ -7,3 +7,10 @@
 - Keep shared dashboard access rules in `packages/core`.
 - Use TanStack Query for UI-facing server state and dashboard mutations, not OAuth token exchange.
 - Keep OAuth client secrets, bot tokens, session secrets, and token exchange logic out of browser code.
+- Prefer server data, route loaders/server functions, and render-time derivation before client effects.
+- Dashboard pages load initial protected data through route loaders/server functions before rendering client components.
+- Use `useEffect` only to sync with external systems, never for derived state or normal data loading.
+- Use `useLayoutEffect` only for unavoidable pre-paint DOM measurement or mutation.
+- Keep UI async-first: do not block input/render on network, show pending states, and use transitions/deferred work for expensive updates.
+- Optimistic updates need rollback plus server revalidation.
+- Keep this file in present tense as app patterns change.

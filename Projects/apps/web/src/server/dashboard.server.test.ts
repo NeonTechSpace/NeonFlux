@@ -3,19 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccess, DashboardGuildAccessError } from './dashboard-guild-access.server.js';
-import { handleDashboardRequest } from './dashboard.server.js';
+import { loadDashboardData } from './dashboard.server.js';
 
 const request = new Request('http://localhost:3000/dashboard');
-const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
-const fluxerUserId = '1517169145576165376';
-const accessToken = 'fresh-access-token';
 const guildId = 'guild-1';
 
 vi.mock('./dashboard-guild-access.server.js', () => ({
     loadDashboardGuildAccess: vi.fn(),
 }));
 
-describe('handleDashboardRequest', () => {
+describe('loadDashboardData', () => {
     beforeEach(() => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValue(ok(createAuthorizedGuildAccess()));
     });
@@ -24,14 +21,25 @@ describe('handleDashboardRequest', () => {
         vi.clearAllMocks();
     });
 
-    it('returns 200 when dashboard guild access is authorized', async () => {
-        const response = await handleDashboardRequest(request);
+    it('maps authorized guild access to a dashboard view model', async () => {
+        const result = await loadDashboardData(request);
 
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('NeonFlux dashboard guild access validated.');
+        expect(result).toStrictEqual({
+            type: 'dashboard',
+            viewModel: {
+                type: 'guild-list',
+                mode: 'multi',
+                guilds: [
+                    {
+                        id: guildId,
+                        name: 'Guild One',
+                    },
+                ],
+            },
+        });
     });
 
-    it('returns 403 when single-instance guild access is unauthorized', async () => {
+    it('maps single-instance unauthorized access to a dashboard view model', async () => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
             ok({
                 type: 'unauthorized',
@@ -44,13 +52,19 @@ describe('handleDashboardRequest', () => {
             })
         );
 
-        const response = await handleDashboardRequest(request);
+        const result = await loadDashboardData(request);
 
-        expect(response.status).toBe(403);
-        expect(await response.text()).toBe('You are not authorized to modify the configured community.');
+        expect(result).toStrictEqual({
+            type: 'dashboard',
+            viewModel: {
+                type: 'single-unauthorized',
+                configuredGuildId: guildId,
+                configuredGuildName: 'Configured Community',
+            },
+        });
     });
 
-    it('returns 200 when multi-instance access has no manageable guilds', async () => {
+    it('maps multi-instance empty access to a dashboard view model', async () => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
             ok({
                 type: 'no-manageable-guilds',
@@ -60,10 +74,14 @@ describe('handleDashboardRequest', () => {
             })
         );
 
-        const response = await handleDashboardRequest(request);
+        const result = await loadDashboardData(request);
 
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe('No manageable communities found.');
+        expect(result).toStrictEqual({
+            type: 'dashboard',
+            viewModel: {
+                type: 'multi-empty',
+            },
+        });
     });
 
     it.each([
@@ -77,41 +95,22 @@ describe('handleDashboardRequest', () => {
         'token-refresh-failed',
         'invalid-token-payload',
         'decrypt-failed',
-    ] satisfies DashboardGuildAccessError[])('redirects to Fluxer login for recoverable %s errors', async (error) => {
+    ] satisfies DashboardGuildAccessError[])('maps recoverable %s errors to auth-required', async (error) => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err(error));
 
-        const response = await handleDashboardRequest(request);
-
-        expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/auth/fluxer/login');
+        await expect(loadDashboardData(request)).resolves.toStrictEqual({ type: 'auth-required' });
     });
 
-    it('returns 500 when dashboard access hits a database error', async () => {
+    it('maps DB failures to database-error', async () => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('database-error'));
 
-        const response = await handleDashboardRequest(request);
-
-        expect(response.status).toBe(500);
-        expect(await response.text()).toBe('NeonFlux dashboard unavailable.');
+        await expect(loadDashboardData(request)).resolves.toStrictEqual({ type: 'database-error' });
     });
 
-    it('returns 502 when Fluxer guild lookup fails', async () => {
+    it('maps Fluxer guild lookup failures to guild-lookup-failed', async () => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('guild-lookup-failed'));
 
-        const response = await handleDashboardRequest(request);
-
-        expect(response.status).toBe(502);
-        expect(await response.text()).toBe('NeonFlux dashboard unavailable.');
-    });
-
-    it('does not expose session, user, token, or guild identifiers in response bodies', async () => {
-        const response = await handleDashboardRequest(request);
-        const responseText = await response.text();
-
-        expect(responseText).not.toContain(sessionId);
-        expect(responseText).not.toContain(fluxerUserId);
-        expect(responseText).not.toContain(accessToken);
-        expect(responseText).not.toContain(guildId);
+        await expect(loadDashboardData(request)).resolves.toStrictEqual({ type: 'guild-lookup-failed' });
     });
 });
 
