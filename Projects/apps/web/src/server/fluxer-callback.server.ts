@@ -2,6 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { loadConfig } from '@neonflux/config';
 import { createWebSession as createWebSessionRecord } from '@neonflux/db';
+import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { exchangeFluxerAuthorizationCode } from '@neonflux/fluxer/oauth';
 import type { FluxerOAuthTokenExchangeError } from '@neonflux/fluxer/oauth';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
@@ -54,6 +55,17 @@ export async function handleFluxerCallbackRequest(request: Request): Promise<Res
 
     if (currentUserResult.isErr()) {
         return new Response('Fluxer OAuth user lookup failed.', {
+            status: 502,
+            headers,
+        });
+    }
+
+    const guildsResult = await listFluxerCurrentUserGuilds({
+        accessToken: tokenResult.value.accessToken,
+    });
+
+    if (guildsResult.isErr()) {
+        return new Response('Fluxer OAuth guild lookup failed.', {
             status: 502,
             headers,
         });

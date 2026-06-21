@@ -12,7 +12,7 @@
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
 - Shared package changes do not force every image to release, but DB migrations must stay compatible with deployed bot and web versions.
 - Keep startup migration behavior in application-owned bootstrap code, not Docker shell command chains, so Docker and local production-style starts share the same locked migration path.
-- When work changes deployable behavior, end the final response with an H1 warning that tells the user which package update should be released: web, bot, or both.
+- When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`: current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit; since last release tag aggregates unreleased impact since the latest relevant `web-vX.Y.Z` and/or `bot-vX.Y.Z` tag. State web, bot, both, or none for each section.
 - Never commit secrets, `.env`, generated `dist`, local DB data, or machine-specific absolute paths.
 - Do not stage, commit, tag, push, squash, rebase, or run mutating VCS commands without explicit permission.
 - Keep handwritten production files under 555 LOC unless a narrow exception is justified.

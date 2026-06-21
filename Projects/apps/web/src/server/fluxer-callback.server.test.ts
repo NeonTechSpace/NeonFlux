@@ -11,6 +11,8 @@ import { readSessionCookie, SESSION_COOKIE_NAME } from './session-cookie.js';
 const sessionSecret = 'session-secret';
 const frozenNow = new Date('2026-06-21T00:00:00.000Z');
 const expectedExpiresAt = new Date('2026-06-28T00:00:00.000Z');
+const currentUserUrl = 'https://api.fluxer.app/v1/users/@me';
+const currentUserGuildsUrl = 'https://api.fluxer.app/v1/users/@me/guilds';
 
 vi.mock('./database.server.js', () => ({
     getWebDatabaseClient: () => ({
@@ -44,18 +46,15 @@ describe('handleFluxerCallbackRequest', () => {
         vi.useRealTimers();
     });
 
-    it('exchanges a valid callback code before looking up the current user', async () => {
+    it('exchanges a valid callback code before looking up the current user and guilds', async () => {
         stubValidEnv();
         const capturedRequests: CapturedFluxerRequest[] = [];
-        vi.stubGlobal(
-            'fetch',
-            createSequentialFluxerFetch(capturedRequests, [createTokenResponse(), createCurrentUserResponse()])
-        );
+        vi.stubGlobal('fetch', createSequentialFluxerFetch(capturedRequests, createSuccessfulFluxerResponses()));
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
 
         expect(response.status).toBe(302);
-        expect(capturedRequests).toHaveLength(2);
+        expect(capturedRequests).toHaveLength(3);
         expect(capturedRequests[0]?.input).toBe(FLUXER_OAUTH_TOKEN_URL);
         expect(capturedRequests[0]?.init?.method).toBe('POST');
 
@@ -70,9 +69,14 @@ describe('handleFluxerCallbackRequest', () => {
         expect(body.get('redirect_uri')).toBe('http://localhost:3000/auth/fluxer/callback');
         expect(body.get('client_id')).toBe('app-id');
         expect(body.get('client_secret')).toBe('client-secret');
-        expect(capturedRequests[1]?.input).toBe('https://api.fluxer.app/v1/users/@me');
+        expect(capturedRequests[1]?.input).toBe(currentUserUrl);
         expect(capturedRequests[1]?.init?.method).toBe('GET');
         expect(capturedRequests[1]?.init?.headers).toStrictEqual({
+            Authorization: 'Bearer access-token',
+        });
+        expect(capturedRequests[2]?.input).toBe(currentUserGuildsUrl);
+        expect(capturedRequests[2]?.init?.method).toBe('GET');
+        expect(capturedRequests[2]?.init?.headers).toStrictEqual({
             Authorization: 'Bearer access-token',
         });
     });
@@ -81,7 +85,7 @@ describe('handleFluxerCallbackRequest', () => {
         vi.useFakeTimers();
         vi.setSystemTime(frozenNow);
         stubValidEnv();
-        vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal('fetch', createSequentialFluxerFetch([], createSuccessfulFluxerResponses()));
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
         const sessionInput = getCreatedSessionInput();
@@ -94,7 +98,7 @@ describe('handleFluxerCallbackRequest', () => {
 
     it('redirects to dashboard, clears the state cookie, and sets a readable signed session cookie when login succeeds', async () => {
         stubValidEnv();
-        vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal('fetch', createSequentialFluxerFetch([], createSuccessfulFluxerResponses()));
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
         const setCookies = getSetCookieHeaders(response);
@@ -123,9 +127,9 @@ describe('handleFluxerCallbackRequest', () => {
         expect(readSessionResult._unsafeUnwrap().sessionId).toBe(getCreatedSessionInput().sessionId);
     });
 
-    it('does not expose token or user data in the success response', async () => {
+    it('does not expose token, user, guild, or session data in the success response', async () => {
         stubValidEnv();
-        vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal('fetch', createSequentialFluxerFetch([], createSuccessfulFluxerResponses()));
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
         const responseText = await response.text();
@@ -135,6 +139,8 @@ describe('handleFluxerCallbackRequest', () => {
         expect(responseText).not.toContain('refresh-token');
         expect(responseText).not.toContain('1517169145576165376');
         expect(responseText).not.toContain('neonsy');
+        expect(responseText).not.toContain('guild-1');
+        expect(responseText).not.toContain('NeonFlux Lab');
         expect(responseText).not.toContain(getCreatedSessionInput().sessionId);
     });
 
@@ -159,7 +165,7 @@ describe('handleFluxerCallbackRequest', () => {
         expect(createWebSession).not.toHaveBeenCalled();
     });
 
-    it('returns 400, clears the state cookie, and does not look up the user or create a session when Fluxer rejects token exchange', async () => {
+    it('returns 400, clears the state cookie, and does not look up the user, guilds, or create a session when Fluxer rejects token exchange', async () => {
         stubValidEnv();
         const capturedRequests: CapturedFluxerRequest[] = [];
         vi.stubGlobal(
@@ -204,15 +210,13 @@ describe('handleFluxerCallbackRequest', () => {
 
     it('returns 502, clears the state cookie, and does not create a session when current-user lookup is rejected', async () => {
         stubValidEnv();
+        const capturedRequests: CapturedFluxerRequest[] = [];
         vi.stubGlobal(
             'fetch',
-            createSequentialFluxerFetch(
-                [],
-                [
-                    createTokenResponse(),
-                    createJsonResponse({ error: 'unauthorized' }, { status: 401, statusText: 'Unauthorized' }),
-                ]
-            )
+            createSequentialFluxerFetch(capturedRequests, [
+                createTokenResponse(),
+                createJsonResponse({ error: 'unauthorized' }, { status: 401, statusText: 'Unauthorized' }),
+            ])
         );
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
@@ -220,14 +224,19 @@ describe('handleFluxerCallbackRequest', () => {
         expect(response.status).toBe(502);
         expect(await response.text()).toBe('Fluxer OAuth user lookup failed.');
         expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(capturedRequests).toHaveLength(2);
         expect(createWebSession).not.toHaveBeenCalled();
     });
 
     it('returns 502 and clears the state cookie when current-user lookup returns an invalid response', async () => {
         stubValidEnv();
+        const capturedRequests: CapturedFluxerRequest[] = [];
         vi.stubGlobal(
             'fetch',
-            createSequentialFluxerFetch([], [createTokenResponse(), createJsonResponse({ id: 'user-id' })])
+            createSequentialFluxerFetch(capturedRequests, [
+                createTokenResponse(),
+                createJsonResponse({ id: 'user-id' }),
+            ])
         );
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
@@ -235,6 +244,66 @@ describe('handleFluxerCallbackRequest', () => {
         expect(response.status).toBe(502);
         expect(await response.text()).toBe('Fluxer OAuth user lookup failed.');
         expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(capturedRequests).toHaveLength(2);
+        expect(createWebSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 502, clears the state cookie, and does not create a session when guild lookup is rejected', async () => {
+        stubValidEnv();
+        const capturedRequests: CapturedFluxerRequest[] = [];
+        vi.stubGlobal(
+            'fetch',
+            createSequentialFluxerFetch(capturedRequests, [
+                createTokenResponse(),
+                createCurrentUserResponse(),
+                createJsonResponse({ error: 'unauthorized' }, { status: 401, statusText: 'Unauthorized' }),
+            ])
+        );
+
+        const response = await handleFluxerCallbackRequest(createCallbackRequest());
+
+        expect(response.status).toBe(502);
+        expect(await response.text()).toBe('Fluxer OAuth guild lookup failed.');
+        expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(capturedRequests).toHaveLength(3);
+        expect(createWebSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 502, clears the state cookie, and does not create a session when guild lookup has a network failure', async () => {
+        stubValidEnv();
+        const capturedRequests: CapturedFluxerRequest[] = [];
+        vi.stubGlobal(
+            'fetch',
+            createSequentialFluxerFetch(capturedRequests, [createTokenResponse(), createCurrentUserResponse()])
+        );
+
+        const response = await handleFluxerCallbackRequest(createCallbackRequest());
+
+        expect(response.status).toBe(502);
+        expect(await response.text()).toBe('Fluxer OAuth guild lookup failed.');
+        expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(capturedRequests).toHaveLength(3);
+        expect(createWebSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 502, clears the state cookie, and does not create a session when guild lookup returns an invalid response', async () => {
+        stubValidEnv();
+        const capturedRequests: CapturedFluxerRequest[] = [];
+        vi.stubGlobal(
+            'fetch',
+            createSequentialFluxerFetch(capturedRequests, [
+                createTokenResponse(),
+                createCurrentUserResponse(),
+                createJsonResponse({ id: 'guild-1' }),
+            ])
+        );
+
+        const response = await handleFluxerCallbackRequest(createCallbackRequest());
+
+        expect(response.status).toBe(502);
+        expect(await response.text()).toBe('Fluxer OAuth guild lookup failed.');
+        expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(capturedRequests).toHaveLength(3);
         expect(createWebSession).not.toHaveBeenCalled();
     });
 
@@ -251,7 +320,7 @@ describe('handleFluxerCallbackRequest', () => {
     it('throws clearly when SESSION_SECRET is missing', async () => {
         stubValidEnv();
         vi.stubEnv('SESSION_SECRET', '');
-        vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal('fetch', createSequentialFluxerFetch([], createSuccessfulFluxerResponses()));
 
         await expect(handleFluxerCallbackRequest(createCallbackRequest())).rejects.toThrow(
             'SESSION_SECRET is required'
@@ -261,7 +330,7 @@ describe('handleFluxerCallbackRequest', () => {
     it('returns 500 and clears the state cookie when DB session creation fails', async () => {
         stubValidEnv();
         vi.mocked(createWebSession).mockResolvedValueOnce(err('database-error'));
-        vi.stubGlobal('fetch', createSequentialFluxerFetch([], [createTokenResponse(), createCurrentUserResponse()]));
+        vi.stubGlobal('fetch', createSequentialFluxerFetch([], createSuccessfulFluxerResponses()));
 
         const response = await handleFluxerCallbackRequest(createCallbackRequest());
 
@@ -324,6 +393,10 @@ function createTokenResponse(): Response {
     });
 }
 
+function createSuccessfulFluxerResponses(): Response[] {
+    return [createTokenResponse(), createCurrentUserResponse(), createCurrentUserGuildsResponse()];
+}
+
 function createCurrentUserResponse(): Response {
     return createJsonResponse({
         id: '1517169145576165376',
@@ -334,6 +407,16 @@ function createCurrentUserResponse(): Response {
         bot: false,
         system: false,
     });
+}
+
+function createCurrentUserGuildsResponse(): Response {
+    return createJsonResponse([
+        {
+            id: 'guild-1',
+            name: 'NeonFlux Lab',
+            permissions: '32',
+        },
+    ]);
 }
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
