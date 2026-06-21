@@ -45,8 +45,16 @@ services:
     bot:
         image: ghcr.io/neontechspace/neonflux-bot:latest
         restart: unless-stopped
-        env_file:
-            - .env
+        environment:
+            APP_ENV: production
+            NODE_ENV: production
+            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
+            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
+            FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+            OWNER_IDS: ${OWNER_IDS:-}
         depends_on:
             db:
                 condition: service_healthy
@@ -54,8 +62,21 @@ services:
     web:
         image: ghcr.io/neontechspace/neonflux-web:latest
         restart: unless-stopped
-        env_file:
-            - .env
+        environment:
+            APP_ENV: production
+            NODE_ENV: production
+            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
+            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
+            FLUXER_APP_ID: ${FLUXER_APP_ID:?FLUXER_APP_ID is required}
+            FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?FLUXER_CLIENT_SECRET is required}
+            FLUXER_OAUTH_REDIRECT_URL: ${FLUXER_OAUTH_REDIRECT_URL:?FLUXER_OAUTH_REDIRECT_URL is required}
+            SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+            OWNER_IDS: ${OWNER_IDS:-}
+            HOST: "0.0.0.0"
+            PORT: "3000"
         ports:
             - "3000:3000"
         depends_on:
@@ -71,8 +92,6 @@ volumes:
 Use the same key names as local development. In Docker, `DATABASE_URL` must use the Compose service name `db`.
 
 ```env
-APP_ENV=production
-NODE_ENV=production
 INSTANCE_MODE=multi
 AUTO_MIGRATE=true
 

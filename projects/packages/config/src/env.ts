@@ -96,11 +96,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
     if (appEnvValue === 'production') {
         requireEnvValue(databaseUrl, 'DATABASE_URL');
-        requireEnvValue(fluxerAppId, 'FLUXER_APP_ID');
-        requireEnvValue(fluxerClientSecret, 'FLUXER_CLIENT_SECRET');
-        requireEnvValue(fluxerBotToken, 'FLUXER_BOT_TOKEN');
-        requireEnvValue(fluxerOauthRedirectUrl, 'FLUXER_OAUTH_REDIRECT_URL');
-        requireEnvValue(sessionSecret, 'SESSION_SECRET');
     }
 
     const baseConfig = {

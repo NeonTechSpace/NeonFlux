@@ -47,12 +47,22 @@ describe('loadConfig', () => {
         expect(() => loadConfig({ APP_ENV: 'staging' })).toThrow('Invalid environment');
     });
 
-    it('requires production secrets', () => {
+    it('requires production database url', () => {
         expect(() =>
             loadConfig({
                 APP_ENV: 'production',
                 INSTANCE_MODE: 'multi',
             })
         ).toThrow('DATABASE_URL is required');
+    });
+
+    it('does not require service-specific secrets in the generic config loader', () => {
+        expect(() =>
+            loadConfig({
+                APP_ENV: 'production',
+                DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
+                INSTANCE_MODE: 'multi',
+            })
+        ).not.toThrow();
     });
 });

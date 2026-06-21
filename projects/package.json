@@ -26,7 +26,7 @@
     "scripts": {
         "dev:bot": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
         "dev:web": "pnpm -r --filter \"./packages/*\" build && pnpm --filter neonflux-web dev",
-        "dev:reset:pglite": "tsx scripts/reset-pglite-data.ts",
+        "dev:reset": "tsx scripts/reset-dev-database.ts",
         "clean": "pnpm -r clean",
         "build": "pnpm -r build",
         "check": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
@@ -54,6 +54,7 @@
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-n": "^18.1.0",
         "globals": "^17.6.0",
+        "pg": "^8.21.0",
         "prettier": "^3.8.4",
         "prettier-plugin-tailwindcss": "^0.8.0",
         "tsx": "^4.22.4",

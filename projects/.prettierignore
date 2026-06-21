@@ -9,6 +9,8 @@
 **/.vinxi
 .env
 .env.*
+# Docker Compose interpolation applies to unquoted and double-quoted values, but Prettier rewrites them to single quotes.
+docker-compose.yml
 apps/web/src/routeTree.gen.ts
 packages/db/drizzle
 pnpm-lock.yaml
