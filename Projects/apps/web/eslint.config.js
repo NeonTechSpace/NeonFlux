@@ -17,6 +17,7 @@ export default [
         ignores: [
             '.tanstack/**',
             '.nitro/**',
+            '.source/**',
             '.vinxi/**',
             '.output/**',
             'dist/**',

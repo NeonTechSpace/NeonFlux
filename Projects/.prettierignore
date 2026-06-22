@@ -5,6 +5,7 @@
 **/.local
 **/.output
 **/.nitro
+**/.source
 **/.tanstack
 **/.vinxi
 .env
