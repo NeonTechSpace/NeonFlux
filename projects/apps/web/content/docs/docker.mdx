@@ -1,0 +1,16 @@
+---
+title: Docker
+description: Runtime shape for self-hosted NeonFlux deployments.
+---
+
+NeonFlux is designed as a Docker Compose stack with three services:
+
+- `bot`
+- `web`
+- `db`
+
+Both bot and web connect to Postgres. The bot owns deployment behavior bootstrap, including instance mode and public web URL, then writes it into the database.
+
+The web service keeps OAuth and session secrets in env, but reads deployment behavior from the database.
+
+Local development can run app checks without Postgres. Smoke tests and production-style runs need a real Postgres-compatible database.

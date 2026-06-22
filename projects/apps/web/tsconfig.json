@@ -6,6 +6,7 @@
         "jsx": "react-jsx",
         "module": "ESNext",
         "paths": {
+            "collections/*": ["./.source/*"],
             "#/*": ["./src/*"],
             "@/*": ["./src/*"]
         },
