@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { PublicDocsPage } from '../../components/docs-page.js';
-import { loadDocsRouteData, resolveDocsRouteResult } from '../docs.js';
+import { PublicDocsPage } from '../../../components/docs-page.js';
+import { loadDocsRouteData, resolveDocsRouteResult } from '../../docs.js';
 
-const createRoute = createFileRoute('/docs/$');
+const createRoute = createFileRoute('/docs/topic/$');
 
 export const docsRouteOptions = {
     loader: async ({ params }) =>
