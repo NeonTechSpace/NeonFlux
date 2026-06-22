@@ -11,18 +11,37 @@ describe('/docs routing', () => {
         const routeTree = readWebFile('src/routeTree.gen.ts');
 
         expect(routeTree).toContain("fullPath: '/docs'");
-        expect(routeTree).toContain("fullPath: '/docs/$'");
-        expect(routeTree).toContain("fullPath: '/api/search'");
+        expect(routeTree).toContain("fullPath: '/docs/topic'");
+        expect(routeTree).toContain("fullPath: '/docs/topic/$'");
+        expect(routeTree).toContain("fullPath: '/docs/api/search'");
+        expect(routeTree).not.toContain("fullPath: '/api/search'");
     });
 
     it('keeps docs routes separate from dashboard and auth server boundaries', () => {
         const docsIndexRoute = readWebFile('src/routes/docs.tsx');
-        const docsSplatRoute = readWebFile('src/routes/docs/$.tsx');
-        const searchRoute = readWebFile('src/routes/api/search.ts');
+        const docsSplatRoute = readWebFile('src/routes/docs/topic/$.tsx');
+        const searchRoute = readWebFile('src/routes/docs/api/search.ts');
 
         expect(`${docsIndexRoute}\n${docsSplatRoute}\n${searchRoute}`).not.toMatch(
             /dashboard\.server|web-session\.server|fluxer-auth-context|auth\/fluxer\/login/
         );
+    });
+
+    it('configures docs search under the docs route namespace', () => {
+        const rootRoute = readWebFile('src/routes/__root.tsx');
+        const searchRoute = readWebFile('src/routes/docs/api/search.ts');
+
+        expect(rootRoute).toContain("api: '/docs/api/search'");
+        expect(searchRoute).toContain("createFileRoute('/docs/api/search')");
+    });
+
+    it('forces the docs shell to dark mode', () => {
+        const rootRoute = readWebFile('src/routes/__root.tsx');
+
+        expect(rootRoute).toContain("className='dark'");
+        expect(rootRoute).toContain("defaultTheme: 'dark'");
+        expect(rootRoute).toContain("forcedTheme: 'dark'");
+        expect(rootRoute).toContain('enableSystem: false');
     });
 
     it('includes starter docs content for current top-level concepts', () => {

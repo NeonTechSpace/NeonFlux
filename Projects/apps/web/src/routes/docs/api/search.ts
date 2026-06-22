@@ -2,9 +2,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { createServerOnlyFn } from '@tanstack/react-start';
 import { createFromSource } from 'fumadocs-core/search/server';
 
-import { source } from '../../lib/source.js';
+import { source } from '../../../lib/source.js';
 
-const createRoute = createFileRoute('/api/search');
+const createRoute = createFileRoute('/docs/api/search');
 const search = createFromSource(source);
 
 const handleDocsSearch = createServerOnlyFn(

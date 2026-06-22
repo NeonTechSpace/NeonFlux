@@ -31,12 +31,20 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
     return (
-        <html lang='en' suppressHydrationWarning>
+        <html lang='en' className='dark' style={{ colorScheme: 'dark' }} suppressHydrationWarning>
             <head>
                 <HeadContent />
             </head>
             <body className='min-h-screen'>
-                <RootProvider>{children}</RootProvider>
+                <RootProvider
+                    search={{ options: { api: '/docs/api/search' } }}
+                    theme={{
+                        defaultTheme: 'dark',
+                        enableSystem: false,
+                        forcedTheme: 'dark',
+                    }}>
+                    {children}
+                </RootProvider>
                 <TanStackDevtools
                     config={{
                         position: 'bottom-right',

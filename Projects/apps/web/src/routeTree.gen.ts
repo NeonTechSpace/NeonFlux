@@ -13,8 +13,9 @@ import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
-import { Route as DocsSplatRouteImport } from './routes/docs/$'
-import { Route as ApiSearchRouteImport } from './routes/api/search'
+import { Route as DocsTopicRouteImport } from './routes/docs/topic'
+import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
+import { Route as DocsApiSearchRouteImport } from './routes/docs/api/search'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 
@@ -38,15 +39,20 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DocsRoute,
 } as any)
-const DocsSplatRoute = DocsSplatRouteImport.update({
-  id: '/$',
-  path: '/$',
+const DocsTopicRoute = DocsTopicRouteImport.update({
+  id: '/topic',
+  path: '/topic',
   getParentRoute: () => DocsRoute,
 } as any)
-const ApiSearchRoute = ApiSearchRouteImport.update({
+const DocsTopicSplatRoute = DocsTopicSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => DocsTopicRoute,
+} as any)
+const DocsApiSearchRoute = DocsApiSearchRouteImport.update({
   id: '/api/search',
   path: '/api/search',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => DocsRoute,
 } as any)
 const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
   id: '/auth/fluxer/login',
@@ -63,31 +69,34 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/docs': typeof DocsRouteWithChildren
-  '/api/search': typeof ApiSearchRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/docs/topic': typeof DocsTopicRouteWithChildren
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/docs/api/search': typeof DocsApiSearchRoute
+  '/docs/topic/$': typeof DocsTopicSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/api/search': typeof ApiSearchRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/docs/topic': typeof DocsTopicRouteWithChildren
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/docs/api/search': typeof DocsApiSearchRoute
+  '/docs/topic/$': typeof DocsTopicSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/docs': typeof DocsRouteWithChildren
-  '/api/search': typeof ApiSearchRoute
-  '/docs/$': typeof DocsSplatRoute
+  '/docs/topic': typeof DocsTopicRouteWithChildren
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/docs/api/search': typeof DocsApiSearchRoute
+  '/docs/topic/$': typeof DocsTopicSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -95,37 +104,39 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/docs'
-    | '/api/search'
-    | '/docs/$'
+    | '/docs/topic'
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/docs/api/search'
+    | '/docs/topic/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
-    | '/api/search'
-    | '/docs/$'
+    | '/docs/topic'
     | '/docs'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/docs/api/search'
+    | '/docs/topic/$'
   id:
     | '__root__'
     | '/'
     | '/dashboard'
     | '/docs'
-    | '/api/search'
-    | '/docs/$'
+    | '/docs/topic'
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/docs/api/search'
+    | '/docs/topic/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   DocsRoute: typeof DocsRouteWithChildren
-  ApiSearchRoute: typeof ApiSearchRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
@@ -160,19 +171,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/docs/$': {
-      id: '/docs/$'
-      path: '/$'
-      fullPath: '/docs/$'
-      preLoaderRoute: typeof DocsSplatRouteImport
+    '/docs/topic': {
+      id: '/docs/topic'
+      path: '/topic'
+      fullPath: '/docs/topic'
+      preLoaderRoute: typeof DocsTopicRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/api/search': {
-      id: '/api/search'
+    '/docs/topic/$': {
+      id: '/docs/topic/$'
+      path: '/$'
+      fullPath: '/docs/topic/$'
+      preLoaderRoute: typeof DocsTopicSplatRouteImport
+      parentRoute: typeof DocsTopicRoute
+    }
+    '/docs/api/search': {
+      id: '/docs/api/search'
       path: '/api/search'
-      fullPath: '/api/search'
-      preLoaderRoute: typeof ApiSearchRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/docs/api/search'
+      preLoaderRoute: typeof DocsApiSearchRouteImport
+      parentRoute: typeof DocsRoute
     }
     '/auth/fluxer/login': {
       id: '/auth/fluxer/login'
@@ -191,14 +209,28 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface DocsTopicRouteChildren {
+  DocsTopicSplatRoute: typeof DocsTopicSplatRoute
+}
+
+const DocsTopicRouteChildren: DocsTopicRouteChildren = {
+  DocsTopicSplatRoute: DocsTopicSplatRoute,
+}
+
+const DocsTopicRouteWithChildren = DocsTopicRoute._addFileChildren(
+  DocsTopicRouteChildren,
+)
+
 interface DocsRouteChildren {
-  DocsSplatRoute: typeof DocsSplatRoute
+  DocsTopicRoute: typeof DocsTopicRouteWithChildren
   DocsIndexRoute: typeof DocsIndexRoute
+  DocsApiSearchRoute: typeof DocsApiSearchRoute
 }
 
 const DocsRouteChildren: DocsRouteChildren = {
-  DocsSplatRoute: DocsSplatRoute,
+  DocsTopicRoute: DocsTopicRouteWithChildren,
   DocsIndexRoute: DocsIndexRoute,
+  DocsApiSearchRoute: DocsApiSearchRoute,
 }
 
 const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
@@ -207,7 +239,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   DocsRoute: DocsRouteWithChildren,
-  ApiSearchRoute: ApiSearchRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }
