@@ -453,7 +453,6 @@ type CapturedFluxerRequest = {
 
 function stubMinimalEnv(): void {
     vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'multi');
 }
 
 function stubValidEnv(): void {

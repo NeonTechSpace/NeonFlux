@@ -65,6 +65,16 @@ describe('/dashboard', () => {
         });
     });
 
+    it('carries a deployment config unavailable status when config is missing', async () => {
+        vi.mocked(loadDashboardData).mockResolvedValueOnce({ type: 'deployment-config-not-found' });
+
+        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual({
+            type: 'unavailable',
+            status: 503,
+            message: 'NeonFlux deployment config unavailable.',
+        });
+    });
+
     it('renders authorized dashboard communities', () => {
         render(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 

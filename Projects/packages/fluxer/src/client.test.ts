@@ -1,9 +1,8 @@
 import { Events, type Guild } from '@fluxerjs/core';
-import type { AppConfig } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFluxerBot, type FluxerBotGuildEvent } from './client.js';
+import { createFluxerBot, type FluxerBotConfig, type FluxerBotGuildEvent } from './client.js';
 
 describe('createFluxerBot lifecycle handlers', () => {
     it('calls guildCreated with only the guild id on GuildCreate', () => {
@@ -71,15 +70,9 @@ function createGuild(id: string): Guild {
     } as Guild;
 }
 
-function createConfig(): AppConfig {
+function createConfig(): FluxerBotConfig {
     return {
-        appEnv: 'development',
         instanceMode: 'multi',
-        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-        autoMigrate: false,
-        logLevel: 'info',
-        nodeEnv: 'test',
-        ownerIds: [],
     };
 }
 

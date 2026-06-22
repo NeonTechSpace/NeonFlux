@@ -1,4 +1,4 @@
-import { listBotInstallationGuildIds } from '@neonflux/db';
+import { findDeploymentConfig, listBotInstallationGuildIds } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';
@@ -39,6 +39,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
+        findDeploymentConfig: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),
     };
 });
@@ -54,8 +55,14 @@ vi.mock('@neonflux/fluxer/guilds', async (importActual) => {
 
 describe('loadDashboardGuildAccess', () => {
     beforeEach(() => {
-        stubMultiModeEnv();
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
+        vi.mocked(findDeploymentConfig).mockResolvedValue(
+            ok({
+                instanceMode: 'multi',
+                publicWebUrl: null,
+                ownerIds: [],
+            })
+        );
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValue(
             ok([
                 createFluxerGuild({ id: 'installed', name: 'Installed', permissions: '32' }),
@@ -66,7 +73,6 @@ describe('loadDashboardGuildAccess', () => {
     });
 
     afterEach(() => {
-        vi.unstubAllEnvs();
         vi.clearAllMocks();
     });
 
@@ -84,14 +90,15 @@ describe('loadDashboardGuildAccess', () => {
     it('uses the refreshed access token from the authenticated Fluxer context', async () => {
         await loadDashboardGuildAccess(request);
 
+        expect(findDeploymentConfig).toHaveBeenCalled();
         expect(listFluxerCurrentUserGuilds).toHaveBeenCalledWith({
             accessToken: authContext.accessToken,
             limit: 200,
         });
     });
 
-    it('checks only SINGLE_GUILD_ID in single mode', async () => {
-        stubSingleModeEnv('target');
+    it('checks only the configured guild from deployment config in single mode', async () => {
+        stubSingleModeDeploymentConfig('target');
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
             ok([
                 createFluxerGuild({ id: 'target', name: 'Target', permissions: '32' }),
@@ -121,7 +128,7 @@ describe('loadDashboardGuildAccess', () => {
     });
 
     it('returns unauthorized in single mode when the configured guild is not manageable', async () => {
-        stubSingleModeEnv('target');
+        stubSingleModeDeploymentConfig('target');
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
             ok([createFluxerGuild({ id: 'target', name: 'Target', permissions: '0' })])
         );
@@ -142,7 +149,7 @@ describe('loadDashboardGuildAccess', () => {
     });
 
     it('returns unauthorized in single mode when the configured guild is missing from OAuth guilds', async () => {
-        stubSingleModeEnv('target');
+        stubSingleModeDeploymentConfig('target');
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
             ok([createFluxerGuild({ id: 'other', name: 'Other', permissions: '32' })])
         );
@@ -222,6 +229,26 @@ describe('loadDashboardGuildAccess', () => {
         expect(listBotInstallationGuildIds).not.toHaveBeenCalled();
     });
 
+    it('returns deployment-config-not-found when bot bootstrap has not initialized config', async () => {
+        vi.mocked(findDeploymentConfig).mockResolvedValueOnce(err('not-found'));
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('deployment-config-not-found');
+        expect(listFluxerCurrentUserGuilds).not.toHaveBeenCalled();
+    });
+
+    it('returns database-error when deployment config lookup fails', async () => {
+        vi.mocked(findDeploymentConfig).mockResolvedValueOnce(err('database-error'));
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+        expect(listFluxerCurrentUserGuilds).not.toHaveBeenCalled();
+    });
+
     it('returns database-error when installed guild lookup fails in multi mode', async () => {
         vi.mocked(listBotInstallationGuildIds).mockResolvedValueOnce(err('database-error'));
 
@@ -232,17 +259,17 @@ describe('loadDashboardGuildAccess', () => {
     });
 });
 
-function stubMultiModeEnv(): void {
-    vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'multi');
-}
-
-function stubSingleModeEnv(singleGuildId: string): void {
-    vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'single');
-    vi.stubEnv('SINGLE_GUILD_ID', singleGuildId);
-}
-
 function createFluxerGuild(input: { id: string; name: string; permissions: string }) {
     return input;
+}
+
+function stubSingleModeDeploymentConfig(singleGuildId: string): void {
+    vi.mocked(findDeploymentConfig).mockResolvedValueOnce(
+        ok({
+            instanceMode: 'single',
+            singleGuildId,
+            publicWebUrl: null,
+            ownerIds: [],
+        })
+    );
 }

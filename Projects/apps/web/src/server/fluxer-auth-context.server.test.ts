@@ -488,7 +488,6 @@ describe('readAuthenticatedFluxerContext', () => {
 
 function stubTokenEnv(): void {
     vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'multi');
     vi.stubEnv('FLUXER_TOKEN_ENCRYPTION_KEY', tokenEncryptionKey);
     vi.stubEnv('FLUXER_APP_ID', 'fluxer-app-id');
     vi.stubEnv('FLUXER_CLIENT_SECRET', 'fluxer-client-secret');

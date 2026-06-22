@@ -52,6 +52,7 @@ services:
             AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
             INSTANCE_MODE: ${INSTANCE_MODE:-multi}
             SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
+            PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
             FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
             LOG_LEVEL: ${LOG_LEVEL:-info}
             OWNER_IDS: ${OWNER_IDS:-}
@@ -67,14 +68,12 @@ services:
             NODE_ENV: production
             DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
             AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
-            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
-            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
             FLUXER_APP_ID: ${FLUXER_APP_ID:?FLUXER_APP_ID is required}
             FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?FLUXER_CLIENT_SECRET is required}
             FLUXER_OAUTH_REDIRECT_URL: ${FLUXER_OAUTH_REDIRECT_URL:?FLUXER_OAUTH_REDIRECT_URL is required}
             SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+            FLUXER_TOKEN_ENCRYPTION_KEY: ${FLUXER_TOKEN_ENCRYPTION_KEY:?FLUXER_TOKEN_ENCRYPTION_KEY is required}
             LOG_LEVEL: ${LOG_LEVEL:-info}
-            OWNER_IDS: ${OWNER_IDS:-}
             HOST: "0.0.0.0"
             PORT: "3000"
         ports:
@@ -92,10 +91,16 @@ volumes:
 Use the same key names as local development. In Docker, `DATABASE_URL` must use the Compose service name `db`.
 
 ```env
-INSTANCE_MODE=multi
 AUTO_MIGRATE=true
 
 DATABASE_URL=postgres://neonflux:change-me@db:5432/neonflux
+
+# Bot bootstrap behavior config. The bot writes this into deployment_config;
+# the web service reads the DB row instead of these env vars.
+INSTANCE_MODE=multi
+SINGLE_GUILD_ID=
+PUBLIC_WEB_URL=https://your-domain.example
+OWNER_IDS=
 
 FLUXER_APP_ID=
 FLUXER_CLIENT_SECRET=
@@ -103,11 +108,17 @@ FLUXER_BOT_TOKEN=
 FLUXER_OAUTH_REDIRECT_URL=https://your-domain.example/auth/fluxer/callback
 
 SESSION_SECRET=
+FLUXER_TOKEN_ENCRYPTION_KEY=
 LOG_LEVEL=info
-OWNER_IDS=
 ```
 
 Generate `SESSION_SECRET` with:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+Generate `FLUXER_TOKEN_ENCRYPTION_KEY` with:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"

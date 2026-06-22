@@ -4,7 +4,7 @@
 - Target pnpm 11. Keep pnpm settings in `pnpm-workspace.yaml`, and pin Node with root `package.json` `devEngines.runtime`.
 - Use Postgres only. Do not add SQLite, `node:sqlite`, or local DB-file runtime support. PGlite is only for tests and migration validation.
 - There is no staging environment. Runtime environments are development and production.
-- `INSTANCE_MODE` behavior must be handled with `switch` statements.
+- `INSTANCE_MODE` bootstrap and DB-effective mode behavior must be handled with `switch` statements.
 - Keep shared logic in `packages/*`; bot and web consume it through workspace package imports.
 - Use `neverthrow` for expected recoverable runtime failures. Each importing package must declare it directly.
 - Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests; mock only real runtime boundaries such as network, DB, env, clock, and randomness.
@@ -12,7 +12,7 @@
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
 - Shared package changes do not force every image to release, but DB migrations must stay compatible with deployed bot and web versions.
 - For DB design, model ownership before writing schema: name the durable concept, lifecycle, cardinality, authority, retention/deletion behavior, and expected access paths. Each table should own one durable concept.
-- Do not persist runtime/deployment config such as `INSTANCE_MODE` inside entity rows unless there is a real audit/history need.
+- Deployment behavior config lives in the dedicated `deployment_config` row. Do not copy it into entity rows such as `bot_installations`.
 - Use guild-scoped generic settings only for small feature toggles/config. Add dedicated feature tables when a feature owns records, workflows, submissions, logs, approvals, counters, or user data.
 - Keep startup migration behavior in application-owned bootstrap code, not Docker shell command chains, so Docker and local production-style starts share the same locked migration path.
 - When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`: current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit; since last release tag aggregates unreleased impact since the latest relevant release tag. Current deployable outputs are `bot`, `web`, and `web-docs`, so state `bot`, `web`, `web-docs`, `both web variants`, `both`, or `none` for each section. Use `both web variants` when `web` and `web-docs` are affected but `bot` is not. Use `both` when `bot` and at least one web output are affected.

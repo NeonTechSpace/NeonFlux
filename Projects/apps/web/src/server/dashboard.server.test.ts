@@ -107,6 +107,12 @@ describe('loadDashboardData', () => {
         await expect(loadDashboardData(request)).resolves.toStrictEqual({ type: 'database-error' });
     });
 
+    it('maps missing deployment config to deployment-config-not-found', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('deployment-config-not-found'));
+
+        await expect(loadDashboardData(request)).resolves.toStrictEqual({ type: 'deployment-config-not-found' });
+    });
+
     it('maps Fluxer guild lookup failures to guild-lookup-failed', async () => {
         vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('guild-lookup-failed'));
 

@@ -1,9 +1,14 @@
 import { Client, Events } from '@fluxerjs/core';
 
-import type { AppConfig } from '@neonflux/config';
+import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
 
 export type FluxerBot = ReturnType<typeof createFluxerBot>;
+
+export type FluxerBotConfig = {
+    fluxerBotToken?: string;
+    instanceMode: InstanceMode;
+};
 
 export type FluxerBotGuildEvent = {
     guildId: string;
@@ -17,7 +22,7 @@ export type FluxerBotLifecycleHandlers = {
 type FluxerBotGuildEventHandler = (event: FluxerBotGuildEvent) => void | Promise<void>;
 
 export function createFluxerBot(
-    config: AppConfig,
+    config: FluxerBotConfig,
     logger: AppLogger,
     lifecycleHandlers: FluxerBotLifecycleHandlers = {}
 ) {

@@ -73,4 +73,47 @@ describe('loadConfig', () => {
 
         expect(config.fluxerTokenEncryptionKey).toBe('encryption-key');
     });
+
+    it('loads and normalizes the optional public web origin', () => {
+        const config = loadConfig({
+            PUBLIC_WEB_URL: ' https://neonflux.example/ ',
+        });
+
+        expect(config.publicWebUrl).toBe('https://neonflux.example');
+    });
+
+    it('omits a blank public web origin', () => {
+        const config = loadConfig({
+            PUBLIC_WEB_URL: '   ',
+        });
+
+        expect(config.publicWebUrl).toBeUndefined();
+    });
+
+    it('rejects public web URLs with a path, query, hash, or credentials', () => {
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'https://neonflux.example/docs' })).toThrow(
+            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
+        );
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'https://neonflux.example?x=1' })).toThrow(
+            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
+        );
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'https://neonflux.example#docs' })).toThrow(
+            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
+        );
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'https://user:pass@neonflux.example' })).toThrow(
+            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
+        );
+    });
+
+    it('rejects non-http public web URLs', () => {
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(
+            'PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin'
+        );
+    });
+
+    it('rejects malformed public web URLs', () => {
+        expect(() => loadConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(
+            'PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin'
+        );
+    });
 });
