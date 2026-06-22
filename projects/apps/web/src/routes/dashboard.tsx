@@ -6,6 +6,7 @@ import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dash
 const createRoute = createFileRoute('/dashboard');
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
+const deploymentConfigUnavailableMessage = 'NeonFlux deployment config unavailable.';
 
 export type DashboardRouteData =
     | {
@@ -14,7 +15,7 @@ export type DashboardRouteData =
       }
     | {
           type: 'unavailable';
-          status: 500 | 502;
+          status: 500 | 502 | 503;
           message: string;
       };
 
@@ -36,6 +37,13 @@ export async function loadDashboardRouteResult(request: Request): Promise<Dashbo
                 type: 'unavailable',
                 status: 500,
                 message: dashboardUnavailableMessage,
+            };
+
+        case 'deployment-config-not-found':
+            return {
+                type: 'unavailable',
+                status: 503,
+                message: deploymentConfigUnavailableMessage,
             };
 
         case 'guild-lookup-failed':

@@ -17,6 +17,10 @@
         "./mode": {
             "types": "./src/mode.ts",
             "import": "./dist/mode.js"
+        },
+        "./public-url": {
+            "types": "./src/public-url.ts",
+            "import": "./dist/public-url.js"
         }
     },
     "scripts": {

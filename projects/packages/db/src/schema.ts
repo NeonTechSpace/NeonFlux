@@ -15,6 +15,16 @@ export const botInstallations = pgTable('bot_installations', {
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const deploymentConfig = pgTable('deployment_config', {
+    id: text('id').primaryKey(),
+    instanceMode: text('instance_mode').notNull(),
+    singleGuildId: text('single_guild_id'),
+    publicWebUrl: text('public_web_url'),
+    ownerIds: text('owner_ids').array().notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const guildFeatureSettings = pgTable(
     'guild_feature_settings',
     {

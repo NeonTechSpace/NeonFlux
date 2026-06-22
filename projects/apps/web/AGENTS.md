@@ -1,7 +1,8 @@
 # NeonFlux Web Instructions
 
 - Re-check authorization server-side on every mutation.
-- Single mode has no guild picker and checks only `SINGLE_GUILD_ID`.
+- Web reads deployment behavior from `deployment_config`, not `INSTANCE_MODE` or `SINGLE_GUILD_ID` env.
+- Single mode has no guild picker and checks only the DB-effective configured guild.
 - Multi mode lists guilds from OAuth only after Manage Server permission filtering.
 - Keep OAuth and Fluxer permission translation in `packages/fluxer`.
 - Keep shared dashboard access rules in `packages/core`.

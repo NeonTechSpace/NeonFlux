@@ -11,6 +11,7 @@ export type DashboardDataResult =
           viewModel: DashboardViewModel;
       }
     | { type: 'auth-required' }
+    | { type: 'deployment-config-not-found' }
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' };
 
@@ -43,6 +44,9 @@ function mapDashboardAccessError(error: DashboardGuildAccessError): DashboardDat
 
         case 'database-error':
             return { type: 'database-error' };
+
+        case 'deployment-config-not-found':
+            return { type: 'deployment-config-not-found' };
 
         case 'guild-lookup-failed':
             return { type: 'guild-lookup-failed' };

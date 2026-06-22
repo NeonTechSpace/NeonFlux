@@ -1,10 +1,10 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
-import type { AppConfig, AppMode } from '@neonflux/config';
+import type { AppMode } from '@neonflux/config';
 import { selectDashboardGuilds } from '@neonflux/core';
 import type { DashboardGuild } from '@neonflux/core';
-import { listBotInstallationGuildIds } from '@neonflux/db';
+import { findDeploymentConfig, listBotInstallationGuildIds } from '@neonflux/db';
+import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { toDashboardGuild } from '@neonflux/fluxer/permissions';
 import { err, ok } from 'neverthrow';
@@ -24,7 +24,11 @@ export type DashboardGuildAccess =
       }
     | { type: 'no-manageable-guilds'; mode: Extract<AppMode, { instanceMode: 'multi' }> };
 
-export type DashboardGuildAccessError = AuthenticatedFluxerContextError | 'guild-lookup-failed' | 'database-error';
+export type DashboardGuildAccessError =
+    | AuthenticatedFluxerContextError
+    | 'deployment-config-not-found'
+    | 'guild-lookup-failed'
+    | 'database-error';
 
 export async function loadDashboardGuildAccess(
     request: Request
@@ -35,8 +39,14 @@ export async function loadDashboardGuildAccess(
         return err(authContextResult.error);
     }
 
-    const config = loadConfig();
-    const mode = getAppMode(config);
+    const database = getWebDatabaseClient();
+    const modeResult = await findDeploymentConfig(database.db);
+
+    if (modeResult.isErr()) {
+        return err(mapDeploymentConfigError(modeResult.error));
+    }
+
+    const mode = toAppMode(modeResult.value);
     const guildsResult = await listFluxerCurrentUserGuilds({
         accessToken: authContextResult.value.accessToken,
         limit: 200,
@@ -111,7 +121,7 @@ async function selectMultiDashboardGuildAccess(
     });
 }
 
-function getAppMode(config: AppConfig): AppMode {
+function toAppMode(config: DeploymentConfigRecord): AppMode {
     switch (config.instanceMode) {
         case 'single':
             return {
@@ -123,5 +133,20 @@ function getAppMode(config: AppConfig): AppMode {
             return {
                 instanceMode: 'multi',
             };
+    }
+}
+
+function mapDeploymentConfigError(
+    errorValue: DeploymentConfigRepositoryError
+): 'deployment-config-not-found' | 'database-error' {
+    switch (errorValue) {
+        case 'not-found':
+            return 'deployment-config-not-found';
+
+        case 'database-error':
+        case 'invalid-instance-mode':
+        case 'missing-instance-mode':
+        case 'missing-single-guild-id':
+            return 'database-error';
     }
 }

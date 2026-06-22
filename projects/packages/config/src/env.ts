@@ -24,6 +24,7 @@ const rawEnv = type({
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
     'SESSION_SECRET?': 'string',
+    'PUBLIC_WEB_URL?': 'string',
     'LOG_LEVEL?': logLevel,
     'NODE_ENV?': nodeEnv,
     'OWNER_IDS?': 'string',
@@ -45,6 +46,7 @@ export type AppConfig = AppMode & {
     fluxerOauthRedirectUrl?: string;
     fluxerTokenEncryptionKey?: string;
     sessionSecret?: string;
+    publicWebUrl?: string;
     logLevel: LogLevel;
     nodeEnv: 'development' | 'test' | 'production';
     ownerIds: string[];
@@ -96,6 +98,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
     const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
     const sessionSecret = optionalValue(parsed.SESSION_SECRET);
+    const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
 
     if (appEnvValue === 'production') {
         requireEnvValue(databaseUrl, 'DATABASE_URL');
@@ -111,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
         ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
         ...(sessionSecret ? { sessionSecret } : {}),
+        ...(publicWebUrl ? { publicWebUrl } : {}),
         logLevel: parsed.LOG_LEVEL ?? 'info',
         nodeEnv: parsed.NODE_ENV ?? 'development',
         ownerIds: parseCsvIds(parsed.OWNER_IDS),
@@ -145,6 +149,38 @@ function valueOrFallback(value: string | undefined, fallback: string | undefined
     const parsedValue = optionalValue(value) ?? fallback;
     requireEnvValue(parsedValue, 'DATABASE_URL');
     return parsedValue;
+}
+
+function optionalPublicWebUrl(value: string | undefined): string | undefined {
+    const normalizedValue = optionalValue(value);
+
+    if (!normalizedValue) {
+        return undefined;
+    }
+
+    let url: URL;
+
+    try {
+        url = new URL(normalizedValue);
+    } catch {
+        throw new Error('PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin');
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin');
+    }
+
+    if (
+        url.pathname !== '/' ||
+        url.search.length > 0 ||
+        url.hash.length > 0 ||
+        url.username.length > 0 ||
+        url.password.length > 0
+    ) {
+        throw new Error('PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials');
+    }
+
+    return url.origin;
 }
 
 function requireEnvValue(value: string | undefined, name: string): asserts value is string {

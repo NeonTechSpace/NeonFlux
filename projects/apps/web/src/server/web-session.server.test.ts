@@ -121,7 +121,6 @@ describe('readAuthenticatedWebSession', () => {
 
 function stubSessionEnv(): void {
     vi.stubEnv('APP_ENV', 'development');
-    vi.stubEnv('INSTANCE_MODE', 'multi');
     vi.stubEnv('SESSION_SECRET', sessionSecret);
 }
 
