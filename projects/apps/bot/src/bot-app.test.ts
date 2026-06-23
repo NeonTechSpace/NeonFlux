@@ -1,8 +1,20 @@
 import type { AppConfig } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
 import type * as NeonFluxDb from '@neonflux/db';
-import { deleteBotInstallation, runDatabaseMigrations, upsertBotInstallation, type DatabaseClient } from '@neonflux/db';
-import { createFluxerBot, type FluxerBotConfig, type FluxerBotLifecycleHandlers } from '@neonflux/fluxer';
+import {
+    deleteBotInstallation,
+    findGuildSecurityPolicyByGuildId,
+    listGuildDefconExemptionCategories,
+    runDatabaseMigrations,
+    upsertBotInstallation,
+    type DatabaseClient,
+} from '@neonflux/db';
+import {
+    createFluxerBot,
+    sendFluxerChannelMessage,
+    type FluxerBotConfig,
+    type FluxerBotLifecycleHandlers,
+} from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +27,8 @@ vi.mock('@neonflux/db', async (importOriginal) => {
     return {
         ...actual,
         deleteBotInstallation: vi.fn(),
+        findGuildSecurityPolicyByGuildId: vi.fn(),
+        listGuildDefconExemptionCategories: vi.fn(),
         runDatabaseMigrations: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
@@ -22,6 +36,7 @@ vi.mock('@neonflux/db', async (importOriginal) => {
 
 vi.mock('@neonflux/fluxer', () => ({
     createFluxerBot: vi.fn(),
+    sendFluxerChannelMessage: vi.fn(),
 }));
 
 vi.mock('./deployment-config-bootstrap.js', () => ({
@@ -31,9 +46,17 @@ vi.mock('./deployment-config-bootstrap.js', () => ({
 const runDatabaseMigrationsMock = vi.mocked(runDatabaseMigrations);
 const bootstrapDeploymentConfigMock = vi.mocked(bootstrapDeploymentConfig);
 const createFluxerBotMock = vi.mocked(createFluxerBot);
+const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
+const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
 const testDb = {} as DatabaseClient['db'];
+const testFluxerClient = {
+    user: {
+        id: 'bot-user',
+    },
+} as never;
 
 let capturedFluxerConfig: FluxerBotConfig | undefined;
 let capturedLifecycleHandlers: FluxerBotLifecycleHandlers | undefined;
@@ -58,13 +81,22 @@ describe('createBotApp', () => {
             capturedLifecycleHandlers = lifecycleHandlers;
 
             return {
-                client: {} as never,
+                client: testFluxerClient,
                 start: fluxerStartMock,
                 stop: fluxerStopMock,
             };
         });
         upsertBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
         deleteBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
+        findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
+        listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        sendFluxerChannelMessageMock.mockResolvedValue(
+            ok({
+                id: 'reply-1',
+                channelId: 'channel-1',
+                guildId: 'guild-1',
+            })
+        );
     });
 
     it('runs migrations before deployment config bootstrap', async () => {
@@ -171,6 +203,70 @@ describe('createBotApp', () => {
         });
     });
 
+    it('routes message-created events through the bot feature router', async () => {
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger: createLogger(),
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        await capturedLifecycleHandlers?.messageCreated?.({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            content: '<@bot-user>',
+            mentionedUserIds: ['bot-user'],
+        });
+
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testFluxerClient,
+            channelId: 'channel-1',
+            content: "Yes, I'm here, and no, I don't pong",
+        });
+    });
+
+    it('logs message route failures without throwing', async () => {
+        const logErrorMock = vi.fn();
+        const logger = createLogger({ error: logErrorMock });
+
+        sendFluxerChannelMessageMock.mockResolvedValueOnce(
+            err({
+                type: 'send-failed',
+                error: new Error('missing access'),
+            })
+        );
+
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger,
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        await expect(
+            capturedLifecycleHandlers?.messageCreated?.({
+                messageId: 'message-1',
+                channelId: 'channel-1',
+                guildId: 'guild-1',
+                authorId: 'author-1',
+                authorIsBot: false,
+                content: '<@bot-user>',
+                mentionedUserIds: ['bot-user'],
+            })
+        ).resolves.toBeUndefined();
+        expect(logErrorMock).toHaveBeenCalledWith('bot.message_created_route_failed', {
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            error: 'message-send-error',
+        });
+    });
+
     it('returns false and closes the database when Fluxer does not start', async () => {
         const database = createDatabase();
         const closeDatabaseMock = database.close as ReturnType<typeof vi.fn<() => Promise<void>>>;
@@ -249,6 +345,7 @@ function createBaseConfig(options: { fluxerBotToken?: string | null } = {}): Omi
         databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
         autoMigrate: true,
         ...(options.fluxerBotToken === null ? {} : { fluxerBotToken: options.fluxerBotToken ?? 'bot-token' }),
+        guildDefconOverride: 'auto',
         logLevel: 'info',
         nodeEnv: 'test',
         ownerIds: [],

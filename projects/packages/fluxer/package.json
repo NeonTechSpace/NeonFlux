@@ -14,6 +14,10 @@
             "types": "./src/guilds.ts",
             "import": "./dist/guilds.js"
         },
+        "./messages": {
+            "types": "./src/messages.ts",
+            "import": "./dist/messages.js"
+        },
         "./oauth": {
             "types": "./src/oauth.ts",
             "import": "./dist/oauth.js"

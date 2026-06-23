@@ -8,6 +8,7 @@ export type FluxerCurrentUserGuild = {
     id: string;
     name: string;
     permissions: string;
+    ownerId?: string;
 };
 
 export type ListFluxerCurrentUserGuildsInput = {
@@ -145,6 +146,7 @@ function parseFluxerCurrentUserGuild(value: unknown): FluxerCurrentUserGuild | u
     const id = value.id;
     const name = value.name;
     const permissions = value.permissions;
+    const ownerId = value.owner_id;
 
     if (typeof id !== 'string' || typeof name !== 'string' || typeof permissions !== 'string') {
         return undefined;
@@ -154,6 +156,7 @@ function parseFluxerCurrentUserGuild(value: unknown): FluxerCurrentUserGuild | u
         id,
         name,
         permissions,
+        ...(typeof ownerId === 'string' && ownerId.trim().length > 0 ? { ownerId: ownerId.trim() } : {}),
     };
 }
 

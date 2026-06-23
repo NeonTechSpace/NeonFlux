@@ -16,7 +16,11 @@ const expectedTables = [
     'bot_installations',
     'deployment_config',
     'fluxer_oauth_tokens',
+    'guild_command_permission_rules',
+    'guild_dashboard_permission_rules',
+    'guild_defcon_exemptions',
     'guild_feature_settings',
+    'guild_security_policies',
     'web_sessions',
 ];
 

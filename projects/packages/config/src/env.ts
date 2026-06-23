@@ -8,6 +8,7 @@ const devDatabaseUrl = 'postgres://postgres:postgres@localhost:5432/neonflux_dev
 
 const appEnv = type("'development' | 'production'");
 const instanceMode = type("'single' | 'multi'");
+const guildDefconOverride = type("'auto' | '1' | '2' | '3'");
 const logLevel = type("'debug' | 'info' | 'warn' | 'error'");
 const nodeEnv = type("'development' | 'test' | 'production'");
 const autoMigrate = type("'true' | 'false'");
@@ -25,6 +26,7 @@ const rawEnv = type({
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
     'SESSION_SECRET?': 'string',
     'PUBLIC_WEB_URL?': 'string',
+    'GUILD_DEFCON_OVERRIDE?': guildDefconOverride,
     'LOG_LEVEL?': logLevel,
     'NODE_ENV?': nodeEnv,
     'OWNER_IDS?': 'string',
@@ -32,6 +34,8 @@ const rawEnv = type({
 
 export type AppEnv = 'development' | 'production';
 export type InstanceMode = 'single' | 'multi';
+export type GuildDefconLevel = 1 | 2 | 3;
+export type GuildDefconOverride = 'auto' | GuildDefconLevel;
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' };
@@ -47,6 +51,7 @@ export type AppConfig = AppMode & {
     fluxerTokenEncryptionKey?: string;
     sessionSecret?: string;
     publicWebUrl?: string;
+    guildDefconOverride: GuildDefconOverride;
     logLevel: LogLevel;
     nodeEnv: 'development' | 'test' | 'production';
     ownerIds: string[];
@@ -115,6 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
         ...(sessionSecret ? { sessionSecret } : {}),
         ...(publicWebUrl ? { publicWebUrl } : {}),
+        guildDefconOverride: parseGuildDefconOverride(parsed.GUILD_DEFCON_OVERRIDE),
         logLevel: parsed.LOG_LEVEL ?? 'info',
         nodeEnv: parsed.NODE_ENV ?? 'development',
         ownerIds: parseCsvIds(parsed.OWNER_IDS),
@@ -186,6 +192,19 @@ function optionalPublicWebUrl(value: string | undefined): string | undefined {
 function requireEnvValue(value: string | undefined, name: string): asserts value is string {
     if (!value) {
         throw new Error(`${name} is required`);
+    }
+}
+
+function parseGuildDefconOverride(value: 'auto' | '1' | '2' | '3' | undefined): GuildDefconOverride {
+    switch (value ?? 'auto') {
+        case 'auto':
+            return 'auto';
+        case '1':
+            return 1;
+        case '2':
+            return 2;
+        case '3':
+            return 3;
     }
 }
 

@@ -122,6 +122,7 @@ function createBaseConfig(): Omit<AppConfig, 'instanceMode' | 'singleGuildId'> {
         appEnv: 'development',
         databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
         autoMigrate: true,
+        guildDefconOverride: 'auto',
         logLevel: 'info',
         nodeEnv: 'test',
         ownerIds: [],

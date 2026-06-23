@@ -1,4 +1,4 @@
-import { Client, Events } from '@fluxerjs/core';
+import { Client, Events, type Message } from '@fluxerjs/core';
 
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
@@ -14,12 +14,24 @@ export type FluxerBotGuildEvent = {
     guildId: string;
 };
 
+export type FluxerBotMessageEvent = {
+    messageId: string;
+    channelId: string;
+    guildId: string | null;
+    authorId: string;
+    authorIsBot: boolean;
+    content: string;
+    mentionedUserIds: string[];
+};
+
 export type FluxerBotLifecycleHandlers = {
     guildCreated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
     guildDeleted?: (event: FluxerBotGuildEvent) => void | Promise<void>;
+    messageCreated?: (event: FluxerBotMessageEvent) => void | Promise<void>;
 };
 
 type FluxerBotGuildEventHandler = (event: FluxerBotGuildEvent) => void | Promise<void>;
+type FluxerBotMessageEventHandler = (event: FluxerBotMessageEvent) => void | Promise<void>;
 
 export function createFluxerBot(
     config: FluxerBotConfig,
@@ -46,6 +58,15 @@ export function createFluxerBot(
         });
     });
 
+    client.on(Events.MessageCreate, (message) => {
+        void runMessageLifecycleHandler(
+            logger,
+            'fluxer.message_created_handler_failed',
+            lifecycleHandlers.messageCreated,
+            normalizeMessageEvent(message)
+        );
+    });
+
     return {
         client,
         async start(): Promise<boolean> {
@@ -63,6 +84,18 @@ export function createFluxerBot(
     };
 }
 
+function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {
+    return {
+        messageId: message.id,
+        channelId: message.channelId,
+        guildId: message.guildId,
+        authorId: message.author.id,
+        authorIsBot: message.author.bot,
+        content: message.content,
+        mentionedUserIds: message.mentions.map((user) => user.id),
+    };
+}
+
 async function runGuildLifecycleHandler(
     logger: AppLogger,
     logEvent: string,
@@ -77,6 +110,27 @@ async function runGuildLifecycleHandler(
         await handler(event);
     } catch {
         logger.error(logEvent, {
+            guildId: event.guildId,
+        });
+    }
+}
+
+async function runMessageLifecycleHandler(
+    logger: AppLogger,
+    logEvent: string,
+    handler: FluxerBotMessageEventHandler | undefined,
+    event: FluxerBotMessageEvent
+): Promise<void> {
+    if (!handler) {
+        return;
+    }
+
+    try {
+        await handler(event);
+    } catch {
+        logger.error(logEvent, {
+            messageId: event.messageId,
+            channelId: event.channelId,
             guildId: event.guildId,
         });
     }

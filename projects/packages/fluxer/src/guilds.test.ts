@@ -65,7 +65,7 @@ describe('listFluxerCurrentUserGuilds', () => {
                             id: 'guild-2',
                             name: 'NeonFlux Production',
                             permissions: '8',
-                            owner: true,
+                            owner_id: ' owner-user ',
                         },
                     ])
                 ),
@@ -82,6 +82,7 @@ describe('listFluxerCurrentUserGuilds', () => {
                 id: 'guild-2',
                 name: 'NeonFlux Production',
                 permissions: '8',
+                ownerId: 'owner-user',
             },
         ]);
     });

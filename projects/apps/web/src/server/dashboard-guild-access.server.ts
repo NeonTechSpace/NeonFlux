@@ -1,9 +1,15 @@
 import '@tanstack/react-start/server-only';
 
 import type { AppMode } from '@neonflux/config';
-import { selectDashboardGuilds } from '@neonflux/core';
+import { loadConfig } from '@neonflux/config';
+import { authorizeDashboardAccess } from '@neonflux/core/defcon';
 import type { DashboardGuild } from '@neonflux/core';
-import { findDeploymentConfig, listBotInstallationGuildIds } from '@neonflux/db';
+import {
+    findDeploymentConfig,
+    listGuildDashboardPermissionRulesByGuildIds,
+    listGuildSecurityPoliciesByGuildIds,
+    listBotInstallationGuildIds,
+} from '@neonflux/db';
 import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { toDashboardGuild } from '@neonflux/fluxer/permissions';
@@ -47,6 +53,7 @@ export async function loadDashboardGuildAccess(
     }
 
     const mode = toAppMode(modeResult.value);
+    const config = loadConfig();
     const guildsResult = await listFluxerCurrentUserGuilds({
         accessToken: authContextResult.value.accessToken,
         limit: 200,
@@ -56,42 +63,64 @@ export async function loadDashboardGuildAccess(
         return err('guild-lookup-failed');
     }
 
+    const guilds = guildsResult.value.map(toDashboardGuild);
+
     switch (mode.instanceMode) {
         case 'single':
-            return ok(selectSingleDashboardGuildAccess(mode, guildsResult.value.map(toDashboardGuild)));
+            return await selectSingleDashboardGuildAccess({
+                mode,
+                guilds,
+                fluxerUserId: authContextResult.value.fluxerUserId,
+                appEnv: config.appEnv,
+                guildDefconOverride: config.guildDefconOverride,
+            });
 
         case 'multi':
-            return selectMultiDashboardGuildAccess(mode, guildsResult.value.map(toDashboardGuild));
+            return selectMultiDashboardGuildAccess({
+                mode,
+                guilds,
+                fluxerUserId: authContextResult.value.fluxerUserId,
+                appEnv: config.appEnv,
+                guildDefconOverride: config.guildDefconOverride,
+            });
     }
 }
 
-function selectSingleDashboardGuildAccess(
-    mode: Extract<AppMode, { instanceMode: 'single' }>,
-    guilds: DashboardGuild[]
-): DashboardGuildAccess {
-    const selectedGuilds = selectDashboardGuilds(mode, guilds);
+type DashboardSelectionContext = {
+    guilds: DashboardGuild[];
+    fluxerUserId: string;
+    appEnv: ReturnType<typeof loadConfig>['appEnv'];
+    guildDefconOverride: ReturnType<typeof loadConfig>['guildDefconOverride'];
+};
 
-    if (selectedGuilds.length > 0) {
-        return {
-            type: 'authorized',
-            mode,
-            guilds: selectedGuilds,
-        };
+async function selectSingleDashboardGuildAccess(
+    context: DashboardSelectionContext & { mode: Extract<AppMode, { instanceMode: 'single' }> }
+): Promise<Result<DashboardGuildAccess, DashboardGuildAccessError>> {
+    const configuredGuild = context.guilds.find((guild) => guild.id === context.mode.singleGuildId);
+    const authorizedGuilds = configuredGuild ? await authorizeDashboardGuilds(context, [configuredGuild]) : ok([]);
+
+    if (authorizedGuilds.isErr()) {
+        return err(authorizedGuilds.error);
     }
 
-    const configuredGuild = guilds.find((guild) => guild.id === mode.singleGuildId);
+    if (authorizedGuilds.value.length > 0) {
+        return ok({
+            type: 'authorized',
+            mode: context.mode,
+            guilds: authorizedGuilds.value,
+        });
+    }
 
-    return {
+    return ok({
         type: 'unauthorized',
-        mode,
-        configuredGuildId: mode.singleGuildId,
+        mode: context.mode,
+        configuredGuildId: context.mode.singleGuildId,
         ...(configuredGuild?.name ? { configuredGuildName: configuredGuild.name } : {}),
-    };
+    });
 }
 
 async function selectMultiDashboardGuildAccess(
-    mode: Extract<AppMode, { instanceMode: 'multi' }>,
-    guilds: DashboardGuild[]
+    context: DashboardSelectionContext & { mode: Extract<AppMode, { instanceMode: 'multi' }> }
 ): Promise<Result<DashboardGuildAccess, DashboardGuildAccessError>> {
     const database = getWebDatabaseClient();
     const installedGuildIdsResult = await listBotInstallationGuildIds(database.db);
@@ -101,24 +130,108 @@ async function selectMultiDashboardGuildAccess(
     }
 
     const installedGuildIds = new Set(installedGuildIdsResult.value);
-    const guildsWithInstallation = guilds.map((guild) => ({
-        ...guild,
-        botInstalled: installedGuildIds.has(guild.id),
-    }));
-    const selectedGuilds = selectDashboardGuilds(mode, guildsWithInstallation);
+    const installedGuilds = context.guilds
+        .filter((guild) => installedGuildIds.has(guild.id))
+        .map((guild) => ({
+            ...guild,
+            botInstalled: true,
+        }));
+    const authorizedGuilds = await authorizeDashboardGuilds(context, installedGuilds);
 
-    if (selectedGuilds.length === 0) {
+    if (authorizedGuilds.isErr()) {
+        return err(authorizedGuilds.error);
+    }
+
+    if (authorizedGuilds.value.length === 0) {
         return ok({
             type: 'no-manageable-guilds',
-            mode,
+            mode: context.mode,
         });
     }
 
     return ok({
         type: 'authorized',
-        mode,
-        guilds: selectedGuilds,
+        mode: context.mode,
+        guilds: authorizedGuilds.value,
     });
+}
+
+async function authorizeDashboardGuilds(
+    context: DashboardSelectionContext,
+    guilds: readonly DashboardGuild[]
+): Promise<Result<DashboardGuild[], 'database-error'>> {
+    const policyContextResult = await loadDashboardPolicyContext(guilds);
+
+    if (policyContextResult.isErr()) {
+        return err(policyContextResult.error);
+    }
+
+    const authorizedGuilds: DashboardGuild[] = [];
+
+    for (const guild of guilds) {
+        if (authorizeDashboardGuild(context, policyContextResult.value, guild)) {
+            authorizedGuilds.push(guild);
+        }
+    }
+
+    return ok(authorizedGuilds);
+}
+
+type DashboardPolicyContext = {
+    securityPoliciesByGuildId: ReadonlyMap<string, { defconLevel: 1 | 2 | 3 }>;
+    dashboardGrantsByGuildId: ReadonlyMap<string, { userIds: string[]; roleIds: string[] }>;
+};
+
+async function loadDashboardPolicyContext(
+    guilds: readonly DashboardGuild[]
+): Promise<Result<DashboardPolicyContext, 'database-error'>> {
+    const database = getWebDatabaseClient();
+    const guildIds = guilds.map((guild) => guild.id);
+    const [securityPoliciesResult, dashboardGrantsResult] = await Promise.all([
+        listGuildSecurityPoliciesByGuildIds(database.db, { guildIds }),
+        listGuildDashboardPermissionRulesByGuildIds(database.db, { guildIds }),
+    ]);
+
+    if (securityPoliciesResult.isErr() || dashboardGrantsResult.isErr()) {
+        return err('database-error');
+    }
+
+    return ok({
+        securityPoliciesByGuildId: new Map(
+            securityPoliciesResult.value.map((policy) => [policy.guildId, { defconLevel: policy.defconLevel }])
+        ),
+        dashboardGrantsByGuildId: new Map(
+            dashboardGrantsResult.value.map((grant) => [
+                grant.guildId,
+                {
+                    userIds: grant.userIds,
+                    roleIds: grant.roleIds,
+                },
+            ])
+        ),
+    });
+}
+
+function authorizeDashboardGuild(
+    context: DashboardSelectionContext,
+    policyContext: DashboardPolicyContext,
+    guild: DashboardGuild
+): boolean {
+    const securityPolicy = policyContext.securityPoliciesByGuildId.get(guild.id);
+    const dashboardGrant = policyContext.dashboardGrantsByGuildId.get(guild.id);
+    const authorization = authorizeDashboardAccess({
+        appEnv: context.appEnv,
+        override: context.guildDefconOverride,
+        ...(securityPolicy ? { storedLevel: securityPolicy.defconLevel } : {}),
+        actor: {
+            userId: context.fluxerUserId,
+            isServerOwner: guild.ownerId === context.fluxerUserId,
+            hasManageServer: guild.canManage,
+        },
+        ...(dashboardGrant ? { dashboardGrant } : {}),
+    });
+
+    return authorization.allowed;
 }
 
 function toAppMode(config: DeploymentConfigRecord): AppMode {

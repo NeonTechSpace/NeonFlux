@@ -12,6 +12,6 @@
 - Dashboard pages load initial protected data through route loaders/server functions before rendering client components.
 - Use `useEffect` only to sync with external systems, never for derived state or normal data loading.
 - Use `useLayoutEffect` only for unavoidable pre-paint DOM measurement or mutation.
-- Keep UI async-first: do not block input/render on network, show pending states, and use transitions/deferred work for expensive updates.
-- Optimistic updates need rollback plus server revalidation.
+- Keep UI async-first for fast paint and instant-feeling loading: avoid request waterfalls, do not block input/render on network, show clear loading/pending states, and use transitions/deferred work for expensive updates.
+- Optimistic updates keep the UI responsive and must include rollback plus server revalidation.
 - Keep this file in present tense as app patterns change.
