@@ -116,4 +116,23 @@ describe('loadConfig', () => {
             'PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin'
         );
     });
+
+    it('defaults guild DEFCON override to auto', () => {
+        expect(loadConfig({}).guildDefconOverride).toBe('auto');
+    });
+
+    it('loads numeric guild DEFCON overrides', () => {
+        expect(loadConfig({ GUILD_DEFCON_OVERRIDE: '1' }).guildDefconOverride).toBe(1);
+        expect(loadConfig({ GUILD_DEFCON_OVERRIDE: '2' }).guildDefconOverride).toBe(2);
+        expect(loadConfig({ GUILD_DEFCON_OVERRIDE: '3' }).guildDefconOverride).toBe(3);
+    });
+
+    it('loads explicit auto guild DEFCON override', () => {
+        expect(loadConfig({ GUILD_DEFCON_OVERRIDE: 'auto' }).guildDefconOverride).toBe('auto');
+    });
+
+    it('rejects invalid guild DEFCON overrides', () => {
+        expect(() => loadConfig({ GUILD_DEFCON_OVERRIDE: '4' })).toThrow('Invalid environment');
+        expect(() => loadConfig({ GUILD_DEFCON_OVERRIDE: 'locked' })).toThrow('Invalid environment');
+    });
 });

@@ -18,6 +18,10 @@
             "types": "./src/mode.ts",
             "import": "./dist/mode.js"
         },
+        "./defcon": {
+            "types": "./src/defcon.ts",
+            "import": "./dist/defcon.js"
+        },
         "./public-url": {
             "types": "./src/public-url.ts",
             "import": "./dist/public-url.js"

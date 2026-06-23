@@ -53,6 +53,7 @@ services:
             INSTANCE_MODE: ${INSTANCE_MODE:-multi}
             SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
             PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
+            GUILD_DEFCON_OVERRIDE: ${GUILD_DEFCON_OVERRIDE:-auto}
             FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
             LOG_LEVEL: ${LOG_LEVEL:-info}
             OWNER_IDS: ${OWNER_IDS:-}
@@ -73,6 +74,7 @@ services:
             FLUXER_OAUTH_REDIRECT_URL: ${FLUXER_OAUTH_REDIRECT_URL:?FLUXER_OAUTH_REDIRECT_URL is required}
             SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
             FLUXER_TOKEN_ENCRYPTION_KEY: ${FLUXER_TOKEN_ENCRYPTION_KEY:?FLUXER_TOKEN_ENCRYPTION_KEY is required}
+            GUILD_DEFCON_OVERRIDE: ${GUILD_DEFCON_OVERRIDE:-auto}
             LOG_LEVEL: ${LOG_LEVEL:-info}
             HOST: "0.0.0.0"
             PORT: "3000"
@@ -101,6 +103,11 @@ INSTANCE_MODE=multi
 SINGLE_GUILD_ID=
 PUBLIC_WEB_URL=https://your-domain.example
 OWNER_IDS=
+
+# Safety override read by bot and web before DB policy.
+# auto: development defaults to DEFCON 2; production uses DB/default DEFCON 3.
+# Use 3 locally when you intentionally want to unlock dev.
+GUILD_DEFCON_OVERRIDE=auto
 
 FLUXER_APP_ID=
 FLUXER_CLIENT_SECRET=

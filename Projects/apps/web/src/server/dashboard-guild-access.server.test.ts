@@ -1,4 +1,10 @@
-import { findDeploymentConfig, listBotInstallationGuildIds } from '@neonflux/db';
+import { loadConfig } from '@neonflux/config';
+import {
+    findDeploymentConfig,
+    listGuildDashboardPermissionRulesByGuildIds,
+    listGuildSecurityPoliciesByGuildIds,
+    listBotInstallationGuildIds,
+} from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';
@@ -34,12 +40,18 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
+vi.mock('@neonflux/config', () => ({
+    loadConfig: vi.fn(),
+}));
+
 vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {
         ...actual,
         findDeploymentConfig: vi.fn(),
+        listGuildDashboardPermissionRulesByGuildIds: vi.fn(),
+        listGuildSecurityPoliciesByGuildIds: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),
     };
 });
@@ -56,6 +68,16 @@ vi.mock('@neonflux/fluxer/guilds', async (importActual) => {
 describe('loadDashboardGuildAccess', () => {
     beforeEach(() => {
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
+        vi.mocked(loadConfig).mockReturnValue({
+            appEnv: 'production',
+            databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
+            autoMigrate: true,
+            guildDefconOverride: 'auto',
+            instanceMode: 'multi',
+            logLevel: 'info',
+            nodeEnv: 'test',
+            ownerIds: [],
+        });
         vi.mocked(findDeploymentConfig).mockResolvedValue(
             ok({
                 instanceMode: 'multi',
@@ -69,6 +91,8 @@ describe('loadDashboardGuildAccess', () => {
                 createFluxerGuild({ id: 'readonly', name: 'Readonly', permissions: '0' }),
             ])
         );
+        vi.mocked(listGuildSecurityPoliciesByGuildIds).mockResolvedValue(ok([]));
+        vi.mocked(listGuildDashboardPermissionRulesByGuildIds).mockResolvedValue(ok([]));
         vi.mocked(listBotInstallationGuildIds).mockResolvedValue(ok(['installed']));
     });
 
@@ -148,6 +172,40 @@ describe('loadDashboardGuildAccess', () => {
         expect(listBotInstallationGuildIds).not.toHaveBeenCalled();
     });
 
+    it('authorizes single-mode dashboard access for the server owner without Manage Server', async () => {
+        stubSingleModeDeploymentConfig('target');
+        vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
+            ok([
+                createFluxerGuild({
+                    id: 'target',
+                    name: 'Target',
+                    permissions: '0',
+                    ownerId: authContext.fluxerUserId,
+                }),
+            ])
+        );
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            type: 'authorized',
+            mode: {
+                instanceMode: 'single',
+                singleGuildId: 'target',
+            },
+            guilds: [
+                {
+                    id: 'target',
+                    name: 'Target',
+                    ownerId: authContext.fluxerUserId,
+                    canManage: false,
+                    botInstalled: false,
+                },
+            ],
+        });
+    });
+
     it('returns unauthorized in single mode when the configured guild is missing from OAuth guilds', async () => {
         stubSingleModeDeploymentConfig('target');
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
@@ -194,6 +252,64 @@ describe('loadDashboardGuildAccess', () => {
                     botInstalled: true,
                 },
             ],
+        });
+    });
+
+    it('uses dashboard grants separately from Manage Server in DEFCON 3', async () => {
+        vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
+            ok([createFluxerGuild({ id: 'installed', name: 'Installed', permissions: '0' })])
+        );
+        vi.mocked(listGuildDashboardPermissionRulesByGuildIds).mockResolvedValueOnce(
+            ok([
+                {
+                    guildId: 'installed',
+                    userIds: [authContext.fluxerUserId],
+                    roleIds: [],
+                    createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                    updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+                },
+            ])
+        );
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            type: 'authorized',
+            mode: {
+                instanceMode: 'multi',
+            },
+            guilds: [
+                {
+                    id: 'installed',
+                    name: 'Installed',
+                    canManage: false,
+                    botInstalled: true,
+                },
+            ],
+        });
+    });
+
+    it('blocks non-owner dashboard access in DEFCON 2', async () => {
+        vi.mocked(listGuildSecurityPoliciesByGuildIds).mockResolvedValueOnce(
+            ok([
+                {
+                    guildId: 'installed',
+                    defconLevel: 2,
+                    createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                    updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+                },
+            ])
+        );
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            type: 'no-manageable-guilds',
+            mode: {
+                instanceMode: 'multi',
+            },
         });
     });
 
@@ -257,9 +373,18 @@ describe('loadDashboardGuildAccess', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('database-error');
     });
+
+    it('returns database-error when dashboard policy lookup fails', async () => {
+        vi.mocked(listGuildSecurityPoliciesByGuildIds).mockResolvedValueOnce(err('database-error'));
+
+        const result = await loadDashboardGuildAccess(request);
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+    });
 });
 
-function createFluxerGuild(input: { id: string; name: string; permissions: string }) {
+function createFluxerGuild(input: { id: string; name: string; permissions: string; ownerId?: string }) {
     return input;
 }
 

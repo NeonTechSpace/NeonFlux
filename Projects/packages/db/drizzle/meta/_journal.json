@@ -36,6 +36,13 @@
       "when": 1782134917767,
       "tag": "0004_polite_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782242037667,
+      "tag": "0005_guild_defcon_policy",
+      "breakpoints": true
     }
   ]
 }

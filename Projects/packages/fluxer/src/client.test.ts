@@ -1,8 +1,13 @@
-import { Events, type Guild } from '@fluxerjs/core';
+import { Events, type Guild, type Message, type User } from '@fluxerjs/core';
 import type { AppLogger } from '@neonflux/core/logging';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFluxerBot, type FluxerBotConfig, type FluxerBotGuildEvent } from './client.js';
+import {
+    createFluxerBot,
+    type FluxerBotConfig,
+    type FluxerBotGuildEvent,
+    type FluxerBotMessageEvent,
+} from './client.js';
 
 describe('createFluxerBot lifecycle handlers', () => {
     it('calls guildCreated with only the guild id on GuildCreate', () => {
@@ -62,12 +67,93 @@ describe('createFluxerBot lifecycle handlers', () => {
         }).not.toThrow();
         expect(logger.error).not.toHaveBeenCalled();
     });
+
+    it('calls messageCreated with normalized message data on MessageCreate', () => {
+        const messageCreated = vi.fn<(event: FluxerBotMessageEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            messageCreated,
+        });
+
+        bot.client.emit(
+            Events.MessageCreate,
+            createMessage({
+                mentions: [createUser('mentioned-1'), createUser('mentioned-2')],
+            })
+        );
+
+        const event = messageCreated.mock.calls[0]?.[0];
+
+        expect(event).toStrictEqual({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            content: '<@bot-user>',
+            mentionedUserIds: ['mentioned-1', 'mentioned-2'],
+        });
+        expect(event ? Object.keys(event) : []).toStrictEqual([
+            'messageId',
+            'channelId',
+            'guildId',
+            'authorId',
+            'authorIsBot',
+            'content',
+            'mentionedUserIds',
+        ]);
+    });
+
+    it('catches and logs message handler failures', async () => {
+        const logger = createLogger();
+        const bot = createFluxerBot(createConfig(), logger, {
+            messageCreated: () => Promise.reject(new Error('handler failed')),
+        });
+
+        bot.client.emit(Events.MessageCreate, createMessage());
+        await settleAsyncHandler();
+
+        expect(logger.error).toHaveBeenCalledWith('fluxer.message_created_handler_failed', {
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+        });
+    });
+
+    it('treats message events without handlers as harmless', () => {
+        const logger = createLogger();
+        const bot = createFluxerBot(createConfig(), logger);
+
+        expect(() => {
+            bot.client.emit(Events.MessageCreate, createMessage());
+        }).not.toThrow();
+        expect(logger.error).not.toHaveBeenCalled();
+    });
 });
 
 function createGuild(id: string): Guild {
     return {
         id,
     } as Guild;
+}
+
+function createMessage(overrides: Partial<Message> = {}): Message {
+    return {
+        id: 'message-1',
+        channelId: 'channel-1',
+        guildId: 'guild-1',
+        author: createUser('author-1'),
+        content: '<@bot-user>',
+        mentions: [],
+        ...overrides,
+    } as Message;
+}
+
+function createUser(id: string, overrides: Partial<User> = {}): User {
+    return {
+        id,
+        bot: false,
+        ...overrides,
+    } as User;
 }
 
 function createConfig(): FluxerBotConfig {

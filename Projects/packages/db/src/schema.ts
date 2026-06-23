@@ -1,4 +1,17 @@
-import { boolean, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+    boolean,
+    check,
+    index,
+    integer,
+    jsonb,
+    pgEnum,
+    pgTable,
+    text,
+    timestamp,
+    uniqueIndex,
+    uuid,
+} from 'drizzle-orm/pg-core';
 
 export const logSeverity = pgEnum('log_severity', ['debug', 'info', 'warn', 'error']);
 
@@ -41,6 +54,64 @@ export const guildFeatureSettings = pgTable(
     (table) => [
         uniqueIndex('guild_feature_settings_guild_feature_idx').on(table.guildId, table.feature),
         index('guild_feature_settings_guild_idx').on(table.guildId),
+    ]
+);
+
+export const guildSecurityPolicies = pgTable(
+    'guild_security_policies',
+    {
+        guildId: text('guild_id')
+            .primaryKey()
+            .references(() => botInstallations.guildId, { onDelete: 'cascade' }),
+        defconLevel: integer('defcon_level').notNull().default(3),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [check('guild_security_policies_defcon_level_check', sql`${table.defconLevel} in (1, 2, 3)`)]
+);
+
+export const guildCommandPermissionRules = pgTable(
+    'guild_command_permission_rules',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => botInstallations.guildId, { onDelete: 'cascade' }),
+        category: text('category').notNull(),
+        userIds: text('user_ids').array().notNull().default([]),
+        roleIds: text('role_ids').array().notNull().default([]),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('guild_command_permission_rules_guild_category_idx').on(table.guildId, table.category),
+        index('guild_command_permission_rules_guild_idx').on(table.guildId),
+    ]
+);
+
+export const guildDashboardPermissionRules = pgTable('guild_dashboard_permission_rules', {
+    guildId: text('guild_id')
+        .primaryKey()
+        .references(() => botInstallations.guildId, { onDelete: 'cascade' }),
+    userIds: text('user_ids').array().notNull().default([]),
+    roleIds: text('role_ids').array().notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const guildDefconExemptions = pgTable(
+    'guild_defcon_exemptions',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => botInstallations.guildId, { onDelete: 'cascade' }),
+        category: text('category').notNull(),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('guild_defcon_exemptions_guild_category_idx').on(table.guildId, table.category),
+        index('guild_defcon_exemptions_guild_idx').on(table.guildId),
     ]
 );
 

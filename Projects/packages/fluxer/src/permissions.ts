@@ -7,6 +7,7 @@ export type FluxerGuildPermissions = string | number | bigint | readonly string[
 export type FluxerOAuthGuild = {
     id: string;
     name?: string;
+    ownerId?: string;
     permissions: FluxerGuildPermissions;
     botInstalled?: boolean;
 };
@@ -39,6 +40,7 @@ export function toDashboardGuild(guild: FluxerOAuthGuild): DashboardGuild {
     return {
         id: guild.id,
         ...(guild.name ? { name: guild.name } : {}),
+        ...(guild.ownerId ? { ownerId: guild.ownerId } : {}),
         canManage: hasManageServerPermission(guild.permissions),
         botInstalled: guild.botInstalled === true,
     };
