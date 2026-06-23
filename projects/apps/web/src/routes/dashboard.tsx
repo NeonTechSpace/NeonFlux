@@ -1,6 +1,7 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { Link, createFileRoute, redirect } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 
+import { DashboardShell, DashboardStatusSection } from '../components/dashboard-layout.js';
 import type { DashboardDataResult } from '../server/dashboard.server.js';
 import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dashboard-view-model.server.js';
 
@@ -20,11 +21,32 @@ export type DashboardRouteData =
           message: string;
       };
 
-export type DashboardRouteResult = DashboardRouteData | { type: 'auth-required' };
+export type DashboardRouteResult =
+    | DashboardRouteData
+    | { type: 'auth-required' }
+    | { type: 'guild-redirect'; guildId: string };
 
 export function toDashboardRouteResult(dashboardData: DashboardDataResult): DashboardRouteResult {
     switch (dashboardData.type) {
         case 'dashboard':
+            if (dashboardData.viewModel.type === 'guild-list' && dashboardData.viewModel.mode === 'single') {
+                const guildId = dashboardData.viewModel.guilds.at(0)?.id;
+
+                if (guildId) {
+                    return {
+                        type: 'guild-redirect',
+                        guildId,
+                    };
+                }
+            }
+
+            if (dashboardData.viewModel.type === 'single-unauthorized') {
+                return {
+                    type: 'guild-redirect',
+                    guildId: dashboardData.viewModel.configuredGuildId,
+                };
+            }
+
             return dashboardData;
 
         case 'auth-required':
@@ -62,6 +84,15 @@ export function resolveDashboardRouteResult(routeResult: DashboardRouteResult): 
         case 'auth-required':
             throw redirect({
                 to: fluxerLoginPath,
+                statusCode: 302,
+            });
+
+        case 'guild-redirect':
+            throw redirect({
+                to: '/dashboard/$guildId',
+                params: {
+                    guildId: routeResult.guildId,
+                },
                 statusCode: 302,
             });
     }
@@ -106,7 +137,7 @@ export function DashboardPageContent({ data }: { data: DashboardRouteData }) {
         case 'unavailable':
             return (
                 <DashboardShell>
-                    <StatusSection
+                    <DashboardStatusSection
                         eyebrow='Dashboard'
                         title='Dashboard unavailable'
                         body={data.message}
@@ -160,7 +191,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
         case 'single-unauthorized':
             return (
                 <DashboardShell>
-                    <StatusSection
+                    <DashboardStatusSection
                         eyebrow='Single instance'
                         title='Not authorized'
                         body={`You are not authorized to modify ${viewModel.configuredGuildName}.`}
@@ -173,7 +204,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
         case 'multi-empty':
             return (
                 <DashboardShell>
-                    <StatusSection
+                    <DashboardStatusSection
                         eyebrow='Multi instance'
                         title='No manageable communities'
                         body='No communities are available for this account.'
@@ -187,46 +218,17 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
 
 function DashboardGuildItem({ guild }: { guild: DashboardViewModelGuild }) {
     return (
-        <li className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-            <p className='text-xs font-medium tracking-wide text-neutral-500 uppercase'>Community</p>
-            <h3 className='mt-2 text-lg font-semibold text-white'>{guild.name}</h3>
+        <li>
+            <Link
+                to='/dashboard/$guildId'
+                params={{ guildId: guild.id }}
+                className='block rounded-lg border border-neutral-800 bg-neutral-900 p-4 transition hover:border-sky-500 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
+                <p className='text-xs font-medium tracking-wide text-neutral-500 uppercase'>Community</p>
+                <div className='mt-2 flex items-center justify-between gap-4'>
+                    <h3 className='text-lg font-semibold text-white'>{guild.name}</h3>
+                    <span className='text-sm font-medium text-sky-300'>Open</span>
+                </div>
+            </Link>
         </li>
-    );
-}
-
-function StatusSection({
-    eyebrow,
-    title,
-    body,
-    actionLabel,
-    actionTo,
-}: {
-    eyebrow: string;
-    title: string;
-    body: string;
-    actionLabel: string;
-    actionTo: '/auth/fluxer/login' | '/dashboard';
-}) {
-    return (
-        <section className='max-w-2xl space-y-5'>
-            <div className='space-y-2'>
-                <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>{eyebrow}</p>
-                <h1 className='text-3xl font-semibold text-white'>{title}</h1>
-                <p className='text-sm leading-6 text-neutral-300'>{body}</p>
-            </div>
-            <a
-                href={actionTo}
-                className='inline-flex min-h-10 items-center rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
-                {actionLabel}
-            </a>
-        </section>
-    );
-}
-
-function DashboardShell({ children }: { children: React.ReactNode }) {
-    return (
-        <main className='min-h-screen bg-neutral-950 px-5 py-8 text-neutral-100 sm:px-8'>
-            <div className='mx-auto flex w-full max-w-5xl flex-col gap-8'>{children}</div>
-        </main>
     );
 }

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { isRedirect } from '@tanstack/react-router';
+import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { createElement } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -27,6 +28,43 @@ describe('/dashboard', () => {
         expect(toDashboardRouteResult(createDashboardData())).toStrictEqual(createDashboardRouteData());
     });
 
+    it('redirects single-instance guild lists to the canonical guild route', () => {
+        expect(
+            toDashboardRouteResult({
+                type: 'dashboard',
+                viewModel: {
+                    type: 'guild-list',
+                    mode: 'single',
+                    guilds: [
+                        {
+                            id: 'guild-1',
+                            name: 'Guild One',
+                        },
+                    ],
+                },
+            })
+        ).toStrictEqual({
+            type: 'guild-redirect',
+            guildId: 'guild-1',
+        });
+    });
+
+    it('redirects single-instance unauthorized dashboards to the canonical guild route', () => {
+        expect(
+            toDashboardRouteResult({
+                type: 'dashboard',
+                viewModel: {
+                    type: 'single-unauthorized',
+                    configuredGuildId: 'guild-1',
+                    configuredGuildName: 'Configured Community',
+                },
+            })
+        ).toStrictEqual({
+            type: 'guild-redirect',
+            guildId: 'guild-1',
+        });
+    });
+
     it('redirects unauthenticated route results to Fluxer login', () => {
         let thrownError: unknown;
 
@@ -39,6 +77,21 @@ describe('/dashboard', () => {
         expect(thrownError).toBeInstanceOf(Response);
         expect(isRedirect(thrownError)).toBe(true);
         expect(JSON.stringify(thrownError)).toContain('/auth/fluxer/login');
+    });
+
+    it('redirects guild route results to the canonical guild route', () => {
+        let thrownError: unknown;
+
+        try {
+            resolveDashboardRouteResult({ type: 'guild-redirect', guildId: 'guild-1' });
+        } catch (error) {
+            thrownError = error;
+        }
+
+        expect(thrownError).toBeInstanceOf(Response);
+        expect(isRedirect(thrownError)).toBe(true);
+        expect(JSON.stringify(thrownError)).toContain('/dashboard/$guildId');
+        expect(JSON.stringify(thrownError)).toContain('guild-1');
     });
 
     it('carries an unavailable status for database failures', async () => {
@@ -58,15 +111,15 @@ describe('/dashboard', () => {
     });
 
     it('renders authorized dashboard communities', () => {
-        render(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
+        renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
         expect(screen.getByRole('heading', { name: 'NeonFlux Dashboard' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Communities' })).toBeTruthy();
-        expect(screen.getByText('Guild One')).toBeTruthy();
+        expect(screen.getByRole('link', { name: /Guild One/ }).getAttribute('href')).toBe('/dashboard/guild-1');
     });
 
     it('renders the single-instance unauthorized state', () => {
-        render(
+        renderWithRouter(
             createElement(DashboardPageContent, {
                 data: {
                     type: 'dashboard',
@@ -84,7 +137,7 @@ describe('/dashboard', () => {
     });
 
     it('renders the multi-instance empty state', () => {
-        render(
+        renderWithRouter(
             createElement(DashboardPageContent, {
                 data: {
                     type: 'dashboard',
@@ -100,7 +153,7 @@ describe('/dashboard', () => {
     });
 
     it('renders generic dashboard unavailable errors', () => {
-        render(
+        renderWithRouter(
             createElement(DashboardPageContent, {
                 data: {
                     type: 'unavailable',
@@ -115,13 +168,33 @@ describe('/dashboard', () => {
     });
 
     it('does not render session, token, or Fluxer user data', () => {
-        render(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
+        renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
         expect(document.body.textContent).not.toContain(sessionId);
         expect(document.body.textContent).not.toContain(fluxerUserId);
         expect(document.body.textContent).not.toContain(accessToken);
     });
 });
+
+function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
+    const rootRoute = createRootRoute({
+        component: () => ui,
+    });
+    const dashboardRoute = createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/dashboard',
+    });
+    const dashboardGuildRoute = createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/dashboard/$guildId',
+    });
+    const router = createRouter({
+        routeTree: rootRoute.addChildren([dashboardRoute, dashboardGuildRoute]),
+    });
+    const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
+
+    return render(createElement(RouterContextProvider, providerProps, ui));
+}
 
 function createDashboardData(): Parameters<typeof toDashboardRouteResult>[0] {
     return {
