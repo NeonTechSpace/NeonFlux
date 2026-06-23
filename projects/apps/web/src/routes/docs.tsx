@@ -18,10 +18,7 @@ type DocsRouteInput = {
     slugs: string[];
 };
 
-export async function loadDocsRouteResult(slugs: string[]): Promise<DocsRouteResult> {
-    const { loadPublicDocsRouteData } = await import('../server/docs.server.js');
-    const data = await loadPublicDocsRouteData(slugs);
-
+export function toDocsRouteResult(data: PublicDocsRouteData | undefined): DocsRouteResult {
     return data ? { type: 'page', data } : { type: 'not-found' };
 }
 
@@ -37,7 +34,11 @@ export function resolveDocsRouteResult(routeResult: DocsRouteResult): PublicDocs
 
 export const loadDocsRouteData = createServerFn({ method: 'GET' })
     .validator(validateDocsRouteInput)
-    .handler(({ data }) => loadDocsRouteResult(data.slugs));
+    .handler(async ({ data }) => {
+        const { loadPublicDocsRouteData } = await import('../server/docs.server.js');
+
+        return toDocsRouteResult(await loadPublicDocsRouteData(data.slugs));
+    });
 
 export const docsIndexRouteOptions = {
     component: DocsRouteLayout,

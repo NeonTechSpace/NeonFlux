@@ -3,42 +3,28 @@
 import { isRedirect } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { createElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { loadDashboardData } from '../server/dashboard.server.js';
 import {
     DashboardPageContent,
     dashboardRouteOptions,
-    loadDashboardRouteResult,
     resolveDashboardRouteResult,
+    toDashboardRouteResult,
 } from './dashboard.js';
 import type { DashboardRouteData } from './dashboard.js';
 
-const request = new Request('http://localhost:3000/dashboard');
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
 
-vi.mock('../server/dashboard.server.js', () => ({
-    loadDashboardData: vi.fn(),
-}));
-
 describe('/dashboard', () => {
-    beforeEach(() => {
-        vi.mocked(loadDashboardData).mockResolvedValue(createDashboardData());
-    });
-
-    afterEach(() => {
-        vi.clearAllMocks();
-    });
-
     it('configures a route loader and component', () => {
         expect(typeof dashboardRouteOptions.loader).toBe('function');
         expect(typeof dashboardRouteOptions.component).toBe('function');
     });
 
     it('maps dashboard data into route data', async () => {
-        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual(createDashboardRouteData());
+        expect(toDashboardRouteResult(createDashboardData())).toStrictEqual(createDashboardRouteData());
     });
 
     it('redirects unauthenticated route results to Fluxer login', () => {
@@ -56,9 +42,7 @@ describe('/dashboard', () => {
     });
 
     it('carries an unavailable status for database failures', async () => {
-        vi.mocked(loadDashboardData).mockResolvedValueOnce({ type: 'database-error' });
-
-        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual({
+        expect(toDashboardRouteResult({ type: 'database-error' })).toStrictEqual({
             type: 'unavailable',
             status: 500,
             message: 'NeonFlux dashboard unavailable.',
@@ -66,9 +50,7 @@ describe('/dashboard', () => {
     });
 
     it('carries a deployment config unavailable status when config is missing', async () => {
-        vi.mocked(loadDashboardData).mockResolvedValueOnce({ type: 'deployment-config-not-found' });
-
-        await expect(loadDashboardRouteResult(request)).resolves.toStrictEqual({
+        expect(toDashboardRouteResult({ type: 'deployment-config-not-found' })).toStrictEqual({
             type: 'unavailable',
             status: 503,
             message: 'NeonFlux deployment config unavailable.',
@@ -141,7 +123,7 @@ describe('/dashboard', () => {
     });
 });
 
-function createDashboardData(): Awaited<ReturnType<typeof loadDashboardData>> {
+function createDashboardData(): Parameters<typeof toDashboardRouteResult>[0] {
     return {
         type: 'dashboard',
         viewModel: {

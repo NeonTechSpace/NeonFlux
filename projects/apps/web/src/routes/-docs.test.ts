@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { toDocsRouteResult } from './docs.js';
+import type { PublicDocsRouteData } from '../server/docs.server.js';
+
 const webRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 describe('/docs routing', () => {
@@ -33,6 +36,23 @@ describe('/docs routing', () => {
 
         expect(rootRoute).toContain("api: '/docs/api/search'");
         expect(searchRoute).toContain("createFileRoute('/docs/api/search')");
+    });
+
+    it('maps docs data into route results', () => {
+        const docsData = {
+            pageTree: {
+                name: 'Docs',
+                children: [],
+            },
+            page: {
+                path: 'index',
+                title: 'Docs',
+                toc: [],
+            },
+        } as unknown as PublicDocsRouteData;
+
+        expect(toDocsRouteResult(docsData)).toStrictEqual({ type: 'page', data: docsData });
+        expect(toDocsRouteResult(undefined)).toStrictEqual({ type: 'not-found' });
     });
 
     it('forces the docs shell to dark mode', () => {

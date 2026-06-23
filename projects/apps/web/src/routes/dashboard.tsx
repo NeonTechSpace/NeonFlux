@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 
+import type { DashboardDataResult } from '../server/dashboard.server.js';
 import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dashboard-view-model.server.js';
 
 const createRoute = createFileRoute('/dashboard');
@@ -21,10 +22,7 @@ export type DashboardRouteData =
 
 export type DashboardRouteResult = DashboardRouteData | { type: 'auth-required' };
 
-export async function loadDashboardRouteResult(request: Request): Promise<DashboardRouteResult> {
-    const { loadDashboardData } = await import('../server/dashboard.server.js');
-    const dashboardData = await loadDashboardData(request);
-
+export function toDashboardRouteResult(dashboardData: DashboardDataResult): DashboardRouteResult {
     switch (dashboardData.type) {
         case 'dashboard':
             return dashboardData;
@@ -72,7 +70,8 @@ export function resolveDashboardRouteResult(routeResult: DashboardRouteResult): 
 export const loadDashboardRouteData = createServerFn({ method: 'GET' }).handler(
     async (): Promise<DashboardRouteData> => {
         const { getRequest, setResponseHeader, setResponseStatus } = await import('@tanstack/react-start/server');
-        const routeResult = await loadDashboardRouteResult(getRequest());
+        const { loadDashboardData } = await import('../server/dashboard.server.js');
+        const routeResult = toDashboardRouteResult(await loadDashboardData(getRequest()));
 
         setResponseHeader('Cache-Control', 'no-store');
 
