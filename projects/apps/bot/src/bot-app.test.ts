@@ -218,8 +218,8 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
-            content: '<@bot-user>',
-            mentionedUserIds: ['bot-user'],
+            content: '!ping',
+            mentionedUserIds: [],
         });
 
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
@@ -227,6 +227,104 @@ describe('createBotApp', () => {
             channelId: 'channel-1',
             content: "Yes, I'm here, and no, I don't pong",
         });
+    });
+
+    it('logs successful message routes in development without raw message content', async () => {
+        const logInfoMock = vi.fn();
+        const logger = createLogger({ info: logInfoMock });
+        const app = createBotApp({
+            config: createMultiConfig({
+                guildDefconOverride: 1,
+            }),
+            logger,
+            database: createDatabase(),
+        });
+
+        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok(['bot_mention']));
+
+        await app.start();
+        await capturedLifecycleHandlers?.messageCreated?.({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            content: '!ping',
+            mentionedUserIds: [],
+        });
+
+        expect(logInfoMock).toHaveBeenCalledWith('bot.feature_route', {
+            eventType: 'message.created',
+            status: 'handled',
+            guildDefconOverride: 1,
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            mentionedUserCount: 0,
+            contentLength: '!ping'.length,
+        });
+    });
+
+    it('logs ignored message route reasons in development', async () => {
+        const logInfoMock = vi.fn();
+        const logger = createLogger({ info: logInfoMock });
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger,
+            database: createDatabase(),
+        });
+
+        await app.start();
+        await capturedLifecycleHandlers?.messageCreated?.({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            content: 'hello',
+            mentionedUserIds: [],
+        });
+
+        expect(logInfoMock).toHaveBeenCalledWith('bot.feature_route', {
+            eventType: 'message.created',
+            status: 'ignored',
+            reason: 'bot-not-mentioned',
+            guildDefconOverride: 'auto',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            mentionedUserCount: 0,
+            contentLength: 'hello'.length,
+        });
+    });
+
+    it('does not log feature route results in production', async () => {
+        const logInfoMock = vi.fn();
+        const logger = createLogger({ info: logInfoMock });
+        const app = createBotApp({
+            config: createMultiConfig({
+                appEnv: 'production',
+            }),
+            logger,
+            database: createDatabase(),
+        });
+
+        await app.start();
+        await capturedLifecycleHandlers?.messageCreated?.({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            content: '!ping',
+            mentionedUserIds: [],
+        });
+
+        expect(logInfoMock).not.toHaveBeenCalledWith('bot.feature_route', expect.anything());
     });
 
     it('logs message route failures without throwing', async () => {
@@ -324,28 +422,34 @@ function createLogger(overrides: Partial<AppLogger> = {}): AppLogger {
     };
 }
 
-function createMultiConfig(options: { fluxerBotToken?: string | null } = {}): AppConfig {
+function createMultiConfig(options: TestConfigOptions = {}): AppConfig {
     return {
         ...createBaseConfig(options),
         instanceMode: 'multi',
     };
 }
 
-function createSingleConfig(options: { singleGuildId?: string } = {}): AppConfig {
+function createSingleConfig(options: TestConfigOptions & { singleGuildId?: string } = {}): AppConfig {
     return {
-        ...createBaseConfig(),
+        ...createBaseConfig(options),
         instanceMode: 'single',
         singleGuildId: options.singleGuildId ?? 'env-guild',
     };
 }
 
-function createBaseConfig(options: { fluxerBotToken?: string | null } = {}): Omit<AppConfig, 'instanceMode'> {
+type TestConfigOptions = {
+    appEnv?: AppConfig['appEnv'];
+    fluxerBotToken?: string | null;
+    guildDefconOverride?: AppConfig['guildDefconOverride'];
+};
+
+function createBaseConfig(options: TestConfigOptions = {}): Omit<AppConfig, 'instanceMode'> {
     return {
-        appEnv: 'development',
+        appEnv: options.appEnv ?? 'development',
         databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
         autoMigrate: true,
         ...(options.fluxerBotToken === null ? {} : { fluxerBotToken: options.fluxerBotToken ?? 'bot-token' }),
-        guildDefconOverride: 'auto',
+        guildDefconOverride: options.guildDefconOverride ?? 'auto',
         logLevel: 'info',
         nodeEnv: 'test',
         ownerIds: [],

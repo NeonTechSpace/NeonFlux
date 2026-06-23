@@ -8,6 +8,7 @@ import {
     type BotFeatureEvent,
     type BotFeatureHandlerContext,
     type BotFeatureRouteError,
+    type BotFeatureRouteResult,
 } from './bot-feature-router.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
@@ -78,33 +79,35 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 logger,
                 {
                     async guildCreated(event) {
-                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), {
+                        const featureEvent = {
                             type: 'guild.lifecycle.created',
                             guildId: event.guildId,
-                        });
+                        } satisfies BotFeatureEvent;
+                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), featureEvent);
 
                         if (result.isErr()) {
-                            logFeatureRouteFailure(logger, result.error, {
-                                type: 'guild.lifecycle.created',
-                                guildId: event.guildId,
-                            });
+                            logFeatureRouteFailure(logger, result.error, featureEvent);
+                            return;
                         }
+
+                        logFeatureRouteResult(config, logger, result.value, featureEvent);
                     },
                     async guildDeleted(event) {
-                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), {
+                        const featureEvent = {
                             type: 'guild.lifecycle.deleted',
                             guildId: event.guildId,
-                        });
+                        } satisfies BotFeatureEvent;
+                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), featureEvent);
 
                         if (result.isErr()) {
-                            logFeatureRouteFailure(logger, result.error, {
-                                type: 'guild.lifecycle.deleted',
-                                guildId: event.guildId,
-                            });
+                            logFeatureRouteFailure(logger, result.error, featureEvent);
+                            return;
                         }
+
+                        logFeatureRouteResult(config, logger, result.value, featureEvent);
                     },
                     async messageCreated(event) {
-                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), {
+                        const featureEvent = {
                             type: 'message.created',
                             messageId: event.messageId,
                             channelId: event.channelId,
@@ -113,20 +116,15 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             authorIsBot: event.authorIsBot,
                             content: event.content,
                             mentionedUserIds: event.mentionedUserIds,
-                        });
+                        } satisfies BotFeatureEvent;
+                        const result = await routeBotFeatureEvent(createFeatureHandlerContext(), featureEvent);
 
                         if (result.isErr()) {
-                            logFeatureRouteFailure(logger, result.error, {
-                                type: 'message.created',
-                                messageId: event.messageId,
-                                channelId: event.channelId,
-                                guildId: event.guildId,
-                                authorId: event.authorId,
-                                authorIsBot: event.authorIsBot,
-                                content: event.content,
-                                mentionedUserIds: event.mentionedUserIds,
-                            });
+                            logFeatureRouteFailure(logger, result.error, featureEvent);
+                            return;
                         }
+
+                        logFeatureRouteResult(config, logger, result.value, featureEvent);
                     },
                 }
             );
@@ -135,15 +133,35 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
             if (!started) {
                 await closeDatabaseOnce();
+                return false;
             }
 
-            return started;
+            return true;
         },
         async stop() {
             await bot?.stop();
             await closeDatabaseOnce();
         },
     };
+}
+
+function logFeatureRouteResult(
+    config: AppConfig,
+    logger: AppLogger,
+    result: BotFeatureRouteResult,
+    event: BotFeatureEvent
+): void {
+    if (config.appEnv !== 'development') {
+        return;
+    }
+
+    logger.info('bot.feature_route', {
+        eventType: result.eventType,
+        status: result.status,
+        ...(result.status === 'ignored' && result.reason ? { reason: result.reason } : {}),
+        guildDefconOverride: config.guildDefconOverride,
+        ...getFeatureEventLogContext(event),
+    });
 }
 
 function logFeatureRouteFailure(logger: AppLogger, errorValue: BotFeatureRouteError, event: BotFeatureEvent): void {
@@ -168,5 +186,26 @@ function logFeatureRouteFailure(logger: AppLogger, errorValue: BotFeatureRouteEr
                 error: errorValue,
             });
             return;
+    }
+}
+
+function getFeatureEventLogContext(event: BotFeatureEvent): Record<string, unknown> {
+    switch (event.type) {
+        case 'guild.lifecycle.created':
+        case 'guild.lifecycle.deleted':
+            return {
+                guildId: event.guildId,
+            };
+
+        case 'message.created':
+            return {
+                messageId: event.messageId,
+                channelId: event.channelId,
+                guildId: event.guildId,
+                authorId: event.authorId,
+                authorIsBot: event.authorIsBot,
+                mentionedUserCount: event.mentionedUserIds.length,
+                contentLength: event.content.length,
+            };
     }
 }

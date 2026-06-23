@@ -192,8 +192,16 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrapErr()).toBe('handler-error');
     });
 
-    it('replies when the bot is mentioned in a processable guild message', async () => {
-        const result = await routeBotFeatureEvent(createContext(createMultiMode()), createMentionMessageEvent());
+    it('replies to !ping with the no-pong message', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode(), {
+                botUserId: undefined,
+            }),
+            createMessageEvent({
+                content: '!ping',
+                mentionedUserIds: [],
+            })
+        );
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
@@ -208,10 +216,160 @@ describe('routeBotFeatureEvent', () => {
         expect(findGuildSecurityPolicyByGuildIdMock).toHaveBeenCalledWith(testDb, { guildId: 'guild-1' });
     });
 
+    it('treats ping command casing and whitespace as a ping command', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '  !PiNg  ',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: "Yes, I'm here, and no, I don't pong",
+        });
+    });
+
+    it('escalates contextless bot mention replies before cooldown', async () => {
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-06-23T20:00:00.000Z').getTime());
+        const context = createContext(createMultiMode());
+        const authorId = 'contextless-author-1';
+
+        for (const content of [
+            "I hate it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
+            "I don't appreciate being called for nothing",
+            'I will no longer respond to that...',
+        ]) {
+            const result = await routeBotFeatureEvent(
+                context,
+                createMessageEvent({
+                    authorId,
+                    content: '<@bot-user>',
+                    mentionedUserIds: ['bot-user'],
+                })
+            );
+
+            expect(result.isOk()).toBe(true);
+            expect(result._unsafeUnwrap()).toStrictEqual({
+                eventType: 'message.created',
+                status: 'handled',
+            });
+            expect(sendFluxerChannelMessageMock).toHaveBeenLastCalledWith({
+                client: testClient,
+                channelId: 'channel-1',
+                content,
+            });
+        }
+
+        nowSpy.mockRestore();
+    });
+
+    it('ignores contextless bot mentions during cooldown', async () => {
+        const startedAt = new Date('2026-06-23T20:00:00.000Z').getTime();
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+        const context = createContext(createMultiMode());
+        const authorId = 'contextless-author-2';
+
+        for (let index = 0; index < 3; index += 1) {
+            await routeBotFeatureEvent(
+                context,
+                createMessageEvent({
+                    authorId,
+                    content: '<@bot-user>',
+                    mentionedUserIds: ['bot-user'],
+                })
+            );
+        }
+
+        const result = await routeBotFeatureEvent(
+            context,
+            createMessageEvent({
+                authorId,
+                content: '<@bot-user>',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'contextless-mention-cooldown',
+            status: 'ignored',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledTimes(3);
+
+        nowSpy.mockRestore();
+    });
+
+    it('reminds after contextless mention cooldown expires and starts another cooldown', async () => {
+        const startedAt = new Date('2026-06-23T20:00:00.000Z').getTime();
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+        const context = createContext(createMultiMode());
+        const authorId = 'contextless-author-3';
+
+        for (let index = 0; index < 3; index += 1) {
+            await routeBotFeatureEvent(
+                context,
+                createMessageEvent({
+                    authorId,
+                    content: '<@bot-user>',
+                    mentionedUserIds: ['bot-user'],
+                })
+            );
+        }
+
+        nowSpy.mockReturnValue(startedAt + 5 * 60 * 1000);
+
+        const reminderResult = await routeBotFeatureEvent(
+            context,
+            createMessageEvent({
+                authorId,
+                content: '<@bot-user>',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(reminderResult.isOk()).toBe(true);
+        expect(reminderResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenLastCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: "We've been here before... back to ignoring I suppose",
+        });
+
+        const ignoredResult = await routeBotFeatureEvent(
+            context,
+            createMessageEvent({
+                authorId,
+                content: '<@bot-user>',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(ignoredResult.isOk()).toBe(true);
+        expect(ignoredResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'contextless-mention-cooldown',
+            status: 'ignored',
+        });
+
+        nowSpy.mockRestore();
+    });
+
     it('ignores messages that do not mention the bot', async () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
-            createMentionMessageEvent({
+            createMessageEvent({
                 mentionedUserIds: ['other-user'],
             })
         );
@@ -219,6 +377,26 @@ describe('routeBotFeatureEvent', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
+            reason: 'bot-not-mentioned',
+            status: 'ignored',
+        });
+        expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
+        expect(findGuildSecurityPolicyByGuildIdMock).not.toHaveBeenCalled();
+    });
+
+    it('ignores bot mentions when the message includes context', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '<@bot-user> please help with logging',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'bot-mentioned-with-context',
             status: 'ignored',
         });
         expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
@@ -228,7 +406,7 @@ describe('routeBotFeatureEvent', () => {
     it('ignores bot-authored mention messages', async () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
-            createMentionMessageEvent({
+            createMessageEvent({
                 authorIsBot: true,
             })
         );
@@ -236,6 +414,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
+            reason: 'bot-authored-message',
             status: 'ignored',
         });
         expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
@@ -245,7 +424,7 @@ describe('routeBotFeatureEvent', () => {
     it('uses single-mode guild gating before replying to mentions', async () => {
         const ignoredResult = await routeBotFeatureEvent(
             createContext(createSingleMode()),
-            createMentionMessageEvent({
+            createMessageEvent({
                 guildId: 'other',
             })
         );
@@ -253,6 +432,7 @@ describe('routeBotFeatureEvent', () => {
         expect(ignoredResult.isOk()).toBe(true);
         expect(ignoredResult._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
+            reason: 'guild-not-processable',
             status: 'ignored',
         });
         expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
@@ -260,8 +440,10 @@ describe('routeBotFeatureEvent', () => {
 
         const handledResult = await routeBotFeatureEvent(
             createContext(createSingleMode()),
-            createMentionMessageEvent({
+            createMessageEvent({
+                content: '!ping',
                 guildId: 'target',
+                mentionedUserIds: [],
             })
         );
 
@@ -279,12 +461,13 @@ describe('routeBotFeatureEvent', () => {
 
     it('ignores mention messages when the bot user id is unavailable', async () => {
         const result = await routeBotFeatureEvent(createContext(createMultiMode(), { botUserId: undefined }), {
-            ...createMentionMessageEvent(),
+            ...createMessageEvent(),
         });
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
+            reason: 'bot-user-unavailable',
             status: 'ignored',
         });
         expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
@@ -297,7 +480,7 @@ describe('routeBotFeatureEvent', () => {
                 appEnv: 'development',
                 guildDefconOverride: 'auto',
             }),
-            createMentionMessageEvent()
+            createMessageEvent()
         );
 
         expect(result.isOk()).toBe(true);
@@ -318,11 +501,12 @@ describe('routeBotFeatureEvent', () => {
             })
         );
 
-        const blockedResult = await routeBotFeatureEvent(createContext(createMultiMode()), createMentionMessageEvent());
+        const blockedResult = await routeBotFeatureEvent(createContext(createMultiMode()), createMessageEvent());
 
         expect(blockedResult.isOk()).toBe(true);
         expect(blockedResult._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
+            reason: 'defcon-denied',
             status: 'ignored',
         });
         expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
@@ -337,7 +521,7 @@ describe('routeBotFeatureEvent', () => {
         );
         listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok(['bot_mention']));
 
-        const exemptResult = await routeBotFeatureEvent(createContext(createMultiMode()), createMentionMessageEvent());
+        const exemptResult = await routeBotFeatureEvent(createContext(createMultiMode()), createMessageEvent());
 
         expect(exemptResult.isOk()).toBe(true);
         expect(exemptResult._unsafeUnwrap()).toStrictEqual({
@@ -350,7 +534,7 @@ describe('routeBotFeatureEvent', () => {
     it('returns database-error when bot mention DEFCON lookup fails', async () => {
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValueOnce(err('database-error'));
 
-        const result = await routeBotFeatureEvent(createContext(createMultiMode()), createMentionMessageEvent());
+        const result = await routeBotFeatureEvent(createContext(createMultiMode()), createMessageEvent());
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('database-error');
@@ -360,7 +544,7 @@ describe('routeBotFeatureEvent', () => {
     it('returns message-send-error when the mention reply cannot be sent', async () => {
         sendFluxerChannelMessageMock.mockResolvedValueOnce(err({ type: 'send-failed', error: new Error('no access') }));
 
-        const result = await routeBotFeatureEvent(createContext(createMultiMode()), createMentionMessageEvent());
+        const result = await routeBotFeatureEvent(createContext(createMultiMode()), createMessageEvent());
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('message-send-error');
@@ -410,7 +594,7 @@ function createInstallation(guildId: string): BotInstallationRecord {
     };
 }
 
-function createMentionMessageEvent(
+function createMessageEvent(
     overrides: Partial<Extract<Parameters<typeof routeBotFeatureEvent>[1], { type: 'message.created' }>> = {}
 ): Extract<Parameters<typeof routeBotFeatureEvent>[1], { type: 'message.created' }> {
     return {
