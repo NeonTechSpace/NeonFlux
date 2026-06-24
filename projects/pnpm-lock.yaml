@@ -87,6 +87,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@fontsource/outfit':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource/roboto-mono':
+        specifier: ^5.2.9
+        version: 5.2.9
       '@neonflux/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -1108,6 +1114,12 @@ packages:
 
   '@fluxerjs/ws@1.4.0':
     resolution: {integrity: sha512-H4ovRj0acmRBsJIeHa37A5eMah4Hb9Vqty4KnseD7QSCYa76vAgH/GqDVmlcWu/0c+vtn6zx0xR+Tx1jxSxoeA==}
+
+  '@fontsource/outfit@5.2.8':
+    resolution: {integrity: sha512-rXC6g0MqD7cOBjht0bMqc43qM6lRqDLML9KXsmg9uykz0wLQhy8Z/ajrMG6iyoT3NJR+MYgU+OEHp7uHoTb+Yw==}
+
+  '@fontsource/roboto-mono@5.2.9':
+    resolution: {integrity: sha512-iIeSyrRGoM15uIWqXslW1K9UFnUYfnCFNrNoWjXE0huO1L+hM0Jst0KNLuRc7P21xPpGL0bZouzYSX0Em9eyWg==}
 
   '@fuma-translate/react@1.0.2':
     resolution: {integrity: sha512-uOiOtBx3nRXR8Nu1GzBf1tApgF1FErDBTHxRIAQeyQdyOoZbrNRN6H4kDCWObY4qyGeGbHydG0DHzgeUgFDMIw==}
@@ -5947,6 +5959,10 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@fontsource/outfit@5.2.8': {}
+
+  '@fontsource/roboto-mono@5.2.9': {}
 
   '@fuma-translate/react@1.0.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:

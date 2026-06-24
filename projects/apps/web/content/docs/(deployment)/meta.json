@@ -1,0 +1,6 @@
+{
+    "title": "Deployment",
+    "defaultOpen": true,
+    "collapsible": true,
+    "pages": ["instance-modes", "docker"]
+}

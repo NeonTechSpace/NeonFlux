@@ -1,0 +1,44 @@
+---
+title: Docker
+description: Runtime shape for self-hosted NeonFlux deployments.
+---
+
+NeonFlux is designed as a Docker Compose stack with three services.
+
+<Files>
+    <Folder name='neonflux' defaultOpen>
+        <File name='bot' />
+        <File name='web' />
+        <File name='db' />
+    </Folder>
+</Files>
+
+## Service roles
+
+| Service | Owns                                                                    |
+| ------- | ----------------------------------------------------------------------- |
+| `bot`   | Fluxer gateway connection, bot lifecycle, deployment behavior bootstrap |
+| `web`   | OAuth login, sessions, dashboard, public docs                           |
+| `db`    | Postgres data for shared runtime state                                  |
+
+Both bot and web connect to Postgres. The bot owns deployment behavior bootstrap, including instance mode and public web URL, then writes it into the database.
+
+The web service keeps OAuth and session secrets in env, but reads deployment behavior from the database.
+
+## Local development
+
+Local development can run app checks without Postgres. Smoke tests and production-style runs need a real Postgres-compatible database.
+
+<Callout title='Smoke tests need a database' type='warn'>
+    Bot lifecycle persistence, OAuth sessions, dashboard guild access, and token storage all require Postgres-compatible
+    persistence.
+</Callout>
+
+## Deployment steps
+
+<Steps>
+    <Step>Configure bot environment for Fluxer token, instance mode, owner ids, and public web URL.</Step>
+    <Step>Configure web environment for Fluxer OAuth, sessions, token encryption, and database access.</Step>
+    <Step>Start the stack so migrations run and the bot bootstraps deployment config.</Step>
+    <Step>Open the web service and use `/dashboard` to reach manageable communities.</Step>
+</Steps>

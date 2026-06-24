@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsTopicRouteImport } from './routes/docs/topic'
 import { Route as DashboardGuildIdRouteImport } from './routes/dashboard.$guildId'
+import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
 import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
 import { Route as DocsApiSearchRouteImport } from './routes/docs/api/search'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
@@ -50,6 +51,11 @@ const DashboardGuildIdRoute = DashboardGuildIdRouteImport.update({
   path: '/$guildId',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DocsTopicIndexRoute = DocsTopicIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DocsTopicRoute,
+} as any)
 const DocsTopicSplatRoute = DocsTopicSplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -82,17 +88,18 @@ export interface FileRoutesByFullPath {
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/docs/topic/': typeof DocsTopicIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/dashboard/$guildId': typeof DashboardGuildIdRoute
-  '/docs/topic': typeof DocsTopicRouteWithChildren
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/docs/topic': typeof DocsTopicIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -106,6 +113,7 @@ export interface FileRoutesById {
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/docs/topic/': typeof DocsTopicIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -120,17 +128,18 @@ export interface FileRouteTypes {
     | '/auth/fluxer/login'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/docs/topic/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
     | '/dashboard/$guildId'
-    | '/docs/topic'
     | '/docs'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/docs/topic'
   id:
     | '__root__'
     | '/'
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/auth/fluxer/login'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/docs/topic/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -197,6 +207,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/docs/topic/': {
+      id: '/docs/topic/'
+      path: '/'
+      fullPath: '/docs/topic/'
+      preLoaderRoute: typeof DocsTopicIndexRouteImport
+      parentRoute: typeof DocsTopicRoute
+    }
     '/docs/topic/$': {
       id: '/docs/topic/$'
       path: '/$'
@@ -242,10 +259,12 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 interface DocsTopicRouteChildren {
   DocsTopicSplatRoute: typeof DocsTopicSplatRoute
+  DocsTopicIndexRoute: typeof DocsTopicIndexRoute
 }
 
 const DocsTopicRouteChildren: DocsTopicRouteChildren = {
   DocsTopicSplatRoute: DocsTopicSplatRoute,
+  DocsTopicIndexRoute: DocsTopicIndexRoute,
 }
 
 const DocsTopicRouteWithChildren = DocsTopicRoute._addFileChildren(

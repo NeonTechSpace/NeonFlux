@@ -1,14 +1,9 @@
 import '@tanstack/react-start/server-only';
 
 import type { SerializedPageTree } from 'fumadocs-core/source/client';
+import type { PublicDocsTocItem } from './docs-toc.js';
 import { source } from '../lib/source.js';
-
-export type PublicDocsTocItem = {
-    title: string;
-    url: string;
-    depth: number;
-    _step?: number;
-};
+import { serializeTableOfContents } from './docs-toc.js';
 
 export type PublicDocsRouteData = {
     pageTree: SerializedPageTree;
@@ -36,46 +31,4 @@ export async function loadPublicDocsRouteData(slugs: string[]): Promise<PublicDo
             toc: serializeTableOfContents(page.data.toc),
         },
     };
-}
-
-function serializeTableOfContents(toc: unknown): PublicDocsTocItem[] {
-    if (!Array.isArray(toc)) {
-        return [];
-    }
-
-    return toc.flatMap((item): PublicDocsTocItem[] => {
-        if (!item || typeof item !== 'object') {
-            return [];
-        }
-
-        const record = item as Record<string, unknown>;
-        const title = serializeTocTitle(record.title);
-
-        if (!title || typeof record.url !== 'string' || typeof record.depth !== 'number') {
-            return [];
-        }
-
-        return [
-            {
-                title,
-                url: record.url,
-                depth: record.depth,
-                ...(typeof record._step === 'number' ? { _step: record._step } : {}),
-            },
-        ];
-    });
-}
-
-function serializeTocTitle(title: unknown): string | undefined {
-    switch (typeof title) {
-        case 'string':
-            return title;
-
-        case 'number':
-        case 'bigint':
-            return String(title);
-
-        default:
-            return undefined;
-    }
 }
