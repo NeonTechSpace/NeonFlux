@@ -204,9 +204,13 @@ describe('/docs routing', () => {
         expect(docsIndex).toContain('`/dashboard/{guildId}`');
         expect(docsIndex).toContain('## Dashboard routes');
         expect(botPresence).toContain('The default command prefix is `!`.');
-        expect(botPresence).toContain('`!ping` replies');
+        expect(botPresence).toContain('communities can change it with a guarded');
+        expect(botPresence).toContain('@NeonFlux prefix ?');
+        expect(botPresence).toContain('1-3 visible symbol or punctuation characters');
+        expect(botPresence).toContain('With the default prefix, `!ping` replies');
         expect(botPresence).toContain('<Steps>');
         expect(botPresence).toContain('## DEFCON effect');
+        expect(botPresence).toContain('Guarded prefix changes are server-owner only');
         expect(botPresence).not.toContain('Open `/dashboard`');
         expect(botPresence).not.toContain('`/dashboard/{guildId}`');
         expect(botPresence).toContain('not configurable in the dashboard yet');

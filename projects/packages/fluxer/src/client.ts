@@ -1,4 +1,4 @@
-import { Client, Events, type Message } from '@fluxerjs/core';
+import { Client, Events, PermissionFlags, type Message } from '@fluxerjs/core';
 
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
@@ -20,6 +20,9 @@ export type FluxerBotMessageEvent = {
     guildId: string | null;
     authorId: string;
     authorIsBot: boolean;
+    authorRoleIds: string[];
+    authorIsServerOwner: boolean;
+    authorHasManageServer: boolean;
     content: string;
     mentionedUserIds: string[];
 };
@@ -85,12 +88,18 @@ export function createFluxerBot(
 }
 
 function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {
+    const guild = message.guild;
+    const authorMember = guild?.members.get(message.author.id);
+
     return {
         messageId: message.id,
         channelId: message.channelId,
         guildId: message.guildId,
         authorId: message.author.id,
         authorIsBot: message.author.bot,
+        authorRoleIds: [...(authorMember?.roles.roleIds ?? [])],
+        authorIsServerOwner: guild?.ownerId === message.author.id,
+        authorHasManageServer: authorMember?.permissions.has(PermissionFlags.ManageGuild) ?? false,
         content: message.content,
         mentionedUserIds: message.mentions.map((user) => user.id),
     };
