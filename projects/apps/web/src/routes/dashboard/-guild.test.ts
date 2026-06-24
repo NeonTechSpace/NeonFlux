@@ -39,7 +39,10 @@ describe('/dashboard/$guildId', () => {
 
         expect(thrownError).toBeInstanceOf(Response);
         expect(isRedirect(thrownError)).toBe(true);
-        expect(JSON.stringify(thrownError)).toContain('/auth/fluxer/login');
+        expect(getRedirectOptions(thrownError)).toMatchObject({
+            to: '/auth/fluxer/login',
+            reloadDocument: true,
+        });
     });
 
     it('maps inaccessible guilds to a generic 404 state', () => {
@@ -160,4 +163,12 @@ function createGuildRouteData(): DashboardGuildRouteData {
             name: 'Guild One',
         },
     };
+}
+
+function getRedirectOptions(error: unknown): Record<string, unknown> {
+    if (!error || typeof error !== 'object' || !('options' in error)) {
+        throw new Error('Expected TanStack Router redirect options.');
+    }
+
+    return (error as { options: Record<string, unknown> }).options;
 }

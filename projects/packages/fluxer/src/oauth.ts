@@ -1,6 +1,6 @@
 import { err, ok, type Result } from 'neverthrow';
 
-export const FLUXER_AUTHORIZE_URL = 'https://web.canary.fluxer.app/oauth2/authorize';
+export const FLUXER_AUTHORIZE_URL = 'https://web.fluxer.app/oauth2/authorize';
 export const FLUXER_OAUTH_TOKEN_URL = 'https://api.fluxer.app/v1/oauth2/token';
 
 const MAX_OAUTH_EXPIRES_IN_SECONDS = 2_147_483_647;

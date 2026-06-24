@@ -9,7 +9,7 @@ import {
 } from './oauth.js';
 
 describe('buildFluxerAuthorizeUrl', () => {
-    it('builds the dev login URL', () => {
+    it('builds the login URL', () => {
         expect(
             buildFluxerAuthorizeUrl({
                 appId: '1517169145576165376',
@@ -17,7 +17,7 @@ describe('buildFluxerAuthorizeUrl', () => {
                 scopes: ['identify', 'guilds'],
             })
         ).toBe(
-            'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=identify+guilds&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Ffluxer%2Fcallback&response_type=code'
+            'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=identify+guilds&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Ffluxer%2Fcallback&response_type=code'
         );
     });
 
