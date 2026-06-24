@@ -1,5 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
+export const DEFAULT_COMMAND_PREFIX = '!';
+
 export const COMMAND_PREFIX_INVALID_MESSAGE =
     'Prefix must be 1-3 visible characters, start with an allowed symbol, and avoid spaces or Fluxer-reserved characters like /, @, #, <, >, or :.';
 

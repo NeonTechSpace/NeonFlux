@@ -5,15 +5,12 @@ import {
     index,
     integer,
     jsonb,
-    pgEnum,
     pgTable,
     text,
     timestamp,
     uniqueIndex,
     uuid,
 } from 'drizzle-orm/pg-core';
-
-export const logSeverity = pgEnum('log_severity', ['debug', 'info', 'warn', 'error']);
 
 export type EncryptedOAuthTokenPayload = {
     version: string;
@@ -112,24 +109,6 @@ export const guildDefconExemptions = pgTable(
     (table) => [
         uniqueIndex('guild_defcon_exemptions_guild_category_idx').on(table.guildId, table.category),
         index('guild_defcon_exemptions_guild_idx').on(table.guildId),
-    ]
-);
-
-export const botEvents = pgTable(
-    'bot_events',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        eventName: text('event_name').notNull(),
-        guildId: text('guild_id'),
-        channelId: text('channel_id'),
-        userId: text('user_id'),
-        severity: logSeverity('severity').notNull().default('info'),
-        context: jsonb('context').$type<Record<string, unknown>>().notNull().default({}),
-        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-        index('bot_events_guild_created_at_idx').on(table.guildId, table.createdAt),
-        index('bot_events_event_name_idx').on(table.eventName),
     ]
 );
 

@@ -27,6 +27,7 @@ describe('loadDashboardGuildPageData', () => {
             guild: {
                 id: 'guild-1',
                 name: 'Guild One',
+                iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
             },
         });
     });
@@ -159,6 +160,7 @@ function createAuthorizedGuildAccess(): DashboardGuildAccess {
             {
                 id: 'guild-1',
                 name: 'Guild One',
+                iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
                 canManage: true,
                 botInstalled: true,
             },

@@ -14,6 +14,10 @@ export type FluxerBotGuildEvent = {
     guildId: string;
 };
 
+export type FluxerBotGuildsReadyEvent = {
+    guildIds: string[];
+};
+
 export type FluxerBotMessageEvent = {
     messageId: string;
     channelId: string;
@@ -30,10 +34,12 @@ export type FluxerBotMessageEvent = {
 export type FluxerBotLifecycleHandlers = {
     guildCreated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
     guildDeleted?: (event: FluxerBotGuildEvent) => void | Promise<void>;
+    guildsReady?: (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
     messageCreated?: (event: FluxerBotMessageEvent) => void | Promise<void>;
 };
 
 type FluxerBotGuildEventHandler = (event: FluxerBotGuildEvent) => void | Promise<void>;
+type FluxerBotGuildsReadyEventHandler = (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
 type FluxerBotMessageEventHandler = (event: FluxerBotMessageEvent) => void | Promise<void>;
 
 export function createFluxerBot(
@@ -41,12 +47,13 @@ export function createFluxerBot(
     logger: AppLogger,
     lifecycleHandlers: FluxerBotLifecycleHandlers = {}
 ) {
-    const client = new Client();
+    const client = new Client({ waitForGuilds: true });
 
     client.once(Events.Ready, () => {
         logger.info('fluxer.ready', {
             instanceMode: config.instanceMode,
         });
+        void runCurrentGuildSync(logger, lifecycleHandlers.guildsReady, client);
     });
 
     client.on(Events.GuildCreate, (guild) => {
@@ -85,6 +92,33 @@ export function createFluxerBot(
             await client.destroy();
         },
     };
+}
+
+async function runCurrentGuildSync(
+    logger: AppLogger,
+    handler: FluxerBotGuildsReadyEventHandler | undefined,
+    client: Client
+): Promise<void> {
+    if (!handler) {
+        return;
+    }
+
+    try {
+        const guilds = await client.user?.fetchGuilds();
+
+        if (!guilds) {
+            logger.error('fluxer.guilds_ready_fetch_failed', {
+                reason: 'bot-user-unavailable',
+            });
+            return;
+        }
+
+        await handler({
+            guildIds: guilds.map((guild) => guild.id),
+        });
+    } catch {
+        logger.error('fluxer.guilds_ready_fetch_failed');
+    }
 }
 
 function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {

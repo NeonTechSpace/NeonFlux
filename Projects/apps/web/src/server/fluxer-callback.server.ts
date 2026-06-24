@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import { createWebSession as createWebSessionRecord, upsertFluxerOAuthTokenSet } from '@neonflux/db';
 import type { EncryptedOAuthTokenPayload } from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
@@ -20,7 +20,7 @@ import {
 const dashboardPath = '/dashboard';
 
 export async function handleFluxerCallbackRequest(request: Request): Promise<Response> {
-    const config = loadConfig();
+    const config = loadWebConfig();
     const stateResult = validateFluxerOAuthCallbackState({
         request,
         url: new URL(request.url),

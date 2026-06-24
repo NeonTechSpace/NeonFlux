@@ -1,17 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createServerOnlyFn } from '@tanstack/react-start';
-import { createFromSource } from 'fumadocs-core/search/server';
-
-import { source } from '../../../lib/source.js';
 
 const createRoute = createFileRoute('/docs/api/search');
-const search = createFromSource(source);
 
-const handleDocsSearch = createServerOnlyFn(
-    async ({ request }: { request: Request }): Promise<Response> => search.GET(request)
-);
+const handleDocsSearch = createServerOnlyFn(async ({ request }: { request: Request }): Promise<Response> => {
+    const { handlePublicDocsSearchRequest } = await import('../../../server/docs-search.server.js');
 
-export const docsSearchRouteOptions = {
+    return handlePublicDocsSearchRequest(request);
+});
+
+const docsSearchRouteOptions = {
     server: {
         handlers: {
             GET: handleDocsSearch,

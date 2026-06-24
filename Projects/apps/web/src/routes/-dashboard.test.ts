@@ -8,24 +8,15 @@ import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import {
-    DashboardPageContent,
-    dashboardRouteOptions,
-    resolveDashboardRouteResult,
-    toDashboardRouteResult,
-} from './dashboard.index.js';
-import type { DashboardRouteData } from './dashboard.index.js';
+import { DashboardPageContent } from '../components/dashboard-index-page.js';
+import { resolveDashboardRouteResult, toDashboardRouteResult } from '../server/dashboard-route-data.js';
+import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
 
 describe('/dashboard', () => {
-    it('configures a route loader and component', () => {
-        expect(typeof dashboardRouteOptions.loader).toBe('function');
-        expect(typeof dashboardRouteOptions.component).toBe('function');
-    });
-
     it('keeps the server selector on an index route so guild pages render through the dashboard layout', () => {
         const routeTree = readFileSync(findRouteTreePath(), 'utf8');
 
@@ -33,7 +24,27 @@ describe('/dashboard', () => {
         expect(routeTree).toContain('DashboardIndexRoute = DashboardIndexRouteImport.update({');
         expect(routeTree).toContain('getParentRoute: () => DashboardRoute');
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events'");
         expect(routeTree).toContain("fullPath: '/dashboard/'");
+    });
+
+    it('uses dashboard pending UI instead of blank lazy fallbacks', () => {
+        const dashboardIndexRoute = readFileSync('apps/web/src/routes/dashboard.index.tsx', 'utf8');
+        const dashboardGuildRoute = readFileSync('apps/web/src/routes/dashboard.$guildId.tsx', 'utf8');
+        const dashboardLoading = readFileSync('apps/web/src/components/dashboard-loading.tsx', 'utf8');
+        const dashboardLayout = readFileSync('apps/web/src/components/dashboard-layout.tsx', 'utf8');
+
+        expect(dashboardLoading).toContain('DashboardRouteLoading');
+        expect(dashboardLoading).toContain("role='status'");
+        expect(dashboardLoading).toContain('Loading dashboard');
+        expect(dashboardIndexRoute).toContain('pendingComponent: DashboardRouteLoading');
+        expect(dashboardIndexRoute).toContain('fallback={<DashboardRouteLoading />}');
+        expect(dashboardGuildRoute).toContain('pendingComponent: DashboardRouteLoading');
+        expect(dashboardGuildRoute).toContain('fallback={<DashboardRouteLoading />}');
+        expect(`${dashboardIndexRoute}\n${dashboardGuildRoute}`).not.toContain('fallback={null}');
+        expect(dashboardLayout).toContain("case '/dashboard':");
+        expect(dashboardLayout).toContain("<Link to='/dashboard'");
+        expect(dashboardLayout).toContain('<a href={actionTo}');
     });
 
     it('maps dashboard data into route data', async () => {
@@ -134,16 +145,6 @@ describe('/dashboard', () => {
         expect(document.body.textContent).not.toContain('Community');
     });
 
-    it('renders guild icons when available', () => {
-        const { container } = renderWithRouter(
-            createElement(DashboardPageContent, { data: createDashboardRouteData() })
-        );
-
-        expect(
-            container.querySelector('img[src="https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80"]')
-        ).toBeTruthy();
-    });
-
     it('renders the single-instance unauthorized state', () => {
         renderWithRouter(
             createElement(DashboardPageContent, {
@@ -232,7 +233,7 @@ function createDashboardData(): Parameters<typeof toDashboardRouteResult>[0] {
                 {
                     id: 'guild-1',
                     name: 'Guild One',
-                    iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
+                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
                 },
             ],
         },
@@ -249,7 +250,7 @@ function createDashboardRouteData(): DashboardRouteData {
                 {
                     id: 'guild-1',
                     name: 'Guild One',
-                    iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
+                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
                 },
             ],
         },

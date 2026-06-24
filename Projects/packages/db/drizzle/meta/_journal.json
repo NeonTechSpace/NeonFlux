@@ -43,6 +43,20 @@
       "when": 1782242037667,
       "tag": "0005_guild_defcon_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782337527112,
+      "tag": "0006_spicy_dazzler",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782343535000,
+      "tag": "0007_dashboard_live_events",
+      "breakpoints": true
     }
   ]
 }

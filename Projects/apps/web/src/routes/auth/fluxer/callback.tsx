@@ -9,7 +9,7 @@ const handleFluxerCallback = createServerOnlyFn(async ({ request }: { request: R
     return handleFluxerCallbackRequest(request);
 });
 
-export const fluxerCallbackRouteOptions = {
+const fluxerCallbackRouteOptions = {
     server: {
         handlers: {
             GET: handleFluxerCallback,

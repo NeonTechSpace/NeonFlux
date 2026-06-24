@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import {
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
@@ -52,7 +52,7 @@ export async function readAuthenticatedFluxerContext(
         return err(sessionResult.error);
     }
 
-    const config = loadConfig();
+    const config = loadWebConfig();
     const tokenEncryptionKey = requireConfigValue(config.fluxerTokenEncryptionKey, 'FLUXER_TOKEN_ENCRYPTION_KEY');
     const database = getWebDatabaseClient();
     const tokenSetResult = await findUsableFluxerOAuthTokenSetByUserId(database.db, {

@@ -1,5 +1,5 @@
 import { createDatabaseClient, runDatabaseMigrations } from '@neonflux/db';
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 
 const webServerUrl = new URL('../apps/web/.output/server/index.mjs', import.meta.url);
 
@@ -7,7 +7,7 @@ function getErrorMessage(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
-const config = loadConfig();
+const config = loadWebConfig();
 const database = createDatabaseClient(config.databaseUrl);
 
 try {

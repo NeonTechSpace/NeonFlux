@@ -1,8 +1,8 @@
 import { Client } from 'pg';
 
-import { loadConfig } from '../packages/config/src/env.js';
+import { loadRuntimeConfig } from '../packages/config/src/env.js';
 
-const config = loadConfig();
+const config = loadRuntimeConfig();
 const explicitDatabaseUrl = process.env.DATABASE_URL?.trim();
 
 if (config.appEnv === 'production' || config.nodeEnv === 'production') {

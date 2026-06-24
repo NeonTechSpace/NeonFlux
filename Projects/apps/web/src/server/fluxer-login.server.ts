@@ -1,12 +1,12 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import { buildFluxerAuthorizeUrl } from '@neonflux/fluxer/oauth';
 
 import { createFluxerOAuthState, createFluxerOAuthStateCookie } from './oauth-state.js';
 
 export function handleFluxerLoginRequest(): Response {
-    const config = loadConfig();
+    const config = loadWebConfig();
     const appId = requireConfigValue(config.fluxerAppId, 'FLUXER_APP_ID');
     const redirectUrl = requireConfigValue(config.fluxerOauthRedirectUrl, 'FLUXER_OAUTH_REDIRECT_URL');
     const state = createFluxerOAuthState();

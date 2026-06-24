@@ -1,4 +1,5 @@
 import type { AppConfig } from '@neonflux/config';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
 import type * as NeonFluxDb from '@neonflux/db';
 import {
@@ -7,6 +8,7 @@ import {
     findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
     listGuildDefconExemptionCategories,
+    listBotInstallationGuildIds,
     runDatabaseMigrations,
     upsertGuildCommandPrefix,
     upsertBotInstallation,
@@ -34,6 +36,7 @@ vi.mock('@neonflux/db', async (importOriginal) => {
         findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
+        listBotInstallationGuildIds: vi.fn(),
         runDatabaseMigrations: vi.fn(),
         upsertGuildCommandPrefix: vi.fn(),
         upsertBotInstallation: vi.fn(),
@@ -59,6 +62,7 @@ const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionR
 const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
+const listBotInstallationGuildIdsMock = vi.mocked(listBotInstallationGuildIds);
 const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
 const testDb = {} as DatabaseClient['db'];
 const testFluxerClient = {
@@ -101,6 +105,7 @@ describe('createBotApp', () => {
         findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        listBotInstallationGuildIdsMock.mockResolvedValue(ok([]));
         upsertGuildCommandPrefixMock.mockResolvedValue(
             ok({
                 guildId: 'guild-1',
@@ -201,6 +206,34 @@ describe('createBotApp', () => {
         });
     });
 
+    it('reconciles current bot guilds with the DB-effective mode', async () => {
+        const database = createDatabase();
+
+        bootstrapDeploymentConfigMock.mockResolvedValueOnce(ok({ instanceMode: 'multi' }));
+        listBotInstallationGuildIdsMock.mockResolvedValueOnce(ok(['guild-1', 'stale-guild']));
+
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger: createLogger(),
+            database,
+        });
+
+        await app.start();
+        await capturedLifecycleHandlers?.guildsReady?.({
+            guildIds: ['guild-1', 'guild-2'],
+        });
+
+        expect(upsertBotInstallationMock).toHaveBeenCalledWith(database.db, {
+            guildId: 'guild-1',
+        });
+        expect(upsertBotInstallationMock).toHaveBeenCalledWith(database.db, {
+            guildId: 'guild-2',
+        });
+        expect(deleteBotInstallationMock).toHaveBeenCalledWith(database.db, {
+            guildId: 'stale-guild',
+        });
+    });
+
     it('logs guild lifecycle sync failures without throwing', async () => {
         const logErrorMock = vi.fn();
         const logger = createLogger({ error: logErrorMock });
@@ -262,7 +295,7 @@ describe('createBotApp', () => {
             database: createDatabase(),
         });
 
-        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok(['bot_mention']));
+        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok([DEFCON_FEATURE_CATEGORY.botMention]));
 
         await app.start();
         await capturedLifecycleHandlers?.messageCreated?.({
@@ -281,6 +314,7 @@ describe('createBotApp', () => {
         expect(logInfoMock).toHaveBeenCalledWith('bot.feature_route', {
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
             guildDefconOverride: 1,
             messageId: 'message-1',
             channelId: 'channel-1',

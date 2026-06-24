@@ -1,19 +1,30 @@
 import type { AppMode } from '@neonflux/config';
-import { deleteBotInstallation, upsertBotInstallation, type BotInstallationRecord } from '@neonflux/db';
+import {
+    deleteBotInstallation,
+    listBotInstallationGuildIds,
+    upsertBotInstallation,
+    type BotInstallationRecord,
+} from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { recordBotInstallationEvent, removeBotInstallationEvent } from './bot-installation-sync.js';
+import {
+    reconcileBotInstallations,
+    recordBotInstallationEvent,
+    removeBotInstallationEvent,
+} from './bot-installation-sync.js';
 
 vi.mock('@neonflux/db', () => {
     return {
         deleteBotInstallation: vi.fn(),
+        listBotInstallationGuildIds: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
 });
 
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const listBotInstallationGuildIdsMock = vi.mocked(listBotInstallationGuildIds);
 
 const testDb = {} as Parameters<typeof recordBotInstallationEvent>[0];
 
@@ -87,6 +98,87 @@ describe('recordBotInstallationEvent', () => {
 
         const result = await recordBotInstallationEvent(testDb, createMultiMode(), {
             guildId: 'guild-1',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+    });
+});
+
+describe('reconcileBotInstallations', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        upsertBotInstallationMock.mockImplementation((_db, input) =>
+            Promise.resolve(ok(createInstallation(input.guildId)))
+        );
+        deleteBotInstallationMock.mockImplementation((_db, input) =>
+            Promise.resolve(ok(createInstallation(input.guildId)))
+        );
+        listBotInstallationGuildIdsMock.mockResolvedValue(ok([]));
+    });
+
+    it('upserts current guilds and removes stale guilds in multi mode', async () => {
+        listBotInstallationGuildIdsMock.mockResolvedValueOnce(ok(['guild-1', 'stale-guild']));
+
+        const result = await reconcileBotInstallations(testDb, createMultiMode(), {
+            guildIds: ['guild-1', 'guild-2', 'guild-2', ' '],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            status: 'reconciled',
+            recordedGuildIds: ['guild-1', 'guild-2'],
+            removedGuildIds: ['stale-guild'],
+        });
+        expect(upsertBotInstallationMock).toHaveBeenCalledTimes(2);
+        expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'stale-guild',
+        });
+    });
+
+    it('only reconciles the configured guild in single mode', async () => {
+        listBotInstallationGuildIdsMock.mockResolvedValueOnce(ok(['target', 'other']));
+
+        const result = await reconcileBotInstallations(testDb, createSingleMode(), {
+            guildIds: ['target', 'other'],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            status: 'reconciled',
+            recordedGuildIds: ['target'],
+            removedGuildIds: [],
+        });
+        expect(upsertBotInstallationMock).toHaveBeenCalledTimes(1);
+        expect(upsertBotInstallationMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'target',
+        });
+        expect(deleteBotInstallationMock).not.toHaveBeenCalled();
+    });
+
+    it('removes the configured single guild when it is no longer present', async () => {
+        listBotInstallationGuildIdsMock.mockResolvedValueOnce(ok(['target', 'other']));
+
+        const result = await reconcileBotInstallations(testDb, createSingleMode(), {
+            guildIds: ['other'],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            status: 'reconciled',
+            recordedGuildIds: [],
+            removedGuildIds: ['target'],
+        });
+        expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'target',
+        });
+    });
+
+    it('returns database-error when current guild reconciliation fails', async () => {
+        upsertBotInstallationMock.mockResolvedValueOnce(err('database-error'));
+
+        const result = await reconcileBotInstallations(testDb, createMultiMode(), {
+            guildIds: ['guild-1'],
         });
 
         expect(result.isErr()).toBe(true);

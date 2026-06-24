@@ -10,6 +10,7 @@ export type DashboardGuildPageDataResult =
           guild: {
               id: string;
               name: string;
+              iconUrl?: string;
           };
       }
     | { type: 'auth-required' }
@@ -55,6 +56,7 @@ export async function loadDashboardGuildPageData(
                 guild: {
                     id: guild.id,
                     name: guild.name ?? guild.id,
+                    ...(guild.iconUrl ? { iconUrl: guild.iconUrl } : {}),
                 },
             };
         }

@@ -5,6 +5,11 @@ export type GuildDefconLevel = 1 | 2 | 3;
 export type DefconFeatureCategory = 'bot_mention' | 'prefix' | (string & {});
 export type DefconAudience = 'public' | 'guarded';
 
+export const DEFCON_FEATURE_CATEGORY = {
+    botMention: 'bot_mention',
+    prefix: 'prefix',
+} as const satisfies Record<string, DefconFeatureCategory>;
+
 export type DefconActor = {
     userId?: string;
     roleIds?: readonly string[];

@@ -15,7 +15,7 @@ describe('toDashboardViewModel', () => {
                     {
                         id: 'guild-1',
                         name: 'Guild One',
-                        iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
+                        iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
                         canManage: true,
                         botInstalled: false,
                     },
@@ -28,7 +28,7 @@ describe('toDashboardViewModel', () => {
                 {
                     id: 'guild-1',
                     name: 'Guild One',
-                    iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
+                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
                 },
             ],
         });

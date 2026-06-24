@@ -1,10 +1,10 @@
-import { loadConfig } from '@neonflux/config';
+import { loadBotConfig } from '@neonflux/config';
 import { createLogger } from '@neonflux/core/logging';
 import { createDatabaseClient } from '@neonflux/db';
 
 import { createBotApp } from './bot-app.js';
 
-const config = loadConfig();
+const config = loadBotConfig();
 const logger = createLogger(config);
 const database = createDatabaseClient(config.databaseUrl);
 const app = createBotApp({ config, logger, database });
