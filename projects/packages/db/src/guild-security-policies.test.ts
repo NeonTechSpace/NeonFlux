@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -101,7 +102,7 @@ describe('guild security policy repository', () => {
     it('stores command grants separately from dashboard grants', async () => {
         const commandRule = await upsertCommandRule({
             guildId: 'guild-1',
-            category: ' prefix ',
+            category: ` ${DEFCON_FEATURE_CATEGORY.prefix} `,
             userIds: [' user-a ', ''],
             roleIds: [' role-a '],
         });
@@ -113,13 +114,13 @@ describe('guild security policy repository', () => {
 
         const storedCommandRule = await findGuildCommandPermissionRule(getDb(), {
             guildId: 'guild-1',
-            category: 'prefix',
+            category: DEFCON_FEATURE_CATEGORY.prefix,
         });
         const storedDashboardRule = await findGuildDashboardPermissionRule(getDb(), { guildId: 'guild-1' });
 
         expect(commandRule).toMatchObject({
             guildId: 'guild-1',
-            category: 'prefix',
+            category: DEFCON_FEATURE_CATEGORY.prefix,
             userIds: ['user-a'],
             roleIds: ['role-a'],
         });
@@ -184,25 +185,28 @@ describe('guild security policy repository', () => {
 
     it('stores DEFCON 1 exemptions as sorted feature categories', async () => {
         await upsertExemption({ guildId: 'guild-1', category: 'verification' });
-        await upsertExemption({ guildId: 'guild-1', category: ' bot_mention ' });
+        await upsertExemption({ guildId: 'guild-1', category: ` ${DEFCON_FEATURE_CATEGORY.botMention} ` });
         await upsertExemption({ guildId: 'guild-1', category: 'verification' });
 
         const categories = await listGuildDefconExemptionCategories(getDb(), { guildId: 'guild-1' });
 
         expect(categories.isOk()).toBe(true);
-        expect(categories._unsafeUnwrap()).toStrictEqual(['bot_mention', 'verification']);
+        expect(categories._unsafeUnwrap()).toStrictEqual([DEFCON_FEATURE_CATEGORY.botMention, 'verification']);
     });
 
     it('deletes a DEFCON exemption', async () => {
-        await upsertExemption({ guildId: 'guild-1', category: 'bot_mention' });
+        await upsertExemption({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.botMention });
 
-        const deleted = await deleteGuildDefconExemption(getDb(), { guildId: 'guild-1', category: 'bot_mention' });
+        const deleted = await deleteGuildDefconExemption(getDb(), {
+            guildId: 'guild-1',
+            category: DEFCON_FEATURE_CATEGORY.botMention,
+        });
         const categories = await listGuildDefconExemptionCategories(getDb(), { guildId: 'guild-1' });
 
         expect(deleted.isOk()).toBe(true);
         expect(deleted._unsafeUnwrap()).toMatchObject({
             guildId: 'guild-1',
-            category: 'bot_mention',
+            category: DEFCON_FEATURE_CATEGORY.botMention,
         });
         expect(categories.isOk()).toBe(true);
         expect(categories._unsafeUnwrap()).toStrictEqual([]);
@@ -210,16 +214,19 @@ describe('guild security policy repository', () => {
 
     it('cascades policy data when a guild installation is removed', async () => {
         await upsertPolicy({ guildId: 'guild-1', defconLevel: 1 });
-        await upsertCommandRule({ guildId: 'guild-1', category: 'prefix' });
+        await upsertCommandRule({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.prefix });
         await upsertDashboardRule({ guildId: 'guild-1' });
-        await upsertExemption({ guildId: 'guild-1', category: 'bot_mention' });
+        await upsertExemption({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.botMention });
 
         const deletedInstallation = await deleteBotInstallation(getDb(), { guildId: 'guild-1' });
 
         expect(deletedInstallation.isOk()).toBe(true);
 
         const policy = await findGuildSecurityPolicyByGuildId(getDb(), { guildId: 'guild-1' });
-        const commandRule = await findGuildCommandPermissionRule(getDb(), { guildId: 'guild-1', category: 'prefix' });
+        const commandRule = await findGuildCommandPermissionRule(getDb(), {
+            guildId: 'guild-1',
+            category: DEFCON_FEATURE_CATEGORY.prefix,
+        });
         const dashboardRule = await findGuildDashboardPermissionRule(getDb(), { guildId: 'guild-1' });
         const categories = await listGuildDefconExemptionCategories(getDb(), { guildId: 'guild-1' });
 

@@ -12,7 +12,6 @@ const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
 const dataDir = join(projectRoot, 'data', 'pglite-migration-check');
 const expectedTables = [
-    'bot_events',
     'bot_installations',
     'deployment_config',
     'fluxer_oauth_tokens',

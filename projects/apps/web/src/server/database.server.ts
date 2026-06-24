@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import { createDatabaseClient } from '@neonflux/db';
 import type { DatabaseClient } from '@neonflux/db';
 
@@ -11,7 +11,7 @@ export function getWebDatabaseClient(): DatabaseClient {
         return webDatabaseClient;
     }
 
-    const config = loadConfig();
+    const config = loadWebConfig();
 
     webDatabaseClient = createDatabaseClient(config.databaseUrl);
 

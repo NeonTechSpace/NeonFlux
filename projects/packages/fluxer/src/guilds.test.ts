@@ -59,7 +59,7 @@ describe('listFluxerCurrentUserGuilds', () => {
                             id: 'guild-1',
                             name: 'NeonFlux Lab',
                             permissions: '32',
-                            icon: ' guild-icon-hash ',
+                            icon_hash: ' guild-icon-hash ',
                         },
                         {
                             id: 'guild-2',

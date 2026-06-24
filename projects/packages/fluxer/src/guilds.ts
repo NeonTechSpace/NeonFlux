@@ -147,7 +147,7 @@ function parseFluxerCurrentUserGuild(value: unknown): FluxerCurrentUserGuild | u
     const id = value.id;
     const name = value.name;
     const permissions = value.permissions;
-    const icon = value.icon;
+    const icon = value.icon_hash ?? value.icon;
     const ownerId = value.owner_id;
 
     if (typeof id !== 'string' || typeof name !== 'string' || typeof permissions !== 'string') {

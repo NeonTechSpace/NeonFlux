@@ -1,5 +1,6 @@
 import type { AppMode } from '@neonflux/config';
-import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
+import { COMMAND_PREFIX_INVALID_MESSAGE, DEFAULT_COMMAND_PREFIX } from '@neonflux/core/command-prefix';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import {
     deleteBotInstallation,
     findGuildCommandPermissionRule,
@@ -15,11 +16,7 @@ import { sendFluxerChannelMessage, type FluxerBot } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    DEFAULT_BOT_COMMAND_PREFIX,
-    routeBotFeatureEvent,
-    type BotFeatureHandlerContext,
-} from './bot-feature-router.js';
+import { routeBotFeatureEvent, type BotFeatureHandlerContext } from './bot-feature-router.js';
 
 vi.mock('@neonflux/db', () => {
     return {
@@ -68,7 +65,7 @@ describe('routeBotFeatureEvent', () => {
     });
 
     it('uses ! as the default bot command prefix', () => {
-        expect(DEFAULT_BOT_COMMAND_PREFIX).toBe('!');
+        expect(DEFAULT_COMMAND_PREFIX).toBe('!');
     });
 
     it('records only the configured guild in single mode', async () => {
@@ -221,6 +218,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -243,6 +241,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -266,6 +265,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -308,6 +308,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'commands.prefix_change',
         });
         expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
@@ -345,7 +346,7 @@ describe('routeBotFeatureEvent', () => {
         findGuildCommandPermissionRuleMock.mockResolvedValueOnce(
             ok({
                 guildId: 'guild-1',
-                category: 'prefix',
+                category: DEFCON_FEATURE_CATEGORY.prefix,
                 userIds: [],
                 roleIds: ['role-1'],
                 createdAt: new Date('2026-06-24T00:00:00.000Z'),
@@ -408,6 +409,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -434,6 +436,7 @@ describe('routeBotFeatureEvent', () => {
             expect(result._unsafeUnwrap()).toStrictEqual({
                 eventType: 'message.created',
                 status: 'handled',
+                action: 'commands.prefix_change',
             });
             expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
                 client: testClient,
@@ -477,6 +480,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'commands.prefix_change',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -499,6 +503,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'commands.prefix_change',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -602,6 +607,7 @@ describe('routeBotFeatureEvent', () => {
             expect(result._unsafeUnwrap()).toStrictEqual({
                 eventType: 'message.created',
                 status: 'handled',
+                action: 'bot_mention.contextless_reply',
             });
             expect(sendFluxerChannelMessageMock).toHaveBeenLastCalledWith({
                 client: testClient,
@@ -682,6 +688,7 @@ describe('routeBotFeatureEvent', () => {
         expect(reminderResult._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'bot_mention.contextless_reply',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenLastCalledWith({
             client: testClient,
@@ -793,6 +800,7 @@ describe('routeBotFeatureEvent', () => {
         expect(handledResult._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'command.ping',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
@@ -829,6 +837,7 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'bot_mention.contextless_reply',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledOnce();
     });
@@ -861,7 +870,7 @@ describe('routeBotFeatureEvent', () => {
                 updatedAt: new Date('2026-06-23T00:00:00.000Z'),
             })
         );
-        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok(['bot_mention']));
+        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok([DEFCON_FEATURE_CATEGORY.botMention]));
 
         const exemptResult = await routeBotFeatureEvent(createContext(createMultiMode()), createMessageEvent());
 
@@ -869,6 +878,7 @@ describe('routeBotFeatureEvent', () => {
         expect(exemptResult._unsafeUnwrap()).toStrictEqual({
             eventType: 'message.created',
             status: 'handled',
+            action: 'bot_mention.contextless_reply',
         });
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledOnce();
     });

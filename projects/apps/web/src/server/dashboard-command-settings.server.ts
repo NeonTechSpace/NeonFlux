@@ -22,6 +22,7 @@ export type DashboardCommandSettingsPageDataResult =
           guild: {
               id: string;
               name: string;
+              iconUrl?: string;
           };
           commandSettings: DashboardCommandSettings;
       }

@@ -53,7 +53,7 @@ export function toDashboardGuild(guild: FluxerOAuthGuild): DashboardGuild {
 function buildFluxerGuildIconUrl(guildId: string, iconHash: string): string {
     const extension = iconHash.startsWith('a_') ? 'gif' : 'webp';
     const url = new URL(
-        `https://fluxerusercontent.com/avatars/${encodeURIComponent(guildId)}/${encodeURIComponent(
+        `https://fluxerusercontent.com/icons/${encodeURIComponent(guildId)}/${encodeURIComponent(
             `${iconHash}.${extension}`
         )}`
     );

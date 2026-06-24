@@ -1,67 +1,23 @@
-import { createFileRoute, notFound, Outlet } from '@tanstack/react-router';
-import { createServerFn } from '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
+import { Suspense, lazy } from 'react';
 
-import type { PublicDocsRouteData } from '../server/docs.server.js';
+import { DocsRouteLoading } from '../components/docs-loading.js';
 
 const createRoute = createFileRoute('/docs');
+const DocsRouteLayoutContent = lazy(async () => {
+    const module = await import('../components/docs-route-layout.js');
 
-export type DocsRouteResult =
-    | {
-          type: 'page';
-          data: PublicDocsRouteData;
-      }
-    | {
-          type: 'not-found';
-      };
+    return { default: module.DocsRouteLayoutContent };
+});
 
-type DocsRouteInput = {
-    slugs: string[];
-};
-
-export function toDocsRouteResult(data: PublicDocsRouteData | undefined): DocsRouteResult {
-    return data ? { type: 'page', data } : { type: 'not-found' };
-}
-
-export function resolveDocsRouteResult(routeResult: DocsRouteResult): PublicDocsRouteData {
-    switch (routeResult.type) {
-        case 'page':
-            return routeResult.data;
-
-        case 'not-found':
-            throw notFound();
-    }
-}
-
-export const loadDocsRouteData = createServerFn({ method: 'GET' })
-    .validator(validateDocsRouteInput)
-    .handler(async ({ data }) => {
-        const { loadPublicDocsRouteData } = await import('../server/docs.server.js');
-
-        return toDocsRouteResult(await loadPublicDocsRouteData(data.slugs));
-    });
-
-export const docsIndexRouteOptions = {
+export const Route = createRoute({
     component: DocsRouteLayout,
-} satisfies NonNullable<Parameters<typeof createRoute>[0]>;
-
-export const Route = createRoute(docsIndexRouteOptions);
+});
 
 function DocsRouteLayout() {
-    return <Outlet />;
-}
-
-function validateDocsRouteInput(input: unknown): DocsRouteInput {
-    if (!input || typeof input !== 'object') {
-        return { slugs: [] };
-    }
-
-    const slugs = (input as Record<string, unknown>).slugs;
-
-    if (!Array.isArray(slugs)) {
-        return { slugs: [] };
-    }
-
-    return {
-        slugs: slugs.filter((slug): slug is string => typeof slug === 'string' && slug.length > 0),
-    };
+    return (
+        <Suspense fallback={<DocsRouteLoading />}>
+            <DocsRouteLayoutContent />
+        </Suspense>
+    );
 }

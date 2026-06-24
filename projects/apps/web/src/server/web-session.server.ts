@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import { findActiveWebSessionById } from '@neonflux/db';
 import type { WebSessionRecord, WebSessionRepositoryError } from '@neonflux/db';
 import { err, ok } from 'neverthrow';
@@ -20,7 +20,7 @@ export type WebSessionValidationError =
 export async function readAuthenticatedWebSession(
     request: Request
 ): Promise<Result<WebSessionRecord, WebSessionValidationError>> {
-    const config = loadConfig();
+    const config = loadWebConfig();
     const sessionSecret = requireConfigValue(config.sessionSecret, 'SESSION_SECRET');
     const cookieResult = readSessionCookie({
         request,

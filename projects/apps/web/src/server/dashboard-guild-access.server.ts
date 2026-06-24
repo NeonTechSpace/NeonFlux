@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import type { AppMode } from '@neonflux/config';
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import { authorizeDashboardAccess } from '@neonflux/core/defcon';
 import type { DashboardGuild } from '@neonflux/core';
 import {
@@ -53,7 +53,7 @@ export async function loadDashboardGuildAccess(
     }
 
     const mode = toAppMode(modeResult.value);
-    const config = loadConfig();
+    const config = loadWebConfig();
     const guildsResult = await listFluxerCurrentUserGuilds({
         accessToken: authContextResult.value.accessToken,
         limit: 200,
@@ -89,8 +89,8 @@ export async function loadDashboardGuildAccess(
 type DashboardSelectionContext = {
     guilds: DashboardGuild[];
     fluxerUserId: string;
-    appEnv: ReturnType<typeof loadConfig>['appEnv'];
-    guildDefconOverride: ReturnType<typeof loadConfig>['guildDefconOverride'];
+    appEnv: ReturnType<typeof loadWebConfig>['appEnv'];
+    guildDefconOverride: ReturnType<typeof loadWebConfig>['guildDefconOverride'];
 };
 
 async function selectSingleDashboardGuildAccess(

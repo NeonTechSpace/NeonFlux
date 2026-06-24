@@ -40,22 +40,33 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' };
 
-export type AppConfig = AppMode & {
+export type RuntimeConfig = {
     appEnv: AppEnv;
     databaseUrl: string;
     autoMigrate: boolean;
-    fluxerAppId?: string;
-    fluxerClientSecret?: string;
-    fluxerBotToken?: string;
-    fluxerOauthRedirectUrl?: string;
-    fluxerTokenEncryptionKey?: string;
-    sessionSecret?: string;
-    publicWebUrl?: string;
     guildDefconOverride: GuildDefconOverride;
     logLevel: LogLevel;
     nodeEnv: 'development' | 'test' | 'production';
-    ownerIds: string[];
 };
+
+export type BotConfig = RuntimeConfig &
+    AppMode & {
+        fluxerBotToken?: string;
+        publicWebUrl?: string;
+        ownerIds: string[];
+    };
+
+export type WebConfig = RuntimeConfig & {
+    fluxerAppId?: string;
+    fluxerClientSecret?: string;
+    fluxerOauthRedirectUrl?: string;
+    fluxerTokenEncryptionKey?: string;
+    sessionSecret?: string;
+};
+
+export type AppConfig = BotConfig;
+
+type ParsedEnv = typeof rawEnv.infer;
 
 let loadedDotEnvPath: string | undefined;
 
@@ -83,7 +94,68 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
     return undefined;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+    return createRuntimeConfig(parseEnv(env));
+}
+
+export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
+    const parsed = parseEnv(env);
+    const runtimeConfig = createRuntimeConfig(parsed);
+    const instanceModeValue = parsed.INSTANCE_MODE ?? 'multi';
+    const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
+    const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
+
+    const botBaseConfig = {
+        ...runtimeConfig,
+        ...(fluxerBotToken ? { fluxerBotToken } : {}),
+        ...(publicWebUrl ? { publicWebUrl } : {}),
+        ownerIds: parseCsvIds(parsed.OWNER_IDS),
+    } satisfies Omit<BotConfig, keyof AppMode>;
+
+    switch (instanceModeValue) {
+        case 'single': {
+            const singleGuildId = optionalValue(parsed.SINGLE_GUILD_ID);
+            requireEnvValue(singleGuildId, 'SINGLE_GUILD_ID');
+
+            return {
+                ...botBaseConfig,
+                instanceMode: 'single',
+                singleGuildId,
+            };
+        }
+
+        case 'multi':
+            return {
+                ...botBaseConfig,
+                instanceMode: 'multi',
+            };
+    }
+}
+
+export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
+    const parsed = parseEnv(env);
+    const runtimeConfig = createRuntimeConfig(parsed);
+    const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
+    const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
+    const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
+    const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
+    const sessionSecret = optionalValue(parsed.SESSION_SECRET);
+
+    return {
+        ...runtimeConfig,
+        ...(fluxerAppId ? { fluxerAppId } : {}),
+        ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
+        ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
+        ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
+        ...(sessionSecret ? { sessionSecret } : {}),
+    };
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
+    return loadBotConfig(env);
+}
+
+function parseEnv(env: NodeJS.ProcessEnv): ParsedEnv {
     if (env === process.env) {
         loadLocalEnv();
     }
@@ -94,56 +166,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         throw new Error(`Invalid environment: ${parsed.summary}`);
     }
 
+    return parsed;
+}
+
+function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {
     const appEnvValue = parsed.APP_ENV ?? 'development';
-    const instanceModeValue = parsed.INSTANCE_MODE ?? 'multi';
     const databaseUrl = valueOrFallback(parsed.DATABASE_URL, appEnvValue === 'production' ? undefined : devDatabaseUrl);
-    const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
-    const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
-    const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
-    const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
-    const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
-    const sessionSecret = optionalValue(parsed.SESSION_SECRET);
-    const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
 
     if (appEnvValue === 'production') {
         requireEnvValue(databaseUrl, 'DATABASE_URL');
     }
 
-    const baseConfig = {
+    return {
         appEnv: appEnvValue,
         databaseUrl,
         autoMigrate: parsed.AUTO_MIGRATE !== 'false',
-        ...(fluxerAppId ? { fluxerAppId } : {}),
-        ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
-        ...(fluxerBotToken ? { fluxerBotToken } : {}),
-        ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
-        ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
-        ...(sessionSecret ? { sessionSecret } : {}),
-        ...(publicWebUrl ? { publicWebUrl } : {}),
         guildDefconOverride: parseGuildDefconOverride(parsed.GUILD_DEFCON_OVERRIDE),
         logLevel: parsed.LOG_LEVEL ?? 'info',
         nodeEnv: parsed.NODE_ENV ?? 'development',
-        ownerIds: parseCsvIds(parsed.OWNER_IDS),
-    } satisfies Omit<AppConfig, keyof AppMode>;
-
-    switch (instanceModeValue) {
-        case 'single': {
-            const singleGuildId = optionalValue(parsed.SINGLE_GUILD_ID);
-            requireEnvValue(singleGuildId, 'SINGLE_GUILD_ID');
-
-            return {
-                ...baseConfig,
-                instanceMode: 'single',
-                singleGuildId,
-            };
-        }
-
-        case 'multi':
-            return {
-                ...baseConfig,
-                instanceMode: 'multi',
-            };
-    }
+    };
 }
 
 function optionalValue(value: string | undefined): string | undefined {

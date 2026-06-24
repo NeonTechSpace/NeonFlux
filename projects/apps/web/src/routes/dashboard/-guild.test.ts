@@ -3,27 +3,58 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DashboardGuildPageContent } from '../../components/dashboard-guild-page.js';
 import {
-    DashboardGuildPageContent,
-    dashboardGuildRouteOptions,
+    readDashboardCommandSettingsRouteData,
     resolveDashboardGuildRouteResult,
     toDashboardGuildRouteResult,
-} from '../dashboard.$guildId.js';
-import type { DashboardGuildRouteData } from '../dashboard.$guildId.js';
+    updateDashboardCommandPrefixRouteData,
+} from '../../server/dashboard-guild-route-data.js';
+import type { DashboardGuildRouteData } from '../../server/dashboard-guild-route-data.js';
+import type * as DashboardGuildRouteDataModule from '../../server/dashboard-guild-route-data.js';
+
+vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardGuildRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardCommandSettingsRouteData: vi.fn(),
+        updateDashboardCommandPrefixRouteData: vi.fn(),
+    };
+});
 
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
+let documentVisibilityState = 'visible';
 
 describe('/dashboard/$guildId', () => {
-    it('configures a route loader and component', () => {
-        expect(typeof dashboardGuildRouteOptions.loader).toBe('function');
-        expect(typeof dashboardGuildRouteOptions.component).toBe('function');
+    beforeEach(() => {
+        MockEventSource.instances = [];
+        documentVisibilityState = 'visible';
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => documentVisibilityState,
+        });
+        vi.stubGlobal('EventSource', MockEventSource);
+        vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('?'));
+        vi.mocked(updateDashboardCommandPrefixRouteData).mockResolvedValue({
+            type: 'updated',
+            commandSettings: {
+                prefix: '?',
+                isDefaultPrefix: false,
+            },
+        });
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+        vi.unstubAllGlobals();
     });
 
     it('maps authorized guild data into route data', () => {
@@ -81,11 +112,98 @@ describe('/dashboard/$guildId', () => {
         renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
 
         expect(screen.getByRole('heading', { name: 'Guild One' })).toBeTruthy();
-        expect(screen.getByText('Community ID: guild-1')).toBeTruthy();
+        expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
+        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
         expect(screen.getByText('Current prefix:')).toBeTruthy();
         expect(screen.getByText('?')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+    });
+
+    it('uses initial command settings without a first-load refetch waterfall', () => {
+        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+
+        expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
+        expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands');
+    });
+
+    it('invalidates command settings when a visible matching live event arrives', async () => {
+        vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValueOnce(createCommandSettingsReadResult('$'));
+
+        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        MockEventSource.instances.at(0)?.emit(
+            'guild-feature-settings.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'commands',
+                event: 'guild-feature-settings.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
+        expect(screen.getByText('$')).toBeTruthy();
+    });
+
+    it('does not invalidate for unrelated guild live events', async () => {
+        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        MockEventSource.instances.at(0)?.emit(
+            'guild-feature-settings.changed',
+            JSON.stringify({
+                guildId: 'guild-2',
+                area: 'commands',
+                event: 'guild-feature-settings.changed',
+            })
+        );
+        await Promise.resolve();
+
+        expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
+    });
+
+    it('closes live subscriptions while hidden and refetches once when visible again', async () => {
+        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        const firstEventSource = MockEventSource.instances.at(0);
+
+        documentVisibilityState = 'hidden';
+        document.dispatchEvent(new Event('visibilitychange'));
+        documentVisibilityState = 'visible';
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        expect(firstEventSource?.close).toHaveBeenCalledTimes(1);
+        expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
+        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands');
+        await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
+    });
+
+    it('does not overwrite dirty prefix input when another source changes the saved value', async () => {
+        vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('$'));
+        const { container } = renderWithRouter(
+            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
+        );
+        const currentView = within(container);
+        const prefixInput = currentView.getByLabelText<HTMLInputElement>('New prefix');
+
+        fireEvent.change(prefixInput, { target: { value: '?1' } });
+        MockEventSource.instances.at(0)?.emit(
+            'guild-feature-settings.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'commands',
+                event: 'guild-feature-settings.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalledTimes(1));
+        expect(await currentView.findByText('Command prefix changed elsewhere to $.')).toBeTruthy();
+        expect(prefixInput.value).toBe('?1');
+    });
+
+    it('disables prefix saving when the input has not changed', () => {
+        const { container } = renderWithRouter(
+            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
+        );
+        const currentView = within(container);
+
+        expect(currentView.getByRole('button', { name: 'Save prefix' }).hasAttribute('disabled')).toBe(true);
     });
 
     it('shows a clear validation error for invalid command prefixes', () => {
@@ -181,6 +299,7 @@ function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
         guild: {
             id: 'guild-1',
             name: 'Guild One',
+            iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
         },
         commandSettings: {
             prefix: '?',
@@ -196,10 +315,21 @@ function createGuildRouteData(): DashboardGuildRouteData {
         guild: {
             id: 'guild-1',
             name: 'Guild One',
+            iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
         },
         commandSettings: {
             prefix: '?',
             isDefaultPrefix: false,
+        },
+    };
+}
+
+function createCommandSettingsReadResult(prefix: string) {
+    return {
+        type: 'settings' as const,
+        commandSettings: {
+            prefix,
+            isDefaultPrefix: prefix === '!',
         },
     };
 }
@@ -210,4 +340,39 @@ function getRedirectOptions(error: unknown): Record<string, unknown> {
     }
 
     return (error as { options: Record<string, unknown> }).options;
+}
+
+class MockEventSource {
+    static instances: MockEventSource[] = [];
+
+    readonly url: string;
+    readonly close = vi.fn();
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    private readonly listeners = new Map<string, Set<EventListener>>();
+
+    constructor(url: string) {
+        this.url = url;
+        MockEventSource.instances.push(this);
+    }
+
+    addEventListener(type: string, listener: EventListener): void {
+        const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+
+        listeners.add(listener);
+        this.listeners.set(type, listeners);
+    }
+
+    removeEventListener(type: string, listener: EventListener): void {
+        this.listeners.get(type)?.delete(listener);
+    }
+
+    emit(type: string, data: string): void {
+        const event = new MessageEvent(type, { data });
+
+        this.onmessage?.(event);
+
+        for (const listener of this.listeners.get(type) ?? []) {
+            listener(event);
+        }
+    }
 }

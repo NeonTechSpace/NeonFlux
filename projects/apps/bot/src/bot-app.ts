@@ -10,6 +10,7 @@ import {
     type BotFeatureRouteError,
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
+import { reconcileBotInstallations } from './bot-installation-sync.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
 export type BotApp = {
@@ -92,6 +93,25 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
                         logFeatureRouteResult(config, logger, result.value, featureEvent);
                     },
+                    async guildsReady(event) {
+                        const result = await reconcileBotInstallations(database.db, deploymentMode, {
+                            guildIds: event.guildIds,
+                        });
+
+                        if (result.isErr()) {
+                            logger.error('bot.installation_reconcile_failed', {
+                                error: result.error,
+                            });
+                            return;
+                        }
+
+                        if (config.appEnv === 'development') {
+                            logger.info('bot.installation_reconciled', {
+                                recordedGuildCount: result.value.recordedGuildIds.length,
+                                removedGuildCount: result.value.removedGuildIds.length,
+                            });
+                        }
+                    },
                     async guildDeleted(event) {
                         const featureEvent = {
                             type: 'guild.lifecycle.deleted',
@@ -161,6 +181,7 @@ function logFeatureRouteResult(
     logger.info('bot.feature_route', {
         eventType: result.eventType,
         status: result.status,
+        ...(result.status === 'handled' && result.action ? { action: result.action } : {}),
         ...(result.status === 'ignored' && result.reason ? { reason: result.reason } : {}),
         guildDefconOverride: config.guildDefconOverride,
         ...getFeatureEventLogContext(event),

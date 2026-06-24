@@ -1,4 +1,4 @@
-import { loadConfig } from '@neonflux/config';
+import { loadWebConfig } from '@neonflux/config';
 import {
     findDeploymentConfig,
     listGuildDashboardPermissionRulesByGuildIds,
@@ -41,7 +41,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
 }));
 
 vi.mock('@neonflux/config', () => ({
-    loadConfig: vi.fn(),
+    loadWebConfig: vi.fn(),
 }));
 
 vi.mock('@neonflux/db', async (importActual) => {
@@ -68,15 +68,13 @@ vi.mock('@neonflux/fluxer/guilds', async (importActual) => {
 describe('loadDashboardGuildAccess', () => {
     beforeEach(() => {
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
-        vi.mocked(loadConfig).mockReturnValue({
+        vi.mocked(loadWebConfig).mockReturnValue({
             appEnv: 'production',
             databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
             autoMigrate: true,
             guildDefconOverride: 'auto',
-            instanceMode: 'multi',
             logLevel: 'info',
             nodeEnv: 'test',
-            ownerIds: [],
         });
         vi.mocked(findDeploymentConfig).mockResolvedValue(
             ok({

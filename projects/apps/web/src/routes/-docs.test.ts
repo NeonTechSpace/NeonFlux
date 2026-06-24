@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { toDocsRouteResult } from './docs.js';
+import { toDocsRouteResult } from '../server/docs-route-data.js';
 import type { PublicDocsRouteData } from '../server/docs.server.js';
 
 const webRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -32,11 +32,13 @@ describe('/docs routing', () => {
     });
 
     it('configures docs search under the docs route namespace', () => {
-        const rootRoute = readWebFile('src/routes/__root.tsx');
+        const docsLayout = readWebFile('src/components/docs-route-layout.tsx');
         const searchRoute = readWebFile('src/routes/docs/api/search.ts');
 
-        expect(rootRoute).toContain("api: '/docs/api/search'");
+        expect(docsLayout).toContain("api: '/docs/api/search'");
         expect(searchRoute).toContain("createFileRoute('/docs/api/search')");
+        expect(searchRoute).not.toContain('fumadocs-core/search/server');
+        expect(searchRoute).not.toContain('../lib/source');
     });
 
     it('lets docs topic child pages render through the topic layout', () => {
@@ -71,7 +73,25 @@ describe('/docs routing', () => {
 
     it('uses a quiet docs skeleton instead of a loading sentence', () => {
         const docsPage = readWebFile('src/components/docs-page.tsx');
+        const docsLoading = readWebFile('src/components/docs-loading.tsx');
+        const docsShellRoute = readWebFile('src/routes/docs.tsx');
+        const docsIndexRoute = readWebFile('src/routes/docs.index.tsx');
+        const docsTopicIndexRoute = readWebFile('src/routes/docs/topic/index.tsx');
+        const docsTopicSplatRoute = readWebFile('src/routes/docs/topic/$.tsx');
 
+        expect(docsLoading).toContain('DocsRouteLoading');
+        expect(docsLoading).toContain("role='status'");
+        expect(docsLoading).toContain('Loading documentation');
+        expect(docsShellRoute).toContain('fallback={<DocsRouteLoading />}');
+        expect(docsIndexRoute).toContain('pendingComponent: DocsRouteLoading');
+        expect(docsIndexRoute).toContain('fallback={<DocsRouteLoading />}');
+        expect(docsTopicIndexRoute).toContain('pendingComponent: DocsRouteLoading');
+        expect(docsTopicIndexRoute).toContain('fallback={<DocsRouteLoading />}');
+        expect(docsTopicSplatRoute).toContain('pendingComponent: DocsRouteLoading');
+        expect(docsTopicSplatRoute).toContain('fallback={<DocsRouteLoading />}');
+        expect(`${docsShellRoute}\n${docsIndexRoute}\n${docsTopicIndexRoute}\n${docsTopicSplatRoute}`).not.toContain(
+            'fallback={null}'
+        );
         expect(docsPage).toContain('DocsContentSkeleton');
         expect(docsPage).toContain('DocsLayoutContainer');
         expect(docsPage).toContain('slots={{ container: DocsShellContainer }}');
@@ -156,6 +176,7 @@ describe('/docs routing', () => {
 
     it('forces the docs shell to dark mode', () => {
         const rootRoute = readWebFile('src/routes/__root.tsx');
+        const docsLayout = readWebFile('src/components/docs-route-layout.tsx');
         const styles = readWebFile('src/styles.css');
 
         expect(styles).toContain('fumadocs-ui/css/black.css');
@@ -164,9 +185,9 @@ describe('/docs routing', () => {
         expect(styles).toContain("[data-active='true']");
         expect(styles).not.toContain('fumadocs-ui/css/neutral.css');
         expect(rootRoute).toContain("className='dark'");
-        expect(rootRoute).toContain("defaultTheme: 'dark'");
-        expect(rootRoute).toContain("forcedTheme: 'dark'");
-        expect(rootRoute).toContain('enableSystem: false');
+        expect(docsLayout).toContain("defaultTheme: 'dark'");
+        expect(docsLayout).toContain("forcedTheme: 'dark'");
+        expect(docsLayout).toContain('enableSystem: false');
     });
 
     it('uses Outfit globally and Roboto Mono for code', () => {
@@ -206,6 +227,7 @@ describe('/docs routing', () => {
         expect(botPresence).toContain('The default command prefix is `!`.');
         expect(botPresence).toContain('communities can change it with a guarded');
         expect(botPresence).toContain('selected community dashboard');
+        expect(botPresence).toContain('update live without interval polling');
         expect(botPresence).toContain('@NeonFlux prefix ?');
         expect(botPresence).toContain('The first character must be an allowed symbol or punctuation mark.');
         expect(botPresence).toContain('letters and numbers are allowed.');

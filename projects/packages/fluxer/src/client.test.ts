@@ -68,6 +68,45 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(logger.error).not.toHaveBeenCalled();
     });
 
+    it('syncs current bot guilds after the ready event exposes the bot user', async () => {
+        const guildsReady = vi.fn<(event: { guildIds: string[] }) => void>();
+        const logger = createLogger();
+        const bot = createFluxerBot(
+            {
+                ...createConfig(),
+                fluxerBotToken: 'bot-token',
+            },
+            logger,
+            {
+                guildsReady,
+            }
+        );
+        const fetchGuilds = vi.fn().mockResolvedValue([createGuild('guild-1'), createGuild('guild-2')]);
+
+        vi.spyOn(bot.client, 'login').mockResolvedValue('bot-user');
+        Object.defineProperty(bot.client, 'user', {
+            configurable: true,
+            value: {
+                fetchGuilds,
+            },
+        });
+
+        await bot.start();
+
+        expect(guildsReady).not.toHaveBeenCalled();
+
+        bot.client.emit(Events.Ready);
+        await settleAsyncHandler();
+
+        expect(logger.info).toHaveBeenCalledWith('fluxer.ready', {
+            instanceMode: 'multi',
+        });
+        expect(fetchGuilds).toHaveBeenCalledTimes(1);
+        expect(guildsReady).toHaveBeenCalledWith({
+            guildIds: ['guild-1', 'guild-2'],
+        });
+    });
+
     it('calls messageCreated with normalized message data on MessageCreate', () => {
         const messageCreated = vi.fn<(event: FluxerBotMessageEvent) => void>();
         const bot = createFluxerBot(createConfig(), createLogger(), {
