@@ -90,6 +90,7 @@ export function resolveDashboardGuildRouteResult(routeResult: DashboardGuildRout
         case 'auth-required':
             throw redirect({
                 to: fluxerLoginPath,
+                reloadDocument: true,
                 statusCode: 302,
             });
     }
