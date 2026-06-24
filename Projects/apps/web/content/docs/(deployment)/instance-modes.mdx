@@ -1,0 +1,44 @@
+---
+title: Instance modes
+description: How NeonFlux separates single and multi instance behavior.
+---
+
+NeonFlux has one deployment mode at a time. The bot writes deployment behavior into the database during startup, and web reads that database value as the source of truth.
+
+<Tabs items={['Single instance', 'Multi instance']}>
+  <Tab>
+    Single instance targets one configured community.
+
+    The dashboard does not show a community picker. If a user logs in without Manage Server permission for the configured community, the site shows a not-authorized screen for that community.
+
+  </Tab>
+  <Tab>
+    Multi instance uses one bot token for many installed communities.
+
+    The dashboard lists only communities where the user has Manage Server permission and the bot is installed.
+
+  </Tab>
+</Tabs>
+
+## Source of truth
+
+Deployment behavior starts in bot environment variables, then becomes database-backed config.
+
+| Area               | Source                       |
+| ------------------ | ---------------------------- |
+| Bot token          | Bot environment              |
+| Instance mode      | Bot bootstrap, then database |
+| Single guild id    | Bot bootstrap, then database |
+| Public web origin  | Bot bootstrap, then database |
+| OAuth and sessions | Web environment              |
+
+This avoids asking both services to carry the same behavior flags. Bot and web both still need `DATABASE_URL` because both services connect to Postgres directly.
+
+## Dashboard behavior
+
+Single instance goes straight to the configured community. Multi instance shows a community picker with only manageable installed communities.
+
+<Callout title='Invite flow is separate' type='info'>
+    If no manageable installed communities are found in multi instance mode, invite flow is handled separately from this
+    first docs foundation.
+</Callout>

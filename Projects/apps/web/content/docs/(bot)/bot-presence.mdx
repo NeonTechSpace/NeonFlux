@@ -1,0 +1,49 @@
+---
+title: Bot presence
+description: Current prefix command and bot mention behavior.
+---
+
+NeonFlux currently listens to normal bot messages. Slash commands are not the supported command path right now.
+
+<Callout title='Current command model' type='info'>
+    Prefix commands are the active path. The default prefix is `!`, and the first command available today is `!ping`.
+</Callout>
+
+## Prefix command
+
+The default command prefix is `!`.
+
+`!ping` replies:
+
+```txt title="Ping response"
+Yes, I'm here, and no, I don't pong
+```
+
+This command is intentionally small. It exists to prove that message routing, prefix parsing, DEFCON checks, and channel replies work before larger bot features are added.
+
+## Mention behavior
+
+If someone mentions only the bot with no useful context, NeonFlux replies with escalating reminders.
+
+<Steps>
+    <Step>First empty mention: the bot asks the user to say what they need instead of only calling its name.</Step>
+    <Step>Repeated empty mentions: the bot gets shorter and less patient.</Step>
+    <Step>After enough empty mentions: the bot ignores that user for 5 minutes.</Step>
+    <Step>After the cooldown: the next empty mention gets one final reminder and starts the cooldown again.</Step>
+</Steps>
+
+Messages that mention the bot with real context are ignored by this presence feature. The bot expects the user to say what they need.
+
+## DEFCON effect
+
+DEFCON can block bot presence replies unless the `bot_mention` category is exempt.
+
+| DEFCON state     | Presence behavior                                                               |
+| ---------------- | ------------------------------------------------------------------------------- |
+| Normal           | Presence replies can run.                                                       |
+| Locked down      | Guarded behavior is blocked unless exempted.                                    |
+| Highest lockdown | The bot listens only to the server owner unless a category is explicitly freed. |
+
+<Callout title='Dashboard status' type='warn'>
+    Prefix, mention-response, and DEFCON controls are not configurable in the dashboard yet.
+</Callout>

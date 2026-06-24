@@ -1,16 +1,42 @@
 ---
-title: NeonFlux
+title: Overview
 description: A multi functional bot for Fluxer.
 ---
 
 NeonFlux is a Fluxer bot with a protected web dashboard.
 
+<Accordions type='single' collapsible>
+    <Accordion title='Bot' value='bot'>
+        Start with [Bot presence](/docs/topic/bot-presence) for current prefix commands, mention behavior, and DEFCON
+        impact.
+    </Accordion>
+    <Accordion title='Deployment' value='deployment'>
+        Start with [Instance modes](/docs/topic/instance-modes), then continue to [Docker](/docs/topic/docker) for
+        runtime setup.
+    </Accordion>
+</Accordions>
+
+## Current status
+
 The bot can run in two modes:
 
-- Single instance: one configured community.
-- Multi instance: one bot handles many installed communities.
+| Mode            | Meaning                                     |
+| --------------- | ------------------------------------------- |
+| Single instance | One configured community.                   |
+| Multi instance  | One bot handles many installed communities. |
 
 The dashboard uses Fluxer OAuth. Users only see communities they can manage, and server code re-checks access before meaningful changes.
+
+## Dashboard routes
+
+| Route          | Purpose                 |
+| -------------- | ----------------------- |
+| `/`            | Public homepage.        |
+| `/docs/*`      | Public documentation.   |
+| `/auth/*`      | Fluxer OAuth.           |
+| `/dashboard/*` | Protected dashboard UI. |
+
+Open `/dashboard` to choose a community. A specific community is managed at `/dashboard/{guildId}`.
 
 ## Planned capabilities
 
@@ -26,9 +52,3 @@ The dashboard uses Fluxer OAuth. Users only see communities they can manage, and
 - VC generator
 - Verification reaction roles
 - XP and levels
-
-## Routes
-
-- `/docs/*` is public documentation.
-- `/auth/*` handles Fluxer OAuth.
-- `/dashboard/*` is protected dashboard UI.

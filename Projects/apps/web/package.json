@@ -20,6 +20,8 @@
         "check": "pnpm format:check && pnpm lint && pnpm typecheck"
     },
     "dependencies": {
+        "@fontsource/outfit": "^5.2.8",
+        "@fontsource/roboto-mono": "^5.2.9",
         "@neonflux/config": "workspace:*",
         "@neonflux/core": "workspace:*",
         "@neonflux/db": "workspace:*",

@@ -8,6 +8,7 @@
 - Keep shared logic in `packages/*`; bot and web consume it through workspace package imports.
 - Use `neverthrow` for expected recoverable runtime failures. Each importing package must declare it directly.
 - In development, bot runtime logs should be high-signal and verbose for DX: route decisions, ignored reasons, auth/DEFCON decisions, and runtime checkpoints are useful, but never log secrets, tokens, OAuth codes, session cookies, raw message content, or full env values.
+- When bot or web user-facing behavior changes, update public docs in the same change. Put information where readers expect to find it: feature pages explain that feature's behavior, defaults, limits, and current configurability; dashboard/navigation pages explain dashboard paths and where settings live. Do not repeat dashboard route explanations on every feature page. Keep docs trivial to scan and low cognitive load. Internal-only changes may skip docs.
 - Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests; mock only real runtime boundaries such as network, DB, env, clock, and randomness.
 - Releases are tag-driven from `main`: use `web-vX.Y.Z` for web outputs and/or `bot-vX.Y.Z` for bot. GHCR images get version, `latest`, and commit SHA tags.
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
