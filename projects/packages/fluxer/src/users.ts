@@ -1,17 +1,18 @@
 import { err, ok, type Result } from 'neverthrow';
 
-const FLUXER_CURRENT_USER_URL = 'https://api.fluxer.app/v1/users/@me';
+const FLUXER_OAUTH_USERINFO_URL = 'https://api.fluxer.app/v1/oauth2/userinfo';
 
 export type FluxerUsersFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 export type FluxerCurrentUser = {
     id: string;
+    subjectId?: string;
     username: string;
     discriminator: string;
     globalName: string | null;
     avatar: string | null;
-    bot: boolean;
-    system: boolean;
+    bot?: boolean;
+    system?: boolean;
 };
 
 export type GetFluxerCurrentUserInput = {
@@ -37,7 +38,7 @@ export async function getFluxerCurrentUser(
     let response: Response;
 
     try {
-        response = await (input.fetch ?? fetch)(FLUXER_CURRENT_USER_URL, {
+        response = await (input.fetch ?? fetch)(FLUXER_OAUTH_USERINFO_URL, {
             method: 'GET',
             headers: {
                 Authorization: `Bearer ${accessToken}`,
@@ -80,6 +81,7 @@ function parseFluxerCurrentUser(value: unknown): FluxerCurrentUser | undefined {
     const id = value.id;
     const username = value.username;
     const discriminator = value.discriminator;
+    const subjectId = value.sub;
     const globalName = value.global_name;
     const avatar = value.avatar;
     const bot = value.bot;
@@ -89,22 +91,24 @@ function parseFluxerCurrentUser(value: unknown): FluxerCurrentUser | undefined {
         typeof id !== 'string' ||
         typeof username !== 'string' ||
         typeof discriminator !== 'string' ||
-        !isNullableString(globalName) ||
-        !isNullableString(avatar) ||
-        typeof bot !== 'boolean' ||
-        typeof system !== 'boolean'
+        !isOptionalNullableString(globalName) ||
+        !isOptionalNullableString(avatar) ||
+        !isOptionalString(subjectId) ||
+        !isOptionalBoolean(bot) ||
+        !isOptionalBoolean(system)
     ) {
         return undefined;
     }
 
     return {
         id,
+        ...(subjectId !== undefined ? { subjectId } : {}),
         username,
         discriminator,
-        globalName,
-        avatar,
-        bot,
-        system,
+        globalName: globalName ?? null,
+        avatar: avatar ?? null,
+        ...(bot !== undefined ? { bot } : {}),
+        ...(system !== undefined ? { system } : {}),
     };
 }
 
@@ -112,6 +116,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function isNullableString(value: unknown): value is string | null {
-    return typeof value === 'string' || value === null;
+function isOptionalString(value: unknown): value is string | undefined {
+    return typeof value === 'string' || value === undefined;
+}
+
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+    return typeof value === 'string' || value === null || value === undefined;
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+    return typeof value === 'boolean' || value === undefined;
 }

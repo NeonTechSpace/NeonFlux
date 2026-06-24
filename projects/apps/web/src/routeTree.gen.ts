@@ -13,6 +13,7 @@ import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
+import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DocsTopicRouteImport } from './routes/docs/topic'
 import { Route as DashboardGuildIdRouteImport } from './routes/dashboard.$guildId'
 import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
@@ -40,6 +41,11 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => DocsRoute,
+} as any)
+const DashboardIndexRoute = DashboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardRoute,
 } as any)
 const DocsTopicRoute = DocsTopicRouteImport.update({
   id: '/topic',
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/docs': typeof DocsRouteWithChildren
   '/dashboard/$guildId': typeof DashboardGuildIdRoute
   '/docs/topic': typeof DocsTopicRouteWithChildren
+  '/dashboard/': typeof DashboardIndexRoute
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
@@ -92,8 +99,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRouteWithChildren
   '/dashboard/$guildId': typeof DashboardGuildIdRoute
+  '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
@@ -108,6 +115,7 @@ export interface FileRoutesById {
   '/docs': typeof DocsRouteWithChildren
   '/dashboard/$guildId': typeof DashboardGuildIdRoute
   '/docs/topic': typeof DocsTopicRouteWithChildren
+  '/dashboard/': typeof DashboardIndexRoute
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
@@ -123,6 +131,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/dashboard/$guildId'
     | '/docs/topic'
+    | '/dashboard/'
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
@@ -132,8 +141,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/dashboard'
     | '/dashboard/$guildId'
+    | '/dashboard'
     | '/docs'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/dashboard/$guildId'
     | '/docs/topic'
+    | '/dashboard/'
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
@@ -192,6 +202,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/docs/'
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof DocsRoute
+    }
+    '/dashboard/': {
+      id: '/dashboard/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof DashboardIndexRouteImport
+      parentRoute: typeof DashboardRoute
     }
     '/docs/topic': {
       id: '/docs/topic'
@@ -247,10 +264,12 @@ declare module '@tanstack/react-router' {
 
 interface DashboardRouteChildren {
   DashboardGuildIdRoute: typeof DashboardGuildIdRoute
+  DashboardIndexRoute: typeof DashboardIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardGuildIdRoute: DashboardGuildIdRoute,
+  DashboardIndexRoute: DashboardIndexRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

@@ -22,6 +22,10 @@
             "types": "./src/defcon.ts",
             "import": "./dist/defcon.js"
         },
+        "./command-prefix": {
+            "types": "./src/command-prefix.ts",
+            "import": "./dist/command-prefix.js"
+        },
         "./public-url": {
             "types": "./src/public-url.ts",
             "import": "./dist/public-url.js"

@@ -278,6 +278,9 @@ importers:
       '@neonflux/config':
         specifier: workspace:*
         version: link:../config
+      '@neonflux/core':
+        specifier: workspace:*
+        version: link:../core
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)

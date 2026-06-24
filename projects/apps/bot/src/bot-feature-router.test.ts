@@ -1,4 +1,5 @@
 import type { AppMode } from '@neonflux/config';
+import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
 import {
     deleteBotInstallation,
     findGuildCommandPermissionRule,
@@ -368,15 +369,38 @@ describe('routeBotFeatureEvent', () => {
         });
     });
 
-    it.each(['a', '1', '....', '\u200b'])('replies clearly for invalid prefix %j', async (prefix) => {
-        upsertGuildCommandPrefixMock.mockResolvedValueOnce(err('invalid-prefix'));
+    it('changes the guild prefix when the prefix mixes symbols and numbers after the first character', async () => {
+        upsertGuildCommandPrefixMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?1')));
 
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
             createMessageEvent({
                 authorIsServerOwner: true,
-                content: `<@bot-user> prefix ${prefix}`,
+                content: '<@bot-user> prefix ?1',
                 mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '?1',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'Command prefix updated to `?1`.',
+        });
+    });
+
+    it('uses stored guild prefix with letters or numbers after the first symbol for ping commands', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?1')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '?1ping',
+                mentionedUserIds: [],
             })
         );
 
@@ -388,9 +412,36 @@ describe('routeBotFeatureEvent', () => {
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
             channelId: 'channel-1',
-            content: 'Prefix must be 1-3 visible symbol characters, with no spaces, letters, or numbers.',
+            content: "Yes, I'm here, and no, I don't pong",
         });
     });
+
+    it.each(['a', '1', '....', '\u200b', '/', '@', '#', '<', '>', ':'])(
+        'replies clearly for invalid prefix %j',
+        async (prefix) => {
+            upsertGuildCommandPrefixMock.mockResolvedValueOnce(err('invalid-prefix'));
+
+            const result = await routeBotFeatureEvent(
+                createContext(createMultiMode()),
+                createMessageEvent({
+                    authorIsServerOwner: true,
+                    content: `<@bot-user> prefix ${prefix}`,
+                    mentionedUserIds: ['bot-user'],
+                })
+            );
+
+            expect(result.isOk()).toBe(true);
+            expect(result._unsafeUnwrap()).toStrictEqual({
+                eventType: 'message.created',
+                status: 'handled',
+            });
+            expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+                client: testClient,
+                channelId: 'channel-1',
+                content: COMMAND_PREFIX_INVALID_MESSAGE,
+            });
+        }
+    );
 
     it('replies with usage when the prefix command omits a new prefix', async () => {
         const result = await routeBotFeatureEvent(
@@ -406,8 +457,7 @@ describe('routeBotFeatureEvent', () => {
         expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
             client: testClient,
             channelId: 'channel-1',
-            content:
-                'Use: mention me with `prefix ?`. Prefix must be 1-3 visible symbol characters, with no spaces, letters, or numbers.',
+            content: `Use: mention me with \`prefix ?\`. ${COMMAND_PREFIX_INVALID_MESSAGE}`,
         });
         expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
     });

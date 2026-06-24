@@ -63,6 +63,17 @@ describe('guild command settings repository', () => {
         });
     });
 
+    it.each(['?1', '!go', '$2'])('accepts prefixes with letters or numbers after a symbol: %j', async (prefix) => {
+        await createInstalledGuild('guild-1');
+
+        const savedSettings = await upsertCommandPrefix('guild-1', prefix);
+
+        expect(savedSettings).toMatchObject({
+            guildId: 'guild-1',
+            prefix,
+        });
+    });
+
     it('replaces a previous prefix on second upsert', async () => {
         await createInstalledGuild('guild-1');
         const firstUpdatedAt = new Date('2026-06-24T09:00:00.000Z');
@@ -93,14 +104,17 @@ describe('guild command settings repository', () => {
         expect(upsertResult._unsafeUnwrapErr()).toBe('missing-guild-id');
     });
 
-    it.each(['', '    ', '....', 'a', '1', '? a', '\u200b', '👩‍💻'])('rejects invalid prefix %j', async (prefix) => {
-        await createInstalledGuild('guild-1');
+    it.each(['', '    ', '....', 'a', '1', '? a', '\u200b', '👩‍💻', '/', '@', '#', '<', '>', ':', '?/'])(
+        'rejects invalid prefix %j',
+        async (prefix) => {
+            await createInstalledGuild('guild-1');
 
-        const result = await upsertGuildCommandPrefix(getDb(), { guildId: 'guild-1', prefix });
+            const result = await upsertGuildCommandPrefix(getDb(), { guildId: 'guild-1', prefix });
 
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toBe('invalid-prefix');
-    });
+            expect(result.isErr()).toBe(true);
+            expect(result._unsafeUnwrapErr()).toBe('invalid-prefix');
+        }
+    );
 
     it('returns invalid-config when stored command settings do not contain a valid prefix', async () => {
         await createInstalledGuild('guild-1');

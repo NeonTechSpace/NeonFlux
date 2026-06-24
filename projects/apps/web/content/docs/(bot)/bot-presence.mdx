@@ -7,7 +7,7 @@ NeonFlux currently listens to normal bot messages. Slash commands are not the su
 
 <Callout title='Current command model' type='info'>
     Prefix commands are the active path. The default prefix is `!`, and communities can change it with a guarded mention
-    command.
+    command or from the selected community dashboard.
 </Callout>
 
 ## Command prefix
@@ -22,12 +22,13 @@ Server owners, or users with permission to change guarded bot settings, can chan
 
 The mention-based prefix command works regardless of the current prefix.
 
-Valid prefixes are 1-3 visible symbol or punctuation characters. Prefixes cannot contain spaces, letters, numbers,
-control characters, or invisible characters.
+The prefix can also be changed from the command prefix panel on the selected community dashboard.
 
-<Callout title='Dashboard status' type='warn'>
-    Prefix controls are not configurable in the dashboard yet.
-</Callout>
+Valid prefixes are 1-3 visible characters. The first character must be an allowed symbol or punctuation mark. After the
+first character, letters and numbers are allowed.
+
+Do not use `/`, `@`, `#`, `<`, `>`, or `:` because those characters overlap with Fluxer slash commands, mentions,
+channels, and other platform syntax. Prefixes also cannot contain spaces, control characters, or invisible characters.
 
 ## Ping command
 
@@ -63,6 +64,6 @@ DEFCON affects both presence replies and guarded prefix changes.
 | Highest lockdown | The bot listens only to the server owner unless a category is explicitly freed. |
 
 <Callout title='Current configurability' type='warn'>
-    Prefix can be changed through the mention command. Mention-response and DEFCON controls are not configurable in the
-    dashboard yet.
+    Prefix can be changed through the mention command or the selected community dashboard. Mention-response and DEFCON
+    controls are not configurable in the dashboard yet.
 </Callout>

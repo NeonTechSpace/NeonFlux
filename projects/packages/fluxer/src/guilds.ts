@@ -8,6 +8,7 @@ export type FluxerCurrentUserGuild = {
     id: string;
     name: string;
     permissions: string;
+    iconHash?: string;
     ownerId?: string;
 };
 
@@ -146,6 +147,7 @@ function parseFluxerCurrentUserGuild(value: unknown): FluxerCurrentUserGuild | u
     const id = value.id;
     const name = value.name;
     const permissions = value.permissions;
+    const icon = value.icon;
     const ownerId = value.owner_id;
 
     if (typeof id !== 'string' || typeof name !== 'string' || typeof permissions !== 'string') {
@@ -156,6 +158,7 @@ function parseFluxerCurrentUserGuild(value: unknown): FluxerCurrentUserGuild | u
         id,
         name,
         permissions,
+        ...(typeof icon === 'string' && icon.trim().length > 0 ? { iconHash: icon.trim() } : {}),
         ...(typeof ownerId === 'string' && ownerId.trim().length > 0 ? { ownerId: ownerId.trim() } : {}),
     };
 }

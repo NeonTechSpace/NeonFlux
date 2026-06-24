@@ -1,4 +1,5 @@
 import type { AppEnv, AppMode, GuildDefconOverride } from '@neonflux/config';
+import { COMMAND_PREFIX_INVALID_MESSAGE, normalizeCommandPrefix } from '@neonflux/core/command-prefix';
 import { authorizeCommandAction, type DefconFeatureCategory } from '@neonflux/core/defcon';
 import {
     findGuildCommandPermissionRule,
@@ -27,8 +28,7 @@ const PING_COMMAND_REPLY = "Yes, I'm here, and no, I don't pong";
 const PREFIX_COMMAND_DENIED_REPLY =
     'You cannot change the prefix here. In lockdown, only the server owner can change guarded settings. Otherwise, this command requires Manage Server or an allowed role/user rule.';
 const PREFIX_COMMAND_GUILD_ONLY_REPLY = 'I can only change the prefix inside a community.';
-const PREFIX_COMMAND_INVALID_REPLY =
-    'Prefix must be 1-3 visible symbol characters, with no spaces, letters, or numbers.';
+const PREFIX_COMMAND_INVALID_REPLY = COMMAND_PREFIX_INVALID_MESSAGE;
 const PREFIX_COMMAND_USAGE_REPLY = 'Use: mention me with `prefix ?`.';
 const CONTEXTLESS_MENTION_REPLIES = [
     "I hate it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
@@ -421,17 +421,13 @@ function parsePingCommandPrefix(content: string): string | undefined {
     }
 
     const candidatePrefix = normalizedContent.slice(0, -'ping'.length);
-    const prefixCharacters = Array.from(candidatePrefix);
+    const prefixResult = normalizeCommandPrefix(candidatePrefix);
 
-    if (
-        prefixCharacters.length < 1 ||
-        prefixCharacters.length > 3 ||
-        !prefixCharacters.every((character) => /^[\p{P}\p{S}]$/u.test(character))
-    ) {
+    if (prefixResult.isErr()) {
         return undefined;
     }
 
-    return candidatePrefix;
+    return prefixResult.value;
 }
 
 function getMentionedPrefixCommand(

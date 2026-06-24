@@ -8,6 +8,7 @@ export type GuildEventScope = {
 export type DashboardGuild = {
     id: string;
     name?: string;
+    iconUrl?: string;
     ownerId?: string;
     canManage: boolean;
     botInstalled?: boolean;

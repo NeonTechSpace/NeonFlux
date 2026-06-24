@@ -18,6 +18,7 @@ export type DashboardViewModel =
 export type DashboardViewModelGuild = {
     id: string;
     name: string;
+    iconUrl?: string;
 };
 
 export function toDashboardViewModel(guildAccess: DashboardGuildAccess): DashboardViewModel {
@@ -29,6 +30,7 @@ export function toDashboardViewModel(guildAccess: DashboardGuildAccess): Dashboa
                 guilds: guildAccess.guilds.map((guild) => ({
                     id: guild.id,
                     name: guild.name ?? guild.id,
+                    ...(guild.iconUrl ? { iconUrl: guild.iconUrl } : {}),
                 })),
             };
 

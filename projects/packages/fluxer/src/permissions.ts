@@ -7,6 +7,7 @@ export type FluxerGuildPermissions = string | number | bigint | readonly string[
 export type FluxerOAuthGuild = {
     id: string;
     name?: string;
+    iconHash?: string;
     ownerId?: string;
     permissions: FluxerGuildPermissions;
     botInstalled?: boolean;
@@ -37,13 +38,29 @@ export function hasManageServerPermission(permissions: FluxerGuildPermissions): 
 }
 
 export function toDashboardGuild(guild: FluxerOAuthGuild): DashboardGuild {
+    const iconHash = guild.iconHash?.trim();
+
     return {
         id: guild.id,
         ...(guild.name ? { name: guild.name } : {}),
+        ...(iconHash ? { iconUrl: buildFluxerGuildIconUrl(guild.id, iconHash) } : {}),
         ...(guild.ownerId ? { ownerId: guild.ownerId } : {}),
         canManage: hasManageServerPermission(guild.permissions),
         botInstalled: guild.botInstalled === true,
     };
+}
+
+function buildFluxerGuildIconUrl(guildId: string, iconHash: string): string {
+    const extension = iconHash.startsWith('a_') ? 'gif' : 'webp';
+    const url = new URL(
+        `https://fluxerusercontent.com/avatars/${encodeURIComponent(guildId)}/${encodeURIComponent(
+            `${iconHash}.${extension}`
+        )}`
+    );
+
+    url.searchParams.set('size', '80');
+
+    return url.toString();
 }
 
 function hasPermissionBit(permissions: bigint): boolean {
