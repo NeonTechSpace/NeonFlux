@@ -114,6 +114,9 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             guildId: event.guildId,
                             authorId: event.authorId,
                             authorIsBot: event.authorIsBot,
+                            authorRoleIds: event.authorRoleIds,
+                            authorIsServerOwner: event.authorIsServerOwner,
+                            authorHasManageServer: event.authorHasManageServer,
                             content: event.content,
                             mentionedUserIds: event.mentionedUserIds,
                         } satisfies BotFeatureEvent;
@@ -204,6 +207,9 @@ function getFeatureEventLogContext(event: BotFeatureEvent): Record<string, unkno
                 guildId: event.guildId,
                 authorId: event.authorId,
                 authorIsBot: event.authorIsBot,
+                authorRoleCount: event.authorRoleIds.length,
+                authorIsServerOwner: event.authorIsServerOwner,
+                authorHasManageServer: event.authorHasManageServer,
                 mentionedUserCount: event.mentionedUserIds.length,
                 contentLength: event.content.length,
             };

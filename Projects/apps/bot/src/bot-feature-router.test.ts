@@ -1,10 +1,14 @@
 import type { AppMode } from '@neonflux/config';
 import {
     deleteBotInstallation,
+    findGuildCommandPermissionRule,
+    findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
     listGuildDefconExemptionCategories,
+    upsertGuildCommandPrefix,
     upsertBotInstallation,
     type BotInstallationRecord,
+    type GuildCommandSettingsRecord,
 } from '@neonflux/db';
 import { sendFluxerChannelMessage, type FluxerBot } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
@@ -19,8 +23,11 @@ import {
 vi.mock('@neonflux/db', () => {
     return {
         deleteBotInstallation: vi.fn(),
+        findGuildCommandPermissionRule: vi.fn(),
+        findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
+        upsertGuildCommandPrefix: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
 });
@@ -33,8 +40,11 @@ vi.mock('@neonflux/fluxer', () => {
 
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionRule);
+const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
+const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
 const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
 const testDb = {} as BotFeatureHandlerContext['db'];
 const testClient = {} as FluxerBot['client'];
@@ -42,8 +52,11 @@ const testClient = {} as FluxerBot['client'];
 describe('routeBotFeatureEvent', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        upsertGuildCommandPrefixMock.mockResolvedValue(ok(createCommandSettings('guild-1', '?')));
         sendFluxerChannelMessageMock.mockResolvedValue(
             ok({
                 id: 'reply-1',
@@ -235,6 +248,285 @@ describe('routeBotFeatureEvent', () => {
             channelId: 'channel-1',
             content: "Yes, I'm here, and no, I don't pong",
         });
+    });
+
+    it('uses stored guild prefix for ping commands', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '?ping',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: "Yes, I'm here, and no, I don't pong",
+        });
+    });
+
+    it('ignores the default prefix when the guild has a stored custom prefix', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!ping',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'bot-not-mentioned',
+            status: 'ignored',
+        });
+        expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('changes the guild prefix when the server owner mentions the bot with prefix command', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '?',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'Command prefix updated to `?`.',
+        });
+    });
+
+    it('changes the guild prefix when an authorized manager mentions the bot with prefix command', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '<@bot-user> prefix $',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toMatchObject({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '$',
+        });
+    });
+
+    it('changes the guild prefix when an allowed role grant authorizes the command', async () => {
+        findGuildCommandPermissionRuleMock.mockResolvedValueOnce(
+            ok({
+                guildId: 'guild-1',
+                category: 'prefix',
+                userIds: [],
+                roleIds: ['role-1'],
+                createdAt: new Date('2026-06-24T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+            })
+        );
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorRoleIds: ['role-1'],
+                content: '<@bot-user> prefix %',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '%',
+        });
+    });
+
+    it.each(['a', '1', '....', '\u200b'])('replies clearly for invalid prefix %j', async (prefix) => {
+        upsertGuildCommandPrefixMock.mockResolvedValueOnce(err('invalid-prefix'));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: `<@bot-user> prefix ${prefix}`,
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'Prefix must be 1-3 visible symbol characters, with no spaces, letters, or numbers.',
+        });
+    });
+
+    it('replies with usage when the prefix command omits a new prefix', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content:
+                'Use: mention me with `prefix ?`. Prefix must be 1-3 visible symbol characters, with no spaces, letters, or numbers.',
+        });
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects prefix changes outside guilds with a clear reply', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                guildId: null,
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'I can only change the prefix inside a community.',
+        });
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+    });
+
+    it('denies prefix changes for unauthorized users', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content:
+                'You cannot change the prefix here. In lockdown, only the server owner can change guarded settings. Otherwise, this command requires Manage Server or an allowed role/user rule.',
+        });
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+    });
+
+    it.each([1, 2] as const)('allows only the server owner to change prefix in DEFCON %s', async (defconLevel) => {
+        findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(
+            ok({
+                guildId: 'guild-1',
+                defconLevel,
+                createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+            })
+        );
+
+        const managerResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(managerResult.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+
+        const ownerResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorId: 'owner-1',
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(ownerResult.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '?',
+        });
+    });
+
+    it('returns database-error when stored prefix lookup fails', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(err('database-error'));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!ping',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+    });
+
+    it('returns database-error when prefix persistence fails', async () => {
+        upsertGuildCommandPrefixMock.mockResolvedValueOnce(err('database-error'));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
     });
 
     it('escalates contextless bot mention replies before cooldown', async () => {
@@ -594,6 +886,17 @@ function createInstallation(guildId: string): BotInstallationRecord {
     };
 }
 
+function createCommandSettings(guildId: string, prefix: string): GuildCommandSettingsRecord {
+    const timestamp = new Date('2026-06-24T00:00:00.000Z');
+
+    return {
+        guildId,
+        prefix,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+}
+
 function createMessageEvent(
     overrides: Partial<Extract<Parameters<typeof routeBotFeatureEvent>[1], { type: 'message.created' }>> = {}
 ): Extract<Parameters<typeof routeBotFeatureEvent>[1], { type: 'message.created' }> {
@@ -604,6 +907,9 @@ function createMessageEvent(
         guildId: 'guild-1',
         authorId: 'author-1',
         authorIsBot: false,
+        authorRoleIds: [],
+        authorIsServerOwner: false,
+        authorHasManageServer: false,
         content: '<@bot-user>',
         mentionedUserIds: ['bot-user'],
         ...overrides,

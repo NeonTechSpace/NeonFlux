@@ -6,14 +6,32 @@ description: Current prefix command and bot mention behavior.
 NeonFlux currently listens to normal bot messages. Slash commands are not the supported command path right now.
 
 <Callout title='Current command model' type='info'>
-    Prefix commands are the active path. The default prefix is `!`, and the first command available today is `!ping`.
+    Prefix commands are the active path. The default prefix is `!`, and communities can change it with a guarded mention
+    command.
 </Callout>
 
-## Prefix command
+## Command prefix
 
 The default command prefix is `!`.
 
-`!ping` replies:
+Server owners, or users with permission to change guarded bot settings, can change the prefix by mentioning the bot:
+
+```txt title="Prefix change"
+@NeonFlux prefix ?
+```
+
+The mention-based prefix command works regardless of the current prefix.
+
+Valid prefixes are 1-3 visible symbol or punctuation characters. Prefixes cannot contain spaces, letters, numbers,
+control characters, or invisible characters.
+
+<Callout title='Dashboard status' type='warn'>
+    Prefix controls are not configurable in the dashboard yet.
+</Callout>
+
+## Ping command
+
+`ping` uses the current community prefix. With the default prefix, `!ping` replies:
 
 ```txt title="Ping response"
 Yes, I'm here, and no, I don't pong
@@ -36,14 +54,15 @@ Messages that mention the bot with real context are ignored by this presence fea
 
 ## DEFCON effect
 
-DEFCON can block bot presence replies unless the `bot_mention` category is exempt.
+DEFCON affects both presence replies and guarded prefix changes.
 
-| DEFCON state     | Presence behavior                                                               |
+| DEFCON state     | Presence and prefix behavior                                                    |
 | ---------------- | ------------------------------------------------------------------------------- |
-| Normal           | Presence replies can run.                                                       |
-| Locked down      | Guarded behavior is blocked unless exempted.                                    |
+| Normal           | Presence replies can run, and Manage Server users can change the prefix.        |
+| Locked down      | Guarded prefix changes are server-owner only. Public presence replies can run.  |
 | Highest lockdown | The bot listens only to the server owner unless a category is explicitly freed. |
 
-<Callout title='Dashboard status' type='warn'>
-    Prefix, mention-response, and DEFCON controls are not configurable in the dashboard yet.
+<Callout title='Current configurability' type='warn'>
+    Prefix can be changed through the mention command. Mention-response and DEFCON controls are not configurable in the
+    dashboard yet.
 </Callout>

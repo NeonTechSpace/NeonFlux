@@ -1,4 +1,4 @@
-import { Events, type Guild, type Message, type User } from '@fluxerjs/core';
+import { Events, PermissionFlags, type Guild, type Message, type User } from '@fluxerjs/core';
 import type { AppLogger } from '@neonflux/core/logging';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -89,6 +89,9 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             content: '<@bot-user>',
             mentionedUserIds: ['mentioned-1', 'mentioned-2'],
         });
@@ -98,9 +101,47 @@ describe('createFluxerBot lifecycle handlers', () => {
             'guildId',
             'authorId',
             'authorIsBot',
+            'authorRoleIds',
+            'authorIsServerOwner',
+            'authorHasManageServer',
             'content',
             'mentionedUserIds',
         ]);
+    });
+
+    it('normalizes cached author guild roles and Manage Server status on MessageCreate', () => {
+        const messageCreated = vi.fn<(event: FluxerBotMessageEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            messageCreated,
+        });
+
+        bot.client.emit(
+            Events.MessageCreate,
+            createMessage({
+                guild: createGuild('guild-1', {
+                    ownerId: 'author-1',
+                    members: new Map([
+                        [
+                            'author-1',
+                            {
+                                roles: {
+                                    roleIds: ['role-1', 'role-2'],
+                                },
+                                permissions: {
+                                    has: (permission: unknown) => permission === PermissionFlags.ManageGuild,
+                                },
+                            },
+                        ],
+                    ]),
+                }),
+            })
+        );
+
+        expect(messageCreated.mock.calls[0]?.[0]).toMatchObject({
+            authorRoleIds: ['role-1', 'role-2'],
+            authorIsServerOwner: true,
+            authorHasManageServer: true,
+        });
     });
 
     it('catches and logs message handler failures', async () => {
@@ -130,9 +171,10 @@ describe('createFluxerBot lifecycle handlers', () => {
     });
 });
 
-function createGuild(id: string): Guild {
+function createGuild(id: string, overrides: Record<string, unknown> = {}): Guild {
     return {
         id,
+        ...overrides,
     } as Guild;
 }
 

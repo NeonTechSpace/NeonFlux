@@ -3,9 +3,12 @@ import type { AppLogger } from '@neonflux/core/logging';
 import type * as NeonFluxDb from '@neonflux/db';
 import {
     deleteBotInstallation,
+    findGuildCommandPermissionRule,
+    findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
     listGuildDefconExemptionCategories,
     runDatabaseMigrations,
+    upsertGuildCommandPrefix,
     upsertBotInstallation,
     type DatabaseClient,
 } from '@neonflux/db';
@@ -27,9 +30,12 @@ vi.mock('@neonflux/db', async (importOriginal) => {
     return {
         ...actual,
         deleteBotInstallation: vi.fn(),
+        findGuildCommandPermissionRule: vi.fn(),
+        findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
         runDatabaseMigrations: vi.fn(),
+        upsertGuildCommandPrefix: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
 });
@@ -49,8 +55,11 @@ const createFluxerBotMock = vi.mocked(createFluxerBot);
 const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionRule);
+const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
+const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
 const testDb = {} as DatabaseClient['db'];
 const testFluxerClient = {
     user: {
@@ -88,8 +97,18 @@ describe('createBotApp', () => {
         });
         upsertBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
         deleteBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
+        findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        upsertGuildCommandPrefixMock.mockResolvedValue(
+            ok({
+                guildId: 'guild-1',
+                prefix: '?',
+                createdAt: new Date('2026-06-24T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+            })
+        );
         sendFluxerChannelMessageMock.mockResolvedValue(
             ok({
                 id: 'reply-1',
@@ -218,6 +237,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             content: '!ping',
             mentionedUserIds: [],
         });
@@ -249,6 +271,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             content: '!ping',
             mentionedUserIds: [],
         });
@@ -262,6 +287,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleCount: 0,
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             mentionedUserCount: 0,
             contentLength: '!ping'.length,
         });
@@ -283,6 +311,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             content: 'hello',
             mentionedUserIds: [],
         });
@@ -297,6 +328,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleCount: 0,
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             mentionedUserCount: 0,
             contentLength: 'hello'.length,
         });
@@ -320,6 +354,9 @@ describe('createBotApp', () => {
             guildId: 'guild-1',
             authorId: 'author-1',
             authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
             content: '!ping',
             mentionedUserIds: [],
         });
@@ -353,6 +390,9 @@ describe('createBotApp', () => {
                 guildId: 'guild-1',
                 authorId: 'author-1',
                 authorIsBot: false,
+                authorRoleIds: [],
+                authorIsServerOwner: false,
+                authorHasManageServer: false,
                 content: '<@bot-user>',
                 mentionedUserIds: ['bot-user'],
             })
