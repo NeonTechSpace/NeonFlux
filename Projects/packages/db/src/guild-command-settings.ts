@@ -1,3 +1,4 @@
+import { normalizeCommandPrefix } from '@neonflux/core/command-prefix';
 import { and, eq } from 'drizzle-orm';
 import type { PgDatabase } from 'drizzle-orm/pg-core/db';
 import type { PgQueryResultHKT } from 'drizzle-orm/pg-core/session';
@@ -119,21 +120,6 @@ function normalizeGuildId(guildId: string): Result<string, 'missing-guild-id'> {
     }
 
     return ok(normalizedGuildId);
-}
-
-function normalizeCommandPrefix(prefix: string): Result<string, 'invalid-prefix'> {
-    const normalizedPrefix = prefix.trim();
-    const prefixCharacters = Array.from(normalizedPrefix);
-
-    if (prefixCharacters.length < 1 || prefixCharacters.length > 3) {
-        return err('invalid-prefix');
-    }
-
-    if (!prefixCharacters.every((character) => /^[\p{P}\p{S}]$/u.test(character))) {
-        return err('invalid-prefix');
-    }
-
-    return ok(normalizedPrefix);
 }
 
 function toGuildCommandSettingsRecord(

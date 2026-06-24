@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { existsSync, readFileSync } from 'node:fs';
+
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { createElement } from 'react';
@@ -11,8 +13,8 @@ import {
     dashboardRouteOptions,
     resolveDashboardRouteResult,
     toDashboardRouteResult,
-} from './dashboard.js';
-import type { DashboardRouteData } from './dashboard.js';
+} from './dashboard.index.js';
+import type { DashboardRouteData } from './dashboard.index.js';
 
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
@@ -22,6 +24,16 @@ describe('/dashboard', () => {
     it('configures a route loader and component', () => {
         expect(typeof dashboardRouteOptions.loader).toBe('function');
         expect(typeof dashboardRouteOptions.component).toBe('function');
+    });
+
+    it('keeps the server selector on an index route so guild pages render through the dashboard layout', () => {
+        const routeTree = readFileSync(findRouteTreePath(), 'utf8');
+
+        expect(routeTree).toContain("DashboardIndexRouteImport } from './routes/dashboard.index'");
+        expect(routeTree).toContain('DashboardIndexRoute = DashboardIndexRouteImport.update({');
+        expect(routeTree).toContain('getParentRoute: () => DashboardRoute');
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId'");
+        expect(routeTree).toContain("fullPath: '/dashboard/'");
     });
 
     it('maps dashboard data into route data', async () => {
@@ -117,8 +129,19 @@ describe('/dashboard', () => {
         renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
         expect(screen.getByRole('heading', { name: 'NeonFlux Dashboard' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Communities' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Servers' })).toBeTruthy();
         expect(screen.getByRole('link', { name: /Guild One/ }).getAttribute('href')).toBe('/dashboard/guild-1');
+        expect(document.body.textContent).not.toContain('Community');
+    });
+
+    it('renders guild icons when available', () => {
+        const { container } = renderWithRouter(
+            createElement(DashboardPageContent, { data: createDashboardRouteData() })
+        );
+
+        expect(
+            container.querySelector('img[src="https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80"]')
+        ).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', () => {
@@ -151,8 +174,8 @@ describe('/dashboard', () => {
             })
         );
 
-        expect(screen.getByRole('heading', { name: 'No manageable communities' })).toBeTruthy();
-        expect(screen.getByText('No communities are available for this account.')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'No manageable servers' })).toBeTruthy();
+        expect(screen.getByText('No servers are available for this account.')).toBeTruthy();
     });
 
     it('renders generic dashboard unavailable errors', () => {
@@ -209,6 +232,7 @@ function createDashboardData(): Parameters<typeof toDashboardRouteResult>[0] {
                 {
                     id: 'guild-1',
                     name: 'Guild One',
+                    iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
                 },
             ],
         },
@@ -225,6 +249,7 @@ function createDashboardRouteData(): DashboardRouteData {
                 {
                     id: 'guild-1',
                     name: 'Guild One',
+                    iconUrl: 'https://fluxerusercontent.com/avatars/guild-1/icon.webp?size=80',
                 },
             ],
         },
@@ -237,4 +262,15 @@ function getRedirectOptions(error: unknown): Record<string, unknown> {
     }
 
     return (error as { options: Record<string, unknown> }).options;
+}
+
+function findRouteTreePath(): string {
+    const routeTreePaths = ['apps/web/src/routeTree.gen.ts', 'src/routeTree.gen.ts'];
+    const routeTreePath = routeTreePaths.find((path) => existsSync(path));
+
+    if (!routeTreePath) {
+        throw new Error('Expected generated TanStack route tree to exist.');
+    }
+
+    return routeTreePath;
 }

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -80,7 +82,22 @@ describe('/dashboard/$guildId', () => {
 
         expect(screen.getByRole('heading', { name: 'Guild One' })).toBeTruthy();
         expect(screen.getByText('Community ID: guild-1')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
+        expect(screen.getByText('Current prefix:')).toBeTruthy();
+        expect(screen.getByText('?')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+    });
+
+    it('shows a clear validation error for invalid command prefixes', () => {
+        const { container } = renderWithRouter(
+            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
+        );
+        const currentView = within(container);
+
+        fireEvent.change(currentView.getByLabelText('New prefix'), { target: { value: 'abc' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Save prefix' }));
+
+        expect(currentView.getByText(COMMAND_PREFIX_INVALID_MESSAGE)).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', () => {
@@ -124,9 +141,17 @@ describe('/dashboard/$guildId', () => {
 });
 
 function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
-    const rootRoute = createRootRoute({
-        component: () => ui,
+    const queryClient = new QueryClient({
+        defaultOptions: {
+            queries: {
+                retry: false,
+            },
+            mutations: {
+                retry: false,
+            },
+        },
     });
+    const rootRoute = createRootRoute();
     const dashboardRoute = createRoute({
         getParentRoute: () => rootRoute,
         path: '/dashboard',
@@ -140,7 +165,13 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
     });
     const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
 
-    return render(createElement(RouterContextProvider, providerProps, ui));
+    return render(
+        createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(RouterContextProvider, providerProps, ui)
+        )
+    );
 }
 
 function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
@@ -150,6 +181,10 @@ function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
         guild: {
             id: 'guild-1',
             name: 'Guild One',
+        },
+        commandSettings: {
+            prefix: '?',
+            isDefaultPrefix: false,
         },
     };
 }
@@ -161,6 +196,10 @@ function createGuildRouteData(): DashboardGuildRouteData {
         guild: {
             id: 'guild-1',
             name: 'Guild One',
+        },
+        commandSettings: {
+            prefix: '?',
+            isDefaultPrefix: false,
         },
     };
 }

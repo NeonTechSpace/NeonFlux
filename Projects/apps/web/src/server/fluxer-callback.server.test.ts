@@ -17,7 +17,7 @@ const tokenEncryptionKey = Buffer.alloc(32, 1).toString('base64url');
 const frozenNow = new Date('2026-06-21T00:00:00.000Z');
 const expectedExpiresAt = new Date('2026-06-28T00:00:00.000Z');
 const expectedAccessTokenExpiresAt = new Date('2026-06-21T01:00:00.000Z');
-const currentUserUrl = 'https://api.fluxer.app/v1/users/@me';
+const currentUserUrl = 'https://api.fluxer.app/v1/oauth2/userinfo';
 const currentUserGuildsUrl = 'https://api.fluxer.app/v1/users/@me/guilds';
 
 vi.mock('./database.server.js', () => ({

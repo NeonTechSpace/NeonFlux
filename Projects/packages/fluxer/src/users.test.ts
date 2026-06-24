@@ -19,7 +19,7 @@ describe('getFluxerCurrentUser', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(capturedInput).toBe('https://api.fluxer.app/v1/users/@me');
+        expect(capturedInput).toBe('https://api.fluxer.app/v1/oauth2/userinfo');
         expect(capturedInit?.method).toBe('GET');
         expect(capturedInit?.headers).toStrictEqual({
             Authorization: 'Bearer access-token',
@@ -33,6 +33,7 @@ describe('getFluxerCurrentUser', () => {
                 Promise.resolve(
                     createUserResponse({
                         id: '1517169145576165376',
+                        sub: '1517169145576165376',
                         username: 'neonsy',
                         discriminator: '0001',
                         global_name: 'Neonsy',
@@ -46,12 +47,38 @@ describe('getFluxerCurrentUser', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             id: '1517169145576165376',
+            subjectId: '1517169145576165376',
             username: 'neonsy',
             discriminator: '0001',
             globalName: 'Neonsy',
             avatar: 'avatar-hash',
             bot: false,
             system: false,
+        });
+    });
+
+    it('accepts missing optional OAuth userinfo fields', async () => {
+        const result = await getFluxerCurrentUser({
+            accessToken: 'access-token',
+            fetch: () =>
+                Promise.resolve(
+                    createUserResponse({
+                        sub: undefined,
+                        global_name: undefined,
+                        avatar: undefined,
+                        bot: undefined,
+                        system: undefined,
+                    })
+                ),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            id: '1517169145576165376',
+            username: 'neonsy',
+            discriminator: '0001',
+            globalName: null,
+            avatar: null,
         });
     });
 
@@ -136,11 +163,27 @@ describe('getFluxerCurrentUser', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
     });
+
+    it('returns invalid-response for malformed optional OAuth userinfo fields', async () => {
+        const result = await getFluxerCurrentUser({
+            accessToken: 'access-token',
+            fetch: () =>
+                Promise.resolve(
+                    createUserResponse({
+                        global_name: 123,
+                    })
+                ),
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+    });
 });
 
 function createUserResponse(overrides: Record<string, unknown> = {}): Response {
     return createJsonResponse({
         id: '1517169145576165376',
+        sub: '1517169145576165376',
         username: 'neonsy',
         discriminator: '0001',
         global_name: 'Neonsy',
