@@ -1,23 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { Suspense, lazy } from 'react';
 
-import { DocsRouteLoading } from '../components/docs-loading.js';
+import { DocsRouteLayoutContent } from '../components/docs-route-layout.js';
+import { loadDocsShellRouteData } from '../server/docs-route-data.js';
 
 const createRoute = createFileRoute('/docs');
-const DocsRouteLayoutContent = lazy(async () => {
-    const module = await import('../components/docs-route-layout.js');
-
-    return { default: module.DocsRouteLayoutContent };
-});
 
 export const Route = createRoute({
+    loader: () => loadDocsShellRouteData(),
     component: DocsRouteLayout,
 });
 
 function DocsRouteLayout() {
-    return (
-        <Suspense fallback={<DocsRouteLoading />}>
-            <DocsRouteLayoutContent />
-        </Suspense>
-    );
+    const data = Route.useLoaderData();
+
+    return <DocsRouteLayoutContent data={data} />;
 }

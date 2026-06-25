@@ -71,33 +71,33 @@ describe('/docs routing', () => {
         expect(docsLayout).toContain('enabled: false');
     });
 
-    it('uses a quiet docs skeleton instead of a loading sentence', () => {
+    it('keeps the docs shell persistent and scopes loading to article content', () => {
         const docsPage = readWebFile('src/components/docs-page.tsx');
-        const docsLoading = readWebFile('src/components/docs-loading.tsx');
+        const docsRouteLayout = readWebFile('src/components/docs-route-layout.tsx');
         const docsShellRoute = readWebFile('src/routes/docs.tsx');
         const docsIndexRoute = readWebFile('src/routes/docs.index.tsx');
         const docsTopicIndexRoute = readWebFile('src/routes/docs/topic/index.tsx');
         const docsTopicSplatRoute = readWebFile('src/routes/docs/topic/$.tsx');
 
-        expect(docsLoading).toContain('DocsRouteLoading');
-        expect(docsLoading).toContain("role='status'");
-        expect(docsLoading).toContain('Loading documentation');
-        expect(docsShellRoute).toContain('fallback={<DocsRouteLoading />}');
-        expect(docsIndexRoute).toContain('pendingComponent: DocsRouteLoading');
-        expect(docsIndexRoute).toContain('fallback={<DocsRouteLoading />}');
-        expect(docsTopicIndexRoute).toContain('pendingComponent: DocsRouteLoading');
-        expect(docsTopicIndexRoute).toContain('fallback={<DocsRouteLoading />}');
-        expect(docsTopicSplatRoute).toContain('pendingComponent: DocsRouteLoading');
-        expect(docsTopicSplatRoute).toContain('fallback={<DocsRouteLoading />}');
-        expect(`${docsShellRoute}\n${docsIndexRoute}\n${docsTopicIndexRoute}\n${docsTopicSplatRoute}`).not.toContain(
-            'fallback={null}'
-        );
+        expect(docsShellRoute).toContain('loadDocsShellRouteData');
+        expect(docsShellRoute).toContain('<DocsRouteLayoutContent data={data} />');
+        expect(docsShellRoute).not.toContain('DocsRouteLoading');
+        expect(docsIndexRoute).not.toContain('pendingComponent: DocsRouteLoading');
+        expect(docsIndexRoute).not.toContain('fallback={<DocsRouteLoading />}');
+        expect(docsTopicIndexRoute).not.toContain('pendingComponent: DocsRouteLoading');
+        expect(docsTopicIndexRoute).not.toContain('fallback={<DocsRouteLoading />}');
+        expect(docsTopicSplatRoute).not.toContain('pendingComponent: DocsRouteLoading');
+        expect(docsTopicSplatRoute).not.toContain('fallback={<DocsRouteLoading />}');
         expect(docsPage).toContain('DocsContentSkeleton');
-        expect(docsPage).toContain('DocsLayoutContainer');
-        expect(docsPage).toContain('slots={{ container: DocsShellContainer }}');
-        expect(docsPage).toContain("backgroundAttachment: 'fixed'");
-        expect(docsPage).toContain('linear-gradient(90deg, var(--color-fd-background) 0 var(--fd-sidebar-col, 0px)');
-        expect(docsPage).toContain('rgba(217, 70, 239');
+        expect(docsRouteLayout).toContain('RootProvider');
+        expect(docsRouteLayout).toContain('DocsLayout');
+        expect(docsRouteLayout).toContain('DocsLayoutContainer');
+        expect(docsRouteLayout).toContain('slots={{ container: DocsShellContainer }}');
+        expect(docsRouteLayout).toContain("backgroundAttachment: 'fixed'");
+        expect(docsRouteLayout).toContain(
+            'linear-gradient(90deg, var(--color-fd-background) 0 var(--fd-sidebar-col, 0px)'
+        );
+        expect(docsRouteLayout).toContain('rgba(217, 70, 239');
         expect(docsPage).not.toContain('grid size-');
         expect(docsPage).not.toContain('DocsShellAmbientBackdrop');
         expect(docsPage).not.toContain('DocsPageHeader');
@@ -105,6 +105,7 @@ describe('/docs routing', () => {
         expect(docsPage).toContain("role='status'");
         expect(docsPage).toContain("className='sr-only'");
         expect(docsPage).not.toContain('<p>Loading documentation');
+        expect(docsPage).not.toContain('DocsRouteLoading');
     });
 
     it('groups docs sidebar items without changing topic URLs', () => {
@@ -225,10 +226,16 @@ describe('/docs routing', () => {
         expect(docsIndex).toContain('`/dashboard/{guildId}`');
         expect(docsIndex).toContain('## Dashboard routes');
         expect(botPresence).toContain('The default command prefix is `!`.');
+        expect(botPresence).toContain(
+            'Artron energy is binding to NeonFlux, allowing travel throughout all of existence.'
+        );
+        expect(botPresence).toContain('`FLUXER_BOT_CUSTOM_STATUS`');
+        expect(botPresence).toContain('Leave it blank for no custom status.');
         expect(botPresence).toContain('communities can change it with a guarded');
         expect(botPresence).toContain('selected community dashboard');
         expect(botPresence).toContain('update live without interval polling');
         expect(botPresence).toContain('@NeonFlux prefix ?');
+        expect(botPresence).toContain('nothing changed instead of saving it again');
         expect(botPresence).toContain('The first character must be an allowed symbol or punctuation mark.');
         expect(botPresence).toContain('letters and numbers are allowed.');
         expect(botPresence).toContain('Do not use `/`, `@`, `#`, `<`, `>`, or `:`');

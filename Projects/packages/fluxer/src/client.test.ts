@@ -1,4 +1,4 @@
-import { Events, PermissionFlags, type Guild, type Message, type User } from '@fluxerjs/core';
+import { Events, GatewayOpcodes, PermissionFlags, type Guild, type Message, type User } from '@fluxerjs/core';
 import type { AppLogger } from '@neonflux/core/logging';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,12 @@ import {
 } from './client.js';
 
 describe('createFluxerBot lifecycle handlers', () => {
+    it('leaves startup presence unset until the ready event can push it explicitly', () => {
+        const bot = createFluxerBot(createConfig(), createLogger());
+
+        expect(bot.client.options.presence).toBeUndefined();
+    });
+
     it('calls guildCreated with only the guild id on GuildCreate', () => {
         const guildCreated = vi.fn<(event: FluxerBotGuildEvent) => void>();
         const bot = createFluxerBot(createConfig(), createLogger(), {
@@ -82,6 +88,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             }
         );
         const fetchGuilds = vi.fn().mockResolvedValue([createGuild('guild-1'), createGuild('guild-2')]);
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
 
         vi.spyOn(bot.client, 'login').mockResolvedValue('bot-user');
         Object.defineProperty(bot.client, 'user', {
@@ -101,9 +108,44 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(logger.info).toHaveBeenCalledWith('fluxer.ready', {
             instanceMode: 'multi',
         });
+        expect(sendToGateway).not.toHaveBeenCalled();
+        expect(logger.info).not.toHaveBeenCalledWith('fluxer.presence_updated', expect.anything());
         expect(fetchGuilds).toHaveBeenCalledTimes(1);
         expect(guildsReady).toHaveBeenCalledWith({
             guildIds: ['guild-1', 'guild-2'],
+        });
+    });
+
+    it('does not push a custom status when no custom status text is configured', () => {
+        const bot = createFluxerBot(createConfig(), createLogger());
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
+
+        bot.client.emit(Events.Ready);
+
+        expect(sendToGateway).not.toHaveBeenCalled();
+    });
+
+    it('uses configured custom status text on the ready presence update', () => {
+        const logger = createLogger();
+        const bot = createFluxerBot(
+            {
+                ...createConfig(),
+                customStatusText: 'Testing NeonFlux',
+            },
+            logger
+        );
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
+
+        bot.client.emit(Events.Ready);
+
+        expect(sendToGateway).toHaveBeenCalledWith(0, {
+            op: GatewayOpcodes.PresenceUpdate,
+            d: {
+                status: 'online',
+                custom_status: {
+                    text: 'Testing NeonFlux',
+                },
+            },
         });
     });
 

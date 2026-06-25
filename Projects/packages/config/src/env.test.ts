@@ -47,6 +47,22 @@ describe('loadBotConfig', () => {
         expect(config.publicWebUrl).toBeUndefined();
     });
 
+    it('loads optional bot custom status text', () => {
+        const config = loadBotConfig({
+            FLUXER_BOT_CUSTOM_STATUS: '  Testing NeonFlux  ',
+        });
+
+        expect(config.fluxerBotCustomStatusText).toBe('Testing NeonFlux');
+    });
+
+    it('omits a blank bot custom status text', () => {
+        const config = loadBotConfig({
+            FLUXER_BOT_CUSTOM_STATUS: '   ',
+        });
+
+        expect(config.fluxerBotCustomStatusText).toBeUndefined();
+    });
+
     it('rejects public web URLs with a path, query, hash, or credentials', () => {
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example/docs' })).toThrow(
             'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'

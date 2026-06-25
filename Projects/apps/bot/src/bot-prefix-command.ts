@@ -1,6 +1,11 @@
-import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
+import {
+    COMMAND_PREFIX_INVALID_MESSAGE,
+    DEFAULT_COMMAND_PREFIX,
+    normalizeCommandPrefix,
+} from '@neonflux/core/command-prefix';
 import { authorizeCommandAction, DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import {
+    findGuildCommandSettingsByGuildId,
     findGuildCommandPermissionRule,
     findGuildSecurityPolicyByGuildId,
     upsertGuildCommandPrefix,
@@ -55,9 +60,40 @@ export async function routePrefixChangeCommand(
         );
     }
 
+    const prefixResult = normalizeCommandPrefix(rawPrefix);
+
+    if (prefixResult.isErr()) {
+        return sendBotFeatureReply(context, event, PREFIX_COMMAND_INVALID_REPLY, PREFIX_COMMAND_ACTION);
+    }
+
+    const currentPrefixResult = await findGuildCommandSettingsByGuildId(context.db, { guildId: event.guildId });
+
+    if (
+        currentPrefixResult.isErr() &&
+        currentPrefixResult.error !== 'not-found' &&
+        currentPrefixResult.error !== 'invalid-config'
+    ) {
+        return err('database-error');
+    }
+
+    const currentPrefix = currentPrefixResult.isOk()
+        ? currentPrefixResult.value.prefix
+        : currentPrefixResult.error === 'not-found'
+          ? DEFAULT_COMMAND_PREFIX
+          : undefined;
+
+    if (currentPrefix && prefixResult.value === currentPrefix) {
+        return sendBotFeatureReply(
+            context,
+            event,
+            `Command prefix is already \`${currentPrefix}\`.`,
+            PREFIX_COMMAND_ACTION
+        );
+    }
+
     const upsertResult = await upsertGuildCommandPrefix(context.db, {
         guildId: event.guildId,
-        prefix: rawPrefix,
+        prefix: prefixResult.value,
     });
 
     if (upsertResult.isErr()) {

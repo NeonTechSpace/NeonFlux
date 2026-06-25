@@ -78,6 +78,26 @@ export async function upsertGuildCommandPrefix(
     const updatedAt = new Date();
 
     try {
+        const existingSettings = await db
+            .select()
+            .from(guildFeatureSettings)
+            .where(
+                and(
+                    eq(guildFeatureSettings.guildId, guildIdResult.value),
+                    eq(guildFeatureSettings.feature, GUILD_COMMAND_SETTINGS_FEATURE)
+                )
+            )
+            .limit(1);
+        const existingSetting = existingSettings[0];
+
+        if (existingSetting) {
+            const existingRecord = toGuildCommandSettingsRecord(existingSetting);
+
+            if (existingRecord.isOk() && existingRecord.value.prefix === prefixResult.value) {
+                return existingRecord;
+            }
+        }
+
         const settings = await db
             .insert(guildFeatureSettings)
             .values({

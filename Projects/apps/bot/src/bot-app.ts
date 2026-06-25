@@ -75,6 +75,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             bot = createFluxerBot(
                 {
                     instanceMode: deploymentMode.instanceMode,
+                    ...(config.fluxerBotCustomStatusText ? { customStatusText: config.fluxerBotCustomStatusText } : {}),
                     ...(config.fluxerBotToken ? { fluxerBotToken: config.fluxerBotToken } : {}),
                 },
                 logger,

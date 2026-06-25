@@ -172,6 +172,24 @@ describe('createBotApp', () => {
         });
     });
 
+    it('creates the Fluxer bot with configured custom status text', async () => {
+        const app = createBotApp({
+            config: createMultiConfig({
+                fluxerBotCustomStatusText: 'Env NeonFlux status',
+            }),
+            logger: createLogger(),
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        expect(capturedFluxerConfig).toStrictEqual({
+            instanceMode: 'multi',
+            customStatusText: 'Env NeonFlux status',
+            fluxerBotToken: 'bot-token',
+        });
+    });
+
     it('uses DB-effective mode for guild lifecycle persistence', async () => {
         const database = createDatabase();
 
@@ -513,6 +531,7 @@ function createSingleConfig(options: TestConfigOptions & { singleGuildId?: strin
 
 type TestConfigOptions = {
     appEnv?: AppConfig['appEnv'];
+    fluxerBotCustomStatusText?: string;
     fluxerBotToken?: string | null;
     guildDefconOverride?: AppConfig['guildDefconOverride'];
 };
@@ -522,6 +541,7 @@ function createBaseConfig(options: TestConfigOptions = {}): Omit<AppConfig, 'ins
         appEnv: options.appEnv ?? 'development',
         databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
         autoMigrate: true,
+        ...(options.fluxerBotCustomStatusText ? { fluxerBotCustomStatusText: options.fluxerBotCustomStatusText } : {}),
         ...(options.fluxerBotToken === null ? {} : { fluxerBotToken: options.fluxerBotToken ?? 'bot-token' }),
         guildDefconOverride: options.guildDefconOverride ?? 'auto',
         logLevel: 'info',

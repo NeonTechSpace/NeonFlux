@@ -2,6 +2,7 @@ import { notFound } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 
 import type { PublicDocsRouteData } from './docs.server.js';
+import type { PublicDocsShellData } from './docs.server.js';
 
 export type DocsRouteResult =
     | {
@@ -15,6 +16,14 @@ export type DocsRouteResult =
 type DocsRouteInput = {
     slugs: string[];
 };
+
+export const loadDocsShellRouteData = createServerFn({ method: 'GET' }).handler(
+    async (): Promise<PublicDocsShellData> => {
+        const { loadPublicDocsShellData } = await import('./docs.server.js');
+
+        return loadPublicDocsShellData();
+    }
+);
 
 export function toDocsRouteResult(data: PublicDocsRouteData | undefined): DocsRouteResult {
     return data ? { type: 'page', data } : { type: 'not-found' };

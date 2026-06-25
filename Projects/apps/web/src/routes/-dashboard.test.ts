@@ -28,9 +28,11 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/'");
     });
 
-    it('uses dashboard pending UI instead of blank lazy fallbacks', () => {
+    it('keeps dashboard loading scoped to cold index loads, not guild detail navigation', () => {
         const dashboardIndexRoute = readFileSync('apps/web/src/routes/dashboard.index.tsx', 'utf8');
         const dashboardGuildRoute = readFileSync('apps/web/src/routes/dashboard.$guildId.tsx', 'utf8');
+        const router = readFileSync('apps/web/src/router.tsx', 'utf8');
+        const dashboardIndexPage = readFileSync('apps/web/src/components/dashboard-index-page.tsx', 'utf8');
         const dashboardLoading = readFileSync('apps/web/src/components/dashboard-loading.tsx', 'utf8');
         const dashboardLayout = readFileSync('apps/web/src/components/dashboard-layout.tsx', 'utf8');
 
@@ -39,9 +41,20 @@ describe('/dashboard', () => {
         expect(dashboardLoading).toContain('Loading dashboard');
         expect(dashboardIndexRoute).toContain('pendingComponent: DashboardRouteLoading');
         expect(dashboardIndexRoute).toContain('fallback={<DashboardRouteLoading />}');
-        expect(dashboardGuildRoute).toContain('pendingComponent: DashboardRouteLoading');
-        expect(dashboardGuildRoute).toContain('fallback={<DashboardRouteLoading />}');
-        expect(`${dashboardIndexRoute}\n${dashboardGuildRoute}`).not.toContain('fallback={null}');
+        expect(dashboardGuildRoute).not.toContain('pendingComponent: DashboardRouteLoading');
+        expect(dashboardGuildRoute).not.toContain('fallback={<DashboardRouteLoading />}');
+        expect(dashboardGuildRoute).toContain('loader: ({ params }) =>');
+        expect(dashboardGuildRoute).toContain('loadDashboardGuildRouteData');
+        expect(dashboardGuildRoute).toContain('pendingComponent: DashboardGuildPendingRoute');
+        expect(dashboardGuildRoute).not.toContain('pendingMs: 0');
+        expect(dashboardGuildRoute).not.toContain('pendingMinMs: 0');
+        expect(router).toContain('defaultPendingMs: 0');
+        expect(router).toContain('defaultPendingMinMs: 0');
+        expect(dashboardGuildRoute).toContain('<DashboardGuildPageContent data={data} />');
+        expect(dashboardGuildRoute).toContain('<DashboardGuildPendingPage guildId={guildId} preview={preview} />');
+        expect(dashboardIndexPage).toContain("preload='intent'");
+        expect(dashboardIndexPage).toContain('withDashboardGuildPreview(preview)');
+        expect(dashboardIndexPage).toContain('createDashboardGuildPreview');
         expect(dashboardLayout).toContain("case '/dashboard':");
         expect(dashboardLayout).toContain("<Link to='/dashboard'");
         expect(dashboardLayout).toContain('<a href={actionTo}');

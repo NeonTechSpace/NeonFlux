@@ -21,7 +21,7 @@ import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 const PING_COMMAND_REPLY = "Yes, I'm here, and no, I don't pong";
 const CONTEXTLESS_MENTION_REPLIES = [
-    "I hate it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
+    "I predominantly dislike it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
     "I don't appreciate being called for nothing",
     'I will no longer respond to that...',
 ] as const;

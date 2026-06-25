@@ -10,6 +10,12 @@
 - Keep OAuth client secrets, bot tokens, session secrets, and token exchange logic out of browser code.
 - Prefer server data, route loaders/server functions, and render-time derivation before client effects.
 - Dashboard pages load initial protected data through route loaders/server functions before rendering client components.
+- The router uses global instant pending with `defaultPendingMs: 0` and `defaultPendingMinMs: 0`.
+- Stable route shells stay mounted across docs and dashboard navigation.
+- Use already-known route/list data immediately for headers, names, icons, and ids.
+- Server loaders/functions remain authoritative; client preview/list data is display-only.
+- Avoid page-wide skeletons except for true cold entry with no useful shell.
+- Put loading states inside the exact panel, field, or article body that is waiting.
 - Use `useEffect` only to sync with external systems, never for derived state or normal data loading.
 - Use `useLayoutEffect` only for unavoidable pre-paint DOM measurement or mutation.
 - Keep UI async-first for fast paint and instant-feeling loading: avoid request waterfalls, do not block input/render on network, show clear loading/pending states, and use transitions/deferred work for expensive updates.
