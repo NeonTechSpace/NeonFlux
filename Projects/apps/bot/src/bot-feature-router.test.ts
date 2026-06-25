@@ -295,6 +295,28 @@ describe('routeBotFeatureEvent', () => {
         expect(getLastReplyContent()).toContain('`@NeonFlux prefix ?`');
     });
 
+    it('lists guarded commands in help even when the user cannot run them', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+                authorHasManageServer: false,
+                authorIsServerOwner: false,
+                authorRoleIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toContain('`@NeonFlux prefix ?`');
+        expect(findGuildCommandPermissionRuleMock).not.toHaveBeenCalled();
+    });
+
     it('uses the stored guild prefix in help examples', async () => {
         findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
 

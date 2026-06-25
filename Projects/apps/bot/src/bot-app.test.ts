@@ -159,7 +159,9 @@ describe('createBotApp', () => {
         bootstrapDeploymentConfigMock.mockResolvedValueOnce(ok({ instanceMode: 'multi' }));
 
         const app = createBotApp({
-            config: createSingleConfig(),
+            config: createSingleConfig({
+                guildDefconOverride: 3,
+            }),
             logger: createLogger(),
             database: createDatabase(),
         });
@@ -172,10 +174,11 @@ describe('createBotApp', () => {
         });
     });
 
-    it('creates the Fluxer bot with configured custom status text', async () => {
+    it('creates the Fluxer bot with configured custom status text in normal mode', async () => {
         const app = createBotApp({
             config: createMultiConfig({
                 fluxerBotCustomStatusText: 'Env NeonFlux status',
+                guildDefconOverride: 3,
             }),
             logger: createLogger(),
             database: createDatabase(),
@@ -186,6 +189,42 @@ describe('createBotApp', () => {
         expect(capturedFluxerConfig).toStrictEqual({
             instanceMode: 'multi',
             customStatusText: 'Env NeonFlux status',
+            fluxerBotToken: 'bot-token',
+        });
+    });
+
+    it('does not configure a custom status in normal mode when the env status is unset', async () => {
+        const app = createBotApp({
+            config: createMultiConfig({
+                guildDefconOverride: 3,
+            }),
+            logger: createLogger(),
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        expect(capturedFluxerConfig).toStrictEqual({
+            instanceMode: 'multi',
+            fluxerBotToken: 'bot-token',
+        });
+    });
+
+    it.each([1, 2] as const)('uses DEFCON %s as the bot status instead of the env status', async (defconLevel) => {
+        const app = createBotApp({
+            config: createMultiConfig({
+                fluxerBotCustomStatusText: 'Env NeonFlux status',
+                guildDefconOverride: defconLevel,
+            }),
+            logger: createLogger(),
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        expect(capturedFluxerConfig).toStrictEqual({
+            instanceMode: 'multi',
+            customStatusText: `DEFCON ${String(defconLevel)}`,
             fluxerBotToken: 'bot-token',
         });
     });
@@ -461,7 +500,7 @@ describe('createBotApp', () => {
         const database = createDatabase();
         const closeDatabaseMock = database.close as ReturnType<typeof vi.fn<() => Promise<void>>>;
         const app = createBotApp({
-            config: createMultiConfig({ fluxerBotToken: null }),
+            config: createMultiConfig({ fluxerBotToken: null, guildDefconOverride: 3 }),
             logger: createLogger(),
             database,
         });
