@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +31,7 @@ vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
+let renderedViews: Array<ReturnType<typeof render>> = [];
 let documentVisibilityState = 'visible';
 
 describe('/dashboard/$guildId', () => {
@@ -53,7 +54,10 @@ describe('/dashboard/$guildId', () => {
     });
 
     afterEach(() => {
-        cleanup();
+        for (const renderedView of renderedViews) {
+            renderedView.unmount();
+        }
+        renderedViews = [];
         vi.clearAllMocks();
         vi.unstubAllGlobals();
     });
@@ -334,13 +338,16 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
     });
     const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
 
-    return render(
+    const view = render(
         createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(RouterContextProvider, providerProps, ui)
         )
     );
+    renderedViews.push(view);
+
+    return view;
 }
 
 function renderGuildPage(routeData: DashboardGuildRouteData = createGuildRouteData()): ReturnType<typeof render> {
