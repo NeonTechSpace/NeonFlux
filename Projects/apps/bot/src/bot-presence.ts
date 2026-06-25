@@ -1,10 +1,6 @@
-import { DEFAULT_COMMAND_PREFIX, normalizeCommandPrefix } from '@neonflux/core/command-prefix';
+import { normalizeCommandPrefix } from '@neonflux/core/command-prefix';
 import { authorizeCommandAction, DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import {
-    findGuildCommandSettingsByGuildId,
-    findGuildSecurityPolicyByGuildId,
-    listGuildDefconExemptionCategories,
-} from '@neonflux/db';
+import { findGuildSecurityPolicyByGuildId, listGuildDefconExemptionCategories } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -17,6 +13,7 @@ import {
     getMentionedPrefixCommand,
     type PrefixChangeCommandIntent,
 } from './bot-prefix-command.js';
+import { findEffectiveGuildCommandPrefix } from './guild-command-prefix.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 const PING_COMMAND_REPLY = "Yes, I'm here, and no, I don't pong";
@@ -164,15 +161,13 @@ async function isConfiguredPingCommand(
         return ok(false);
     }
 
-    const settingsResult = await findGuildCommandSettingsByGuildId(context.db, { guildId: event.guildId });
+    const prefixResult = await findEffectiveGuildCommandPrefix(context, event.guildId);
 
-    if (settingsResult.isErr() && settingsResult.error !== 'not-found') {
-        return err('database-error');
+    if (prefixResult.isErr()) {
+        return err(prefixResult.error);
     }
 
-    const configuredPrefix = settingsResult.isOk() ? settingsResult.value.prefix : DEFAULT_COMMAND_PREFIX;
-
-    return ok(candidatePrefix === configuredPrefix);
+    return ok(candidatePrefix === prefixResult.value);
 }
 
 function parsePingCommandPrefix(content: string): string | undefined {

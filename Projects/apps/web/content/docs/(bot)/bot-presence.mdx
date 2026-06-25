@@ -51,6 +51,20 @@ Yes, I'm here, and no, I don't pong
 
 This command is intentionally small. It exists to prove that message routing, prefix parsing, DEFCON checks, and channel replies work before larger bot features are added.
 
+## Help command
+
+`help` uses the current community prefix and lists available command pages. With the default prefix, `!help` shows the
+current pages:
+
+```txt title="Help pages"
+!help general
+!help settings
+```
+
+Users can open a page directly with `!help general` or `!help settings`. Mentioning the bot with `@NeonFlux help` opens
+the same help entrypoint. Help pages are plain text right now; button navigation is not supported until Fluxer message
+components are wrapped.
+
 ## Mention behavior
 
 If someone mentions only the bot with no useful context, NeonFlux replies with escalating reminders.
@@ -66,12 +80,12 @@ Messages that mention the bot with real context are ignored by this presence fea
 
 ## DEFCON effect
 
-DEFCON affects both presence replies and guarded prefix changes.
+DEFCON affects presence replies, public help, and guarded prefix changes.
 
-| DEFCON state     | Presence and prefix behavior                                                    |
+| DEFCON state     | Presence, help, and prefix behavior                                             |
 | ---------------- | ------------------------------------------------------------------------------- |
-| Normal           | Presence replies can run, and Manage Server users can change the prefix.        |
-| Locked down      | Guarded prefix changes are server-owner only. Public presence replies can run.  |
+| Normal           | Presence and help can run, and Manage Server users can change the prefix.       |
+| Locked down      | Guarded prefix changes are server-owner only. Public presence and help can run. |
 | Highest lockdown | The bot listens only to the server owner unless a category is explicitly freed. |
 
 <Callout title='Current configurability' type='warn'>

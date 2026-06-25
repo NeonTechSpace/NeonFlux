@@ -240,8 +240,15 @@ describe('/docs routing', () => {
         expect(botPresence).toContain('letters and numbers are allowed.');
         expect(botPresence).toContain('Do not use `/`, `@`, `#`, `<`, `>`, or `:`');
         expect(botPresence).toContain('With the default prefix, `!ping` replies');
+        expect(botPresence).toContain('## Help command');
+        expect(botPresence).toContain('`!help` shows the');
+        expect(botPresence).toContain('!help general');
+        expect(botPresence).toContain('!help settings');
+        expect(botPresence).toContain('@NeonFlux help');
+        expect(botPresence).toContain('button navigation is not supported');
         expect(botPresence).toContain('<Steps>');
         expect(botPresence).toContain('## DEFCON effect');
+        expect(botPresence).toContain('public help');
         expect(botPresence).toContain('Guarded prefix changes are server-owner only');
         expect(botPresence).not.toContain('Open `/dashboard`');
         expect(botPresence).not.toContain('`/dashboard/{guildId}`');
