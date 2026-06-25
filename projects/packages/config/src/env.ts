@@ -21,6 +21,7 @@ const rawEnv = type({
     'AUTO_MIGRATE?': autoMigrate,
     'FLUXER_APP_ID?': 'string',
     'FLUXER_CLIENT_SECRET?': 'string',
+    'FLUXER_BOT_CUSTOM_STATUS?': 'string',
     'FLUXER_BOT_TOKEN?': 'string',
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
@@ -51,6 +52,7 @@ export type RuntimeConfig = {
 
 export type BotConfig = RuntimeConfig &
     AppMode & {
+        fluxerBotCustomStatusText?: string;
         fluxerBotToken?: string;
         publicWebUrl?: string;
         ownerIds: string[];
@@ -102,11 +104,13 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     const parsed = parseEnv(env);
     const runtimeConfig = createRuntimeConfig(parsed);
     const instanceModeValue = parsed.INSTANCE_MODE ?? 'multi';
+    const fluxerBotCustomStatusText = optionalValue(parsed.FLUXER_BOT_CUSTOM_STATUS);
     const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
 
     const botBaseConfig = {
         ...runtimeConfig,
+        ...(fluxerBotCustomStatusText ? { fluxerBotCustomStatusText } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(publicWebUrl ? { publicWebUrl } : {}),
         ownerIds: parseCsvIds(parsed.OWNER_IDS),

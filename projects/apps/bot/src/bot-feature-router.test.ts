@@ -49,7 +49,7 @@ const testClient = {} as FluxerBot['client'];
 
 describe('routeBotFeatureEvent', () => {
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
         findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
         findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
@@ -321,6 +321,71 @@ describe('routeBotFeatureEvent', () => {
         });
     });
 
+    it('does not persist when the requested prefix is already the effective default prefix', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix !',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'commands.prefix_change',
+        });
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'Command prefix is already `!`.',
+        });
+    });
+
+    it('does not persist when the requested prefix is already the stored guild prefix', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: 'Command prefix is already `?`.',
+        });
+    });
+
+    it('can replace invalid stored prefix config with a valid prefix', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(err('invalid-config'));
+        upsertGuildCommandPrefixMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorIsServerOwner: true,
+                content: '<@bot-user> prefix ?',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '?',
+        });
+    });
+
     it('changes the guild prefix when an authorized manager mentions the bot with prefix command', async () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
@@ -443,6 +508,7 @@ describe('routeBotFeatureEvent', () => {
                 channelId: 'channel-1',
                 content: COMMAND_PREFIX_INVALID_MESSAGE,
             });
+            expect(upsertGuildCommandPrefixMock).not.toHaveBeenCalled();
         }
     );
 
@@ -575,7 +641,7 @@ describe('routeBotFeatureEvent', () => {
             createContext(createMultiMode()),
             createMessageEvent({
                 authorIsServerOwner: true,
-                content: '<@bot-user> prefix ?',
+                content: '<@bot-user> prefix $',
                 mentionedUserIds: ['bot-user'],
             })
         );
@@ -590,7 +656,7 @@ describe('routeBotFeatureEvent', () => {
         const authorId = 'contextless-author-1';
 
         for (const content of [
-            "I hate it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
+            "I predominantly dislike it when people think that saying someone's name just to see if they're there is proper communication. Just say what's on your mind please",
             "I don't appreciate being called for nothing",
             'I will no longer respond to that...',
         ]) {

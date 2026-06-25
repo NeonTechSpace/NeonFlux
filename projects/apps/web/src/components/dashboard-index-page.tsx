@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 
+import { createDashboardGuildPreview, withDashboardGuildPreview } from '../dashboard-guild-preview.js';
 import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dashboard-view-model.server.js';
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
@@ -56,7 +57,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
 
                         <ul className='grid gap-3 sm:grid-cols-2'>
                             {viewModel.guilds.map((guild) => (
-                                <DashboardGuildItem key={guild.id} guild={guild} />
+                                <DashboardGuildItem key={guild.id} guild={guild} mode={viewModel.mode} />
                             ))}
                         </ul>
                     </section>
@@ -91,12 +92,21 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
     }
 }
 
-function DashboardGuildItem({ guild }: { guild: DashboardViewModelGuild }) {
+function DashboardGuildItem({ guild, mode }: { guild: DashboardViewModelGuild; mode: 'single' | 'multi' }) {
+    const preview = createDashboardGuildPreview({
+        id: guild.id,
+        name: guild.name,
+        iconUrl: guild.iconUrl,
+        mode,
+    });
+
     return (
         <li>
             <Link
                 to='/dashboard/$guildId'
                 params={{ guildId: guild.id }}
+                preload='intent'
+                state={withDashboardGuildPreview(preview)}
                 className='block rounded-lg border border-neutral-800 bg-neutral-900 p-4 transition hover:border-sky-500 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
                 <div className='flex items-center justify-between gap-4'>
                     <div className='flex min-w-0 items-center gap-3'>

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
+import type { DashboardGuildPreview } from '../dashboard-guild-preview.js';
 import { getDashboardCommandSettingsQueryKey } from '../dashboard-query-keys.js';
 import type { DashboardCommandSettings } from '../server/dashboard-command-settings.server.js';
 import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
@@ -63,30 +64,49 @@ export function DashboardGuildPageContent({ data }: { data: DashboardGuildRouteD
     }
 }
 
-function DashboardGuildView({ data }: { data: Extract<DashboardGuildRouteData, { type: 'guild' }> }) {
+export function DashboardGuildPendingPage({ guildId, preview }: { guildId: string; preview?: DashboardGuildPreview }) {
+    if (preview) {
+        return (
+            <DashboardShell>
+                <DashboardGuildHeader mode={preview.mode} guild={preview} />
+                <section className='grid gap-3 sm:grid-cols-2' aria-label='Server setup status'>
+                    <CommandPrefixSettingsPanelLoading />
+                    <StatusCard
+                        title='Permissions'
+                        body='Every setting change is checked again on the server before it is saved.'
+                        isLoading
+                    />
+                </section>
+            </DashboardShell>
+        );
+    }
+
     return (
         <DashboardShell>
             <header className='space-y-3 border-b border-neutral-800 pb-6'>
-                <div className='flex flex-wrap items-center justify-between gap-3'>
-                    <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>
-                        {data.mode === 'single' ? 'Single instance' : 'Multi instance'}
-                    </p>
-                    {data.mode === 'multi' ? (
-                        <Link
-                            to='/dashboard'
-                            className='inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
-                            Choose server
-                        </Link>
-                    ) : null}
-                </div>
-                <div className='flex min-w-0 items-center gap-4'>
-                    <DashboardGuildAvatar guild={data.guild} />
-                    <div className='min-w-0'>
-                        <h1 className='truncate text-3xl font-semibold text-white'>{data.guild.name}</h1>
-                        <p className='mt-2 text-sm text-neutral-400'>Server ID: {data.guild.id}</p>
-                    </div>
+                <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>Loading server</p>
+                <div className='min-w-0'>
+                    <h1 className='truncate text-3xl font-semibold text-white'>Loading server...</h1>
+                    <p className='mt-2 text-sm text-neutral-400'>Server ID: {guildId}</p>
                 </div>
             </header>
+
+            <section className='grid gap-3 sm:grid-cols-2' aria-label='Server setup status'>
+                <CommandPrefixSettingsPanelLoading />
+                <StatusCard
+                    title='Permissions'
+                    body='Every setting change is checked again on the server before it is saved.'
+                    isLoading
+                />
+            </section>
+        </DashboardShell>
+    );
+}
+
+function DashboardGuildView({ data }: { data: Extract<DashboardGuildRouteData, { type: 'guild' }> }) {
+    return (
+        <DashboardShell>
+            <DashboardGuildHeader mode={data.mode} guild={data.guild} />
 
             <section className='grid gap-3 sm:grid-cols-2' aria-label='Server setup status'>
                 <CommandPrefixSettingsPanel guildId={data.guild.id} commandSettings={data.commandSettings} />
@@ -96,6 +116,38 @@ function DashboardGuildView({ data }: { data: Extract<DashboardGuildRouteData, {
                 />
             </section>
         </DashboardShell>
+    );
+}
+
+function DashboardGuildHeader({
+    mode,
+    guild,
+}: {
+    mode: 'single' | 'multi';
+    guild: { id: string; name: string; iconUrl?: string };
+}) {
+    return (
+        <header className='space-y-3 border-b border-neutral-800 pb-6'>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+                <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>
+                    {mode === 'single' ? 'Single instance' : mode === 'multi' ? 'Multi instance' : 'Dashboard'}
+                </p>
+                {mode === 'multi' ? (
+                    <Link
+                        to='/dashboard'
+                        className='inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
+                        Choose server
+                    </Link>
+                ) : null}
+            </div>
+            <div className='flex min-w-0 items-center gap-4'>
+                <DashboardGuildAvatar guild={guild} />
+                <div className='min-w-0'>
+                    <h1 className='truncate text-3xl font-semibold text-white'>{guild.name}</h1>
+                    <p className='mt-2 text-sm text-neutral-400'>Server ID: {guild.id}</p>
+                </div>
+            </div>
+        </header>
     );
 }
 
@@ -260,7 +312,9 @@ function CommandPrefixSettingsPanel({
     }
 
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+        <article
+            className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'
+            aria-busy={commandSettingsQuery.isFetching || undefined}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
                     <h2 className='text-lg font-semibold text-white'>Command prefix</h2>
@@ -270,9 +324,6 @@ function CommandPrefixSettingsPanel({
                             {liveCommandSettings.prefix}
                         </code>
                     </p>
-                    {commandSettingsQuery.isFetching ? (
-                        <p className='mt-1 text-xs text-neutral-500'>Refreshing live setting...</p>
-                    ) : null}
                 </div>
                 {liveCommandSettings.prefix === DEFAULT_COMMAND_PREFIX ? (
                     <span className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-300'>
@@ -287,9 +338,11 @@ function CommandPrefixSettingsPanel({
                     <input
                         value={displayedDraftPrefix}
                         onChange={(event) => {
+                            const nextPrefix = event.currentTarget.value;
+
                             setFormState((currentState) => ({
                                 ...currentState,
-                                draftPrefix: event.currentTarget.value,
+                                draftPrefix: nextPrefix,
                                 draftBasePrefix: draftIsDirty
                                     ? currentState.draftBasePrefix
                                     : liveCommandSettings.prefix,
@@ -332,6 +385,40 @@ function CommandPrefixSettingsPanel({
     );
 }
 
+function CommandPrefixSettingsPanelLoading() {
+    return (
+        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div>
+                    <h2 className='text-lg font-semibold text-white'>Command prefix</h2>
+                    <p className='mt-2 text-sm leading-6 text-neutral-400'>Current prefix is loading.</p>
+                </div>
+                <span className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-500'>
+                    Loading
+                </span>
+            </div>
+            <div className='mt-4 flex flex-col gap-3'>
+                <label className='space-y-2 text-sm font-medium text-neutral-500'>
+                    <span>New prefix</span>
+                    <input
+                        value=''
+                        disabled
+                        className='min-h-10 w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 text-base text-neutral-500 outline-none'
+                        aria-label='New prefix'
+                    />
+                </label>
+                <div className='h-4 w-52 animate-pulse rounded bg-neutral-800' />
+                <button
+                    type='button'
+                    disabled
+                    className='inline-flex min-h-10 w-fit items-center rounded-md bg-neutral-700 px-4 text-sm font-semibold text-neutral-400'>
+                    Save prefix
+                </button>
+            </div>
+        </article>
+    );
+}
+
 function DashboardGuildAvatar({ guild }: { guild: { name: string; iconUrl?: string } }) {
     const fallbackLabel = getGuildFallbackLabel(guild.name);
 
@@ -367,11 +454,12 @@ function getGuildFallbackLabel(name: string): string {
     return letters || '?';
 }
 
-function StatusCard({ title, body }: { title: string; body: string }) {
+function StatusCard({ title, body, isLoading = false }: { title: string; body: string; isLoading?: boolean }) {
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy={isLoading || undefined}>
             <h2 className='text-lg font-semibold text-white'>{title}</h2>
             <p className='mt-2 text-sm leading-6 text-neutral-400'>{body}</p>
+            {isLoading ? <div className='mt-4 h-4 w-40 animate-pulse rounded bg-neutral-800' /> : null}
         </article>
     );
 }

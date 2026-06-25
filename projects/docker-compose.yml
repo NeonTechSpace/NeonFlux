@@ -33,6 +33,7 @@ services:
             PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
             GUILD_DEFCON_OVERRIDE: ${GUILD_DEFCON_OVERRIDE:-auto}
             FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
+            FLUXER_BOT_CUSTOM_STATUS: ${FLUXER_BOT_CUSTOM_STATUS:-}
             LOG_LEVEL: ${LOG_LEVEL:-info}
             OWNER_IDS: ${OWNER_IDS:-}
         depends_on:

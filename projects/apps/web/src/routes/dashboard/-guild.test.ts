@@ -3,12 +3,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardGuildPageContent } from '../../components/dashboard-guild-page.js';
+import { DashboardGuildPageContent, DashboardGuildPendingPage } from '../../components/dashboard-guild-page.js';
 import {
     readDashboardCommandSettingsRouteData,
     resolveDashboardGuildRouteResult,
@@ -53,6 +53,7 @@ describe('/dashboard/$guildId', () => {
     });
 
     afterEach(() => {
+        cleanup();
         vi.clearAllMocks();
         vi.unstubAllGlobals();
     });
@@ -108,10 +109,10 @@ describe('/dashboard/$guildId', () => {
         });
     });
 
-    it('renders authorized guild detail', () => {
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+    it('renders authorized guild detail', async () => {
+        renderGuildPage();
 
-        expect(screen.getByRole('heading', { name: 'Guild One' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Guild One' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
@@ -120,17 +121,56 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
     });
 
-    it('uses initial command settings without a first-load refetch waterfall', () => {
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+    it('renders preview guild data only for pending SPA navigation', () => {
+        renderWithRouter(
+            createElement(DashboardGuildPendingPage, {
+                guildId: 'guild-1',
+                preview: {
+                    id: 'guild-1',
+                    name: 'Preview Guild',
+                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/preview.webp?size=80',
+                    mode: 'multi',
+                },
+            })
+        );
 
+        expect(screen.getByRole('heading', { name: 'Preview Guild' })).toBeTruthy();
+        expect(screen.getByRole('img', { name: 'Preview Guild icon' })).toBeTruthy();
+        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
+        expect(screen.getByText('Current prefix is loading.')).toBeTruthy();
+    });
+
+    it('renders a neutral direct-entry pending shell without fake mode, name, or icon', () => {
+        renderWithRouter(createElement(DashboardGuildPendingPage, { guildId: 'guild-1' }));
+
+        expect(screen.getByText('Loading server')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Loading server...' })).toBeTruthy();
+        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
+        expect(screen.queryByText('Dashboard')).toBeNull();
+        expect(screen.queryByText('Server guild-1')).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Choose server' })).toBeNull();
+    });
+
+    it('uses route command settings without a first-load command-settings refetch waterfall', async () => {
+        renderGuildPage();
+
+        expect(await screen.findByDisplayValue('?')).toBeTruthy();
         expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
-        expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+        );
     });
 
     it('invalidates command settings when a visible matching live event arrives', async () => {
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValueOnce(createCommandSettingsReadResult('$'));
 
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        renderGuildPage();
+        expect(await screen.findByDisplayValue('?')).toBeTruthy();
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+        );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
             JSON.stringify({
@@ -145,7 +185,11 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('does not invalidate for unrelated guild live events', async () => {
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        renderGuildPage();
+        expect(await screen.findByDisplayValue('?')).toBeTruthy();
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+        );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
             JSON.stringify({
@@ -160,7 +204,11 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('closes live subscriptions while hidden and refetches once when visible again', async () => {
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+        renderGuildPage();
+        expect(await screen.findByDisplayValue('?')).toBeTruthy();
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+        );
         const firstEventSource = MockEventSource.instances.at(0);
 
         documentVisibilityState = 'hidden';
@@ -172,15 +220,17 @@ describe('/dashboard/$guildId', () => {
         expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
         expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands');
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
+        expect(screen.queryByText('Refreshing live setting...')).toBeNull();
     });
 
     it('does not overwrite dirty prefix input when another source changes the saved value', async () => {
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('$'));
-        const { container } = renderWithRouter(
-            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
-        );
+        const { container } = renderGuildPage();
         const currentView = within(container);
-        const prefixInput = currentView.getByLabelText<HTMLInputElement>('New prefix');
+        const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+        );
 
         fireEvent.change(prefixInput, { target: { value: '?1' } });
         MockEventSource.instances.at(0)?.emit(
@@ -197,61 +247,62 @@ describe('/dashboard/$guildId', () => {
         expect(prefixInput.value).toBe('?1');
     });
 
-    it('disables prefix saving when the input has not changed', () => {
-        const { container } = renderWithRouter(
-            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
-        );
+    it('disables prefix saving when the input has not changed', async () => {
+        const { container } = renderGuildPage();
         const currentView = within(container);
 
+        expect(await currentView.findByDisplayValue('?')).toBeTruthy();
         expect(currentView.getByRole('button', { name: 'Save prefix' }).hasAttribute('disabled')).toBe(true);
     });
 
-    it('shows a clear validation error for invalid command prefixes', () => {
-        const { container } = renderWithRouter(
-            createElement(DashboardGuildPageContent, { data: createGuildRouteData() })
-        );
+    it('allows typing in the prefix input without throwing', async () => {
+        const { container } = renderGuildPage();
         const currentView = within(container);
+        const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
 
-        fireEvent.change(currentView.getByLabelText('New prefix'), { target: { value: 'abc' } });
-        fireEvent.click(currentView.getByRole('button', { name: 'Save prefix' }));
+        fireEvent.change(prefixInput, { target: { value: '?1' } });
 
-        expect(currentView.getByText(COMMAND_PREFIX_INVALID_MESSAGE)).toBeTruthy();
+        expect(prefixInput.value).toBe('?1');
     });
 
-    it('renders the single-instance unauthorized state', () => {
-        renderWithRouter(
-            createElement(DashboardGuildPageContent, {
-                data: {
-                    type: 'single-unauthorized',
-                    configuredGuildId: 'guild-1',
-                    configuredGuildName: 'Configured Community',
-                },
-            })
-        );
+    it('shows a clear validation error for invalid command prefixes', async () => {
+        const { container } = renderGuildPage();
+        const currentView = within(container);
+        const prefixInput = await currentView.findByDisplayValue('?');
 
-        expect(screen.getByRole('heading', { name: 'Not authorized' })).toBeTruthy();
+        fireEvent.change(prefixInput, { target: { value: 'abc' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Save prefix' }));
+
+        expect(await currentView.findByText(COMMAND_PREFIX_INVALID_MESSAGE)).toBeTruthy();
+    });
+
+    it('renders the single-instance unauthorized state', async () => {
+        renderGuildPage({
+            type: 'single-unauthorized',
+            configuredGuildId: 'guild-1',
+            configuredGuildName: 'Configured Community',
+        });
+
+        expect(await screen.findByRole('heading', { name: 'Not authorized' })).toBeTruthy();
         expect(screen.getByText('You are not authorized to modify Configured Community.')).toBeTruthy();
     });
 
-    it('renders generic community unavailable errors', () => {
-        renderWithRouter(
-            createElement(DashboardGuildPageContent, {
-                data: {
-                    type: 'unavailable',
-                    status: 404,
-                    title: 'Community unavailable',
-                    message: 'This community is not available for this account.',
-                },
-            })
-        );
+    it('renders generic community unavailable errors', async () => {
+        renderGuildPage({
+            type: 'unavailable',
+            status: 404,
+            title: 'Community unavailable',
+            message: 'This community is not available for this account.',
+        });
 
-        expect(screen.getByRole('heading', { name: 'Community unavailable' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Community unavailable' })).toBeTruthy();
         expect(screen.getByText('This community is not available for this account.')).toBeTruthy();
     });
 
-    it('does not render session, token, or Fluxer user data', () => {
-        renderWithRouter(createElement(DashboardGuildPageContent, { data: createGuildRouteData() }));
+    it('does not render session, token, or Fluxer user data', async () => {
+        renderGuildPage();
 
+        expect(await screen.findByRole('heading', { name: 'Guild One' })).toBeTruthy();
         expect(document.body.textContent).not.toContain(sessionId);
         expect(document.body.textContent).not.toContain(fluxerUserId);
         expect(document.body.textContent).not.toContain(accessToken);
@@ -290,6 +341,10 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
             createElement(RouterContextProvider, providerProps, ui)
         )
     );
+}
+
+function renderGuildPage(routeData: DashboardGuildRouteData = createGuildRouteData()): ReturnType<typeof render> {
+    return renderWithRouter(createElement(DashboardGuildPageContent, { data: routeData }));
 }
 
 function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {

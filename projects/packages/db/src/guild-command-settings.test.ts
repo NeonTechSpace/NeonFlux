@@ -94,6 +94,21 @@ describe('guild command settings repository', () => {
         });
     });
 
+    it('returns existing settings without updating when the prefix is unchanged', async () => {
+        await createInstalledGuild('guild-1');
+        const firstUpdatedAt = new Date('2026-06-24T09:00:00.000Z');
+        const secondUpdatedAt = new Date('2026-06-24T10:00:00.000Z');
+
+        vi.useFakeTimers();
+        vi.setSystemTime(firstUpdatedAt);
+        const firstSettings = await upsertCommandPrefix('guild-1', '?');
+
+        vi.setSystemTime(secondUpdatedAt);
+        const secondSettings = await upsertCommandPrefix('guild-1', ' ? ');
+
+        expect(secondSettings).toStrictEqual(firstSettings);
+    });
+
     it('rejects a blank guild id', async () => {
         const findResult = await findGuildCommandSettingsByGuildId(getDb(), { guildId: '   ' });
         const upsertResult = await upsertGuildCommandPrefix(getDb(), { guildId: '   ', prefix: '?' });

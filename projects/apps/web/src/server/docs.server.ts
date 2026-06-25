@@ -15,6 +15,16 @@ export type PublicDocsRouteData = {
     };
 };
 
+export type PublicDocsShellData = {
+    pageTree: SerializedPageTree;
+};
+
+export async function loadPublicDocsShellData(): Promise<PublicDocsShellData> {
+    return {
+        pageTree: await source.serializePageTree(source.pageTree),
+    };
+}
+
 export async function loadPublicDocsRouteData(slugs: string[]): Promise<PublicDocsRouteData | undefined> {
     const page = source.getPage(slugs);
 

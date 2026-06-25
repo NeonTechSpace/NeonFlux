@@ -5,6 +5,15 @@ description: Current prefix command and bot mention behavior.
 
 NeonFlux currently listens to normal bot messages. Slash commands are not the supported command path right now.
 
+## Custom status
+
+After the gateway is ready, NeonFlux pushes a custom status only when `FLUXER_BOT_CUSTOM_STATUS` is set in the bot
+environment. Leave it blank for no custom status.
+
+```txt title="Example custom status"
+Artron energy is binding to NeonFlux, allowing travel throughout all of existence.
+```
+
 <Callout title='Current command model' type='info'>
     Prefix commands are the active path. The default prefix is `!`, and communities can change it with a guarded mention
     command or from the selected community dashboard.
@@ -21,6 +30,7 @@ Server owners, or users with permission to change guarded bot settings, can chan
 ```
 
 The mention-based prefix command works regardless of the current prefix.
+If the requested prefix already matches the current prefix, NeonFlux reports that nothing changed instead of saving it again.
 
 The prefix can also be changed from the command prefix panel on the selected community dashboard.
 When that panel is open, prefix changes from bot commands or another dashboard tab update live without interval polling.

@@ -1,4 +1,4 @@
-import { Client, Events, PermissionFlags, type Message } from '@fluxerjs/core';
+import { Client, Events, GatewayOpcodes, PermissionFlags, type Message } from '@fluxerjs/core';
 
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
@@ -6,6 +6,7 @@ import type { AppLogger } from '@neonflux/core/logging';
 export type FluxerBot = ReturnType<typeof createFluxerBot>;
 
 export type FluxerBotConfig = {
+    customStatusText?: string;
     fluxerBotToken?: string;
     instanceMode: InstanceMode;
 };
@@ -42,17 +43,32 @@ type FluxerBotGuildEventHandler = (event: FluxerBotGuildEvent) => void | Promise
 type FluxerBotGuildsReadyEventHandler = (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
 type FluxerBotMessageEventHandler = (event: FluxerBotMessageEvent) => void | Promise<void>;
 
+const BOT_PRESENCE_STATUS = 'online';
+
+function createBotPresence(customStatusText: string) {
+    return {
+        status: BOT_PRESENCE_STATUS,
+        custom_status: {
+            text: customStatusText,
+        },
+    } as const;
+}
+
 export function createFluxerBot(
     config: FluxerBotConfig,
     logger: AppLogger,
     lifecycleHandlers: FluxerBotLifecycleHandlers = {}
 ) {
     const client = new Client({ waitForGuilds: true });
+    const configuredCustomStatusText = normalizeConfiguredCustomStatusText(config.customStatusText);
 
     client.once(Events.Ready, () => {
         logger.info('fluxer.ready', {
             instanceMode: config.instanceMode,
         });
+        if (configuredCustomStatusText) {
+            applyBotPresence(logger, client, configuredCustomStatusText);
+        }
         void runCurrentGuildSync(logger, lifecycleHandlers.guildsReady, client);
     });
 
@@ -92,6 +108,32 @@ export function createFluxerBot(
             await client.destroy();
         },
     };
+}
+
+function applyBotPresence(logger: AppLogger, client: Client, customStatusText: string): void {
+    const presence = createBotPresence(customStatusText);
+
+    try {
+        client.sendToGateway(0, {
+            op: GatewayOpcodes.PresenceUpdate,
+            d: presence,
+        });
+        logger.info('fluxer.presence_updated', {
+            presenceStatus: presence.status,
+            customStatusText: presence.custom_status.text,
+        });
+    } catch {
+        logger.error('fluxer.presence_update_failed', {
+            presenceStatus: presence.status,
+            customStatusText: presence.custom_status.text,
+        });
+    }
+}
+
+function normalizeConfiguredCustomStatusText(customStatusText: string | undefined): string | undefined {
+    const normalizedCustomStatusText = customStatusText?.trim();
+
+    return normalizedCustomStatusText && normalizedCustomStatusText.length > 0 ? normalizedCustomStatusText : undefined;
 }
 
 async function runCurrentGuildSync(
