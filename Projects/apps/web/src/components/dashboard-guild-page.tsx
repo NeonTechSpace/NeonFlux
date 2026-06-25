@@ -130,7 +130,7 @@ function DashboardGuildHeader({
         <header className='space-y-3 border-b border-neutral-800 pb-6'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
                 <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>
-                    {mode === 'single' ? 'Single instance' : mode === 'multi' ? 'Multi instance' : 'Dashboard'}
+                    {mode === 'single' ? 'Single instance' : 'Multi instance'}
                 </p>
                 {mode === 'multi' ? (
                     <Link

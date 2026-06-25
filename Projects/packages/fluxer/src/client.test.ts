@@ -88,7 +88,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             }
         );
         const fetchGuilds = vi.fn().mockResolvedValue([createGuild('guild-1'), createGuild('guild-2')]);
-        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => undefined);
 
         vi.spyOn(bot.client, 'login').mockResolvedValue('bot-user');
         Object.defineProperty(bot.client, 'user', {
@@ -118,7 +118,7 @@ describe('createFluxerBot lifecycle handlers', () => {
 
     it('does not push a custom status when no custom status text is configured', () => {
         const bot = createFluxerBot(createConfig(), createLogger());
-        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => undefined);
 
         bot.client.emit(Events.Ready);
 
@@ -134,7 +134,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             },
             logger
         );
-        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => {});
+        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => undefined);
 
         bot.client.emit(Events.Ready);
 

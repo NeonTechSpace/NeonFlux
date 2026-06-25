@@ -1,8 +1,7 @@
 import { notFound } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 
-import type { PublicDocsRouteData } from './docs.server.js';
-import type { PublicDocsShellData } from './docs.server.js';
+import type { PublicDocsRouteData, PublicDocsShellData } from './docs.server.js';
 
 export type DocsRouteResult =
     | {
