@@ -2,11 +2,12 @@ import type { AppEnv, GuildDefconOverride } from '@neonflux/config';
 
 export type GuildDefconLevel = 1 | 2 | 3;
 
-export type DefconFeatureCategory = 'bot_mention' | 'prefix' | (string & {});
+export type DefconFeatureCategory = 'bot_mention' | 'help' | 'prefix' | (string & {});
 export type DefconAudience = 'public' | 'guarded';
 
 export const DEFCON_FEATURE_CATEGORY = {
     botMention: 'bot_mention',
+    help: 'help',
     prefix: 'prefix',
 } as const satisfies Record<string, DefconFeatureCategory>;
 

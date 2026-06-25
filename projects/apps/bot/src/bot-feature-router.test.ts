@@ -274,6 +274,205 @@ describe('routeBotFeatureEvent', () => {
         });
     });
 
+    it('replies to default-prefix help with available command pages', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toContain('NeonFlux help');
+        expect(getLastReplyContent()).toContain('`!help general`');
+        expect(getLastReplyContent()).toContain('`!ping`');
+        expect(getLastReplyContent()).toContain('`@NeonFlux prefix ?`');
+    });
+
+    it('uses the stored guild prefix in help examples', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '?help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toContain('`?help general`');
+        expect(getLastReplyContent()).toContain('`?ping`');
+        expect(getLastReplyContent()).not.toContain('`!ping`');
+    });
+
+    it('replies to mentioned help before treating the mention as contextless', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '<@bot-user> help',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toContain('NeonFlux help');
+    });
+
+    it('replies with the requested general help page', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help general',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(getLastReplyContent()).toContain('NeonFlux help: General');
+        expect(getLastReplyContent()).toContain('`!help [category]`');
+        expect(getLastReplyContent()).toContain('`!ping`');
+        expect(getLastReplyContent()).not.toContain('@NeonFlux prefix ?');
+    });
+
+    it('replies with the requested settings help page', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help settings',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(getLastReplyContent()).toContain('NeonFlux help: Settings');
+        expect(getLastReplyContent()).toContain('`@NeonFlux prefix ?`');
+        expect(getLastReplyContent()).not.toContain('`!ping`');
+    });
+
+    it('replies clearly for unknown help pages', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help moderation',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toBe('Unknown help page `moderation`.\nTry `!help general` or `!help settings`.');
+    });
+
+    it('blocks help in DEFCON 1 unless the help category is exempt', async () => {
+        findGuildSecurityPolicyByGuildIdMock.mockResolvedValueOnce(
+            ok({
+                guildId: 'guild-1',
+                defconLevel: 1,
+                createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+            })
+        );
+
+        const blockedResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(blockedResult.isOk()).toBe(true);
+        expect(blockedResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'defcon-denied',
+            status: 'ignored',
+        });
+        expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
+
+        findGuildSecurityPolicyByGuildIdMock.mockResolvedValueOnce(
+            ok({
+                guildId: 'guild-1',
+                defconLevel: 1,
+                createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+            })
+        );
+        listGuildDefconExemptionCategoriesMock.mockResolvedValueOnce(ok([DEFCON_FEATURE_CATEGORY.help]));
+
+        const exemptResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(exemptResult.isOk()).toBe(true);
+        expect(exemptResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledOnce();
+    });
+
+    it('uses single-mode guild gating before replying to help', async () => {
+        const ignoredResult = await routeBotFeatureEvent(
+            createContext(createSingleMode()),
+            createMessageEvent({
+                content: '!help',
+                guildId: 'other',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(ignoredResult.isOk()).toBe(true);
+        expect(ignoredResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            reason: 'guild-not-processable',
+            status: 'ignored',
+        });
+        expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
+        expect(findGuildCommandSettingsByGuildIdMock).not.toHaveBeenCalled();
+
+        const handledResult = await routeBotFeatureEvent(
+            createContext(createSingleMode()),
+            createMessageEvent({
+                content: '!help',
+                guildId: 'target',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(handledResult.isOk()).toBe(true);
+        expect(handledResult._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+    });
+
     it('ignores the default prefix when the guild has a stored custom prefix', async () => {
         findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
 
@@ -634,6 +833,22 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrapErr()).toBe('database-error');
     });
 
+    it('returns database-error when help prefix lookup fails', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(err('database-error'));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+        expect(sendFluxerChannelMessageMock).not.toHaveBeenCalled();
+    });
+
     it('returns database-error when prefix persistence fails', async () => {
         upsertGuildCommandPrefixMock.mockResolvedValueOnce(err('database-error'));
 
@@ -967,6 +1182,21 @@ describe('routeBotFeatureEvent', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('message-send-error');
     });
+
+    it('returns message-send-error when the help reply cannot be sent', async () => {
+        sendFluxerChannelMessageMock.mockResolvedValueOnce(err({ type: 'send-failed', error: new Error('no access') }));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('message-send-error');
+    });
 });
 
 function createContext(
@@ -1040,4 +1270,14 @@ function createMessageEvent(
         mentionedUserIds: ['bot-user'],
         ...overrides,
     };
+}
+
+function getLastReplyContent(): string {
+    const content = sendFluxerChannelMessageMock.mock.calls.at(-1)?.[0].content;
+
+    if (!content) {
+        throw new Error('Expected a reply message.');
+    }
+
+    return content;
 }

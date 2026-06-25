@@ -14,13 +14,15 @@ import type {
     BotFeatureRouteResult,
     BotMessageCreatedEvent,
 } from './bot-feature-types.js';
+import { getHelpCommandIntent, routeHelpCommand } from './bot-help-command.js';
 import {
     authorizeBotPresenceReply,
     getBotPresenceIntent,
     getBotPresenceReply,
     type BotPresenceIntent,
 } from './bot-presence.js';
-import { routePrefixChangeCommand } from './bot-prefix-command.js';
+import { getMentionedPrefixCommand, routePrefixChangeCommand } from './bot-prefix-command.js';
+import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 export type {
     BotFeatureEvent,
@@ -82,6 +84,42 @@ async function routeMessageCreatedEvent(
     context: BotFeatureHandlerContext,
     event: BotMessageCreatedEvent
 ): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
+    if (event.authorIsBot) {
+        return ok({
+            eventType: event.type,
+            status: 'ignored',
+            reason: 'bot-authored-message',
+        });
+    }
+
+    const prefixChangeCommand = getMentionedPrefixCommand(context, event);
+
+    if (prefixChangeCommand && !event.guildId) {
+        return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);
+    }
+
+    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
+        return ok({
+            eventType: event.type,
+            status: 'ignored',
+            reason: 'guild-not-processable',
+        });
+    }
+
+    if (prefixChangeCommand) {
+        return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);
+    }
+
+    const helpIntentResult = await getHelpCommandIntent(context, event);
+
+    if (helpIntentResult.isErr()) {
+        return err(helpIntentResult.error);
+    }
+
+    if (helpIntentResult.value) {
+        return await routeHelpCommand(context, event, helpIntentResult.value);
+    }
+
     const intentResult = await getBotPresenceIntent(context, event);
 
     if (intentResult.isErr()) {

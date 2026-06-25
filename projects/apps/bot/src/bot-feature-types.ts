@@ -45,7 +45,11 @@ export type BotFeatureRouteIgnoredReason =
     | 'defcon-denied'
     | 'guild-not-processable';
 
-export type BotFeatureRouteHandledAction = 'bot_mention.contextless_reply' | 'command.ping' | 'commands.prefix_change';
+export type BotFeatureRouteHandledAction =
+    | 'bot_mention.contextless_reply'
+    | 'command.help'
+    | 'command.ping'
+    | 'commands.prefix_change';
 
 export type BotFeatureRouteResult =
     | {
