@@ -229,8 +229,10 @@ describe('/docs routing', () => {
         expect(botPresence).toContain(
             'Artron energy is binding to NeonFlux, allowing travel throughout all of existence.'
         );
+        expect(botPresence).toContain('`DEFCON 1` or `DEFCON 2`');
+        expect(botPresence).toContain('In normal mode, DEFCON 3');
         expect(botPresence).toContain('`FLUXER_BOT_CUSTOM_STATUS`');
-        expect(botPresence).toContain('Leave it blank for no custom status.');
+        expect(botPresence).toContain('Leave it blank in normal mode for no custom status.');
         expect(botPresence).toContain('communities can change it with a guarded');
         expect(botPresence).toContain('selected community dashboard');
         expect(botPresence).toContain('update live without interval polling');

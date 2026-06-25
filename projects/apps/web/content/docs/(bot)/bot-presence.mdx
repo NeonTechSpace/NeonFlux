@@ -7,8 +7,9 @@ NeonFlux currently listens to normal bot messages. Slash commands are not the su
 
 ## Custom status
 
-After the gateway is ready, NeonFlux pushes a custom status only when `FLUXER_BOT_CUSTOM_STATUS` is set in the bot
-environment. Leave it blank for no custom status.
+After the gateway is ready, NeonFlux shows `DEFCON 1` or `DEFCON 2` as the custom status when the deployment-level
+effective DEFCON is locked down. In normal mode, DEFCON 3, NeonFlux uses `FLUXER_BOT_CUSTOM_STATUS` from the bot
+environment. Leave it blank in normal mode for no custom status.
 
 ```txt title="Example custom status"
 Artron energy is binding to NeonFlux, allowing travel throughout all of existence.

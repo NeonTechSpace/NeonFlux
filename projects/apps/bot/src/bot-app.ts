@@ -1,4 +1,5 @@
 import type { AppConfig } from '@neonflux/config';
+import { resolveEffectiveGuildDefcon } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
 import { runDatabaseMigrations, type DatabaseClient } from '@neonflux/db';
 import { createFluxerBot, type FluxerBot } from '@neonflux/fluxer';
@@ -54,6 +55,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             const deploymentMode = deploymentConfigResult.value;
 
             logger.info('deployment.config', { instanceMode: deploymentMode.instanceMode });
+            const customStatusText = resolveBotCustomStatusText(config);
 
             const createFeatureHandlerContext = (): BotFeatureHandlerContext => {
                 if (!bot) {
@@ -75,7 +77,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             bot = createFluxerBot(
                 {
                     instanceMode: deploymentMode.instanceMode,
-                    ...(config.fluxerBotCustomStatusText ? { customStatusText: config.fluxerBotCustomStatusText } : {}),
+                    ...(customStatusText ? { customStatusText } : {}),
                     ...(config.fluxerBotToken ? { fluxerBotToken: config.fluxerBotToken } : {}),
                 },
                 logger,
@@ -167,6 +169,21 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             await closeDatabaseOnce();
         },
     };
+}
+
+function resolveBotCustomStatusText(config: AppConfig): string | undefined {
+    const effectiveDefconLevel = resolveEffectiveGuildDefcon({
+        appEnv: config.appEnv,
+        override: config.guildDefconOverride,
+    });
+
+    switch (effectiveDefconLevel) {
+        case 1:
+        case 2:
+            return `DEFCON ${String(effectiveDefconLevel)}`;
+        case 3:
+            return config.fluxerBotCustomStatusText;
+    }
 }
 
 function logFeatureRouteResult(
