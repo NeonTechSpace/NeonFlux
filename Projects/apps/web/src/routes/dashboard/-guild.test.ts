@@ -168,6 +168,8 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'Instance mode' })).toBeNull();
+        expect(screen.queryByText('This bot can manage multiple servers.')).toBeNull();
         expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page');
         expect(screen.getByRole('link', { name: 'General' }).getAttribute('href')).toBe('/dashboard/guild-1/general');
         expect(screen.getByRole('link', { name: 'Messaging' }).getAttribute('href')).toBe(
@@ -405,7 +407,11 @@ describe('/dashboard/$guildId', () => {
 
         await selectPostingChannel(currentView, 'rel notes', '#release-notes');
         fireEvent.change(currentView.getByLabelText('Message content'), { target: { value: 'hello' } });
-        fireEvent.change(currentView.getByLabelText('Sidebar color'), { target: { value: '#00ffd5' } });
+        const sidebarColorInput = currentView.getByLabelText<HTMLInputElement>('Sidebar color');
+
+        expect(sidebarColorInput.type).toBe('color');
+
+        fireEvent.click(currentView.getByRole('checkbox', { name: 'Include sidebar color' }));
         fireEvent.change(currentView.getByLabelText('Author name'), { target: { value: 'NeonFlux' } });
         fireEvent.change(currentView.getByLabelText('Author icon URL'), {
             target: { value: 'https://example.com/author.png' },
@@ -466,7 +472,7 @@ describe('/dashboard/$guildId', () => {
                 },
             })
         );
-        expect(await currentView.findByText('Message sent to channel-2.')).toBeTruthy();
+        expect(await currentView.findByText('Message sent to #release-notes.')).toBeTruthy();
     });
 
     it('keeps content-only posting working with an empty builder', async () => {

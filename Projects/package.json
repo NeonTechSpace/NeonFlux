@@ -24,10 +24,11 @@
         }
     },
     "scripts": {
-        "dev:bot": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
+        "dev:clear": "node -e \"console.clear()\"",
+        "dev:bot": "pnpm dev:clear && pnpm -r --filter \"./packages/*\" build && pnpm --filter @neonflux/bot dev",
         "dev:bot:smoke": "tsx scripts/dev-bot-smoke.ts",
-        "dev:web": "pnpm -r --filter \"./packages/*\" build && pnpm --filter neonflux-web dev",
-        "dev:reset": "tsx scripts/reset-dev-database.ts",
+        "dev:web": "pnpm dev:clear && pnpm -r --filter \"./packages/*\" build && pnpm --filter neonflux-web dev",
+        "dev:reset": "pnpm dev:clear && tsx scripts/reset-dev-database.ts",
         "clean": "pnpm -r clean",
         "build": "pnpm -r build",
         "check": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",

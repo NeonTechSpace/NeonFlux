@@ -7,6 +7,7 @@ import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
 } from '../server/dashboard-guild-route-data.js';
+import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
 import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
 import {
     DashboardEmbedBuilder,
@@ -62,7 +63,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     });
 
     const mutation = useMutation({
-        mutationFn: (payload: { channelId: string; content?: string; embeds: unknown[] }) =>
+        mutationFn: (payload: { channelId: string; channelLabel: string; content?: string; embeds: unknown[] }) =>
             postDashboardMessageRouteData({
                 data: {
                     guildId,
@@ -71,13 +72,13 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     embeds: payload.embeds,
                 },
             }),
-        onSuccess: async (result) => {
+        onSuccess: async (result, payload) => {
             switch (result.type) {
                 case 'sent':
                     setContent('');
                     setEmbedDraft(createEmptyDashboardEmbedDraft());
                     setEmbedJson('');
-                    setFormMessage({ type: 'success', text: `Message sent to ${result.message.channelId}.` });
+                    setFormMessage({ type: 'success', text: `Message sent to ${payload.channelLabel}.` });
                     await queryClient.invalidateQueries({
                         queryKey: getDashboardAuditEventsQueryKey(guildId),
                     });
@@ -154,6 +155,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
 
         mutation.mutate({
             channelId: trimmedChannelId,
+            channelLabel: getPostingChannelLabel(channelsQuery.data ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
             embeds: parsedEmbeds.embeds,
         });
@@ -300,6 +302,12 @@ function EmbedModeOption({
             </span>
         </label>
     );
+}
+
+function getPostingChannelLabel(channels: DashboardPostingChannel[], channelId: string): string {
+    const channel = channels.find((candidate) => candidate.id === channelId);
+
+    return channel ? formatDashboardChannelLabel(channel) : 'the selected channel';
 }
 
 function getChannelLoadErrorMessage(type: string): string {
