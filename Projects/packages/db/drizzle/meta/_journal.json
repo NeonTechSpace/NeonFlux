@@ -57,6 +57,13 @@
       "when": 1782343535000,
       "tag": "0007_dashboard_live_events",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782433809168,
+      "tag": "0008_handy_texas_twister",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,16 @@
-import { Client, Events, GatewayOpcodes, PermissionFlags, type Message } from '@fluxerjs/core';
+import {
+    Client,
+    Events,
+    GatewayOpcodes,
+    PermissionFlags,
+    type Channel,
+    type GuildBan,
+    type GuildMember,
+    type Message,
+    type MessageReaction,
+    type PartialMessage,
+    type User,
+} from '@fluxerjs/core';
 
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
@@ -32,16 +44,80 @@ export type FluxerBotMessageEvent = {
     mentionedUserIds: string[];
 };
 
+export type FluxerBotMessageUpdatedEvent = FluxerBotMessageEvent & {
+    oldContent: string | null;
+};
+
+export type FluxerBotMessageDeletedEvent = {
+    messageId: string;
+    channelId: string;
+    guildId: string | null;
+    authorId: string | null;
+    content: string | null;
+};
+
+export type FluxerBotReactionEvent = {
+    messageId: string;
+    channelId: string;
+    guildId: string | null;
+    userId: string;
+    emojiKey: string;
+};
+
+export type FluxerBotMemberEvent = {
+    guildId: string;
+    userId: string;
+    roleIds: string[];
+};
+
+export type FluxerBotBanEvent = {
+    guildId: string;
+    userId: string;
+};
+
+export type FluxerBotRoleEvent = {
+    guildId: string;
+    roleId: string;
+};
+
+export type FluxerBotChannelEvent = {
+    guildId: string | null;
+    channelId: string;
+    channelType: number;
+};
+
+export type FluxerBotVoiceStateEvent = {
+    guildId: string | null;
+    userId: string | null;
+    channelId: string | null;
+};
+
 export type FluxerBotLifecycleHandlers = {
     guildCreated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
     guildDeleted?: (event: FluxerBotGuildEvent) => void | Promise<void>;
+    guildUpdated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
     guildsReady?: (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
+    messageDeleted?: (event: FluxerBotMessageDeletedEvent) => void | Promise<void>;
     messageCreated?: (event: FluxerBotMessageEvent) => void | Promise<void>;
+    messageUpdated?: (event: FluxerBotMessageUpdatedEvent) => void | Promise<void>;
+    reactionAdded?: (event: FluxerBotReactionEvent) => void | Promise<void>;
+    reactionRemoved?: (event: FluxerBotReactionEvent) => void | Promise<void>;
+    memberJoined?: (event: FluxerBotMemberEvent) => void | Promise<void>;
+    memberUpdated?: (event: FluxerBotMemberEvent) => void | Promise<void>;
+    memberLeft?: (event: FluxerBotMemberEvent) => void | Promise<void>;
+    banAdded?: (event: FluxerBotBanEvent) => void | Promise<void>;
+    banRemoved?: (event: FluxerBotBanEvent) => void | Promise<void>;
+    roleCreated?: (event: FluxerBotRoleEvent) => void | Promise<void>;
+    roleUpdated?: (event: FluxerBotRoleEvent) => void | Promise<void>;
+    roleDeleted?: (event: FluxerBotRoleEvent) => void | Promise<void>;
+    channelCreated?: (event: FluxerBotChannelEvent) => void | Promise<void>;
+    channelUpdated?: (event: FluxerBotChannelEvent) => void | Promise<void>;
+    channelDeleted?: (event: FluxerBotChannelEvent) => void | Promise<void>;
+    voiceStateUpdated?: (event: FluxerBotVoiceStateEvent) => void | Promise<void>;
 };
 
-type FluxerBotGuildEventHandler = (event: FluxerBotGuildEvent) => void | Promise<void>;
 type FluxerBotGuildsReadyEventHandler = (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
-type FluxerBotMessageEventHandler = (event: FluxerBotMessageEvent) => void | Promise<void>;
+type FluxerBotEventHandler<TEvent> = (event: TEvent) => void | Promise<void>;
 
 const BOT_PRESENCE_STATUS = 'online';
 
@@ -73,23 +149,176 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildCreate, (guild) => {
-        void runGuildLifecycleHandler(logger, 'fluxer.guild_created_handler_failed', lifecycleHandlers.guildCreated, {
+        void runLifecycleHandler(logger, 'fluxer.guild_created_handler_failed', lifecycleHandlers.guildCreated, {
             guildId: guild.id,
         });
     });
 
     client.on(Events.GuildDelete, (guild) => {
-        void runGuildLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
+        void runLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
             guildId: guild.id,
         });
     });
 
+    client.on(Events.GuildUpdate, (_oldGuild, newGuild) => {
+        void runLifecycleHandler(logger, 'fluxer.guild_updated_handler_failed', lifecycleHandlers.guildUpdated, {
+            guildId: newGuild.id,
+        });
+    });
+
     client.on(Events.MessageCreate, (message) => {
-        void runMessageLifecycleHandler(
+        void runLifecycleHandler(
             logger,
             'fluxer.message_created_handler_failed',
             lifecycleHandlers.messageCreated,
-            normalizeMessageEvent(message)
+            normalizeMessageEvent(message),
+            createMessageLogContext
+        );
+    });
+
+    client.on(Events.MessageUpdate, (oldMessage, newMessage) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.message_updated_handler_failed',
+            lifecycleHandlers.messageUpdated,
+            normalizeMessageUpdatedEvent(oldMessage, newMessage),
+            createMessageLogContext
+        );
+    });
+
+    client.on(Events.MessageDelete, (message) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.message_deleted_handler_failed',
+            lifecycleHandlers.messageDeleted,
+            normalizeMessageDeletedEvent(message),
+            createDeletedMessageLogContext
+        );
+    });
+
+    client.on(Events.MessageReactionAdd, (reaction, user, messageId, channelId, _emoji, userId) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.reaction_added_handler_failed',
+            lifecycleHandlers.reactionAdded,
+            normalizeReactionEvent(reaction, user, messageId, channelId, userId)
+        );
+    });
+
+    client.on(Events.MessageReactionRemove, (reaction, user, messageId, channelId, _emoji, userId) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.reaction_removed_handler_failed',
+            lifecycleHandlers.reactionRemoved,
+            normalizeReactionEvent(reaction, user, messageId, channelId, userId)
+        );
+    });
+
+    client.on(Events.GuildMemberAdd, (member) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.member_joined_handler_failed',
+            lifecycleHandlers.memberJoined,
+            normalizeMemberEvent(member)
+        );
+    });
+
+    client.on(Events.GuildMemberUpdate, (_oldMember, newMember) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.member_updated_handler_failed',
+            lifecycleHandlers.memberUpdated,
+            normalizeMemberEvent(newMember)
+        );
+    });
+
+    client.on(Events.GuildMemberRemove, (member) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.member_left_handler_failed',
+            lifecycleHandlers.memberLeft,
+            normalizeMemberEvent(member)
+        );
+    });
+
+    client.on(Events.GuildBanAdd, (ban) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.ban_added_handler_failed',
+            lifecycleHandlers.banAdded,
+            normalizeBanEvent(ban)
+        );
+    });
+
+    client.on(Events.GuildBanRemove, (ban) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.ban_removed_handler_failed',
+            lifecycleHandlers.banRemoved,
+            normalizeBanEvent(ban)
+        );
+    });
+
+    client.on(Events.GuildRoleCreate, (event) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.role_created_handler_failed',
+            lifecycleHandlers.roleCreated,
+            normalizeRoleEvent(event)
+        );
+    });
+
+    client.on(Events.GuildRoleUpdate, (event) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.role_updated_handler_failed',
+            lifecycleHandlers.roleUpdated,
+            normalizeRoleEvent(event)
+        );
+    });
+
+    client.on(Events.GuildRoleDelete, (event) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.role_deleted_handler_failed',
+            lifecycleHandlers.roleDeleted,
+            normalizeRoleEvent(event)
+        );
+    });
+
+    client.on(Events.ChannelCreate, (channel) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.channel_created_handler_failed',
+            lifecycleHandlers.channelCreated,
+            normalizeChannelEvent(channel)
+        );
+    });
+
+    client.on(Events.ChannelUpdate, (_oldChannel, newChannel) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.channel_updated_handler_failed',
+            lifecycleHandlers.channelUpdated,
+            normalizeChannelEvent(newChannel)
+        );
+    });
+
+    client.on(Events.ChannelDelete, (channel) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.channel_deleted_handler_failed',
+            lifecycleHandlers.channelDeleted,
+            normalizeChannelEvent(channel)
+        );
+    });
+
+    client.on(Events.VoiceStateUpdate, (event) => {
+        void runLifecycleHandler(
+            logger,
+            'fluxer.voice_state_updated_handler_failed',
+            lifecycleHandlers.voiceStateUpdated,
+            normalizeVoiceStateEvent(event)
         );
     });
 
@@ -181,11 +410,96 @@ function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {
     };
 }
 
-async function runGuildLifecycleHandler(
+function normalizeMessageUpdatedEvent(oldMessage: Message | null, newMessage: Message): FluxerBotMessageUpdatedEvent {
+    return {
+        ...normalizeMessageEvent(newMessage),
+        oldContent: oldMessage?.content ?? null,
+    };
+}
+
+function normalizeMessageDeletedEvent(message: PartialMessage): FluxerBotMessageDeletedEvent {
+    return {
+        messageId: message.id,
+        channelId: message.channelId,
+        guildId: null,
+        authorId: message.authorId ?? null,
+        content: message.content ?? null,
+    };
+}
+
+function normalizeReactionEvent(
+    reaction: MessageReaction,
+    user: User,
+    messageId: string,
+    channelId: string,
+    userId: string
+): FluxerBotReactionEvent {
+    return {
+        messageId,
+        channelId,
+        guildId: reaction.guildId,
+        userId: userId || user.id,
+        emojiKey: reaction.emojiIdentifier,
+    };
+}
+
+function normalizeMemberEvent(member: GuildMember): FluxerBotMemberEvent {
+    return {
+        guildId: member.guild.id,
+        userId: member.id,
+        roleIds: [...member.roles.roleIds],
+    };
+}
+
+function normalizeBanEvent(ban: GuildBan): FluxerBotBanEvent {
+    return {
+        guildId: ban.guildId,
+        userId: ban.user.id,
+    };
+}
+
+function normalizeRoleEvent(event: {
+    guild_id?: string;
+    role?: { id?: string };
+    role_id?: string;
+}): FluxerBotRoleEvent {
+    return {
+        guildId: event.guild_id ?? '',
+        roleId: event.role?.id ?? event.role_id ?? '',
+    };
+}
+
+function normalizeChannelEvent(channel: Channel): FluxerBotChannelEvent {
+    const possibleGuildChannel = channel as Channel & { guildId?: string };
+
+    return {
+        guildId: possibleGuildChannel.guildId ?? null,
+        channelId: channel.id,
+        channelType: channel.type,
+    };
+}
+
+function normalizeVoiceStateEvent(event: {
+    guild_id?: string | null;
+    guildId?: string | null;
+    user_id?: string | null;
+    userId?: string | null;
+    channel_id?: string | null;
+    channelId?: string | null;
+}): FluxerBotVoiceStateEvent {
+    return {
+        guildId: event.guild_id ?? event.guildId ?? null,
+        userId: event.user_id ?? event.userId ?? null,
+        channelId: event.channel_id ?? event.channelId ?? null,
+    };
+}
+
+async function runLifecycleHandler<TEvent>(
     logger: AppLogger,
     logEvent: string,
-    handler: FluxerBotGuildEventHandler | undefined,
-    event: FluxerBotGuildEvent
+    handler: FluxerBotEventHandler<TEvent> | undefined,
+    event: TEvent,
+    getLogContext: (event: TEvent) => Record<string, unknown> = createGenericLogContext
 ): Promise<void> {
     if (!handler) {
         return;
@@ -194,29 +508,30 @@ async function runGuildLifecycleHandler(
     try {
         await handler(event);
     } catch {
-        logger.error(logEvent, {
-            guildId: event.guildId,
-        });
+        logger.error(logEvent, getLogContext(event));
     }
 }
 
-async function runMessageLifecycleHandler(
-    logger: AppLogger,
-    logEvent: string,
-    handler: FluxerBotMessageEventHandler | undefined,
-    event: FluxerBotMessageEvent
-): Promise<void> {
-    if (!handler) {
-        return;
+function createMessageLogContext(event: FluxerBotMessageEvent): Record<string, unknown> {
+    return {
+        messageId: event.messageId,
+        channelId: event.channelId,
+        guildId: event.guildId,
+    };
+}
+
+function createDeletedMessageLogContext(event: FluxerBotMessageDeletedEvent): Record<string, unknown> {
+    return {
+        messageId: event.messageId,
+        channelId: event.channelId,
+        guildId: event.guildId,
+    };
+}
+
+function createGenericLogContext(event: unknown): Record<string, unknown> {
+    if (typeof event === 'object' && event !== null) {
+        return event as Record<string, unknown>;
     }
 
-    try {
-        await handler(event);
-    } catch {
-        logger.error(logEvent, {
-            messageId: event.messageId,
-            channelId: event.channelId,
-            guildId: event.guildId,
-        });
-    }
+    return {};
 }

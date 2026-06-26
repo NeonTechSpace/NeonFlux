@@ -1,8 +1,8 @@
 import { normalizeCommandPrefix } from '@neonflux/core/command-prefix';
-import { authorizeCommandAction, DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { findGuildSecurityPolicyByGuildId, listGuildDefconExemptionCategories } from '@neonflux/db';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import { err, ok, type Result } from 'neverthrow';
 
+import { authorizeBotCommand } from './bot-command-authorization.js';
 import { sendBotFeatureReply } from './bot-feature-replies.js';
 import type {
     BotFeatureHandlerContext,
@@ -11,36 +11,10 @@ import type {
     BotMessageCreatedEvent,
 } from './bot-feature-types.js';
 import { getContentWithoutBotMention } from './bot-prefix-command.js';
+import { getVisibleHelpCategories } from './bot-feature-registry.js';
 import { findEffectiveGuildCommandPrefix } from './guild-command-prefix.js';
 
 const HELP_COMMAND_ACTION = 'command.help';
-const HELP_COMMAND_CATEGORIES = [
-    {
-        id: 'general',
-        title: 'General',
-        commands: [
-            {
-                usage: (prefix: string) => `${prefix}help [category]`,
-                description: 'Show command help pages.',
-            },
-            {
-                usage: (prefix: string) => `${prefix}ping`,
-                description: 'Check whether NeonFlux can reply in this channel.',
-            },
-        ],
-    },
-    {
-        id: 'settings',
-        title: 'Settings',
-        commands: [
-            {
-                usage: () => '@NeonFlux prefix ?',
-                description: 'Change the command prefix. Requires Manage Server or an allowed rule.',
-            },
-        ],
-    },
-] as const;
-
 export type HelpCommandIntent = {
     type: 'help-command';
     rawTopic?: string;
@@ -195,53 +169,29 @@ async function authorizeHelpCommand(
         return ok(false);
     }
 
-    const securityPolicyResult = await findGuildSecurityPolicyByGuildId(context.db, { guildId: event.guildId });
-
-    if (securityPolicyResult.isErr() && securityPolicyResult.error !== 'not-found') {
-        return err('database-error');
-    }
-
-    const exemptionCategoriesResult = await listGuildDefconExemptionCategories(context.db, { guildId: event.guildId });
-
-    if (exemptionCategoriesResult.isErr()) {
-        return err('database-error');
-    }
-
-    const storedLevel = securityPolicyResult.isOk() ? securityPolicyResult.value.defconLevel : undefined;
-    const authorization = authorizeCommandAction({
-        appEnv: context.appEnv,
-        override: context.guildDefconOverride,
-        ...(storedLevel ? { storedLevel } : {}),
-        actor: {
-            userId: event.authorId,
-            roleIds: event.authorRoleIds,
-            isServerOwner: event.authorIsServerOwner,
-            hasManageServer: event.authorHasManageServer,
-        },
+    return await authorizeBotCommand(context, event, {
         category: DEFCON_FEATURE_CATEGORY.help,
         audience: 'public',
-        defconOneExemptCategories: exemptionCategoriesResult.value,
     });
-
-    return ok(authorization.allowed);
 }
 
 function createHelpReply(prefix: string, rawTopic: string | undefined): string {
     const topic = normalizeHelpTopic(rawTopic);
+    const categories = getVisibleHelpCategories(prefix);
 
     if (!topic) {
         return [
             'NeonFlux help',
             `Use \`${prefix}help general\` or \`${prefix}help settings\` for command pages.`,
             '',
-            ...HELP_COMMAND_CATEGORIES.map(
+            ...categories.map(
                 (category) =>
-                    `${category.title}: ${category.commands.map((command) => `\`${command.usage(prefix)}\``).join(', ')}`
+                    `${category.title}: ${category.commands.map((command) => `\`${command.usage}\``).join(', ')}`
             ),
         ].join('\n');
     }
 
-    const category = findHelpCategory(topic);
+    const category = findHelpCategory(categories, topic);
 
     if (!category) {
         return [`Unknown help page \`${topic}\`.`, `Try \`${prefix}help general\` or \`${prefix}help settings\`.`].join(
@@ -251,7 +201,7 @@ function createHelpReply(prefix: string, rawTopic: string | undefined): string {
 
     return [
         `NeonFlux help: ${category.title}`,
-        ...category.commands.map((command) => `- \`${command.usage(prefix)}\` - ${command.description}`),
+        ...category.commands.map((command) => `- \`${command.usage}\` - ${command.description}`),
     ].join('\n');
 }
 
@@ -261,6 +211,6 @@ function normalizeHelpTopic(rawTopic: string | undefined): string | undefined {
     return topic && topic.length > 0 ? topic : undefined;
 }
 
-function findHelpCategory(categoryId: string) {
-    return HELP_COMMAND_CATEGORIES.find((category) => category.id === categoryId);
+function findHelpCategory(categories: ReturnType<typeof getVisibleHelpCategories>, categoryId: string) {
+    return categories.find((category) => category.id === categoryId);
 }

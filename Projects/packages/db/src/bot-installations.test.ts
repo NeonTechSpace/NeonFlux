@@ -15,6 +15,7 @@ import {
     upsertBotInstallation,
     type BotInstallationRecord,
 } from './bot-installations.js';
+import { findGuildById } from './guilds.js';
 
 const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
@@ -35,12 +36,17 @@ describe('upsertBotInstallation', () => {
 
     it('upserts a new installation and returns normalized camelCase fields', async () => {
         const installation = await upsertInstallation(' guild-1 ');
+        const guild = await findGuildById(getDb(), { guildId: 'guild-1' });
 
         expect(installation).toMatchObject({
             guildId: 'guild-1',
         });
         expect(installation.installedAt).toBeInstanceOf(Date);
         expect(installation.updatedAt).toBeInstanceOf(Date);
+        expect(guild.isOk()).toBe(true);
+        expect(guild._unsafeUnwrap()).toMatchObject({
+            guildId: 'guild-1',
+        });
     });
 
     it('preserves installedAt and updates updatedAt when upserting the same guild', async () => {
@@ -117,6 +123,21 @@ describe('deleteBotInstallation', () => {
         });
         expect(remainingGuildIds.isOk()).toBe(true);
         expect(remainingGuildIds._unsafeUnwrap()).toStrictEqual([]);
+    });
+
+    it('preserves the durable guild record when deleting an installation', async () => {
+        await upsertInstallation('guild-1');
+
+        await deleteBotInstallation(getDb(), {
+            guildId: 'guild-1',
+        });
+
+        const guild = await findGuildById(getDb(), { guildId: 'guild-1' });
+
+        expect(guild.isOk()).toBe(true);
+        expect(guild._unsafeUnwrap()).toMatchObject({
+            guildId: 'guild-1',
+        });
     });
 
     it('returns not-found when deleting a missing installation', async () => {

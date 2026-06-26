@@ -5,6 +5,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import type * as schema from './schema.js';
 import { botInstallations } from './schema.js';
+import { upsertGuild } from './guilds.js';
 
 export type BotInstallationRecord = {
     guildId: string;
@@ -30,6 +31,12 @@ export async function upsertBotInstallation(
     const updatedAt = new Date();
 
     try {
+        const guildResult = await upsertGuild(db, { guildId: guildIdResult.value });
+
+        if (guildResult.isErr()) {
+            return err('database-error');
+        }
+
         const installations = await db
             .insert(botInstallations)
             .values({

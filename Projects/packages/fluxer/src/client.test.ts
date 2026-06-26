@@ -1,12 +1,32 @@
-import { Events, GatewayOpcodes, PermissionFlags, type Guild, type Message, type User } from '@fluxerjs/core';
+import {
+    Events,
+    GatewayOpcodes,
+    PermissionFlags,
+    type Channel,
+    type Guild,
+    type GuildBan,
+    type GuildMember,
+    type Message,
+    type MessageReaction,
+    type PartialMessage,
+    type User,
+} from '@fluxerjs/core';
 import type { AppLogger } from '@neonflux/core/logging';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
     createFluxerBot,
     type FluxerBotConfig,
+    type FluxerBotBanEvent,
+    type FluxerBotChannelEvent,
     type FluxerBotGuildEvent,
+    type FluxerBotMemberEvent,
     type FluxerBotMessageEvent,
+    type FluxerBotMessageDeletedEvent,
+    type FluxerBotMessageUpdatedEvent,
+    type FluxerBotReactionEvent,
+    type FluxerBotRoleEvent,
+    type FluxerBotVoiceStateEvent,
 } from './client.js';
 
 describe('createFluxerBot lifecycle handlers', () => {
@@ -46,6 +66,19 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
         });
         expect(event ? Object.keys(event) : []).toStrictEqual(['guildId']);
+    });
+
+    it('calls guildUpdated with only the new guild id on GuildUpdate', () => {
+        const guildUpdated = vi.fn<(event: FluxerBotGuildEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            guildUpdated,
+        });
+
+        bot.client.emit(Events.GuildUpdate, createGuild('old-guild'), createGuild('guild-1'));
+
+        expect(guildUpdated).toHaveBeenCalledWith({
+            guildId: 'guild-1',
+        });
     });
 
     it('catches and logs guild handler failures', async () => {
@@ -250,6 +283,288 @@ describe('createFluxerBot lifecycle handlers', () => {
         }).not.toThrow();
         expect(logger.error).not.toHaveBeenCalled();
     });
+
+    it('calls messageUpdated with normalized message data and old content', () => {
+        const messageUpdated = vi.fn<(event: FluxerBotMessageUpdatedEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            messageUpdated,
+        });
+
+        bot.client.emit(
+            Events.MessageUpdate,
+            createMessage({ content: 'old content' }),
+            createMessage({ content: 'new content' })
+        );
+
+        expect(messageUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            authorId: 'author-1',
+            authorIsBot: false,
+            authorRoleIds: [],
+            authorIsServerOwner: false,
+            authorHasManageServer: false,
+            content: 'new content',
+            mentionedUserIds: [],
+            oldContent: 'old content',
+        });
+    });
+
+    it('sets messageUpdated oldContent to null when no old message is available', () => {
+        const messageUpdated = vi.fn<(event: FluxerBotMessageUpdatedEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            messageUpdated,
+        });
+
+        bot.client.emit(Events.MessageUpdate, null, createMessage({ content: 'new content' }));
+
+        expect(messageUpdated.mock.calls[0]?.[0].oldContent).toBeNull();
+    });
+
+    it('calls messageDeleted with normalized partial message data', () => {
+        const messageDeleted = vi.fn<(event: FluxerBotMessageDeletedEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            messageDeleted,
+        });
+
+        bot.client.emit(Events.MessageDelete, createPartialMessage());
+
+        expect(messageDeleted.mock.calls[0]?.[0]).toStrictEqual({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: null,
+            authorId: 'author-1',
+            content: 'deleted content',
+        });
+    });
+
+    it('calls reaction handlers with normalized reaction data', () => {
+        const reactionAdded = vi.fn<(event: FluxerBotReactionEvent) => void>();
+        const reactionRemoved = vi.fn<(event: FluxerBotReactionEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            reactionAdded,
+            reactionRemoved,
+        });
+
+        bot.client.emit(
+            Events.MessageReactionAdd,
+            createReaction(),
+            createUser('user-1'),
+            'message-1',
+            'channel-1',
+            undefined,
+            'reactor-1'
+        );
+        bot.client.emit(
+            Events.MessageReactionRemove,
+            createReaction({ emojiIdentifier: 'emoji:2' }),
+            createUser('user-2'),
+            'message-2',
+            'channel-2',
+            undefined,
+            ''
+        );
+
+        expect(reactionAdded.mock.calls[0]?.[0]).toStrictEqual({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'reactor-1',
+            emojiKey: 'emoji:1',
+        });
+        expect(reactionRemoved.mock.calls[0]?.[0]).toStrictEqual({
+            messageId: 'message-2',
+            channelId: 'channel-2',
+            guildId: 'guild-1',
+            userId: 'user-2',
+            emojiKey: 'emoji:2',
+        });
+    });
+
+    it('calls member handlers with normalized member data', () => {
+        const memberJoined = vi.fn<(event: FluxerBotMemberEvent) => void>();
+        const memberUpdated = vi.fn<(event: FluxerBotMemberEvent) => void>();
+        const memberLeft = vi.fn<(event: FluxerBotMemberEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            memberJoined,
+            memberUpdated,
+            memberLeft,
+        });
+
+        bot.client.emit(Events.GuildMemberAdd, createMember(['role-1']));
+        bot.client.emit(Events.GuildMemberUpdate, createMember(['old-role']), createMember(['role-2', 'role-3']));
+        bot.client.emit(Events.GuildMemberRemove, createMember([]));
+
+        expect(memberJoined.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'member-1',
+            roleIds: ['role-1'],
+        });
+        expect(memberUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'member-1',
+            roleIds: ['role-2', 'role-3'],
+        });
+        expect(memberLeft.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'member-1',
+            roleIds: [],
+        });
+    });
+
+    it('calls ban handlers with normalized ban data', () => {
+        const banAdded = vi.fn<(event: FluxerBotBanEvent) => void>();
+        const banRemoved = vi.fn<(event: FluxerBotBanEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            banAdded,
+            banRemoved,
+        });
+
+        bot.client.emit(Events.GuildBanAdd, createBan('banned-1'));
+        bot.client.emit(Events.GuildBanRemove, createBan('banned-2'));
+
+        expect(banAdded.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'banned-1',
+        });
+        expect(banRemoved.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'banned-2',
+        });
+    });
+
+    it('calls role handlers with normalized role data', () => {
+        const roleCreated = vi.fn<(event: FluxerBotRoleEvent) => void>();
+        const roleUpdated = vi.fn<(event: FluxerBotRoleEvent) => void>();
+        const roleDeleted = vi.fn<(event: FluxerBotRoleEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            roleCreated,
+            roleUpdated,
+            roleDeleted,
+        });
+
+        bot.client.emit(Events.GuildRoleCreate, createRoleEvent('role-1'));
+        bot.client.emit(Events.GuildRoleUpdate, createRoleEvent('role-2'));
+        bot.client.emit(Events.GuildRoleDelete, {
+            guild_id: 'guild-1',
+            role_id: 'role-3',
+        });
+
+        expect(roleCreated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            roleId: 'role-1',
+        });
+        expect(roleUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            roleId: 'role-2',
+        });
+        expect(roleDeleted.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            roleId: 'role-3',
+        });
+    });
+
+    it('calls channel handlers with normalized channel data', () => {
+        const channelCreated = vi.fn<(event: FluxerBotChannelEvent) => void>();
+        const channelUpdated = vi.fn<(event: FluxerBotChannelEvent) => void>();
+        const channelDeleted = vi.fn<(event: FluxerBotChannelEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            channelCreated,
+            channelUpdated,
+            channelDeleted,
+        });
+
+        bot.client.emit(Events.ChannelCreate, createChannel('channel-1', 0));
+        bot.client.emit(Events.ChannelUpdate, createChannel('old-channel', 0), createChannel('channel-2', 2));
+        bot.client.emit(Events.ChannelDelete, createChannel('channel-3', 4));
+
+        expect(channelCreated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            channelType: 0,
+        });
+        expect(channelUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            channelId: 'channel-2',
+            channelType: 2,
+        });
+        expect(channelDeleted.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            channelId: 'channel-3',
+            channelType: 4,
+        });
+    });
+
+    it('calls voiceStateUpdated with normalized voice state data', () => {
+        const voiceStateUpdated = vi.fn<(event: FluxerBotVoiceStateEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            voiceStateUpdated,
+        });
+
+        bot.client.emit(Events.VoiceStateUpdate, {
+            guild_id: 'guild-1',
+            user_id: 'user-1',
+            channel_id: 'voice-1',
+        });
+
+        expect(voiceStateUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'voice-1',
+        });
+    });
+
+    it('normalizes camelCase voice state data', () => {
+        const voiceStateUpdated = vi.fn<(event: FluxerBotVoiceStateEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            voiceStateUpdated,
+        });
+
+        bot.client.emit(Events.VoiceStateUpdate, {
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'voice-1',
+        });
+
+        expect(voiceStateUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'voice-1',
+        });
+    });
+
+    it('logs message-style handler failures for normalized update events', async () => {
+        const logger = createLogger();
+        const bot = createFluxerBot(createConfig(), logger, {
+            messageUpdated: () => Promise.reject(new Error('handler failed')),
+        });
+
+        bot.client.emit(Events.MessageUpdate, null, createMessage());
+        await settleAsyncHandler();
+
+        expect(logger.error).toHaveBeenCalledWith('fluxer.message_updated_handler_failed', {
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+        });
+    });
+
+    it('logs generic handler failures for normalized channel events', async () => {
+        const logger = createLogger();
+        const bot = createFluxerBot(createConfig(), logger, {
+            channelCreated: () => Promise.reject(new Error('handler failed')),
+        });
+
+        bot.client.emit(Events.ChannelCreate, createChannel('channel-1', 0));
+        await settleAsyncHandler();
+
+        expect(logger.error).toHaveBeenCalledWith('fluxer.channel_created_handler_failed', {
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            channelType: 0,
+        });
+    });
 });
 
 function createGuild(id: string, overrides: Record<string, unknown> = {}): Guild {
@@ -271,12 +586,64 @@ function createMessage(overrides: Partial<Message> = {}): Message {
     } as Message;
 }
 
+function createPartialMessage(overrides: Partial<PartialMessage> = {}): PartialMessage {
+    return {
+        id: 'message-1',
+        channelId: 'channel-1',
+        authorId: 'author-1',
+        content: 'deleted content',
+        ...overrides,
+    };
+}
+
 function createUser(id: string, overrides: Partial<User> = {}): User {
     return {
         id,
         bot: false,
         ...overrides,
     } as User;
+}
+
+function createReaction(overrides: Partial<MessageReaction> = {}): MessageReaction {
+    return {
+        guildId: 'guild-1',
+        emojiIdentifier: 'emoji:1',
+        ...overrides,
+    } as MessageReaction;
+}
+
+function createMember(roleIds: string[]): GuildMember {
+    return {
+        id: 'member-1',
+        guild: createGuild('guild-1'),
+        roles: {
+            roleIds,
+        },
+    } as unknown as GuildMember;
+}
+
+function createBan(userId: string): GuildBan {
+    return {
+        guildId: 'guild-1',
+        user: createUser(userId),
+    } as GuildBan;
+}
+
+function createRoleEvent(roleId: string) {
+    return {
+        guild_id: 'guild-1',
+        role: {
+            id: roleId,
+        },
+    };
+}
+
+function createChannel(id: string, type: number): Channel {
+    return {
+        id,
+        guildId: 'guild-1',
+        type,
+    } as unknown as Channel;
 }
 
 function createConfig(): FluxerBotConfig {

@@ -26,6 +26,10 @@
             "types": "./src/oauth.ts",
             "import": "./dist/oauth.js"
         },
+        "./platform": {
+            "types": "./src/platform.ts",
+            "import": "./dist/platform.js"
+        },
         "./permissions": {
             "types": "./src/permissions.ts",
             "import": "./dist/permissions.js"

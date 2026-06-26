@@ -6,9 +6,22 @@ export type DefconFeatureCategory = 'bot_mention' | 'help' | 'prefix' | (string 
 export type DefconAudience = 'public' | 'guarded';
 
 export const DEFCON_FEATURE_CATEGORY = {
+    autorole: 'autorole',
     botMention: 'bot_mention',
     help: 'help',
+    importExport: 'import_export',
+    logging: 'logging',
+    moderation: 'moderation',
+    posting: 'posting',
     prefix: 'prefix',
+    profileBuilder: 'profile_builder',
+    reactionRoles: 'reaction_roles',
+    roleReconciliation: 'role_reconciliation',
+    suggestions: 'suggestions',
+    tickets: 'tickets',
+    vcGenerator: 'vc_generator',
+    verification: 'verification',
+    xp: 'xp',
 } as const satisfies Record<string, DefconFeatureCategory>;
 
 export type DefconActor = {

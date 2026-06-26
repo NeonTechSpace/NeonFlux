@@ -3,15 +3,11 @@ import {
     DEFAULT_COMMAND_PREFIX,
     normalizeCommandPrefix,
 } from '@neonflux/core/command-prefix';
-import { authorizeCommandAction, DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import {
-    findGuildCommandSettingsByGuildId,
-    findGuildCommandPermissionRule,
-    findGuildSecurityPolicyByGuildId,
-    upsertGuildCommandPrefix,
-} from '@neonflux/db';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
+import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
+import { authorizeBotCommand } from './bot-command-authorization.js';
 import { sendBotFeatureReply } from './bot-feature-replies.js';
 import type {
     BotFeatureHandlerContext,
@@ -151,45 +147,10 @@ async function authorizePrefixChange(
         return ok(false);
     }
 
-    const securityPolicyResult = await findGuildSecurityPolicyByGuildId(context.db, { guildId: event.guildId });
-
-    if (securityPolicyResult.isErr() && securityPolicyResult.error !== 'not-found') {
-        return err('database-error');
-    }
-
-    const commandGrantResult = await findGuildCommandPermissionRule(context.db, {
-        guildId: event.guildId,
-        category: DEFCON_FEATURE_CATEGORY.prefix,
-    });
-
-    if (commandGrantResult.isErr() && commandGrantResult.error !== 'not-found') {
-        return err('database-error');
-    }
-
-    const storedLevel = securityPolicyResult.isOk() ? securityPolicyResult.value.defconLevel : undefined;
-    const authorization = authorizeCommandAction({
-        appEnv: context.appEnv,
-        override: context.guildDefconOverride,
-        ...(storedLevel ? { storedLevel } : {}),
-        actor: {
-            userId: event.authorId,
-            roleIds: event.authorRoleIds,
-            isServerOwner: event.authorIsServerOwner,
-            hasManageServer: event.authorHasManageServer,
-        },
+    return await authorizeBotCommand(context, event, {
         category: DEFCON_FEATURE_CATEGORY.prefix,
         audience: 'guarded',
-        ...(commandGrantResult.isOk()
-            ? {
-                  commandGrant: {
-                      userIds: commandGrantResult.value.userIds,
-                      roleIds: commandGrantResult.value.roleIds,
-                  },
-              }
-            : {}),
     });
-
-    return ok(authorization.allowed);
 }
 
 function escapeRegExp(value: string): string {
