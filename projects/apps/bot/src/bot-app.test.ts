@@ -427,6 +427,37 @@ describe('createBotApp', () => {
         });
     });
 
+    it('routes scaffold lifecycle events through the bot feature router', async () => {
+        const logInfoMock = vi.fn();
+        const logger = createLogger({ info: logInfoMock });
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger,
+            database: createDatabase(),
+        });
+
+        await app.start();
+        await capturedLifecycleHandlers?.reactionAdded?.({
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            emojiKey: 'emoji:1',
+        });
+
+        expect(logInfoMock).toHaveBeenCalledWith('bot.feature_route', {
+            eventType: 'reaction.added',
+            status: 'ignored',
+            reason: 'no-feature-handler',
+            guildDefconOverride: 'auto',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            emojiKey: 'emoji:1',
+        });
+    });
+
     it('does not log feature route results in production', async () => {
         const logInfoMock = vi.fn();
         const logger = createLogger({ info: logInfoMock });

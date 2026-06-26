@@ -10,6 +10,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
+import { findGuildById } from './guilds.js';
 import {
     deleteGuildDefconExemption,
     findGuildCommandPermissionRule,
@@ -212,7 +213,7 @@ describe('guild security policy repository', () => {
         expect(categories._unsafeUnwrap()).toStrictEqual([]);
     });
 
-    it('cascades policy data when a guild installation is removed', async () => {
+    it('preserves policy data when a guild installation is removed', async () => {
         await upsertPolicy({ guildId: 'guild-1', defconLevel: 1 });
         await upsertCommandRule({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.prefix });
         await upsertDashboardRule({ guildId: 'guild-1' });
@@ -222,6 +223,7 @@ describe('guild security policy repository', () => {
 
         expect(deletedInstallation.isOk()).toBe(true);
 
+        const guild = await findGuildById(getDb(), { guildId: 'guild-1' });
         const policy = await findGuildSecurityPolicyByGuildId(getDb(), { guildId: 'guild-1' });
         const commandRule = await findGuildCommandPermissionRule(getDb(), {
             guildId: 'guild-1',
@@ -230,10 +232,11 @@ describe('guild security policy repository', () => {
         const dashboardRule = await findGuildDashboardPermissionRule(getDb(), { guildId: 'guild-1' });
         const categories = await listGuildDefconExemptionCategories(getDb(), { guildId: 'guild-1' });
 
-        expect(policy._unsafeUnwrapErr()).toBe('not-found');
-        expect(commandRule._unsafeUnwrapErr()).toBe('not-found');
-        expect(dashboardRule._unsafeUnwrapErr()).toBe('not-found');
-        expect(categories._unsafeUnwrap()).toStrictEqual([]);
+        expect(guild.isOk()).toBe(true);
+        expect(policy.isOk()).toBe(true);
+        expect(commandRule.isOk()).toBe(true);
+        expect(dashboardRule.isOk()).toBe(true);
+        expect(categories._unsafeUnwrap()).toStrictEqual([DEFCON_FEATURE_CATEGORY.botMention]);
     });
 });
 

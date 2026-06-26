@@ -203,6 +203,38 @@ describe('routeBotFeatureEvent', () => {
         expect(result._unsafeUnwrapErr()).toBe('handler-error');
     });
 
+    it('mode-gates scaffold events before planned features claim them', async () => {
+        const ignoredByMode = await routeBotFeatureEvent(createContext(createSingleMode()), {
+            type: 'reaction.added',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'other',
+            userId: 'user-1',
+            emojiKey: 'emoji:1',
+        });
+        const ignoredWithoutHandler = await routeBotFeatureEvent(createContext(createMultiMode()), {
+            type: 'reaction.added',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            emojiKey: 'emoji:1',
+        });
+
+        expect(ignoredByMode.isOk()).toBe(true);
+        expect(ignoredByMode._unsafeUnwrap()).toStrictEqual({
+            eventType: 'reaction.added',
+            status: 'ignored',
+            reason: 'guild-not-processable',
+        });
+        expect(ignoredWithoutHandler.isOk()).toBe(true);
+        expect(ignoredWithoutHandler._unsafeUnwrap()).toStrictEqual({
+            eventType: 'reaction.added',
+            status: 'ignored',
+            reason: 'no-feature-handler',
+        });
+    });
+
     it('replies to !ping with the no-pong message', async () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode(), {
@@ -335,6 +367,28 @@ describe('routeBotFeatureEvent', () => {
             action: 'command.help',
         });
         expect(getLastReplyContent()).toContain('`?help general`');
+        expect(getLastReplyContent()).toContain('`?ping`');
+        expect(getLastReplyContent()).not.toContain('`!ping`');
+    });
+
+    it('uses the stored guild prefix in category help examples', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '?help general',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toContain('`?help [category]`');
         expect(getLastReplyContent()).toContain('`?ping`');
         expect(getLastReplyContent()).not.toContain('`!ping`');
     });

@@ -49,6 +49,24 @@ export async function routeBotFeatureEvent(
                     await removeBotInstallationEvent(context.db, context.mode, { guildId: event.guildId }),
                     event.type
                 );
+            case 'guild.lifecycle.updated':
+            case 'message.updated':
+            case 'message.deleted':
+            case 'reaction.added':
+            case 'reaction.removed':
+            case 'member.joined':
+            case 'member.updated':
+            case 'member.left':
+            case 'ban.added':
+            case 'ban.removed':
+            case 'role.created':
+            case 'role.updated':
+            case 'role.deleted':
+            case 'channel.created':
+            case 'channel.updated':
+            case 'channel.deleted':
+            case 'voice_state.updated':
+                return routeScaffoldEvent(context, event);
             case 'message.created':
                 return await routeMessageCreatedEvent(context, event);
         }
@@ -78,6 +96,25 @@ function mapInstallationSyncResult(
                 status: 'ignored',
             });
     }
+}
+
+function routeScaffoldEvent(
+    context: BotFeatureHandlerContext,
+    event: Exclude<BotFeatureEvent, { type: 'guild.lifecycle.created' | 'guild.lifecycle.deleted' | 'message.created' }>
+): Result<BotFeatureRouteResult, BotFeatureRouteError> {
+    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
+        return ok({
+            eventType: event.type,
+            status: 'ignored',
+            reason: 'guild-not-processable',
+        });
+    }
+
+    return ok({
+        eventType: event.type,
+        status: 'ignored',
+        reason: 'no-feature-handler',
+    });
 }
 
 async function routeMessageCreatedEvent(

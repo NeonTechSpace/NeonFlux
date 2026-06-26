@@ -1,8 +1,8 @@
 import { normalizeCommandPrefix } from '@neonflux/core/command-prefix';
-import { authorizeCommandAction, DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { findGuildSecurityPolicyByGuildId, listGuildDefconExemptionCategories } from '@neonflux/db';
+import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import { err, ok, type Result } from 'neverthrow';
 
+import { authorizeBotCommand } from './bot-command-authorization.js';
 import type {
     BotFeatureHandlerContext,
     BotFeatureRouteIgnoredReason,
@@ -90,47 +90,16 @@ export async function getBotPresenceIntent(
 
 export async function authorizeBotPresenceReply(
     context: BotFeatureHandlerContext,
-    event: {
-        guildId: string | null;
-        authorId: string;
-        authorRoleIds: readonly string[];
-        authorIsServerOwner: boolean;
-        authorHasManageServer: boolean;
-    }
+    event: BotMessageCreatedEvent
 ): Promise<Result<boolean, 'database-error'>> {
     if (!event.guildId) {
         return ok(false);
     }
 
-    const securityPolicyResult = await findGuildSecurityPolicyByGuildId(context.db, { guildId: event.guildId });
-
-    if (securityPolicyResult.isErr() && securityPolicyResult.error !== 'not-found') {
-        return err('database-error');
-    }
-
-    const exemptionCategoriesResult = await listGuildDefconExemptionCategories(context.db, { guildId: event.guildId });
-
-    if (exemptionCategoriesResult.isErr()) {
-        return err('database-error');
-    }
-
-    const storedLevel = securityPolicyResult.isOk() ? securityPolicyResult.value.defconLevel : undefined;
-    const authorization = authorizeCommandAction({
-        appEnv: context.appEnv,
-        override: context.guildDefconOverride,
-        ...(storedLevel ? { storedLevel } : {}),
-        actor: {
-            userId: event.authorId,
-            roleIds: event.authorRoleIds,
-            isServerOwner: event.authorIsServerOwner,
-            hasManageServer: event.authorHasManageServer,
-        },
+    return await authorizeBotCommand(context, event, {
         category: DEFCON_FEATURE_CATEGORY.botMention,
         audience: 'public',
-        defconOneExemptCategories: exemptionCategoriesResult.value,
     });
-
-    return ok(authorization.allowed);
 }
 
 export function getBotPresenceReply(event: BotMessageCreatedEvent, intent: BotPresenceIntent): string {
