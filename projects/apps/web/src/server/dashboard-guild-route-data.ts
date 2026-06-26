@@ -8,6 +8,7 @@ import type {
 } from './dashboard-command-settings.server.js';
 import type {
     DashboardAuditEventsResult,
+    DashboardAuditSearchScope,
     DashboardPostMessageResult,
     DashboardPostingChannelsResult,
 } from './dashboard-posting.server.js';
@@ -64,6 +65,8 @@ type DashboardAuditEventsRouteInput = {
     cursor?: string;
     limit?: number;
     search?: string;
+    searchScope?: DashboardAuditSearchScope;
+    searchOffsetMinutes?: number;
 };
 
 export type DashboardCommandSettingsReadResult =
@@ -321,11 +324,29 @@ function validateDashboardAuditEventsRouteInput(input: unknown): DashboardAuditE
     const cursor = payload.cursor;
     const limit = payload.limit;
     const search = payload.search;
+    const searchScope = payload.searchScope;
+    const searchOffsetMinutes = payload.searchOffsetMinutes;
 
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         ...(typeof cursor === 'string' ? { cursor } : {}),
         ...(typeof limit === 'number' && Number.isFinite(limit) ? { limit } : {}),
         ...(typeof search === 'string' ? { search } : {}),
+        ...(isDashboardAuditSearchScope(searchScope) ? { searchScope } : {}),
+        ...(typeof searchOffsetMinutes === 'number' && Number.isFinite(searchOffsetMinutes)
+            ? { searchOffsetMinutes }
+            : {}),
     };
+}
+
+function isDashboardAuditSearchScope(value: unknown): value is DashboardAuditSearchScope {
+    return (
+        value === 'all' ||
+        value === 'event' ||
+        value === 'actor' ||
+        value === 'channel' ||
+        value === 'message' ||
+        value === 'time' ||
+        value === 'metadata'
+    );
 }

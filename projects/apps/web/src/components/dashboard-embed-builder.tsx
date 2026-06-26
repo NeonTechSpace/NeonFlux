@@ -3,7 +3,6 @@ import { useId } from 'react';
 export type DashboardEmbedMode = 'builder' | 'advanced-json';
 
 export type DashboardEmbedDraft = {
-    useSidebarColor: boolean;
     sidebarColor: string;
     authorName: string;
     authorIconUrl: string;
@@ -53,6 +52,8 @@ export type DashboardEmbedPayloadResult =
 
 export type ParsedDashboardEmbedsResult = { valid: true; embeds: unknown[] } | { valid: false; message: string };
 
+const defaultSidebarColor = '#00ffd5';
+
 export function DashboardEmbedBuilder({
     draft,
     onDraftChange,
@@ -72,9 +73,7 @@ export function DashboardEmbedBuilder({
             <div className='grid gap-3 lg:grid-cols-2'>
                 <DashboardEmbedColorInput
                     label='Sidebar color'
-                    enabled={draft.useSidebarColor}
                     value={draft.sidebarColor}
-                    onEnabledChange={(enabled) => updateDraft('useSidebarColor', enabled)}
                     onChange={(value) => updateDraft('sidebarColor', value)}
                 />
                 <DashboardEmbedTextInput
@@ -151,8 +150,7 @@ export function DashboardEmbedBuilder({
 
 export function createEmptyDashboardEmbedDraft(): DashboardEmbedDraft {
     return {
-        useSidebarColor: false,
-        sidebarColor: '#00ffd5',
+        sidebarColor: '',
         authorName: '',
         authorIconUrl: '',
         authorUrl: '',
@@ -168,7 +166,7 @@ export function createEmptyDashboardEmbedDraft(): DashboardEmbedDraft {
 }
 
 export function normalizeDashboardEmbedDraft(draft: DashboardEmbedDraft): DashboardEmbedPayloadResult {
-    const sidebarColor = draft.useSidebarColor ? draft.sidebarColor.trim() : '';
+    const sidebarColor = draft.sidebarColor.trim();
     const authorName = draft.authorName.trim();
     const authorIconUrl = draft.authorIconUrl.trim();
     const authorUrl = draft.authorUrl.trim();
@@ -319,18 +317,16 @@ function DashboardEmbedTextInput({
 
 function DashboardEmbedColorInput({
     label,
-    enabled,
     value,
-    onEnabledChange,
     onChange,
 }: {
     label: string;
-    enabled: boolean;
     value: string;
-    onEnabledChange: (enabled: boolean) => void;
     onChange: (value: string) => void;
 }) {
     const labelId = useId();
+    const hasCustomColor = Boolean(value.trim());
+    const visibleValue = hasCustomColor ? value : defaultSidebarColor;
 
     return (
         <div className='space-y-2 text-sm font-medium text-neutral-200'>
@@ -338,29 +334,19 @@ function DashboardEmbedColorInput({
             <div className='flex min-h-10 items-center gap-3 rounded-md border border-neutral-700 bg-neutral-950 px-3 transition focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-400/40'>
                 <input
                     type='color'
-                    value={value}
-                    onChange={(event) => {
-                        onChange(event.currentTarget.value);
-                        onEnabledChange(true);
-                    }}
+                    value={visibleValue}
+                    onChange={(event) => onChange(event.currentTarget.value)}
                     className='size-8 shrink-0 cursor-pointer rounded border border-neutral-700 bg-transparent p-0'
                     aria-labelledby={labelId}
                 />
-                <label className='flex min-w-0 flex-1 items-center gap-2 text-base text-white'>
-                    <input
-                        type='checkbox'
-                        checked={enabled}
-                        onChange={(event) => onEnabledChange(event.currentTarget.checked)}
-                        className='size-4 rounded border-neutral-700 bg-neutral-950 text-sky-500 focus:ring-2 focus:ring-sky-400/40 focus:outline-none'
-                        aria-label='Include sidebar color'
-                    />
-                    <span className='shrink-0'>Include sidebar color</span>
-                    <span className='min-w-0 truncate text-neutral-400'>{enabled ? value : 'Not included'}</span>
-                </label>
-                {enabled ? (
+                <div className='min-w-0 flex-1 text-base'>
+                    <p className='truncate text-white'>{hasCustomColor ? value : 'No custom color'}</p>
+                    <p className='text-xs text-neutral-500'>Changing the picker adds the embed sidebar color.</p>
+                </div>
+                {hasCustomColor ? (
                     <button
                         type='button'
-                        onClick={() => onEnabledChange(false)}
+                        onClick={() => onChange('')}
                         className='inline-flex min-h-8 items-center rounded-md border border-neutral-700 px-2 text-xs font-semibold text-neutral-200 transition hover:border-neutral-500'>
                         Clear
                     </button>
