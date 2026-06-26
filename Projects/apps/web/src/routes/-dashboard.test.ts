@@ -24,17 +24,21 @@ describe('/dashboard', () => {
         expect(routeTree).toContain('DashboardIndexRoute = DashboardIndexRouteImport.update({');
         expect(routeTree).toContain('getParentRoute: () => DashboardRoute');
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/audit'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events'");
         expect(routeTree).toContain("fullPath: '/dashboard/'");
     });
 
     it('keeps dashboard loading scoped to cold index loads, not guild detail navigation', () => {
-        const dashboardIndexRoute = readFileSync('apps/web/src/routes/dashboard.index.tsx', 'utf8');
-        const dashboardGuildRoute = readFileSync('apps/web/src/routes/dashboard.$guildId.tsx', 'utf8');
-        const router = readFileSync('apps/web/src/router.tsx', 'utf8');
-        const dashboardIndexPage = readFileSync('apps/web/src/components/dashboard-index-page.tsx', 'utf8');
-        const dashboardLoading = readFileSync('apps/web/src/components/dashboard-loading.tsx', 'utf8');
-        const dashboardLayout = readFileSync('apps/web/src/components/dashboard-layout.tsx', 'utf8');
+        const dashboardIndexRoute = readWebSourceFile('src/routes/dashboard.index.tsx');
+        const dashboardGuildRoute = readWebSourceFile('src/routes/dashboard.$guildId.tsx');
+        const router = readWebSourceFile('src/router.tsx');
+        const dashboardIndexPage = readWebSourceFile('src/components/dashboard-index-page.tsx');
+        const dashboardLoading = readWebSourceFile('src/components/dashboard-loading.tsx');
+        const dashboardLayout = readWebSourceFile('src/components/dashboard-layout.tsx');
 
         expect(dashboardLoading).toContain('DashboardRouteLoading');
         expect(dashboardLoading).toContain("role='status'");
@@ -50,8 +54,12 @@ describe('/dashboard', () => {
         expect(dashboardGuildRoute).not.toContain('pendingMinMs: 0');
         expect(router).toContain('defaultPendingMs: 0');
         expect(router).toContain('defaultPendingMinMs: 0');
-        expect(dashboardGuildRoute).toContain('<DashboardGuildPageContent data={data} />');
-        expect(dashboardGuildRoute).toContain('<DashboardGuildPendingPage guildId={guildId} preview={preview} />');
+        expect(dashboardGuildRoute).toContain(
+            '<DashboardGuildPageContent data={data} activeCategoryId={activeCategoryId} />'
+        );
+        expect(dashboardGuildRoute).toContain(
+            '<DashboardGuildPendingPage guildId={guildId} preview={preview} activeCategoryId={activeCategoryId} />'
+        );
         expect(dashboardIndexPage).toContain("preload='intent'");
         expect(dashboardIndexPage).toContain('withDashboardGuildPreview(preview)');
         expect(dashboardIndexPage).toContain('createDashboardGuildPreview');
@@ -287,4 +295,15 @@ function findRouteTreePath(): string {
     }
 
     return routeTreePath;
+}
+
+function readWebSourceFile(path: string): string {
+    const sourcePaths = [`apps/web/${path}`, path];
+    const sourcePath = sourcePaths.find((candidate) => existsSync(candidate));
+
+    if (!sourcePath) {
+        throw new Error(`Expected web source file to exist: ${path}`);
+    }
+
+    return readFileSync(sourcePath, 'utf8');
 }

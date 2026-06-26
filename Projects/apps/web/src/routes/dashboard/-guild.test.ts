@@ -8,7 +8,17 @@ import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardGuildPageContent, DashboardGuildPendingPage } from '../../components/dashboard-guild-page.js';
+import type { DashboardCategoryId } from '../../dashboard-categories.js';
+import {
+    DashboardGuildAccessCategory,
+    DashboardGuildAuditCategory,
+    DashboardGuildGeneralCategory,
+    DashboardGuildMessagingCategory,
+    DashboardGuildOverviewCategory,
+    DashboardGuildPageContent,
+    DashboardGuildPendingPage,
+    DashboardGuildPlannedCategory,
+} from '../../components/dashboard-guild-page.js';
 import {
     postDashboardMessageRouteData,
     readDashboardAuditEventsRouteData,
@@ -150,18 +160,67 @@ describe('/dashboard/$guildId', () => {
         });
     });
 
-    it('renders authorized guild detail', async () => {
+    it('renders the authorized guild overview category by default', async () => {
         renderGuildPage();
 
         expect(await screen.findByRole('heading', { name: 'Guild One' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Posting' })).toBeTruthy();
+        expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page');
+        expect(screen.getByRole('link', { name: 'General' }).getAttribute('href')).toBe('/dashboard/guild-1/general');
+        expect(screen.getByRole('link', { name: 'Messaging' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/messaging'
+        );
+        expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/audit'
+        );
+        expect(screen.getByLabelText('Dashboard category')).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+    });
+
+    it('renders the routed general category', async () => {
+        renderGuildPage(createGuildRouteData(), 'general');
+
+        expect(await screen.findByRole('region', { name: 'General' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
         expect(screen.getByText('Current prefix:')).toBeTruthy();
         expect(screen.getByText('?')).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+        expect(screen.getByRole('link', { name: 'General' }).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('renders the routed messaging category', async () => {
+        renderGuildPage(createGuildRouteData(), 'messaging');
+
+        expect(await screen.findByRole('region', { name: 'Messaging' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Posting' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Messaging' }).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('renders the routed audit category', async () => {
+        renderGuildPage(createGuildRouteData(), 'audit');
+
+        expect(await screen.findByRole('region', { name: 'Audit Events' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('navigates from the mobile category selector', async () => {
+        const view = renderGuildPage();
+        const categorySelect = screen.getByLabelText('Dashboard category');
+
+        fireEvent.change(categorySelect, { target: { value: 'audit' } });
+
+        await waitFor(() => expect(view.router.state.location.pathname).toBe('/dashboard/guild-1/audit'));
+    });
+
+    it('renders routed placeholder categories without fake controls', async () => {
+        renderGuildPage(createGuildRouteData(), 'moderation');
+
+        expect(await screen.findByRole('region', { name: 'Moderation' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Moderation is not built yet' })).toBeTruthy();
+        expect(screen.queryByRole('button')).toBeNull();
     });
 
     it('renders preview guild data only for pending SPA navigation', () => {
@@ -180,8 +239,8 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('heading', { name: 'Preview Guild' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Preview Guild icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
-        expect(screen.getByText('Current prefix is loading.')).toBeTruthy();
+        expect(screen.getByRole('navigation', { name: 'Dashboard categories' })).toBeTruthy();
+        expect(screen.getByText('Loading server settings for this section.')).toBeTruthy();
     });
 
     it('renders a neutral direct-entry pending shell without fake mode, name, or icon', () => {
@@ -190,29 +249,29 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByText('Loading server')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Loading server...' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
+        expect(screen.getByText('Loading server settings for this section.')).toBeTruthy();
         expect(screen.queryByText('Dashboard')).toBeNull();
         expect(screen.queryByText('Server guild-1')).toBeNull();
         expect(screen.queryByRole('link', { name: 'Choose server' })).toBeNull();
     });
 
     it('uses route command settings without a first-load command-settings refetch waterfall', async () => {
-        renderGuildPage();
+        renderGuildPage(createGuildRouteData(), 'general');
 
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
         );
     });
 
     it('invalidates command settings when a visible matching live event arrives', async () => {
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValueOnce(createCommandSettingsReadResult('$'));
 
-        renderGuildPage();
+        renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
         );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
@@ -228,10 +287,10 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('does not invalidate for unrelated guild live events', async () => {
-        renderGuildPage();
+        renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
         );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
@@ -247,10 +306,10 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('closes live subscriptions while hidden and refetches once when visible again', async () => {
-        renderGuildPage();
+        renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
         );
         const firstEventSource = MockEventSource.instances.at(0);
 
@@ -261,18 +320,18 @@ describe('/dashboard/$guildId', () => {
 
         expect(firstEventSource?.close).toHaveBeenCalledTimes(1);
         expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
-        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit');
+        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands');
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
         expect(screen.queryByText('Refreshing live setting...')).toBeNull();
     });
 
     it('does not overwrite dirty prefix input when another source changes the saved value', async () => {
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('$'));
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'general');
         const currentView = within(container);
         const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
         );
 
         fireEvent.change(prefixInput, { target: { value: '?1' } });
@@ -291,7 +350,7 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('disables prefix saving when the input has not changed', async () => {
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'general');
         const currentView = within(container);
 
         expect(await currentView.findByDisplayValue('?')).toBeTruthy();
@@ -299,7 +358,7 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('allows typing in the prefix input without throwing', async () => {
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'general');
         const currentView = within(container);
         const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
 
@@ -309,7 +368,7 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('shows a clear validation error for invalid command prefixes', async () => {
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'general');
         const currentView = within(container);
         const prefixInput = await currentView.findByDisplayValue('?');
 
@@ -320,10 +379,11 @@ describe('/dashboard/$guildId', () => {
     });
 
     it('shows a clear validation error for malformed embed JSON before posting', async () => {
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
         const currentView = within(container);
 
         await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.click(currentView.getByLabelText('Advanced JSON'));
         fireEvent.change(currentView.getByLabelText('Embed JSON'), { target: { value: '{' } });
         fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
 
@@ -331,7 +391,7 @@ describe('/dashboard/$guildId', () => {
         expect(postDashboardMessageRouteData).not.toHaveBeenCalled();
     });
 
-    it('posts dashboard messages with content and embed payloads', async () => {
+    it('posts dashboard messages with content and builder embed payloads', async () => {
         vi.mocked(postDashboardMessageRouteData).mockResolvedValueOnce({
             type: 'sent',
             message: {
@@ -340,14 +400,37 @@ describe('/dashboard/$guildId', () => {
                 channelId: 'channel-2',
             },
         });
-        const { container } = renderGuildPage();
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
         const currentView = within(container);
 
         await selectPostingChannel(currentView, 'rel notes', '#release-notes');
         fireEvent.change(currentView.getByLabelText('Message content'), { target: { value: 'hello' } });
-        fireEvent.change(currentView.getByLabelText('Embed JSON'), {
-            target: { value: '[{"title":"NeonFlux"}]' },
+        fireEvent.change(currentView.getByLabelText('Sidebar color'), { target: { value: '#00ffd5' } });
+        fireEvent.change(currentView.getByLabelText('Author name'), { target: { value: 'NeonFlux' } });
+        fireEvent.change(currentView.getByLabelText('Author icon URL'), {
+            target: { value: 'https://example.com/author.png' },
         });
+        fireEvent.change(currentView.getByLabelText('Author link URL'), {
+            target: { value: 'https://example.com/author' },
+        });
+        fireEvent.change(currentView.getByLabelText('Title'), { target: { value: 'Release notes' } });
+        fireEvent.change(currentView.getByLabelText('Title URL'), {
+            target: { value: 'https://example.com/releases' },
+        });
+        fireEvent.change(currentView.getByLabelText('Main body'), {
+            target: { value: 'Fluxer update' },
+        });
+        fireEvent.change(currentView.getByLabelText('Thumbnail URL'), {
+            target: { value: 'https://example.com/thumb.png' },
+        });
+        fireEvent.change(currentView.getByLabelText('Image URL'), {
+            target: { value: 'https://example.com/image.png' },
+        });
+        fireEvent.change(currentView.getByLabelText('Footer text'), { target: { value: 'NeonFlux footer' } });
+        fireEvent.change(currentView.getByLabelText('Footer icon URL'), {
+            target: { value: 'https://example.com/footer.png' },
+        });
+        fireEvent.click(currentView.getByLabelText('Timestamp'));
         fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
 
         await waitFor(() =>
@@ -356,11 +439,132 @@ describe('/dashboard/$guildId', () => {
                     guildId: 'guild-1',
                     channelId: 'channel-2',
                     content: 'hello',
-                    embeds: [{ title: 'NeonFlux' }],
+                    embeds: [
+                        {
+                            color: 65493,
+                            author: {
+                                name: 'NeonFlux',
+                                icon_url: 'https://example.com/author.png',
+                                url: 'https://example.com/author',
+                            },
+                            title: 'Release notes',
+                            url: 'https://example.com/releases',
+                            description: 'Fluxer update',
+                            thumbnail: {
+                                url: 'https://example.com/thumb.png',
+                            },
+                            image: {
+                                url: 'https://example.com/image.png',
+                            },
+                            footer: {
+                                text: 'NeonFlux footer',
+                                icon_url: 'https://example.com/footer.png',
+                            },
+                            timestamp: expect.any(String),
+                        },
+                    ],
                 },
             })
         );
         expect(await currentView.findByText('Message sent to channel-2.')).toBeTruthy();
+    });
+
+    it('keeps content-only posting working with an empty builder', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.change(currentView.getByLabelText('Message content'), { target: { value: 'plain text only' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    content: 'plain text only',
+                    embeds: [],
+                },
+            })
+        );
+    });
+
+    it('omits empty builder embed fields from the outgoing payload', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.change(currentView.getByLabelText('Title'), { target: { value: 'NeonFlux' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    embeds: [{ title: 'NeonFlux' }],
+                },
+            })
+        );
+    });
+
+    it('sends embed-only builder payloads', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.change(currentView.getByLabelText('Main body'), { target: { value: 'Embed-only update' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    embeds: [{ description: 'Embed-only update' }],
+                },
+            })
+        );
+    });
+
+    it('keeps advanced JSON mode for custom multi-embed payloads', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.click(currentView.getByLabelText('Advanced JSON'));
+        fireEvent.change(currentView.getByLabelText('Embed JSON'), {
+            target: { value: '[{"title":"One"},{"title":"Two"}]' },
+        });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    embeds: [{ title: 'One' }, { title: 'Two' }],
+                },
+            })
+        );
+    });
+
+    it('updates the posting preview from message content and builder fields', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+        const preview = within(currentView.getByRole('region', { name: 'Message preview' }));
+
+        expect(preview.getByText('Nothing to preview.')).toBeTruthy();
+
+        fireEvent.change(currentView.getByLabelText('Message content'), { target: { value: 'plain preview' } });
+        fireEvent.change(currentView.getByLabelText('Title'), { target: { value: 'Preview title' } });
+        fireEvent.change(currentView.getByLabelText('Main body'), { target: { value: 'Preview body' } });
+        fireEvent.change(currentView.getByLabelText('Footer text'), { target: { value: 'Preview footer' } });
+
+        expect(preview.getByText('plain preview')).toBeTruthy();
+        expect(preview.getByText('Preview title')).toBeTruthy();
+        expect(preview.getByText('Preview body')).toBeTruthy();
+        expect(preview.getByText('Preview footer')).toBeTruthy();
     });
 
     it('renders recent dashboard audit events', async () => {
@@ -385,7 +589,7 @@ describe('/dashboard/$guildId', () => {
             ],
         });
 
-        renderGuildPage();
+        renderGuildPage(createGuildRouteData(), 'audit');
 
         expect(await screen.findByText('posting: message.sent')).toBeTruthy();
         expect(screen.getByText('Actor: actor-1')).toBeTruthy();
@@ -429,7 +633,17 @@ describe('/dashboard/$guildId', () => {
     });
 });
 
-function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
+type RouterTestRender = ReturnType<typeof render> & {
+    router: {
+        state: {
+            location: {
+                pathname: string;
+            };
+        };
+    };
+};
+
+function renderWithRouter(ui: ReactNode): RouterTestRender {
     const queryClient = new QueryClient({
         defaultOptions: {
             queries: {
@@ -449,8 +663,58 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
         getParentRoute: () => rootRoute,
         path: '/dashboard/$guildId',
     });
+    const dashboardGuildIndexRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: '/',
+    });
+    const dashboardGuildGeneralRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'general',
+    });
+    const dashboardGuildMessagingRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'messaging',
+    });
+    const dashboardGuildAccessRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'access',
+    });
+    const dashboardGuildModerationRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'moderation',
+    });
+    const dashboardGuildLoggingRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'logging',
+    });
+    const dashboardGuildCommunityRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'community',
+    });
+    const dashboardGuildStructureRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'structure',
+    });
+    const dashboardGuildAuditRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'audit',
+    });
     const router = createRouter({
-        routeTree: rootRoute.addChildren([dashboardRoute, dashboardGuildRoute]),
+        routeTree: rootRoute.addChildren([
+            dashboardRoute.addChildren([
+                dashboardGuildRoute.addChildren([
+                    dashboardGuildIndexRoute,
+                    dashboardGuildGeneralRoute,
+                    dashboardGuildMessagingRoute,
+                    dashboardGuildAccessRoute,
+                    dashboardGuildModerationRoute,
+                    dashboardGuildLoggingRoute,
+                    dashboardGuildCommunityRoute,
+                    dashboardGuildStructureRoute,
+                    dashboardGuildAuditRoute,
+                ]),
+            ]),
+        ]),
     });
     const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
 
@@ -460,14 +724,49 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
             { client: queryClient },
             createElement(RouterContextProvider, providerProps, ui)
         )
-    );
+    ) as RouterTestRender;
+    view.router = router;
     renderedViews.push(view);
 
     return view;
 }
 
-function renderGuildPage(routeData: DashboardGuildRouteData = createGuildRouteData()): ReturnType<typeof render> {
-    return renderWithRouter(createElement(DashboardGuildPageContent, { data: routeData }));
+function renderGuildPage(
+    routeData: DashboardGuildRouteData = createGuildRouteData(),
+    categoryId: DashboardCategoryId = 'overview'
+): RouterTestRender {
+    return renderWithRouter(
+        createElement(
+            DashboardGuildPageContent,
+            { data: routeData, activeCategoryId: categoryId },
+            createDashboardCategoryElement(categoryId)
+        )
+    );
+}
+
+function createDashboardCategoryElement(categoryId: DashboardCategoryId): ReactNode {
+    switch (categoryId) {
+        case 'overview':
+            return createElement(DashboardGuildOverviewCategory);
+
+        case 'general':
+            return createElement(DashboardGuildGeneralCategory);
+
+        case 'messaging':
+            return createElement(DashboardGuildMessagingCategory);
+
+        case 'access':
+            return createElement(DashboardGuildAccessCategory);
+
+        case 'audit':
+            return createElement(DashboardGuildAuditCategory);
+
+        case 'moderation':
+        case 'logging':
+        case 'community':
+        case 'structure':
+            return createElement(DashboardGuildPlannedCategory, { categoryId });
+    }
 }
 
 async function selectPostingChannel(

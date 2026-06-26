@@ -7,14 +7,24 @@ import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
 } from '../server/dashboard-guild-route-data.js';
-import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
+import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
+import {
+    DashboardEmbedBuilder,
+    createEmptyDashboardEmbedDraft,
+    normalizeDashboardEmbedDraft,
+    parseDashboardEmbedJson,
+} from './dashboard-embed-builder.js';
+import type {
+    DashboardEmbedDraft,
+    DashboardEmbedMode,
+    ParsedDashboardEmbedsResult,
+} from './dashboard-embed-builder.js';
+import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 
 type PostingFormMessage = {
     type: 'error' | 'success' | 'warning';
     text: string;
 };
-
-type ParsedEmbedsResult = { valid: true; embeds: unknown[] } | { valid: false; message: string };
 
 export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
@@ -22,8 +32,16 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const [channelSearch, setChannelSearch] = useState('');
     const [channelPickerOpen, setChannelPickerOpen] = useState(false);
     const [content, setContent] = useState('');
+    const [embedMode, setEmbedMode] = useState<DashboardEmbedMode>('builder');
+    const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
     const [embedJson, setEmbedJson] = useState('');
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
+    const previewEmbedsResult = getActiveEmbeds({
+        mode: embedMode,
+        draft: embedDraft,
+        json: embedJson,
+    });
+    const previewEmbeds = previewEmbedsResult.valid ? previewEmbedsResult.embeds : [];
 
     const channelsQuery = useQuery({
         queryKey: getDashboardPostingChannelsQueryKey(guildId),
@@ -57,6 +75,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             switch (result.type) {
                 case 'sent':
                     setContent('');
+                    setEmbedDraft(createEmptyDashboardEmbedDraft());
                     setEmbedJson('');
                     setFormMessage({ type: 'success', text: `Message sent to ${result.message.channelId}.` });
                     await queryClient.invalidateQueries({
@@ -109,7 +128,11 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     function submitMessage(event: FormEvent<HTMLFormElement>): void {
         event.preventDefault();
 
-        const parsedEmbeds = parseEmbedJson(embedJson);
+        const parsedEmbeds = getActiveEmbeds({
+            mode: embedMode,
+            draft: embedDraft,
+            json: embedJson,
+        });
 
         if (!parsedEmbeds.valid) {
             setFormMessage({ type: 'error', text: parsedEmbeds.message });
@@ -146,7 +169,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             </div>
 
             <form className='mt-4 flex flex-col gap-3' onSubmit={submitMessage}>
-                <ChannelPicker
+                <DashboardChannelPicker
                     channels={channelsQuery.data ?? []}
                     hasError={channelsQuery.isError}
                     isLoading={channelsQuery.isPending}
@@ -163,7 +186,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     }}
                     onSelect={(channel) => {
                         setSelectedChannelId(channel.id);
-                        setChannelSearch(formatChannelLabel(channel));
+                        setChannelSearch(formatDashboardChannelLabel(channel));
                         setChannelPickerOpen(false);
                         setFormMessage(undefined);
                     }}
@@ -181,19 +204,55 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     />
                 </label>
 
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
-                    <span>Embed JSON</span>
-                    <textarea
-                        value={embedJson}
-                        onChange={(event) => {
-                            setEmbedJson(event.currentTarget.value);
+                <fieldset className='space-y-3'>
+                    <legend className='text-sm font-medium text-neutral-200'>Embed mode</legend>
+                    <div className='flex flex-wrap gap-2' role='radiogroup' aria-label='Embed mode'>
+                        <EmbedModeOption
+                            mode='builder'
+                            currentMode={embedMode}
+                            label='Builder'
+                            onChange={(mode) => {
+                                setEmbedMode(mode);
+                                setFormMessage(undefined);
+                            }}
+                        />
+                        <EmbedModeOption
+                            mode='advanced-json'
+                            currentMode={embedMode}
+                            label='Advanced JSON'
+                            onChange={(mode) => {
+                                setEmbedMode(mode);
+                                setFormMessage(undefined);
+                            }}
+                        />
+                    </div>
+                </fieldset>
+
+                {embedMode === 'builder' ? (
+                    <DashboardEmbedBuilder
+                        draft={embedDraft}
+                        onDraftChange={(nextDraft) => {
+                            setEmbedDraft(nextDraft);
                             setFormMessage(undefined);
                         }}
-                        className='min-h-32 w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                        placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
-                        spellCheck={false}
                     />
-                </label>
+                ) : (
+                    <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                        <span>Embed JSON</span>
+                        <textarea
+                            value={embedJson}
+                            onChange={(event) => {
+                                setEmbedJson(event.currentTarget.value);
+                                setFormMessage(undefined);
+                            }}
+                            className='min-h-32 w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                            placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
+                            spellCheck={false}
+                        />
+                    </label>
+                )}
+
+                <DashboardPostingPreview content={content} embeds={previewEmbeds} />
 
                 <div className='flex flex-wrap items-center gap-3'>
                     <button
@@ -211,192 +270,36 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     );
 }
 
-function ChannelPicker({
-    channels,
-    hasError,
-    isLoading,
-    isOpen,
-    search,
-    selectedChannelId,
-    onBlur,
-    onFocus,
-    onSearchChange,
-    onSelect,
+function EmbedModeOption({
+    mode,
+    currentMode,
+    label,
+    onChange,
 }: {
-    channels: DashboardPostingChannel[];
-    hasError: boolean;
-    isLoading: boolean;
-    isOpen: boolean;
-    search: string;
-    selectedChannelId: string;
-    onBlur: () => void;
-    onFocus: () => void;
-    onSearchChange: (search: string) => void;
-    onSelect: (channel: DashboardPostingChannel) => void;
+    mode: DashboardEmbedMode;
+    currentMode: DashboardEmbedMode;
+    label: string;
+    onChange: (mode: DashboardEmbedMode) => void;
 }) {
-    const matchedChannels = matchChannels(channels, search).slice(0, 8);
-
     return (
-        <div className='space-y-2 text-sm font-medium text-neutral-200'>
-            <label className='space-y-2'>
-                <span>Channel</span>
+        <label
+            className={
+                currentMode === mode
+                    ? 'inline-flex min-h-9 items-center rounded-md border border-sky-400 bg-sky-400/10 px-3 text-sm font-semibold text-sky-100'
+                    : 'inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-200 transition hover:border-neutral-500'
+            }>
+            <span>{label}</span>
+            <span className='sr-only'>
                 <input
-                    value={search}
-                    onBlur={onBlur}
-                    onChange={(event) => onSearchChange(event.currentTarget.value)}
-                    onFocus={onFocus}
-                    className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                    autoComplete='off'
-                    role='combobox'
-                    aria-autocomplete='list'
-                    aria-controls='posting-channel-options'
-                    aria-expanded={isOpen}
-                    placeholder='Search channels'
+                    type='radio'
+                    name='dashboard-posting-embed-mode'
+                    value={mode}
+                    checked={currentMode === mode}
+                    onChange={() => onChange(mode)}
                 />
-            </label>
-
-            {isLoading ? <p className='text-xs leading-5 text-neutral-500'>Loading channels...</p> : null}
-            {hasError ? <p className='text-xs leading-5 text-rose-300'>Could not load channels.</p> : null}
-
-            {isOpen && !isLoading && !hasError ? (
-                <ul
-                    id='posting-channel-options'
-                    className='max-h-56 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950'
-                    role='listbox'>
-                    {matchedChannels.length > 0 ? (
-                        matchedChannels.map((channel) => (
-                            <li key={channel.id} role='option' aria-selected={selectedChannelId === channel.id}>
-                                <button
-                                    type='button'
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onClick={() => onSelect(channel)}
-                                    className='flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-neutral-100 transition hover:bg-neutral-800 focus:bg-neutral-800 focus:outline-none'>
-                                    <span className='min-w-0 truncate'>{formatChannelLabel(channel)}</span>
-                                    <span className='shrink-0 text-xs text-neutral-500'>
-                                        {channel.parentName ?? channel.id}
-                                    </span>
-                                </button>
-                            </li>
-                        ))
-                    ) : (
-                        <li className='px-3 py-3 text-sm text-neutral-500'>No matching channels.</li>
-                    )}
-                </ul>
-            ) : null}
-        </div>
+            </span>
+        </label>
     );
-}
-
-function parseEmbedJson(value: string): ParsedEmbedsResult {
-    const trimmedValue = value.trim();
-
-    if (!trimmedValue) {
-        return { valid: true, embeds: [] };
-    }
-
-    try {
-        const parsedValue: unknown = JSON.parse(trimmedValue);
-
-        if (!Array.isArray(parsedValue) || !parsedValue.every(isEmbedObject)) {
-            return {
-                valid: false,
-                message: 'Embed JSON must be an array of embed objects.',
-            };
-        }
-
-        return { valid: true, embeds: parsedValue };
-    } catch {
-        return {
-            valid: false,
-            message: 'Embed JSON is not valid JSON.',
-        };
-    }
-}
-
-function matchChannels(channels: DashboardPostingChannel[], query: string): DashboardPostingChannel[] {
-    const normalizedQuery = normalizeChannelSearchText(query);
-
-    if (!normalizedQuery) {
-        return channels;
-    }
-
-    return channels
-        .map((channel, index) => ({
-            channel,
-            index,
-            score: scoreChannelMatch(channel, normalizedQuery),
-        }))
-        .filter((match): match is { channel: DashboardPostingChannel; index: number; score: number } => match.score > 0)
-        .sort((left, right) => right.score - left.score || left.index - right.index)
-        .map((match) => match.channel);
-}
-
-function scoreChannelMatch(channel: DashboardPostingChannel, query: string): number {
-    const tokens = query.split(/\s+/).filter(Boolean);
-    const searchableValues = [channel.name, channel.parentName ?? '', channel.id, formatChannelLabel(channel)].map(
-        normalizeChannelSearchText
-    );
-    let score = 0;
-
-    for (const token of tokens) {
-        const tokenScore = Math.max(...searchableValues.map((value) => scoreChannelToken(token, value)));
-
-        if (tokenScore === 0) {
-            return 0;
-        }
-
-        score += tokenScore;
-    }
-
-    return score;
-}
-
-function scoreChannelToken(token: string, value: string): number {
-    if (!value) {
-        return 0;
-    }
-
-    if (value === token) {
-        return 100;
-    }
-
-    if (value.startsWith(token)) {
-        return 80;
-    }
-
-    if (value.includes(token)) {
-        return 60;
-    }
-
-    return isSubsequence(token, value) ? 30 : 0;
-}
-
-function isSubsequence(needle: string, haystack: string): boolean {
-    let needleIndex = 0;
-
-    for (const character of haystack) {
-        if (character === needle[needleIndex]) {
-            needleIndex += 1;
-        }
-
-        if (needleIndex === needle.length) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function normalizeChannelSearchText(value: string): string {
-    return value
-        .trim()
-        .toLowerCase()
-        .replace(/^#/, '')
-        .replace(/[^a-z0-9]+/g, ' ');
-}
-
-function formatChannelLabel(channel: DashboardPostingChannel): string {
-    return `#${channel.name}`;
 }
 
 function getChannelLoadErrorMessage(type: string): string {
@@ -418,8 +321,29 @@ function getChannelLoadErrorMessage(type: string): string {
     }
 }
 
-function isEmbedObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+function getActiveEmbeds({
+    mode,
+    draft,
+    json,
+}: {
+    mode: DashboardEmbedMode;
+    draft: DashboardEmbedDraft;
+    json: string;
+}): ParsedDashboardEmbedsResult {
+    if (mode === 'advanced-json') {
+        return parseDashboardEmbedJson(json);
+    }
+
+    const embedResult = normalizeDashboardEmbedDraft(draft);
+
+    if (!embedResult.valid) {
+        return embedResult;
+    }
+
+    return {
+        valid: true,
+        embeds: embedResult.embed ? [embedResult.embed] : [],
+    };
 }
 
 function getFormMessageClassName(type: PostingFormMessage['type'] | undefined): string {

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 export function DashboardShell({ children }: { children: ReactNode }) {
     return (
         <main className='min-h-screen bg-neutral-950 px-5 py-8 text-neutral-100 sm:px-8'>
-            <div className='mx-auto flex w-full max-w-5xl flex-col gap-8'>{children}</div>
+            <div className='mx-auto flex w-full max-w-7xl flex-col gap-8'>{children}</div>
         </main>
     );
 }
