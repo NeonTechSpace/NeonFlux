@@ -71,6 +71,13 @@
       "when": 1782520200000,
       "tag": "0009_dashboard_audit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782525600000,
+      "tag": "0010_growth_overview_foundation",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ import type {
     DashboardPostMessageResult,
     DashboardPostingChannelsResult,
 } from './dashboard-posting.server.js';
+import type { DashboardGuildOverviewResult } from './dashboard-overview.server.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
@@ -202,6 +203,17 @@ export const readDashboardAuditEventsRouteData = createServerFn({ method: 'GET' 
         setResponseHeader('Cache-Control', 'no-store');
 
         return loadDashboardGuildAuditEvents(getRequest(), data.guildId);
+    });
+
+export const readDashboardGuildOverviewRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardGuildOverviewResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardGuildOverview } = await import('./dashboard-overview.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardGuildOverview(getRequest(), data.guildId);
     });
 
 export const readDashboardPostingChannelsRouteData = createServerFn({ method: 'GET' })

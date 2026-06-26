@@ -18,6 +18,10 @@
             "types": "./src/guilds.ts",
             "import": "./dist/guilds.js"
         },
+        "./invites": {
+            "types": "./src/invites.ts",
+            "import": "./dist/invites.js"
+        },
         "./messages": {
             "types": "./src/messages.ts",
             "import": "./dist/messages.js"

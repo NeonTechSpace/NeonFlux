@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { listBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import { listAllBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
@@ -204,9 +204,8 @@ export async function loadDashboardGuildAuditEvents(
     }
 
     const database = getWebDatabaseClient();
-    const eventsResult = await listBotActionEventsByGuildId(database.db, {
+    const eventsResult = await listAllBotActionEventsByGuildId(database.db, {
         guildId: guildPageData.guild.id,
-        limit: 25,
     });
 
     if (eventsResult.isErr()) {

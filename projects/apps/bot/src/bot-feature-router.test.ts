@@ -6,13 +6,17 @@ import {
     findGuildCommandPermissionRule,
     findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
+    incrementGuildMessageActivityDay,
     listGuildDefconExemptionCategories,
+    listGuildInviteSnapshots,
+    recordGuildMemberFlowEvent,
+    syncGuildInviteSnapshots,
     upsertGuildCommandPrefix,
     upsertBotInstallation,
     type BotInstallationRecord,
     type GuildCommandSettingsRecord,
 } from '@neonflux/db';
-import { sendFluxerChannelMessage, type FluxerBot } from '@neonflux/fluxer';
+import { readFluxerGuildInvites, sendFluxerChannelMessage, type FluxerBot } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +28,11 @@ vi.mock('@neonflux/db', () => {
         findGuildCommandPermissionRule: vi.fn(),
         findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
+        incrementGuildMessageActivityDay: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
+        listGuildInviteSnapshots: vi.fn(),
+        recordGuildMemberFlowEvent: vi.fn(),
+        syncGuildInviteSnapshots: vi.fn(),
         upsertGuildCommandPrefix: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
@@ -32,6 +40,7 @@ vi.mock('@neonflux/db', () => {
 
 vi.mock('@neonflux/fluxer', () => {
     return {
+        readFluxerGuildInvites: vi.fn(),
         sendFluxerChannelMessage: vi.fn(),
     };
 });
@@ -41,8 +50,13 @@ const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
 const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionRule);
 const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
+const incrementGuildMessageActivityDayMock = vi.mocked(incrementGuildMessageActivityDay);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
+const listGuildInviteSnapshotsMock = vi.mocked(listGuildInviteSnapshots);
+const recordGuildMemberFlowEventMock = vi.mocked(recordGuildMemberFlowEvent);
+const syncGuildInviteSnapshotsMock = vi.mocked(syncGuildInviteSnapshots);
 const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
+const readFluxerGuildInvitesMock = vi.mocked(readFluxerGuildInvites);
 const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
 const testDb = {} as BotFeatureHandlerContext['db'];
 const testClient = {} as FluxerBot['client'];
@@ -53,8 +67,13 @@ describe('routeBotFeatureEvent', () => {
         findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
         findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
+        incrementGuildMessageActivityDayMock.mockResolvedValue(ok(createMessageActivityRecord()));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        listGuildInviteSnapshotsMock.mockResolvedValue(ok([]));
+        recordGuildMemberFlowEventMock.mockResolvedValue(ok(createMemberFlowRecord()));
+        syncGuildInviteSnapshotsMock.mockResolvedValue(ok([]));
         upsertGuildCommandPrefixMock.mockResolvedValue(ok(createCommandSettings('guild-1', '?')));
+        readFluxerGuildInvitesMock.mockResolvedValue(ok([]));
         sendFluxerChannelMessageMock.mockResolvedValue(
             ok({
                 id: 'reply-1',
@@ -258,6 +277,32 @@ describe('routeBotFeatureEvent', () => {
             content: "Yes, I'm here, and no, I don't pong",
         });
         expect(findGuildSecurityPolicyByGuildIdMock).toHaveBeenCalledWith(testDb, { guildId: 'guild-1' });
+    });
+
+    it('does not block command replies when message activity tracking fails', async () => {
+        incrementGuildMessageActivityDayMock.mockResolvedValueOnce(err({ type: 'database-error' }));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode(), {
+                botUserId: undefined,
+            }),
+            createMessageEvent({
+                content: '!ping',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.ping',
+        });
+        expect(sendFluxerChannelMessageMock).toHaveBeenCalledWith({
+            client: testClient,
+            channelId: 'channel-1',
+            content: "Yes, I'm here, and no, I don't pong",
+        });
     });
 
     it('treats ping command casing and whitespace as a ping command', async () => {
@@ -1326,6 +1371,30 @@ function createCommandSettings(guildId: string, prefix: string): GuildCommandSet
         prefix,
         createdAt: timestamp,
         updatedAt: timestamp,
+    };
+}
+
+function createMemberFlowRecord() {
+    return {
+        id: 'flow-1',
+        guildId: 'guild-1',
+        userId: 'user-1',
+        eventType: 'join',
+        inviteCode: null,
+        inviterUserId: null,
+        attributionStatus: 'unavailable',
+        occurredAt: new Date('2026-06-26T00:00:00.000Z'),
+    };
+}
+
+function createMessageActivityRecord() {
+    return {
+        id: 'activity-1',
+        guildId: 'guild-1',
+        channelId: 'channel-1',
+        activityDate: '2026-06-26',
+        messageCount: 1,
+        updatedAt: new Date('2026-06-26T00:00:00.000Z'),
     };
 }
 

@@ -6,6 +6,10 @@ export function getDashboardAuditEventsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'audit-events'] as const;
 }
 
+export function getDashboardOverviewQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'overview'] as const;
+}
+
 export function getDashboardPostingChannelsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-channels'] as const;
 }

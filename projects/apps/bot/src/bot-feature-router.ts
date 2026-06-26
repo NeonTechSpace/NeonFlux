@@ -15,6 +15,7 @@ import type {
     BotMessageCreatedEvent,
 } from './bot-feature-types.js';
 import { getHelpCommandIntent, routeHelpCommand } from './bot-help-command.js';
+import { trackGrowthOverviewEvent, type BotGrowthMemberEvent } from './bot-growth-tracking.js';
 import {
     authorizeBotPresenceReply,
     getBotPresenceIntent,
@@ -54,9 +55,12 @@ export async function routeBotFeatureEvent(
             case 'message.deleted':
             case 'reaction.added':
             case 'reaction.removed':
+                return routeScaffoldEvent(context, event);
             case 'member.joined':
-            case 'member.updated':
+                return await routeGrowthTrackingEvent(context, { ...event, type: 'member.joined' });
             case 'member.left':
+                return await routeGrowthTrackingEvent(context, { ...event, type: 'member.left' });
+            case 'member.updated':
             case 'ban.added':
             case 'ban.removed':
             case 'role.created':
@@ -73,6 +77,30 @@ export async function routeBotFeatureEvent(
     } catch {
         return err('handler-error');
     }
+}
+
+async function routeGrowthTrackingEvent(
+    context: BotFeatureHandlerContext,
+    event: BotGrowthMemberEvent
+): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
+    const result = await trackGrowthOverviewEvent(context, event);
+
+    if (result.isErr()) {
+        return err(result.error);
+    }
+
+    if (result.value.status === 'ignored') {
+        return ok({
+            eventType: event.type,
+            status: 'ignored',
+            reason: result.value.reason,
+        });
+    }
+
+    return ok({
+        eventType: event.type,
+        status: 'handled',
+    });
 }
 
 function mapInstallationSyncResult(
@@ -142,6 +170,8 @@ async function routeMessageCreatedEvent(
             reason: 'guild-not-processable',
         });
     }
+
+    await trackGrowthOverviewEvent(context, event).catch(() => undefined);
 
     if (prefixChangeCommand) {
         return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);

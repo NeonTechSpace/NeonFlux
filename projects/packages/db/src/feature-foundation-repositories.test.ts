@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { upsertAutoroleRule, listAutoroleRulesByGuildId } from './autorole.js';
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
 import { createModerationCase, updateModerationCaseStatus } from './moderation.js';
-import { recordBotActionEvent, listBotActionEventsByGuildId } from './logging.js';
+import { listAllBotActionEventsByGuildId, recordBotActionEvent, listBotActionEventsByGuildId } from './logging.js';
 import { recordPostedMessage } from './posting.js';
 import { createStructureImportRun, updateStructureImportRunStatus } from './structure-import-export.js';
 import { upsertGuild } from './guilds.js';
@@ -204,6 +204,25 @@ describe('feature foundation repositories', () => {
                 source: 'dashboard',
             },
         });
+    });
+
+    it('lists all persisted guild dashboard audit events without the recent-event cap', async () => {
+        for (let index = 0; index < 30; index += 1) {
+            await expectOk(
+                recordBotActionEvent(getDb(), {
+                    guildId: 'guild-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    targetId: `message-${String(index)}`,
+                })
+            );
+        }
+
+        const events = await expectOk(listAllBotActionEventsByGuildId(getDb(), { guildId: 'guild-1' }));
+
+        expect(events).toHaveLength(30);
+        expect(events.map((event) => event.targetId)).toContain('message-0');
+        expect(events.map((event) => event.targetId)).toContain('message-29');
     });
 
     it('requires dry-run confirmation before structure import apply state', async () => {
