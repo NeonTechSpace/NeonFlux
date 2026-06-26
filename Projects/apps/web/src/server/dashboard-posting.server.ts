@@ -2,10 +2,12 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
-import type { BotActionEventCursor } from '@neonflux/db';
+import type { BotActionEventCursor, BotActionEventSearchScope } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
+import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
+import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDatabaseClient } from './database.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -35,6 +37,7 @@ export type DashboardPostingChannel = {
 };
 
 export type DashboardAuditMetadata = Record<string, string | number | boolean | null>;
+export type DashboardAuditSearchScope = BotActionEventSearchScope;
 
 export type DashboardPostMessageResult =
     | {
@@ -62,6 +65,8 @@ export type DashboardAuditEvent = {
     feature: string;
     action: string;
     actorUserId?: string;
+    actorUsername?: string;
+    actorDisplayName?: string;
     targetId?: string;
     metadata: DashboardAuditMetadata;
     createdAt: string;
@@ -111,6 +116,8 @@ type DashboardAuditEventsInput = {
     cursor?: string;
     limit?: number;
     search?: string;
+    searchScope?: DashboardAuditSearchScope;
+    searchOffsetMinutes?: number;
 };
 
 const dashboardPostingPurpose = 'dashboard';
@@ -167,6 +174,12 @@ export async function postDashboardGuildMessage(
         guildId: guildPageData.guild.id,
         channelId: sendResult.value.channelId,
     };
+    const actorProfile = await resolveAuthenticatedActorProfile(authContextResult.value);
+    const channelName = await resolveDashboardPostingChannelName({
+        botToken,
+        guildId: sentMessage.guildId,
+        channelId: sentMessage.channelId,
+    });
     const database = getWebDatabaseClient();
     const postedMessageResult = await recordPostedMessage(database.db, {
         guildId: sentMessage.guildId,
@@ -183,6 +196,8 @@ export async function postDashboardGuildMessage(
         targetId: sentMessage.id,
         metadata: {
             channelId: sentMessage.channelId,
+            ...(channelName ? { channelName } : {}),
+            ...toDashboardAuditActorMetadata(actorProfile),
             messageId: sentMessage.id,
             contentLength: payload.content?.length ?? 0,
             embedCount: payload.embeds.length,
@@ -203,6 +218,23 @@ export async function postDashboardGuildMessage(
     };
 }
 
+async function resolveDashboardPostingChannelName(input: {
+    botToken: string;
+    guildId: string;
+    channelId: string;
+}): Promise<string | undefined> {
+    const structureResult = await readFluxerBotGuildStructure({
+        botToken: input.botToken,
+        guildId: input.guildId,
+    });
+
+    if (structureResult.isErr()) {
+        return undefined;
+    }
+
+    return structureResult.value.channels.find((channel) => channel.id === input.channelId)?.name ?? undefined;
+}
+
 export async function loadDashboardGuildAuditEventsPage(
     request: Request,
     input: DashboardAuditEventsInput
@@ -220,11 +252,14 @@ export async function loadDashboardGuildAuditEventsPage(
     }
 
     const database = getWebDatabaseClient();
+    const currentActorProfile = await resolveCurrentRequestActorProfile(request);
     const eventsResult = await listBotActionEventPageByGuildId(database.db, {
         guildId: guildPageData.guild.id,
         ...(cursor ? { cursor } : {}),
         limit: input.limit ?? dashboardAuditPageSize,
         ...(input.search ? { search: input.search } : {}),
+        ...(input.searchScope ? { searchScope: input.searchScope } : {}),
+        ...(typeof input.searchOffsetMinutes === 'number' ? { searchOffsetMinutes: input.searchOffsetMinutes } : {}),
     });
 
     if (eventsResult.isErr()) {
@@ -233,7 +268,7 @@ export async function loadDashboardGuildAuditEventsPage(
 
     return {
         type: 'events',
-        auditEvents: eventsResult.value.records.map(toDashboardAuditEvent),
+        auditEvents: eventsResult.value.records.map((record) => toDashboardAuditEvent(record, currentActorProfile)),
         ...(eventsResult.value.nextCursor
             ? { nextCursor: encodeDashboardAuditCursor(eventsResult.value.nextCursor) }
             : {}),
@@ -325,23 +360,110 @@ function mapDashboardGuildPageError(
     }
 }
 
-function toDashboardAuditEvent(record: {
+type DashboardAuditActorProfile = {
     id: string;
-    feature: string;
-    action: string;
-    actorUserId: string | null;
-    targetId: string | null;
-    metadata: Record<string, unknown>;
-    createdAt: Date;
-}): DashboardAuditEvent {
+    username: string;
+    displayName?: string;
+};
+
+function toDashboardAuditEvent(
+    record: {
+        id: string;
+        feature: string;
+        action: string;
+        actorUserId: string | null;
+        targetId: string | null;
+        metadata: Record<string, unknown>;
+        createdAt: Date;
+    },
+    currentActorProfile?: DashboardAuditActorProfile
+): DashboardAuditEvent {
+    const metadata = toDashboardAuditMetadata(record.metadata);
+    const actorUsername = resolveDashboardAuditActorUsername(record, currentActorProfile);
+    const actorDisplayName = resolveDashboardAuditActorDisplayName(record, currentActorProfile);
+
     return {
         id: record.id,
         feature: record.feature,
         action: record.action,
         ...(record.actorUserId ? { actorUserId: record.actorUserId } : {}),
+        ...(actorUsername ? { actorUsername } : {}),
+        ...(actorDisplayName ? { actorDisplayName } : {}),
         ...(record.targetId ? { targetId: record.targetId } : {}),
-        metadata: toDashboardAuditMetadata(record.metadata),
+        metadata,
         createdAt: record.createdAt.toISOString(),
+    };
+}
+
+function resolveDashboardAuditActorUsername(
+    record: {
+        actorUserId: string | null;
+        metadata: Record<string, unknown>;
+    },
+    currentActorProfile?: DashboardAuditActorProfile
+): string | undefined {
+    if (record.actorUserId && currentActorProfile?.id === record.actorUserId) {
+        return currentActorProfile.username;
+    }
+
+    return getMetadataString(record.metadata.actorUsername);
+}
+
+function resolveDashboardAuditActorDisplayName(
+    record: {
+        actorUserId: string | null;
+        metadata: Record<string, unknown>;
+    },
+    currentActorProfile?: DashboardAuditActorProfile
+): string | undefined {
+    if (record.actorUserId && currentActorProfile?.id === record.actorUserId) {
+        return currentActorProfile.displayName;
+    }
+
+    return getMetadataString(record.metadata.actorDisplayName) ?? getMetadataString(record.metadata.actorGlobalName);
+}
+
+async function resolveCurrentRequestActorProfile(request: Request): Promise<DashboardAuditActorProfile | undefined> {
+    const authContextResult = await readAuthenticatedFluxerContext(request);
+
+    if (authContextResult.isErr()) {
+        return undefined;
+    }
+
+    return resolveAuthenticatedActorProfile(authContextResult.value);
+}
+
+async function resolveAuthenticatedActorProfile(input: {
+    fluxerUserId: string;
+    accessToken: string;
+}): Promise<DashboardAuditActorProfile | undefined> {
+    const currentUserResult = await getFluxerCurrentUser({
+        accessToken: input.accessToken,
+    });
+
+    if (currentUserResult.isErr() || currentUserResult.value.id !== input.fluxerUserId) {
+        return undefined;
+    }
+
+    return toDashboardAuditActorProfile(currentUserResult.value);
+}
+
+function toDashboardAuditActorProfile(user: FluxerCurrentUser): DashboardAuditActorProfile {
+    return {
+        id: user.id,
+        username: user.username,
+        ...(user.globalName ? { displayName: user.globalName } : {}),
+    };
+}
+
+function toDashboardAuditActorMetadata(actorProfile: DashboardAuditActorProfile | undefined): DashboardAuditMetadata {
+    if (!actorProfile) {
+        return {};
+    }
+
+    return {
+        actorUsername: actorProfile.username,
+        ...(actorProfile.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
     };
 }
 
@@ -396,6 +518,10 @@ function toDashboardAuditMetadata(metadata: Record<string, unknown>): DashboardA
     }
 
     return serializableMetadata;
+}
+
+function getMetadataString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function encodeDashboardAuditCursor(cursor: BotActionEventCursor): string {

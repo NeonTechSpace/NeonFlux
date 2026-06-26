@@ -230,7 +230,7 @@ describe('feature foundation repositories', () => {
         expect(events.map((event) => event.targetId)).toContain('message-29');
     });
 
-    it('pages persisted guild dashboard audit events and searches fuzzy text', async () => {
+    it('pages persisted guild dashboard audit events and searches scoped normalized text', async () => {
         for (let index = 0; index < 8; index += 1) {
             await expectOk(
                 recordBotActionEvent(getDb(), {
@@ -243,6 +243,7 @@ describe('feature foundation repositories', () => {
                         index % 2 === 0
                             ? {
                                   channelId: `channel-${String(index)}`,
+                                  actorUsername: `neon-${String(index)}`,
                                   source: 'dashboard',
                               }
                             : {
@@ -281,13 +282,48 @@ describe('feature foundation repositories', () => {
         const fuzzyMatches = await expectOk(
             listBotActionEventPageByGuildId(getDb(), {
                 guildId: 'guild-1',
-                search: 'chnl0 actor0',
+                search: 'channel-0 actor-0',
                 limit: 10,
             })
         );
 
         expect(fuzzyMatches.records).toHaveLength(1);
         expect(fuzzyMatches.records.every((event) => event.feature === 'posting')).toBe(true);
+
+        const actorNameMatches = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                search: 'neon-0',
+                searchScope: 'actor',
+                limit: 10,
+            })
+        );
+
+        expect(actorNameMatches.records).toHaveLength(1);
+        expect(actorNameMatches.records[0]?.actorUserId).toBe('actor-0');
+
+        const channelMatches = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                search: 'channel-0',
+                searchScope: 'channel',
+                limit: 10,
+            })
+        );
+
+        expect(channelMatches.records).toHaveLength(1);
+        expect(channelMatches.records[0]?.targetId).toBe('channel-0');
+
+        const overBroadFuzzyMatch = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                search: 'chnl0',
+                searchScope: 'channel',
+                limit: 10,
+            })
+        );
+
+        expect(overBroadFuzzyMatch.records).toHaveLength(0);
     });
 
     it('requires dry-run confirmation before structure import apply state', async () => {

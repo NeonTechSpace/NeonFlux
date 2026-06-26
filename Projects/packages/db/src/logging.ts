@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -19,6 +19,8 @@ export type BotActionEventPage = {
     records: BotActionEventRecord[];
     nextCursor?: BotActionEventCursor;
 };
+export type BotActionEventSearchScope = 'all' | 'event' | 'actor' | 'channel' | 'message' | 'time' | 'metadata';
+type BotActionEventSearchField = AnyColumn | SQL;
 
 export async function recordBotActionEvent(
     db: GuildFeatureRepositoryDatabase,
@@ -87,13 +89,23 @@ export async function listBotActionEventsByGuildId(
 
 export async function listBotActionEventPageByGuildId(
     db: GuildFeatureRepositoryDatabase,
-    input: { guildId: string; feature?: string; limit?: number; cursor?: BotActionEventCursor; search?: string }
+    input: {
+        guildId: string;
+        feature?: string;
+        limit?: number;
+        cursor?: BotActionEventCursor;
+        search?: string;
+        searchScope?: BotActionEventSearchScope;
+        searchOffsetMinutes?: number;
+    }
 ): Promise<Result<BotActionEventPage, LoggingRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const feature = normalizeOptionalText(input.feature);
     const cursor = normalizeBotActionEventCursor(input.cursor);
     const limit = normalizeBotActionEventLimit(input.limit);
     const searchTokens = normalizeBotActionEventSearch(input.search);
+    const searchScope = normalizeBotActionEventSearchScope(input.searchScope);
+    const searchOffsetMinutes = normalizeBotActionEventSearchOffset(input.searchOffsetMinutes);
 
     if (guildId.isErr()) return err(guildId.error);
     if (cursor.isErr()) return err(cursor.error);
@@ -113,7 +125,7 @@ export async function listBotActionEventPageByGuildId(
                       ),
                   ]
                 : []),
-            ...searchTokens.map((token) => matchesBotActionEventSearchToken(token)),
+            ...searchTokens.map((token) => matchesBotActionEventSearchToken(token, searchScope, searchOffsetMinutes)),
         ];
         const rows = await db
             .select()
@@ -200,23 +212,106 @@ function normalizeBotActionEventSearch(search: string | undefined): string[] {
         search
             ?.trim()
             .toLowerCase()
-            .replace(/[^a-z0-9]+/g, ' ')
             .split(/\s+/)
+            .map((token) => token.replace(/[^a-z0-9]+/g, ''))
             .filter(Boolean)
             .slice(0, 8) ?? []
     );
 }
 
-function matchesBotActionEventSearchToken(token: string) {
-    const fuzzyPattern = token.split('').join('.*');
-    const fieldMatches = [
-        botActionEvents.feature,
-        botActionEvents.action,
-        botActionEvents.actorUserId,
-        botActionEvents.targetId,
-        botActionEvents.metadata,
-        botActionEvents.createdAt,
-    ].map((field) => sql`regexp_replace(lower(coalesce(${field}::text, '')), '[^a-z0-9]+', '', 'g') ~ ${fuzzyPattern}`);
+function normalizeBotActionEventSearchScope(scope: BotActionEventSearchScope | undefined): BotActionEventSearchScope {
+    switch (scope) {
+        case 'event':
+        case 'actor':
+        case 'channel':
+        case 'message':
+        case 'time':
+        case 'metadata':
+            return scope;
+
+        case 'all':
+        case undefined:
+            return 'all';
+    }
+}
+
+function normalizeBotActionEventSearchOffset(offsetMinutes: number | undefined): number | undefined {
+    if (offsetMinutes === undefined || !Number.isFinite(offsetMinutes)) {
+        return undefined;
+    }
+
+    return Math.min(Math.max(Math.trunc(offsetMinutes), -1440), 1440);
+}
+
+function matchesBotActionEventSearchToken(
+    token: string,
+    scope: BotActionEventSearchScope,
+    searchOffsetMinutes: number | undefined
+) {
+    const fields = getBotActionEventSearchFields(scope, searchOffsetMinutes);
+    const fieldMatches = fields.map((field) => normalizedFieldContains(field, token));
 
     return or(...fieldMatches) ?? sql`false`;
+}
+
+function getBotActionEventSearchFields(
+    scope: BotActionEventSearchScope,
+    searchOffsetMinutes: number | undefined
+): BotActionEventSearchField[] {
+    const eventFields = [botActionEvents.feature, botActionEvents.action];
+    const actorFields = [
+        botActionEvents.actorUserId,
+        sql`${botActionEvents.metadata}->>'actorUsername'`,
+        sql`${botActionEvents.metadata}->>'actorDisplayName'`,
+        sql`${botActionEvents.metadata}->>'actorGlobalName'`,
+    ];
+    const channelFields = [
+        sql`${botActionEvents.metadata}->>'channelName'`,
+        sql`${botActionEvents.metadata}->>'channelId'`,
+    ];
+    const messageFields = [botActionEvents.targetId, sql`${botActionEvents.metadata}->>'messageId'`];
+    const timeFields = [
+        botActionEvents.createdAt,
+        sql`to_char(${botActionEvents.createdAt}, 'YYYY-MM-DD HH24:MI:SS AM MM/DD/YYYY HH12:MI:SS AM')`,
+        ...(searchOffsetMinutes === undefined
+            ? []
+            : [
+                  sql`to_char(${botActionEvents.createdAt} - (${searchOffsetMinutes} * interval '1 minute'), 'YYYY-MM-DD HH24:MI:SS AM MM/DD/YYYY HH12:MI:SS AM')`,
+              ]),
+    ];
+    const metadataFields = [botActionEvents.metadata];
+
+    switch (scope) {
+        case 'event':
+            return eventFields;
+
+        case 'actor':
+            return actorFields;
+
+        case 'channel':
+            return channelFields;
+
+        case 'message':
+            return messageFields;
+
+        case 'time':
+            return timeFields;
+
+        case 'metadata':
+            return metadataFields;
+
+        case 'all':
+            return [
+                ...eventFields,
+                ...actorFields,
+                ...channelFields,
+                ...messageFields,
+                ...timeFields,
+                ...metadataFields,
+            ];
+    }
+}
+
+function normalizedFieldContains(field: BotActionEventSearchField, token: string) {
+    return sql`regexp_replace(lower(coalesce(${field}::text, '')), '[^a-z0-9]+', '', 'g') like ${`%${token}%`}`;
 }

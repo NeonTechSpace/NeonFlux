@@ -6,6 +6,8 @@ import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
 import type * as FluxerMessages from '@neonflux/fluxer/messages';
+import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
+import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -79,6 +81,15 @@ vi.mock('@neonflux/fluxer/guild-structure', async (importActual) => {
     };
 });
 
+vi.mock('@neonflux/fluxer/users', async (importActual) => {
+    const actual = await importActual<typeof FluxerUsers>();
+
+    return {
+        ...actual,
+        getFluxerCurrentUser: vi.fn(),
+    };
+});
+
 describe('dashboard posting', () => {
     beforeEach(() => {
         vi.mocked(loadWebConfig).mockReturnValue(createWebConfig());
@@ -103,6 +114,15 @@ describe('dashboard posting', () => {
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValue(
             ok({
                 records: [createBotActionEventRecord()],
+            })
+        );
+        vi.mocked(getFluxerCurrentUser).mockResolvedValue(
+            ok({
+                id: 'actor-1',
+                username: 'neonsy',
+                discriminator: '0',
+                globalName: 'Neonsy',
+                avatar: null,
             })
         );
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
@@ -278,6 +298,9 @@ describe('dashboard posting', () => {
                 targetId: 'message-1',
                 metadata: {
                     channelId: 'channel-1',
+                    channelName: 'general',
+                    actorUsername: 'neonsy',
+                    actorDisplayName: 'Neonsy',
                     messageId: 'message-1',
                     contentLength: 5,
                     embedCount: 1,
@@ -326,6 +349,8 @@ describe('dashboard posting', () => {
                     feature: 'posting',
                     action: 'message.sent',
                     actorUserId: 'actor-1',
+                    actorUsername: 'neonsy',
+                    actorDisplayName: 'Neonsy',
                     targetId: 'message-1',
                     metadata: {
                         channelId: 'channel-1',
@@ -347,7 +372,7 @@ describe('dashboard posting', () => {
         );
     });
 
-    it('loads the next audit event page with cursor, search, and a bounded limit', async () => {
+    it('loads the next audit event page with cursor, scoped search, timezone offset, and a bounded limit', async () => {
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValueOnce(
             ok({
                 records: [createBotActionEventRecord()],
@@ -361,7 +386,9 @@ describe('dashboard posting', () => {
         const result = await loadDashboardGuildAuditEventsPage(request, {
             guildId: 'guild-1',
             cursor: '2026-06-26T00:00:00.000Z|event-1',
-            search: 'chnl1',
+            search: 'channel-1',
+            searchScope: 'channel',
+            searchOffsetMinutes: -120,
             limit: 25,
         });
 
@@ -373,6 +400,8 @@ describe('dashboard posting', () => {
                     feature: 'posting',
                     action: 'message.sent',
                     actorUserId: 'actor-1',
+                    actorUsername: 'neonsy',
+                    actorDisplayName: 'Neonsy',
                     targetId: 'message-1',
                     metadata: {
                         channelId: 'channel-1',
@@ -395,7 +424,9 @@ describe('dashboard posting', () => {
                     id: 'event-1',
                 },
                 limit: 25,
-                search: 'chnl1',
+                search: 'channel-1',
+                searchScope: 'channel',
+                searchOffsetMinutes: -120,
             }
         );
     });

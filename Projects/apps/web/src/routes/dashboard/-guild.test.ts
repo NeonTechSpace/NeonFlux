@@ -559,8 +559,9 @@ describe('/dashboard/$guildId', () => {
         const sidebarColorInput = currentView.getByLabelText<HTMLInputElement>('Sidebar color');
 
         expect(sidebarColorInput.type).toBe('color');
+        expect(currentView.queryByRole('checkbox', { name: 'Include sidebar color' })).toBeNull();
 
-        fireEvent.click(currentView.getByRole('checkbox', { name: 'Include sidebar color' }));
+        fireEvent.change(sidebarColorInput, { target: { value: '#ff00aa' } });
         fireEvent.change(currentView.getByLabelText('Author name'), { target: { value: 'NeonFlux' } });
         fireEvent.change(currentView.getByLabelText('Author icon URL'), {
             target: { value: 'https://example.com/author.png' },
@@ -596,7 +597,7 @@ describe('/dashboard/$guildId', () => {
                     content: 'hello',
                     embeds: [
                         {
-                            color: 65493,
+                            color: 16711850,
                             author: {
                                 name: 'NeonFlux',
                                 icon_url: 'https://example.com/author.png',
@@ -622,6 +623,31 @@ describe('/dashboard/$guildId', () => {
             })
         );
         expect(await currentView.findByText('Message sent to #release-notes.')).toBeTruthy();
+    });
+
+    it('updates builder embed color directly from the color picker', async () => {
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.change(currentView.getByLabelText('Title'), { target: { value: 'Color test' } });
+        fireEvent.change(currentView.getByLabelText('Sidebar color'), { target: { value: '#3366ff' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    embeds: [
+                        {
+                            color: 3368703,
+                            title: 'Color test',
+                        },
+                    ],
+                },
+            })
+        );
     });
 
     it('keeps content-only posting working with an empty builder', async () => {
@@ -722,7 +748,7 @@ describe('/dashboard/$guildId', () => {
         expect(preview.getByText('Preview footer')).toBeTruthy();
     });
 
-    it('renders and fuzzy-searches persisted dashboard audit events', async () => {
+    it('renders structured audit events and searches within the selected field', async () => {
         vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
             type: 'events',
             auditEvents: [
@@ -731,6 +757,8 @@ describe('/dashboard/$guildId', () => {
                     feature: 'posting',
                     action: 'message.sent',
                     actorUserId: 'actor-1',
+                    actorUsername: 'neonsy',
+                    actorDisplayName: 'Neonsy',
                     targetId: 'message-1',
                     metadata: {
                         channelId: 'channel-1',
@@ -762,6 +790,28 @@ describe('/dashboard/$guildId', () => {
                     feature: 'posting',
                     action: 'message.sent',
                     actorUserId: 'actor-1',
+                    actorUsername: 'neonsy',
+                    targetId: 'message-1',
+                    metadata: {
+                        channelId: 'channel-1',
+                        messageId: 'message-1',
+                        contentLength: 5,
+                        embedCount: 0,
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+        });
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    actorUserId: 'actor-1',
+                    actorUsername: 'neonsy',
                     targetId: 'message-1',
                     metadata: {
                         channelId: 'channel-1',
@@ -777,30 +827,33 @@ describe('/dashboard/$guildId', () => {
 
         renderGuildPage(createGuildRouteData(), 'audit');
 
-        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
-        expect(screen.getByText('settings: prefix.updated')).toBeTruthy();
+        expect(await screen.findByText('message.sent')).toBeTruthy();
+        expect(screen.getByText('prefix.updated')).toBeTruthy();
         expect(screen.getByText('Loaded 2 events.')).toBeTruthy();
-        expect(screen.getByText('Actor: actor-1')).toBeTruthy();
-        expect(
-            screen.getByText(
-                'Channel: channel-1 | Message: message-1 | Content length: 5 | Embeds: 0 | Source: dashboard'
-            )
-        ).toBeTruthy();
+        expect(screen.getByText('#general')).toBeTruthy();
+        expect(screen.getByText('channel-1')).toBeTruthy();
+        expect(screen.getByText('message-1')).toBeTruthy();
+        expect(screen.getByText('@neonsy')).toBeTruthy();
+        expect(screen.getByText('actor-1')).toBeTruthy();
+        expect(screen.getByText('Content length')).toBeTruthy();
 
-        fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'chnl1' } });
+        fireEvent.change(screen.getByLabelText('Search in'), { target: { value: 'channel' } });
+        fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'channel-1' } });
 
         await waitFor(() =>
             expect(readDashboardAuditEventsRouteData).toHaveBeenCalledWith({
                 data: {
                     guildId: 'guild-1',
                     limit: 40,
-                    search: 'chnl1',
+                    search: 'channel-1',
+                    searchScope: 'channel',
+                    searchOffsetMinutes: expect.any(Number),
                 },
             })
         );
-        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
-        expect(screen.queryByText('settings: prefix.updated')).toBeNull();
-        expect(screen.getByText('Loaded 1 matching events.')).toBeTruthy();
+        expect(await screen.findByText('message.sent')).toBeTruthy();
+        expect(screen.queryByText('prefix.updated')).toBeNull();
+        expect(screen.getByText('Loaded 1 matching channel events.')).toBeTruthy();
     });
 
     it('loads older persisted dashboard audit events from the next cursor', async () => {
@@ -844,17 +897,19 @@ describe('/dashboard/$guildId', () => {
 
         renderGuildPage(createGuildRouteData(), 'audit');
 
-        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
+        expect(await screen.findByText('message.sent')).toBeTruthy();
         await waitFor(() =>
             expect(readDashboardAuditEventsRouteData).toHaveBeenCalledWith({
                 data: {
                     guildId: 'guild-1',
                     cursor: 'cursor-1',
                     limit: 40,
+                    searchScope: 'all',
+                    searchOffsetMinutes: expect.any(Number),
                 },
             })
         );
-        expect(await screen.findByText('settings: prefix.updated')).toBeTruthy();
+        expect(await screen.findByText('prefix.updated')).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', async () => {

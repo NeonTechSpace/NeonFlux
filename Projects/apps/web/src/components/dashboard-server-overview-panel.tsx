@@ -98,7 +98,7 @@ function OverviewSummary({ overview }: { overview: DashboardGuildOverview }) {
             </div>
             <dl className='grid divide-y divide-neutral-800 md:grid-cols-2 md:divide-x md:divide-y-0'>
                 <SummaryMetric
-                    label='Net growth'
+                    label='Member change'
                     value={formatSignedNumber(overview.memberFlow.netGrowth)}
                     detail={`${overview.memberFlow.totalJoins} joins / ${overview.memberFlow.totalLeaves} leaves`}
                 />
@@ -132,11 +132,11 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
     return (
         <ChartPanel
             title='Member flow'
-            detail={`Net ${formatSignedNumber(overview.memberFlow.netGrowth)} across ${overview.memberFlow.totalJoins} joins and ${overview.memberFlow.totalLeaves} leaves.`}
+            detail={`Overall change ${formatSignedNumber(overview.memberFlow.netGrowth)} from ${overview.memberFlow.totalJoins} joins and ${overview.memberFlow.totalLeaves} leaves.`}
             legendItems={[
                 { label: 'Joins', className: 'bg-emerald-400' },
                 { label: 'Leaves', className: 'bg-rose-400' },
-                { label: 'Net', className: 'bg-sky-400' },
+                { label: 'Overall change', className: 'bg-sky-400' },
             ]}
             empty={!overview.dataHealth.hasMemberFlow}
             emptyText='No member flow recorded yet. The chart stays on the baseline until join or leave events arrive.'>
@@ -188,7 +188,7 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                     <Line
                         type='monotone'
                         dataKey='netGrowth'
-                        name='Net'
+                        name='Overall change'
                         stroke='rgb(56 189 248)'
                         strokeWidth={2}
                         dot={false}

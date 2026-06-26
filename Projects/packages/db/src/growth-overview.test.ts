@@ -188,19 +188,15 @@ describe('growth overview repositories', () => {
             activityDate: '2026-06-26',
             messageCount: 2,
         });
-        expect(aggregate.messages).toStrictEqual({
-            totalMessages: 3,
-            graph: expect.arrayContaining([
-                {
-                    date: '2026-06-26',
-                    messageCount: 3,
-                },
-            ]),
-            topChannels: [
-                { channelId: 'channel-1', messageCount: 2 },
-                { channelId: 'channel-2', messageCount: 1 },
-            ],
+        expect(aggregate.messages.totalMessages).toBe(3);
+        expect(aggregate.messages.graph).toContainEqual({
+            date: '2026-06-26',
+            messageCount: 3,
         });
+        expect(aggregate.messages.topChannels).toStrictEqual([
+            { channelId: 'channel-1', messageCount: 2 },
+            { channelId: 'channel-2', messageCount: 1 },
+        ]);
         expect(aggregate.dataHealth.hasMessageActivity).toBe(true);
     });
 

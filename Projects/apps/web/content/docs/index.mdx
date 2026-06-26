@@ -25,7 +25,9 @@ The bot can run in two modes:
 | Single instance | One configured community.                   |
 | Multi instance  | One bot handles many installed communities. |
 
-The dashboard uses Fluxer OAuth. Users only see communities they can manage, and server code re-checks access before meaningful changes. The selected-community overview shows tracked growth and message-activity charts after the bot starts collecting events. Invite attribution lives in the Invite Tracking category.
+The dashboard uses Fluxer OAuth. Users only see communities they can manage, and server code re-checks access before meaningful changes. The selected-community overview shows tracked growth and message-activity charts after the bot starts collecting events. Invite attribution lives in the Invite Tracking category. Audit Events supports field-scoped search and scroll-loaded history.
+
+The Messaging category can send plain text and Fluxer embed payloads. Builder mode applies the sidebar color directly from the color picker; Advanced JSON remains available for custom embed arrays.
 
 ## Dashboard routes
 
@@ -47,7 +49,6 @@ Open `/dashboard` to choose a community. A specific community is managed at `/da
 - Import and export roles, channels, categories, emojis, and permissions
 - Invite tracker
 - Logging
-- Message and embed posting
 - Moderation
 - Profile and about-me embed builder
 - Reaction roles
