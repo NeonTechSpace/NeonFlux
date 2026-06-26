@@ -62,6 +62,10 @@ export type GuildOverviewAggregate = {
     };
     messages: {
         totalMessages: number;
+        graph: Array<{
+            date: string;
+            messageCount: number;
+        }>;
         topChannels: Array<{
             channelId: string;
             messageCount: number;
@@ -367,6 +371,7 @@ function toGuildOverviewAggregate({
     now: Date;
 }): GuildOverviewAggregate {
     const graph = createMemberFlowGraph(memberEvents, days, now);
+    const messageGraph = createMessageActivityGraph(messageActivityDays, days, now);
     const totalJoins = memberEvents.filter((event) => event.eventType === 'join').length;
     const totalLeaves = memberEvents.filter((event) => event.eventType === 'leave').length;
     const activeInviteSnapshots = inviteSnapshots.filter((invite) => invite.active);
@@ -388,6 +393,7 @@ function toGuildOverviewAggregate({
         },
         messages: {
             totalMessages: messageActivityDays.reduce((total, day) => total + day.messageCount, 0),
+            graph: messageGraph,
             topChannels: createTopChannels(messageActivityDays),
         },
         dataHealth: {
@@ -396,6 +402,32 @@ function toGuildOverviewAggregate({
             hasMessageActivity: messageActivityDays.length > 0,
         },
     };
+}
+
+function createMessageActivityGraph(
+    messageActivityDays: GuildMessageActivityDayRecord[],
+    days: number,
+    now: Date
+): GuildOverviewAggregate['messages']['graph'] {
+    const messageCountsByDate = new Map<string, number>();
+
+    for (const activityDay of messageActivityDays) {
+        messageCountsByDate.set(
+            activityDay.activityDate,
+            (messageCountsByDate.get(activityDay.activityDate) ?? 0) + activityDay.messageCount
+        );
+    }
+
+    return Array.from({ length: days }, (_, index) => {
+        const offset = days - 1 - index;
+        const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset));
+        const date = formatUtcDate(day);
+
+        return {
+            date,
+            messageCount: messageCountsByDate.get(date) ?? 0,
+        };
+    });
 }
 
 function createMemberFlowGraph(

@@ -1,6 +1,6 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { listAllBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
-    loadDashboardGuildAuditEvents,
+    loadDashboardGuildAuditEventsPage,
     loadDashboardGuildPostingChannels,
     postDashboardGuildMessage,
 } from './dashboard-posting.server.js';
@@ -55,7 +55,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
-        listAllBotActionEventsByGuildId: vi.fn(),
+        listBotActionEventPageByGuildId: vi.fn(),
         recordBotActionEvent: vi.fn(),
         recordPostedMessage: vi.fn(),
     };
@@ -100,7 +100,11 @@ describe('dashboard posting', () => {
         );
         vi.mocked(recordPostedMessage).mockResolvedValue(ok(createPostedMessageRecord()));
         vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createBotActionEventRecord()));
-        vi.mocked(listAllBotActionEventsByGuildId).mockResolvedValue(ok([createBotActionEventRecord()]));
+        vi.mocked(listBotActionEventPageByGuildId).mockResolvedValue(
+            ok({
+                records: [createBotActionEventRecord()],
+            })
+        );
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
             ok({
                 guildId: 'guild-1',
@@ -312,7 +316,7 @@ describe('dashboard posting', () => {
             },
         });
 
-        const result = await loadDashboardGuildAuditEvents(request, 'requested-guild');
+        const result = await loadDashboardGuildAuditEventsPage(request, { guildId: 'requested-guild' });
 
         expect(result).toStrictEqual({
             type: 'events',
@@ -334,10 +338,64 @@ describe('dashboard posting', () => {
                 },
             ],
         });
-        expect(listAllBotActionEventsByGuildId).toHaveBeenCalledWith(
+        expect(listBotActionEventPageByGuildId).toHaveBeenCalledWith(
             {},
             {
                 guildId: 'authorized-guild',
+                limit: 40,
+            }
+        );
+    });
+
+    it('loads the next audit event page with cursor, search, and a bounded limit', async () => {
+        vi.mocked(listBotActionEventPageByGuildId).mockResolvedValueOnce(
+            ok({
+                records: [createBotActionEventRecord()],
+                nextCursor: {
+                    createdAt: new Date('2026-06-25T00:00:00.000Z'),
+                    id: 'event-cursor',
+                },
+            })
+        );
+
+        const result = await loadDashboardGuildAuditEventsPage(request, {
+            guildId: 'guild-1',
+            cursor: '2026-06-26T00:00:00.000Z|event-1',
+            search: 'chnl1',
+            limit: 25,
+        });
+
+        expect(result).toStrictEqual({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    actorUserId: 'actor-1',
+                    targetId: 'message-1',
+                    metadata: {
+                        channelId: 'channel-1',
+                        messageId: 'message-1',
+                        contentLength: 5,
+                        embedCount: 0,
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+            nextCursor: '2026-06-25T00:00:00.000Z|event-cursor',
+        });
+        expect(listBotActionEventPageByGuildId).toHaveBeenCalledWith(
+            {},
+            {
+                guildId: 'guild-1',
+                cursor: {
+                    createdAt: new Date('2026-06-26T00:00:00.000Z'),
+                    id: 'event-1',
+                },
+                limit: 25,
+                search: 'chnl1',
             }
         );
     });

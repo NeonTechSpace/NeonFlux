@@ -1,18 +1,27 @@
-import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getDashboardAuditEventsQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardAuditEventsRouteData } from '../server/dashboard-guild-route-data.js';
 import type { DashboardAuditEvent } from '../server/dashboard-posting.server.js';
 
+const auditPageSize = 40;
+const auditVirtualOverscan = 8;
+
 export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
     const [search, setSearch] = useState('');
-    const auditEventsQuery = useQuery({
-        queryKey: getDashboardAuditEventsQueryKey(guildId),
-        queryFn: async () => {
+    const deferredSearch = useDeferredValue(search.trim());
+    const auditEventsQuery = useInfiniteQuery({
+        queryKey: getDashboardAuditEventsQueryKey(guildId, deferredSearch),
+        initialPageParam: undefined as string | undefined,
+        queryFn: async ({ pageParam }) => {
             const result = await readDashboardAuditEventsRouteData({
                 data: {
                     guildId,
+                    limit: auditPageSize,
+                    ...(pageParam ? { cursor: pageParam } : {}),
+                    ...(deferredSearch ? { search: deferredSearch } : {}),
                 },
             });
 
@@ -20,11 +29,14 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 throw new Error('Could not load audit events.');
             }
 
-            return result.auditEvents;
+            return result;
         },
+        getNextPageParam: (lastPage) => lastPage.nextCursor,
     });
-    const auditEvents = auditEventsQuery.data;
-    const filteredAuditEvents = useMemo(() => filterAuditEvents(auditEvents, search), [auditEvents, search]);
+    const auditEvents = useMemo(
+        () => auditEventsQuery.data?.pages.flatMap((page) => page.auditEvents) ?? [],
+        [auditEventsQuery.data]
+    );
 
     return (
         <article
@@ -37,7 +49,7 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                         Search persisted dashboard and bot-app changes for this server.
                     </p>
                 </div>
-                {auditEventsQuery.isFetching ? (
+                {auditEventsQuery.isFetching && !auditEventsQuery.isFetchingNextPage ? (
                     <span className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-300'>
                         Loading
                     </span>
@@ -56,11 +68,13 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
             </label>
 
             <AuditEventsBody
-                events={filteredAuditEvents}
-                totalEventCount={auditEvents?.length ?? 0}
-                search={search}
+                events={auditEvents}
+                search={deferredSearch}
+                hasNextPage={auditEventsQuery.hasNextPage}
                 isLoading={auditEventsQuery.isPending}
+                isFetchingNextPage={auditEventsQuery.isFetchingNextPage}
                 isError={auditEventsQuery.isError}
+                fetchNextPage={auditEventsQuery.fetchNextPage}
             />
         </article>
     );
@@ -68,17 +82,59 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
 
 function AuditEventsBody({
     events,
-    totalEventCount,
     search,
+    hasNextPage,
     isLoading,
+    isFetchingNextPage,
     isError,
+    fetchNextPage,
 }: {
     events: DashboardAuditEvent[];
-    totalEventCount: number;
     search: string;
+    hasNextPage: boolean;
     isLoading: boolean;
+    isFetchingNextPage: boolean;
     isError: boolean;
+    fetchNextPage: () => Promise<unknown>;
 }) {
+    const scrollParentRef = useRef<HTMLDivElement | null>(null);
+    const rowCount = events.length + (hasNextPage ? 1 : 0);
+    // TanStack Virtual intentionally returns imperative measurement functions.
+    // eslint-disable-next-line react-hooks/incompatible-library
+    const rowVirtualizer = useVirtualizer({
+        count: rowCount,
+        getScrollElement: () => scrollParentRef.current,
+        estimateSize: () => 96,
+        overscan: auditVirtualOverscan,
+        initialRect: {
+            width: 960,
+            height: 520,
+        },
+    });
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    const renderedVirtualItems =
+        virtualItems.length > 0
+            ? virtualItems
+            : Array.from({ length: Math.min(rowCount, auditPageSize) }, (_, index) => ({
+                  key: index,
+                  index,
+                  start: index * 96,
+              }));
+    const lastVirtualIndex = renderedVirtualItems.at(-1)?.index;
+
+    useEffect(() => {
+        if (
+            lastVirtualIndex === undefined ||
+            !hasNextPage ||
+            isFetchingNextPage ||
+            lastVirtualIndex < Math.max(events.length - 4, 0)
+        ) {
+            return;
+        }
+
+        void fetchNextPage();
+    }, [events.length, fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex]);
+
     if (isLoading) {
         return (
             <div className='mt-4 space-y-3' aria-label='Loading audit events'>
@@ -89,79 +145,99 @@ function AuditEventsBody({
         );
     }
 
-    if (isError) {
+    if (isError && events.length === 0) {
         return <p className='mt-4 text-sm text-rose-300'>Could not load audit events.</p>;
     }
 
     if (events.length === 0) {
-        if (totalEventCount > 0 && search.trim()) {
-            return <p className='mt-4 text-sm leading-6 text-neutral-400'>No matching audit events.</p>;
-        }
-
-        return <p className='mt-4 text-sm leading-6 text-neutral-400'>No audit events yet.</p>;
+        return (
+            <p className='mt-4 text-sm leading-6 text-neutral-400'>
+                {search ? 'No matching audit events.' : 'No audit events yet.'}
+            </p>
+        );
     }
 
     return (
         <>
             <p className='mt-4 text-xs text-neutral-500'>
-                Showing {events.length} of {totalEventCount} events.
+                Loaded {events.length} {search ? 'matching ' : ''}events
+                {hasNextPage ? '. Scroll to load older events.' : '.'}
             </p>
-            <ul className='mt-2 divide-y divide-neutral-800'>
-                {events.map((event) => (
-                    <li key={event.id} className='py-3 first:pt-0 last:pb-0'>
-                        <div className='flex flex-wrap items-start justify-between gap-2'>
-                            <div>
-                                <p className='text-sm font-semibold text-white'>
-                                    {event.feature}: {event.action}
-                                </p>
-                                <p className='mt-1 text-xs text-neutral-500'>
-                                    {formatAuditEventMetadata(event.metadata)}
-                                </p>
+            <div
+                ref={scrollParentRef}
+                className='mt-2 h-[34rem] overflow-auto rounded-md border border-neutral-800 bg-neutral-950/60'
+                aria-label='Dashboard audit events'
+                role='list'>
+                <div
+                    className='relative w-full'
+                    style={{ height: `${Math.max(rowVirtualizer.getTotalSize(), rowCount * 96)}px` }}>
+                    {renderedVirtualItems.map((virtualItem) => {
+                        const event = virtualItem.index < events.length ? events[virtualItem.index] : undefined;
+
+                        return (
+                            <div
+                                key={virtualItem.key}
+                                data-index={virtualItem.index}
+                                ref={rowVirtualizer.measureElement}
+                                className='absolute top-0 left-0 w-full'
+                                style={{ transform: `translateY(${String(virtualItem.start)}px)` }}>
+                                {event ? (
+                                    <AuditEventRow event={event} />
+                                ) : (
+                                    <AuditEventsLoadMoreRow
+                                        isFetchingNextPage={isFetchingNextPage}
+                                        fetchNextPage={fetchNextPage}
+                                    />
+                                )}
                             </div>
-                            <time dateTime={event.createdAt} className='text-xs text-neutral-500'>
-                                {formatAuditEventTimestamp(event.createdAt)}
-                            </time>
-                        </div>
-                        {event.actorUserId ? (
-                            <p className='mt-2 text-xs text-neutral-500'>Actor: {event.actorUserId}</p>
-                        ) : null}
-                    </li>
-                ))}
-            </ul>
+                        );
+                    })}
+                </div>
+            </div>
+            {isError ? <p className='mt-3 text-xs text-rose-300'>Could not load more audit events.</p> : null}
         </>
     );
 }
 
-function filterAuditEvents(events: DashboardAuditEvent[] | undefined, query: string): DashboardAuditEvent[] {
-    if (!events) {
-        return [];
-    }
-
-    const normalizedQuery = normalizeAuditSearchText(query);
-
-    if (!normalizedQuery) {
-        return events;
-    }
-
-    const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-
-    return events.filter((event) => {
-        const eventText = normalizeAuditSearchText(getAuditEventSearchText(event));
-
-        return tokens.every((token) => eventText.includes(token) || isSubsequence(token, eventText));
-    });
+function AuditEventRow({ event }: { event: DashboardAuditEvent }) {
+    return (
+        <div className='border-b border-neutral-800 px-4 py-3 last:border-b-0' role='listitem'>
+            <div className='flex flex-wrap items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                    <p className='truncate text-sm font-semibold text-white'>
+                        {event.feature}: {event.action}
+                    </p>
+                    <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                        {formatAuditEventMetadata(event.metadata)}
+                    </p>
+                </div>
+                <time dateTime={event.createdAt} className='shrink-0 text-xs text-neutral-500'>
+                    {formatAuditEventTimestamp(event.createdAt)}
+                </time>
+            </div>
+            {event.actorUserId ? <p className='mt-2 text-xs text-neutral-500'>Actor: {event.actorUserId}</p> : null}
+        </div>
+    );
 }
 
-function getAuditEventSearchText(event: DashboardAuditEvent): string {
-    return [
-        event.feature,
-        event.action,
-        event.actorUserId ?? '',
-        event.targetId ?? '',
-        event.createdAt,
-        formatAuditEventTimestamp(event.createdAt),
-        ...Object.entries(event.metadata).flatMap(([key, value]) => [key, String(value)]),
-    ].join(' ');
+function AuditEventsLoadMoreRow({
+    isFetchingNextPage,
+    fetchNextPage,
+}: {
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => Promise<unknown>;
+}) {
+    return (
+        <div className='px-4 py-3' role='listitem'>
+            <button
+                type='button'
+                disabled={isFetchingNextPage}
+                onClick={() => void fetchNextPage()}
+                className='min-h-10 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-60'>
+                {isFetchingNextPage ? 'Loading older events...' : 'Load older events'}
+            </button>
+        </div>
+    );
 }
 
 function formatAuditEventMetadata(metadata: Record<string, unknown>): string {
@@ -182,33 +258,10 @@ function formatMetadataValue(label: string, value: unknown): string | undefined 
     }
 
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return `${label}: ${value}`;
+        return `${label}: ${String(value)}`;
     }
 
     return undefined;
-}
-
-function normalizeAuditSearchText(value: string): string {
-    return value
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ');
-}
-
-function isSubsequence(needle: string, haystack: string): boolean {
-    let needleIndex = 0;
-
-    for (const character of haystack) {
-        if (character === needle[needleIndex]) {
-            needleIndex += 1;
-        }
-
-        if (needleIndex === needle.length) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 function formatAuditEventTimestamp(value: string): string {

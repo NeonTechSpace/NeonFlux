@@ -27,6 +27,7 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/invites'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/audit'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events'");
         expect(routeTree).toContain("fullPath: '/dashboard/'");

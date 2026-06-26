@@ -11,7 +11,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { upsertAutoroleRule, listAutoroleRulesByGuildId } from './autorole.js';
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
 import { createModerationCase, updateModerationCaseStatus } from './moderation.js';
-import { listAllBotActionEventsByGuildId, recordBotActionEvent, listBotActionEventsByGuildId } from './logging.js';
+import {
+    listAllBotActionEventsByGuildId,
+    listBotActionEventPageByGuildId,
+    listBotActionEventsByGuildId,
+    recordBotActionEvent,
+} from './logging.js';
 import { recordPostedMessage } from './posting.js';
 import { createStructureImportRun, updateStructureImportRunStatus } from './structure-import-export.js';
 import { upsertGuild } from './guilds.js';
@@ -223,6 +228,66 @@ describe('feature foundation repositories', () => {
         expect(events).toHaveLength(30);
         expect(events.map((event) => event.targetId)).toContain('message-0');
         expect(events.map((event) => event.targetId)).toContain('message-29');
+    });
+
+    it('pages persisted guild dashboard audit events and searches fuzzy text', async () => {
+        for (let index = 0; index < 8; index += 1) {
+            await expectOk(
+                recordBotActionEvent(getDb(), {
+                    guildId: 'guild-1',
+                    feature: index % 2 === 0 ? 'posting' : 'settings',
+                    action: index % 2 === 0 ? 'message.sent' : 'prefix.updated',
+                    actorUserId: `actor-${String(index)}`,
+                    targetId: index % 2 === 0 ? `channel-${String(index)}` : `prefix-${String(index)}`,
+                    metadata:
+                        index % 2 === 0
+                            ? {
+                                  channelId: `channel-${String(index)}`,
+                                  source: 'dashboard',
+                              }
+                            : {
+                                  source: 'dashboard',
+                              },
+                })
+            );
+        }
+
+        const firstPage = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                limit: 3,
+            })
+        );
+
+        expect(firstPage.records).toHaveLength(3);
+        expect(firstPage.nextCursor).toBeTruthy();
+
+        if (!firstPage.nextCursor) {
+            throw new Error('Expected first audit page to include a cursor.');
+        }
+
+        const secondPage = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                cursor: firstPage.nextCursor,
+                limit: 3,
+            })
+        );
+        const firstPageIds = new Set(firstPage.records.map((event) => event.id));
+
+        expect(secondPage.records).toHaveLength(3);
+        expect(secondPage.records.every((event) => !firstPageIds.has(event.id))).toBe(true);
+
+        const fuzzyMatches = await expectOk(
+            listBotActionEventPageByGuildId(getDb(), {
+                guildId: 'guild-1',
+                search: 'chnl0 actor0',
+                limit: 10,
+            })
+        );
+
+        expect(fuzzyMatches.records).toHaveLength(1);
+        expect(fuzzyMatches.records.every((event) => event.feature === 'posting')).toBe(true);
     });
 
     it('requires dry-run confirmation before structure import apply state', async () => {

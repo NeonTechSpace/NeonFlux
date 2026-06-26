@@ -13,6 +13,7 @@ import {
     DashboardGuildAccessCategory,
     DashboardGuildAuditCategory,
     DashboardGuildGeneralCategory,
+    DashboardGuildInviteTrackingCategory,
     DashboardGuildMessagingCategory,
     DashboardGuildOverviewCategory,
     DashboardGuildPageContent,
@@ -173,10 +174,19 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
-        expect(await screen.findByText('Tracking window')).toBeTruthy();
-        expect(screen.getByText('Member flow')).toBeTruthy();
-        expect(screen.getByText('Active invites')).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Join and leave graph' })).toBeTruthy();
+        expect(await screen.findByText('Last 30 days')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Member flow' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Message activity' })).toBeTruthy();
+        expect(
+            screen.getByText(
+                'No member flow recorded yet. The chart stays on the baseline until join or leave events arrive.'
+            )
+        ).toBeTruthy();
+        expect(
+            screen.getByText('No messages counted yet. The chart stays flat until new non-bot messages are tracked.')
+        ).toBeTruthy();
+        expect(screen.queryByText('Data health')).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Top inviters' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Audit events' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Instance mode' })).toBeNull();
         expect(screen.queryByText('This bot can manage multiple servers.')).toBeNull();
@@ -185,6 +195,9 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Messaging' }).getAttribute('href')).toBe(
             '/dashboard/guild-1/messaging'
         );
+        expect(screen.getByRole('link', { name: 'Invite Tracking' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/invites'
+        );
         expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('href')).toBe(
             '/dashboard/guild-1/audit'
         );
@@ -192,7 +205,7 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
     });
 
-    it('renders populated overview metrics, graph data, and grouped top inviters', async () => {
+    it('renders populated overview metrics and graph data without invite tracker details', async () => {
         vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValueOnce({
             type: 'overview',
             overview: createDashboardOverview({
@@ -234,6 +247,10 @@ describe('/dashboard/$guildId', () => {
                 },
                 messages: {
                     totalMessages: 12,
+                    graph: [
+                        { date: '2026-06-25', messageCount: 4 },
+                        { date: '2026-06-26', messageCount: 8 },
+                    ],
                     topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
                 },
                 dataHealth: {
@@ -247,13 +264,62 @@ describe('/dashboard/$guildId', () => {
         renderGuildPage();
 
         expect(await screen.findByText('+2')).toBeTruthy();
-        expect(screen.getByText('3 joins, 1 leaves recorded.')).toBeTruthy();
-        expect(screen.getByText('16 total uses across active tracked invites.')).toBeTruthy();
-        expect(screen.getByText('Top channel channel-1 with 12 messages.')).toBeTruthy();
+        expect(screen.getByText('3 joins / 1 leaves')).toBeTruthy();
+        expect(screen.getByText('12 in the busiest tracked channel')).toBeTruthy();
+        expect(screen.queryByText('16 tracked uses')).toBeNull();
+        expect(screen.queryByText('alpha · 5 uses')).toBeNull();
+        expect(screen.queryByRole('region', { name: 'Top inviters' })).toBeNull();
+    });
+
+    it('renders the routed invite tracking category with grouped top inviters', async () => {
+        vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValueOnce({
+            type: 'overview',
+            overview: createDashboardOverview({
+                invites: {
+                    activeInviteCount: 3,
+                    totalInviteUses: 16,
+                    attribution: {
+                        attributed: 3,
+                        baselineMissing: 0,
+                        ambiguous: 0,
+                        unavailable: 1,
+                        notApplicable: 1,
+                    },
+                    topInviters: [
+                        {
+                            inviterUserId: 'inviter-1',
+                            attributedJoins: 3,
+                            inviteCodes: [
+                                { code: 'alpha', uses: 5, active: true },
+                                { code: 'beta', uses: 3, active: true },
+                            ],
+                        },
+                        {
+                            inviterUserId: 'inviter-2',
+                            attributedJoins: 1,
+                            inviteCodes: [{ code: 'gamma', uses: 8, active: true }],
+                        },
+                    ],
+                },
+                dataHealth: {
+                    hasMemberFlow: false,
+                    hasInviteSnapshots: true,
+                    hasMessageActivity: false,
+                },
+            }),
+        });
+
+        renderGuildPage(createGuildRouteData(), 'invites');
+
+        expect(await screen.findByRole('region', { name: 'Invite Tracking' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Top inviters' })).toBeTruthy();
+        expect(screen.getByText('Active invites')).toBeTruthy();
+        expect(screen.getByText('16 tracked uses')).toBeTruthy();
         expect(screen.getByText('alpha · 5 uses')).toBeTruthy();
         expect(screen.getByText('beta · 3 uses')).toBeTruthy();
         expect(screen.getByText('gamma · 8 uses')).toBeTruthy();
         expect(screen.getByText('1 joins could not be attributed because invite data was unavailable.')).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Invite Tracking' }).getAttribute('aria-current')).toBe('page');
 
         const topInvitersPanel = screen.getByRole('region', { name: 'Top inviters' });
 
@@ -688,12 +754,32 @@ describe('/dashboard/$guildId', () => {
                 },
             ],
         });
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    actorUserId: 'actor-1',
+                    targetId: 'message-1',
+                    metadata: {
+                        channelId: 'channel-1',
+                        messageId: 'message-1',
+                        contentLength: 5,
+                        embedCount: 0,
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+        });
 
         renderGuildPage(createGuildRouteData(), 'audit');
 
         expect(await screen.findByText('posting: message.sent')).toBeTruthy();
         expect(screen.getByText('settings: prefix.updated')).toBeTruthy();
-        expect(screen.getByText('Showing 2 of 2 events.')).toBeTruthy();
+        expect(screen.getByText('Loaded 2 events.')).toBeTruthy();
         expect(screen.getByText('Actor: actor-1')).toBeTruthy();
         expect(
             screen.getByText(
@@ -703,9 +789,72 @@ describe('/dashboard/$guildId', () => {
 
         fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'chnl1' } });
 
-        expect(screen.getByText('posting: message.sent')).toBeTruthy();
+        await waitFor(() =>
+            expect(readDashboardAuditEventsRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    limit: 40,
+                    search: 'chnl1',
+                },
+            })
+        );
+        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
         expect(screen.queryByText('settings: prefix.updated')).toBeNull();
-        expect(screen.getByText('Showing 1 of 2 events.')).toBeTruthy();
+        expect(screen.getByText('Loaded 1 matching events.')).toBeTruthy();
+    });
+
+    it('loads older persisted dashboard audit events from the next cursor', async () => {
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    actorUserId: 'actor-1',
+                    targetId: 'message-1',
+                    metadata: {
+                        channelId: 'channel-1',
+                        messageId: 'message-1',
+                        contentLength: 5,
+                        embedCount: 0,
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+            nextCursor: 'cursor-1',
+        });
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-2',
+                    feature: 'settings',
+                    action: 'prefix.updated',
+                    actorUserId: 'actor-2',
+                    targetId: 'prefix',
+                    metadata: {
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-25T00:00:00.000Z',
+                },
+            ],
+        });
+
+        renderGuildPage(createGuildRouteData(), 'audit');
+
+        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
+        await waitFor(() =>
+            expect(readDashboardAuditEventsRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    cursor: 'cursor-1',
+                    limit: 40,
+                },
+            })
+        );
+        expect(await screen.findByText('settings: prefix.updated')).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', async () => {
@@ -783,6 +932,10 @@ function renderWithRouter(ui: ReactNode): RouterTestRender {
         getParentRoute: () => dashboardGuildRoute,
         path: 'messaging',
     });
+    const dashboardGuildInvitesRoute = createRoute({
+        getParentRoute: () => dashboardGuildRoute,
+        path: 'invites',
+    });
     const dashboardGuildAccessRoute = createRoute({
         getParentRoute: () => dashboardGuildRoute,
         path: 'access',
@@ -814,6 +967,7 @@ function renderWithRouter(ui: ReactNode): RouterTestRender {
                     dashboardGuildIndexRoute,
                     dashboardGuildGeneralRoute,
                     dashboardGuildMessagingRoute,
+                    dashboardGuildInvitesRoute,
                     dashboardGuildAccessRoute,
                     dashboardGuildModerationRoute,
                     dashboardGuildLoggingRoute,
@@ -862,6 +1016,9 @@ function createDashboardCategoryElement(categoryId: DashboardCategoryId): ReactN
 
         case 'messaging':
             return createElement(DashboardGuildMessagingCategory);
+
+        case 'invites':
+            return createElement(DashboardGuildInviteTrackingCategory);
 
         case 'access':
             return createElement(DashboardGuildAccessCategory);
@@ -953,6 +1110,7 @@ function createDashboardOverview(overrides: Partial<DashboardOverviewTestData> =
         },
         messages: {
             totalMessages: 0,
+            graph: [{ date: '2026-06-26', messageCount: 0 }],
             topChannels: [],
         },
         dataHealth: {

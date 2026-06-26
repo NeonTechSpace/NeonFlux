@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { getDashboardOverviewQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildOverviewRouteData } from '../server/dashboard-guild-route-data.js';
 import type { DashboardGuildOverview } from '../server/dashboard-overview.server.js';
 
-type InviterSortMode = 'joins' | 'uses' | 'user';
+type MemberFlowChartDay = DashboardGuildOverview['memberFlow']['graph'][number] & {
+    leaveLoss: number;
+};
 
 export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
-    const [inviterSortMode, setInviterSortMode] = useState<InviterSortMode>('joins');
     const overviewQuery = useQuery({
         queryKey: getDashboardOverviewQueryKey(guildId),
         queryFn: async () => {
@@ -26,10 +28,6 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
         },
     });
     const overview = overviewQuery.data;
-    const sortedInviters = useMemo(
-        () => sortInviters(overview?.invites.topInviters ?? [], inviterSortMode),
-        [overview?.invites.topInviters, inviterSortMode]
-    );
 
     if (overviewQuery.isPending) {
         return <DashboardServerOverviewLoading />;
@@ -45,291 +43,317 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
     }
 
     return (
-        <div className='space-y-4'>
-            <OverviewCards overview={overview} />
-            <MemberFlowGraph overview={overview} />
-            <TopInvitersPanel
-                overview={overview}
-                sortedInviters={sortedInviters}
-                sortMode={inviterSortMode}
-                onSortModeChange={setInviterSortMode}
-            />
+        <div className='space-y-5'>
+            <OverviewSummary overview={overview} />
+            <div className='grid gap-4 xl:grid-cols-2'>
+                <MemberFlowChart overview={overview} />
+                <MessageActivityChart overview={overview} />
+            </div>
         </div>
     );
 }
 
 export function DashboardServerOverviewLoading() {
     return (
-        <section className='space-y-4' aria-label='Loading server overview'>
-            <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-                {Array.from({ length: 6 }, (_, index) => (
-                    <article key={index} className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                        <div className='h-4 w-28 animate-pulse rounded bg-neutral-800' />
-                        <div className='mt-4 h-7 w-20 animate-pulse rounded bg-neutral-800' />
-                        <div className='mt-3 h-4 w-40 animate-pulse rounded bg-neutral-800' />
-                    </article>
-                ))}
+        <section className='space-y-5' aria-label='Loading server overview'>
+            <div className='rounded-lg border border-neutral-800 bg-neutral-900/70 p-4'>
+                <div className='h-4 w-52 animate-pulse rounded bg-neutral-800' />
+                <div className='mt-5 grid gap-3 md:grid-cols-2'>
+                    {Array.from({ length: 2 }, (_, index) => (
+                        <div key={index} className='space-y-3 border-neutral-800 first:border-l-0 md:border-l md:pl-4'>
+                            <div className='h-3 w-24 animate-pulse rounded bg-neutral-800' />
+                            <div className='h-7 w-16 animate-pulse rounded bg-neutral-800' />
+                            <div className='h-3 w-32 animate-pulse rounded bg-neutral-800' />
+                        </div>
+                    ))}
+                </div>
             </div>
-            <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                <div className='h-4 w-36 animate-pulse rounded bg-neutral-800' />
-                <div className='mt-4 h-44 animate-pulse rounded bg-neutral-800' />
-            </article>
+            <div className='grid gap-4 xl:grid-cols-2'>
+                <div className='h-80 rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+                    <div className='h-4 w-36 animate-pulse rounded bg-neutral-800' />
+                    <div className='mt-5 h-60 animate-pulse rounded bg-neutral-800/70' />
+                </div>
+                <div className='h-80 rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+                    <div className='h-4 w-36 animate-pulse rounded bg-neutral-800' />
+                    <div className='mt-5 h-60 animate-pulse rounded bg-neutral-800/70' />
+                </div>
+            </div>
         </section>
     );
 }
 
-function OverviewCards({ overview }: { overview: DashboardGuildOverview }) {
-    const trackingStarted = overview.trackingStartedAt
-        ? `Tracking since ${formatDateTime(overview.trackingStartedAt)}.`
-        : 'Tracking starts after NeonFlux receives new server activity.';
-    const topInviter = overview.invites.topInviters.at(0);
-
+function OverviewSummary({ overview }: { overview: DashboardGuildOverview }) {
     return (
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-            <MetricCard
-                title='Tracking window'
-                value='30 days'
-                detail={trackingStarted}
-                isEmpty={!overview.trackingStartedAt}
-            />
-            <MetricCard
-                title='Member flow'
-                value={formatSignedNumber(overview.memberFlow.netGrowth)}
-                detail={`${overview.memberFlow.totalJoins} joins, ${overview.memberFlow.totalLeaves} leaves recorded.`}
-                isEmpty={!overview.dataHealth.hasMemberFlow}
-            />
-            <MetricCard
-                title='Active invites'
-                value={String(overview.invites.activeInviteCount)}
-                detail={`${overview.invites.totalInviteUses} total uses across active tracked invites.`}
-                isEmpty={!overview.dataHealth.hasInviteSnapshots}
-            />
-            <MetricCard
-                title='Top inviter'
-                value={topInviter ? topInviter.inviterUserId : 'None yet'}
-                detail={
-                    topInviter ? `${topInviter.attributedJoins} attributed joins.` : 'No attributed invite joins yet.'
-                }
-                isEmpty={!topInviter}
-            />
-            <MetricCard
-                title='Message activity'
-                value={String(overview.messages.totalMessages)}
-                detail={formatTopChannelDetail(overview)}
-                isEmpty={!overview.dataHealth.hasMessageActivity}
-            />
-            <MetricCard
-                title='Data health'
-                value={formatHealthScore(overview)}
-                detail={formatHealthDetail(overview)}
-                isEmpty={!hasAnyTrackingData(overview)}
-            />
+        <section className='rounded-lg border border-neutral-800 bg-neutral-900/70'>
+            <div className='flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3'>
+                <div>
+                    <p className='text-sm font-semibold text-white'>Last 30 days</p>
+                    <p className='mt-1 text-xs text-neutral-500'>{formatTrackingWindow(overview)}</p>
+                </div>
+                {overview.trackingStartedAt ? (
+                    <p className='text-xs text-neutral-500'>
+                        Tracking since {formatDateTime(overview.trackingStartedAt)}
+                    </p>
+                ) : null}
+            </div>
+            <dl className='grid divide-y divide-neutral-800 md:grid-cols-2 md:divide-x md:divide-y-0'>
+                <SummaryMetric
+                    label='Net growth'
+                    value={formatSignedNumber(overview.memberFlow.netGrowth)}
+                    detail={`${overview.memberFlow.totalJoins} joins / ${overview.memberFlow.totalLeaves} leaves`}
+                />
+                <SummaryMetric
+                    label='Messages'
+                    value={String(overview.messages.totalMessages)}
+                    detail={formatMessageSummary(overview)}
+                />
+            </dl>
+        </section>
+    );
+}
+
+function SummaryMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+    return (
+        <div className='min-w-0 p-4'>
+            <dt className='text-xs font-medium tracking-wide text-neutral-500 uppercase'>{label}</dt>
+            <dd className='mt-2 truncate text-2xl font-semibold text-white'>{value}</dd>
+            <dd className='mt-1 truncate text-sm text-neutral-400'>{detail}</dd>
         </div>
     );
 }
 
-function MetricCard({
+function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
+    const chartData = overview.memberFlow.graph.map((day) => ({
+        ...day,
+        leaveLoss: -day.leaves,
+    }));
+    const domain = getMemberFlowDomain(chartData);
+
+    return (
+        <ChartPanel
+            title='Member flow'
+            detail={`Net ${formatSignedNumber(overview.memberFlow.netGrowth)} across ${overview.memberFlow.totalJoins} joins and ${overview.memberFlow.totalLeaves} leaves.`}
+            legendItems={[
+                { label: 'Joins', className: 'bg-emerald-400' },
+                { label: 'Leaves', className: 'bg-rose-400' },
+                { label: 'Net', className: 'bg-sky-400' },
+            ]}
+            empty={!overview.dataHealth.hasMemberFlow}
+            emptyText='No member flow recorded yet. The chart stays on the baseline until join or leave events arrive.'>
+            <ResponsiveContainer width='100%' height='100%'>
+                <LineChart data={chartData} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
+                    <CartesianGrid stroke='rgb(38 38 38)' strokeDasharray='4 4' vertical={false} />
+                    <XAxis
+                        dataKey='date'
+                        minTickGap={24}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tickFormatter={formatChartDate}
+                    />
+                    <YAxis
+                        domain={domain}
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tickFormatter={(value) => String(Math.abs(Number(value)))}
+                    />
+                    <Tooltip
+                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
+                        contentStyle={chartTooltipStyle}
+                        labelStyle={chartTooltipLabelStyle}
+                        itemStyle={chartTooltipItemStyle}
+                        formatter={formatMemberFlowTooltipValue}
+                        labelFormatter={formatLongChartDate}
+                    />
+                    <Line
+                        type='monotone'
+                        dataKey='joins'
+                        name='Joins'
+                        stroke='rgb(52 211 153)'
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                    />
+                    <Line
+                        type='monotone'
+                        dataKey='leaveLoss'
+                        name='Leaves'
+                        stroke='rgb(251 113 133)'
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                    />
+                    <Line
+                        type='monotone'
+                        dataKey='netGrowth'
+                        name='Net'
+                        stroke='rgb(56 189 248)'
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                    />
+                </LineChart>
+            </ResponsiveContainer>
+        </ChartPanel>
+    );
+}
+
+function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }) {
+    const domain = getMessageActivityDomain(overview.messages.graph);
+
+    return (
+        <ChartPanel
+            title='Message activity'
+            detail={`${overview.messages.totalMessages} tracked messages across visible channel activity.`}
+            legendItems={[{ label: 'Messages', className: 'bg-sky-400' }]}
+            empty={!overview.dataHealth.hasMessageActivity}
+            emptyText='No messages counted yet. The chart stays flat until new non-bot messages are tracked.'>
+            <ResponsiveContainer width='100%' height='100%'>
+                <AreaChart data={overview.messages.graph} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
+                    <defs>
+                        <linearGradient id='messageActivityFill' x1='0' y1='0' x2='0' y2='1'>
+                            <stop offset='5%' stopColor='rgb(56 189 248)' stopOpacity={0.45} />
+                            <stop offset='95%' stopColor='rgb(56 189 248)' stopOpacity={0.02} />
+                        </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke='rgb(38 38 38)' strokeDasharray='4 4' vertical={false} />
+                    <XAxis
+                        dataKey='date'
+                        minTickGap={24}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tickFormatter={formatChartDate}
+                    />
+                    <YAxis
+                        domain={domain}
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                    />
+                    <Tooltip
+                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
+                        contentStyle={chartTooltipStyle}
+                        labelStyle={chartTooltipLabelStyle}
+                        itemStyle={chartTooltipItemStyle}
+                        formatter={formatMessageTooltipValue}
+                        labelFormatter={formatLongChartDate}
+                    />
+                    <Area
+                        type='monotone'
+                        dataKey='messageCount'
+                        name='Messages'
+                        stroke='rgb(56 189 248)'
+                        strokeWidth={2}
+                        fill='url(#messageActivityFill)'
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                    />
+                </AreaChart>
+            </ResponsiveContainer>
+        </ChartPanel>
+    );
+}
+
+function ChartPanel({
     title,
-    value,
     detail,
-    isEmpty,
+    legendItems,
+    empty,
+    emptyText,
+    children,
 }: {
     title: string;
-    value: string;
     detail: string;
-    isEmpty: boolean;
+    legendItems: Array<{ label: string; className: string }>;
+    empty: boolean;
+    emptyText: string;
+    children: ReactNode;
 }) {
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-            <p className='text-sm font-medium text-neutral-400'>{title}</p>
-            <p
-                className={
-                    isEmpty ? 'mt-3 text-2xl font-semibold text-neutral-300' : 'mt-3 text-2xl font-semibold text-white'
-                }>
-                {value}
-            </p>
-            <p className='mt-2 text-sm leading-6 text-neutral-400'>{detail}</p>
-        </article>
-    );
-}
-
-function MemberFlowGraph({ overview }: { overview: DashboardGuildOverview }) {
-    const graph = overview.memberFlow.graph;
-    const maxMagnitude = Math.max(1, ...graph.map((day) => Math.max(Math.abs(day.joins), Math.abs(day.leaves))));
-
-    return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+        <section className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <h3 className='text-lg font-semibold text-white'>Join and leave graph</h3>
-                    <p className='mt-2 text-sm leading-6 text-neutral-400'>Last 30 UTC days of tracked member flow.</p>
+                    <h3 className='text-lg font-semibold text-white'>{title}</h3>
+                    <p className='mt-1 text-sm leading-6 text-neutral-400'>{detail}</p>
                 </div>
-                <p className='text-sm text-neutral-400'>Net {formatSignedNumber(overview.memberFlow.netGrowth)}</p>
+                <ChartLegend items={legendItems} />
             </div>
-
-            {!overview.dataHealth.hasMemberFlow ? (
-                <p className='mt-4 text-sm leading-6 text-neutral-400'>
-                    No member flow yet. Tracking starts when NeonFlux sees new join and leave events.
-                </p>
-            ) : (
-                <div className='mt-5 h-56 overflow-x-auto'>
-                    <div
-                        className='grid h-full min-w-[42rem] items-end gap-1'
-                        style={{ gridTemplateColumns: 'repeat(30, minmax(0, 1fr))' }}>
-                        {graph.map((day) => (
-                            <div
-                                key={day.date}
-                                className='flex h-full flex-col justify-end gap-1'
-                                title={formatGraphDay(day)}>
-                                <div
-                                    className='min-h-1 rounded-t bg-emerald-400'
-                                    style={{ height: `${Math.max(4, (day.joins / maxMagnitude) * 45)}%` }}
-                                    aria-label={`${day.date}: ${day.joins} joins`}
-                                />
-                                <div
-                                    className='min-h-1 rounded-b bg-rose-400'
-                                    style={{ height: `${Math.max(4, (day.leaves / maxMagnitude) * 45)}%` }}
-                                    aria-label={`${day.date}: ${day.leaves} leaves`}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </article>
+            <div className='mt-4 h-64'>{children}</div>
+            {empty ? <p className='mt-3 text-xs leading-5 text-neutral-500'>{emptyText}</p> : null}
+        </section>
     );
 }
 
-function TopInvitersPanel({
-    overview,
-    sortedInviters,
-    sortMode,
-    onSortModeChange,
-}: {
-    overview: DashboardGuildOverview;
-    sortedInviters: DashboardGuildOverview['invites']['topInviters'];
-    sortMode: InviterSortMode;
-    onSortModeChange: (mode: InviterSortMode) => void;
-}) {
+function ChartLegend({ items }: { items: Array<{ label: string; className: string }> }) {
     return (
-        <article
-            className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'
-            role='region'
-            aria-labelledby='dashboard-top-inviters-heading'>
-            <div className='flex flex-wrap items-start justify-between gap-3'>
-                <div>
-                    <h3 id='dashboard-top-inviters-heading' className='text-lg font-semibold text-white'>
-                        Top inviters
-                    </h3>
-                    <p className='mt-2 text-sm leading-6 text-neutral-400'>
-                        Attributed joins grouped by inviter, with tracked invite codes under each user.
-                    </p>
-                </div>
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
-                    <span>Sort inviters</span>
-                    <select
-                        value={sortMode}
-                        onChange={(event) => onSortModeChange(event.currentTarget.value as InviterSortMode)}
-                        className='min-h-10 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'>
-                        <option value='joins'>Attributed joins</option>
-                        <option value='uses'>Invite uses</option>
-                        <option value='user'>User ID</option>
-                    </select>
-                </label>
-            </div>
-
-            {sortedInviters.length === 0 ? (
-                <p className='mt-4 text-sm leading-6 text-neutral-400'>
-                    No top inviters yet. Invite attribution starts after NeonFlux has a baseline invite snapshot.
-                </p>
-            ) : (
-                <ul className='mt-4 divide-y divide-neutral-800'>
-                    {sortedInviters.map((inviter) => (
-                        <li key={inviter.inviterUserId} className='py-3 first:pt-0 last:pb-0'>
-                            <div className='flex flex-wrap items-center justify-between gap-2'>
-                                <p className='font-mono text-sm font-semibold text-white'>{inviter.inviterUserId}</p>
-                                <p className='text-sm text-neutral-400'>{inviter.attributedJoins} attributed joins</p>
-                            </div>
-                            <div className='mt-2 flex flex-wrap gap-2'>
-                                {inviter.inviteCodes.map((invite) => (
-                                    <span
-                                        key={invite.code}
-                                        className='rounded-md border border-neutral-700 px-2 py-1 font-mono text-xs text-neutral-300'>
-                                        {invite.code} · {invite.uses} uses{invite.active ? '' : ' · inactive'}
-                                    </span>
-                                ))}
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            )}
-
-            {overview.invites.attribution.unavailable > 0 ? (
-                <p className='mt-4 text-xs leading-5 text-amber-300'>
-                    {overview.invites.attribution.unavailable} joins could not be attributed because invite data was
-                    unavailable.
-                </p>
-            ) : null}
-        </article>
+        <div className='flex flex-wrap gap-3 text-xs text-neutral-400' aria-hidden='true'>
+            {items.map((item) => (
+                <span key={item.label} className='inline-flex items-center gap-1'>
+                    <span className={`size-2 rounded-full ${item.className}`} />
+                    {item.label}
+                </span>
+            ))}
+        </div>
     );
 }
 
-function sortInviters(
-    inviters: DashboardGuildOverview['invites']['topInviters'],
-    mode: InviterSortMode
-): DashboardGuildOverview['invites']['topInviters'] {
-    return [...inviters].sort((left, right) => {
-        if (mode === 'uses') {
-            return (
-                getInviteUseTotal(right) - getInviteUseTotal(left) ||
-                left.inviterUserId.localeCompare(right.inviterUserId)
-            );
-        }
+const chartTooltipStyle = {
+    backgroundColor: 'rgb(10 10 10)',
+    border: '1px solid rgb(38 38 38)',
+    borderRadius: '8px',
+    color: 'rgb(245 245 245)',
+};
+const chartTooltipLabelStyle = {
+    color: 'rgb(229 229 229)',
+    fontWeight: 600,
+};
+const chartTooltipItemStyle = {
+    color: 'rgb(212 212 212)',
+};
 
-        if (mode === 'user') {
-            return left.inviterUserId.localeCompare(right.inviterUserId);
-        }
+function getMemberFlowDomain(data: MemberFlowChartDay[]): [number, number] {
+    const maxMagnitude = Math.max(
+        0,
+        ...data.map((day) => Math.max(Math.abs(day.joins), Math.abs(day.leaveLoss), Math.abs(day.netGrowth)))
+    );
+    const domain = maxMagnitude === 0 ? 1 : maxMagnitude;
 
-        return right.attributedJoins - left.attributedJoins || left.inviterUserId.localeCompare(right.inviterUserId);
-    });
+    return [-domain, domain];
 }
 
-function getInviteUseTotal(inviter: DashboardGuildOverview['invites']['topInviters'][number]): number {
-    return inviter.inviteCodes.reduce((total, invite) => total + invite.uses, 0);
+function getMessageActivityDomain(data: DashboardGuildOverview['messages']['graph']): [number, number] {
+    const maxMessages = Math.max(0, ...data.map((day) => day.messageCount));
+
+    return [0, maxMessages === 0 ? 1 : maxMessages];
 }
 
-function formatTopChannelDetail(overview: DashboardGuildOverview): string {
+function formatMemberFlowTooltipValue(value: unknown, name: unknown): [string, string] {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    const label = typeof name === 'string' ? name : 'Value';
+
+    return [Number.isFinite(numericValue) ? String(Math.abs(numericValue)) : String(value), label];
+}
+
+function formatMessageTooltipValue(value: unknown): [string, string] {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+
+    return [Number.isFinite(numericValue) ? String(numericValue) : String(value), 'Messages'];
+}
+
+function formatMessageSummary(overview: DashboardGuildOverview): string {
     const topChannel = overview.messages.topChannels.at(0);
 
-    return topChannel
-        ? `Top channel ${topChannel.channelId} with ${topChannel.messageCount} messages.`
-        : 'No messages counted yet.';
+    return topChannel ? `${topChannel.messageCount} in the busiest tracked channel` : 'No messages counted yet';
 }
 
-function formatHealthScore(overview: DashboardGuildOverview): string {
-    const healthyCount = [
-        overview.dataHealth.hasMemberFlow,
-        overview.dataHealth.hasInviteSnapshots,
-        overview.dataHealth.hasMessageActivity,
-    ].filter(Boolean).length;
-
-    return `${healthyCount}/3`;
-}
-
-function formatHealthDetail(overview: DashboardGuildOverview): string {
-    if (!hasAnyTrackingData(overview)) {
-        return 'No tracked server data exists yet.';
-    }
-
-    return 'Member flow, invite snapshots, and message activity are tracked independently.';
-}
-
-function hasAnyTrackingData(overview: DashboardGuildOverview): boolean {
-    return (
-        overview.dataHealth.hasMemberFlow ||
-        overview.dataHealth.hasInviteSnapshots ||
-        overview.dataHealth.hasMessageActivity
-    );
+function formatTrackingWindow(overview: DashboardGuildOverview): string {
+    return overview.trackingStartedAt
+        ? 'Tracked activity inside the current rolling window.'
+        : 'Tracking starts when NeonFlux receives new server activity.';
 }
 
 function formatSignedNumber(value: number): string {
@@ -342,6 +366,29 @@ function formatDateTime(value: string): string {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
-function formatGraphDay(day: DashboardGuildOverview['memberFlow']['graph'][number]): string {
-    return `${day.date}: ${day.joins} joins, ${day.leaves} leaves, net ${formatSignedNumber(day.netGrowth)}`;
+function formatChartDate(value: unknown): string {
+    const text = String(value);
+    const date = new Date(`${text}T00:00:00.000Z`);
+
+    return Number.isNaN(date.getTime())
+        ? text
+        : date.toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              timeZone: 'UTC',
+          });
+}
+
+function formatLongChartDate(value: unknown): string {
+    const text = String(value);
+    const date = new Date(`${text}T00:00:00.000Z`);
+
+    return Number.isNaN(date.getTime())
+        ? text
+        : date.toLocaleDateString(undefined, {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+              timeZone: 'UTC',
+          });
 }

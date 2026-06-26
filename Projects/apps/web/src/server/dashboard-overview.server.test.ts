@@ -107,6 +107,10 @@ describe('loadDashboardGuildOverview', () => {
                     },
                     messages: {
                         totalMessages: 12,
+                        graph: [
+                            { date: '2026-06-25', messageCount: 4 },
+                            { date: '2026-06-26', messageCount: 8 },
+                        ],
                         topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
                     },
                     dataHealth: {
@@ -156,6 +160,10 @@ describe('loadDashboardGuildOverview', () => {
                 },
                 messages: {
                     totalMessages: 12,
+                    graph: [
+                        { date: '2026-06-25', messageCount: 4 },
+                        { date: '2026-06-26', messageCount: 8 },
+                    ],
                     topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
                 },
                 dataHealth: {
@@ -203,6 +211,7 @@ function createOverviewAggregateShape(): GuildOverviewAggregate {
         },
         messages: {
             totalMessages: 0,
+            graph: [{ date: '2026-06-26', messageCount: 0 }],
             topChannels: [],
         },
         dataHealth: {
@@ -235,6 +244,7 @@ function createOverview() {
         },
         messages: {
             totalMessages: 0,
+            graph: [{ date: '2026-06-26', messageCount: 0 }],
             topChannels: [],
         },
         dataHealth: {

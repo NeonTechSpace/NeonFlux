@@ -24,6 +24,7 @@ import { Route as DashboardGuildIdStructureRouteImport } from './routes/dashboar
 import { Route as DashboardGuildIdModerationRouteImport } from './routes/dashboard/$guildId/moderation'
 import { Route as DashboardGuildIdMessagingRouteImport } from './routes/dashboard/$guildId/messaging'
 import { Route as DashboardGuildIdLoggingRouteImport } from './routes/dashboard/$guildId/logging'
+import { Route as DashboardGuildIdInvitesRouteImport } from './routes/dashboard/$guildId/invites'
 import { Route as DashboardGuildIdGeneralRouteImport } from './routes/dashboard/$guildId/general'
 import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard.$guildId.events'
 import { Route as DashboardGuildIdCommunityRouteImport } from './routes/dashboard/$guildId/community'
@@ -110,6 +111,11 @@ const DashboardGuildIdLoggingRoute = DashboardGuildIdLoggingRouteImport.update({
   path: '/logging',
   getParentRoute: () => DashboardGuildIdRoute,
 } as any)
+const DashboardGuildIdInvitesRoute = DashboardGuildIdInvitesRouteImport.update({
+  id: '/invites',
+  path: '/invites',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
 const DashboardGuildIdGeneralRoute = DashboardGuildIdGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -162,6 +168,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
   '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
   '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
@@ -207,6 +215,7 @@ export interface FileRoutesById {
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
   '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
@@ -233,6 +242,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/moderation'
@@ -253,6 +263,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/moderation'
@@ -277,6 +288,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/moderation'
@@ -402,6 +414,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdLoggingRouteImport
       parentRoute: typeof DashboardGuildIdRoute
     }
+    '/dashboard/$guildId/invites': {
+      id: '/dashboard/$guildId/invites'
+      path: '/invites'
+      fullPath: '/dashboard/$guildId/invites'
+      preLoaderRoute: typeof DashboardGuildIdInvitesRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
     '/dashboard/$guildId/general': {
       id: '/dashboard/$guildId/general'
       path: '/general'
@@ -460,6 +479,7 @@ interface DashboardGuildIdRouteChildren {
   DashboardGuildIdCommunityRoute: typeof DashboardGuildIdCommunityRoute
   DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRoute
   DashboardGuildIdGeneralRoute: typeof DashboardGuildIdGeneralRoute
+  DashboardGuildIdInvitesRoute: typeof DashboardGuildIdInvitesRoute
   DashboardGuildIdLoggingRoute: typeof DashboardGuildIdLoggingRoute
   DashboardGuildIdMessagingRoute: typeof DashboardGuildIdMessagingRoute
   DashboardGuildIdModerationRoute: typeof DashboardGuildIdModerationRoute
@@ -473,6 +493,7 @@ const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
   DashboardGuildIdCommunityRoute: DashboardGuildIdCommunityRoute,
   DashboardGuildIdEventsRoute: DashboardGuildIdEventsRoute,
   DashboardGuildIdGeneralRoute: DashboardGuildIdGeneralRoute,
+  DashboardGuildIdInvitesRoute: DashboardGuildIdInvitesRoute,
   DashboardGuildIdLoggingRoute: DashboardGuildIdLoggingRoute,
   DashboardGuildIdMessagingRoute: DashboardGuildIdMessagingRoute,
   DashboardGuildIdModerationRoute: DashboardGuildIdModerationRoute,
