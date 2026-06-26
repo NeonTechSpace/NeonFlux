@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 
 import { parseDashboardLiveEventPayload } from '../dashboard-live.js';
 import type { DashboardLiveArea } from '../dashboard-live.js';
-import { getDashboardCommandSettingsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardAuditEventsQueryKey, getDashboardCommandSettingsQueryKey } from '../dashboard-query-keys.js';
 
 export function useDashboardLiveInvalidation({
     guildId,
@@ -24,13 +24,19 @@ export function useDashboardLiveInvalidation({
         const visibleAreas = new Set(areas);
 
         function invalidateArea(area: DashboardLiveArea): void {
-            const queryKeysByArea = {
-                commands: getDashboardCommandSettingsQueryKey(guildId),
-            } satisfies Record<DashboardLiveArea, ReturnType<typeof getDashboardCommandSettingsQueryKey>>;
+            switch (area) {
+                case 'commands':
+                    void queryClient.invalidateQueries({
+                        queryKey: getDashboardCommandSettingsQueryKey(guildId),
+                    });
+                    return;
 
-            void queryClient.invalidateQueries({
-                queryKey: queryKeysByArea[area],
-            });
+                case 'audit':
+                    void queryClient.invalidateQueries({
+                        queryKey: getDashboardAuditEventsQueryKey(guildId),
+                    });
+                    return;
+            }
         }
 
         function invalidateVisibleAreas(): void {

@@ -95,6 +95,7 @@ describe('loadWebConfig', () => {
     it('loads web-only OAuth and session secrets', () => {
         const config = loadWebConfig({
             FLUXER_APP_ID: ' app-id ',
+            FLUXER_BOT_TOKEN: ' bot-token ',
             FLUXER_CLIENT_SECRET: ' client-secret ',
             FLUXER_OAUTH_REDIRECT_URL: ' redirect-url ',
             FLUXER_TOKEN_ENCRYPTION_KEY: ' encryption-key ',
@@ -103,6 +104,7 @@ describe('loadWebConfig', () => {
 
         expect(config).toMatchObject({
             fluxerAppId: 'app-id',
+            fluxerBotToken: 'bot-token',
             fluxerClientSecret: 'client-secret',
             fluxerOauthRedirectUrl: 'redirect-url',
             fluxerTokenEncryptionKey: 'encryption-key',

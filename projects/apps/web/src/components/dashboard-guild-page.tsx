@@ -17,13 +17,15 @@ import {
     readDashboardCommandSettingsRouteData,
     updateDashboardCommandPrefixRouteData,
 } from '../server/dashboard-guild-route-data.js';
+import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
+import { DashboardPostingPanel } from './dashboard-posting-panel.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const invalidPrefixMessage = COMMAND_PREFIX_INVALID_MESSAGE;
 const genericPrefixUpdateErrorMessage = 'Could not update the command prefix. Try again.';
-const commandSettingsLiveAreas = ['commands'] as const satisfies readonly DashboardLiveArea[];
+const guildDashboardLiveAreas = ['commands', 'audit'] as const satisfies readonly DashboardLiveArea[];
 
 type CommandPrefixFormState = {
     draftPrefix: string;
@@ -104,12 +106,19 @@ export function DashboardGuildPendingPage({ guildId, preview }: { guildId: strin
 }
 
 function DashboardGuildView({ data }: { data: Extract<DashboardGuildRouteData, { type: 'guild' }> }) {
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: guildDashboardLiveAreas,
+    });
+
     return (
         <DashboardShell>
             <DashboardGuildHeader mode={data.mode} guild={data.guild} />
 
             <section className='grid gap-3 sm:grid-cols-2' aria-label='Server setup status'>
                 <CommandPrefixSettingsPanel guildId={data.guild.id} commandSettings={data.commandSettings} />
+                <DashboardPostingPanel guildId={data.guild.id} />
+                <DashboardAuditEventsPanel guildId={data.guild.id} />
                 <StatusCard
                     title='Permissions'
                     body='Every setting change is checked again on the server before it is saved.'
@@ -184,10 +193,6 @@ function CommandPrefixSettingsPanel({
         draftBasePrefix: commandSettings.prefix,
     });
     const formStateRef = useRef(formState);
-    useDashboardLiveInvalidation({
-        guildId,
-        areas: commandSettingsLiveAreas,
-    });
 
     useEffect(() => {
         formStateRef.current = formState;

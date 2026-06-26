@@ -51,9 +51,11 @@ export async function recordBotActionEvent(
 
 export async function listBotActionEventsByGuildId(
     db: GuildFeatureRepositoryDatabase,
-    input: { guildId: string; feature?: string }
+    input: { guildId: string; feature?: string; limit?: number }
 ): Promise<Result<BotActionEventRecord[], LoggingRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const feature = normalizeOptionalText(input.feature);
+    const limit = normalizeBotActionEventLimit(input.limit);
 
     if (guildId.isErr()) return err(guildId.error);
 
@@ -62,14 +64,23 @@ export async function listBotActionEventsByGuildId(
             .select()
             .from(botActionEvents)
             .where(
-                input.feature
-                    ? and(eq(botActionEvents.guildId, guildId.value), eq(botActionEvents.feature, input.feature))
+                feature
+                    ? and(eq(botActionEvents.guildId, guildId.value), eq(botActionEvents.feature, feature))
                     : eq(botActionEvents.guildId, guildId.value)
             )
-            .orderBy(desc(botActionEvents.createdAt));
+            .orderBy(desc(botActionEvents.createdAt))
+            .limit(limit);
 
         return ok(rows);
     } catch {
         return err({ type: 'database-error' });
     }
+}
+
+function normalizeBotActionEventLimit(limit: number | undefined): number {
+    if (limit === undefined || !Number.isFinite(limit)) {
+        return 25;
+    }
+
+    return Math.min(Math.max(Math.trunc(limit), 1), 100);
 }

@@ -1,10 +1,5 @@
 import { loadWebConfig } from '@neonflux/config';
-import {
-    findDeploymentConfig,
-    listGuildDashboardPermissionRulesByGuildIds,
-    listGuildSecurityPoliciesByGuildIds,
-    listBotInstallationGuildIds,
-} from '@neonflux/db';
+import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';
@@ -50,7 +45,6 @@ vi.mock('@neonflux/db', async (importActual) => {
     return {
         ...actual,
         findDeploymentConfig: vi.fn(),
-        listGuildDashboardPermissionRulesByGuildIds: vi.fn(),
         listGuildSecurityPoliciesByGuildIds: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),
     };
@@ -90,7 +84,6 @@ describe('loadDashboardGuildAccess', () => {
             ])
         );
         vi.mocked(listGuildSecurityPoliciesByGuildIds).mockResolvedValue(ok([]));
-        vi.mocked(listGuildDashboardPermissionRulesByGuildIds).mockResolvedValue(ok([]));
         vi.mocked(listBotInstallationGuildIds).mockResolvedValue(ok(['installed']));
     });
 
@@ -253,38 +246,19 @@ describe('loadDashboardGuildAccess', () => {
         });
     });
 
-    it('uses dashboard grants separately from Manage Server in DEFCON 3', async () => {
+    it('does not use dashboard grants for dashboard access', async () => {
         vi.mocked(listFluxerCurrentUserGuilds).mockResolvedValueOnce(
             ok([createFluxerGuild({ id: 'installed', name: 'Installed', permissions: '0' })])
-        );
-        vi.mocked(listGuildDashboardPermissionRulesByGuildIds).mockResolvedValueOnce(
-            ok([
-                {
-                    guildId: 'installed',
-                    userIds: [authContext.fluxerUserId],
-                    roleIds: [],
-                    createdAt: new Date('2026-06-23T00:00:00.000Z'),
-                    updatedAt: new Date('2026-06-23T00:00:00.000Z'),
-                },
-            ])
         );
 
         const result = await loadDashboardGuildAccess(request);
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
-            type: 'authorized',
+            type: 'no-manageable-guilds',
             mode: {
                 instanceMode: 'multi',
             },
-            guilds: [
-                {
-                    id: 'installed',
-                    name: 'Installed',
-                    canManage: false,
-                    botInstalled: true,
-                },
-            ],
         });
     });
 

@@ -40,6 +40,22 @@ describe('dashboard live events', () => {
         });
     });
 
+    it('parses valid audit invalidation payloads', () => {
+        expect(
+            parseDashboardLiveEventPayload(
+                JSON.stringify({
+                    guildId: ' guild-1 ',
+                    area: 'audit',
+                    event: 'dashboard-audit-events.changed',
+                })
+            )
+        ).toStrictEqual({
+            guildId: 'guild-1',
+            area: 'audit',
+            event: 'dashboard-audit-events.changed',
+        });
+    });
+
     it('rejects malformed and unknown dashboard event payloads', () => {
         expect(parseDashboardLiveEventPayload('{')).toBeUndefined();
         expect(parseDashboardLiveEventPayload(JSON.stringify({}))).toBeUndefined();
@@ -61,6 +77,15 @@ describe('dashboard live events', () => {
                 })
             )
         ).toBeUndefined();
+        expect(
+            parseDashboardLiveEventPayload(
+                JSON.stringify({
+                    guildId: 'guild-1',
+                    area: 'audit',
+                    event: 'guild-feature-settings.changed',
+                })
+            )
+        ).toBeUndefined();
     });
 
     it('reads requested live areas from the request query', () => {
@@ -69,6 +94,12 @@ describe('dashboard live events', () => {
         ).toStrictEqual({
             valid: true,
             areas: ['commands'],
+        });
+        expect(
+            readDashboardLiveAreas(new Request('http://localhost/dashboard/guild-1/events?areas=commands,audit'))
+        ).toStrictEqual({
+            valid: true,
+            areas: ['commands', 'audit'],
         });
         expect(
             readDashboardLiveAreas(new Request('http://localhost/dashboard/guild-1/events?areas=commands,commands'))
@@ -92,7 +123,7 @@ describe('dashboard live events', () => {
 
         fanout.subscribe({
             guildId: 'guild-1',
-            areas: new Set(['commands']),
+            areas: new Set(['commands', 'audit']),
             send: (event) => sentEvents.push(event),
         });
         fanout.publish({
@@ -105,12 +136,22 @@ describe('dashboard live events', () => {
             area: 'commands',
             event: 'guild-feature-settings.changed',
         });
+        fanout.publish({
+            guildId: 'guild-1',
+            area: 'audit',
+            event: 'dashboard-audit-events.changed',
+        });
 
         expect(sentEvents).toStrictEqual([
             {
                 guildId: 'guild-1',
                 area: 'commands',
                 event: 'guild-feature-settings.changed',
+            },
+            {
+                guildId: 'guild-1',
+                area: 'audit',
+                event: 'dashboard-audit-events.changed',
             },
         ]);
     });

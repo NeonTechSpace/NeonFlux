@@ -4,12 +4,7 @@ import type { AppMode } from '@neonflux/config';
 import { loadWebConfig } from '@neonflux/config';
 import { authorizeDashboardAccess } from '@neonflux/core/defcon';
 import type { DashboardGuild } from '@neonflux/core';
-import {
-    findDeploymentConfig,
-    listGuildDashboardPermissionRulesByGuildIds,
-    listGuildSecurityPoliciesByGuildIds,
-    listBotInstallationGuildIds,
-} from '@neonflux/db';
+import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
 import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { toDashboardGuild } from '@neonflux/fluxer/permissions';
@@ -179,7 +174,6 @@ async function authorizeDashboardGuilds(
 
 type DashboardPolicyContext = {
     securityPoliciesByGuildId: ReadonlyMap<string, { defconLevel: 1 | 2 | 3 }>;
-    dashboardGrantsByGuildId: ReadonlyMap<string, { userIds: string[]; roleIds: string[] }>;
 };
 
 async function loadDashboardPolicyContext(
@@ -187,27 +181,15 @@ async function loadDashboardPolicyContext(
 ): Promise<Result<DashboardPolicyContext, 'database-error'>> {
     const database = getWebDatabaseClient();
     const guildIds = guilds.map((guild) => guild.id);
-    const [securityPoliciesResult, dashboardGrantsResult] = await Promise.all([
-        listGuildSecurityPoliciesByGuildIds(database.db, { guildIds }),
-        listGuildDashboardPermissionRulesByGuildIds(database.db, { guildIds }),
-    ]);
+    const securityPoliciesResult = await listGuildSecurityPoliciesByGuildIds(database.db, { guildIds });
 
-    if (securityPoliciesResult.isErr() || dashboardGrantsResult.isErr()) {
+    if (securityPoliciesResult.isErr()) {
         return err('database-error');
     }
 
     return ok({
         securityPoliciesByGuildId: new Map(
             securityPoliciesResult.value.map((policy) => [policy.guildId, { defconLevel: policy.defconLevel }])
-        ),
-        dashboardGrantsByGuildId: new Map(
-            dashboardGrantsResult.value.map((grant) => [
-                grant.guildId,
-                {
-                    userIds: grant.userIds,
-                    roleIds: grant.roleIds,
-                },
-            ])
         ),
     });
 }
@@ -218,7 +200,6 @@ function authorizeDashboardGuild(
     guild: DashboardGuild
 ): boolean {
     const securityPolicy = policyContext.securityPoliciesByGuildId.get(guild.id);
-    const dashboardGrant = policyContext.dashboardGrantsByGuildId.get(guild.id);
     const authorization = authorizeDashboardAccess({
         appEnv: context.appEnv,
         override: context.guildDefconOverride,
@@ -228,7 +209,6 @@ function authorizeDashboardGuild(
             isServerOwner: guild.ownerId === context.fluxerUserId,
             hasManageServer: guild.canManage,
         },
-        ...(dashboardGrant ? { dashboardGrant } : {}),
     });
 
     return authorization.allowed;

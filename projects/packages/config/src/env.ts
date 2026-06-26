@@ -60,6 +60,7 @@ export type BotConfig = RuntimeConfig &
 
 export type WebConfig = RuntimeConfig & {
     fluxerAppId?: string;
+    fluxerBotToken?: string;
     fluxerClientSecret?: string;
     fluxerOauthRedirectUrl?: string;
     fluxerTokenEncryptionKey?: string;
@@ -140,6 +141,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
     const parsed = parseEnv(env);
     const runtimeConfig = createRuntimeConfig(parsed);
     const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
+    const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
     const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
     const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
@@ -148,6 +150,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
     return {
         ...runtimeConfig,
         ...(fluxerAppId ? { fluxerAppId } : {}),
+        ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
         ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
         ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),

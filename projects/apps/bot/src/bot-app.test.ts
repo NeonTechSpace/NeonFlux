@@ -210,7 +210,10 @@ describe('createBotApp', () => {
         });
     });
 
-    it.each([1, 2] as const)('uses DEFCON %s as the bot status instead of the env status', async (defconLevel) => {
+    it.each([
+        [1, 'DEFCON 1: Owner only mode'],
+        [2, 'DEFCON 2: Public commands disabled'],
+    ] as const)('uses DEFCON %s as the bot status instead of the env status', async (defconLevel, customStatusText) => {
         const app = createBotApp({
             config: createMultiConfig({
                 fluxerBotCustomStatusText: 'Env NeonFlux status',
@@ -224,7 +227,7 @@ describe('createBotApp', () => {
 
         expect(capturedFluxerConfig).toStrictEqual({
             instanceMode: 'multi',
-            customStatusText: `DEFCON ${String(defconLevel)}`,
+            customStatusText,
             fluxerBotToken: 'bot-token',
         });
     });

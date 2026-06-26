@@ -10,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardGuildPageContent, DashboardGuildPendingPage } from '../../components/dashboard-guild-page.js';
 import {
+    postDashboardMessageRouteData,
+    readDashboardAuditEventsRouteData,
     readDashboardCommandSettingsRouteData,
+    readDashboardPostingChannelsRouteData,
     resolveDashboardGuildRouteResult,
     toDashboardGuildRouteResult,
     updateDashboardCommandPrefixRouteData,
@@ -23,7 +26,10 @@ vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
 
     return {
         ...actual,
+        postDashboardMessageRouteData: vi.fn(),
+        readDashboardAuditEventsRouteData: vi.fn(),
         readDashboardCommandSettingsRouteData: vi.fn(),
+        readDashboardPostingChannelsRouteData: vi.fn(),
         updateDashboardCommandPrefixRouteData: vi.fn(),
     };
 });
@@ -43,7 +49,38 @@ describe('/dashboard/$guildId', () => {
             get: () => documentVisibilityState,
         });
         vi.stubGlobal('EventSource', MockEventSource);
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValue({
+            type: 'events',
+            auditEvents: [],
+        });
+        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
+            type: 'channels',
+            channels: [
+                {
+                    id: 'channel-1',
+                    name: 'general',
+                    type: 0,
+                    position: 1,
+                },
+                {
+                    id: 'channel-2',
+                    name: 'release-notes',
+                    type: 0,
+                    parentId: 'category-1',
+                    parentName: 'Info',
+                    position: 2,
+                },
+            ],
+        });
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('?'));
+        vi.mocked(postDashboardMessageRouteData).mockResolvedValue({
+            type: 'sent',
+            message: {
+                id: 'message-1',
+                guildId: 'guild-1',
+                channelId: 'channel-1',
+            },
+        });
         vi.mocked(updateDashboardCommandPrefixRouteData).mockResolvedValue({
             type: 'updated',
             commandSettings: {
@@ -120,6 +157,8 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Command prefix' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Posting' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
         expect(screen.getByText('Current prefix:')).toBeTruthy();
         expect(screen.getByText('?')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
@@ -163,7 +202,7 @@ describe('/dashboard/$guildId', () => {
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
         );
     });
 
@@ -173,7 +212,7 @@ describe('/dashboard/$guildId', () => {
         renderGuildPage();
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
         );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
@@ -192,7 +231,7 @@ describe('/dashboard/$guildId', () => {
         renderGuildPage();
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
         );
         MockEventSource.instances.at(0)?.emit(
             'guild-feature-settings.changed',
@@ -211,7 +250,7 @@ describe('/dashboard/$guildId', () => {
         renderGuildPage();
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
         );
         const firstEventSource = MockEventSource.instances.at(0);
 
@@ -222,7 +261,7 @@ describe('/dashboard/$guildId', () => {
 
         expect(firstEventSource?.close).toHaveBeenCalledTimes(1);
         expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
-        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands');
+        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit');
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
         expect(screen.queryByText('Refreshing live setting...')).toBeNull();
     });
@@ -233,7 +272,7 @@ describe('/dashboard/$guildId', () => {
         const currentView = within(container);
         const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
         await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands%2Caudit')
         );
 
         fireEvent.change(prefixInput, { target: { value: '?1' } });
@@ -278,6 +317,83 @@ describe('/dashboard/$guildId', () => {
         fireEvent.click(currentView.getByRole('button', { name: 'Save prefix' }));
 
         expect(await currentView.findByText(COMMAND_PREFIX_INVALID_MESSAGE)).toBeTruthy();
+    });
+
+    it('shows a clear validation error for malformed embed JSON before posting', async () => {
+        const { container } = renderGuildPage();
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'gen', '#general');
+        fireEvent.change(currentView.getByLabelText('Embed JSON'), { target: { value: '{' } });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        expect(await currentView.findByText('Embed JSON is not valid JSON.')).toBeTruthy();
+        expect(postDashboardMessageRouteData).not.toHaveBeenCalled();
+    });
+
+    it('posts dashboard messages with content and embed payloads', async () => {
+        vi.mocked(postDashboardMessageRouteData).mockResolvedValueOnce({
+            type: 'sent',
+            message: {
+                id: 'message-1',
+                guildId: 'guild-1',
+                channelId: 'channel-2',
+            },
+        });
+        const { container } = renderGuildPage();
+        const currentView = within(container);
+
+        await selectPostingChannel(currentView, 'rel notes', '#release-notes');
+        fireEvent.change(currentView.getByLabelText('Message content'), { target: { value: 'hello' } });
+        fireEvent.change(currentView.getByLabelText('Embed JSON'), {
+            target: { value: '[{"title":"NeonFlux"}]' },
+        });
+        fireEvent.click(currentView.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-2',
+                    content: 'hello',
+                    embeds: [{ title: 'NeonFlux' }],
+                },
+            })
+        );
+        expect(await currentView.findByText('Message sent to channel-2.')).toBeTruthy();
+    });
+
+    it('renders recent dashboard audit events', async () => {
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
+            type: 'events',
+            auditEvents: [
+                {
+                    id: 'event-1',
+                    feature: 'posting',
+                    action: 'message.sent',
+                    actorUserId: 'actor-1',
+                    targetId: 'message-1',
+                    metadata: {
+                        channelId: 'channel-1',
+                        messageId: 'message-1',
+                        contentLength: 5,
+                        embedCount: 0,
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+        });
+
+        renderGuildPage();
+
+        expect(await screen.findByText('posting: message.sent')).toBeTruthy();
+        expect(screen.getByText('Actor: actor-1')).toBeTruthy();
+        expect(
+            screen.getByText(
+                'Channel: channel-1 | Message: message-1 | Content length: 5 | Embeds: 0 | Source: dashboard'
+            )
+        ).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', async () => {
@@ -352,6 +468,18 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
 
 function renderGuildPage(routeData: DashboardGuildRouteData = createGuildRouteData()): ReturnType<typeof render> {
     return renderWithRouter(createElement(DashboardGuildPageContent, { data: routeData }));
+}
+
+async function selectPostingChannel(
+    currentView: ReturnType<typeof within>,
+    search: string,
+    channelLabel: string
+): Promise<void> {
+    const channelInput = currentView.getByLabelText('Channel');
+
+    fireEvent.focus(channelInput);
+    fireEvent.change(channelInput, { target: { value: search } });
+    fireEvent.click(await currentView.findByRole('button', { name: new RegExp(channelLabel) }));
 }
 
 function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {

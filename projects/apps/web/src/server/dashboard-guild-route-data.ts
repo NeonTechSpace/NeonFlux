@@ -6,6 +6,11 @@ import type {
     DashboardCommandSettings,
     DashboardCommandSettingsPageDataResult,
 } from './dashboard-command-settings.server.js';
+import type {
+    DashboardAuditEventsResult,
+    DashboardPostMessageResult,
+    DashboardPostingChannelsResult,
+} from './dashboard-posting.server.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
@@ -44,6 +49,13 @@ type DashboardGuildRouteInput = {
 type DashboardCommandPrefixUpdateRouteInput = {
     guildId: string;
     prefix: string;
+};
+
+type DashboardPostMessageRouteInput = {
+    guildId: string;
+    channelId: string;
+    content?: string;
+    embeds?: unknown[];
 };
 
 export type DashboardCommandSettingsReadResult =
@@ -170,6 +182,39 @@ export const updateDashboardCommandPrefixRouteData = createServerFn({ method: 'P
         return updateDashboardGuildCommandPrefix(getRequest(), data);
     });
 
+export const postDashboardMessageRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardPostMessageRouteInput)
+    .handler(async ({ data }): Promise<DashboardPostMessageResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { postDashboardGuildMessage } = await import('./dashboard-posting.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return postDashboardGuildMessage(getRequest(), data);
+    });
+
+export const readDashboardAuditEventsRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardAuditEventsResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardGuildAuditEvents } = await import('./dashboard-posting.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardGuildAuditEvents(getRequest(), data.guildId);
+    });
+
+export const readDashboardPostingChannelsRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardPostingChannelsResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardGuildPostingChannels } = await import('./dashboard-posting.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardGuildPostingChannels(getRequest(), data.guildId);
+    });
+
 export function toDashboardCommandSettingsReadResult(
     data: DashboardCommandSettingsPageDataResult
 ): DashboardCommandSettingsReadResult {
@@ -225,5 +270,24 @@ function validateDashboardCommandPrefixUpdateRouteInput(input: unknown): Dashboa
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         prefix: typeof prefix === 'string' ? prefix : '',
+    };
+}
+
+function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMessageRouteInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '', channelId: '' };
+    }
+
+    const payload = input as Record<string, unknown>;
+    const guildId = payload.guildId;
+    const channelId = payload.channelId;
+    const content = payload.content;
+    const embeds = payload.embeds;
+
+    return {
+        guildId: typeof guildId === 'string' ? guildId : '',
+        channelId: typeof channelId === 'string' ? channelId : '',
+        ...(typeof content === 'string' ? { content } : {}),
+        ...(Array.isArray(embeds) ? { embeds } : {}),
     };
 }
