@@ -17,9 +17,18 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DocsTopicRouteImport } from './routes/docs/topic'
 import { Route as DashboardGuildIdRouteImport } from './routes/dashboard.$guildId'
 import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
+import { Route as DashboardGuildIdIndexRouteImport } from './routes/dashboard/$guildId/index'
 import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
 import { Route as DocsApiSearchRouteImport } from './routes/docs/api/search'
+import { Route as DashboardGuildIdStructureRouteImport } from './routes/dashboard/$guildId/structure'
+import { Route as DashboardGuildIdModerationRouteImport } from './routes/dashboard/$guildId/moderation'
+import { Route as DashboardGuildIdMessagingRouteImport } from './routes/dashboard/$guildId/messaging'
+import { Route as DashboardGuildIdLoggingRouteImport } from './routes/dashboard/$guildId/logging'
+import { Route as DashboardGuildIdGeneralRouteImport } from './routes/dashboard/$guildId/general'
 import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard.$guildId.events'
+import { Route as DashboardGuildIdCommunityRouteImport } from './routes/dashboard/$guildId/community'
+import { Route as DashboardGuildIdAuditRouteImport } from './routes/dashboard/$guildId/audit'
+import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$guildId/access'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 
@@ -63,6 +72,11 @@ const DocsTopicIndexRoute = DocsTopicIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DocsTopicRoute,
 } as any)
+const DashboardGuildIdIndexRoute = DashboardGuildIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
 const DocsTopicSplatRoute = DocsTopicSplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -73,9 +87,53 @@ const DocsApiSearchRoute = DocsApiSearchRouteImport.update({
   path: '/api/search',
   getParentRoute: () => DocsRoute,
 } as any)
+const DashboardGuildIdStructureRoute =
+  DashboardGuildIdStructureRouteImport.update({
+    id: '/structure',
+    path: '/structure',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
+const DashboardGuildIdModerationRoute =
+  DashboardGuildIdModerationRouteImport.update({
+    id: '/moderation',
+    path: '/moderation',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
+const DashboardGuildIdMessagingRoute =
+  DashboardGuildIdMessagingRouteImport.update({
+    id: '/messaging',
+    path: '/messaging',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
+const DashboardGuildIdLoggingRoute = DashboardGuildIdLoggingRouteImport.update({
+  id: '/logging',
+  path: '/logging',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
+const DashboardGuildIdGeneralRoute = DashboardGuildIdGeneralRouteImport.update({
+  id: '/general',
+  path: '/general',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
 const DashboardGuildIdEventsRoute = DashboardGuildIdEventsRouteImport.update({
   id: '/events',
   path: '/events',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
+const DashboardGuildIdCommunityRoute =
+  DashboardGuildIdCommunityRouteImport.update({
+    id: '/community',
+    path: '/community',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
+const DashboardGuildIdAuditRoute = DashboardGuildIdAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
+const DashboardGuildIdAccessRoute = DashboardGuildIdAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
   getParentRoute: () => DashboardGuildIdRoute,
 } as any)
 const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
@@ -99,21 +157,38 @@ export interface FileRoutesByFullPath {
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
+  '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
+  '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
+  '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
+  '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/dashboard/$guildId': typeof DashboardGuildIdIndexRoute
   '/docs/topic': typeof DocsTopicIndexRoute
 }
 export interface FileRoutesById {
@@ -127,9 +202,18 @@ export interface FileRoutesById {
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
+  '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
+  '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
+  '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
 }
 export interface FileRouteTypes {
@@ -144,21 +228,38 @@ export interface FileRouteTypes {
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/access'
+    | '/dashboard/$guildId/audit'
+    | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
+    | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/logging'
+    | '/dashboard/$guildId/messaging'
+    | '/dashboard/$guildId/moderation'
+    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/dashboard/$guildId/'
     | '/docs/topic/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/dashboard/$guildId'
     | '/dashboard'
     | '/docs'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/access'
+    | '/dashboard/$guildId/audit'
+    | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
+    | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/logging'
+    | '/dashboard/$guildId/messaging'
+    | '/dashboard/$guildId/moderation'
+    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/dashboard/$guildId'
     | '/docs/topic'
   id:
     | '__root__'
@@ -171,9 +272,18 @@ export interface FileRouteTypes {
     | '/docs/'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/access'
+    | '/dashboard/$guildId/audit'
+    | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
+    | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/logging'
+    | '/dashboard/$guildId/messaging'
+    | '/dashboard/$guildId/moderation'
+    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
+    | '/dashboard/$guildId/'
     | '/docs/topic/'
   fileRoutesById: FileRoutesById
 }
@@ -243,6 +353,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsTopicIndexRouteImport
       parentRoute: typeof DocsTopicRoute
     }
+    '/dashboard/$guildId/': {
+      id: '/dashboard/$guildId/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/'
+      preLoaderRoute: typeof DashboardGuildIdIndexRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
     '/docs/topic/$': {
       id: '/docs/topic/$'
       path: '/$'
@@ -257,11 +374,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsApiSearchRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/dashboard/$guildId/structure': {
+      id: '/dashboard/$guildId/structure'
+      path: '/structure'
+      fullPath: '/dashboard/$guildId/structure'
+      preLoaderRoute: typeof DashboardGuildIdStructureRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/moderation': {
+      id: '/dashboard/$guildId/moderation'
+      path: '/moderation'
+      fullPath: '/dashboard/$guildId/moderation'
+      preLoaderRoute: typeof DashboardGuildIdModerationRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/messaging': {
+      id: '/dashboard/$guildId/messaging'
+      path: '/messaging'
+      fullPath: '/dashboard/$guildId/messaging'
+      preLoaderRoute: typeof DashboardGuildIdMessagingRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/logging': {
+      id: '/dashboard/$guildId/logging'
+      path: '/logging'
+      fullPath: '/dashboard/$guildId/logging'
+      preLoaderRoute: typeof DashboardGuildIdLoggingRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/general': {
+      id: '/dashboard/$guildId/general'
+      path: '/general'
+      fullPath: '/dashboard/$guildId/general'
+      preLoaderRoute: typeof DashboardGuildIdGeneralRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
     '/dashboard/$guildId/events': {
       id: '/dashboard/$guildId/events'
       path: '/events'
       fullPath: '/dashboard/$guildId/events'
       preLoaderRoute: typeof DashboardGuildIdEventsRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/community': {
+      id: '/dashboard/$guildId/community'
+      path: '/community'
+      fullPath: '/dashboard/$guildId/community'
+      preLoaderRoute: typeof DashboardGuildIdCommunityRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/audit': {
+      id: '/dashboard/$guildId/audit'
+      path: '/audit'
+      fullPath: '/dashboard/$guildId/audit'
+      preLoaderRoute: typeof DashboardGuildIdAuditRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/access': {
+      id: '/dashboard/$guildId/access'
+      path: '/access'
+      fullPath: '/dashboard/$guildId/access'
+      preLoaderRoute: typeof DashboardGuildIdAccessRouteImport
       parentRoute: typeof DashboardGuildIdRoute
     }
     '/auth/fluxer/login': {
@@ -282,11 +455,29 @@ declare module '@tanstack/react-router' {
 }
 
 interface DashboardGuildIdRouteChildren {
+  DashboardGuildIdAccessRoute: typeof DashboardGuildIdAccessRoute
+  DashboardGuildIdAuditRoute: typeof DashboardGuildIdAuditRoute
+  DashboardGuildIdCommunityRoute: typeof DashboardGuildIdCommunityRoute
   DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRoute
+  DashboardGuildIdGeneralRoute: typeof DashboardGuildIdGeneralRoute
+  DashboardGuildIdLoggingRoute: typeof DashboardGuildIdLoggingRoute
+  DashboardGuildIdMessagingRoute: typeof DashboardGuildIdMessagingRoute
+  DashboardGuildIdModerationRoute: typeof DashboardGuildIdModerationRoute
+  DashboardGuildIdStructureRoute: typeof DashboardGuildIdStructureRoute
+  DashboardGuildIdIndexRoute: typeof DashboardGuildIdIndexRoute
 }
 
 const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
+  DashboardGuildIdAccessRoute: DashboardGuildIdAccessRoute,
+  DashboardGuildIdAuditRoute: DashboardGuildIdAuditRoute,
+  DashboardGuildIdCommunityRoute: DashboardGuildIdCommunityRoute,
   DashboardGuildIdEventsRoute: DashboardGuildIdEventsRoute,
+  DashboardGuildIdGeneralRoute: DashboardGuildIdGeneralRoute,
+  DashboardGuildIdLoggingRoute: DashboardGuildIdLoggingRoute,
+  DashboardGuildIdMessagingRoute: DashboardGuildIdMessagingRoute,
+  DashboardGuildIdModerationRoute: DashboardGuildIdModerationRoute,
+  DashboardGuildIdStructureRoute: DashboardGuildIdStructureRoute,
+  DashboardGuildIdIndexRoute: DashboardGuildIdIndexRoute,
 }
 
 const DashboardGuildIdRouteWithChildren =
