@@ -13,6 +13,7 @@ import {
     DashboardCommandPrefixSettingsPanel,
     DashboardCommandPrefixSettingsPanelLoading,
 } from './dashboard-command-prefix-panel.js';
+import { DashboardInviteTrackingLoading, DashboardInviteTrackingPanel } from './dashboard-invite-tracking-panel.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
@@ -152,6 +153,16 @@ export function DashboardGuildMessagingCategory() {
     );
 }
 
+export function DashboardGuildInviteTrackingCategory() {
+    const data = useDashboardGuildData();
+
+    return (
+        <DashboardCategorySection categoryId='invites'>
+            <DashboardInviteTrackingPanel guildId={data.guild.id} />
+        </DashboardCategorySection>
+    );
+}
+
 export function DashboardGuildAccessCategory() {
     return (
         <DashboardCategorySection categoryId='access'>
@@ -247,6 +258,14 @@ function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: Dash
         return (
             <DashboardCategorySection categoryId='overview'>
                 <DashboardServerOverviewLoading />
+            </DashboardCategorySection>
+        );
+    }
+
+    if (activeCategoryId === 'invites') {
+        return (
+            <DashboardCategorySection categoryId='invites'>
+                <DashboardInviteTrackingLoading />
             </DashboardCategorySection>
         );
     }

@@ -50,6 +50,11 @@ describe('growth overview repositories', () => {
         expect(aggregate.memberFlow.graph.at(0)).toMatchObject({ date: '2026-05-28', joins: 0, leaves: 0 });
         expect(aggregate.invites.topInviters).toStrictEqual([]);
         expect(aggregate.messages.totalMessages).toBe(0);
+        expect(aggregate.messages.graph).toHaveLength(30);
+        expect(aggregate.messages.graph.at(0)).toStrictEqual({
+            date: '2026-05-28',
+            messageCount: 0,
+        });
         expect(aggregate.dataHealth).toStrictEqual({
             hasMemberFlow: false,
             hasInviteSnapshots: false,
@@ -185,6 +190,12 @@ describe('growth overview repositories', () => {
         });
         expect(aggregate.messages).toStrictEqual({
             totalMessages: 3,
+            graph: expect.arrayContaining([
+                {
+                    date: '2026-06-26',
+                    messageCount: 3,
+                },
+            ]),
             topChannels: [
                 { channelId: 'channel-1', messageCount: 2 },
                 { channelId: 'channel-2', messageCount: 1 },

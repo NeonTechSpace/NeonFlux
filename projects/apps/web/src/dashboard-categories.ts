@@ -2,6 +2,7 @@ export type DashboardCategoryId =
     | 'overview'
     | 'general'
     | 'messaging'
+    | 'invites'
     | 'access'
     | 'moderation'
     | 'logging'
@@ -22,6 +23,7 @@ export type DashboardCategoryTo =
     | '/dashboard/$guildId'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/messaging'
+    | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/moderation'
     | '/dashboard/$guildId/logging'
@@ -35,7 +37,7 @@ export const dashboardCategories = [
         label: 'Overview',
         path: '',
         to: '/dashboard/$guildId',
-        description: 'Server growth, invite, message, and data-health metrics.',
+        description: 'Server growth and message activity.',
         status: 'active',
     },
     {
@@ -52,6 +54,14 @@ export const dashboardCategories = [
         path: 'messaging',
         to: '/dashboard/$guildId/messaging',
         description: 'Dashboard posting, embeds, and message templates.',
+        status: 'active',
+    },
+    {
+        id: 'invites',
+        label: 'Invite Tracking',
+        path: 'invites',
+        to: '/dashboard/$guildId/invites',
+        description: 'Invite attribution, active invite usage, and top inviters.',
         status: 'active',
     },
     {

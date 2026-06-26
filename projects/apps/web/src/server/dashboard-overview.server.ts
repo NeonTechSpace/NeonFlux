@@ -41,6 +41,10 @@ export type DashboardGuildOverview = {
     };
     messages: {
         totalMessages: number;
+        graph: Array<{
+            date: string;
+            messageCount: number;
+        }>;
         topChannels: Array<{
             channelId: string;
             messageCount: number;

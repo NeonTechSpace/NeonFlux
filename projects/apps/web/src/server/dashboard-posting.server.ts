@@ -1,7 +1,8 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { listAllBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import type { BotActionEventCursor } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
@@ -70,6 +71,7 @@ export type DashboardAuditEventsResult =
     | {
           type: 'events';
           auditEvents: DashboardAuditEvent[];
+          nextCursor?: string;
       }
     | { type: 'auth-required' }
     | { type: 'not-found' }
@@ -104,10 +106,18 @@ type NormalizedPostMessagePayload = {
     embeds: unknown[];
 };
 
+type DashboardAuditEventsInput = {
+    guildId: string;
+    cursor?: string;
+    limit?: number;
+    search?: string;
+};
+
 const dashboardPostingPurpose = 'dashboard';
 const dashboardPostingFeature = 'posting';
 const dashboardMessageSentAction = 'message.sent';
 const postableChannelTypes = new Set([0, 5]);
+const dashboardAuditPageSize = 40;
 
 export async function postDashboardGuildMessage(
     request: Request,
@@ -193,19 +203,28 @@ export async function postDashboardGuildMessage(
     };
 }
 
-export async function loadDashboardGuildAuditEvents(
+export async function loadDashboardGuildAuditEventsPage(
     request: Request,
-    guildId: string
+    input: DashboardAuditEventsInput
 ): Promise<DashboardAuditEventsResult> {
-    const guildPageData = await loadDashboardGuildPageData(request, guildId);
+    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
 
     if (guildPageData.type !== 'guild') {
         return mapDashboardGuildPageError(guildPageData);
     }
 
+    const cursor = decodeDashboardAuditCursor(input.cursor);
+
+    if (cursor === 'invalid') {
+        return { type: 'database-error' };
+    }
+
     const database = getWebDatabaseClient();
-    const eventsResult = await listAllBotActionEventsByGuildId(database.db, {
+    const eventsResult = await listBotActionEventPageByGuildId(database.db, {
         guildId: guildPageData.guild.id,
+        ...(cursor ? { cursor } : {}),
+        limit: input.limit ?? dashboardAuditPageSize,
+        ...(input.search ? { search: input.search } : {}),
     });
 
     if (eventsResult.isErr()) {
@@ -214,7 +233,10 @@ export async function loadDashboardGuildAuditEvents(
 
     return {
         type: 'events',
-        auditEvents: eventsResult.value.map(toDashboardAuditEvent),
+        auditEvents: eventsResult.value.records.map(toDashboardAuditEvent),
+        ...(eventsResult.value.nextCursor
+            ? { nextCursor: encodeDashboardAuditCursor(eventsResult.value.nextCursor) }
+            : {}),
     };
 }
 
@@ -374,4 +396,31 @@ function toDashboardAuditMetadata(metadata: Record<string, unknown>): DashboardA
     }
 
     return serializableMetadata;
+}
+
+function encodeDashboardAuditCursor(cursor: BotActionEventCursor): string {
+    return `${cursor.createdAt.toISOString()}|${cursor.id}`;
+}
+
+function decodeDashboardAuditCursor(cursor: string | undefined): BotActionEventCursor | undefined | 'invalid' {
+    if (!cursor) {
+        return undefined;
+    }
+
+    const [createdAtValue, id, ...extraParts] = cursor.split('|');
+
+    if (!createdAtValue || !id || extraParts.length > 0) {
+        return 'invalid';
+    }
+
+    const createdAt = new Date(createdAtValue);
+
+    if (Number.isNaN(createdAt.getTime())) {
+        return 'invalid';
+    }
+
+    return {
+        createdAt,
+        id,
+    };
 }

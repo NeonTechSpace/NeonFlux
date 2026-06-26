@@ -59,6 +59,13 @@ type DashboardPostMessageRouteInput = {
     embeds?: unknown[];
 };
 
+type DashboardAuditEventsRouteInput = {
+    guildId: string;
+    cursor?: string;
+    limit?: number;
+    search?: string;
+};
+
 export type DashboardCommandSettingsReadResult =
     | {
           type: 'settings';
@@ -195,14 +202,14 @@ export const postDashboardMessageRouteData = createServerFn({ method: 'POST' })
     });
 
 export const readDashboardAuditEventsRouteData = createServerFn({ method: 'GET' })
-    .validator(validateDashboardGuildRouteInput)
+    .validator(validateDashboardAuditEventsRouteInput)
     .handler(async ({ data }): Promise<DashboardAuditEventsResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { loadDashboardGuildAuditEvents } = await import('./dashboard-posting.server.js');
+        const { loadDashboardGuildAuditEventsPage } = await import('./dashboard-posting.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return loadDashboardGuildAuditEvents(getRequest(), data.guildId);
+        return loadDashboardGuildAuditEventsPage(getRequest(), data);
     });
 
 export const readDashboardGuildOverviewRouteData = createServerFn({ method: 'GET' })
@@ -301,5 +308,24 @@ function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMe
         channelId: typeof channelId === 'string' ? channelId : '',
         ...(typeof content === 'string' ? { content } : {}),
         ...(Array.isArray(embeds) ? { embeds } : {}),
+    };
+}
+
+function validateDashboardAuditEventsRouteInput(input: unknown): DashboardAuditEventsRouteInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '' };
+    }
+
+    const payload = input as Record<string, unknown>;
+    const guildId = payload.guildId;
+    const cursor = payload.cursor;
+    const limit = payload.limit;
+    const search = payload.search;
+
+    return {
+        guildId: typeof guildId === 'string' ? guildId : '',
+        ...(typeof cursor === 'string' ? { cursor } : {}),
+        ...(typeof limit === 'number' && Number.isFinite(limit) ? { limit } : {}),
+        ...(typeof search === 'string' ? { search } : {}),
     };
 }
