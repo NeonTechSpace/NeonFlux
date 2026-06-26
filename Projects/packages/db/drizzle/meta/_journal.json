@@ -64,6 +64,13 @@
       "when": 1782433809168,
       "tag": "0008_handy_texas_twister",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782520200000,
+      "tag": "0009_dashboard_audit_events",
+      "breakpoints": true
     }
   ]
 }

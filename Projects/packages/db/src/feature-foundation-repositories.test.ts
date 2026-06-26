@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { upsertAutoroleRule, listAutoroleRulesByGuildId } from './autorole.js';
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
 import { createModerationCase, updateModerationCaseStatus } from './moderation.js';
+import { recordBotActionEvent, listBotActionEventsByGuildId } from './logging.js';
+import { recordPostedMessage } from './posting.js';
 import { createStructureImportRun, updateStructureImportRunStatus } from './structure-import-export.js';
 import { upsertGuild } from './guilds.js';
 import * as schema from './schema.js';
@@ -118,6 +120,89 @@ describe('feature foundation repositories', () => {
             xp: 12,
             level: 2,
             messageCount: 2,
+        });
+    });
+
+    it('records dashboard posted messages idempotently', async () => {
+        const first = await expectOk(
+            recordPostedMessage(getDb(), {
+                guildId: 'guild-1',
+                channelId: 'channel-1',
+                messageId: 'message-1',
+                createdByUserId: 'user-1',
+                purpose: 'dashboard',
+            })
+        );
+        const second = await expectOk(
+            recordPostedMessage(getDb(), {
+                guildId: 'guild-1',
+                channelId: 'channel-1',
+                messageId: 'message-1',
+                createdByUserId: 'user-2',
+                purpose: 'dashboard',
+            })
+        );
+
+        expect(second.id).toBe(first.id);
+        expect(second).toMatchObject({
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            createdByUserId: 'user-2',
+            purpose: 'dashboard',
+        });
+    });
+
+    it('records and lists guild-scoped dashboard audit events', async () => {
+        await createGuild('guild-2');
+        await expectOk(
+            recordBotActionEvent(getDb(), {
+                guildId: 'guild-1',
+                feature: 'posting',
+                action: 'message.sent',
+                actorUserId: 'user-1',
+                targetId: 'message-1',
+                metadata: {
+                    channelId: 'channel-1',
+                    messageId: 'message-1',
+                    contentLength: 5,
+                    embedCount: 0,
+                    source: 'dashboard',
+                },
+            })
+        );
+        await expectOk(
+            recordBotActionEvent(getDb(), {
+                guildId: 'guild-2',
+                feature: 'posting',
+                action: 'message.sent',
+                actorUserId: 'user-2',
+                targetId: 'message-2',
+            })
+        );
+
+        const events = await expectOk(
+            listBotActionEventsByGuildId(getDb(), {
+                guildId: 'guild-1',
+                feature: 'posting',
+                limit: 1,
+            })
+        );
+
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+            guildId: 'guild-1',
+            feature: 'posting',
+            action: 'message.sent',
+            actorUserId: 'user-1',
+            targetId: 'message-1',
+            metadata: {
+                channelId: 'channel-1',
+                messageId: 'message-1',
+                contentLength: 5,
+                embedCount: 0,
+                source: 'dashboard',
+            },
         });
     });
 

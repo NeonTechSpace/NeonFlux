@@ -310,8 +310,9 @@ function resolveBotCustomStatusText(config: AppConfig): string | undefined {
 
     switch (effectiveDefconLevel) {
         case 1:
+            return 'DEFCON 1: Owner only mode';
         case 2:
-            return `DEFCON ${String(effectiveDefconLevel)}`;
+            return 'DEFCON 2: Public commands disabled';
         case 3:
             return config.fluxerBotCustomStatusText;
     }

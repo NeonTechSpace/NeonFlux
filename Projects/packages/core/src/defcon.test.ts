@@ -203,7 +203,7 @@ describe('authorizeDashboardAccess', () => {
         });
     });
 
-    it('allows DEFCON 3 dashboard access through Manage Server or dashboard grants', () => {
+    it('allows DEFCON 3 dashboard access through Manage Server only', () => {
         expect(
             authorizeDashboardAccess({
                 appEnv: 'production',
@@ -216,9 +216,12 @@ describe('authorizeDashboardAccess', () => {
                 appEnv: 'production',
                 override: 3,
                 actor: member,
-                dashboardGrant: { userIds: ['member'] },
-            }).allowed
-        ).toBe(true);
+            })
+        ).toStrictEqual({
+            allowed: false,
+            effectiveDefconLevel: 3,
+            reason: 'missing-dashboard-permission',
+        });
     });
 
     it('does not use command grants for dashboard authorization', () => {

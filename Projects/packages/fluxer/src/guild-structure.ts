@@ -1,4 +1,4 @@
-import type { Client, Guild, GuildChannel, Role } from '@fluxerjs/core';
+import { Client, type Guild, type GuildChannel, type Role } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 const GUILD_CATEGORY_CHANNEL_TYPE = 4;
@@ -41,11 +41,45 @@ export type ReadFluxerGuildStructureInput = {
     guildId: string;
 };
 
+export type ReadFluxerBotGuildStructureInput = Omit<ReadFluxerGuildStructureInput, 'client'> & {
+    botToken: string;
+};
+
 export type ReadFluxerGuildStructureError =
     | { type: 'missing-input'; field: 'guildId' }
     | { type: 'unavailable-or-not-found' }
     | { type: 'fetch-failed'; error: unknown }
     | { type: 'invalid-response' };
+
+export type ReadFluxerBotGuildStructureError =
+    | ReadFluxerGuildStructureError
+    | { type: 'missing-input'; field: 'botToken' }
+    | { type: 'login-failed'; error: unknown };
+
+export async function readFluxerBotGuildStructure(
+    input: ReadFluxerBotGuildStructureInput
+): Promise<Result<FluxerGuildStructure, ReadFluxerBotGuildStructureError>> {
+    const botToken = input.botToken.trim();
+
+    if (!botToken) {
+        return err({ type: 'missing-input', field: 'botToken' });
+    }
+
+    const client = new Client({ gatewayDebug: false });
+
+    try {
+        await client.login(botToken);
+
+        return await readFluxerGuildStructure({
+            client,
+            guildId: input.guildId,
+        });
+    } catch (error) {
+        return err({ type: 'login-failed', error });
+    } finally {
+        await client.destroy().catch(() => undefined);
+    }
+}
 
 export async function readFluxerGuildStructure(
     input: ReadFluxerGuildStructureInput

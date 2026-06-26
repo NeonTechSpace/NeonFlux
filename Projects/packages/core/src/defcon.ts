@@ -52,7 +52,6 @@ export type CommandAuthorizationInput = DefconPolicyInput & {
 
 export type DashboardAuthorizationInput = DefconPolicyInput & {
     actor: DefconActor;
-    dashboardGrant?: DefconGrantRule;
 };
 
 export type DefconAuthorizationResult =
@@ -136,7 +135,7 @@ export function authorizeDashboardAccess(input: DashboardAuthorizationInput): De
             return denied(effectiveDefconLevel, 'defcon-two-owner-only');
 
         case 3:
-            if (input.actor.hasManageServer === true || matchesGrant(input.actor, input.dashboardGrant)) {
+            if (input.actor.hasManageServer === true) {
                 return allowed(effectiveDefconLevel);
             }
 

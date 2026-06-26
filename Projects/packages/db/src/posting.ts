@@ -99,6 +99,7 @@ export async function recordPostedMessage(
                 target: [postedMessages.guildId, postedMessages.channelId, postedMessages.messageId],
                 set: {
                     templateId: normalizeOptionalText(input.templateId),
+                    createdByUserId: normalizeOptionalText(input.createdByUserId),
                     purpose: normalizeOptionalText(input.purpose) ?? 'manual',
                     updatedAt: new Date(),
                 },
