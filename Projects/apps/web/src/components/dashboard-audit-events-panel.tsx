@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 
 import { getDashboardAuditEventsQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardAuditEventsRouteData } from '../server/dashboard-guild-route-data.js';
 import type { DashboardAuditEvent } from '../server/dashboard-posting.server.js';
 
 export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
+    const [search, setSearch] = useState('');
     const auditEventsQuery = useQuery({
         queryKey: getDashboardAuditEventsQueryKey(guildId),
         queryFn: async () => {
@@ -21,6 +23,8 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
             return result.auditEvents;
         },
     });
+    const auditEvents = auditEventsQuery.data;
+    const filteredAuditEvents = useMemo(() => filterAuditEvents(auditEvents, search), [auditEvents, search]);
 
     return (
         <article
@@ -30,7 +34,7 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 <div>
                     <h2 className='text-lg font-semibold text-white'>Audit events</h2>
                     <p className='mt-2 text-sm leading-6 text-neutral-400'>
-                        Recent dashboard and bot-app changes for this server.
+                        Search persisted dashboard and bot-app changes for this server.
                     </p>
                 </div>
                 {auditEventsQuery.isFetching ? (
@@ -40,8 +44,21 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 ) : null}
             </div>
 
+            <label className='mt-4 block space-y-2 text-sm font-medium text-neutral-200'>
+                <span>Search events</span>
+                <input
+                    value={search}
+                    onChange={(event) => setSearch(event.currentTarget.value)}
+                    className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                    placeholder='Feature, action, actor, channel, message...'
+                    type='search'
+                />
+            </label>
+
             <AuditEventsBody
-                events={auditEventsQuery.data ?? []}
+                events={filteredAuditEvents}
+                totalEventCount={auditEvents?.length ?? 0}
+                search={search}
                 isLoading={auditEventsQuery.isPending}
                 isError={auditEventsQuery.isError}
             />
@@ -51,10 +68,14 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
 
 function AuditEventsBody({
     events,
+    totalEventCount,
+    search,
     isLoading,
     isError,
 }: {
     events: DashboardAuditEvent[];
+    totalEventCount: number;
+    search: string;
     isLoading: boolean;
     isError: boolean;
 }) {
@@ -73,31 +94,74 @@ function AuditEventsBody({
     }
 
     if (events.length === 0) {
+        if (totalEventCount > 0 && search.trim()) {
+            return <p className='mt-4 text-sm leading-6 text-neutral-400'>No matching audit events.</p>;
+        }
+
         return <p className='mt-4 text-sm leading-6 text-neutral-400'>No audit events yet.</p>;
     }
 
     return (
-        <ul className='mt-4 divide-y divide-neutral-800'>
-            {events.map((event) => (
-                <li key={event.id} className='py-3 first:pt-0 last:pb-0'>
-                    <div className='flex flex-wrap items-start justify-between gap-2'>
-                        <div>
-                            <p className='text-sm font-semibold text-white'>
-                                {event.feature}: {event.action}
-                            </p>
-                            <p className='mt-1 text-xs text-neutral-500'>{formatAuditEventMetadata(event.metadata)}</p>
+        <>
+            <p className='mt-4 text-xs text-neutral-500'>
+                Showing {events.length} of {totalEventCount} events.
+            </p>
+            <ul className='mt-2 divide-y divide-neutral-800'>
+                {events.map((event) => (
+                    <li key={event.id} className='py-3 first:pt-0 last:pb-0'>
+                        <div className='flex flex-wrap items-start justify-between gap-2'>
+                            <div>
+                                <p className='text-sm font-semibold text-white'>
+                                    {event.feature}: {event.action}
+                                </p>
+                                <p className='mt-1 text-xs text-neutral-500'>
+                                    {formatAuditEventMetadata(event.metadata)}
+                                </p>
+                            </div>
+                            <time dateTime={event.createdAt} className='text-xs text-neutral-500'>
+                                {formatAuditEventTimestamp(event.createdAt)}
+                            </time>
                         </div>
-                        <time dateTime={event.createdAt} className='text-xs text-neutral-500'>
-                            {formatAuditEventTimestamp(event.createdAt)}
-                        </time>
-                    </div>
-                    {event.actorUserId ? (
-                        <p className='mt-2 text-xs text-neutral-500'>Actor: {event.actorUserId}</p>
-                    ) : null}
-                </li>
-            ))}
-        </ul>
+                        {event.actorUserId ? (
+                            <p className='mt-2 text-xs text-neutral-500'>Actor: {event.actorUserId}</p>
+                        ) : null}
+                    </li>
+                ))}
+            </ul>
+        </>
     );
+}
+
+function filterAuditEvents(events: DashboardAuditEvent[] | undefined, query: string): DashboardAuditEvent[] {
+    if (!events) {
+        return [];
+    }
+
+    const normalizedQuery = normalizeAuditSearchText(query);
+
+    if (!normalizedQuery) {
+        return events;
+    }
+
+    const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+    return events.filter((event) => {
+        const eventText = normalizeAuditSearchText(getAuditEventSearchText(event));
+
+        return tokens.every((token) => eventText.includes(token) || isSubsequence(token, eventText));
+    });
+}
+
+function getAuditEventSearchText(event: DashboardAuditEvent): string {
+    return [
+        event.feature,
+        event.action,
+        event.actorUserId ?? '',
+        event.targetId ?? '',
+        event.createdAt,
+        formatAuditEventTimestamp(event.createdAt),
+        ...Object.entries(event.metadata).flatMap(([key, value]) => [key, String(value)]),
+    ].join(' ');
 }
 
 function formatAuditEventMetadata(metadata: Record<string, unknown>): string {
@@ -122,6 +186,29 @@ function formatMetadataValue(label: string, value: unknown): string | undefined 
     }
 
     return undefined;
+}
+
+function normalizeAuditSearchText(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ');
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+    let needleIndex = 0;
+
+    for (const character of haystack) {
+        if (character === needle[needleIndex]) {
+            needleIndex += 1;
+        }
+
+        if (needleIndex === needle.length) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function formatAuditEventTimestamp(value: string): string {

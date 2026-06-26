@@ -1,6 +1,7 @@
 export * from './client.js';
 export * from './guild-structure.js';
 export * from './guilds.js';
+export * from './invites.js';
 export * from './messages.js';
 export * from './oauth.js';
 export * from './platform.js';

@@ -1,6 +1,6 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { listBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import { listAllBotActionEventsByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
@@ -55,7 +55,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
-        listBotActionEventsByGuildId: vi.fn(),
+        listAllBotActionEventsByGuildId: vi.fn(),
         recordBotActionEvent: vi.fn(),
         recordPostedMessage: vi.fn(),
     };
@@ -100,7 +100,7 @@ describe('dashboard posting', () => {
         );
         vi.mocked(recordPostedMessage).mockResolvedValue(ok(createPostedMessageRecord()));
         vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createBotActionEventRecord()));
-        vi.mocked(listBotActionEventsByGuildId).mockResolvedValue(ok([createBotActionEventRecord()]));
+        vi.mocked(listAllBotActionEventsByGuildId).mockResolvedValue(ok([createBotActionEventRecord()]));
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
             ok({
                 guildId: 'guild-1',
@@ -334,11 +334,10 @@ describe('dashboard posting', () => {
                 },
             ],
         });
-        expect(listBotActionEventsByGuildId).toHaveBeenCalledWith(
+        expect(listAllBotActionEventsByGuildId).toHaveBeenCalledWith(
             {},
             {
                 guildId: 'authorized-guild',
-                limit: 25,
             }
         );
     });

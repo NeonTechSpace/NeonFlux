@@ -49,6 +49,75 @@ export const xpRoleRewards = pgTable(
     (table) => [uniqueIndex('xp_role_rewards_guild_level_role_idx').on(table.guildId, table.level, table.roleId)]
 );
 
+export const guildMemberFlowEvents = pgTable(
+    'guild_member_flow_events',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        userId: text('user_id').notNull(),
+        eventType: text('event_type').notNull(),
+        inviteCode: text('invite_code'),
+        inviterUserId: text('inviter_user_id'),
+        attributionStatus: text('attribution_status').notNull(),
+        occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        index('guild_member_flow_events_guild_occurred_idx').on(table.guildId, table.occurredAt),
+        index('guild_member_flow_events_guild_user_idx').on(table.guildId, table.userId),
+        index('guild_member_flow_events_guild_event_idx').on(table.guildId, table.eventType),
+    ]
+);
+
+export const guildInviteSnapshots = pgTable(
+    'guild_invite_snapshots',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        code: text('code').notNull(),
+        inviterUserId: text('inviter_user_id'),
+        channelId: text('channel_id'),
+        uses: integer('uses').notNull().default(0),
+        maxUses: integer('max_uses'),
+        expiresAt: timestamp('expires_at', { withTimezone: true }),
+        temporary: boolean('temporary').notNull().default(false),
+        active: boolean('active').notNull().default(true),
+        firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+        lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+        revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    },
+    (table) => [
+        uniqueIndex('guild_invite_snapshots_guild_code_idx').on(table.guildId, table.code),
+        index('guild_invite_snapshots_guild_inviter_idx').on(table.guildId, table.inviterUserId),
+        index('guild_invite_snapshots_guild_active_idx').on(table.guildId, table.active),
+    ]
+);
+
+export const guildMessageActivityDays = pgTable(
+    'guild_message_activity_days',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        channelId: text('channel_id').notNull(),
+        activityDate: text('activity_date').notNull(),
+        messageCount: integer('message_count').notNull().default(0),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('guild_message_activity_days_guild_channel_date_idx').on(
+            table.guildId,
+            table.channelId,
+            table.activityDate
+        ),
+        index('guild_message_activity_days_guild_date_idx').on(table.guildId, table.activityDate),
+    ]
+);
+
 export const vcGeneratorRules = pgTable(
     'vc_generator_rules',
     {

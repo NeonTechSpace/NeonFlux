@@ -35,7 +35,7 @@ export const dashboardCategories = [
         label: 'Overview',
         path: '',
         to: '/dashboard/$guildId',
-        description: 'Recent dashboard and bot-app activity.',
+        description: 'Server growth, invite, message, and data-health metrics.',
         status: 'active',
     },
     {

@@ -29,11 +29,16 @@ The planned feature areas are:
 
 - Autorole
 - Bot installation sync and reconciliation
+- Command help
 - Dashboard access for single and multi instance
+- Dashboard audit events
+- Dashboard server overview and growth tracking
 - Docker / GHCR deployment
 - Fumadocs documentation under `/docs`
+- Giveaways
 - Import/export for roles, channels, categories, emojis, and permissions
-- Logging and audit events
+- Invite tracker
+- Logging
 - Message and embed posting
 - Moderation
 - OAuth login, sessions, and refreshed permissions

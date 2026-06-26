@@ -77,6 +77,32 @@ export async function listBotActionEventsByGuildId(
     }
 }
 
+export async function listAllBotActionEventsByGuildId(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; feature?: string }
+): Promise<Result<BotActionEventRecord[], LoggingRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const feature = normalizeOptionalText(input.feature);
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const rows = await db
+            .select()
+            .from(botActionEvents)
+            .where(
+                feature
+                    ? and(eq(botActionEvents.guildId, guildId.value), eq(botActionEvents.feature, feature))
+                    : eq(botActionEvents.guildId, guildId.value)
+            )
+            .orderBy(desc(botActionEvents.createdAt));
+
+        return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 function normalizeBotActionEventLimit(limit: number | undefined): number {
     if (limit === undefined || !Number.isFinite(limit)) {
         return 25;

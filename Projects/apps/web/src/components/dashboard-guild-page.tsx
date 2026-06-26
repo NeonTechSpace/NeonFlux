@@ -16,6 +16,7 @@ import {
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
+import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
@@ -82,9 +83,9 @@ export function DashboardGuildPendingPage({
     if (preview) {
         return (
             <DashboardShell>
-                <DashboardGuildHeader mode={preview.mode} guild={preview} />
+                <DashboardGuildHeader mode={preview.mode} guild={preview} isLoading />
                 <DashboardCategoryLayout guildId={guildId} activeCategoryId={activeCategoryId}>
-                    <DashboardCategoryLoadingState />
+                    <DashboardPendingCategory activeCategoryId={activeCategoryId} />
                 </DashboardCategoryLayout>
             </DashboardShell>
         );
@@ -119,14 +120,9 @@ export function useDashboardGuildData(): AuthorizedDashboardGuildRouteData {
 export function DashboardGuildOverviewCategory() {
     const data = useDashboardGuildData();
 
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: auditLiveArea,
-    });
-
     return (
         <DashboardCategorySection categoryId='overview'>
-            <DashboardAuditEventsPanel guildId={data.guild.id} />
+            <DashboardServerOverviewPanel guildId={data.guild.id} />
         </DashboardCategorySection>
     );
 }
@@ -246,6 +242,22 @@ function DashboardCategorySection({ categoryId, children }: { categoryId: Dashbo
     );
 }
 
+function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: DashboardCategoryId }) {
+    if (activeCategoryId === 'overview') {
+        return (
+            <DashboardCategorySection categoryId='overview'>
+                <DashboardServerOverviewLoading />
+            </DashboardCategorySection>
+        );
+    }
+
+    return (
+        <DashboardCategorySection categoryId={activeCategoryId}>
+            <StatusCard title='Loading settings' body='Fetching saved settings for this category.' isLoading />
+        </DashboardCategorySection>
+    );
+}
+
 function DashboardPlannedCategoryNotice({ categoryId }: { categoryId: DashboardCategoryId }) {
     const category = getDashboardCategory(categoryId);
 
@@ -271,9 +283,11 @@ function DashboardCategoryLoadingState() {
 function DashboardGuildHeader({
     mode,
     guild,
+    isLoading = false,
 }: {
     mode: 'single' | 'multi';
     guild: { id: string; name: string; iconUrl?: string };
+    isLoading?: boolean;
 }) {
     return (
         <header className='space-y-3 border-b border-neutral-800 pb-6'>
@@ -281,13 +295,22 @@ function DashboardGuildHeader({
                 <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>
                     {mode === 'single' ? 'Single instance' : 'Multi instance'}
                 </p>
-                {mode === 'multi' ? (
-                    <Link
-                        to='/dashboard'
-                        className='inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
-                        Choose server
-                    </Link>
-                ) : null}
+                <div className='flex flex-wrap items-center gap-2'>
+                    {isLoading ? (
+                        <span
+                            role='status'
+                            className='inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-300'>
+                            Loading settings
+                        </span>
+                    ) : null}
+                    {mode === 'multi' ? (
+                        <Link
+                            to='/dashboard'
+                            className='inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
+                            Choose server
+                        </Link>
+                    ) : null}
+                </div>
             </div>
             <div className='flex min-w-0 items-center gap-4'>
                 <DashboardGuildAvatar guild={guild} />

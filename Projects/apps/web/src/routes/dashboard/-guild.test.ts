@@ -23,6 +23,7 @@ import {
     postDashboardMessageRouteData,
     readDashboardAuditEventsRouteData,
     readDashboardCommandSettingsRouteData,
+    readDashboardGuildOverviewRouteData,
     readDashboardPostingChannelsRouteData,
     resolveDashboardGuildRouteResult,
     toDashboardGuildRouteResult,
@@ -39,6 +40,7 @@ vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
         postDashboardMessageRouteData: vi.fn(),
         readDashboardAuditEventsRouteData: vi.fn(),
         readDashboardCommandSettingsRouteData: vi.fn(),
+        readDashboardGuildOverviewRouteData: vi.fn(),
         readDashboardPostingChannelsRouteData: vi.fn(),
         updateDashboardCommandPrefixRouteData: vi.fn(),
     };
@@ -62,6 +64,10 @@ describe('/dashboard/$guildId', () => {
         vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValue({
             type: 'events',
             auditEvents: [],
+        });
+        vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValue({
+            type: 'overview',
+            overview: createDashboardOverview(),
         });
         vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
             type: 'channels',
@@ -167,7 +173,11 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
         expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
+        expect(await screen.findByText('Tracking window')).toBeTruthy();
+        expect(screen.getByText('Member flow')).toBeTruthy();
+        expect(screen.getByText('Active invites')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Join and leave graph' })).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'Audit events' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Instance mode' })).toBeNull();
         expect(screen.queryByText('This bot can manage multiple servers.')).toBeNull();
         expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page');
@@ -180,6 +190,76 @@ describe('/dashboard/$guildId', () => {
         );
         expect(screen.getByLabelText('Dashboard category')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+    });
+
+    it('renders populated overview metrics, graph data, and grouped top inviters', async () => {
+        vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValueOnce({
+            type: 'overview',
+            overview: createDashboardOverview({
+                trackingStartedAt: '2026-06-25T00:00:00.000Z',
+                memberFlow: {
+                    totalJoins: 3,
+                    totalLeaves: 1,
+                    netGrowth: 2,
+                    graph: [
+                        { date: '2026-06-25', joins: 2, leaves: 0, netGrowth: 2 },
+                        { date: '2026-06-26', joins: 1, leaves: 1, netGrowth: 0 },
+                    ],
+                },
+                invites: {
+                    activeInviteCount: 3,
+                    totalInviteUses: 16,
+                    attribution: {
+                        attributed: 3,
+                        baselineMissing: 0,
+                        ambiguous: 0,
+                        unavailable: 1,
+                        notApplicable: 1,
+                    },
+                    topInviters: [
+                        {
+                            inviterUserId: 'inviter-1',
+                            attributedJoins: 3,
+                            inviteCodes: [
+                                { code: 'alpha', uses: 5, active: true },
+                                { code: 'beta', uses: 3, active: true },
+                            ],
+                        },
+                        {
+                            inviterUserId: 'inviter-2',
+                            attributedJoins: 1,
+                            inviteCodes: [{ code: 'gamma', uses: 8, active: true }],
+                        },
+                    ],
+                },
+                messages: {
+                    totalMessages: 12,
+                    topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
+                },
+                dataHealth: {
+                    hasMemberFlow: true,
+                    hasInviteSnapshots: true,
+                    hasMessageActivity: true,
+                },
+            }),
+        });
+
+        renderGuildPage();
+
+        expect(await screen.findByText('+2')).toBeTruthy();
+        expect(screen.getByText('3 joins, 1 leaves recorded.')).toBeTruthy();
+        expect(screen.getByText('16 total uses across active tracked invites.')).toBeTruthy();
+        expect(screen.getByText('Top channel channel-1 with 12 messages.')).toBeTruthy();
+        expect(screen.getByText('alpha · 5 uses')).toBeTruthy();
+        expect(screen.getByText('beta · 3 uses')).toBeTruthy();
+        expect(screen.getByText('gamma · 8 uses')).toBeTruthy();
+        expect(screen.getByText('1 joins could not be attributed because invite data was unavailable.')).toBeTruthy();
+
+        const topInvitersPanel = screen.getByRole('region', { name: 'Top inviters' });
+
+        fireEvent.change(within(topInvitersPanel).getByLabelText('Sort inviters'), { target: { value: 'uses' } });
+
+        expect(within(topInvitersPanel).getByLabelText<HTMLSelectElement>('Sort inviters').value).toBe('uses');
     });
 
     it('renders the routed general category', async () => {
@@ -205,6 +285,7 @@ describe('/dashboard/$guildId', () => {
 
         expect(await screen.findByRole('region', { name: 'Audit Events' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
+        expect(screen.getByLabelText('Search events')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('aria-current')).toBe('page');
     });
 
@@ -241,8 +322,10 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('heading', { name: 'Preview Guild' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Preview Guild icon' })).toBeTruthy();
         expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
+        expect(screen.getByText('Loading settings')).toBeTruthy();
         expect(screen.getByRole('navigation', { name: 'Dashboard categories' })).toBeTruthy();
-        expect(screen.getByText('Loading server settings for this section.')).toBeTruthy();
+        expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Messaging' })).toBeTruthy();
     });
 
     it('renders a neutral direct-entry pending shell without fake mode, name, or icon', () => {
@@ -573,7 +656,7 @@ describe('/dashboard/$guildId', () => {
         expect(preview.getByText('Preview footer')).toBeTruthy();
     });
 
-    it('renders recent dashboard audit events', async () => {
+    it('renders and fuzzy-searches persisted dashboard audit events', async () => {
         vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValueOnce({
             type: 'events',
             auditEvents: [
@@ -592,18 +675,37 @@ describe('/dashboard/$guildId', () => {
                     },
                     createdAt: '2026-06-26T00:00:00.000Z',
                 },
+                {
+                    id: 'event-2',
+                    feature: 'settings',
+                    action: 'prefix.updated',
+                    actorUserId: 'actor-2',
+                    targetId: 'prefix',
+                    metadata: {
+                        source: 'dashboard',
+                    },
+                    createdAt: '2026-06-26T01:00:00.000Z',
+                },
             ],
         });
 
         renderGuildPage(createGuildRouteData(), 'audit');
 
         expect(await screen.findByText('posting: message.sent')).toBeTruthy();
+        expect(screen.getByText('settings: prefix.updated')).toBeTruthy();
+        expect(screen.getByText('Showing 2 of 2 events.')).toBeTruthy();
         expect(screen.getByText('Actor: actor-1')).toBeTruthy();
         expect(
             screen.getByText(
                 'Channel: channel-1 | Message: message-1 | Content length: 5 | Embeds: 0 | Source: dashboard'
             )
         ).toBeTruthy();
+
+        fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'chnl1' } });
+
+        expect(screen.getByText('posting: message.sent')).toBeTruthy();
+        expect(screen.queryByText('settings: prefix.updated')).toBeNull();
+        expect(screen.getByText('Showing 1 of 2 events.')).toBeTruthy();
     });
 
     it('renders the single-instance unauthorized state', async () => {
@@ -828,6 +930,44 @@ function createCommandSettingsReadResult(prefix: string) {
         },
     };
 }
+
+function createDashboardOverview(overrides: Partial<DashboardOverviewTestData> = {}): DashboardOverviewTestData {
+    return {
+        memberFlow: {
+            totalJoins: 0,
+            totalLeaves: 0,
+            netGrowth: 0,
+            graph: [{ date: '2026-06-26', joins: 0, leaves: 0, netGrowth: 0 }],
+        },
+        invites: {
+            activeInviteCount: 0,
+            totalInviteUses: 0,
+            attribution: {
+                attributed: 0,
+                baselineMissing: 0,
+                ambiguous: 0,
+                unavailable: 0,
+                notApplicable: 0,
+            },
+            topInviters: [],
+        },
+        messages: {
+            totalMessages: 0,
+            topChannels: [],
+        },
+        dataHealth: {
+            hasMemberFlow: false,
+            hasInviteSnapshots: false,
+            hasMessageActivity: false,
+        },
+        ...overrides,
+    };
+}
+
+type DashboardOverviewTestData = Extract<
+    Awaited<ReturnType<typeof readDashboardGuildOverviewRouteData>>,
+    { type: 'overview' }
+>['overview'];
 
 function getRedirectOptions(error: unknown): Record<string, unknown> {
     if (!error || typeof error !== 'object' || !('options' in error)) {
