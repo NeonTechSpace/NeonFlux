@@ -126,17 +126,6 @@ export function DashboardGuildOverviewCategory() {
 
     return (
         <DashboardCategorySection categoryId='overview'>
-            <div className='grid gap-3 sm:grid-cols-2'>
-                <StatusCard title='Server' body={`Managing ${data.guild.name}.`} />
-                <StatusCard
-                    title='Instance mode'
-                    body={
-                        data.mode === 'single'
-                            ? 'This bot is tied to one configured server.'
-                            : 'This bot can manage multiple servers.'
-                    }
-                />
-            </div>
             <DashboardAuditEventsPanel guildId={data.guild.id} />
         </DashboardCategorySection>
     );
