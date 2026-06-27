@@ -5,6 +5,7 @@ export * from './deployment-config.js';
 export * from './feature-repository-types.js';
 export * from './fluxer-oauth-tokens.js';
 export * from './guild-command-settings.js';
+export * from './guild-command-permission-rules.js';
 export * from './growth-overview.js';
 export * from './guilds.js';
 export * from './guild-dashboard-permission-rules.js';

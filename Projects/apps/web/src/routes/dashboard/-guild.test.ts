@@ -23,6 +23,7 @@ import {
 import {
     postDashboardMessageRouteData,
     readDashboardAuditEventsRouteData,
+    readDashboardCommandAccessRouteData,
     readDashboardCommandSettingsRouteData,
     readDashboardGuildOverviewRouteData,
     readDashboardPostingChannelsRouteData,
@@ -40,6 +41,7 @@ vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
         ...actual,
         postDashboardMessageRouteData: vi.fn(),
         readDashboardAuditEventsRouteData: vi.fn(),
+        readDashboardCommandAccessRouteData: vi.fn(),
         readDashboardCommandSettingsRouteData: vi.fn(),
         readDashboardGuildOverviewRouteData: vi.fn(),
         readDashboardPostingChannelsRouteData: vi.fn(),
@@ -90,6 +92,7 @@ describe('/dashboard/$guildId', () => {
             ],
         });
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('?'));
+        vi.mocked(readDashboardCommandAccessRouteData).mockResolvedValue(createCommandAccessReadResult());
         vi.mocked(postDashboardMessageRouteData).mockResolvedValue({
             type: 'sent',
             message: {
@@ -370,6 +373,20 @@ describe('/dashboard/$guildId', () => {
         expect(await screen.findByRole('region', { name: 'Moderation' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Moderation is not built yet' })).toBeTruthy();
         expect(screen.queryByRole('button')).toBeNull();
+    });
+
+    it('renders command access without granting dashboard access', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        expect(await screen.findByRole('region', { name: 'Roles & Access' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Command access' })).toBeTruthy();
+        expect(screen.getByText('settings.prefix')).toBeTruthy();
+        expect(screen.getByText(/Dashboard access still requires Manage Server/u)).toBeTruthy();
+        expect(readDashboardCommandAccessRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
     });
 
     it('renders preview guild data only for pending SPA navigation', () => {
@@ -1140,6 +1157,30 @@ function createCommandSettingsReadResult(prefix: string) {
             prefix,
             isDefaultPrefix: prefix === '!',
         },
+    };
+}
+
+function createCommandAccessReadResult() {
+    return {
+        type: 'access' as const,
+        catalog: {
+            categories: [
+                {
+                    id: 'settings',
+                    title: 'Settings',
+                },
+            ],
+            commands: [
+                {
+                    id: 'settings.prefix',
+                    categoryId: 'settings',
+                    categoryTitle: 'Settings',
+                    commandName: 'prefix',
+                    description: 'Change the command prefix. Requires Manage Server or an allowed role/user rule.',
+                },
+            ],
+        },
+        rules: [],
     };
 }
 

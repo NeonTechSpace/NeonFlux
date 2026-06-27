@@ -4,7 +4,7 @@ import type { PgQueryResultHKT } from 'drizzle-orm/pg-core/session';
 import { err, ok, type Result } from 'neverthrow';
 
 import type * as schema from './schema.js';
-import { guildCommandPermissionRules, guildDefconExemptions, guildSecurityPolicies } from './schema.js';
+import { guildDefconExemptions, guildSecurityPolicies } from './schema.js';
 
 export {
     findGuildDashboardPermissionRule,
@@ -18,15 +18,6 @@ export type GuildDefconLevel = 1 | 2 | 3;
 export type GuildSecurityPolicyRecord = {
     guildId: string;
     defconLevel: GuildDefconLevel;
-    createdAt: Date;
-    updatedAt: Date;
-};
-
-export type GuildCommandPermissionRuleRecord = {
-    guildId: string;
-    category: string;
-    userIds: string[];
-    roleIds: string[];
     createdAt: Date;
     updatedAt: Date;
 };
@@ -46,7 +37,6 @@ export type GuildSecurityPolicyRepositoryError =
 
 type GuildSecurityPolicyDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
 type GuildSecurityPolicyRow = typeof guildSecurityPolicies.$inferSelect;
-type GuildCommandPermissionRuleRow = typeof guildCommandPermissionRules.$inferSelect;
 type GuildDefconExemptionRow = typeof guildDefconExemptions.$inferSelect;
 
 export async function upsertGuildSecurityPolicy(
@@ -152,87 +142,6 @@ export async function listGuildSecurityPoliciesByGuildIds(
         }
 
         return ok(records);
-    } catch {
-        return err('database-error');
-    }
-}
-
-export async function upsertGuildCommandPermissionRule(
-    db: GuildSecurityPolicyDatabase,
-    input: {
-        guildId: string;
-        category: string;
-        userIds?: readonly string[];
-        roleIds?: readonly string[];
-    }
-): Promise<Result<GuildCommandPermissionRuleRecord, GuildSecurityPolicyRepositoryError>> {
-    const normalizedInput = normalizePermissionRuleInput(input);
-
-    if (normalizedInput.isErr()) {
-        return err(normalizedInput.error);
-    }
-
-    const updatedAt = new Date();
-
-    try {
-        const rules = await db
-            .insert(guildCommandPermissionRules)
-            .values({
-                guildId: normalizedInput.value.guildId,
-                category: normalizedInput.value.category,
-                userIds: normalizedInput.value.userIds,
-                roleIds: normalizedInput.value.roleIds,
-                updatedAt,
-            })
-            .onConflictDoUpdate({
-                target: [guildCommandPermissionRules.guildId, guildCommandPermissionRules.category],
-                set: {
-                    userIds: normalizedInput.value.userIds,
-                    roleIds: normalizedInput.value.roleIds,
-                    updatedAt,
-                },
-            })
-            .returning();
-        const rule = rules[0];
-
-        if (!rule) {
-            return err('database-error');
-        }
-
-        return ok(toGuildCommandPermissionRuleRecord(rule));
-    } catch {
-        return err('database-error');
-    }
-}
-
-export async function findGuildCommandPermissionRule(
-    db: GuildSecurityPolicyDatabase,
-    input: { guildId: string; category: string }
-): Promise<Result<GuildCommandPermissionRuleRecord, GuildSecurityPolicyRepositoryError>> {
-    const normalizedInput = normalizeRuleLookupInput(input);
-
-    if (normalizedInput.isErr()) {
-        return err(normalizedInput.error);
-    }
-
-    try {
-        const rules = await db
-            .select()
-            .from(guildCommandPermissionRules)
-            .where(
-                and(
-                    eq(guildCommandPermissionRules.guildId, normalizedInput.value.guildId),
-                    eq(guildCommandPermissionRules.category, normalizedInput.value.category)
-                )
-            )
-            .limit(1);
-        const rule = rules[0];
-
-        if (!rule) {
-            return err('not-found');
-        }
-
-        return ok(toGuildCommandPermissionRuleRecord(rule));
     } catch {
         return err('database-error');
     }
@@ -359,32 +268,6 @@ async function findGuildDefconExemption(
     }
 }
 
-type NormalizedPermissionRuleInput = {
-    guildId: string;
-    category: string;
-    userIds: string[];
-    roleIds: string[];
-};
-
-function normalizePermissionRuleInput(input: {
-    guildId: string;
-    category: string;
-    userIds?: readonly string[];
-    roleIds?: readonly string[];
-}): Result<NormalizedPermissionRuleInput, GuildSecurityPolicyRepositoryError> {
-    const lookupInputResult = normalizeRuleLookupInput(input);
-
-    if (lookupInputResult.isErr()) {
-        return err(lookupInputResult.error);
-    }
-
-    return ok({
-        ...lookupInputResult.value,
-        userIds: normalizeIds(input.userIds),
-        roleIds: normalizeIds(input.roleIds),
-    });
-}
-
 function normalizeRuleLookupInput(input: {
     guildId: string;
     category: string;
@@ -458,17 +341,6 @@ function toGuildSecurityPolicyRecord(
         createdAt: policy.createdAt,
         updatedAt: policy.updatedAt,
     });
-}
-
-function toGuildCommandPermissionRuleRecord(rule: GuildCommandPermissionRuleRow): GuildCommandPermissionRuleRecord {
-    return {
-        guildId: rule.guildId,
-        category: rule.category,
-        userIds: normalizeIds(rule.userIds),
-        roleIds: normalizeIds(rule.roleIds),
-        createdAt: rule.createdAt,
-        updatedAt: rule.updatedAt,
-    };
 }
 
 function toGuildDefconExemptionRecord(exemption: GuildDefconExemptionRow): GuildDefconExemptionRecord {

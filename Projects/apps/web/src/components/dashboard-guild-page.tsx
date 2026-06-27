@@ -8,6 +8,7 @@ import { getDashboardCategory } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
+import { DashboardCommandAccessPanel } from './dashboard-command-access-panel.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
 import {
     DashboardCommandPrefixSettingsPanel,
@@ -164,13 +165,11 @@ export function DashboardGuildInviteTrackingCategory() {
 }
 
 export function DashboardGuildAccessCategory() {
+    const data = useDashboardGuildData();
+
     return (
         <DashboardCategorySection categoryId='access'>
-            <StatusCard
-                title='Permissions'
-                body='Every setting change is checked again on the server before it is saved.'
-            />
-            <DashboardPlannedCategoryNotice categoryId='access' />
+            <DashboardCommandAccessPanel guildId={data.guild.id} />
         </DashboardCategorySection>
     );
 }

@@ -97,7 +97,9 @@ export async function authorizeBotPresenceReply(
     }
 
     return await authorizeBotCommand(context, event, {
-        category: DEFCON_FEATURE_CATEGORY.botMention,
+        commandId: 'general.ping',
+        categoryId: 'general',
+        defconCategory: DEFCON_FEATURE_CATEGORY.botMention,
         audience: 'public',
     });
 }

@@ -78,6 +78,13 @@
       "when": 1782525600000,
       "tag": "0010_growth_overview_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782608400000,
+      "tag": "0011_command_access_targets",
+      "breakpoints": true
     }
   ]
 }
