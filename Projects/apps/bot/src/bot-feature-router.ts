@@ -16,6 +16,7 @@ import type {
 } from './bot-feature-types.js';
 import { getHelpCommandIntent, routeHelpCommand } from './bot-help-command.js';
 import { trackGrowthOverviewEvent, type BotGrowthMemberEvent } from './bot-growth-tracking.js';
+import { getModerationCommandIntent, routeModerationCommand } from './bot-moderation-command.js';
 import {
     authorizeBotPresenceReply,
     getBotPresenceIntent,
@@ -185,6 +186,16 @@ async function routeMessageCreatedEvent(
 
     if (helpIntentResult.value) {
         return await routeHelpCommand(context, event, helpIntentResult.value);
+    }
+
+    const moderationIntentResult = await getModerationCommandIntent(context, event);
+
+    if (moderationIntentResult.isErr()) {
+        return err(moderationIntentResult.error);
+    }
+
+    if (moderationIntentResult.value) {
+        return await routeModerationCommand(context, event, moderationIntentResult.value);
     }
 
     const intentResult = await getBotPresenceIntent(context, event);

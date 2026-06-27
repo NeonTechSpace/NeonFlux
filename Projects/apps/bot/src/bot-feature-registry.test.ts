@@ -14,6 +14,7 @@ describe('bot feature registry', () => {
         expect(visibleUsages).not.toContain('!ban');
         expect(visibleUsages).not.toContain('!ticket');
         expect(visibleUsages).not.toContain('!export');
+        expect(visibleUsages).toContain('!warn <user> [reason]');
     });
 
     it('keeps planned feature command metadata hidden until implemented', () => {
@@ -24,7 +25,6 @@ describe('bot feature registry', () => {
             'moderation.ban',
             'moderation.unban',
             'moderation.timeout',
-            'moderation.warn',
             'suggestions.suggest',
             'xp.rank',
             'xp.leaderboard',

@@ -10,6 +10,7 @@
     - `target_type = command`, example `target_id = settings.prefix`
 - Old category grants are preserved as category targets during migration. Prefix command authorization also checks the legacy `prefix` category target so existing grants keep working.
 - Grants apply only to real implemented guarded bot commands. Public help/ping stay discoverable, are DEFCON-gated, and are not grantable.
+- Moderation V1 is live as guarded bot commands for case history, warnings, reasons, and notes only. Ban, kick, timeout, purge, and automod remain planned.
 - DEFCON 1/2 are stronger than grants. DEFCON 3 allows server owner, Manage Server, category grant, or command grant for guarded commands.
 - Help output lists implemented visible commands regardless of whether the caller can execute them. Discovery does not bypass DEFCON.
 
@@ -20,7 +21,8 @@
 - `posting`: dashboard-only sender and future templates/embed builder. No bot command.
 - `vc_generator`: dashboard-only setup plus a bot-managed panel embed in a configured channel. Until interactions exist, panel controls use reactions for rename, user limit, whitelist, blacklist, lock, and unlock.
 - `xp`: message activity and VC activity both count as XP sources.
-- `moderation`, `suggestions`, and `xp` are the only current planned bot command groups in the catalog. Their commands stay hidden until implemented.
+- `moderation` now has implemented visible commands for `warn`, `warnings`, `delwarn`, `clearwarn`, `case`, `cases`, `reason`, `note`, and `notes`.
+- Destructive moderation commands, `suggestions`, and `xp` remain planned bot command groups in the catalog. Their commands stay hidden until implemented.
 
 ## Audit Trail
 

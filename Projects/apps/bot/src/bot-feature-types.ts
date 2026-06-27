@@ -111,6 +111,7 @@ export type BotFeatureRouteIgnoredReason =
 export type BotFeatureRouteHandledAction =
     | 'bot_mention.contextless_reply'
     | 'command.help'
+    | `command.moderation.${string}`
     | 'command.ping'
     | 'commands.prefix_change';
 

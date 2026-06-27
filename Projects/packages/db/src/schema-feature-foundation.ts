@@ -25,6 +25,14 @@ export const moderationCases = pgTable(
     ]
 );
 
+export const moderationCaseCounters = pgTable('moderation_case_counters', {
+    guildId: text('guild_id')
+        .primaryKey()
+        .references(() => guilds.guildId, { onDelete: 'cascade' }),
+    nextCaseNumber: integer('next_case_number').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const moderationCaseEvents = pgTable(
     'moderation_case_events',
     {

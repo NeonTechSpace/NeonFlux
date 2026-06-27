@@ -2,5 +2,5 @@
     "title": "Bot",
     "defaultOpen": true,
     "collapsible": true,
-    "pages": ["bot-presence"]
+    "pages": ["bot-presence", "moderation"]
 }

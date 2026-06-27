@@ -10,11 +10,26 @@ import {
 
 describe('feature catalog', () => {
     it('keeps implemented grantable commands limited to real guarded bot commands', () => {
-        expect(listGrantableBotCommandDefinitions().map((command) => command.id)).toStrictEqual(['settings.prefix']);
+        expect(listGrantableBotCommandDefinitions().map((command) => command.id)).toStrictEqual([
+            'settings.prefix',
+            'moderation.warn',
+            'moderation.warnings',
+            'moderation.warning.delete',
+            'moderation.warnings.clear',
+            'moderation.case',
+            'moderation.cases',
+            'moderation.reason',
+            'moderation.note',
+            'moderation.notes',
+        ]);
         expect(listGrantableBotCommandCategories()).toStrictEqual([
             {
                 id: 'settings',
                 title: 'Settings',
+            },
+            {
+                id: 'moderation',
+                title: 'Moderation',
             },
         ]);
     });

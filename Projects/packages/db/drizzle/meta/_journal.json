@@ -85,6 +85,13 @@
       "when": 1782608400000,
       "tag": "0011_command_access_targets",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782694800000,
+      "tag": "0012_moderation_case_counters",
+      "breakpoints": true
     }
   ]
 }

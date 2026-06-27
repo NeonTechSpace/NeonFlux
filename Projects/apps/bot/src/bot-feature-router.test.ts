@@ -3,18 +3,27 @@ import { COMMAND_PREFIX_INVALID_MESSAGE, DEFAULT_COMMAND_PREFIX } from '@neonflu
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import {
     deleteBotInstallation,
+    addModerationCaseNote,
+    createModerationCase,
+    findModerationCaseByGuildCaseNumber,
     findGuildCommandPermissionRule,
     findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
     incrementGuildMessageActivityDay,
+    listModerationCaseEventsByCaseId,
+    listModerationCasesByGuildId,
     listGuildDefconExemptionCategories,
     listGuildInviteSnapshots,
     recordGuildMemberFlowEvent,
     syncGuildInviteSnapshots,
+    updateModerationCaseReason,
     upsertGuildCommandPrefix,
     upsertBotInstallation,
+    voidModerationCase,
     type BotInstallationRecord,
     type GuildCommandSettingsRecord,
+    type ModerationCaseRecord,
+    type ModerationCaseEventRecord,
 } from '@neonflux/db';
 import { readFluxerGuildInvites, sendFluxerChannelMessage, type FluxerBot } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
@@ -25,16 +34,23 @@ import { routeBotFeatureEvent, type BotFeatureHandlerContext } from './bot-featu
 vi.mock('@neonflux/db', () => {
     return {
         deleteBotInstallation: vi.fn(),
+        addModerationCaseNote: vi.fn(),
+        createModerationCase: vi.fn(),
+        findModerationCaseByGuildCaseNumber: vi.fn(),
         findGuildCommandPermissionRule: vi.fn(),
         findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
         incrementGuildMessageActivityDay: vi.fn(),
+        listModerationCaseEventsByCaseId: vi.fn(),
+        listModerationCasesByGuildId: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
         listGuildInviteSnapshots: vi.fn(),
         recordGuildMemberFlowEvent: vi.fn(),
         syncGuildInviteSnapshots: vi.fn(),
+        updateModerationCaseReason: vi.fn(),
         upsertGuildCommandPrefix: vi.fn(),
         upsertBotInstallation: vi.fn(),
+        voidModerationCase: vi.fn(),
     };
 });
 
@@ -47,15 +63,22 @@ vi.mock('@neonflux/fluxer', () => {
 
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const addModerationCaseNoteMock = vi.mocked(addModerationCaseNote);
+const createModerationCaseMock = vi.mocked(createModerationCase);
+const findModerationCaseByGuildCaseNumberMock = vi.mocked(findModerationCaseByGuildCaseNumber);
 const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionRule);
 const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
 const incrementGuildMessageActivityDayMock = vi.mocked(incrementGuildMessageActivityDay);
+const listModerationCaseEventsByCaseIdMock = vi.mocked(listModerationCaseEventsByCaseId);
+const listModerationCasesByGuildIdMock = vi.mocked(listModerationCasesByGuildId);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
 const listGuildInviteSnapshotsMock = vi.mocked(listGuildInviteSnapshots);
 const recordGuildMemberFlowEventMock = vi.mocked(recordGuildMemberFlowEvent);
 const syncGuildInviteSnapshotsMock = vi.mocked(syncGuildInviteSnapshots);
+const updateModerationCaseReasonMock = vi.mocked(updateModerationCaseReason);
 const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
+const voidModerationCaseMock = vi.mocked(voidModerationCase);
 const readFluxerGuildInvitesMock = vi.mocked(readFluxerGuildInvites);
 const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
 const testDb = {} as BotFeatureHandlerContext['db'];
@@ -64,15 +87,22 @@ const testClient = {} as FluxerBot['client'];
 describe('routeBotFeatureEvent', () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        addModerationCaseNoteMock.mockResolvedValue(ok(createModerationCaseEventRecord()));
+        createModerationCaseMock.mockResolvedValue(ok(createModerationCaseRecord()));
+        findModerationCaseByGuildCaseNumberMock.mockResolvedValue(ok(createModerationCaseRecord()));
         findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
         findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
         incrementGuildMessageActivityDayMock.mockResolvedValue(ok(createMessageActivityRecord()));
+        listModerationCaseEventsByCaseIdMock.mockResolvedValue(ok([createModerationCaseEventRecord()]));
+        listModerationCasesByGuildIdMock.mockResolvedValue(ok([createModerationCaseRecord()]));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
         listGuildInviteSnapshotsMock.mockResolvedValue(ok([]));
         recordGuildMemberFlowEventMock.mockResolvedValue(ok(createMemberFlowRecord()));
         syncGuildInviteSnapshotsMock.mockResolvedValue(ok([]));
+        updateModerationCaseReasonMock.mockResolvedValue(ok(createModerationCaseRecord({ reason: 'Updated reason' })));
         upsertGuildCommandPrefixMock.mockResolvedValue(ok(createCommandSettings('guild-1', '?')));
+        voidModerationCaseMock.mockResolvedValue(ok(createModerationCaseRecord({ status: 'void' })));
         readFluxerGuildInvitesMock.mockResolvedValue(ok([]));
         sendFluxerChannelMessageMock.mockResolvedValue(
             ok({
@@ -487,7 +517,7 @@ describe('routeBotFeatureEvent', () => {
         expect(getLastReplyContent()).not.toContain('`!ping`');
     });
 
-    it('replies clearly for unknown help pages', async () => {
+    it('replies with the requested moderation help page', async () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
             createMessageEvent({
@@ -502,7 +532,335 @@ describe('routeBotFeatureEvent', () => {
             status: 'handled',
             action: 'command.help',
         });
-        expect(getLastReplyContent()).toBe('Unknown help page `moderation`.\nTry `!help general` or `!help settings`.');
+        expect(getLastReplyContent()).toContain('NeonFlux help: Moderation');
+        expect(getLastReplyContent()).toContain('`!warn <user> [reason]`');
+    });
+
+    it('replies clearly for unknown help pages', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!help nope',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.help',
+        });
+        expect(getLastReplyContent()).toBe(
+            'Unknown help page `nope`.\nTry `!help general`, `!help settings`, or `!help moderation`.'
+        );
+    });
+
+    it('records a warning case through the configured prefix', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!warn <@target-1> repeated spam',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.moderation.warn',
+        });
+        expect(createModerationCaseMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            action: 'warn',
+            targetUserId: 'target-1',
+            actorUserId: 'author-1',
+            reason: 'repeated spam',
+        });
+        expect(getLastReplyContent()).toBe('Warning #1 recorded for <@target-1>.');
+    });
+
+    it('uses the stored prefix for moderation commands', async () => {
+        findGuildCommandSettingsByGuildIdMock.mockResolvedValueOnce(ok(createCommandSettings('guild-1', '?')));
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '?warn <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toMatchObject({
+            status: 'handled',
+            action: 'command.moderation.warn',
+        });
+        expect(createModerationCaseMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            action: 'warn',
+            targetUserId: 'target-1',
+            actorUserId: 'author-1',
+        });
+    });
+
+    it('denies moderation commands without Manage Server, owner, or command grants', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '!warn <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'message.created',
+            status: 'handled',
+            action: 'command.moderation.warn',
+        });
+        expect(createModerationCaseMock).not.toHaveBeenCalled();
+        expect(getLastReplyContent()).toContain('You cannot run moderation commands here.');
+    });
+
+    it('allows a moderation category grant to run warning commands', async () => {
+        findGuildCommandPermissionRuleMock.mockImplementation((_db, input) => {
+            if (input.targetType === 'category' && input.targetId === 'moderation') {
+                return Promise.resolve(
+                    ok({
+                        guildId: 'guild-1',
+                        targetType: 'category',
+                        targetId: 'moderation',
+                        userIds: [],
+                        roleIds: ['mod-role'],
+                        createdAt: new Date('2026-06-24T00:00:00.000Z'),
+                        updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+                    })
+                );
+            }
+
+            return Promise.resolve(err('not-found'));
+        });
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorRoleIds: ['mod-role'],
+                content: '!warn <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(createModerationCaseMock).toHaveBeenCalled();
+    });
+
+    it('replies with moderation command usage after authorization', async () => {
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!warn',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(createModerationCaseMock).not.toHaveBeenCalled();
+        expect(getLastReplyContent()).toBe('Use: `!warn <user> [reason]`.');
+    });
+
+    it('lists warning cases for a user', async () => {
+        listModerationCasesByGuildIdMock.mockResolvedValueOnce(
+            ok([
+                createModerationCaseRecord({
+                    caseNumber: 2,
+                    targetUserId: 'target-1',
+                    reason: 'Second warning',
+                }),
+                createModerationCaseRecord({
+                    caseNumber: 1,
+                    targetUserId: 'target-1',
+                    reason: 'First warning',
+                }),
+            ])
+        );
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!warnings <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(listModerationCasesByGuildIdMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            targetUserId: 'target-1',
+            action: 'warn',
+            limit: 10,
+        });
+        expect(getLastReplyContent()).toContain('Warnings for <@target-1>:');
+        expect(getLastReplyContent()).toContain('#2 warn <@target-1> (open) - Second warning');
+    });
+
+    it('voids one warning case through delwarn', async () => {
+        findModerationCaseByGuildCaseNumberMock.mockResolvedValueOnce(
+            ok(createModerationCaseRecord({ caseNumber: 2 }))
+        );
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!delwarn 2 duplicate',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(voidModerationCaseMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-1',
+            actorUserId: 'author-1',
+            reason: 'duplicate',
+        });
+        expect(getLastReplyContent()).toBe('Warning #2 deleted.');
+    });
+
+    it('clears open warning cases for a user', async () => {
+        listModerationCasesByGuildIdMock.mockResolvedValueOnce(
+            ok([
+                createModerationCaseRecord({ id: 'case-1', caseNumber: 2 }),
+                createModerationCaseRecord({ id: 'case-2', caseNumber: 1 }),
+            ])
+        );
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!clearwarn <@target-1> stale warnings',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(listModerationCasesByGuildIdMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            targetUserId: 'target-1',
+            action: 'warn',
+            status: 'open',
+            limit: 100,
+        });
+        expect(voidModerationCaseMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-1',
+            actorUserId: 'author-1',
+            reason: 'stale warnings',
+        });
+        expect(voidModerationCaseMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-2',
+            actorUserId: 'author-1',
+            reason: 'stale warnings',
+        });
+        expect(getLastReplyContent()).toBe('Cleared 2 warning(s) for <@target-1>.');
+    });
+
+    it('updates case reasons and stores case notes', async () => {
+        const reasonResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!reason 1 updated reason',
+                mentionedUserIds: [],
+            })
+        );
+        const noteResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!note 1 internal context',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(reasonResult.isOk()).toBe(true);
+        expect(noteResult.isOk()).toBe(true);
+        expect(updateModerationCaseReasonMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-1',
+            actorUserId: 'author-1',
+            reason: 'updated reason',
+        });
+        expect(addModerationCaseNoteMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-1',
+            actorUserId: 'author-1',
+            note: 'internal context',
+        });
+    });
+
+    it('lists case notes without exposing unrelated case events', async () => {
+        listModerationCaseEventsByCaseIdMock.mockResolvedValueOnce(
+            ok([
+                createModerationCaseEventRecord({
+                    actorUserId: 'mod-1',
+                    details: { note: 'first note' },
+                }),
+            ])
+        );
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!notes 1',
+                mentionedUserIds: [],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(listModerationCaseEventsByCaseIdMock).toHaveBeenCalledWith(testDb, {
+            caseId: 'case-1',
+            eventType: 'note.added',
+            limit: 10,
+        });
+        expect(getLastReplyContent()).toBe('Notes for case #1:\n- <@mod-1>: first note');
+    });
+
+    it('keeps guarded moderation commands owner-only in DEFCON 2', async () => {
+        findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(
+            ok({
+                guildId: 'guild-1',
+                defconLevel: 2,
+                createdAt: new Date('2026-06-23T00:00:00.000Z'),
+                updatedAt: new Date('2026-06-23T00:00:00.000Z'),
+            })
+        );
+
+        const managerResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorHasManageServer: true,
+                content: '!warn <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+        const ownerResult = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorId: 'owner-1',
+                authorIsServerOwner: true,
+                content: '!warn <@target-1>',
+                mentionedUserIds: ['target-1'],
+            })
+        );
+
+        expect(managerResult.isOk()).toBe(true);
+        expect(ownerResult.isOk()).toBe(true);
+        expect(createModerationCaseMock).toHaveBeenCalledTimes(1);
     });
 
     it('blocks help in DEFCON 1 unless the help category is exempt', async () => {
@@ -1456,6 +1814,40 @@ function createCommandSettings(guildId: string, prefix: string): GuildCommandSet
         prefix,
         createdAt: timestamp,
         updatedAt: timestamp,
+    };
+}
+
+function createModerationCaseRecord(overrides: Partial<ModerationCaseRecord> = {}): ModerationCaseRecord {
+    const timestamp = new Date('2026-06-25T00:00:00.000Z');
+
+    return {
+        id: 'case-1',
+        guildId: 'guild-1',
+        caseNumber: 1,
+        action: 'warn',
+        targetUserId: 'target-1',
+        actorUserId: 'author-1',
+        reason: null,
+        status: 'open',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        ...overrides,
+    };
+}
+
+function createModerationCaseEventRecord(
+    overrides: Partial<ModerationCaseEventRecord> = {}
+): ModerationCaseEventRecord {
+    return {
+        id: 'case-event-1',
+        caseId: 'case-1',
+        eventType: 'note.added',
+        actorUserId: 'author-1',
+        details: {
+            note: 'Stored note',
+        },
+        createdAt: new Date('2026-06-25T00:00:00.000Z'),
+        ...overrides,
     };
 }
 
