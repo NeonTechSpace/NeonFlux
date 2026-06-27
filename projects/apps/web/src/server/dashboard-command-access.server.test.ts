@@ -101,22 +101,39 @@ describe('dashboard command access', () => {
     it('loads the grantable command catalog and scoped rules', async () => {
         const result = await loadDashboardCommandAccessPage(request, 'requested-guild');
 
-        expect(result).toMatchObject({
-            type: 'access',
-            catalog: {
-                categories: [{ id: 'settings', title: 'Settings' }],
-                commands: [{ id: 'settings.prefix', categoryId: 'settings' }],
+        expect(result.type).toBe('access');
+
+        if (result.type !== 'access') {
+            throw new Error(`Expected access result, received ${result.type}`);
+        }
+
+        expect(result.catalog.categories).toStrictEqual([
+            { id: 'settings', title: 'Settings' },
+            { id: 'moderation', title: 'Moderation' },
+        ]);
+        expect(
+            result.catalog.commands.map((command) => ({ id: command.id, categoryId: command.categoryId }))
+        ).toStrictEqual([
+            { id: 'settings.prefix', categoryId: 'settings' },
+            { id: 'moderation.warn', categoryId: 'moderation' },
+            { id: 'moderation.warnings', categoryId: 'moderation' },
+            { id: 'moderation.warning.delete', categoryId: 'moderation' },
+            { id: 'moderation.warnings.clear', categoryId: 'moderation' },
+            { id: 'moderation.case', categoryId: 'moderation' },
+            { id: 'moderation.cases', categoryId: 'moderation' },
+            { id: 'moderation.reason', categoryId: 'moderation' },
+            { id: 'moderation.note', categoryId: 'moderation' },
+            { id: 'moderation.notes', categoryId: 'moderation' },
+        ]);
+        expect(result.rules).toStrictEqual([
+            {
+                targetType: 'command',
+                targetId: 'settings.prefix',
+                userIds: ['user-a'],
+                roleIds: ['role-a'],
+                updatedAt: '2026-06-24T00:00:00.000Z',
             },
-            rules: [
-                {
-                    targetType: 'command',
-                    targetId: 'settings.prefix',
-                    userIds: ['user-a'],
-                    roleIds: ['role-a'],
-                    updatedAt: '2026-06-24T00:00:00.000Z',
-                },
-            ],
-        });
+        ]);
         expect(listGuildCommandPermissionRulesByGuildId).toHaveBeenCalledWith({}, { guildId: 'guild-1' });
     });
 

@@ -1,0 +1,35 @@
+---
+title: Moderation
+description: Current moderation case, warning, reason, and note commands.
+---
+
+NeonFlux moderation currently focuses on durable case history. It can record and review warning cases, reasons, and notes. Server-mutating punishments like ban, kick, timeout, and purge are not live yet.
+
+<Callout title='Current command model' type='info'>
+    Moderation commands use the current community prefix. The default prefix is `!`. These commands are guarded: server
+    owners, Manage Server users, or users/roles granted moderation command access can run them in normal mode.
+</Callout>
+
+## Commands
+
+| Command                           | Purpose                                 |
+| --------------------------------- | --------------------------------------- |
+| `!case <case-number>`             | Show one moderation case.               |
+| `!cases [user]`                   | List recent moderation cases.           |
+| `!clearwarn <user> [reason]`      | Void all open warning cases for a user. |
+| `!delwarn <case-number> [reason]` | Void one warning case.                  |
+| `!note <case-number> <note>`      | Add a note to a moderation case.        |
+| `!notes <case-number>`            | List notes on a moderation case.        |
+| `!reason <case-number> <reason>`  | Update the reason on a moderation case. |
+| `!warn <user> [reason]`           | Record a warning case for a user.       |
+| `!warnings <user>`                | List warning cases for a user.          |
+
+## DEFCON effect
+
+Moderation commands are guarded commands. In normal mode, DEFCON 3, Manage Server users and granted roles/users can run them. In DEFCON 1 or DEFCON 2, only the server owner can run guarded moderation commands.
+
+## Current limits
+
+- Warning commands only record case history. They do not remove messages, mute users, or apply Fluxer punishments.
+- Case notes are stored as moderation case events.
+- `clearwarn` only voids open warning cases.

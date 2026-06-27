@@ -184,7 +184,7 @@ function createHelpReply(prefix: string, rawTopic: string | undefined): string {
     if (!topic) {
         return [
             'NeonFlux help',
-            `Use \`${prefix}help general\` or \`${prefix}help settings\` for command pages.`,
+            `Use ${formatHelpPageSuggestions(prefix, categories)} for command pages.`,
             '',
             ...categories.map(
                 (category) =>
@@ -196,9 +196,7 @@ function createHelpReply(prefix: string, rawTopic: string | undefined): string {
     const category = findHelpCategory(categories, topic);
 
     if (!category) {
-        return [`Unknown help page \`${topic}\`.`, `Try \`${prefix}help general\` or \`${prefix}help settings\`.`].join(
-            '\n'
-        );
+        return [`Unknown help page \`${topic}\`.`, `Try ${formatHelpPageSuggestions(prefix, categories)}.`].join('\n');
     }
 
     return [
@@ -215,4 +213,16 @@ function normalizeHelpTopic(rawTopic: string | undefined): string | undefined {
 
 function findHelpCategory(categories: ReturnType<typeof getVisibleHelpCategories>, categoryId: string) {
     return categories.find((category) => category.id === categoryId);
+}
+
+function formatHelpPageSuggestions(prefix: string, categories: ReturnType<typeof getVisibleHelpCategories>): string {
+    const suggestions = categories.map((category) => `\`${prefix}help ${category.id}\``);
+
+    if (suggestions.length <= 1) {
+        return suggestions[0] ?? `\`${prefix}help\``;
+    }
+
+    const lastSuggestion = suggestions.at(-1) ?? `\`${prefix}help\``;
+
+    return `${suggestions.slice(0, -1).join(', ')}, or ${lastSuggestion}`;
 }

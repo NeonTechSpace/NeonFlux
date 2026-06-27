@@ -17,7 +17,12 @@ export const BOT_FEATURE_MODULES = [
         commands: commandsByCategory('settings'),
         eventTypes: ['message.created'],
     },
-    plannedModule('moderation', 100, commandsByCategory('moderation'), ['message.created', 'ban.added', 'ban.removed']),
+    {
+        id: 'moderation',
+        order: 100,
+        commands: commandsByCategory('moderation'),
+        eventTypes: ['message.created', 'ban.added', 'ban.removed'],
+    },
     plannedModule(
         'logging',
         110,

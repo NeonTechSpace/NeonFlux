@@ -96,6 +96,60 @@ const liveCommands = [
         implemented: true,
         grantable: true,
     },
+    guardedCommand({
+        id: 'moderation.warn',
+        commandName: 'warn',
+        usage: (prefix) => `${prefix}warn <user> [reason]`,
+        description: 'Record a warning case for a user.',
+    }),
+    guardedCommand({
+        id: 'moderation.warnings',
+        commandName: 'warnings',
+        usage: (prefix) => `${prefix}warnings <user>`,
+        description: 'List warning cases for a user.',
+    }),
+    guardedCommand({
+        id: 'moderation.warning.delete',
+        commandName: 'delwarn',
+        usage: (prefix) => `${prefix}delwarn <case-number> [reason]`,
+        description: 'Void one warning case.',
+    }),
+    guardedCommand({
+        id: 'moderation.warnings.clear',
+        commandName: 'clearwarn',
+        usage: (prefix) => `${prefix}clearwarn <user> [reason]`,
+        description: 'Void all open warning cases for a user.',
+    }),
+    guardedCommand({
+        id: 'moderation.case',
+        commandName: 'case',
+        usage: (prefix) => `${prefix}case <case-number>`,
+        description: 'Show one moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.cases',
+        commandName: 'cases',
+        usage: (prefix) => `${prefix}cases [user]`,
+        description: 'List recent moderation cases, optionally for one user.',
+    }),
+    guardedCommand({
+        id: 'moderation.reason',
+        commandName: 'reason',
+        usage: (prefix) => `${prefix}reason <case-number> <reason>`,
+        description: 'Update the reason on a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.note',
+        commandName: 'note',
+        usage: (prefix) => `${prefix}note <case-number> <note>`,
+        description: 'Add a note to a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.notes',
+        commandName: 'notes',
+        usage: (prefix) => `${prefix}notes <case-number>`,
+        description: 'List notes on a moderation case.',
+    }),
 ] as const satisfies readonly BotCommandDefinition[];
 
 const plannedCommands = [
@@ -103,7 +157,6 @@ const plannedCommands = [
     plannedCommand('moderation.ban', 'moderation', 'ban', DEFCON_FEATURE_CATEGORY.moderation),
     plannedCommand('moderation.unban', 'moderation', 'unban', DEFCON_FEATURE_CATEGORY.moderation),
     plannedCommand('moderation.timeout', 'moderation', 'timeout', DEFCON_FEATURE_CATEGORY.moderation),
-    plannedCommand('moderation.warn', 'moderation', 'warn', DEFCON_FEATURE_CATEGORY.moderation),
     plannedCommand('suggestions.suggest', 'suggestions', 'suggest', DEFCON_FEATURE_CATEGORY.suggestions),
     plannedCommand('xp.rank', 'xp', 'rank', DEFCON_FEATURE_CATEGORY.xp),
     plannedCommand('xp.leaderboard', 'xp', 'leaderboard', DEFCON_FEATURE_CATEGORY.xp),
@@ -134,8 +187,14 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         label: 'Moderation',
         kinds: ['dashboard-config', 'bot-command', 'event-handler'],
         dashboardConfigs: [dashboardConfig('moderation.policy', 'moderation', 'Moderation policy', false)],
-        botCommands: plannedCommands.filter((command) => command.categoryId === 'moderation'),
-        eventHandlers: [eventHandler('moderation.events', ['message.created', 'ban.added', 'ban.removed'], false)],
+        botCommands: [
+            ...liveCommands.filter((command) => command.categoryId === 'moderation'),
+            ...plannedCommands.filter((command) => command.categoryId === 'moderation'),
+        ],
+        eventHandlers: [
+            eventHandler('moderation.commands', ['message.created'], true),
+            eventHandler('moderation.events', ['ban.added', 'ban.removed'], false),
+        ],
     },
     {
         id: 'logging',
@@ -280,6 +339,27 @@ function plannedCommand(
         visibleInHelp: false,
         implemented: false,
         grantable: false,
+    };
+}
+
+function guardedCommand(input: {
+    id: string;
+    commandName: string;
+    usage: (prefix: string) => string;
+    description: string;
+}): BotCommandDefinition {
+    return {
+        id: input.id,
+        categoryId: 'moderation',
+        categoryTitle: BOT_COMMAND_CATEGORY_TITLES.moderation,
+        commandName: input.commandName,
+        usage: input.usage,
+        description: input.description,
+        defconCategory: DEFCON_FEATURE_CATEGORY.moderation,
+        audience: 'guarded',
+        visibleInHelp: true,
+        implemented: true,
+        grantable: true,
     };
 }
 
