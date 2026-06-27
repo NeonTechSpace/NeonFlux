@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -113,6 +113,29 @@ export async function recordPostedMessage(
     }
 }
 
+export async function listMessageTemplatesByGuildId(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; limit?: number }
+): Promise<Result<MessageTemplateRecord[], PostingRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const limit = normalizeTemplateLimit(input.limit);
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const rows = await db
+            .select()
+            .from(messageTemplates)
+            .where(eq(messageTemplates.guildId, guildId.value))
+            .orderBy(desc(messageTemplates.updatedAt))
+            .limit(limit);
+
+        return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function findMessageTemplateByName(
     db: GuildFeatureRepositoryDatabase,
     input: { guildId: string; name: string }
@@ -135,4 +158,35 @@ export async function findMessageTemplateByName(
     } catch {
         return err({ type: 'database-error' });
     }
+}
+
+export async function deleteMessageTemplate(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; templateId: string }
+): Promise<Result<MessageTemplateRecord, PostingRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const templateId = normalizeRequiredText(input.templateId, 'templateId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (templateId.isErr()) return err(templateId.error);
+
+    try {
+        const rows = await db
+            .delete(messageTemplates)
+            .where(and(eq(messageTemplates.guildId, guildId.value), eq(messageTemplates.id, templateId.value)))
+            .returning();
+        const row = rows[0];
+
+        return row ? ok(row) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+function normalizeTemplateLimit(limit: number | undefined): number {
+    if (!limit || !Number.isFinite(limit)) {
+        return 50;
+    }
+
+    return Math.min(Math.max(Math.trunc(limit), 1), 100);
 }

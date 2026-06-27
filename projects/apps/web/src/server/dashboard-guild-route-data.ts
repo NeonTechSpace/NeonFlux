@@ -19,6 +19,11 @@ import type {
     DashboardPostingChannelsResult,
 } from './dashboard-posting.server.js';
 import type { DashboardGuildOverviewResult } from './dashboard-overview.server.js';
+import type {
+    DashboardModerationCasesResult,
+    DashboardModerationPolicyResult,
+    DashboardModerationPolicyUpdateResult,
+} from './dashboard-moderation.server.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
@@ -87,6 +92,12 @@ type DashboardAuditEventsRouteInput = {
     search?: string;
     searchScope?: DashboardAuditSearchScope;
     searchOffsetMinutes?: number;
+};
+
+type DashboardModerationPolicyUpdateRouteInput = {
+    guildId: string;
+    protectedUserIds?: string[];
+    protectedRoleIds?: string[];
 };
 
 export type DashboardCommandSettingsReadResult =
@@ -279,6 +290,39 @@ export const readDashboardGuildOverviewRouteData = createServerFn({ method: 'GET
         return loadDashboardGuildOverview(getRequest(), data.guildId);
     });
 
+export const readDashboardModerationCasesRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardModerationCasesResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardModerationCases } = await import('./dashboard-moderation.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardModerationCases(getRequest(), data.guildId);
+    });
+
+export const readDashboardModerationPolicyRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardModerationPolicyResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardModerationPolicy } = await import('./dashboard-moderation.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardModerationPolicy(getRequest(), data.guildId);
+    });
+
+export const updateDashboardModerationPolicyRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardModerationPolicyUpdateRouteInput)
+    .handler(async ({ data }): Promise<DashboardModerationPolicyUpdateResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { updateDashboardModerationPolicy } = await import('./dashboard-moderation.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return updateDashboardModerationPolicy(getRequest(), data);
+    });
+
 export const readDashboardPostingChannelsRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
     .handler(async ({ data }): Promise<DashboardPostingChannelsResult> => {
@@ -427,6 +471,23 @@ function validateDashboardAuditEventsRouteInput(input: unknown): DashboardAuditE
         ...(typeof searchOffsetMinutes === 'number' && Number.isFinite(searchOffsetMinutes)
             ? { searchOffsetMinutes }
             : {}),
+    };
+}
+
+function validateDashboardModerationPolicyUpdateRouteInput(input: unknown): DashboardModerationPolicyUpdateRouteInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '' };
+    }
+
+    const payload = input as Record<string, unknown>;
+    const guildId = payload.guildId;
+    const protectedUserIds = payload.protectedUserIds;
+    const protectedRoleIds = payload.protectedRoleIds;
+
+    return {
+        guildId: typeof guildId === 'string' ? guildId : '',
+        ...(isStringArray(protectedUserIds) ? { protectedUserIds } : {}),
+        ...(isStringArray(protectedRoleIds) ? { protectedRoleIds } : {}),
     };
 }
 

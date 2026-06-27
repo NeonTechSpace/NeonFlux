@@ -1,3 +1,5 @@
+import { loadWebConfig } from '@neonflux/config';
+import type { WebConfig } from '@neonflux/config';
 import {
     deleteGuildCommandPermissionRule,
     listGuildCommandPermissionRulesByGuildId,
@@ -5,6 +7,8 @@ import {
     upsertGuildCommandPermissionRule,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
+import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
+import type * as Fluxer from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { ok } from 'neverthrow';
@@ -47,6 +51,10 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
+vi.mock('@neonflux/config', () => ({
+    loadWebConfig: vi.fn(),
+}));
+
 vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
@@ -56,6 +64,15 @@ vi.mock('@neonflux/db', async (importActual) => {
         listGuildCommandPermissionRulesByGuildId: vi.fn(),
         recordBotActionEvent: vi.fn(),
         upsertGuildCommandPermissionRule: vi.fn(),
+    };
+});
+
+vi.mock('@neonflux/fluxer', async (importActual) => {
+    const actual = await importActual<typeof Fluxer>();
+
+    return {
+        ...actual,
+        readFluxerBotGuildStructure: vi.fn(),
     };
 });
 
@@ -70,6 +87,7 @@ vi.mock('@neonflux/fluxer/users', async (importActual) => {
 
 describe('dashboard command access', () => {
     beforeEach(() => {
+        vi.mocked(loadWebConfig).mockReturnValue(createWebConfig());
         vi.mocked(loadDashboardGuildPageData).mockResolvedValue({
             type: 'guild',
             mode: 'multi',
@@ -89,6 +107,7 @@ describe('dashboard command access', () => {
             })
         );
         vi.mocked(listGuildCommandPermissionRulesByGuildId).mockResolvedValue(ok([createCommandRule()]));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure()));
         vi.mocked(upsertGuildCommandPermissionRule).mockResolvedValue(ok(createCommandRule()));
         vi.mocked(deleteGuildCommandPermissionRule).mockResolvedValue(ok(createCommandRule()));
         vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createAuditEventRecord()));
@@ -116,6 +135,12 @@ describe('dashboard command access', () => {
         ).toStrictEqual([
             { id: 'settings.prefix', categoryId: 'settings' },
             { id: 'moderation.warn', categoryId: 'moderation' },
+            { id: 'moderation.kick', categoryId: 'moderation' },
+            { id: 'moderation.ban', categoryId: 'moderation' },
+            { id: 'moderation.unban', categoryId: 'moderation' },
+            { id: 'moderation.timeout', categoryId: 'moderation' },
+            { id: 'moderation.untimeout', categoryId: 'moderation' },
+            { id: 'moderation.purge', categoryId: 'moderation' },
             { id: 'moderation.warnings', categoryId: 'moderation' },
             { id: 'moderation.warning.delete', categoryId: 'moderation' },
             { id: 'moderation.warnings.clear', categoryId: 'moderation' },
@@ -134,7 +159,40 @@ describe('dashboard command access', () => {
                 updatedAt: '2026-06-24T00:00:00.000Z',
             },
         ]);
+        expect(result.roles).toStrictEqual([
+            {
+                id: 'role-a',
+                name: 'Moderator',
+                position: 4,
+            },
+            {
+                id: 'role-b',
+                name: 'Helper',
+                position: 2,
+            },
+        ]);
+        expect(result.roleReadStatus).toBe('available');
         expect(listGuildCommandPermissionRulesByGuildId).toHaveBeenCalledWith({}, { guildId: 'guild-1' });
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledWith({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+        });
+    });
+
+    it('loads command access even when the web service cannot read roles', async () => {
+        const config = createWebConfig();
+
+        delete config.fluxerBotToken;
+        vi.mocked(loadWebConfig).mockReturnValueOnce(config);
+
+        const result = await loadDashboardCommandAccessPage(request, 'requested-guild');
+
+        expect(result).toMatchObject({
+            type: 'access',
+            roles: [],
+            roleReadStatus: 'bot-token-missing',
+        });
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
     });
 
     it('does not read or write when the guild is inaccessible', async () => {
@@ -163,7 +221,7 @@ describe('dashboard command access', () => {
         const result = await updateDashboardCommandAccessRule(request, {
             guildId: 'guild-1',
             targetType: 'command',
-            targetId: 'moderation.ban',
+            targetId: 'suggestions.suggest',
             roleIds: ['role-a'],
         });
 
@@ -260,6 +318,61 @@ function createCommandRule() {
         roleIds: ['role-a'],
         createdAt: new Date('2026-06-24T00:00:00.000Z'),
         updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+    };
+}
+
+function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
+    return {
+        appEnv: 'development',
+        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
+        autoMigrate: true,
+        guildDefconOverride: 'auto',
+        logLevel: 'info',
+        nodeEnv: 'test',
+        sessionSecret: 'test-secret',
+        fluxerAppId: 'client-id',
+        fluxerClientSecret: 'client-secret',
+        fluxerOauthRedirectUrl: 'http://localhost:3000/auth/fluxer/callback',
+        fluxerTokenEncryptionKey: 'test-encryption-key',
+        fluxerBotToken: 'bot-token',
+        ...overrides,
+    };
+}
+
+function createFluxerStructure() {
+    return {
+        guildId: 'guild-1',
+        roles: [
+            {
+                id: 'role-b',
+                name: 'Helper',
+                position: 2,
+                color: 0,
+                permissions: '0',
+                hoist: false,
+                mentionable: false,
+            },
+            {
+                id: 'role-a',
+                name: 'Moderator',
+                position: 4,
+                color: 0,
+                permissions: '0',
+                hoist: false,
+                mentionable: false,
+            },
+            {
+                id: 'guild-1',
+                name: '@everyone',
+                position: 0,
+                color: 0,
+                permissions: '0',
+                hoist: false,
+                mentionable: false,
+            },
+        ],
+        categories: [],
+        channels: [],
     };
 }
 

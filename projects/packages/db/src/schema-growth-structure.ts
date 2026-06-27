@@ -10,6 +10,8 @@ export const xpSettings = pgTable('xp_settings', {
     messageXpMin: integer('message_xp_min').notNull().default(5),
     messageXpMax: integer('message_xp_max').notNull().default(10),
     cooldownSeconds: integer('cooldown_seconds').notNull().default(60),
+    voiceXpPerMinute: integer('voice_xp_per_minute').notNull().default(2),
+    voiceMinimumMinutes: integer('voice_minimum_minutes').notNull().default(5),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -24,8 +26,12 @@ export const guildUserXp = pgTable(
         userId: text('user_id').notNull(),
         xp: integer('xp').notNull().default(0),
         level: integer('level').notNull().default(0),
+        messageXp: integer('message_xp').notNull().default(0),
+        voiceXp: integer('voice_xp').notNull().default(0),
         messageCount: integer('message_count').notNull().default(0),
+        voiceSeconds: integer('voice_seconds').notNull().default(0),
         lastMessageXpAt: timestamp('last_message_xp_at', { withTimezone: true }),
+        lastVoiceXpAt: timestamp('last_voice_xp_at', { withTimezone: true }),
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
@@ -47,6 +53,51 @@ export const xpRoleRewards = pgTable(
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [uniqueIndex('xp_role_rewards_guild_level_role_idx').on(table.guildId, table.level, table.roleId)]
+);
+
+export const xpGrants = pgTable(
+    'xp_grants',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        userId: text('user_id').notNull(),
+        source: text('source').notNull(),
+        xp: integer('xp').notNull(),
+        levelBefore: integer('level_before').notNull(),
+        levelAfter: integer('level_after').notNull(),
+        idempotencyKey: text('idempotency_key').notNull(),
+        metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+        grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('xp_grants_guild_key_idx').on(table.guildId, table.idempotencyKey),
+        index('xp_grants_guild_user_granted_idx').on(table.guildId, table.userId, table.grantedAt),
+        index('xp_grants_guild_source_granted_idx').on(table.guildId, table.source, table.grantedAt),
+    ]
+);
+
+export const xpVoiceSessions = pgTable(
+    'xp_voice_sessions',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        userId: text('user_id').notNull(),
+        channelId: text('channel_id').notNull(),
+        status: text('status').notNull().default('active'),
+        startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+        endedAt: timestamp('ended_at', { withTimezone: true }),
+        creditedSeconds: integer('credited_seconds').notNull().default(0),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        index('xp_voice_sessions_guild_user_status_idx').on(table.guildId, table.userId, table.status),
+        index('xp_voice_sessions_guild_status_started_idx').on(table.guildId, table.status, table.startedAt),
+    ]
 );
 
 export const guildMemberFlowEvents = pgTable(
@@ -154,6 +205,69 @@ export const generatedVoiceChannels = pgTable(
     (table) => [
         uniqueIndex('generated_voice_channels_channel_idx').on(table.channelId),
         index('generated_voice_channels_guild_status_idx').on(table.guildId, table.status),
+        index('generated_voice_channels_guild_rule_status_idx').on(table.guildId, table.ruleId, table.status),
+    ]
+);
+
+export const vcGeneratorControlPanels = pgTable(
+    'vc_generator_control_panels',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        ruleId: uuid('rule_id')
+            .notNull()
+            .references(() => vcGeneratorRules.id, { onDelete: 'cascade' }),
+        channelId: text('channel_id').notNull(),
+        messageId: text('message_id'),
+        controlMode: text('control_mode').notNull().default('reaction'),
+        status: text('status').notNull().default('active'),
+        config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+        lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+        staleAt: timestamp('stale_at', { withTimezone: true }),
+    },
+    (table) => [
+        uniqueIndex('vc_generator_control_panels_guild_rule_idx').on(table.guildId, table.ruleId),
+        uniqueIndex('vc_generator_control_panels_guild_message_idx').on(table.guildId, table.messageId),
+        index('vc_generator_control_panels_guild_status_idx').on(table.guildId, table.status),
+    ]
+);
+
+export const vcGeneratorControlRequests = pgTable(
+    'vc_generator_control_requests',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        generatedChannelId: uuid('generated_channel_id')
+            .notNull()
+            .references(() => generatedVoiceChannels.id, { onDelete: 'cascade' }),
+        panelChannelId: text('panel_channel_id').notNull(),
+        targetChannelId: text('target_channel_id').notNull(),
+        requesterUserId: text('requester_user_id').notNull(),
+        controlAction: text('control_action').notNull(),
+        status: text('status').notNull().default('pending'),
+        promptMessageId: text('prompt_message_id'),
+        value: text('value'),
+        errorMessage: text('error_message'),
+        expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+        completedAt: timestamp('completed_at', { withTimezone: true }),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        index('vc_generator_control_requests_guild_panel_requester_idx').on(
+            table.guildId,
+            table.panelChannelId,
+            table.requesterUserId,
+            table.status
+        ),
+        index('vc_generator_control_requests_generated_status_idx').on(table.generatedChannelId, table.status),
+        index('vc_generator_control_requests_status_expires_idx').on(table.status, table.expiresAt),
     ]
 );
 

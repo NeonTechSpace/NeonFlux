@@ -17,7 +17,12 @@ import {
     listBotActionEventsByGuildId,
     recordBotActionEvent,
 } from './logging.js';
-import { recordPostedMessage } from './posting.js';
+import {
+    deleteMessageTemplate,
+    listMessageTemplatesByGuildId,
+    recordPostedMessage,
+    upsertMessageTemplate,
+} from './posting.js';
 import { createStructureImportRun, updateStructureImportRunStatus } from './structure-import-export.js';
 import { upsertGuild } from './guilds.js';
 import * as schema from './schema.js';
@@ -156,6 +161,47 @@ describe('feature foundation repositories', () => {
             createdByUserId: 'user-2',
             purpose: 'dashboard',
         });
+    });
+
+    it('upserts, lists, and deletes message templates by guild', async () => {
+        const first = await expectOk(
+            upsertMessageTemplate(getDb(), {
+                guildId: 'guild-1',
+                name: 'Release update',
+                content: 'Ship it',
+                embeds: [{ title: 'Release' }],
+                createdByUserId: 'user-1',
+            })
+        );
+        const second = await expectOk(
+            upsertMessageTemplate(getDb(), {
+                guildId: 'guild-1',
+                name: 'Release update',
+                content: 'Updated',
+                embeds: [],
+                createdByUserId: 'user-2',
+            })
+        );
+        const templates = await expectOk(listMessageTemplatesByGuildId(getDb(), { guildId: 'guild-1' }));
+        const deleted = await expectOk(
+            deleteMessageTemplate(getDb(), {
+                guildId: 'guild-1',
+                templateId: first.id,
+            })
+        );
+        const templatesAfterDelete = await expectOk(listMessageTemplatesByGuildId(getDb(), { guildId: 'guild-1' }));
+
+        expect(second.id).toBe(first.id);
+        expect(templates).toHaveLength(1);
+        expect(templates[0]).toMatchObject({
+            id: first.id,
+            name: 'Release update',
+            content: 'Updated',
+            embeds: [],
+            createdByUserId: 'user-1',
+        });
+        expect(deleted.id).toBe(first.id);
+        expect(templatesAfterDelete).toStrictEqual([]);
     });
 
     it('records and lists guild-scoped dashboard audit events', async () => {

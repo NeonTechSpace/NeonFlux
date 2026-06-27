@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -9,11 +9,15 @@ import {
     type GuildFeatureRepositoryDatabase,
     type GuildFeatureRepositoryError,
 } from './feature-repository-types.js';
-import { moderationCaseCounters, moderationCaseEvents, moderationCases, moderationTemporaryActions } from './schema.js';
+import {
+    advanceModerationCaseCounter,
+    allocateModerationCaseNumber,
+    insertModerationCase,
+} from './moderation-case-writes.js';
+import { moderationCaseEvents, moderationCases } from './schema.js';
 
 export type ModerationCaseRecord = typeof moderationCases.$inferSelect;
 export type ModerationCaseEventRecord = typeof moderationCaseEvents.$inferSelect;
-export type ModerationTemporaryActionRecord = typeof moderationTemporaryActions.$inferSelect;
 export type ModerationRepositoryError = GuildFeatureRepositoryError;
 
 const caseStatusTransitions = new Map<string, readonly string[]>([
@@ -64,6 +68,7 @@ export async function createModerationCase(
                           guildId: guildId.value,
                           caseNumber,
                           action: action.value,
+                          targetType: 'user',
                           targetUserId: targetUserId.value,
                           ...(actorUserId ? { actorUserId } : {}),
                           ...(reason ? { reason } : {}),
@@ -80,11 +85,55 @@ export async function createModerationCase(
                           guildId: guildId.value,
                           caseNumber: nextCaseNumber,
                           action: action.value,
+                          targetType: 'user',
                           targetUserId: targetUserId.value,
                           ...(actorUserId ? { actorUserId } : {}),
                           ...(reason ? { reason } : {}),
                       });
                   });
+        const row = rows[0];
+
+        return row ? ok(row) : err({ type: 'database-error' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function createChannelModerationCase(
+    db: GuildFeatureRepositoryDatabase,
+    input: {
+        guildId: string;
+        action: string;
+        targetChannelId: string;
+        actorUserId?: string;
+        reason?: string;
+    }
+): Promise<Result<ModerationCaseRecord, ModerationRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const action = normalizeRequiredText(input.action, 'action');
+    const targetChannelId = normalizeRequiredText(input.targetChannelId, 'targetChannelId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (action.isErr()) return err(action.error);
+    if (targetChannelId.isErr()) return err(targetChannelId.error);
+
+    const actorUserId = normalizeOptionalText(input.actorUserId);
+    const reason = normalizeOptionalText(input.reason);
+
+    try {
+        const rows = await db.transaction(async (tx) => {
+            const nextCaseNumber = await allocateModerationCaseNumber(tx, guildId.value);
+
+            return insertModerationCase(tx, {
+                guildId: guildId.value,
+                caseNumber: nextCaseNumber,
+                action: action.value,
+                targetType: 'channel',
+                targetChannelId: targetChannelId.value,
+                ...(actorUserId ? { actorUserId } : {}),
+                ...(reason ? { reason } : {}),
+            });
+        });
         const row = rows[0];
 
         return row ? ok(row) : err({ type: 'database-error' });
@@ -379,111 +428,4 @@ export async function addModerationCaseNote(
             note: note.value,
         },
     });
-}
-
-export async function createModerationTemporaryAction(
-    db: GuildFeatureRepositoryDatabase,
-    input: {
-        guildId: string;
-        action: string;
-        targetUserId: string;
-        expiresAt: Date;
-        caseId?: string;
-    }
-): Promise<Result<ModerationTemporaryActionRecord, ModerationRepositoryError>> {
-    const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const action = normalizeRequiredText(input.action, 'action');
-    const targetUserId = normalizeRequiredText(input.targetUserId, 'targetUserId');
-
-    if (guildId.isErr()) return err(guildId.error);
-    if (action.isErr()) return err(action.error);
-    if (targetUserId.isErr()) return err(targetUserId.error);
-
-    try {
-        const rows = await db
-            .insert(moderationTemporaryActions)
-            .values({
-                guildId: guildId.value,
-                action: action.value,
-                targetUserId: targetUserId.value,
-                expiresAt: input.expiresAt,
-                caseId: normalizeOptionalText(input.caseId),
-            })
-            .returning();
-        const row = rows[0];
-
-        return row ? ok(row) : err({ type: 'database-error' });
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-async function allocateModerationCaseNumber(db: GuildFeatureRepositoryDatabase, guildId: string): Promise<number> {
-    const rows = await db
-        .insert(moderationCaseCounters)
-        .values({
-            guildId,
-            nextCaseNumber: 2,
-        })
-        .onConflictDoUpdate({
-            target: moderationCaseCounters.guildId,
-            set: {
-                nextCaseNumber: sql`${moderationCaseCounters.nextCaseNumber} + 1`,
-                updatedAt: new Date(),
-            },
-        })
-        .returning({
-            nextCaseNumber: moderationCaseCounters.nextCaseNumber,
-        });
-    const row = rows[0];
-
-    if (!row) {
-        throw new Error('Could not allocate moderation case number.');
-    }
-
-    return row.nextCaseNumber - 1;
-}
-
-async function advanceModerationCaseCounter(
-    db: GuildFeatureRepositoryDatabase,
-    guildId: string,
-    nextCaseNumber: number
-): Promise<void> {
-    await db
-        .insert(moderationCaseCounters)
-        .values({
-            guildId,
-            nextCaseNumber,
-        })
-        .onConflictDoUpdate({
-            target: moderationCaseCounters.guildId,
-            set: {
-                nextCaseNumber: sql`greatest(${moderationCaseCounters.nextCaseNumber}, ${nextCaseNumber})`,
-                updatedAt: new Date(),
-            },
-        });
-}
-
-async function insertModerationCase(
-    db: GuildFeatureRepositoryDatabase,
-    input: {
-        guildId: string;
-        caseNumber: number;
-        action: string;
-        targetUserId: string;
-        actorUserId?: string;
-        reason?: string;
-    }
-): Promise<ModerationCaseRecord[]> {
-    return await db
-        .insert(moderationCases)
-        .values({
-            guildId: input.guildId,
-            caseNumber: input.caseNumber,
-            action: input.action,
-            targetUserId: input.targetUserId,
-            actorUserId: input.actorUserId,
-            reason: input.reason,
-        })
-        .returning();
 }

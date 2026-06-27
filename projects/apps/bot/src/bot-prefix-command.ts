@@ -4,7 +4,7 @@ import {
     normalizeCommandPrefix,
 } from '@neonflux/core/command-prefix';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import { authorizeBotCommand } from './bot-command-authorization.js';
@@ -22,6 +22,8 @@ const PREFIX_COMMAND_GUILD_ONLY_REPLY = 'I can only change the prefix inside a c
 const PREFIX_COMMAND_INVALID_REPLY = COMMAND_PREFIX_INVALID_MESSAGE;
 const PREFIX_COMMAND_USAGE_REPLY = 'Use: mention me with `prefix ?`.';
 const PREFIX_COMMAND_ACTION = 'commands.prefix_change';
+const PREFIX_COMMAND_AUDIT_FEATURE = 'settings';
+const PREFIX_COMMAND_AUDIT_ACTION = 'command_prefix.updated';
 
 export type PrefixChangeCommandIntent = {
     type: 'prefix-change-command';
@@ -102,6 +104,22 @@ export async function routePrefixChangeCommand(
             case 'database-error':
                 return err('database-error');
         }
+    }
+
+    const auditResult = await recordBotActionEvent(context.db, {
+        guildId: event.guildId,
+        feature: PREFIX_COMMAND_AUDIT_FEATURE,
+        action: PREFIX_COMMAND_AUDIT_ACTION,
+        actorUserId: event.authorId,
+        targetId: 'settings.prefix',
+        metadata: {
+            prefix: upsertResult.value.prefix,
+            source: 'bot-command',
+        },
+    });
+
+    if (auditResult.isErr()) {
+        return err('database-error');
     }
 
     return sendBotFeatureReply(

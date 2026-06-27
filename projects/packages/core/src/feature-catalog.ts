@@ -96,11 +96,86 @@ const liveCommands = [
         implemented: true,
         grantable: true,
     },
+    {
+        id: 'suggestions.suggest',
+        categoryId: 'suggestions',
+        categoryTitle: BOT_COMMAND_CATEGORY_TITLES.suggestions,
+        commandName: 'suggest',
+        usage: (prefix: string) => `${prefix}suggest <idea>`,
+        description: 'Submit a suggestion to the configured suggestion board.',
+        defconCategory: DEFCON_FEATURE_CATEGORY.suggestions,
+        audience: 'public',
+        visibleInHelp: true,
+        implemented: true,
+        grantable: false,
+    },
+    {
+        id: 'xp.rank',
+        categoryId: 'xp',
+        categoryTitle: BOT_COMMAND_CATEGORY_TITLES.xp,
+        commandName: 'rank',
+        usage: (prefix: string) => `${prefix}rank [user]`,
+        description: 'Show XP rank, level, and message/voice XP totals.',
+        defconCategory: DEFCON_FEATURE_CATEGORY.xp,
+        audience: 'public',
+        visibleInHelp: true,
+        implemented: true,
+        grantable: false,
+    },
+    {
+        id: 'xp.leaderboard',
+        categoryId: 'xp',
+        categoryTitle: BOT_COMMAND_CATEGORY_TITLES.xp,
+        commandName: 'leaderboard',
+        usage: (prefix: string) => `${prefix}leaderboard`,
+        description: 'Show the top XP users in this server.',
+        defconCategory: DEFCON_FEATURE_CATEGORY.xp,
+        audience: 'public',
+        visibleInHelp: true,
+        implemented: true,
+        grantable: false,
+    },
     guardedCommand({
         id: 'moderation.warn',
         commandName: 'warn',
         usage: (prefix) => `${prefix}warn <user> [reason]`,
         description: 'Record a warning case for a user.',
+    }),
+    guardedCommand({
+        id: 'moderation.kick',
+        commandName: 'kick',
+        usage: (prefix) => `${prefix}kick <user> [reason]`,
+        description: 'Kick a user and record a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.ban',
+        commandName: 'ban',
+        usage: (prefix) => `${prefix}ban <user> [reason]`,
+        description: 'Ban a user and record a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.unban',
+        commandName: 'unban',
+        usage: (prefix) => `${prefix}unban <user> [reason]`,
+        description: 'Unban a user and record a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.timeout',
+        commandName: 'timeout',
+        usage: (prefix) => `${prefix}timeout <user> <duration: 1m-28d> [reason]`,
+        description: 'Timeout a user temporarily and record a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.untimeout',
+        commandName: 'untimeout',
+        usage: (prefix) => `${prefix}untimeout <user> [reason]`,
+        description: 'Remove a user timeout and record a moderation case.',
+    }),
+    guardedCommand({
+        id: 'moderation.purge',
+        commandName: 'purge',
+        usage: (prefix) => `${prefix}purge <1-100> [reason]`,
+        description: 'Delete recent messages in the current channel and record a moderation case.',
     }),
     guardedCommand({
         id: 'moderation.warnings',
@@ -152,16 +227,6 @@ const liveCommands = [
     }),
 ] as const satisfies readonly BotCommandDefinition[];
 
-const plannedCommands = [
-    plannedCommand('moderation.kick', 'moderation', 'kick', DEFCON_FEATURE_CATEGORY.moderation),
-    plannedCommand('moderation.ban', 'moderation', 'ban', DEFCON_FEATURE_CATEGORY.moderation),
-    plannedCommand('moderation.unban', 'moderation', 'unban', DEFCON_FEATURE_CATEGORY.moderation),
-    plannedCommand('moderation.timeout', 'moderation', 'timeout', DEFCON_FEATURE_CATEGORY.moderation),
-    plannedCommand('suggestions.suggest', 'suggestions', 'suggest', DEFCON_FEATURE_CATEGORY.suggestions),
-    plannedCommand('xp.rank', 'xp', 'rank', DEFCON_FEATURE_CATEGORY.xp),
-    plannedCommand('xp.leaderboard', 'xp', 'leaderboard', DEFCON_FEATURE_CATEGORY.xp),
-] as const satisfies readonly BotCommandDefinition[];
-
 export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
     {
         id: 'general',
@@ -186,21 +251,25 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         id: 'moderation',
         label: 'Moderation',
         kinds: ['dashboard-config', 'bot-command', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('moderation.policy', 'moderation', 'Moderation policy', false)],
-        botCommands: [
-            ...liveCommands.filter((command) => command.categoryId === 'moderation'),
-            ...plannedCommands.filter((command) => command.categoryId === 'moderation'),
-        ],
+        dashboardConfigs: [dashboardConfig('moderation.policy', 'moderation', 'Moderation policy', true)],
+        botCommands: liveCommands.filter((command) => command.categoryId === 'moderation'),
         eventHandlers: [
             eventHandler('moderation.commands', ['message.created'], true),
-            eventHandler('moderation.events', ['ban.added', 'ban.removed'], false),
+            eventHandler('moderation.events', ['ban.added', 'ban.removed'], true),
         ],
+    },
+    {
+        id: 'automod',
+        label: 'Automod',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('automod.rules', 'moderation', 'Automod rules', true)],
+        eventHandlers: [eventHandler('automod.events', ['message.created'], true)],
     },
     {
         id: 'logging',
         label: 'Server event logging',
         kinds: ['dashboard-config', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('logging.destinations', 'logging', 'Event log destinations', false)],
+        dashboardConfigs: [dashboardConfig('logging.destinations', 'logging', 'Event log destinations', true)],
         eventHandlers: [
             eventHandler(
                 'logging.events',
@@ -208,6 +277,7 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
                     'message.updated',
                     'message.deleted',
                     'member.joined',
+                    'member.updated',
                     'member.left',
                     'ban.added',
                     'ban.removed',
@@ -219,22 +289,56 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
                     'channel.deleted',
                     'voice_state.updated',
                 ],
-                false
+                true
             ),
         ],
     },
-    featureWithConfig('autorole', 'Autorole', 'access', ['member.joined']),
-    featureWithConfig('reaction_roles', 'Reaction roles', 'access', ['reaction.added', 'reaction.removed']),
-    featureWithConfig('verification', 'Verification', 'access', ['member.joined', 'reaction.added']),
-    featureWithConfig('tickets', 'Tickets', 'community', ['message.created', 'channel.deleted']),
+    {
+        id: 'autorole',
+        label: 'Autorole',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('autorole.rules', 'access', 'Autorole rules', true)],
+        eventHandlers: [eventHandler('autorole.events', ['member.joined'], true)],
+    },
+    {
+        id: 'reaction_roles',
+        label: 'Reaction roles',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('reaction_roles.settings', 'access', 'Reaction roles settings', true)],
+        eventHandlers: [eventHandler('reaction_roles.events', ['reaction.added', 'reaction.removed'], true)],
+    },
+    {
+        id: 'verification',
+        label: 'Verification',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('verification.flows', 'access', 'Verification flows', true)],
+        eventHandlers: [eventHandler('verification.events', ['member.joined', 'reaction.added'], true)],
+    },
+    {
+        id: 'tickets',
+        label: 'Tickets',
+        kinds: ['dashboard-config', 'bot-managed-panel', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('tickets.panels', 'community', 'Ticket panels', true)],
+        botManagedPanels: [
+            {
+                id: 'tickets.open_panel',
+                dashboardCategoryId: 'community',
+                label: 'Ticket open panel',
+                implemented: true,
+                controlMode: 'reaction',
+                controlNames: ['open'],
+            },
+        ],
+        eventHandlers: [eventHandler('tickets.events', ['reaction.added', 'channel.deleted'], true)],
+    },
     {
         id: 'suggestions',
         label: 'Suggestions',
         kinds: ['dashboard-config', 'bot-command', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('suggestions.workflow', 'community', 'Suggestion workflow', false)],
-        botCommands: plannedCommands.filter((command) => command.categoryId === 'suggestions'),
+        dashboardConfigs: [dashboardConfig('suggestions.workflow', 'community', 'Suggestion workflow', true)],
+        botCommands: liveCommands.filter((command) => command.categoryId === 'suggestions'),
         eventHandlers: [
-            eventHandler('suggestions.events', ['message.created', 'reaction.added', 'reaction.removed'], false),
+            eventHandler('suggestions.events', ['message.created', 'reaction.added', 'reaction.removed'], true),
         ],
     },
     {
@@ -243,46 +347,83 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         kinds: ['dashboard-config'],
         dashboardConfigs: [dashboardConfig('posting.dashboard_sender', 'messaging', 'Dashboard message sender', true)],
     },
-    featureWithConfig('profile_builder', 'Profile builder', 'community', ['message.created']),
+    {
+        id: 'profile_builder',
+        label: 'Profile builder',
+        kinds: ['dashboard-config'],
+        dashboardConfigs: [dashboardConfig('profile_builder.forms', 'community', 'Profile forms', true)],
+    },
+    {
+        id: 'giveaways',
+        label: 'Giveaways',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('giveaways.campaigns', 'community', 'Giveaways', true)],
+        eventHandlers: [eventHandler('giveaways.entries', ['reaction.added', 'reaction.removed'], true)],
+    },
     {
         id: 'xp',
         label: 'XP and levels',
         kinds: ['dashboard-config', 'bot-command', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('xp.rules', 'community', 'XP rules', false)],
-        botCommands: plannedCommands.filter((command) => command.categoryId === 'xp'),
-        eventHandlers: [eventHandler('xp.activity', ['message.created', 'voice_state.updated'], false)],
+        dashboardConfigs: [dashboardConfig('xp.rules', 'community', 'XP rules', true)],
+        botCommands: liveCommands.filter((command) => command.categoryId === 'xp'),
+        eventHandlers: [eventHandler('xp.activity', ['message.created', 'voice_state.updated'], true)],
     },
     {
         id: 'vc_generator',
         label: 'VC generator',
         kinds: ['dashboard-config', 'bot-managed-panel', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('vc_generator.panel', 'community', 'Generator panel', false)],
+        dashboardConfigs: [dashboardConfig('vc_generator.panel', 'community', 'Generator panel', true)],
         botManagedPanels: [
             {
                 id: 'vc_generator.control_panel',
                 dashboardCategoryId: 'community',
                 label: 'Voice channel control panel',
-                implemented: false,
+                implemented: true,
                 controlMode: 'reaction',
                 controlNames: ['rename', 'user_limit', 'whitelist', 'blacklist', 'lock', 'unlock'],
             },
         ],
-        eventHandlers: [eventHandler('vc_generator.events', ['voice_state.updated', 'channel.deleted'], false)],
+        eventHandlers: [
+            eventHandler(
+                'vc_generator.events',
+                ['message.created', 'voice_state.updated', 'channel.deleted', 'reaction.added'],
+                true
+            ),
+        ],
     },
-    featureWithConfig('role_reconciliation', 'Role reconciliation', 'access', [
-        'member.updated',
-        'role.updated',
-        'role.deleted',
-    ]),
-    featureWithConfig('import_export', 'Import and export', 'structure', [
-        'guild.lifecycle.updated',
-        'role.created',
-        'role.updated',
-        'role.deleted',
-        'channel.created',
-        'channel.updated',
-        'channel.deleted',
-    ]),
+    {
+        id: 'role_reconciliation',
+        label: 'Role reconciliation',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [
+            dashboardConfig('role_reconciliation.settings', 'access', 'Role reconciliation settings', true),
+        ],
+        eventHandlers: [
+            eventHandler('role_reconciliation.member_repair', ['member.updated'], true),
+            eventHandler('role_reconciliation.structure_cleanup', ['role.deleted'], true),
+        ],
+    },
+    {
+        id: 'import_export',
+        label: 'Import and export',
+        kinds: ['dashboard-config', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('import_export.dry_run', 'structure', 'Structure export and dry-run', true)],
+        eventHandlers: [
+            eventHandler(
+                'import_export.events',
+                [
+                    'guild.lifecycle.updated',
+                    'role.created',
+                    'role.updated',
+                    'role.deleted',
+                    'channel.created',
+                    'channel.updated',
+                    'channel.deleted',
+                ],
+                true
+            ),
+        ],
+    },
     {
         id: 'invite_tracking',
         label: 'Invite tracking',
@@ -319,27 +460,6 @@ export function listGrantableBotCommandCategories(): Array<{ id: string; title: 
 
 export function findBotCommandDefinition(commandId: string): BotCommandDefinition | undefined {
     return listBotCommandDefinitions().find((command) => command.id === commandId);
-}
-
-function plannedCommand(
-    id: string,
-    categoryId: keyof typeof BOT_COMMAND_CATEGORY_TITLES,
-    commandName: string,
-    defconCategory: DefconFeatureCategory
-): BotCommandDefinition {
-    return {
-        id,
-        categoryId,
-        categoryTitle: BOT_COMMAND_CATEGORY_TITLES[categoryId],
-        commandName,
-        usage: (prefix) => `${prefix}${commandName}`,
-        description: 'Planned command scaffold.',
-        defconCategory,
-        audience: 'guarded',
-        visibleInHelp: false,
-        implemented: false,
-        grantable: false,
-    };
 }
 
 function guardedCommand(input: {
@@ -382,20 +502,5 @@ function eventHandler(id: string, eventTypes: readonly string[], implemented: bo
         id,
         eventTypes,
         implemented,
-    };
-}
-
-function featureWithConfig(
-    id: string,
-    label: string,
-    dashboardCategoryId: string,
-    eventTypes: readonly string[]
-): FeatureSurfaceDefinition {
-    return {
-        id,
-        label,
-        kinds: ['dashboard-config', 'event-handler'],
-        dashboardConfigs: [dashboardConfig(`${id}.settings`, dashboardCategoryId, `${label} settings`, false)],
-        eventHandlers: [eventHandler(`${id}.events`, eventTypes, false)],
     };
 }

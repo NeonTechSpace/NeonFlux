@@ -1,5 +1,6 @@
 import '@tanstack/react-start/server-only';
 
+import { loadWebConfig } from '@neonflux/config';
 import { listGrantableBotCommandCategories, listGrantableBotCommandDefinitions } from '@neonflux/core';
 import type { BotCommandDefinition } from '@neonflux/core';
 import {
@@ -9,6 +10,7 @@ import {
     upsertGuildCommandPermissionRule,
 } from '@neonflux/db';
 import type { GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleTargetType } from '@neonflux/db';
+import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDatabaseClient } from './database.server.js';
@@ -25,6 +27,14 @@ export type DashboardCommandAccessRule = {
     roleIds: string[];
     updatedAt: string;
 };
+
+export type DashboardCommandAccessRole = {
+    id: string;
+    name: string;
+    position: number;
+};
+
+export type DashboardCommandAccessRoleReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardGrantableCommand = {
     id: string;
@@ -48,6 +58,8 @@ export type DashboardCommandAccessResult =
     | {
           type: 'access';
           catalog: DashboardCommandAccessCatalog;
+          roles: DashboardCommandAccessRole[];
+          roleReadStatus: DashboardCommandAccessRoleReadStatus;
           rules: DashboardCommandAccessRule[];
       }
     | DashboardCommandAccessErrorResult;
@@ -115,9 +127,13 @@ export async function loadDashboardCommandAccessPage(
         return { type: 'database-error' };
     }
 
+    const rolesResult = await loadDashboardCommandAccessRoles(guildPageData.guild.id);
+
     return {
         type: 'access',
         catalog: createDashboardCommandAccessCatalog(),
+        roles: rolesResult.roles,
+        roleReadStatus: rolesResult.status,
         rules: rulesResult.value.map(toDashboardCommandAccessRule),
     };
 }
@@ -230,6 +246,43 @@ function createDashboardCommandAccessCatalog(): DashboardCommandAccessCatalog {
     return {
         categories: listGrantableBotCommandCategories(),
         commands: listGrantableBotCommandDefinitions().map(toDashboardGrantableCommand),
+    };
+}
+
+async function loadDashboardCommandAccessRoles(
+    guildId: string
+): Promise<{ status: DashboardCommandAccessRoleReadStatus; roles: DashboardCommandAccessRole[] }> {
+    const botToken = loadWebConfig().fluxerBotToken;
+
+    if (!botToken) {
+        return {
+            status: 'bot-token-missing',
+            roles: [],
+        };
+    }
+
+    const structureResult = await readFluxerBotGuildStructure({
+        botToken,
+        guildId,
+    });
+
+    if (structureResult.isErr()) {
+        return {
+            status: 'fetch-failed',
+            roles: [],
+        };
+    }
+
+    return {
+        status: 'available',
+        roles: structureResult.value.roles
+            .filter((role) => role.name !== '@everyone')
+            .map((role) => ({
+                id: role.id,
+                name: role.name,
+                position: role.position,
+            }))
+            .sort((left, right) => right.position - left.position || left.name.localeCompare(right.name)),
     };
 }
 

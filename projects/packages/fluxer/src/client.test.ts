@@ -512,6 +512,8 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
             userId: 'user-1',
             channelId: 'voice-1',
+            oldChannelId: null,
+            oldChannelOccupancy: null,
         });
     });
 
@@ -531,6 +533,74 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
             userId: 'user-1',
             channelId: 'voice-1',
+            oldChannelId: null,
+            oldChannelOccupancy: null,
+        });
+    });
+
+    it('tracks previous voice channel occupancy from synced voice state data', () => {
+        const voiceStateUpdated = vi.fn<(event: FluxerBotVoiceStateEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            voiceStateUpdated,
+        });
+
+        bot.client.emit(Events.VoiceStatesSync, {
+            guildId: 'guild-1',
+            voiceStates: [
+                { user_id: 'user-1', channel_id: 'voice-1' },
+                { user_id: 'user-2', channel_id: 'voice-1' },
+            ],
+        });
+        bot.client.emit(Events.VoiceStateUpdate, {
+            guild_id: 'guild-1',
+            user_id: 'user-1',
+            channel_id: 'voice-2',
+        });
+        bot.client.emit(Events.VoiceStateUpdate, {
+            guild_id: 'guild-1',
+            user_id: 'user-2',
+            channel_id: null,
+        });
+
+        expect(voiceStateUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'voice-2',
+            oldChannelId: 'voice-1',
+            oldChannelOccupancy: 1,
+        });
+        expect(voiceStateUpdated.mock.calls[1]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'user-2',
+            channelId: null,
+            oldChannelId: 'voice-1',
+            oldChannelOccupancy: 0,
+        });
+    });
+
+    it('clears synced voice state data when a guild is recreated', () => {
+        const voiceStateUpdated = vi.fn<(event: FluxerBotVoiceStateEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), {
+            voiceStateUpdated,
+        });
+
+        bot.client.emit(Events.VoiceStatesSync, {
+            guildId: 'guild-1',
+            voiceStates: [{ user_id: 'user-1', channel_id: 'voice-1' }],
+        });
+        bot.client.emit(Events.GuildCreate, createGuild('guild-1'));
+        bot.client.emit(Events.VoiceStateUpdate, {
+            guild_id: 'guild-1',
+            user_id: 'user-1',
+            channel_id: null,
+        });
+
+        expect(voiceStateUpdated.mock.calls[0]?.[0]).toStrictEqual({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: null,
+            oldChannelId: null,
+            oldChannelOccupancy: null,
         });
     });
 

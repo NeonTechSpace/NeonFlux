@@ -92,6 +92,111 @@
       "when": 1782694800000,
       "tag": "0012_moderation_case_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782781200000,
+      "tag": "0013_moderation_case_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782867600000,
+      "tag": "0014_moderation_case_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1782954000000,
+      "tag": "0015_logging_destinations",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783040400000,
+      "tag": "0016_reaction_role_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783126800000,
+      "tag": "0017_verification_flows",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783213200000,
+      "tag": "0018_xp_voice_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783299600000,
+      "tag": "0019_vc_generator_control_panels",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783386000000,
+      "tag": "0020_suggestion_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783472400000,
+      "tag": "0021_ticket_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783558800000,
+      "tag": "0022_profile_builder_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783645200000,
+      "tag": "0023_giveaway_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783731600000,
+      "tag": "0024_vc_generator_control_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783818000000,
+      "tag": "0025_role_reference_dashboard_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783904400000,
+      "tag": "0026_automod_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783990800000,
+      "tag": "0027_dashboard_overview_structure_events",
+      "breakpoints": true
     }
   ]
 }

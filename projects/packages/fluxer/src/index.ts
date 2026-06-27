@@ -1,5 +1,6 @@
 export * from './client.js';
 export * from './guild-structure.js';
+export * from './guild-structure-apply.js';
 export * from './guilds.js';
 export * from './invites.js';
 export * from './messages.js';

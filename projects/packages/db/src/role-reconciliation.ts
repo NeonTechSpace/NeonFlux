@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -8,11 +8,39 @@ import {
     type GuildFeatureRepositoryDatabase,
     type GuildFeatureRepositoryError,
 } from './feature-repository-types.js';
-import { roleReconciliationActions, roleReconciliationRuns } from './schema.js';
+import { guildFeatureSettings, roleReconciliationActions, roleReconciliationRuns } from './schema.js';
 
 export type RoleReconciliationRunRecord = typeof roleReconciliationRuns.$inferSelect;
 export type RoleReconciliationActionRecord = typeof roleReconciliationActions.$inferSelect;
 export type RoleReconciliationRepositoryError = GuildFeatureRepositoryError;
+export type RoleReconciliationSettingsRecord = {
+    guildId: string;
+    enabled: boolean;
+    restoreAutoroleRoles: boolean;
+    restoreVerificationRoles: boolean;
+    restoreReactionRoles: boolean;
+    cleanupDeletedRoleReferences: boolean;
+    createdAt?: Date;
+    updatedAt?: Date;
+};
+
+export type RoleReconciliationSettingsInput = {
+    guildId: string;
+    enabled?: boolean;
+    restoreAutoroleRoles?: boolean;
+    restoreVerificationRoles?: boolean;
+    restoreReactionRoles?: boolean;
+    cleanupDeletedRoleReferences?: boolean;
+};
+
+export const ROLE_RECONCILIATION_FEATURE = 'role_reconciliation';
+export const DEFAULT_ROLE_RECONCILIATION_SETTINGS = {
+    enabled: true,
+    restoreAutoroleRoles: true,
+    restoreVerificationRoles: true,
+    restoreReactionRoles: true,
+    cleanupDeletedRoleReferences: true,
+} as const;
 
 const runStatusTransitions = new Map<string, readonly string[]>([
     ['pending', ['dry_run_complete', 'applying', 'cancelled', 'failed']],
@@ -22,6 +50,96 @@ const runStatusTransitions = new Map<string, readonly string[]>([
     ['cancelled', []],
     ['failed', []],
 ]);
+
+export async function findRoleReconciliationSettingsByGuildId(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string }
+): Promise<Result<RoleReconciliationSettingsRecord, RoleReconciliationRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const rows = await db
+            .select()
+            .from(guildFeatureSettings)
+            .where(
+                and(
+                    eq(guildFeatureSettings.guildId, guildId.value),
+                    eq(guildFeatureSettings.feature, ROLE_RECONCILIATION_FEATURE)
+                )
+            )
+            .limit(1);
+        const row = rows[0];
+
+        if (!row) {
+            return ok({
+                guildId: guildId.value,
+                ...DEFAULT_ROLE_RECONCILIATION_SETTINGS,
+            });
+        }
+
+        return ok(toRoleReconciliationSettingsRecord(row));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function upsertRoleReconciliationSettings(
+    db: GuildFeatureRepositoryDatabase,
+    input: RoleReconciliationSettingsInput
+): Promise<Result<RoleReconciliationSettingsRecord, RoleReconciliationRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    const settings = {
+        enabled: input.enabled ?? DEFAULT_ROLE_RECONCILIATION_SETTINGS.enabled,
+        restoreAutoroleRoles: input.restoreAutoroleRoles ?? DEFAULT_ROLE_RECONCILIATION_SETTINGS.restoreAutoroleRoles,
+        restoreVerificationRoles:
+            input.restoreVerificationRoles ?? DEFAULT_ROLE_RECONCILIATION_SETTINGS.restoreVerificationRoles,
+        restoreReactionRoles: input.restoreReactionRoles ?? DEFAULT_ROLE_RECONCILIATION_SETTINGS.restoreReactionRoles,
+        cleanupDeletedRoleReferences:
+            input.cleanupDeletedRoleReferences ?? DEFAULT_ROLE_RECONCILIATION_SETTINGS.cleanupDeletedRoleReferences,
+    };
+    const updatedAt = new Date();
+
+    try {
+        const rows = await db
+            .insert(guildFeatureSettings)
+            .values({
+                guildId: guildId.value,
+                feature: ROLE_RECONCILIATION_FEATURE,
+                enabled: settings.enabled,
+                config: {
+                    restoreAutoroleRoles: settings.restoreAutoroleRoles,
+                    restoreVerificationRoles: settings.restoreVerificationRoles,
+                    restoreReactionRoles: settings.restoreReactionRoles,
+                    cleanupDeletedRoleReferences: settings.cleanupDeletedRoleReferences,
+                },
+                updatedAt,
+            })
+            .onConflictDoUpdate({
+                target: [guildFeatureSettings.guildId, guildFeatureSettings.feature],
+                set: {
+                    enabled: settings.enabled,
+                    config: {
+                        restoreAutoroleRoles: settings.restoreAutoroleRoles,
+                        restoreVerificationRoles: settings.restoreVerificationRoles,
+                        restoreReactionRoles: settings.restoreReactionRoles,
+                        cleanupDeletedRoleReferences: settings.cleanupDeletedRoleReferences,
+                    },
+                    updatedAt,
+                },
+            })
+            .returning();
+        const row = rows[0];
+
+        return row ? ok(toRoleReconciliationSettingsRecord(row)) : err({ type: 'database-error' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
 
 export async function createRoleReconciliationRun(
     db: GuildFeatureRepositoryDatabase,
@@ -119,4 +237,29 @@ export async function recordRoleReconciliationAction(
     } catch {
         return err({ type: 'database-error' });
     }
+}
+
+function toRoleReconciliationSettingsRecord(
+    row: typeof guildFeatureSettings.$inferSelect
+): RoleReconciliationSettingsRecord {
+    const config = isRecord(row.config) ? row.config : {};
+
+    return {
+        guildId: row.guildId,
+        enabled: row.enabled,
+        restoreAutoroleRoles: readBoolean(config.restoreAutoroleRoles, true),
+        restoreVerificationRoles: readBoolean(config.restoreVerificationRoles, true),
+        restoreReactionRoles: readBoolean(config.restoreReactionRoles, true),
+        cleanupDeletedRoleReferences: readBoolean(config.cleanupDeletedRoleReferences, true),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+    return typeof value === 'boolean' ? value : fallback;
 }

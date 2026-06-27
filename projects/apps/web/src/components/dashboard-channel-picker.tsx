@@ -1,10 +1,16 @@
-import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
+export type DashboardPickerChannel = {
+    id: string;
+    name: string;
+    parentName?: string;
+};
 
 export function DashboardChannelPicker({
     channels,
     hasError,
     isLoading,
     isOpen,
+    label = 'Channel',
+    listboxId = 'posting-channel-options',
     search,
     selectedChannelId,
     onBlur,
@@ -12,23 +18,25 @@ export function DashboardChannelPicker({
     onSearchChange,
     onSelect,
 }: {
-    channels: DashboardPostingChannel[];
+    channels: DashboardPickerChannel[];
     hasError: boolean;
     isLoading: boolean;
     isOpen: boolean;
+    label?: string;
+    listboxId?: string;
     search: string;
     selectedChannelId: string;
     onBlur: () => void;
     onFocus: () => void;
     onSearchChange: (search: string) => void;
-    onSelect: (channel: DashboardPostingChannel) => void;
+    onSelect: (channel: DashboardPickerChannel) => void;
 }) {
     const matchedChannels = matchChannels(channels, search).slice(0, 8);
 
     return (
         <div className='space-y-2 text-sm font-medium text-neutral-200'>
             <label className='space-y-2'>
-                <span>Channel</span>
+                <span>{label}</span>
                 <input
                     value={search}
                     onBlur={onBlur}
@@ -38,7 +46,7 @@ export function DashboardChannelPicker({
                     autoComplete='off'
                     role='combobox'
                     aria-autocomplete='list'
-                    aria-controls='posting-channel-options'
+                    aria-controls={listboxId}
                     aria-expanded={isOpen}
                     placeholder='Search channels'
                 />
@@ -49,7 +57,7 @@ export function DashboardChannelPicker({
 
             {isOpen && !isLoading && !hasError ? (
                 <ul
-                    id='posting-channel-options'
+                    id={listboxId}
                     className='max-h-56 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950'
                     role='listbox'>
                     {matchedChannels.length > 0 ? (
@@ -76,11 +84,11 @@ export function DashboardChannelPicker({
     );
 }
 
-export function formatDashboardChannelLabel(channel: DashboardPostingChannel): string {
+export function formatDashboardChannelLabel(channel: DashboardPickerChannel): string {
     return `#${channel.name}`;
 }
 
-function matchChannels(channels: DashboardPostingChannel[], query: string): DashboardPostingChannel[] {
+function matchChannels(channels: DashboardPickerChannel[], query: string): DashboardPickerChannel[] {
     const normalizedQuery = normalizeChannelSearchText(query);
 
     if (!normalizedQuery) {
@@ -93,12 +101,12 @@ function matchChannels(channels: DashboardPostingChannel[], query: string): Dash
             index,
             score: scoreChannelMatch(channel, normalizedQuery),
         }))
-        .filter((match): match is { channel: DashboardPostingChannel; index: number; score: number } => match.score > 0)
+        .filter((match): match is { channel: DashboardPickerChannel; index: number; score: number } => match.score > 0)
         .sort((left, right) => right.score - left.score || left.index - right.index)
         .map((match) => match.channel);
 }
 
-function scoreChannelMatch(channel: DashboardPostingChannel, query: string): number {
+function scoreChannelMatch(channel: DashboardPickerChannel, query: string): number {
     const tokens = query.split(/\s+/).filter(Boolean);
     const searchableValues = [
         channel.name,

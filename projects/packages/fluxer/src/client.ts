@@ -15,6 +15,13 @@ import {
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
 
+import {
+    normalizeVoiceStateEvent,
+    syncVoiceStateCache,
+    type FluxerBotVoiceStateEvent,
+    type VoiceStateCache,
+} from './voice-state-cache.js';
+
 export type FluxerBot = ReturnType<typeof createFluxerBot>;
 
 export type FluxerBotConfig = {
@@ -86,11 +93,7 @@ export type FluxerBotChannelEvent = {
     channelType: number;
 };
 
-export type FluxerBotVoiceStateEvent = {
-    guildId: string | null;
-    userId: string | null;
-    channelId: string | null;
-};
+export type { FluxerBotVoiceStateEvent } from './voice-state-cache.js';
 
 export type FluxerBotLifecycleHandlers = {
     guildCreated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
@@ -137,6 +140,7 @@ export function createFluxerBot(
 ) {
     const client = new Client({ waitForGuilds: true });
     const configuredCustomStatusText = normalizeConfiguredCustomStatusText(config.customStatusText);
+    const voiceStateCache: VoiceStateCache = new Map();
 
     client.once(Events.Ready, () => {
         logger.info('fluxer.ready', {
@@ -149,12 +153,14 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildCreate, (guild) => {
+        voiceStateCache.delete(guild.id);
         void runLifecycleHandler(logger, 'fluxer.guild_created_handler_failed', lifecycleHandlers.guildCreated, {
             guildId: guild.id,
         });
     });
 
     client.on(Events.GuildDelete, (guild) => {
+        voiceStateCache.delete(guild.id);
         void runLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
             guildId: guild.id,
         });
@@ -313,12 +319,16 @@ export function createFluxerBot(
         );
     });
 
+    client.on(Events.VoiceStatesSync, (event) => {
+        syncVoiceStateCache(voiceStateCache, event);
+    });
+
     client.on(Events.VoiceStateUpdate, (event) => {
         void runLifecycleHandler(
             logger,
             'fluxer.voice_state_updated_handler_failed',
             lifecycleHandlers.voiceStateUpdated,
-            normalizeVoiceStateEvent(event)
+            normalizeVoiceStateEvent(event, voiceStateCache)
         );
     });
 
@@ -476,21 +486,6 @@ function normalizeChannelEvent(channel: Channel): FluxerBotChannelEvent {
         guildId: possibleGuildChannel.guildId ?? null,
         channelId: channel.id,
         channelType: channel.type,
-    };
-}
-
-function normalizeVoiceStateEvent(event: {
-    guild_id?: string | null;
-    guildId?: string | null;
-    user_id?: string | null;
-    userId?: string | null;
-    channel_id?: string | null;
-    channelId?: string | null;
-}): FluxerBotVoiceStateEvent {
-    return {
-        guildId: event.guild_id ?? event.guildId ?? null,
-        userId: event.user_id ?? event.userId ?? null,
-        channelId: event.channel_id ?? event.channelId ?? null,
     };
 }
 

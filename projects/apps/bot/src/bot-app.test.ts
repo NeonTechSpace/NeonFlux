@@ -3,18 +3,55 @@ import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
 import type * as NeonFluxDb from '@neonflux/db';
 import {
+    addTicketMember,
+    createVcGeneratorControlRequest,
+    createRoleReconciliationRun,
     deleteBotInstallation,
+    createTicket,
+    createSuggestion,
+    deleteSuggestionVote,
+    findActiveGiveawayByGuildMessageId,
+    findActiveVerificationRecord,
+    findDefaultSuggestionBoardByGuildId,
+    findEnabledTicketPanelByMessageId,
+    findEnabledReactionRoleOptionByReaction,
+    findEnabledVerificationFlowByReaction,
     findGuildCommandPermissionRule,
     findGuildCommandSettingsByGuildId,
     findGuildSecurityPolicyByGuildId,
+    findSuggestionByGuildMessageId,
+    findTicketByChannelId,
+    findActiveGeneratedVoiceChannelByOwner,
+    findPendingVcGeneratorControlRequest,
+    findGuildUserXpRank,
+    findXpSettingsByGuildId,
+    grantGuildUserXp,
+    listActiveReactionRoleAssignmentsByGuildUser,
+    listOpenTicketsByPanelAndOpener,
+    listVerificationFlowsByGuildId,
     listGuildDefconExemptionCategories,
+    listGuildXpLeaderboard,
+    listEnabledAutomodRulesByGuildId,
     listBotInstallationGuildIds,
     runDatabaseMigrations,
+    closeXpVoiceSession,
+    recordTicketEvent,
+    recordRoleReconciliationAction,
+    removeGiveawayEntry,
+    reserveNextTicketNumber,
+    transitionXpVoiceSession,
+    updateTicketChannelId,
+    updateTicketStatus,
+    updateVcGeneratorControlRequest,
+    updateRoleReconciliationRunStatus,
     upsertGuildCommandPrefix,
+    upsertGiveawayEntry,
+    upsertSuggestionVote,
     upsertBotInstallation,
     type DatabaseClient,
 } from '@neonflux/db';
 import {
+    createFluxerPlatform,
     createFluxerBot,
     sendFluxerChannelMessage,
     type FluxerBotConfig,
@@ -24,6 +61,10 @@ import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createBotApp } from './bot-app.js';
+import { createGiveawayMaintenanceScheduler } from './bot-giveaway-maintenance.js';
+import type * as BotGiveawayMaintenance from './bot-giveaway-maintenance.js';
+import { createVcGeneratorMaintenanceScheduler } from './bot-vc-generator-maintenance.js';
+import type * as BotVcGeneratorMaintenance from './bot-vc-generator-maintenance.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
 vi.mock('@neonflux/db', async (importOriginal) => {
@@ -31,19 +72,56 @@ vi.mock('@neonflux/db', async (importOriginal) => {
 
     return {
         ...actual,
+        addTicketMember: vi.fn(),
+        createVcGeneratorControlRequest: vi.fn(),
+        createRoleReconciliationRun: vi.fn(),
         deleteBotInstallation: vi.fn(),
+        createTicket: vi.fn(),
+        createSuggestion: vi.fn(),
+        deleteSuggestionVote: vi.fn(),
+        findActiveGiveawayByGuildMessageId: vi.fn(),
+        findActiveVerificationRecord: vi.fn(),
+        findDefaultSuggestionBoardByGuildId: vi.fn(),
+        findEnabledTicketPanelByMessageId: vi.fn(),
+        findEnabledReactionRoleOptionByReaction: vi.fn(),
+        findEnabledVerificationFlowByReaction: vi.fn(),
         findGuildCommandPermissionRule: vi.fn(),
         findGuildCommandSettingsByGuildId: vi.fn(),
         findGuildSecurityPolicyByGuildId: vi.fn(),
+        findSuggestionByGuildMessageId: vi.fn(),
+        findTicketByChannelId: vi.fn(),
+        findActiveGeneratedVoiceChannelByOwner: vi.fn(),
+        findPendingVcGeneratorControlRequest: vi.fn(),
+        findGuildUserXpRank: vi.fn(),
+        findXpSettingsByGuildId: vi.fn(),
+        grantGuildUserXp: vi.fn(),
+        listActiveReactionRoleAssignmentsByGuildUser: vi.fn(),
+        listOpenTicketsByPanelAndOpener: vi.fn(),
+        listVerificationFlowsByGuildId: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
+        listGuildXpLeaderboard: vi.fn(),
+        listEnabledAutomodRulesByGuildId: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),
         runDatabaseMigrations: vi.fn(),
+        closeXpVoiceSession: vi.fn(),
+        recordTicketEvent: vi.fn(),
+        recordRoleReconciliationAction: vi.fn(),
+        removeGiveawayEntry: vi.fn(),
+        reserveNextTicketNumber: vi.fn(),
+        transitionXpVoiceSession: vi.fn(),
+        updateTicketChannelId: vi.fn(),
+        updateTicketStatus: vi.fn(),
+        updateVcGeneratorControlRequest: vi.fn(),
+        updateRoleReconciliationRunStatus: vi.fn(),
         upsertGuildCommandPrefix: vi.fn(),
+        upsertGiveawayEntry: vi.fn(),
+        upsertSuggestionVote: vi.fn(),
         upsertBotInstallation: vi.fn(),
     };
 });
 
 vi.mock('@neonflux/fluxer', () => ({
+    createFluxerPlatform: vi.fn(),
     createFluxerBot: vi.fn(),
     sendFluxerChannelMessage: vi.fn(),
 }));
@@ -52,18 +130,75 @@ vi.mock('./deployment-config-bootstrap.js', () => ({
     bootstrapDeploymentConfig: vi.fn(),
 }));
 
+vi.mock('./bot-giveaway-maintenance.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof BotGiveawayMaintenance>();
+
+    return {
+        ...actual,
+        createGiveawayMaintenanceScheduler: vi.fn(),
+    };
+});
+
+vi.mock('./bot-vc-generator-maintenance.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof BotVcGeneratorMaintenance>();
+
+    return {
+        ...actual,
+        createVcGeneratorMaintenanceScheduler: vi.fn(),
+    };
+});
+
 const runDatabaseMigrationsMock = vi.mocked(runDatabaseMigrations);
 const bootstrapDeploymentConfigMock = vi.mocked(bootstrapDeploymentConfig);
+const createGiveawayMaintenanceSchedulerMock = vi.mocked(createGiveawayMaintenanceScheduler);
+const createVcGeneratorMaintenanceSchedulerMock = vi.mocked(createVcGeneratorMaintenanceScheduler);
 const createFluxerBotMock = vi.mocked(createFluxerBot);
 const sendFluxerChannelMessageMock = vi.mocked(sendFluxerChannelMessage);
+const createFluxerPlatformMock = vi.mocked(createFluxerPlatform);
 const upsertBotInstallationMock = vi.mocked(upsertBotInstallation);
+const addTicketMemberMock = vi.mocked(addTicketMember);
+const createVcGeneratorControlRequestMock = vi.mocked(createVcGeneratorControlRequest);
+const createRoleReconciliationRunMock = vi.mocked(createRoleReconciliationRun);
 const deleteBotInstallationMock = vi.mocked(deleteBotInstallation);
+const createTicketMock = vi.mocked(createTicket);
+const createSuggestionMock = vi.mocked(createSuggestion);
+const deleteSuggestionVoteMock = vi.mocked(deleteSuggestionVote);
+const findActiveGiveawayByGuildMessageIdMock = vi.mocked(findActiveGiveawayByGuildMessageId);
+const findActiveVerificationRecordMock = vi.mocked(findActiveVerificationRecord);
+const findDefaultSuggestionBoardByGuildIdMock = vi.mocked(findDefaultSuggestionBoardByGuildId);
+const findEnabledTicketPanelByMessageIdMock = vi.mocked(findEnabledTicketPanelByMessageId);
+const findEnabledReactionRoleOptionByReactionMock = vi.mocked(findEnabledReactionRoleOptionByReaction);
+const findEnabledVerificationFlowByReactionMock = vi.mocked(findEnabledVerificationFlowByReaction);
 const findGuildCommandPermissionRuleMock = vi.mocked(findGuildCommandPermissionRule);
 const findGuildCommandSettingsByGuildIdMock = vi.mocked(findGuildCommandSettingsByGuildId);
 const findGuildSecurityPolicyByGuildIdMock = vi.mocked(findGuildSecurityPolicyByGuildId);
+const findSuggestionByGuildMessageIdMock = vi.mocked(findSuggestionByGuildMessageId);
+const findTicketByChannelIdMock = vi.mocked(findTicketByChannelId);
+const findActiveGeneratedVoiceChannelByOwnerMock = vi.mocked(findActiveGeneratedVoiceChannelByOwner);
+const findPendingVcGeneratorControlRequestMock = vi.mocked(findPendingVcGeneratorControlRequest);
+const findGuildUserXpRankMock = vi.mocked(findGuildUserXpRank);
+const findXpSettingsByGuildIdMock = vi.mocked(findXpSettingsByGuildId);
+const grantGuildUserXpMock = vi.mocked(grantGuildUserXp);
+const listActiveReactionRoleAssignmentsByGuildUserMock = vi.mocked(listActiveReactionRoleAssignmentsByGuildUser);
+const listOpenTicketsByPanelAndOpenerMock = vi.mocked(listOpenTicketsByPanelAndOpener);
+const listVerificationFlowsByGuildIdMock = vi.mocked(listVerificationFlowsByGuildId);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
+const listGuildXpLeaderboardMock = vi.mocked(listGuildXpLeaderboard);
+const listEnabledAutomodRulesByGuildIdMock = vi.mocked(listEnabledAutomodRulesByGuildId);
 const listBotInstallationGuildIdsMock = vi.mocked(listBotInstallationGuildIds);
+const closeXpVoiceSessionMock = vi.mocked(closeXpVoiceSession);
+const recordTicketEventMock = vi.mocked(recordTicketEvent);
+const recordRoleReconciliationActionMock = vi.mocked(recordRoleReconciliationAction);
+const removeGiveawayEntryMock = vi.mocked(removeGiveawayEntry);
+const reserveNextTicketNumberMock = vi.mocked(reserveNextTicketNumber);
+const transitionXpVoiceSessionMock = vi.mocked(transitionXpVoiceSession);
+const updateTicketChannelIdMock = vi.mocked(updateTicketChannelId);
+const updateTicketStatusMock = vi.mocked(updateTicketStatus);
+const updateVcGeneratorControlRequestMock = vi.mocked(updateVcGeneratorControlRequest);
+const updateRoleReconciliationRunStatusMock = vi.mocked(updateRoleReconciliationRunStatus);
 const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
+const upsertGiveawayEntryMock = vi.mocked(upsertGiveawayEntry);
+const upsertSuggestionVoteMock = vi.mocked(upsertSuggestionVote);
 const testDb = {} as DatabaseClient['db'];
 const testFluxerClient = {
     user: {
@@ -73,6 +208,10 @@ const testFluxerClient = {
 
 let capturedFluxerConfig: FluxerBotConfig | undefined;
 let capturedLifecycleHandlers: FluxerBotLifecycleHandlers | undefined;
+let giveawayMaintenanceStartMock: ReturnType<typeof vi.fn<() => void>>;
+let giveawayMaintenanceStopMock: ReturnType<typeof vi.fn<() => void>>;
+let vcGeneratorMaintenanceStartMock: ReturnType<typeof vi.fn<() => void>>;
+let vcGeneratorMaintenanceStopMock: ReturnType<typeof vi.fn<() => void>>;
 let fluxerStartMock: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
 let fluxerStopMock: ReturnType<typeof vi.fn<() => Promise<void>>>;
 
@@ -81,6 +220,10 @@ describe('createBotApp', () => {
         vi.clearAllMocks();
         capturedFluxerConfig = undefined;
         capturedLifecycleHandlers = undefined;
+        giveawayMaintenanceStartMock = vi.fn<() => void>();
+        giveawayMaintenanceStopMock = vi.fn<() => void>();
+        vcGeneratorMaintenanceStartMock = vi.fn<() => void>();
+        vcGeneratorMaintenanceStopMock = vi.fn<() => void>();
         fluxerStartMock = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
         fluxerStopMock = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 
@@ -99,13 +242,59 @@ describe('createBotApp', () => {
                 stop: fluxerStopMock,
             };
         });
+        createGiveawayMaintenanceSchedulerMock.mockReturnValue({
+            start: giveawayMaintenanceStartMock,
+            stop: giveawayMaintenanceStopMock,
+            runOnce: vi.fn(),
+        });
+        createVcGeneratorMaintenanceSchedulerMock.mockReturnValue({
+            start: vcGeneratorMaintenanceStartMock,
+            stop: vcGeneratorMaintenanceStopMock,
+            runOnce: vi.fn(),
+        });
         upsertBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
+        addTicketMemberMock.mockResolvedValue(err({ type: 'database-error' }));
+        createVcGeneratorControlRequestMock.mockResolvedValue(err({ type: 'database-error' }));
+        createRoleReconciliationRunMock.mockResolvedValue(err({ type: 'database-error' }));
         deleteBotInstallationMock.mockResolvedValue(ok(createBotInstallationRecord('guild-1')));
+        createTicketMock.mockResolvedValue(err({ type: 'database-error' }));
+        createSuggestionMock.mockResolvedValue(err({ type: 'database-error' }));
+        deleteSuggestionVoteMock.mockResolvedValue(err({ type: 'not-found' }));
+        findActiveGiveawayByGuildMessageIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        findActiveVerificationRecordMock.mockResolvedValue(err({ type: 'not-found' }));
+        findDefaultSuggestionBoardByGuildIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        findEnabledTicketPanelByMessageIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        findEnabledReactionRoleOptionByReactionMock.mockResolvedValue(err({ type: 'not-found' }));
+        findEnabledVerificationFlowByReactionMock.mockResolvedValue(err({ type: 'not-found' }));
         findGuildCommandPermissionRuleMock.mockResolvedValue(err('not-found'));
         findGuildCommandSettingsByGuildIdMock.mockResolvedValue(err('not-found'));
         findGuildSecurityPolicyByGuildIdMock.mockResolvedValue(err('not-found'));
+        findSuggestionByGuildMessageIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        findTicketByChannelIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        findActiveGeneratedVoiceChannelByOwnerMock.mockResolvedValue(err({ type: 'not-found' }));
+        findPendingVcGeneratorControlRequestMock.mockResolvedValue(err({ type: 'not-found' }));
+        findGuildUserXpRankMock.mockResolvedValue(err({ type: 'not-found' }));
+        findXpSettingsByGuildIdMock.mockResolvedValue(err({ type: 'not-found' }));
+        grantGuildUserXpMock.mockResolvedValue(err({ type: 'database-error' }));
+        listActiveReactionRoleAssignmentsByGuildUserMock.mockResolvedValue(ok([]));
+        listOpenTicketsByPanelAndOpenerMock.mockResolvedValue(ok([]));
+        listVerificationFlowsByGuildIdMock.mockResolvedValue(ok([]));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
+        listGuildXpLeaderboardMock.mockResolvedValue(ok([]));
+        listEnabledAutomodRulesByGuildIdMock.mockResolvedValue(ok([]));
         listBotInstallationGuildIdsMock.mockResolvedValue(ok([]));
+        closeXpVoiceSessionMock.mockResolvedValue(err({ type: 'not-found' }));
+        recordTicketEventMock.mockResolvedValue(err({ type: 'database-error' }));
+        recordRoleReconciliationActionMock.mockResolvedValue(err({ type: 'database-error' }));
+        removeGiveawayEntryMock.mockResolvedValue(err({ type: 'database-error' }));
+        reserveNextTicketNumberMock.mockResolvedValue(err({ type: 'database-error' }));
+        transitionXpVoiceSessionMock.mockResolvedValue(err({ type: 'database-error' }));
+        updateTicketChannelIdMock.mockResolvedValue(err({ type: 'database-error' }));
+        updateTicketStatusMock.mockResolvedValue(err({ type: 'database-error' }));
+        updateVcGeneratorControlRequestMock.mockResolvedValue(err({ type: 'database-error' }));
+        updateRoleReconciliationRunStatusMock.mockResolvedValue(err({ type: 'database-error' }));
+        upsertGiveawayEntryMock.mockResolvedValue(err({ type: 'database-error' }));
+        upsertSuggestionVoteMock.mockResolvedValue(err({ type: 'database-error' }));
         upsertGuildCommandPrefixMock.mockResolvedValue(
             ok({
                 guildId: 'guild-1',
@@ -114,6 +303,18 @@ describe('createBotApp', () => {
                 updatedAt: new Date('2026-06-24T00:00:00.000Z'),
             })
         );
+        createFluxerPlatformMock.mockReturnValue({
+            messages: {
+                react: vi.fn().mockResolvedValue(ok(undefined)),
+                send: vi.fn().mockResolvedValue(
+                    ok({
+                        id: 'platform-message-1',
+                        channelId: 'channel-1',
+                        guildId: 'guild-1',
+                    })
+                ),
+            },
+        } as never);
         sendFluxerChannelMessageMock.mockResolvedValue(
             ok({
                 id: 'reply-1',
@@ -212,7 +413,7 @@ describe('createBotApp', () => {
 
     it.each([
         [1, 'DEFCON 1: Owner only mode'],
-        [2, 'DEFCON 2: Public commands disabled'],
+        [2, 'DEFCON 2: Guarded commands restricted'],
     ] as const)('uses DEFCON %s as the bot status instead of the env status', async (defconLevel, customStatusText) => {
         const app = createBotApp({
             config: createMultiConfig({
@@ -566,6 +767,45 @@ describe('createBotApp', () => {
 
         expect(fluxerStopMock).toHaveBeenCalledTimes(1);
         expect(closeDatabaseMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts and stops background maintenance with the bot lifecycle', async () => {
+        const app = createBotApp({
+            config: createMultiConfig(),
+            logger: createLogger(),
+            database: createDatabase(),
+        });
+
+        await app.start();
+
+        expect(createGiveawayMaintenanceSchedulerMock).toHaveBeenCalledOnce();
+        expect(createVcGeneratorMaintenanceSchedulerMock).toHaveBeenCalledOnce();
+        const giveawaySchedulerInput = createGiveawayMaintenanceSchedulerMock.mock.calls[0]?.[0];
+        const vcGeneratorSchedulerInput = createVcGeneratorMaintenanceSchedulerMock.mock.calls[0]?.[0];
+
+        expect(typeof giveawaySchedulerInput?.createContext).toBe('function');
+        expect(giveawaySchedulerInput?.logger).toBeDefined();
+        expect(typeof vcGeneratorSchedulerInput?.createContext).toBe('function');
+        expect(vcGeneratorSchedulerInput?.logger).toBeDefined();
+        expect(giveawayMaintenanceStartMock).toHaveBeenCalledTimes(1);
+        expect(giveawayMaintenanceStartMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+            fluxerStartMock.mock.invocationCallOrder[0] ?? 0
+        );
+        expect(vcGeneratorMaintenanceStartMock).toHaveBeenCalledTimes(1);
+        expect(vcGeneratorMaintenanceStartMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+            fluxerStartMock.mock.invocationCallOrder[0] ?? 0
+        );
+
+        await app.stop();
+
+        expect(vcGeneratorMaintenanceStopMock).toHaveBeenCalledTimes(1);
+        expect(vcGeneratorMaintenanceStopMock.mock.invocationCallOrder[0]).toBeLessThan(
+            fluxerStopMock.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+        );
+        expect(giveawayMaintenanceStopMock).toHaveBeenCalledTimes(1);
+        expect(giveawayMaintenanceStopMock.mock.invocationCallOrder[0]).toBeLessThan(
+            fluxerStopMock.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+        );
     });
 });
 

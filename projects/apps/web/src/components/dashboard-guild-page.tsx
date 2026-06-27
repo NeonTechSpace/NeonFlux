@@ -8,6 +8,8 @@ import { getDashboardCategory } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
+import { DashboardAutorolePanel } from './dashboard-autorole-panel.js';
+import { DashboardAutomodPanel } from './dashboard-automod-panel.js';
 import { DashboardCommandAccessPanel } from './dashboard-command-access-panel.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
 import {
@@ -16,13 +18,47 @@ import {
 } from './dashboard-command-prefix-panel.js';
 import { DashboardInviteTrackingLoading, DashboardInviteTrackingPanel } from './dashboard-invite-tracking-panel.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
+import { DashboardLoggingDestinationsPanel } from './dashboard-logging-destinations-panel.js';
+import { DashboardGiveawaysPanel } from './dashboard-giveaways-panel.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
+import { DashboardModerationCasesPanel } from './dashboard-moderation-cases-panel.js';
+import { DashboardModerationPolicyPanel } from './dashboard-moderation-policy-panel.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
+import { DashboardProfileBuilderPanel } from './dashboard-profile-builder-panel.js';
+import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
+import { DashboardRoleReconciliationPanel } from './dashboard-role-reconciliation-panel.js';
 import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
+import { DashboardStructurePanel } from './dashboard-structure-panel.js';
+import { DashboardSuggestionsPanel } from './dashboard-suggestions-panel.js';
+import { DashboardTicketsPanel } from './dashboard-tickets-panel.js';
+import { DashboardVerificationPanel } from './dashboard-verification-panel.js';
+import { DashboardVcGeneratorPanel } from './dashboard-vc-generator-panel.js';
+import { DashboardXpSettingsPanel } from './dashboard-xp-settings-panel.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
 const commandLiveArea = ['commands'] as const satisfies readonly DashboardLiveArea[];
+const overviewLiveArea = ['overview'] as const satisfies readonly DashboardLiveArea[];
+const invitesLiveArea = ['invites'] as const satisfies readonly DashboardLiveArea[];
+const loggingLiveArea = ['logging'] as const satisfies readonly DashboardLiveArea[];
+const messagingLiveArea = ['posting'] as const satisfies readonly DashboardLiveArea[];
+const moderationLiveArea = ['moderation'] as const satisfies readonly DashboardLiveArea[];
+const structureLiveArea = ['import_export', 'structure'] as const satisfies readonly DashboardLiveArea[];
+const accessLiveArea = [
+    'access',
+    'autorole',
+    'reaction_roles',
+    'role_reconciliation',
+    'verification',
+] as const satisfies readonly DashboardLiveArea[];
+const communityLiveArea = [
+    'xp',
+    'vc_generator',
+    'tickets',
+    'suggestions',
+    'profile_builder',
+    'giveaways',
+] as const satisfies readonly DashboardLiveArea[];
 
 type AuthorizedDashboardGuildRouteData = Extract<DashboardGuildRouteData, { type: 'guild' }>;
 
@@ -122,6 +158,11 @@ export function useDashboardGuildData(): AuthorizedDashboardGuildRouteData {
 export function DashboardGuildOverviewCategory() {
     const data = useDashboardGuildData();
 
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: overviewLiveArea,
+    });
+
     return (
         <DashboardCategorySection categoryId='overview'>
             <DashboardServerOverviewPanel guildId={data.guild.id} />
@@ -147,6 +188,11 @@ export function DashboardGuildGeneralCategory() {
 export function DashboardGuildMessagingCategory() {
     const data = useDashboardGuildData();
 
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: messagingLiveArea,
+    });
+
     return (
         <DashboardCategorySection categoryId='messaging'>
             <DashboardPostingPanel guildId={data.guild.id} />
@@ -156,6 +202,11 @@ export function DashboardGuildMessagingCategory() {
 
 export function DashboardGuildInviteTrackingCategory() {
     const data = useDashboardGuildData();
+
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: invitesLiveArea,
+    });
 
     return (
         <DashboardCategorySection categoryId='invites'>
@@ -167,9 +218,85 @@ export function DashboardGuildInviteTrackingCategory() {
 export function DashboardGuildAccessCategory() {
     const data = useDashboardGuildData();
 
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: accessLiveArea,
+    });
+
     return (
         <DashboardCategorySection categoryId='access'>
+            <DashboardAutorolePanel guildId={data.guild.id} />
+            <DashboardReactionRolesPanel guildId={data.guild.id} />
+            <DashboardVerificationPanel guildId={data.guild.id} />
+            <DashboardRoleReconciliationPanel guildId={data.guild.id} />
             <DashboardCommandAccessPanel guildId={data.guild.id} />
+        </DashboardCategorySection>
+    );
+}
+
+export function DashboardGuildCommunityCategory() {
+    const data = useDashboardGuildData();
+
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: communityLiveArea,
+    });
+
+    return (
+        <DashboardCategorySection categoryId='community'>
+            <DashboardXpSettingsPanel guildId={data.guild.id} />
+            <DashboardGiveawaysPanel guildId={data.guild.id} />
+            <DashboardProfileBuilderPanel guildId={data.guild.id} />
+            <DashboardVcGeneratorPanel guildId={data.guild.id} />
+            <DashboardTicketsPanel guildId={data.guild.id} />
+            <DashboardSuggestionsPanel guildId={data.guild.id} />
+        </DashboardCategorySection>
+    );
+}
+
+export function DashboardGuildModerationCategory() {
+    const data = useDashboardGuildData();
+
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: moderationLiveArea,
+    });
+
+    return (
+        <DashboardCategorySection categoryId='moderation'>
+            <DashboardAutomodPanel guildId={data.guild.id} />
+            <DashboardModerationPolicyPanel guildId={data.guild.id} />
+            <DashboardModerationCasesPanel guildId={data.guild.id} />
+        </DashboardCategorySection>
+    );
+}
+
+export function DashboardGuildLoggingCategory() {
+    const data = useDashboardGuildData();
+
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: loggingLiveArea,
+    });
+
+    return (
+        <DashboardCategorySection categoryId='logging'>
+            <DashboardLoggingDestinationsPanel guildId={data.guild.id} />
+        </DashboardCategorySection>
+    );
+}
+
+export function DashboardGuildStructureCategory() {
+    const data = useDashboardGuildData();
+
+    useDashboardLiveInvalidation({
+        guildId: data.guild.id,
+        areas: structureLiveArea,
+    });
+
+    return (
+        <DashboardCategorySection categoryId='structure'>
+            <DashboardStructurePanel guildId={data.guild.id} />
         </DashboardCategorySection>
     );
 }

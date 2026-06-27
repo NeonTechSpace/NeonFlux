@@ -1,12 +1,14 @@
 import '@tanstack/react-start/server-only';
 
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
-import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
 import type { GuildCommandSettingsRepositoryError } from '@neonflux/db';
+import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDatabaseClient } from './database.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
+import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 export const DEFAULT_DASHBOARD_COMMAND_PREFIX = '!';
 
@@ -49,6 +51,8 @@ export type DashboardCommandPrefixUpdateInput = {
 };
 
 const invalidPrefixMessage = COMMAND_PREFIX_INVALID_MESSAGE;
+const commandSettingsFeature = 'settings';
+const commandPrefixUpdatedAction = 'command_prefix.updated';
 
 export async function loadDashboardCommandSettingsPageData(
     request: Request,
@@ -80,7 +84,7 @@ export async function updateDashboardGuildCommandPrefix(
 
     switch (guildPageData.type) {
         case 'guild':
-            return updateCommandPrefixForAuthorizedGuild(guildPageData.guild.id, input.prefix);
+            return updateCommandPrefixForAuthorizedGuild(request, guildPageData.guild.id, input.prefix);
 
         case 'auth-required':
             return { type: 'auth-required' };
@@ -135,13 +139,37 @@ async function loadDashboardCommandSettings(
 }
 
 async function updateCommandPrefixForAuthorizedGuild(
+    request: Request,
     guildId: string,
     prefix: string
 ): Promise<DashboardCommandPrefixUpdateResult> {
+    const actorResult = await resolveDashboardCommandSettingsActor(request);
+
+    if (actorResult.type !== 'actor') {
+        return actorResult;
+    }
+
     const database = getWebDatabaseClient();
     const updateResult = await upsertGuildCommandPrefix(database.db, { guildId, prefix });
 
     if (updateResult.isOk()) {
+        const auditResult = await recordBotActionEvent(database.db, {
+            guildId,
+            feature: commandSettingsFeature,
+            action: commandPrefixUpdatedAction,
+            actorUserId: actorResult.actorUserId,
+            targetId: 'settings.prefix',
+            metadata: {
+                prefix: updateResult.value.prefix,
+                source: 'dashboard',
+                ...actorResult.metadata,
+            },
+        });
+
+        if (auditResult.isErr()) {
+            return { type: 'database-error' };
+        }
+
         return {
             type: 'updated',
             commandSettings: {
@@ -152,6 +180,43 @@ async function updateCommandPrefixForAuthorizedGuild(
     }
 
     return mapCommandSettingsRepositoryError(updateResult.error);
+}
+
+async function resolveDashboardCommandSettingsActor(request: Request): Promise<
+    | {
+          type: 'actor';
+          actorUserId: string;
+          metadata: Record<string, string>;
+      }
+    | { type: 'auth-required' }
+    | { type: 'database-error' }
+> {
+    const authContextResult = await readAuthenticatedFluxerContext(request);
+
+    if (authContextResult.isErr()) {
+        return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
+    }
+
+    const currentUserResult = await getFluxerCurrentUser({
+        accessToken: authContextResult.value.accessToken,
+    });
+
+    if (currentUserResult.isErr() || currentUserResult.value.id !== authContextResult.value.fluxerUserId) {
+        return {
+            type: 'actor',
+            actorUserId: authContextResult.value.fluxerUserId,
+            metadata: {},
+        };
+    }
+
+    return {
+        type: 'actor',
+        actorUserId: authContextResult.value.fluxerUserId,
+        metadata: {
+            actorUsername: currentUserResult.value.username,
+            ...(currentUserResult.value.globalName ? { actorDisplayName: currentUserResult.value.globalName } : {}),
+        },
+    };
 }
 
 function mapCommandSettingsRepositoryError(

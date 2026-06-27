@@ -31,7 +31,7 @@ export function DashboardCategoryNavigation({
                                         : 'block rounded-md px-3 py-2 text-sm font-semibold text-neutral-300 transition hover:bg-neutral-800 hover:text-white focus:bg-neutral-800 focus:outline-none'
                                 }>
                                 <span>{category.label}</span>
-                                {category.status === 'planned' ? (
+                                {isPlannedDashboardCategory(category) ? (
                                     <span className='ml-2 text-xs font-medium text-neutral-500' aria-hidden='true'>
                                         Soon
                                     </span>
@@ -47,6 +47,10 @@ export function DashboardCategoryNavigation({
             </div>
         </div>
     );
+}
+
+function isPlannedDashboardCategory(category: { status: 'active' | 'planned' }): boolean {
+    return category.status === 'planned';
 }
 
 function DashboardCategorySelect({

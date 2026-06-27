@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { upsertGuild } from './guilds.js';
 import {
     addModerationCaseNote,
+    createChannelModerationCase,
     createModerationCase,
     findModerationCaseByGuildCaseNumber,
     listModerationCaseEventsByCaseId,
@@ -18,6 +19,7 @@ import {
     updateModerationCaseReason,
     voidModerationCase,
 } from './moderation.js';
+import { createObservedModerationCase, findRecentModerationCaseByTargetAction } from './moderation-observed-events.js';
 import * as schema from './schema.js';
 
 const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
@@ -128,6 +130,33 @@ describe('moderation repository', () => {
         });
     });
 
+    it('creates channel-targeted moderation cases', async () => {
+        const purgeCase = await expectOk(
+            createChannelModerationCase(getDb(), {
+                guildId: 'guild-1',
+                action: 'purge',
+                targetChannelId: 'channel-1',
+                actorUserId: 'mod-1',
+                reason: 'cleanup',
+            })
+        );
+        const cases = await expectOk(
+            listModerationCasesByGuildId(getDb(), {
+                guildId: 'guild-1',
+            })
+        );
+
+        expect(purgeCase).toMatchObject({
+            action: 'purge',
+            actorUserId: 'mod-1',
+            reason: 'cleanup',
+            targetChannelId: 'channel-1',
+            targetType: 'channel',
+            targetUserId: null,
+        });
+        expect(cases[0]?.id).toBe(purgeCase.id);
+    });
+
     it('updates reasons and records notes as case events', async () => {
         const moderationCase = await expectOk(
             createModerationCase(getDb(), {
@@ -163,6 +192,58 @@ describe('moderation repository', () => {
         expect(events.find((event) => event.eventType === 'note.added')?.details).toStrictEqual({
             note: 'Internal note',
         });
+    });
+
+    it('creates resolved observed cases for external moderation events', async () => {
+        const observed = await expectOk(
+            createObservedModerationCase(getDb(), {
+                guildId: 'guild-1',
+                action: 'ban',
+                targetUserId: 'user-1',
+                eventType: 'action.observed',
+                details: {
+                    source: 'fluxer',
+                    sourceEventType: 'ban.added',
+                },
+            })
+        );
+
+        const found = await expectOk(
+            findRecentModerationCaseByTargetAction(getDb(), {
+                guildId: 'guild-1',
+                targetUserId: 'user-1',
+                action: 'ban',
+                statuses: ['open', 'resolved'],
+                since: new Date(Date.now() - 60_000),
+            })
+        );
+        const events = await expectOk(
+            listModerationCaseEventsByCaseId(getDb(), {
+                caseId: observed.id,
+                eventType: 'action.observed',
+            })
+        );
+        const stale = await findRecentModerationCaseByTargetAction(getDb(), {
+            guildId: 'guild-1',
+            targetUserId: 'user-1',
+            action: 'ban',
+            since: new Date(Date.now() + 60_000),
+        });
+
+        expect(observed).toMatchObject({
+            action: 'ban',
+            actorUserId: null,
+            status: 'resolved',
+            targetUserId: 'user-1',
+        });
+        expect(found.id).toBe(observed.id);
+        expect(events).toHaveLength(1);
+        expect(events[0]?.details).toStrictEqual({
+            source: 'fluxer',
+            sourceEventType: 'ban.added',
+        });
+        expect(stale.isErr()).toBe(true);
+        expect(stale._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
     });
 
     it('voids open warning cases and rejects invalid transitions', async () => {
@@ -208,6 +289,8 @@ describe('moderation repository', () => {
                 values ('legacy-guild', 7, 'warn', 'user-1');
             `);
             await applySqlMigration(client, '0012_moderation_case_counters.sql');
+            await applySqlMigration(client, '0013_moderation_case_dashboard_events.sql');
+            await applySqlMigration(client, '0014_moderation_case_targets.sql');
 
             const db = drizzle(client, { schema });
             const created = await expectOk(

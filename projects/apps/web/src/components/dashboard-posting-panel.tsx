@@ -20,6 +20,7 @@ import type {
     DashboardEmbedMode,
     ParsedDashboardEmbedsResult,
 } from './dashboard-embed-builder.js';
+import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 
 type PostingFormMessage = {
@@ -253,6 +254,21 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         />
                     </label>
                 )}
+
+                <DashboardPostingTemplateControls
+                    guildId={guildId}
+                    content={content}
+                    embeds={previewEmbeds}
+                    payloadError={previewEmbedsResult.valid ? undefined : previewEmbedsResult.message}
+                    onApplyTemplate={(template) => {
+                        setContent(template.content ?? '');
+                        setEmbedMode('advanced-json');
+                        setEmbedDraft(createEmptyDashboardEmbedDraft());
+                        setEmbedJson(template.embeds.length > 0 ? JSON.stringify(template.embeds, null, 2) : '');
+                        setFormMessage({ type: 'success', text: `Template applied: ${template.name}.` });
+                    }}
+                    onMessage={setFormMessage}
+                />
 
                 <DashboardPostingPreview content={content} embeds={previewEmbeds} />
 

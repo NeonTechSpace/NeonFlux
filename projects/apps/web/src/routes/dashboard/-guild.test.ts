@@ -12,13 +12,16 @@ import type { DashboardCategoryId } from '../../dashboard-categories.js';
 import {
     DashboardGuildAccessCategory,
     DashboardGuildAuditCategory,
+    DashboardGuildCommunityCategory,
     DashboardGuildGeneralCategory,
     DashboardGuildInviteTrackingCategory,
+    DashboardGuildLoggingCategory,
     DashboardGuildMessagingCategory,
+    DashboardGuildModerationCategory,
     DashboardGuildOverviewCategory,
     DashboardGuildPageContent,
     DashboardGuildPendingPage,
-    DashboardGuildPlannedCategory,
+    DashboardGuildStructureCategory,
 } from '../../components/dashboard-guild-page.js';
 import {
     postDashboardMessageRouteData,
@@ -26,13 +29,49 @@ import {
     readDashboardCommandAccessRouteData,
     readDashboardCommandSettingsRouteData,
     readDashboardGuildOverviewRouteData,
+    readDashboardModerationCasesRouteData,
+    readDashboardModerationPolicyRouteData,
     readDashboardPostingChannelsRouteData,
     resolveDashboardGuildRouteResult,
     toDashboardGuildRouteResult,
+    updateDashboardModerationPolicyRouteData,
     updateDashboardCommandPrefixRouteData,
 } from '../../server/dashboard-guild-route-data.js';
 import type { DashboardGuildRouteData } from '../../server/dashboard-guild-route-data.js';
 import type * as DashboardGuildRouteDataModule from '../../server/dashboard-guild-route-data.js';
+import { readDashboardAutoroleSettingsRouteData } from '../../server/dashboard-autorole-route-data.js';
+import type * as DashboardAutoroleRouteDataModule from '../../server/dashboard-autorole-route-data.js';
+import { readDashboardAutomodSettingsRouteData } from '../../server/dashboard-automod-route-data.js';
+import type * as DashboardAutomodRouteDataModule from '../../server/dashboard-automod-route-data.js';
+import { readDashboardLoggingSettingsRouteData } from '../../server/dashboard-logging-route-data.js';
+import type * as DashboardLoggingRouteDataModule from '../../server/dashboard-logging-route-data.js';
+import { readDashboardReactionRolesSettingsRouteData } from '../../server/dashboard-reaction-roles-route-data.js';
+import type * as DashboardReactionRolesRouteDataModule from '../../server/dashboard-reaction-roles-route-data.js';
+import { readDashboardRoleReconciliationSettingsRouteData } from '../../server/dashboard-role-reconciliation-route-data.js';
+import type * as DashboardRoleReconciliationRouteDataModule from '../../server/dashboard-role-reconciliation-route-data.js';
+import { readDashboardVerificationSettingsRouteData } from '../../server/dashboard-verification-route-data.js';
+import type * as DashboardVerificationRouteDataModule from '../../server/dashboard-verification-route-data.js';
+import { readDashboardProfileBuilderSettingsRouteData } from '../../server/dashboard-profile-builder-route-data.js';
+import type * as DashboardProfileBuilderRouteDataModule from '../../server/dashboard-profile-builder-route-data.js';
+import { readDashboardGiveawaysSettingsRouteData } from '../../server/dashboard-giveaways-route-data.js';
+import type * as DashboardGiveawaysRouteDataModule from '../../server/dashboard-giveaways-route-data.js';
+import { readDashboardSuggestionsSettingsRouteData } from '../../server/dashboard-suggestions-route-data.js';
+import type * as DashboardSuggestionsRouteDataModule from '../../server/dashboard-suggestions-route-data.js';
+import { readDashboardTicketsSettingsRouteData } from '../../server/dashboard-tickets-route-data.js';
+import type * as DashboardTicketsRouteDataModule from '../../server/dashboard-tickets-route-data.js';
+import { readDashboardVcGeneratorSettingsRouteData } from '../../server/dashboard-vc-generator-route-data.js';
+import type * as DashboardVcGeneratorRouteDataModule from '../../server/dashboard-vc-generator-route-data.js';
+import { readDashboardXpSettingsRouteData } from '../../server/dashboard-xp-route-data.js';
+import type * as DashboardXpRouteDataModule from '../../server/dashboard-xp-route-data.js';
+import {
+    applyDashboardStructureImportRunRouteData,
+    createDashboardStructureDryRunRouteData,
+    exportDashboardStructureRouteData,
+    readDashboardStructureSettingsRouteData,
+} from '../../server/dashboard-structure-route-data.js';
+import type * as DashboardStructureRouteDataModule from '../../server/dashboard-structure-route-data.js';
+import { readDashboardPostingTemplatesRouteData } from '../../server/dashboard-posting-templates-route-data.js';
+import type * as DashboardPostingTemplatesRouteDataModule from '../../server/dashboard-posting-templates-route-data.js';
 
 vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
     const actual = await importActual<typeof DashboardGuildRouteDataModule>();
@@ -44,8 +83,140 @@ vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
         readDashboardCommandAccessRouteData: vi.fn(),
         readDashboardCommandSettingsRouteData: vi.fn(),
         readDashboardGuildOverviewRouteData: vi.fn(),
+        readDashboardModerationCasesRouteData: vi.fn(),
+        readDashboardModerationPolicyRouteData: vi.fn(),
         readDashboardPostingChannelsRouteData: vi.fn(),
+        updateDashboardModerationPolicyRouteData: vi.fn(),
         updateDashboardCommandPrefixRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-autorole-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardAutoroleRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardAutoroleSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-automod-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardAutomodRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardAutomodSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-logging-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardLoggingRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardLoggingSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-reaction-roles-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardReactionRolesRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardReactionRolesSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-role-reconciliation-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardRoleReconciliationRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardRoleReconciliationSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-verification-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardVerificationRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardVerificationSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-profile-builder-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardProfileBuilderRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardProfileBuilderSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-giveaways-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardGiveawaysRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardGiveawaysSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-suggestions-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardSuggestionsRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardSuggestionsSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-tickets-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardTicketsRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardTicketsSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-vc-generator-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardVcGeneratorRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardVcGeneratorSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-xp-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardXpRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardXpSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-structure-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardStructureRouteDataModule>();
+
+    return {
+        ...actual,
+        applyDashboardStructureImportRunRouteData: vi.fn(),
+        createDashboardStructureDryRunRouteData: vi.fn(),
+        exportDashboardStructureRouteData: vi.fn(),
+        readDashboardStructureSettingsRouteData: vi.fn(),
+    };
+});
+
+vi.mock('../../server/dashboard-posting-templates-route-data.js', async (importActual) => {
+    const actual = await importActual<typeof DashboardPostingTemplatesRouteDataModule>();
+
+    return {
+        ...actual,
+        readDashboardPostingTemplatesRouteData: vi.fn(),
     };
 });
 
@@ -72,6 +243,17 @@ describe('/dashboard/$guildId', () => {
             type: 'overview',
             overview: createDashboardOverview(),
         });
+        vi.mocked(readDashboardModerationCasesRouteData).mockResolvedValue({
+            type: 'cases',
+            cases: [],
+        });
+        vi.mocked(readDashboardModerationPolicyRouteData).mockResolvedValue({
+            type: 'policy',
+            policy: {
+                protectedUserIds: [],
+                protectedRoleIds: [],
+            },
+        });
         vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
             type: 'channels',
             channels: [
@@ -93,12 +275,60 @@ describe('/dashboard/$guildId', () => {
         });
         vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue(createCommandSettingsReadResult('?'));
         vi.mocked(readDashboardCommandAccessRouteData).mockResolvedValue(createCommandAccessReadResult());
+        vi.mocked(readDashboardAutoroleSettingsRouteData).mockResolvedValue(createAutoroleSettingsReadResult());
+        vi.mocked(readDashboardAutomodSettingsRouteData).mockResolvedValue({
+            type: 'settings',
+            rules: [],
+            events: [],
+        });
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue(
+            createReactionRolesSettingsReadResult()
+        );
+        vi.mocked(readDashboardRoleReconciliationSettingsRouteData).mockResolvedValue(
+            createRoleReconciliationSettingsReadResult()
+        );
+        vi.mocked(readDashboardVerificationSettingsRouteData).mockResolvedValue(createVerificationSettingsReadResult());
+        vi.mocked(readDashboardVcGeneratorSettingsRouteData).mockResolvedValue(createVcGeneratorSettingsReadResult());
+        vi.mocked(readDashboardXpSettingsRouteData).mockResolvedValue(createXpSettingsReadResult());
+        vi.mocked(readDashboardProfileBuilderSettingsRouteData).mockResolvedValue(
+            createProfileBuilderSettingsReadResult()
+        );
+        vi.mocked(readDashboardGiveawaysSettingsRouteData).mockResolvedValue(createGiveawaysSettingsReadResult());
+        vi.mocked(readDashboardTicketsSettingsRouteData).mockResolvedValue(createTicketsSettingsReadResult());
+        vi.mocked(readDashboardSuggestionsSettingsRouteData).mockResolvedValue(createSuggestionsSettingsReadResult());
+        vi.mocked(readDashboardLoggingSettingsRouteData).mockResolvedValue(createLoggingSettingsReadResult());
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(createStructureSettingsReadResult());
+        vi.mocked(readDashboardPostingTemplatesRouteData).mockResolvedValue({
+            type: 'templates',
+            templates: [],
+        });
+        vi.mocked(exportDashboardStructureRouteData).mockResolvedValue({
+            type: 'exported',
+            exportSnapshot: createStructureExportSummary(),
+            snapshotJson: JSON.stringify({ version: 1, roles: [], categories: [], channels: [] }, null, 2),
+        });
+        vi.mocked(createDashboardStructureDryRunRouteData).mockResolvedValue({
+            type: 'dry-run-created',
+            importRun: createStructureImportRun(),
+        });
+        vi.mocked(applyDashboardStructureImportRunRouteData).mockResolvedValue({
+            type: 'applied',
+            importRun: { ...createStructureImportRun(), status: 'applied' },
+        });
         vi.mocked(postDashboardMessageRouteData).mockResolvedValue({
             type: 'sent',
             message: {
                 id: 'message-1',
                 guildId: 'guild-1',
                 channelId: 'channel-1',
+            },
+        });
+        vi.mocked(updateDashboardModerationPolicyRouteData).mockResolvedValue({
+            type: 'updated',
+            policy: {
+                protectedUserIds: ['user-1'],
+                protectedRoleIds: ['role-1'],
+                updatedAt: '2026-06-26T10:00:00.000Z',
             },
         });
         vi.mocked(updateDashboardCommandPrefixRouteData).mockResolvedValue({
@@ -349,6 +579,17 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Messaging' }).getAttribute('aria-current')).toBe('page');
     });
 
+    it('renders the routed structure category with import/export tools', async () => {
+        renderGuildPage(createGuildRouteData(), 'structure');
+
+        expect(await screen.findByRole('region', { name: 'Structure' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Import and export' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Export' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Create dry-run' })).toBeTruthy();
+        expect(screen.queryByText('Structure is not built yet')).toBeNull();
+        expect(screen.getByRole('link', { name: 'Structure' }).getAttribute('aria-current')).toBe('page');
+    });
+
     it('renders the routed audit category', async () => {
         renderGuildPage(createGuildRouteData(), 'audit');
 
@@ -356,6 +597,82 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('heading', { name: 'Audit events' })).toBeTruthy();
         expect(screen.getByLabelText('Search events')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('renders the routed moderation category with recent case history', async () => {
+        vi.mocked(readDashboardModerationCasesRouteData).mockResolvedValueOnce({
+            type: 'cases',
+            cases: [
+                {
+                    caseNumber: 3,
+                    action: 'ban',
+                    status: 'resolved',
+                    targetType: 'user',
+                    targetUserId: 'target-3',
+                    actorUserId: 'mod-1',
+                    reason: 'Raid account',
+                    createdAt: '2026-06-26T10:00:00.000Z',
+                    updatedAt: '2026-06-26T10:01:00.000Z',
+                },
+                {
+                    caseNumber: 2,
+                    action: 'kick',
+                    status: 'void',
+                    targetType: 'user',
+                    targetUserId: 'target-2',
+                    actorUserId: 'mod-1',
+                    createdAt: '2026-06-26T09:00:00.000Z',
+                    updatedAt: '2026-06-26T09:01:00.000Z',
+                },
+            ],
+        });
+
+        renderGuildPage(createGuildRouteData(), 'moderation');
+
+        expect(await screen.findByRole('region', { name: 'Moderation' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Automod' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Protection policy' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Case history' })).toBeTruthy();
+        expect(screen.getByText('#3')).toBeTruthy();
+        expect(screen.getByText('ban')).toBeTruthy();
+        expect(screen.getByText('resolved')).toBeTruthy();
+        expect(screen.getByText('target-3')).toBeTruthy();
+        expect(screen.getByText('Raid account')).toBeTruthy();
+        expect(screen.getByText('#2')).toBeTruthy();
+        expect(screen.getByText('void')).toBeTruthy();
+        expect(readDashboardModerationCasesRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardModerationPolicyRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(screen.getByRole('link', { name: 'Moderation' }).getAttribute('aria-current')).toBe('page');
+    });
+
+    it('saves moderation protection policy from the dashboard', async () => {
+        renderGuildPage(createGuildRouteData(), 'moderation');
+
+        fireEvent.change(await screen.findByLabelText('Protected user IDs'), {
+            target: { value: 'user-1, user-1\nuser-2' },
+        });
+        fireEvent.change(screen.getByLabelText('Protected role IDs'), {
+            target: { value: 'role-1\nrole-2' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Save policy' }));
+
+        await waitFor(() => expect(updateDashboardModerationPolicyRouteData).toHaveBeenCalled());
+        expect(updateDashboardModerationPolicyRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+                protectedUserIds: ['user-1', 'user-2'],
+                protectedRoleIds: ['role-1', 'role-2'],
+            },
+        });
+        expect(await screen.findByText('Moderation policy saved.')).toBeTruthy();
     });
 
     it('navigates from the mobile category selector', async () => {
@@ -367,21 +684,97 @@ describe('/dashboard/$guildId', () => {
         await waitFor(() => expect(view.router.state.location.pathname).toBe('/dashboard/guild-1/audit'));
     });
 
-    it('renders routed placeholder categories without fake controls', async () => {
-        renderGuildPage(createGuildRouteData(), 'moderation');
+    it('renders active logging destinations', async () => {
+        renderGuildPage(createGuildRouteData(), 'logging');
 
-        expect(await screen.findByRole('region', { name: 'Moderation' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Moderation is not built yet' })).toBeTruthy();
-        expect(screen.queryByRole('button')).toBeNull();
+        expect(await screen.findByRole('region', { name: 'Logging' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Server event destinations' })).toBeTruthy();
+        expect(screen.getByText('Messages')).toBeTruthy();
+        expect(readDashboardLoggingSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+    });
+
+    it('renders the routed community category with XP settings', async () => {
+        renderGuildPage(createGuildRouteData(), 'community');
+
+        expect(await screen.findByRole('region', { name: 'Community' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'XP rules' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Giveaways' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'VC generator' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Profile builder' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Suggestions' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Community' }).getAttribute('aria-current')).toBe('page');
+        expect(readDashboardXpSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardVcGeneratorSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardProfileBuilderSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardGiveawaysSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardTicketsSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardSuggestionsSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
     });
 
     it('renders command access without granting dashboard access', async () => {
         renderGuildPage(createGuildRouteData(), 'access');
 
         expect(await screen.findByRole('region', { name: 'Roles & Access' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Autorole' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Reaction roles' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Verification' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Role reconciliation' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'Command access' })).toBeTruthy();
-        expect(screen.getByText('settings.prefix')).toBeTruthy();
+        expect(screen.getAllByText('Member').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('unicode:check').length).toBeGreaterThan(0);
+        expect(screen.getByText('Verified')).toBeTruthy();
+        expect(screen.getByText('Add or update grant')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Save command grant' })).toBeTruthy();
         expect(screen.getByText(/Dashboard access still requires Manage Server/u)).toBeTruthy();
+        expect(readDashboardAutoroleSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardReactionRolesSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardVerificationSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
+        expect(readDashboardRoleReconciliationSettingsRouteData).toHaveBeenCalledWith({
+            data: {
+                guildId: 'guild-1',
+            },
+        });
         expect(readDashboardCommandAccessRouteData).toHaveBeenCalledWith({
             data: {
                 guildId: 'guild-1',
@@ -452,6 +845,104 @@ describe('/dashboard/$guildId', () => {
 
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
         expect(screen.getByText('$')).toBeTruthy();
+    });
+
+    it('invalidates overview metrics when an overview live event arrives', async () => {
+        renderGuildPage(createGuildRouteData(), 'overview');
+        await screen.findByText('Member change');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=overview')
+        );
+        await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
+        vi.mocked(readDashboardGuildOverviewRouteData).mockClear();
+
+        MockEventSource.instances.at(0)?.emit(
+            'overview.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'overview',
+                event: 'overview.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
+    });
+
+    it('invalidates invite tracking when an invite live event arrives', async () => {
+        renderGuildPage(createGuildRouteData(), 'invites');
+        await screen.findByText('Invite attribution');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=invites')
+        );
+        await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
+        vi.mocked(readDashboardGuildOverviewRouteData).mockClear();
+
+        MockEventSource.instances.at(0)?.emit(
+            'invites.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'invites',
+                event: 'invites.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
+    });
+
+    it('invalidates posting templates when a posting live event arrives', async () => {
+        renderGuildPage(createGuildRouteData(), 'messaging');
+        await screen.findByText('Templates');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=posting')
+        );
+        await waitFor(() => expect(readDashboardPostingTemplatesRouteData).toHaveBeenCalledTimes(1));
+        vi.mocked(readDashboardPostingTemplatesRouteData).mockClear();
+
+        MockEventSource.instances.at(0)?.emit(
+            'posting-templates.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'posting',
+                event: 'posting-templates.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardPostingTemplatesRouteData).toHaveBeenCalledTimes(1));
+    });
+
+    it('invalidates structure tools when a structure live event arrives', async () => {
+        renderGuildPage(createGuildRouteData(), 'structure');
+        await screen.findByText('Structure tools');
+        await waitFor(() =>
+            expect(MockEventSource.instances.at(0)?.url).toBe(
+                '/dashboard/guild-1/events?areas=import_export%2Cstructure'
+            )
+        );
+        await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
+        vi.mocked(readDashboardStructureSettingsRouteData).mockClear();
+
+        MockEventSource.instances.at(0)?.emit(
+            'structure.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'structure',
+                event: 'structure.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
+        vi.mocked(readDashboardStructureSettingsRouteData).mockClear();
+
+        MockEventSource.instances.at(0)?.emit(
+            'guild-feature-settings.changed',
+            JSON.stringify({
+                guildId: 'guild-1',
+                area: 'import_export',
+                event: 'guild-feature-settings.changed',
+            })
+        );
+
+        await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
     });
 
     it('does not invalidate for unrelated guild live events', async () => {
@@ -745,6 +1236,38 @@ describe('/dashboard/$guildId', () => {
                 },
             })
         );
+    });
+
+    it('applies saved posting templates without reducing embed payloads', async () => {
+        vi.mocked(readDashboardPostingTemplatesRouteData).mockResolvedValueOnce({
+            type: 'templates',
+            templates: [
+                {
+                    id: 'template-1',
+                    guildId: 'guild-1',
+                    name: 'Release update',
+                    content: 'Saved content',
+                    embeds: [{ title: 'Saved embed' }, { description: 'Second embed' }],
+                    updatedAt: '2026-06-26T00:00:00.000Z',
+                },
+            ],
+        });
+        const { container } = renderGuildPage(createGuildRouteData(), 'messaging');
+        const currentView = within(container);
+        const templateSelect = await currentView.findByLabelText<HTMLSelectElement>('Saved templates');
+
+        await currentView.findByRole('option', { name: 'Release update' });
+        fireEvent.change(templateSelect, { target: { value: 'template-1' } });
+        await waitFor(() =>
+            expect(currentView.getByRole('button', { name: 'Apply' }).hasAttribute('disabled')).toBe(false)
+        );
+        fireEvent.click(currentView.getByRole('button', { name: 'Apply' }));
+
+        expect(currentView.getByLabelText<HTMLTextAreaElement>('Message content').value).toBe('Saved content');
+        expect(currentView.getByLabelText<HTMLTextAreaElement>('Embed JSON').value).toBe(
+            JSON.stringify([{ title: 'Saved embed' }, { description: 'Second embed' }], null, 2)
+        );
+        expect(await currentView.findByText('Template applied: Release update.')).toBeTruthy();
     });
 
     it('updates the posting preview from message content and builder fields', async () => {
@@ -1095,14 +1618,20 @@ function createDashboardCategoryElement(categoryId: DashboardCategoryId): ReactN
         case 'access':
             return createElement(DashboardGuildAccessCategory);
 
+        case 'moderation':
+            return createElement(DashboardGuildModerationCategory);
+
         case 'audit':
             return createElement(DashboardGuildAuditCategory);
 
-        case 'moderation':
         case 'logging':
+            return createElement(DashboardGuildLoggingCategory);
+
         case 'community':
+            return createElement(DashboardGuildCommunityCategory);
+
         case 'structure':
-            return createElement(DashboardGuildPlannedCategory, { categoryId });
+            return createElement(DashboardGuildStructureCategory);
     }
 }
 
@@ -1180,7 +1709,468 @@ function createCommandAccessReadResult() {
                 },
             ],
         },
+        roles: [
+            {
+                id: 'role-a',
+                name: 'Moderator',
+                position: 20,
+            },
+        ],
+        roleReadStatus: 'available' as const,
         rules: [],
+    };
+}
+
+function createAutoroleSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        roleReadStatus: 'available' as const,
+        roles: [
+            {
+                id: 'role-1',
+                name: 'Member',
+                position: 10,
+            },
+        ],
+        rules: [
+            {
+                id: 'autorole-rule-1',
+                roleId: 'role-1',
+                name: 'Member',
+                enabled: true,
+                updatedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createReactionRolesSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        roles: [
+            {
+                id: 'role-1',
+                name: 'Member',
+                position: 10,
+            },
+        ],
+        channels: [
+            {
+                id: 'channel-1',
+                name: 'roles',
+                type: 0,
+                position: 1,
+            },
+        ],
+        messages: [
+            {
+                id: 'reaction-role-message-1',
+                channelId: 'channel-1',
+                channelName: 'roles',
+                messageId: 'message-1',
+                removeOnUnreact: true,
+                enabled: true,
+                updatedAt: '2026-06-26T10:00:00.000Z',
+                options: [
+                    {
+                        id: 'reaction-role-option-1',
+                        emojiKey: 'unicode:check',
+                        roleId: 'role-1',
+                        roleName: 'Member',
+                    },
+                ],
+            },
+        ],
+    };
+}
+
+function createVerificationSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        roles: [
+            {
+                id: 'role-verified',
+                name: 'Verified',
+                position: 9,
+            },
+        ],
+        channels: [
+            {
+                id: 'channel-verify',
+                name: 'verify',
+                type: 0,
+                position: 2,
+            },
+        ],
+        flows: [
+            {
+                id: 'verification-flow-1',
+                channelId: 'channel-verify',
+                channelName: 'verify',
+                messageId: 'message-verify',
+                emojiKey: 'unicode:check',
+                verifiedRoleId: 'role-verified',
+                verifiedRoleName: 'Verified',
+                enabled: true,
+                updatedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createRoleReconciliationSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        settings: {
+            enabled: true,
+            restoreAutoroleRoles: true,
+            restoreVerificationRoles: true,
+            restoreReactionRoles: true,
+            cleanupDeletedRoleReferences: true,
+            updatedAt: '2026-06-26T10:00:00.000Z',
+        },
+    };
+}
+
+function createXpSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        settings: {
+            enabled: false,
+            messageXpMin: 5,
+            messageXpMax: 10,
+            cooldownSeconds: 60,
+            voiceXpPerMinute: 2,
+            voiceMinimumMinutes: 5,
+            updatedAt: '2026-06-26T10:00:00.000Z',
+        },
+    };
+}
+
+function createVcGeneratorSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        voiceChannels: [
+            {
+                id: 'voice-source-1',
+                name: 'Join to Create',
+                type: 2,
+                parentId: 'category-1',
+                parentName: 'Voice',
+                position: 1,
+            },
+        ],
+        textChannels: [
+            {
+                id: 'panel-channel-1',
+                name: 'Voice Panels',
+                type: 0,
+                parentId: 'category-1',
+                parentName: 'Voice',
+                position: 2,
+            },
+        ],
+        categories: [
+            {
+                id: 'category-1',
+                name: 'Voice',
+                position: 1,
+            },
+        ],
+        rules: [createVcGeneratorRule()],
+    };
+}
+
+function createVcGeneratorRule() {
+    return {
+        id: 'vc-rule-1',
+        sourceChannelId: 'voice-source-1',
+        sourceChannelName: 'Join to Create',
+        categoryId: 'category-1',
+        categoryName: 'Voice',
+        panelChannelId: 'panel-channel-1',
+        panelChannelName: 'Voice Panels',
+        panelMessageId: 'panel-message-1',
+        panelStatus: 'active',
+        nameTemplate: '{user} room',
+        enabled: true,
+        updatedAt: '2026-06-26T10:00:00.000Z',
+    };
+}
+
+function createTicketsSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        textChannels: [
+            {
+                id: 'ticket-channel-1',
+                name: 'tickets',
+                type: 0,
+                parentId: 'category-1',
+                parentName: 'Community',
+                position: 3,
+            },
+        ],
+        categories: [
+            {
+                id: 'category-1',
+                name: 'Community',
+                position: 1,
+            },
+        ],
+        roles: [
+            {
+                id: 'support-role-1',
+                name: 'Support',
+                position: 5,
+            },
+        ],
+        panels: [
+            {
+                id: 'ticket-panel-1',
+                channelId: 'ticket-channel-1',
+                channelName: 'tickets',
+                messageId: 'ticket-message-1',
+                title: 'Support tickets',
+                enabled: true,
+                config: {
+                    description: 'React to open a ticket.',
+                    openEmoji: '🎫',
+                    openEmojiKey: 'unicode:🎫',
+                    ticketCategoryId: 'category-1',
+                    staffRoleIds: ['support-role-1'],
+                    ticketNameTemplate: 'ticket-{number}',
+                    maxOpenPerUser: 1,
+                    privateTickets: true,
+                    syncStatus: 'active' as const,
+                },
+                updatedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createSuggestionsSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        channels: [
+            {
+                id: 'suggestions-channel-1',
+                name: 'suggestions',
+                type: 0,
+                parentId: 'category-1',
+                parentName: 'Community',
+                position: 3,
+            },
+        ],
+        boards: [
+            {
+                id: 'suggestion-board-1',
+                name: 'ideas',
+                channelId: 'suggestions-channel-1',
+                channelName: 'suggestions',
+                enabled: true,
+                updatedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createProfileBuilderSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        publicUrlStatus: 'available' as const,
+        forms: [
+            {
+                id: 'form-1',
+                name: 'default',
+                approvalRequired: true,
+                enabled: true,
+                publicUrl: 'https://neonflux.example/profile-builder?guildId=guild-1&form=default',
+                publicPath: '/profile-builder?guildId=guild-1&form=default',
+                fields: [
+                    {
+                        id: 'field-1',
+                        fieldKey: 'display_name',
+                        label: 'Display name',
+                        fieldType: 'text' as const,
+                        required: true,
+                        maxLength: 80,
+                        position: 0,
+                    },
+                    {
+                        id: 'field-2',
+                        fieldKey: 'bio',
+                        label: 'Bio',
+                        fieldType: 'textarea' as const,
+                        required: false,
+                        maxLength: 500,
+                        position: 1,
+                    },
+                ],
+                updatedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+        submissions: [
+            {
+                id: 'submission-1',
+                formId: 'form-1',
+                formName: 'default',
+                userId: 'user-1',
+                status: 'pending',
+                values: {
+                    display_name: 'Neon',
+                    bio: 'Flux enthusiast',
+                },
+                submittedAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createGiveawaysSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        structureReadStatus: 'available' as const,
+        channels: [
+            {
+                id: 'giveaway-channel-1',
+                name: 'giveaways',
+                type: 0,
+                parentId: 'category-1',
+                parentName: 'Community',
+                position: 4,
+            },
+        ],
+        giveaways: [
+            {
+                id: 'giveaway-1',
+                channelId: 'giveaway-channel-1',
+                channelName: 'giveaways',
+                messageId: 'giveaway-message-1',
+                title: 'Launch giveaway',
+                prize: 'Nitro',
+                description: 'React to enter.',
+                entryEmoji: '🎉',
+                winnerCount: 1,
+                status: 'active',
+                entryCount: 3,
+                winners: [],
+                syncStatus: 'active' as const,
+                endsAt: '2026-06-27T10:30:00.000Z',
+                createdAt: '2026-06-26T10:00:00.000Z',
+            },
+            {
+                id: 'giveaway-2',
+                channelId: 'giveaway-channel-1',
+                channelName: 'giveaways',
+                messageId: 'giveaway-message-2',
+                title: 'Closed giveaway',
+                prize: 'Sticker pack',
+                entryEmoji: '🎁',
+                winnerCount: 1,
+                status: 'closed',
+                entryCount: 5,
+                winners: [
+                    {
+                        userId: 'user-1',
+                        drawNumber: 1,
+                        selectedAt: '2026-06-26T10:05:00.000Z',
+                    },
+                ],
+                syncStatus: 'active' as const,
+                closedAt: '2026-06-26T10:05:00.000Z',
+                createdAt: '2026-06-26T10:00:00.000Z',
+            },
+            {
+                id: 'giveaway-3',
+                channelId: 'giveaway-channel-1',
+                channelName: 'giveaways',
+                messageId: 'giveaway-message-3',
+                title: 'Cancelled giveaway',
+                prize: 'Role color',
+                entryEmoji: '⭐',
+                winnerCount: 1,
+                status: 'cancelled',
+                entryCount: 0,
+                winners: [],
+                syncStatus: 'stale' as const,
+                createdAt: '2026-06-26T10:00:00.000Z',
+            },
+        ],
+    };
+}
+
+function createLoggingSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        eventGroups: [
+            {
+                id: 'messages' as const,
+                label: 'Messages',
+                description: 'Message edits and deletions.',
+            },
+        ],
+        destinations: [],
+    };
+}
+
+function createStructureSettingsReadResult() {
+    return {
+        type: 'settings' as const,
+        exports: [createStructureExportSummary()],
+        importRuns: [createStructureImportRun()],
+        observedState: {
+            observedChangeCount: 0,
+        },
+    };
+}
+
+function createStructureExportSummary() {
+    return {
+        id: 'structure-export-1',
+        source: 'dashboard',
+        createdByUserId: fluxerUserId,
+        createdAt: '2026-06-26T10:00:00.000Z',
+        roleCount: 2,
+        categoryCount: 1,
+        channelCount: 3,
+    };
+}
+
+function createStructureImportRun() {
+    return {
+        id: 'structure-import-run-1',
+        status: 'dry_run_complete',
+        createdByUserId: fluxerUserId,
+        createdAt: '2026-06-26T10:05:00.000Z',
+        updatedAt: '2026-06-26T10:05:01.000Z',
+        summary: {
+            creates: 1,
+            updates: 1,
+            deletes: 0,
+            roles: 1,
+            categories: 0,
+            channels: 1,
+        },
+        actions: [
+            {
+                id: 'structure-action-1',
+                actionType: 'update',
+                targetType: 'channel',
+                targetId: 'channel-1',
+                status: 'dry_run',
+                label: 'general',
+                details: {
+                    label: 'general',
+                },
+            },
+        ],
     };
 }
 

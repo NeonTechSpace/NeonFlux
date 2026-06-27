@@ -33,6 +33,10 @@
         "./public-url": {
             "types": "./src/public-url.ts",
             "import": "./dist/public-url.js"
+        },
+        "./server-event-logging": {
+            "types": "./src/server-event-logging.ts",
+            "import": "./dist/server-event-logging.js"
         }
     },
     "scripts": {
