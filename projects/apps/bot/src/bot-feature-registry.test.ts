@@ -20,21 +20,19 @@ describe('bot feature registry', () => {
         const plannedCommands = listBotCommandMetadata().filter((command) => !command.implemented);
 
         expect(plannedCommands.map((command) => command.id)).toEqual([
+            'moderation.kick',
             'moderation.ban',
-            'logging.configure',
-            'autorole.configure',
-            'reaction_roles.configure',
-            'verification.configure',
-            'tickets.configure',
-            'suggestions.create',
-            'posting.send',
-            'profile.configure',
+            'moderation.unban',
+            'moderation.timeout',
+            'moderation.warn',
+            'suggestions.suggest',
             'xp.rank',
-            'vc.configure',
-            'roles.reconcile',
-            'structure.export',
+            'xp.leaderboard',
         ]);
         expect(plannedCommands.every((command) => !command.visibleInHelp)).toBe(true);
+        expect(listBotCommandMetadata().some((command) => command.id === 'logging.configure')).toBe(false);
+        expect(listBotCommandMetadata().some((command) => command.id === 'vc.configure')).toBe(false);
+        expect(listBotCommandMetadata().some((command) => command.id === 'posting.send')).toBe(false);
     });
 
     it('keeps feature module ordering explicit', () => {

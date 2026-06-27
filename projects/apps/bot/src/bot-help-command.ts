@@ -170,7 +170,9 @@ async function authorizeHelpCommand(
     }
 
     return await authorizeBotCommand(context, event, {
-        category: DEFCON_FEATURE_CATEGORY.help,
+        commandId: 'general.help',
+        categoryId: 'general',
+        defconCategory: DEFCON_FEATURE_CATEGORY.help,
         audience: 'public',
     });
 }

@@ -148,7 +148,9 @@ async function authorizePrefixChange(
     }
 
     return await authorizeBotCommand(context, event, {
-        category: DEFCON_FEATURE_CATEGORY.prefix,
+        commandId: 'settings.prefix',
+        categoryId: 'settings',
+        defconCategory: DEFCON_FEATURE_CATEGORY.prefix,
         audience: 'guarded',
     });
 }

@@ -82,15 +82,21 @@ export const guildCommandPermissionRules = pgTable(
         guildId: text('guild_id')
             .notNull()
             .references(() => guilds.guildId, { onDelete: 'cascade' }),
-        category: text('category').notNull(),
+        targetType: text('target_type').notNull(),
+        targetId: text('target_id').notNull(),
         userIds: text('user_ids').array().notNull().default([]),
         roleIds: text('role_ids').array().notNull().default([]),
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
-        uniqueIndex('guild_command_permission_rules_guild_category_idx').on(table.guildId, table.category),
+        uniqueIndex('guild_command_permission_rules_guild_target_idx').on(
+            table.guildId,
+            table.targetType,
+            table.targetId
+        ),
         index('guild_command_permission_rules_guild_idx').on(table.guildId),
+        check('guild_command_permission_rules_target_type_check', sql`${table.targetType} in ('category', 'command')`),
     ]
 );
 

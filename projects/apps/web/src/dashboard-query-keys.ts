@@ -2,6 +2,10 @@ export function getDashboardCommandSettingsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'command-settings'] as const;
 }
 
+export function getDashboardCommandAccessQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'command-access'] as const;
+}
+
 export function getDashboardAuditEventsQueryKey(
     guildId: string,
     search = '',

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,14 +12,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
 import { findGuildById } from './guilds.js';
 import {
-    deleteGuildDefconExemption,
+    deleteGuildCommandPermissionRule,
     findGuildCommandPermissionRule,
+    listGuildCommandPermissionRulesByGuildId,
+    upsertGuildCommandPermissionRule,
+} from './guild-command-permission-rules.js';
+import {
+    deleteGuildDefconExemption,
     findGuildDashboardPermissionRule,
     findGuildSecurityPolicyByGuildId,
     listGuildDashboardPermissionRulesByGuildIds,
     listGuildSecurityPoliciesByGuildIds,
     listGuildDefconExemptionCategories,
-    upsertGuildCommandPermissionRule,
     upsertGuildDashboardPermissionRule,
     upsertGuildDefconExemption,
     upsertGuildSecurityPolicy,
@@ -103,7 +107,8 @@ describe('guild security policy repository', () => {
     it('stores command grants separately from dashboard grants', async () => {
         const commandRule = await upsertCommandRule({
             guildId: 'guild-1',
-            category: ` ${DEFCON_FEATURE_CATEGORY.prefix} `,
+            targetType: 'category',
+            targetId: ' settings ',
             userIds: [' user-a ', ''],
             roleIds: [' role-a '],
         });
@@ -115,13 +120,15 @@ describe('guild security policy repository', () => {
 
         const storedCommandRule = await findGuildCommandPermissionRule(getDb(), {
             guildId: 'guild-1',
-            category: DEFCON_FEATURE_CATEGORY.prefix,
+            targetType: 'category',
+            targetId: 'settings',
         });
         const storedDashboardRule = await findGuildDashboardPermissionRule(getDb(), { guildId: 'guild-1' });
 
         expect(commandRule).toMatchObject({
             guildId: 'guild-1',
-            category: DEFCON_FEATURE_CATEGORY.prefix,
+            targetType: 'category',
+            targetId: 'settings',
             userIds: ['user-a'],
             roleIds: ['role-a'],
         });
@@ -174,14 +181,72 @@ describe('guild security policy repository', () => {
         ]);
     });
 
-    it('rejects blank command grant categories', async () => {
+    it('lists and deletes command grants by target', async () => {
+        await upsertCommandRule({
+            guildId: 'guild-1',
+            targetType: 'command',
+            targetId: 'settings.prefix',
+            userIds: ['user-a'],
+        });
+        await upsertCommandRule({
+            guildId: 'guild-1',
+            targetType: 'category',
+            targetId: 'settings',
+            roleIds: ['role-a'],
+        });
+
+        const listed = await listGuildCommandPermissionRulesByGuildId(getDb(), { guildId: 'guild-1' });
+        const deleted = await deleteGuildCommandPermissionRule(getDb(), {
+            guildId: 'guild-1',
+            targetType: 'command',
+            targetId: 'settings.prefix',
+        });
+        const remaining = await listGuildCommandPermissionRulesByGuildId(getDb(), { guildId: 'guild-1' });
+
+        expect(listed.isOk()).toBe(true);
+        expect(
+            listed._unsafeUnwrap().map((rule) => ({
+                targetType: rule.targetType,
+                targetId: rule.targetId,
+                userIds: rule.userIds,
+                roleIds: rule.roleIds,
+            }))
+        ).toStrictEqual([
+            {
+                targetType: 'category',
+                targetId: 'settings',
+                userIds: [],
+                roleIds: ['role-a'],
+            },
+            {
+                targetType: 'command',
+                targetId: 'settings.prefix',
+                userIds: ['user-a'],
+                roleIds: [],
+            },
+        ]);
+        expect(deleted.isOk()).toBe(true);
+        expect(deleted._unsafeUnwrap()).toMatchObject({
+            targetType: 'command',
+            targetId: 'settings.prefix',
+        });
+        expect(remaining.isOk()).toBe(true);
+        expect(remaining._unsafeUnwrap()).toHaveLength(1);
+        expect(remaining._unsafeUnwrap()[0]).toMatchObject({
+            targetType: 'category',
+            targetId: 'settings',
+        });
+    });
+
+    it('rejects blank command grant targets', async () => {
         const result = await upsertGuildCommandPermissionRule(getDb(), {
             guildId: 'guild-1',
-            category: '   ',
+            targetType: 'category',
+            targetId: '   ',
         });
 
         expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toBe('missing-category');
+        expect(result._unsafeUnwrapErr()).toBe('missing-target-id');
     });
 
     it('stores DEFCON 1 exemptions as sorted feature categories', async () => {
@@ -215,7 +280,7 @@ describe('guild security policy repository', () => {
 
     it('preserves policy data when a guild installation is removed', async () => {
         await upsertPolicy({ guildId: 'guild-1', defconLevel: 1 });
-        await upsertCommandRule({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.prefix });
+        await upsertCommandRule({ guildId: 'guild-1', targetType: 'category', targetId: 'settings' });
         await upsertDashboardRule({ guildId: 'guild-1' });
         await upsertExemption({ guildId: 'guild-1', category: DEFCON_FEATURE_CATEGORY.botMention });
 
@@ -227,7 +292,8 @@ describe('guild security policy repository', () => {
         const policy = await findGuildSecurityPolicyByGuildId(getDb(), { guildId: 'guild-1' });
         const commandRule = await findGuildCommandPermissionRule(getDb(), {
             guildId: 'guild-1',
-            category: DEFCON_FEATURE_CATEGORY.prefix,
+            targetType: 'category',
+            targetId: 'settings',
         });
         const dashboardRule = await findGuildDashboardPermissionRule(getDb(), { guildId: 'guild-1' });
         const categories = await listGuildDefconExemptionCategories(getDb(), { guildId: 'guild-1' });
@@ -238,12 +304,85 @@ describe('guild security policy repository', () => {
         expect(dashboardRule.isOk()).toBe(true);
         expect(categories._unsafeUnwrap()).toStrictEqual([DEFCON_FEATURE_CATEGORY.botMention]);
     });
+
+    it('migrates legacy category command grants to category targets', async () => {
+        const dataDir = join(testDataRoot, randomUUID());
+
+        await mkdir(dataDir, { recursive: true });
+
+        const client = new PGlite(dataDir);
+
+        try {
+            await applySqlMigrationsBeforeCommandAccessTargets(client);
+            await client.query("insert into guilds (guild_id) values ('legacy-guild');");
+            await client.query(`
+                insert into guild_command_permission_rules (guild_id, category, user_ids, role_ids)
+                values ('legacy-guild', 'prefix', array['user-a']::text[], array['role-a']::text[]);
+            `);
+            await applySqlMigration(client, '0011_command_access_targets.sql');
+
+            const rows = await client.query<{
+                guild_id: string;
+                target_type: string;
+                target_id: string;
+                user_ids: string[];
+                role_ids: string[];
+            }>(`
+                select guild_id, target_type, target_id, user_ids, role_ids
+                from guild_command_permission_rules
+                where guild_id = 'legacy-guild';
+            `);
+
+            expect(rows.rows).toStrictEqual([
+                {
+                    guild_id: 'legacy-guild',
+                    target_type: 'category',
+                    target_id: 'prefix',
+                    user_ids: ['user-a'],
+                    role_ids: ['role-a'],
+                },
+            ]);
+        } finally {
+            await client.close();
+            await rm(dataDir, { recursive: true, force: true });
+        }
+    });
 });
 
 async function installGuild(guildId: string): Promise<void> {
     const result = await upsertBotInstallation(getDb(), { guildId });
 
     expect(result.isOk()).toBe(true);
+}
+
+async function applySqlMigrationsBeforeCommandAccessTargets(client: PGlite): Promise<void> {
+    for (const fileName of [
+        '0000_cynical_cannonball.sql',
+        '0001_curved_roland_deschain.sql',
+        '0002_refine_installation_feature_settings.sql',
+        '0003_smooth_proudstar.sql',
+        '0004_polite_captain_flint.sql',
+        '0005_guild_defcon_policy.sql',
+        '0006_spicy_dazzler.sql',
+        '0007_dashboard_live_events.sql',
+        '0008_handy_texas_twister.sql',
+        '0009_dashboard_audit_events.sql',
+        '0010_growth_overview_foundation.sql',
+    ]) {
+        await applySqlMigration(client, fileName);
+    }
+}
+
+async function applySqlMigration(client: PGlite, fileName: string): Promise<void> {
+    const sql = await readFile(join(migrationsFolder, fileName), 'utf8');
+    const statements = sql
+        .split('--> statement-breakpoint')
+        .map((statement) => statement.trim())
+        .filter(Boolean);
+
+    for (const statement of statements) {
+        await client.query(statement);
+    }
 }
 
 async function upsertPolicy(input: Parameters<typeof upsertGuildSecurityPolicy>[1]) {

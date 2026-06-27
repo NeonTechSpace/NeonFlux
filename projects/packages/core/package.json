@@ -22,6 +22,10 @@
             "types": "./src/defcon.ts",
             "import": "./dist/defcon.js"
         },
+        "./feature-catalog": {
+            "types": "./src/feature-catalog.ts",
+            "import": "./dist/feature-catalog.js"
+        },
         "./command-prefix": {
             "types": "./src/command-prefix.ts",
             "import": "./dist/command-prefix.js"

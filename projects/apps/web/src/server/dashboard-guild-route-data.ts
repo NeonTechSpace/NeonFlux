@@ -7,6 +7,12 @@ import type {
     DashboardCommandSettingsPageDataResult,
 } from './dashboard-command-settings.server.js';
 import type {
+    DashboardCommandAccessDeleteResult,
+    DashboardCommandAccessResult,
+    DashboardCommandAccessTargetType,
+    DashboardCommandAccessUpdateResult,
+} from './dashboard-command-access.server.js';
+import type {
     DashboardAuditEventsResult,
     DashboardAuditSearchScope,
     DashboardPostMessageResult,
@@ -51,6 +57,20 @@ type DashboardGuildRouteInput = {
 type DashboardCommandPrefixUpdateRouteInput = {
     guildId: string;
     prefix: string;
+};
+
+type DashboardCommandAccessUpdateRouteInput = {
+    guildId: string;
+    targetType: DashboardCommandAccessTargetType;
+    targetId: string;
+    userIds?: string[];
+    roleIds?: string[];
+};
+
+type DashboardCommandAccessDeleteRouteInput = {
+    guildId: string;
+    targetType: DashboardCommandAccessTargetType;
+    targetId: string;
 };
 
 type DashboardPostMessageRouteInput = {
@@ -193,6 +213,39 @@ export const updateDashboardCommandPrefixRouteData = createServerFn({ method: 'P
         return updateDashboardGuildCommandPrefix(getRequest(), data);
     });
 
+export const readDashboardCommandAccessRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardCommandAccessResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardCommandAccessPage } = await import('./dashboard-command-access.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardCommandAccessPage(getRequest(), data.guildId);
+    });
+
+export const updateDashboardCommandAccessRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardCommandAccessUpdateRouteInput)
+    .handler(async ({ data }): Promise<DashboardCommandAccessUpdateResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { updateDashboardCommandAccessRule } = await import('./dashboard-command-access.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return updateDashboardCommandAccessRule(getRequest(), data);
+    });
+
+export const deleteDashboardCommandAccessRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardCommandAccessDeleteRouteInput)
+    .handler(async ({ data }): Promise<DashboardCommandAccessDeleteResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { deleteDashboardCommandAccessRule } = await import('./dashboard-command-access.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return deleteDashboardCommandAccessRule(getRequest(), data);
+    });
+
 export const postDashboardMessageRouteData = createServerFn({ method: 'POST' })
     .validator(validateDashboardPostMessageRouteInput)
     .handler(async ({ data }): Promise<DashboardPostMessageResult> => {
@@ -295,6 +348,44 @@ function validateDashboardCommandPrefixUpdateRouteInput(input: unknown): Dashboa
     };
 }
 
+function validateDashboardCommandAccessUpdateRouteInput(input: unknown): DashboardCommandAccessUpdateRouteInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '', targetType: 'category', targetId: '' };
+    }
+
+    const payload = input as Record<string, unknown>;
+    const guildId = payload.guildId;
+    const targetType = payload.targetType;
+    const targetId = payload.targetId;
+    const userIds = payload.userIds;
+    const roleIds = payload.roleIds;
+
+    return {
+        guildId: typeof guildId === 'string' ? guildId : '',
+        targetType: isDashboardCommandAccessTargetType(targetType) ? targetType : 'category',
+        targetId: typeof targetId === 'string' ? targetId : '',
+        ...(isStringArray(userIds) ? { userIds } : {}),
+        ...(isStringArray(roleIds) ? { roleIds } : {}),
+    };
+}
+
+function validateDashboardCommandAccessDeleteRouteInput(input: unknown): DashboardCommandAccessDeleteRouteInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '', targetType: 'category', targetId: '' };
+    }
+
+    const payload = input as Record<string, unknown>;
+    const guildId = payload.guildId;
+    const targetType = payload.targetType;
+    const targetId = payload.targetId;
+
+    return {
+        guildId: typeof guildId === 'string' ? guildId : '',
+        targetType: isDashboardCommandAccessTargetType(targetType) ? targetType : 'category',
+        targetId: typeof targetId === 'string' ? targetId : '',
+    };
+}
+
 function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMessageRouteInput {
     if (!input || typeof input !== 'object') {
         return { guildId: '', channelId: '' };
@@ -349,4 +440,12 @@ function isDashboardAuditSearchScope(value: unknown): value is DashboardAuditSea
         value === 'time' ||
         value === 'metadata'
     );
+}
+
+function isDashboardCommandAccessTargetType(value: unknown): value is DashboardCommandAccessTargetType {
+    return value === 'category' || value === 'command';
+}
+
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }

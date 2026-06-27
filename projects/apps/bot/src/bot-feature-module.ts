@@ -1,6 +1,6 @@
 import type { Result } from 'neverthrow';
 
-import type { DefconAudience, DefconFeatureCategory } from '@neonflux/core/defcon';
+import type { BotCommandDefinition } from '@neonflux/core';
 
 import type {
     BotFeatureEvent,
@@ -9,17 +9,7 @@ import type {
     BotFeatureRouteResult,
 } from './bot-feature-types.js';
 
-export type BotCommandMetadata = {
-    id: string;
-    categoryId: string;
-    categoryTitle: string;
-    usage: (prefix: string) => string;
-    description: string;
-    defconCategory: DefconFeatureCategory;
-    audience: DefconAudience;
-    visibleInHelp: boolean;
-    implemented: boolean;
-};
+export type BotCommandMetadata = BotCommandDefinition;
 
 export type BotFeatureModule = {
     id: string;

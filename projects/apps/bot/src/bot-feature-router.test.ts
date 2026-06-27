@@ -731,7 +731,8 @@ describe('routeBotFeatureEvent', () => {
         findGuildCommandPermissionRuleMock.mockResolvedValueOnce(
             ok({
                 guildId: 'guild-1',
-                category: DEFCON_FEATURE_CATEGORY.prefix,
+                targetType: 'category',
+                targetId: 'settings',
                 userIds: [],
                 roleIds: ['role-1'],
                 createdAt: new Date('2026-06-24T00:00:00.000Z'),
@@ -749,6 +750,90 @@ describe('routeBotFeatureEvent', () => {
         );
 
         expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '%',
+        });
+    });
+
+    it('changes the guild prefix when a command category grant authorizes the command', async () => {
+        findGuildCommandPermissionRuleMock.mockImplementation((_db, input) => {
+            if (input.targetType === 'category' && input.targetId === 'settings') {
+                return Promise.resolve(
+                    ok({
+                        guildId: 'guild-1',
+                        targetType: 'category',
+                        targetId: 'settings',
+                        userIds: [],
+                        roleIds: ['role-1'],
+                        createdAt: new Date('2026-06-24T00:00:00.000Z'),
+                        updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+                    })
+                );
+            }
+
+            return Promise.resolve(err('not-found'));
+        });
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                authorRoleIds: ['role-1'],
+                content: '<@bot-user> prefix %',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            prefix: '%',
+        });
+    });
+
+    it('keeps legacy prefix category grants working after target-based command grants', async () => {
+        findGuildCommandPermissionRuleMock.mockImplementation((_db, input) => {
+            if (input.targetType === 'category' && input.targetId === DEFCON_FEATURE_CATEGORY.prefix) {
+                return Promise.resolve(
+                    ok({
+                        guildId: 'guild-1',
+                        targetType: 'category',
+                        targetId: DEFCON_FEATURE_CATEGORY.prefix,
+                        userIds: ['author-1'],
+                        roleIds: [],
+                        createdAt: new Date('2026-06-24T00:00:00.000Z'),
+                        updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+                    })
+                );
+            }
+
+            return Promise.resolve(err('not-found'));
+        });
+
+        const result = await routeBotFeatureEvent(
+            createContext(createMultiMode()),
+            createMessageEvent({
+                content: '<@bot-user> prefix %',
+                mentionedUserIds: ['bot-user'],
+            })
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(findGuildCommandPermissionRuleMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            targetType: 'command',
+            targetId: 'settings.prefix',
+        });
+        expect(findGuildCommandPermissionRuleMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            targetType: 'category',
+            targetId: 'settings',
+        });
+        expect(findGuildCommandPermissionRuleMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            targetType: 'category',
+            targetId: DEFCON_FEATURE_CATEGORY.prefix,
+        });
         expect(upsertGuildCommandPrefixMock).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
             prefix: '%',
