@@ -7,19 +7,62 @@ import { mapPlatformError, requireTextInputs, type FluxerPlatformError } from '.
 
 type MessageLookupChannel = {
     messages: {
-        fetch(messageId: string): Promise<{
-            id: string;
-            channelId: string;
-            guildId: string | null;
-            edit(options: { content?: string; embeds?: MessageSendOptions['embeds'] }): Promise<{
-                id: string;
-                channelId: string;
-                guildId: string | null;
-            }>;
-            delete(): Promise<void>;
-            react(emoji: string): Promise<void>;
-        }>;
+        fetch(messageId: string): Promise<SdkMessage>;
+        fetch(options: FetchManyMessagesOptions): Promise<{ values(): Iterable<SdkMessage> }>;
     };
+};
+
+type SdkMessage = {
+    id: string;
+    channelId: string;
+    guildId: string | null;
+    reactions?: SdkMessageReactions;
+    edit(options: { content?: string; embeds?: MessageSendOptions['embeds'] }): Promise<{
+        id: string;
+        channelId: string;
+        guildId: string | null;
+    }>;
+    delete(): Promise<void>;
+    react(emoji: string): Promise<void>;
+};
+
+type SdkMessageReactions = {
+    cache?: {
+        get(key: string): unknown;
+        values(): Iterable<unknown>;
+    };
+};
+
+type SdkReaction = {
+    emoji?: {
+        id?: string | null;
+        name?: string | null;
+        identifier?: string | null;
+    };
+    users?: {
+        fetch(options?: { limit?: number; after?: string }): Promise<SdkUserCollection | SdkUserLike[]>;
+    };
+};
+
+type SdkUserCollection = {
+    values(): Iterable<SdkUserLike>;
+};
+
+type SdkUserLike = {
+    id: string;
+    bot?: boolean;
+};
+
+export type FluxerReactionUser = {
+    id: string;
+    bot: boolean;
+};
+
+type FetchManyMessagesOptions = {
+    limit?: number;
+    before?: string;
+    after?: string;
+    around?: string;
 };
 
 export function createMessagePlatform(client: FluxerBot['client']) {
@@ -27,6 +70,8 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         send: (input: { channelId: string; content?: string; embeds?: MessageSendOptions['embeds'] }) =>
             sendFluxerChannelMessage({ client, ...input }),
         fetch: (input: { channelId: string; messageId: string }) => fetchMessage(client, input),
+        fetchMany: (input: { channelId: string; limit: number; before?: string; after?: string; around?: string }) =>
+            fetchManyMessages(client, input),
         edit: (input: {
             channelId: string;
             messageId: string;
@@ -35,6 +80,13 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         }) => editMessage(client, input),
         delete: (input: { channelId: string; messageId: string }) => deleteMessage(client, input),
         react: (input: { channelId: string; messageId: string; emoji: string }) => reactToMessage(client, input),
+        listReactionUsers: (input: {
+            channelId: string;
+            messageId: string;
+            emoji: string;
+            limit: number;
+            after?: string;
+        }) => listReactionUsers(client, input),
         bulkDelete: (input: { channelId: string; messageIds: string[] }) => bulkDeleteMessages(client, input),
     };
 }
@@ -57,6 +109,46 @@ async function fetchMessage(
             channelId: message.channelId,
             guildId: message.guildId,
         });
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
+}
+
+async function fetchManyMessages(
+    client: FluxerBot['client'],
+    input: { channelId: string; limit: number; before?: string; after?: string; around?: string }
+): Promise<Result<FluxerSentMessage[], FluxerPlatformError>> {
+    const channelId = input.channelId.trim();
+
+    if (!channelId) {
+        return err({ type: 'missing-input', field: 'channelId' });
+    }
+
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+        return err({ type: 'invalid-value', field: 'limit' });
+    }
+
+    try {
+        const channel = await client.channels.resolve(channelId);
+
+        if (!hasMessageLookup(channel)) {
+            return err({ type: 'not-found' });
+        }
+
+        const messages = await channel.messages.fetch({
+            limit: input.limit,
+            ...optionalTextOption('before', input.before),
+            ...optionalTextOption('after', input.after),
+            ...optionalTextOption('around', input.around),
+        });
+
+        return ok(
+            [...messages.values()].map((message) => ({
+                id: message.id,
+                channelId: message.channelId,
+                guildId: message.guildId,
+            }))
+        );
     } catch (error) {
         return err(mapPlatformError(error));
     }
@@ -135,6 +227,48 @@ async function reactToMessage(
     }
 }
 
+async function listReactionUsers(
+    client: FluxerBot['client'],
+    input: { channelId: string; messageId: string; emoji: string; limit: number; after?: string }
+): Promise<Result<FluxerReactionUser[], FluxerPlatformError>> {
+    const emoji = input.emoji.trim();
+
+    if (!emoji) {
+        return err({ type: 'missing-input', field: 'emoji' });
+    }
+
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+        return err({ type: 'invalid-value', field: 'limit' });
+    }
+
+    const messageResult = await fetchSdkMessage(client, input);
+
+    if (messageResult.isErr()) {
+        return err(messageResult.error);
+    }
+
+    const reaction = findMessageReaction(messageResult.value, emoji);
+
+    if (!reaction) {
+        return err({ type: 'not-found' });
+    }
+
+    if (!reaction.users || typeof reaction.users.fetch !== 'function') {
+        return err({ type: 'unsupported', feature: 'message-reaction-users' });
+    }
+
+    try {
+        const users = await reaction.users.fetch({
+            limit: input.limit,
+            ...optionalTextOption('after', input.after),
+        });
+
+        return ok(readUserCollection(users));
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
+}
+
 async function bulkDeleteMessages(
     client: FluxerBot['client'],
     input: { channelId: string; messageIds: string[] }
@@ -200,6 +334,59 @@ function normalizeMessageEditPayload(input: {
         ...(content ? { content } : {}),
         ...(embeds ? { embeds } : {}),
     });
+}
+
+function optionalTextOption<TKey extends 'before' | 'after' | 'around'>(
+    key: TKey,
+    value: string | undefined
+): Partial<Record<TKey, string>> {
+    const normalizedValue = value?.trim();
+
+    return normalizedValue ? ({ [key]: normalizedValue } as Record<TKey, string>) : {};
+}
+
+function findMessageReaction(message: SdkMessage, emoji: string): SdkReaction | undefined {
+    const cache = message.reactions?.cache;
+
+    if (!cache) return undefined;
+
+    const directMatch = cache.get(emoji);
+
+    if (isReaction(directMatch)) {
+        return directMatch;
+    }
+
+    for (const reaction of cache.values()) {
+        if (isReaction(reaction) && reactionMatchesEmoji(reaction, emoji)) {
+            return reaction;
+        }
+    }
+
+    return undefined;
+}
+
+function reactionMatchesEmoji(reaction: SdkReaction, emoji: string): boolean {
+    const candidates = [
+        reaction.emoji?.identifier,
+        reaction.emoji?.name,
+        reaction.emoji?.id,
+        reaction.emoji?.id && reaction.emoji.name ? `${reaction.emoji.name}:${reaction.emoji.id}` : undefined,
+    ];
+
+    return candidates.some((candidate) => candidate === emoji);
+}
+
+function readUserCollection(value: SdkUserCollection | SdkUserLike[]): FluxerReactionUser[] {
+    const users = Array.isArray(value) ? value : [...value.values()];
+
+    return users.map((user) => ({
+        id: user.id,
+        bot: user.bot ?? false,
+    }));
+}
+
+function isReaction(value: unknown): value is SdkReaction {
+    return typeof value === 'object' && value !== null;
 }
 
 function hasMessageLookup(channel: unknown): channel is MessageLookupChannel {

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ProfileBuilderRouteImport } from './routes/profile-builder'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -33,6 +34,11 @@ import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 
+const ProfileBuilderRoute = ProfileBuilderRouteImport.update({
+  id: '/profile-builder',
+  path: '/profile-builder',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
+  '/profile-builder': typeof ProfileBuilderRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/profile-builder': typeof ProfileBuilderRoute
   '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
@@ -204,6 +212,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
+  '/profile-builder': typeof ProfileBuilderRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/docs'
+    | '/profile-builder'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/profile-builder'
     | '/dashboard'
     | '/docs'
     | '/auth/fluxer/callback'
@@ -277,6 +288,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/docs'
+    | '/profile-builder'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
@@ -303,12 +315,20 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   DocsRoute: typeof DocsRouteWithChildren
+  ProfileBuilderRoute: typeof ProfileBuilderRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/profile-builder': {
+      id: '/profile-builder'
+      path: '/profile-builder'
+      fullPath: '/profile-builder'
+      preLoaderRoute: typeof ProfileBuilderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs': {
       id: '/docs'
       path: '/docs'
@@ -550,6 +570,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRouteWithChildren,
   DocsRoute: DocsRouteWithChildren,
+  ProfileBuilderRoute: ProfileBuilderRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }

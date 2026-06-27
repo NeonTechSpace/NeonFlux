@@ -64,8 +64,14 @@ function mapInviteReadError(error: FluxerPlatformError): ReadFluxerGuildInvitesE
         case 'not-found':
             return error;
 
+        case 'invalid-value':
+            return { type: 'invalid-response' };
+
         case 'operation-failed':
             return { type: 'fetch-failed', error: error.error };
+
+        case 'unsupported':
+            return { type: 'unsupported' };
     }
 }
 

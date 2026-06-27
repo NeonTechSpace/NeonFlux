@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -71,6 +71,50 @@ export async function listAutoroleRulesByGuildId(
             .orderBy(asc(autoroleRules.roleId));
 
         return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listEnabledAutoroleRulesByGuildId(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string }
+): Promise<Result<AutoroleRuleRecord[], AutoroleRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const rows = await db
+            .select()
+            .from(autoroleRules)
+            .where(and(eq(autoroleRules.guildId, guildId.value), eq(autoroleRules.enabled, true)))
+            .orderBy(asc(autoroleRules.roleId));
+
+        return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function deleteAutoroleRule(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; roleId: string }
+): Promise<Result<AutoroleRuleRecord, AutoroleRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const roleId = normalizeRequiredText(input.roleId, 'roleId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (roleId.isErr()) return err(roleId.error);
+
+    try {
+        const rows = await db
+            .delete(autoroleRules)
+            .where(and(eq(autoroleRules.guildId, guildId.value), eq(autoroleRules.roleId, roleId.value)))
+            .returning();
+        const row = rows[0];
+
+        return row ? ok(row) : err({ type: 'not-found' });
     } catch {
         return err({ type: 'database-error' });
     }

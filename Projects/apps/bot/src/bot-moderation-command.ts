@@ -34,6 +34,8 @@ import {
     type ModerationCommandName,
     type ParsedModerationCommand,
 } from './bot-moderation-command-parser.js';
+import { runModerationPunishmentCommand } from './bot-moderation-punishment-command.js';
+import { runModerationPurgeCommand } from './bot-moderation-purge-command.js';
 
 const MODERATION_COMMAND_DENIED_REPLY =
     'You cannot run moderation commands here. In lockdown, only the server owner can run guarded commands. Otherwise, this command requires Manage Server or an allowed role/user rule.';
@@ -135,6 +137,27 @@ async function handleModerationCommand(
     switch (parsed.type) {
         case 'warn':
             return createWarningReply(context, event, intent, parsed.targetUserId, parsed.reason);
+        case 'kick':
+        case 'ban':
+        case 'unban':
+        case 'untimeout':
+            return runModerationPunishmentCommand(context, event, {
+                commandName: parsed.type,
+                targetUserId: parsed.targetUserId,
+                ...(parsed.reason ? { reason: parsed.reason } : {}),
+            });
+        case 'timeout':
+            return runModerationPunishmentCommand(context, event, {
+                commandName: parsed.type,
+                targetUserId: parsed.targetUserId,
+                expiresAt: new Date(Date.now() + parsed.durationMs),
+                ...(parsed.reason ? { reason: parsed.reason } : {}),
+            });
+        case 'purge':
+            return runModerationPurgeCommand(context, event, {
+                count: parsed.count,
+                ...(parsed.reason ? { reason: parsed.reason } : {}),
+            });
         case 'warnings':
             return listWarningsReply(context, event, intent, parsed.targetUserId);
         case 'delwarn':

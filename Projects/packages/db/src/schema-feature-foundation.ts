@@ -11,7 +11,9 @@ export const moderationCases = pgTable(
             .references(() => guilds.guildId, { onDelete: 'cascade' }),
         caseNumber: integer('case_number').notNull(),
         action: text('action').notNull(),
-        targetUserId: text('target_user_id').notNull(),
+        targetType: text('target_type').notNull().default('user'),
+        targetUserId: text('target_user_id'),
+        targetChannelId: text('target_channel_id'),
         actorUserId: text('actor_user_id'),
         reason: text('reason'),
         status: text('status').notNull().default('open'),
@@ -21,6 +23,7 @@ export const moderationCases = pgTable(
     (table) => [
         uniqueIndex('moderation_cases_guild_case_number_idx').on(table.guildId, table.caseNumber),
         index('moderation_cases_guild_target_idx').on(table.guildId, table.targetUserId),
+        index('moderation_cases_guild_channel_idx').on(table.guildId, table.targetChannelId),
         index('moderation_cases_guild_status_idx').on(table.guildId, table.status),
     ]
 );
@@ -84,6 +87,25 @@ export const botActionEvents = pgTable(
     (table) => [
         index('bot_action_events_guild_created_idx').on(table.guildId, table.createdAt),
         index('bot_action_events_feature_created_idx').on(table.feature, table.createdAt),
+    ]
+);
+
+export const guildLoggingDestinations = pgTable(
+    'guild_logging_destinations',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        eventGroup: text('event_group').notNull(),
+        channelId: text('channel_id').notNull(),
+        enabled: boolean('enabled').notNull().default(true),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('guild_logging_destinations_guild_group_idx').on(table.guildId, table.eventGroup),
+        index('guild_logging_destinations_guild_enabled_idx').on(table.guildId, table.enabled),
     ]
 );
 
@@ -186,6 +208,27 @@ export const verificationRecords = pgTable(
     (table) => [uniqueIndex('verification_records_guild_user_idx').on(table.guildId, table.userId)]
 );
 
+export const verificationFlows = pgTable(
+    'verification_flows',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        channelId: text('channel_id').notNull(),
+        messageId: text('message_id').notNull(),
+        emojiKey: text('emoji_key').notNull(),
+        verifiedRoleId: text('verified_role_id').notNull(),
+        enabled: boolean('enabled').notNull().default(true),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('verification_flows_guild_message_idx').on(table.guildId, table.messageId),
+        index('verification_flows_guild_enabled_idx').on(table.guildId, table.enabled),
+    ]
+);
+
 export const ticketPanels = pgTable(
     'ticket_panels',
     {
@@ -201,7 +244,10 @@ export const ticketPanels = pgTable(
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
-    (table) => [index('ticket_panels_guild_enabled_idx').on(table.guildId, table.enabled)]
+    (table) => [
+        index('ticket_panels_guild_enabled_idx').on(table.guildId, table.enabled),
+        index('ticket_panels_guild_message_idx').on(table.guildId, table.messageId),
+    ]
 );
 
 export const ticketCounters = pgTable('ticket_counters', {
@@ -233,6 +279,7 @@ export const tickets = pgTable(
         uniqueIndex('tickets_guild_ticket_number_idx').on(table.guildId, table.ticketNumber),
         index('tickets_guild_status_idx').on(table.guildId, table.status),
         index('tickets_guild_opener_idx').on(table.guildId, table.openerUserId),
+        index('tickets_guild_channel_idx').on(table.guildId, table.channelId),
     ]
 );
 
@@ -431,4 +478,83 @@ export const profileSubmissionReviews = pgTable(
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [index('profile_submission_reviews_submission_idx').on(table.submissionId)]
+);
+
+export const giveaways = pgTable(
+    'giveaways',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        guildId: text('guild_id')
+            .notNull()
+            .references(() => guilds.guildId, { onDelete: 'cascade' }),
+        channelId: text('channel_id').notNull(),
+        messageId: text('message_id'),
+        title: text('title').notNull(),
+        prize: text('prize').notNull(),
+        description: text('description'),
+        entryEmoji: text('entry_emoji').notNull().default('🎉'),
+        winnerCount: integer('winner_count').notNull().default(1),
+        status: text('status').notNull().default('draft'),
+        endsAt: timestamp('ends_at', { withTimezone: true }),
+        createdByUserId: text('created_by_user_id'),
+        closedByUserId: text('closed_by_user_id'),
+        closedAt: timestamp('closed_at', { withTimezone: true }),
+        config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        index('giveaways_guild_status_idx').on(table.guildId, table.status),
+        index('giveaways_guild_message_idx').on(table.guildId, table.messageId),
+        index('giveaways_ends_at_idx').on(table.endsAt),
+    ]
+);
+
+export const giveawayEntries = pgTable(
+    'giveaway_entries',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        giveawayId: uuid('giveaway_id')
+            .notNull()
+            .references(() => giveaways.id, { onDelete: 'cascade' }),
+        userId: text('user_id').notNull(),
+        enteredAt: timestamp('entered_at', { withTimezone: true }).notNull().defaultNow(),
+        removedAt: timestamp('removed_at', { withTimezone: true }),
+    },
+    (table) => [
+        uniqueIndex('giveaway_entries_giveaway_user_idx').on(table.giveawayId, table.userId),
+        index('giveaway_entries_giveaway_removed_idx').on(table.giveawayId, table.removedAt),
+    ]
+);
+
+export const giveawayWinners = pgTable(
+    'giveaway_winners',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        giveawayId: uuid('giveaway_id')
+            .notNull()
+            .references(() => giveaways.id, { onDelete: 'cascade' }),
+        userId: text('user_id').notNull(),
+        drawNumber: integer('draw_number').notNull().default(1),
+        selectedAt: timestamp('selected_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('giveaway_winners_giveaway_user_draw_idx').on(table.giveawayId, table.userId, table.drawNumber),
+        index('giveaway_winners_giveaway_draw_idx').on(table.giveawayId, table.drawNumber),
+    ]
+);
+
+export const giveawayEvents = pgTable(
+    'giveaway_events',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        giveawayId: uuid('giveaway_id')
+            .notNull()
+            .references(() => giveaways.id, { onDelete: 'cascade' }),
+        eventType: text('event_type').notNull(),
+        actorUserId: text('actor_user_id'),
+        details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [index('giveaway_events_giveaway_created_idx').on(table.giveawayId, table.createdAt)]
 );

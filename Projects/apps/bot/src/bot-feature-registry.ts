@@ -23,16 +23,19 @@ export const BOT_FEATURE_MODULES = [
         commands: commandsByCategory('moderation'),
         eventTypes: ['message.created', 'ban.added', 'ban.removed'],
     },
-    plannedModule(
-        'logging',
-        110,
-        [],
-        [
-            'guild.lifecycle.updated',
+    {
+        id: 'automod',
+        order: 105,
+        commands: [],
+        eventTypes: ['message.created'],
+    },
+    {
+        id: 'logging',
+        order: 110,
+        commands: [],
+        eventTypes: [
             'message.updated',
             'message.deleted',
-            'reaction.added',
-            'reaction.removed',
             'member.joined',
             'member.updated',
             'member.left',
@@ -45,27 +48,69 @@ export const BOT_FEATURE_MODULES = [
             'channel.updated',
             'channel.deleted',
             'voice_state.updated',
-        ]
-    ),
-    plannedModule('autorole', 120, [], ['member.joined']),
-    plannedModule('reaction_roles', 130, [], ['reaction.added', 'reaction.removed']),
-    plannedModule('verification', 140, [], ['member.joined', 'reaction.added']),
-    plannedModule('tickets', 150, [], ['message.created', 'channel.deleted']),
-    plannedModule('suggestions', 160, commandsByCategory('suggestions'), [
-        'message.created',
-        'reaction.added',
-        'reaction.removed',
-    ]),
-    plannedModule('posting', 170, [], ['message.created']),
-    plannedModule('profile_builder', 180, [], ['message.created']),
-    plannedModule('xp', 190, commandsByCategory('xp'), ['message.created', 'voice_state.updated']),
-    plannedModule('vc_generator', 200, [], ['voice_state.updated', 'channel.deleted']),
-    plannedModule('role_reconciliation', 210, [], ['member.updated', 'role.updated', 'role.deleted']),
-    plannedModule(
-        'import_export',
-        220,
-        [],
-        [
+        ],
+    },
+    {
+        id: 'autorole',
+        order: 120,
+        commands: [],
+        eventTypes: ['member.joined'],
+    },
+    {
+        id: 'reaction_roles',
+        order: 130,
+        commands: [],
+        eventTypes: ['reaction.added', 'reaction.removed'],
+    },
+    {
+        id: 'verification',
+        order: 140,
+        commands: [],
+        eventTypes: ['member.joined', 'reaction.added'],
+    },
+    {
+        id: 'tickets',
+        order: 150,
+        commands: [],
+        eventTypes: ['reaction.added', 'channel.deleted'],
+    },
+    {
+        id: 'suggestions',
+        order: 160,
+        commands: commandsByCategory('suggestions'),
+        eventTypes: ['message.created', 'reaction.added', 'reaction.removed'],
+    },
+    {
+        id: 'giveaways',
+        order: 165,
+        commands: [],
+        eventTypes: ['reaction.added', 'reaction.removed'],
+    },
+    plannedModule('posting', 170, [], []),
+    plannedModule('profile_builder', 180, [], []),
+    {
+        id: 'xp',
+        order: 190,
+        commands: commandsByCategory('xp'),
+        eventTypes: ['message.created', 'voice_state.updated'],
+    },
+    {
+        id: 'vc_generator',
+        order: 200,
+        commands: [],
+        eventTypes: ['message.created', 'voice_state.updated', 'channel.deleted', 'reaction.added'],
+    },
+    {
+        id: 'role_reconciliation',
+        order: 210,
+        commands: [],
+        eventTypes: ['member.updated', 'role.deleted'],
+    },
+    {
+        id: 'import_export',
+        order: 220,
+        commands: [],
+        eventTypes: [
             'guild.lifecycle.updated',
             'role.created',
             'role.updated',
@@ -73,8 +118,8 @@ export const BOT_FEATURE_MODULES = [
             'channel.created',
             'channel.updated',
             'channel.deleted',
-        ]
-    ),
+        ],
+    },
 ] as const satisfies readonly BotFeatureModule[];
 
 export function listBotCommandMetadata(): BotCommandMetadata[] {

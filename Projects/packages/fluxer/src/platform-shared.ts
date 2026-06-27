@@ -4,8 +4,10 @@ import type { FluxerBot } from './client.js';
 
 export type FluxerPlatformError =
     | { type: 'missing-input'; field: string }
+    | { type: 'invalid-value'; field: string }
     | { type: 'not-found' }
     | { type: 'permission-denied' }
+    | { type: 'unsupported'; feature: string }
     | { type: 'operation-failed'; error: unknown };
 
 export type FluxerGuild = NonNullable<Awaited<ReturnType<FluxerBot['client']['guilds']['fetch']>>>;

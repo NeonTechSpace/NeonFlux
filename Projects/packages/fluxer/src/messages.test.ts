@@ -10,9 +10,16 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    reactFluxerBotGuildChannelMessage,
+    reactFluxerChannelMessage,
+    reactFluxerGuildChannelMessage,
     sendFluxerBotChannelMessage,
     sendFluxerChannelMessage,
     sendFluxerGuildChannelMessage,
+    type ReactFluxerBotGuildChannelMessageError,
+    type ReactFluxerChannelMessageError,
+    type ReactFluxerChannelMessageInput,
+    type ReactFluxerGuildChannelMessageError,
     type SendFluxerChannelMessageInput,
     type SendFluxerChannelMessageError,
     type SendFluxerBotChannelMessageError,
@@ -298,6 +305,151 @@ describe('sendFluxerBotChannelMessage', () => {
     });
 });
 
+describe('reactFluxerChannelMessage', () => {
+    it('reacts to the trimmed channel message and emoji', async () => {
+        const react = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
+        const fetchMessage = vi.fn<(messageId: string) => Promise<{ react: typeof react }>>().mockResolvedValue({
+            react,
+        });
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: fetchMessage,
+                },
+            })
+        );
+
+        const result = await reactFluxerChannelMessage({
+            client: createReactClient(resolveChannel),
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('message-1');
+        expect(react).toHaveBeenCalledWith('✅');
+    });
+
+    it('rejects blank reaction inputs before fetching the message', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await reactFluxerChannelMessage({
+            client: createReactClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: ' ',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'emoji',
+        } satisfies ReactFluxerChannelMessageError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+
+    it('maps reaction failures', async () => {
+        const reactionError = new Error('missing reaction access');
+        const react = vi.fn<(emoji: string) => Promise<void>>().mockRejectedValue(reactionError);
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ react }),
+                },
+            })
+        );
+
+        const result = await reactFluxerChannelMessage({
+            client: createReactClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'react-failed',
+            error: reactionError,
+        } satisfies ReactFluxerChannelMessageError);
+    });
+});
+
+describe('reactFluxerGuildChannelMessage', () => {
+    it('reacts only after verifying the channel belongs to the guild', async () => {
+        const react = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ react }),
+                },
+            })
+        );
+        const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
+        const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
+
+        const result = await reactFluxerGuildChannelMessage({
+            client: createGuildAwareReactClient({ fetchGuild, resolveChannel }),
+            guildId: ' guild-1 ',
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetchGuild).toHaveBeenCalledWith('guild-1');
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(react).toHaveBeenCalledWith('✅');
+    });
+
+    it('rejects reactions outside the authorized guild', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await reactFluxerGuildChannelMessage({
+            client: createGuildAwareReactClient({
+                fetchGuild: createFetchGuildMock(Promise.resolve(createGuild({ channels: [createChannel()] }))),
+                resolveChannel,
+            }),
+            guildId: 'guild-1',
+            channelId: 'other-channel',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'channel-not-in-guild',
+        } satisfies ReactFluxerGuildChannelMessageError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+});
+
+describe('reactFluxerBotGuildChannelMessage', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('rejects missing bot tokens before login', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
+
+        const result = await reactFluxerBotGuildChannelMessage({
+            botToken: '   ',
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'botToken',
+        } satisfies ReactFluxerBotGuildChannelMessageError);
+        expect(login).not.toHaveBeenCalled();
+    });
+});
+
 function createClient(sendMock: SendMock): SendFluxerChannelMessageInput['client'] {
     return {
         channels: {
@@ -309,6 +461,7 @@ function createClient(sendMock: SendMock): SendFluxerChannelMessageInput['client
 type SendMock = ReturnType<typeof vi.fn<(channelId: string, payload: string | MessageSendOptions) => Promise<Message>>>;
 
 type FetchGuildMock = ReturnType<typeof vi.fn<(guildId: string) => Promise<Guild | null>>>;
+type ResolveChannelMock = ReturnType<typeof vi.fn<(channelId: string) => Promise<unknown>>>;
 
 function createSendMock(result: Promise<Message> = Promise.resolve(createMessage())): SendMock {
     return vi
@@ -318,6 +471,10 @@ function createSendMock(result: Promise<Message> = Promise.resolve(createMessage
 
 function createFetchGuildMock(result: Promise<Guild | null>): FetchGuildMock {
     return vi.fn<(guildId: string) => Promise<Guild | null>>().mockReturnValue(result);
+}
+
+function createResolveChannelMock(result: Promise<unknown> = Promise.resolve(undefined)): ResolveChannelMock {
+    return vi.fn<(channelId: string) => Promise<unknown>>().mockReturnValue(result);
 }
 
 function createGuildAwareClient(input: {
@@ -332,6 +489,28 @@ function createGuildAwareClient(input: {
             fetch: input.fetchGuild,
         },
     } as unknown as Parameters<typeof sendFluxerGuildChannelMessage>[0]['client'];
+}
+
+function createReactClient(resolveChannel: ResolveChannelMock): ReactFluxerChannelMessageInput['client'] {
+    return {
+        channels: {
+            resolve: resolveChannel,
+        },
+    } as unknown as ReactFluxerChannelMessageInput['client'];
+}
+
+function createGuildAwareReactClient(input: {
+    fetchGuild: FetchGuildMock;
+    resolveChannel: ResolveChannelMock;
+}): Parameters<typeof reactFluxerGuildChannelMessage>[0]['client'] {
+    return {
+        channels: {
+            resolve: input.resolveChannel,
+        },
+        guilds: {
+            fetch: input.fetchGuild,
+        },
+    } as unknown as Parameters<typeof reactFluxerGuildChannelMessage>[0]['client'];
 }
 
 type TestGuild = Guild & {

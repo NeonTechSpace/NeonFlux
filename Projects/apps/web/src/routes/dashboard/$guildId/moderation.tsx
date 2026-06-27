@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildPlannedCategory } from '../../../components/dashboard-guild-page.js';
+import { DashboardGuildModerationCategory } from '../../../components/dashboard-guild-page.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/moderation');
 
@@ -9,5 +9,5 @@ export const Route = createRoute({
 });
 
 function DashboardGuildModerationRoute() {
-    return <DashboardGuildPlannedCategory categoryId='moderation' />;
+    return <DashboardGuildModerationCategory />;
 }

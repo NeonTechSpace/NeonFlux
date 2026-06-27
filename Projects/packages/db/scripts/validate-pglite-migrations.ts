@@ -13,6 +13,8 @@ const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
 const dataDir = join(projectRoot, 'data', 'pglite-migration-check');
 const expectedTables = [
     'autorole_rules',
+    'automod_events',
+    'automod_rules',
     'bot_action_events',
     'bot_installations',
     'deployment_config',
@@ -54,10 +56,14 @@ const expectedTables = [
     'ticket_panels',
     'tickets',
     'vc_generator_rules',
+    'vc_generator_control_panels',
+    'verification_flows',
     'verification_records',
     'web_sessions',
+    'xp_grants',
     'xp_role_rewards',
     'xp_settings',
+    'xp_voice_sessions',
 ];
 
 await rm(dataDir, { recursive: true, force: true });
