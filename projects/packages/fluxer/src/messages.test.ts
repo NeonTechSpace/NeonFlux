@@ -10,16 +10,35 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    editFluxerBotGuildChannelMessage,
+    editFluxerChannelMessage,
+    editFluxerGuildChannelMessage,
     reactFluxerBotGuildChannelMessage,
     reactFluxerChannelMessage,
     reactFluxerGuildChannelMessage,
+    removeFluxerBotGuildChannelMessageReaction,
+    removeFluxerBotGuildChannelMessageReactionEmoji,
+    removeFluxerChannelMessageReaction,
+    removeFluxerChannelMessageReactionEmoji,
+    removeFluxerGuildChannelMessageReaction,
+    removeFluxerGuildChannelMessageReactionEmoji,
     sendFluxerBotChannelMessage,
     sendFluxerChannelMessage,
     sendFluxerGuildChannelMessage,
+    type EditFluxerBotGuildChannelMessageError,
+    type EditFluxerChannelMessageError,
+    type EditFluxerChannelMessageInput,
+    type EditFluxerGuildChannelMessageError,
     type ReactFluxerBotGuildChannelMessageError,
     type ReactFluxerChannelMessageError,
     type ReactFluxerChannelMessageInput,
     type ReactFluxerGuildChannelMessageError,
+    type RemoveFluxerBotGuildChannelMessageReactionError,
+    type RemoveFluxerChannelMessageReactionError,
+    type RemoveFluxerChannelMessageReactionInput,
+    type RemoveFluxerChannelMessageReactionEmojiError,
+    type RemoveFluxerGuildChannelMessageReactionEmojiError,
+    type RemoveFluxerGuildChannelMessageReactionError,
     type SendFluxerChannelMessageInput,
     type SendFluxerChannelMessageError,
     type SendFluxerBotChannelMessageError,
@@ -305,6 +324,201 @@ describe('sendFluxerBotChannelMessage', () => {
     });
 });
 
+describe('editFluxerChannelMessage', () => {
+    it('fetches the trimmed message and edits it with the normalized payload', async () => {
+        const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
+        const fetchMessage = vi.fn<(messageId: string) => Promise<{ edit: typeof edit }>>().mockResolvedValue({ edit });
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: fetchMessage,
+                },
+            })
+        );
+
+        const result = await editFluxerChannelMessage({
+            client: createEditClient(resolveChannel),
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            content: ' updated content ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('message-1');
+        expect(edit).toHaveBeenCalledWith({ content: 'updated content' });
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            id: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+        });
+    });
+
+    it('rejects empty edit payloads before fetching the message', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await editFluxerChannelMessage({
+            client: createEditClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            content: '   ',
+            embeds: [],
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'message',
+        } satisfies EditFluxerChannelMessageError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+
+    it('maps SDK edit rejections to edit-failed', async () => {
+        const editError = new Error('missing access');
+        const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockRejectedValue(editError);
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ edit }),
+                },
+            })
+        );
+
+        const result = await editFluxerChannelMessage({
+            client: createEditClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            content: 'updated',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'edit-failed',
+            error: editError,
+        } satisfies EditFluxerChannelMessageError);
+    });
+});
+
+describe('editFluxerGuildChannelMessage', () => {
+    it('edits only after verifying the channel belongs to the guild', async () => {
+        const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ edit }),
+                },
+            })
+        );
+        const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
+        const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
+
+        const result = await editFluxerGuildChannelMessage({
+            client: createGuildAwareEditClient({ fetchGuild, resolveChannel }),
+            guildId: ' guild-1 ',
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            content: 'updated',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetchGuild).toHaveBeenCalledWith('guild-1');
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(edit).toHaveBeenCalledWith({ content: 'updated' });
+    });
+
+    it('rejects edits outside the authorized guild before fetching the message', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await editFluxerGuildChannelMessage({
+            client: createGuildAwareEditClient({
+                fetchGuild: createFetchGuildMock(Promise.resolve(createGuild({ channels: [createChannel()] }))),
+                resolveChannel,
+            }),
+            guildId: 'guild-1',
+            channelId: 'other-channel',
+            messageId: 'message-1',
+            content: 'updated',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'channel-not-in-guild',
+        } satisfies EditFluxerGuildChannelMessageError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+});
+
+describe('editFluxerBotGuildChannelMessage', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('logs in with the bot token, edits the message, and destroys the temporary client', async () => {
+        const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
+        const fetchGuild = createFetchGuildMock(
+            Promise.resolve(createGuild({ channels: [createChannel({ id: 'channel-1' })] }))
+        );
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ edit }),
+                },
+            })
+        );
+        const login = vi.spyOn(Client.prototype, 'login').mockImplementation(function (this: Client) {
+            Object.defineProperty(this, 'guilds', {
+                configurable: true,
+                value: {
+                    fetch: fetchGuild,
+                },
+            });
+            Object.defineProperty(this, 'channels', {
+                configurable: true,
+                value: {
+                    resolve: resolveChannel,
+                },
+            });
+
+            return Promise.resolve('session-id');
+        });
+        const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await editFluxerBotGuildChannelMessage({
+            botToken: ' bot-token ',
+            guildId: ' guild-1 ',
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            content: 'updated',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(login).toHaveBeenCalledWith('bot-token');
+        expect(fetchGuild).toHaveBeenCalledWith('guild-1');
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(edit).toHaveBeenCalledWith({ content: 'updated' });
+        expect(destroy).toHaveBeenCalledOnce();
+    });
+
+    it('rejects missing bot tokens before login', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
+
+        const result = await editFluxerBotGuildChannelMessage({
+            botToken: '   ',
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            content: 'updated',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'botToken',
+        } satisfies EditFluxerBotGuildChannelMessageError);
+        expect(login).not.toHaveBeenCalled();
+    });
+});
+
 describe('reactFluxerChannelMessage', () => {
     it('reacts to the trimmed channel message and emoji', async () => {
         const react = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
@@ -450,6 +664,260 @@ describe('reactFluxerBotGuildChannelMessage', () => {
     });
 });
 
+describe('removeFluxerChannelMessageReaction', () => {
+    it('removes a trimmed user reaction from a channel message', async () => {
+        const removeReaction = vi.fn<(emoji: string, userId: string) => Promise<void>>().mockResolvedValue(undefined);
+        const fetchMessage = vi
+            .fn<(messageId: string) => Promise<{ removeReaction: typeof removeReaction }>>()
+            .mockResolvedValue({ removeReaction });
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: fetchMessage,
+                },
+            })
+        );
+
+        const result = await removeFluxerChannelMessageReaction({
+            client: createRemoveReactionClient(resolveChannel),
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+            userId: ' bot-user ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('message-1');
+        expect(removeReaction).toHaveBeenCalledWith('✅', 'bot-user');
+    });
+
+    it('reports unsupported messages when the SDK cannot remove reactions', async () => {
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({}),
+                },
+            })
+        );
+
+        const result = await removeFluxerChannelMessageReaction({
+            client: createRemoveReactionClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+            userId: 'bot-user',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unsupported',
+            feature: 'message-reaction-removal',
+        } satisfies RemoveFluxerChannelMessageReactionError);
+    });
+});
+
+describe('removeFluxerChannelMessageReactionEmoji', () => {
+    it('removes all reactions for a trimmed emoji from a channel message', async () => {
+        const removeReactionEmoji = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
+        const fetchMessage = vi
+            .fn<(messageId: string) => Promise<{ removeReactionEmoji: typeof removeReactionEmoji }>>()
+            .mockResolvedValue({ removeReactionEmoji });
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: fetchMessage,
+                },
+            })
+        );
+
+        const result = await removeFluxerChannelMessageReactionEmoji({
+            client: createRemoveReactionEmojiClient(resolveChannel),
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('message-1');
+        expect(removeReactionEmoji).toHaveBeenCalledWith('✅');
+    });
+
+    it('reports unsupported messages when the SDK cannot remove reaction emojis', async () => {
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({}),
+                },
+            })
+        );
+
+        const result = await removeFluxerChannelMessageReactionEmoji({
+            client: createRemoveReactionEmojiClient(resolveChannel),
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unsupported',
+            feature: 'message-reaction-emoji-removal',
+        } satisfies RemoveFluxerChannelMessageReactionEmojiError);
+    });
+});
+
+describe('removeFluxerGuildChannelMessageReaction', () => {
+    it('removes reactions only after verifying the channel belongs to the guild', async () => {
+        const removeReaction = vi.fn<(emoji: string, userId: string) => Promise<void>>().mockResolvedValue(undefined);
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ removeReaction }),
+                },
+            })
+        );
+        const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
+        const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
+
+        const result = await removeFluxerGuildChannelMessageReaction({
+            client: createGuildAwareRemoveReactionClient({ fetchGuild, resolveChannel }),
+            guildId: ' guild-1 ',
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+            userId: ' bot-user ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetchGuild).toHaveBeenCalledWith('guild-1');
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(removeReaction).toHaveBeenCalledWith('✅', 'bot-user');
+    });
+
+    it('rejects reaction removal outside the authorized guild', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await removeFluxerGuildChannelMessageReaction({
+            client: createGuildAwareRemoveReactionClient({
+                fetchGuild: createFetchGuildMock(Promise.resolve(createGuild({ channels: [createChannel()] }))),
+                resolveChannel,
+            }),
+            guildId: 'guild-1',
+            channelId: 'other-channel',
+            messageId: 'message-1',
+            emoji: '✅',
+            userId: 'bot-user',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'channel-not-in-guild',
+        } satisfies RemoveFluxerGuildChannelMessageReactionError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+});
+
+describe('removeFluxerGuildChannelMessageReactionEmoji', () => {
+    it('removes reaction emojis only after verifying the channel belongs to the guild', async () => {
+        const removeReactionEmoji = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
+        const resolveChannel = createResolveChannelMock(
+            Promise.resolve({
+                messages: {
+                    fetch: vi.fn().mockResolvedValue({ removeReactionEmoji }),
+                },
+            })
+        );
+        const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
+        const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
+
+        const result = await removeFluxerGuildChannelMessageReactionEmoji({
+            client: createGuildAwareRemoveReactionEmojiClient({ fetchGuild, resolveChannel }),
+            guildId: ' guild-1 ',
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' ✅ ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetchGuild).toHaveBeenCalledWith('guild-1');
+        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(removeReactionEmoji).toHaveBeenCalledWith('✅');
+    });
+
+    it('rejects reaction emoji removal outside the authorized guild', async () => {
+        const resolveChannel = createResolveChannelMock();
+
+        const result = await removeFluxerGuildChannelMessageReactionEmoji({
+            client: createGuildAwareRemoveReactionEmojiClient({
+                fetchGuild: createFetchGuildMock(Promise.resolve(createGuild({ channels: [createChannel()] }))),
+                resolveChannel,
+            }),
+            guildId: 'guild-1',
+            channelId: 'other-channel',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'channel-not-in-guild',
+        } satisfies RemoveFluxerGuildChannelMessageReactionEmojiError);
+        expect(resolveChannel).not.toHaveBeenCalled();
+    });
+});
+
+describe('removeFluxerBotGuildChannelMessageReaction', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('rejects missing bot tokens before login', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
+
+        const result = await removeFluxerBotGuildChannelMessageReaction({
+            botToken: '   ',
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'botToken',
+        } satisfies RemoveFluxerBotGuildChannelMessageReactionError);
+        expect(login).not.toHaveBeenCalled();
+    });
+});
+
+describe('removeFluxerBotGuildChannelMessageReactionEmoji', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('rejects missing bot tokens before login', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
+
+        const result = await removeFluxerBotGuildChannelMessageReactionEmoji({
+            botToken: '   ',
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '✅',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'missing-input',
+            field: 'botToken',
+        });
+        expect(login).not.toHaveBeenCalled();
+    });
+});
+
 function createClient(sendMock: SendMock): SendFluxerChannelMessageInput['client'] {
     return {
         channels: {
@@ -499,6 +967,34 @@ function createReactClient(resolveChannel: ResolveChannelMock): ReactFluxerChann
     } as unknown as ReactFluxerChannelMessageInput['client'];
 }
 
+function createEditClient(resolveChannel: ResolveChannelMock): EditFluxerChannelMessageInput['client'] {
+    return {
+        channels: {
+            resolve: resolveChannel,
+        },
+    } as unknown as EditFluxerChannelMessageInput['client'];
+}
+
+function createRemoveReactionClient(
+    resolveChannel: ResolveChannelMock
+): RemoveFluxerChannelMessageReactionInput['client'] {
+    return {
+        channels: {
+            resolve: resolveChannel,
+        },
+    } as unknown as RemoveFluxerChannelMessageReactionInput['client'];
+}
+
+function createRemoveReactionEmojiClient(
+    resolveChannel: ResolveChannelMock
+): Parameters<typeof removeFluxerChannelMessageReactionEmoji>[0]['client'] {
+    return {
+        channels: {
+            resolve: resolveChannel,
+        },
+    } as unknown as Parameters<typeof removeFluxerChannelMessageReactionEmoji>[0]['client'];
+}
+
 function createGuildAwareReactClient(input: {
     fetchGuild: FetchGuildMock;
     resolveChannel: ResolveChannelMock;
@@ -511,6 +1007,48 @@ function createGuildAwareReactClient(input: {
             fetch: input.fetchGuild,
         },
     } as unknown as Parameters<typeof reactFluxerGuildChannelMessage>[0]['client'];
+}
+
+function createGuildAwareEditClient(input: {
+    fetchGuild: FetchGuildMock;
+    resolveChannel: ResolveChannelMock;
+}): Parameters<typeof editFluxerGuildChannelMessage>[0]['client'] {
+    return {
+        channels: {
+            resolve: input.resolveChannel,
+        },
+        guilds: {
+            fetch: input.fetchGuild,
+        },
+    } as unknown as Parameters<typeof editFluxerGuildChannelMessage>[0]['client'];
+}
+
+function createGuildAwareRemoveReactionClient(input: {
+    fetchGuild: FetchGuildMock;
+    resolveChannel: ResolveChannelMock;
+}): Parameters<typeof removeFluxerGuildChannelMessageReaction>[0]['client'] {
+    return {
+        channels: {
+            resolve: input.resolveChannel,
+        },
+        guilds: {
+            fetch: input.fetchGuild,
+        },
+    } as unknown as Parameters<typeof removeFluxerGuildChannelMessageReaction>[0]['client'];
+}
+
+function createGuildAwareRemoveReactionEmojiClient(input: {
+    fetchGuild: FetchGuildMock;
+    resolveChannel: ResolveChannelMock;
+}): Parameters<typeof removeFluxerGuildChannelMessageReactionEmoji>[0]['client'] {
+    return {
+        channels: {
+            resolve: input.resolveChannel,
+        },
+        guilds: {
+            fetch: input.fetchGuild,
+        },
+    } as unknown as Parameters<typeof removeFluxerGuildChannelMessageReactionEmoji>[0]['client'];
 }
 
 type TestGuild = Guild & {

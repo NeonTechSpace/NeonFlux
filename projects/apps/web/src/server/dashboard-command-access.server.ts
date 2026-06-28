@@ -36,7 +36,7 @@ export type DashboardCommandAccessRole = {
 
 export type DashboardCommandAccessRoleReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
-export type DashboardGrantableCommand = {
+type DashboardGrantableCommand = {
     id: string;
     categoryId: string;
     categoryTitle: string;
@@ -44,7 +44,7 @@ export type DashboardGrantableCommand = {
     description: string;
 };
 
-export type DashboardGrantableCommandCategory = {
+type DashboardGrantableCommandCategory = {
     id: string;
     title: string;
 };

@@ -22,7 +22,7 @@ export type DashboardVerificationRole = {
     position: number;
 };
 
-export type DashboardVerificationChannel = {
+type DashboardVerificationChannel = {
     id: string;
     name: string;
     type: number;
@@ -43,7 +43,7 @@ export type DashboardVerificationFlow = {
     updatedAt: string;
 };
 
-export type DashboardVerificationReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
+type DashboardVerificationReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardVerificationSettingsResult =
     | {

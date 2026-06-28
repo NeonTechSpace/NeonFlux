@@ -201,6 +201,69 @@ describe('createFluxerPlatform', () => {
         expect(resolve).not.toHaveBeenCalled();
     });
 
+    it('removes a specific user reaction through the normalized messages port', async () => {
+        const removeReaction = vi.fn<(emoji: string, userId: string) => Promise<void>>().mockResolvedValue(undefined);
+        const fetch = vi.fn().mockResolvedValue({
+            id: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            removeReaction,
+        });
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({
+                        messages: {
+                            fetch,
+                        },
+                    }),
+                },
+            })
+        );
+
+        const result = await platform.messages.removeReaction({
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' 🎉 ',
+            userId: ' user-1 ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetch).toHaveBeenCalledWith('message-1');
+        expect(removeReaction).toHaveBeenCalledWith('🎉', 'user-1');
+    });
+
+    it('returns unsupported when user reaction removal is not exposed by the SDK object', async () => {
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({
+                        messages: {
+                            fetch: vi.fn().mockResolvedValue({
+                                id: 'message-1',
+                                channelId: 'channel-1',
+                                guildId: 'guild-1',
+                            }),
+                        },
+                    }),
+                },
+            })
+        );
+
+        const result = await platform.messages.removeReaction({
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: '🎉',
+            userId: 'user-1',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unsupported',
+            feature: 'message-reaction-removal',
+        } satisfies FluxerPlatformError);
+    });
+
     it('lists users for a message reaction through the normalized messages port', async () => {
         const fetchReactionUsers = vi.fn().mockResolvedValue(
             new Map([

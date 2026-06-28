@@ -41,7 +41,7 @@ export type DashboardGiveaway = {
     createdAt: string;
 };
 
-export type DashboardGiveawayWinner = {
+type DashboardGiveawayWinner = {
     userId: string;
     drawNumber: number;
     selectedAt: string;

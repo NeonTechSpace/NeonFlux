@@ -45,6 +45,7 @@ import {
     listOpenTicketsByPanelAndOpener,
     listGuildDefconExemptionCategories,
     listGuildInviteSnapshots,
+    listActiveReactionRoleAssignmentsByGuildMessageUser,
     listActiveReactionRoleAssignmentsByGuildUser,
     listVerificationFlowsByGuildId,
     recordBotActionEvent,
@@ -173,6 +174,7 @@ vi.mock('@neonflux/db', () => {
         listOpenTicketsByPanelAndOpener: vi.fn(),
         listGuildDefconExemptionCategories: vi.fn(),
         listGuildInviteSnapshots: vi.fn(),
+        listActiveReactionRoleAssignmentsByGuildMessageUser: vi.fn(),
         listActiveReactionRoleAssignmentsByGuildUser: vi.fn(),
         listVerificationFlowsByGuildId: vi.fn(),
         recordBotActionEvent: vi.fn(),
@@ -263,6 +265,9 @@ const listModerationCasesByGuildIdMock = vi.mocked(listModerationCasesByGuildId)
 const listOpenTicketsByPanelAndOpenerMock = vi.mocked(listOpenTicketsByPanelAndOpener);
 const listGuildDefconExemptionCategoriesMock = vi.mocked(listGuildDefconExemptionCategories);
 const listGuildInviteSnapshotsMock = vi.mocked(listGuildInviteSnapshots);
+const listActiveReactionRoleAssignmentsByGuildMessageUserMock = vi.mocked(
+    listActiveReactionRoleAssignmentsByGuildMessageUser
+);
 const listActiveReactionRoleAssignmentsByGuildUserMock = vi.mocked(listActiveReactionRoleAssignmentsByGuildUser);
 const listVerificationFlowsByGuildIdMock = vi.mocked(listVerificationFlowsByGuildId);
 const recordBotActionEventMock = vi.mocked(recordBotActionEvent);
@@ -314,6 +319,7 @@ const messagesBulkDeleteMock = vi.fn();
 const messagesDeleteMock = vi.fn();
 const messagesFetchManyMock = vi.fn();
 const messagesReactMock = vi.fn();
+const messagesRemoveReactionMock = vi.fn();
 const messagesSendMock = vi.fn();
 const moderationBanMock = vi.fn();
 const moderationKickMock = vi.fn();
@@ -394,6 +400,7 @@ describe('routeBotFeatureEvent', () => {
         listOpenTicketsByPanelAndOpenerMock.mockResolvedValue(ok([]));
         listGuildDefconExemptionCategoriesMock.mockResolvedValue(ok([]));
         listGuildInviteSnapshotsMock.mockResolvedValue(ok([]));
+        listActiveReactionRoleAssignmentsByGuildMessageUserMock.mockResolvedValue(ok([]));
         listActiveReactionRoleAssignmentsByGuildUserMock.mockResolvedValue(ok([]));
         listVerificationFlowsByGuildIdMock.mockResolvedValue(ok([]));
         recordBotActionEventMock.mockResolvedValue(ok(createBotActionEventRecord()));
@@ -517,6 +524,7 @@ describe('routeBotFeatureEvent', () => {
             ok([createFetchedMessage('message-3'), createFetchedMessage('message-2')])
         );
         messagesReactMock.mockResolvedValue(ok(undefined));
+        messagesRemoveReactionMock.mockResolvedValue(ok(undefined));
         messagesSendMock.mockResolvedValue(
             ok({
                 id: 'log-message-1',
@@ -530,6 +538,7 @@ describe('routeBotFeatureEvent', () => {
                 delete: messagesDeleteMock,
                 fetchMany: messagesFetchManyMock,
                 react: messagesReactMock,
+                removeReaction: messagesRemoveReactionMock,
                 send: messagesSendMock,
             },
             members: {
@@ -959,18 +968,117 @@ describe('routeBotFeatureEvent', () => {
             userId: 'user-1',
             roleId: 'role-1',
         });
+        expect(messagesReactMock).toHaveBeenCalledWith({
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: 'unicode:check',
+        });
     });
 
-    it('keeps reaction roles assigned when remove-on-unreact is disabled', async () => {
+    it('ignores bot-owned reaction-role seed reactions', async () => {
+        const result = await routeBotFeatureEvent(createContext(createMultiMode()), {
+            type: 'reaction.added',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'bot-user',
+            userIsBot: true,
+            emojiKey: 'unicode:check',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'reaction.added',
+            status: 'ignored',
+            reason: 'no-feature-handler',
+        });
+        expect(findEnabledReactionRoleOptionByReactionMock).not.toHaveBeenCalled();
+        expect(memberAddRoleMock).not.toHaveBeenCalled();
+        expect(memberRemoveRoleMock).not.toHaveBeenCalled();
+        expect(markReactionRoleAssignmentRemovedMock).not.toHaveBeenCalled();
+    });
+
+    it('switches exclusive reaction roles by removing previous role and user reaction', async () => {
         findEnabledReactionRoleOptionByReactionMock.mockResolvedValueOnce(
             ok(
                 createReactionRoleMatch({
-                    message: {
-                        removeOnUnreact: false,
-                    },
+                    message: { mode: 'exclusive' },
+                    option: { roleId: 'role-2', emojiKey: 'unicode:new' },
                 })
             )
         );
+        listActiveReactionRoleAssignmentsByGuildMessageUserMock.mockResolvedValueOnce(
+            ok([
+                createReactionRoleAssignmentRecord({
+                    roleId: 'role-1',
+                    emojiKey: 'unicode:old',
+                }),
+            ])
+        );
+        memberReadMock.mockResolvedValue(
+            ok({
+                guildId: 'guild-1',
+                userId: 'bot-user',
+                roleIds: ['bot-role'],
+            })
+        );
+
+        const result = await routeBotFeatureEvent(createContext(createMultiMode()), {
+            type: 'reaction.added',
+            messageId: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            emojiKey: 'unicode:new',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            eventType: 'reaction.added',
+            status: 'handled',
+            action: 'event.reaction_roles.assigned',
+        });
+        expect(memberRemoveRoleMock).toHaveBeenCalledWith({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            roleId: 'role-1',
+        });
+        expect(messagesRemoveReactionMock).toHaveBeenCalledWith({
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            emoji: 'unicode:old',
+            userId: 'user-1',
+        });
+        expect(markReactionRoleAssignmentRemovedMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            messageId: 'message-1',
+            userId: 'user-1',
+            roleId: 'role-1',
+        });
+        expect(memberAddRoleMock).toHaveBeenCalledWith({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            roleId: 'role-2',
+        });
+        expect(upsertReactionRoleAssignmentMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'guild-1',
+            messageId: 'message-1',
+            userId: 'user-1',
+            roleId: 'role-2',
+            emojiKey: 'unicode:new',
+        });
+    });
+
+    it('returns platform-error when a removed reaction role cannot reseed the menu reaction', async () => {
+        findEnabledReactionRoleOptionByReactionMock.mockResolvedValueOnce(ok(createReactionRoleMatch()));
+        memberReadMock.mockResolvedValueOnce(
+            ok({
+                guildId: 'guild-1',
+                userId: 'bot-user',
+                roleIds: ['bot-role'],
+            })
+        );
+        messagesReactMock.mockResolvedValueOnce(err({ type: 'permission-denied' }));
 
         const result = await routeBotFeatureEvent(createContext(createMultiMode()), {
             type: 'reaction.removed',
@@ -981,14 +1089,8 @@ describe('routeBotFeatureEvent', () => {
             emojiKey: 'unicode:check',
         });
 
-        expect(result.isOk()).toBe(true);
-        expect(result._unsafeUnwrap()).toStrictEqual({
-            eventType: 'reaction.removed',
-            status: 'ignored',
-            reason: 'no-feature-handler',
-        });
-        expect(memberRemoveRoleMock).not.toHaveBeenCalled();
-        expect(markReactionRoleAssignmentRemovedMock).not.toHaveBeenCalled();
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toBe('platform-error');
     });
 
     it('skips configured reaction roles that are not below the bot highest role', async () => {
@@ -4826,7 +4928,11 @@ function createReactionRoleMessageRecord(
         channelId: 'channel-1',
         messageId: 'message-1',
         kind: 'reaction_role',
-        removeOnUnreact: true,
+        mode: 'normal',
+        source: 'existing',
+        messageContent: null,
+        messageEmbeds: [],
+        generateOverview: false,
         enabled: true,
         staleAt: null,
         createdAt: timestamp,
@@ -4843,6 +4949,7 @@ function createReactionRoleOptionRecord(overrides: Partial<ReactionRoleOptionRec
         reactionRoleMessageId: 'reaction-role-message-1',
         emojiKey: 'unicode:check',
         roleId: 'role-1',
+        position: 0,
         createdAt: timestamp,
         updatedAt: timestamp,
         ...overrides,

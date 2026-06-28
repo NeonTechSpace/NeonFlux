@@ -15,9 +15,11 @@ import {
     deleteReactionRoleOptionByMessage,
     findEnabledReactionRoleOptionByReaction,
     findReactionRoleMessage,
+    listActiveReactionRoleAssignmentsByGuildMessageUser,
     listActiveReactionRoleAssignmentsByGuildUser,
     listReactionRoleMessagesByGuildId,
     markReactionRoleAssignmentRemoved,
+    markReactionRoleAssignmentsRemovedByMessageUser,
     upsertReactionRoleAssignment,
     upsertReactionRoleMessage,
     upsertReactionRoleOptionByMessage,
@@ -55,7 +57,11 @@ describe('reaction role repository', () => {
                 guildId: 'guild-1',
                 channelId: 'channel-2',
                 messageId: 'message-1',
-                removeOnUnreact: false,
+                mode: 'exclusive',
+                source: 'dashboard',
+                messageContent: 'Pick one',
+                messageEmbeds: [{ description: 'Choose wisely' }],
+                generateOverview: true,
                 enabled: false,
             })
         );
@@ -65,6 +71,7 @@ describe('reaction role repository', () => {
                 messageId: 'message-1',
                 emojiKey: 'unicode:check',
                 roleId: 'role-1',
+                position: 2,
             })
         );
         await expectOk(
@@ -73,6 +80,7 @@ describe('reaction role repository', () => {
                 messageId: 'message-1',
                 emojiKey: 'custom:party:123',
                 roleId: 'role-2',
+                position: 1,
             })
         );
         await expectOk(
@@ -91,7 +99,11 @@ describe('reaction role repository', () => {
             guildId: 'guild-1',
             channelId: 'channel-2',
             messageId: 'message-1',
-            removeOnUnreact: false,
+            mode: 'exclusive',
+            source: 'dashboard',
+            messageContent: 'Pick one',
+            messageEmbeds: [{ description: 'Choose wisely' }],
+            generateOverview: true,
             enabled: false,
         });
         expect(messages[0]?.options.map((option) => [option.emojiKey, option.roleId])).toStrictEqual([
@@ -314,6 +326,71 @@ describe('reaction role repository', () => {
         expect(active.map((assignment) => assignment.roleId)).toStrictEqual(['role-1']);
     });
 
+    it('lists and removes active assignments for one reaction-role message user', async () => {
+        await expectOk(
+            upsertReactionRoleAssignment(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                userId: 'user-1',
+                roleId: 'role-2',
+                emojiKey: 'unicode:two',
+            })
+        );
+        await expectOk(
+            upsertReactionRoleAssignment(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                userId: 'user-1',
+                roleId: 'role-1',
+                emojiKey: 'unicode:one',
+            })
+        );
+        await expectOk(
+            upsertReactionRoleAssignment(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-2',
+                userId: 'user-1',
+                roleId: 'role-3',
+                emojiKey: 'unicode:three',
+            })
+        );
+
+        const activeBefore = await expectOk(
+            listActiveReactionRoleAssignmentsByGuildMessageUser(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                userId: 'user-1',
+            })
+        );
+        const removed = await expectOk(
+            markReactionRoleAssignmentsRemovedByMessageUser(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                userId: 'user-1',
+            })
+        );
+        const activeAfter = await expectOk(
+            listActiveReactionRoleAssignmentsByGuildMessageUser(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                userId: 'user-1',
+            })
+        );
+        const otherMessageActive = await expectOk(
+            listActiveReactionRoleAssignmentsByGuildMessageUser(getDb(), {
+                guildId: 'guild-1',
+                messageId: 'message-2',
+                userId: 'user-1',
+            })
+        );
+
+        expect(activeBefore.map((assignment) => assignment.roleId).sort()).toStrictEqual(['role-1', 'role-2']);
+        expect(removed).toHaveLength(2);
+        expect(removed.every((assignment) => assignment.removedAt instanceof Date)).toBe(true);
+        expect(activeAfter).toHaveLength(0);
+        expect(otherMessageActive.map((assignment) => assignment.roleId)).toStrictEqual(['role-3']);
+    });
+
     it('rejects blank reaction-role input', async () => {
         const result = await upsertReactionRoleMessage(getDb(), {
             guildId: 'guild-1',
@@ -326,6 +403,34 @@ describe('reaction role repository', () => {
             type: 'missing-input',
             field: 'channelId',
         });
+    });
+
+    it('rejects invalid reaction-role mode and option position', async () => {
+        const invalidMode = await upsertReactionRoleMessage(getDb(), {
+            guildId: 'guild-1',
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            mode: 'additive' as never,
+        });
+        await expectOk(
+            upsertReactionRoleMessage(getDb(), {
+                guildId: 'guild-1',
+                channelId: 'channel-1',
+                messageId: 'message-1',
+            })
+        );
+        const invalidPosition = await upsertReactionRoleOptionByMessage(getDb(), {
+            guildId: 'guild-1',
+            messageId: 'message-1',
+            emojiKey: 'unicode:check',
+            roleId: 'role-1',
+            position: -1,
+        });
+
+        expect(invalidMode.isErr()).toBe(true);
+        expect(invalidMode._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-value', field: 'mode' });
+        expect(invalidPosition.isErr()).toBe(true);
+        expect(invalidPosition._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-value', field: 'position' });
     });
 });
 

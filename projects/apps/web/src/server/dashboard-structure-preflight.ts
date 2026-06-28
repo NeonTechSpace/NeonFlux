@@ -2,7 +2,7 @@ import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
 
-export type DashboardStructurePreflightActionStatus =
+type DashboardStructurePreflightActionStatus =
     | 'ready'
     | 'stale'
     | 'mapping-required'
@@ -19,7 +19,7 @@ export type DashboardStructurePreflightInputAction = {
     details: Record<string, unknown>;
 };
 
-export type DashboardStructurePreflightAction = {
+type DashboardStructurePreflightAction = {
     actionId: string;
     actionType: string;
     targetType: string;
@@ -29,7 +29,7 @@ export type DashboardStructurePreflightAction = {
     message: string;
 };
 
-export type DashboardStructurePreflightSummary = {
+type DashboardStructurePreflightSummary = {
     total: number;
     ready: number;
     stale: number;

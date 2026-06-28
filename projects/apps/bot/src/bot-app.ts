@@ -171,6 +171,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             channelId: event.channelId,
                             guildId: event.guildId,
                             userId: event.userId,
+                            ...(event.userIsBot !== undefined ? { userIsBot: event.userIsBot } : {}),
                             emojiKey: event.emojiKey,
                         });
                     },
@@ -181,6 +182,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             channelId: event.channelId,
                             guildId: event.guildId,
                             userId: event.userId,
+                            ...(event.userIsBot !== undefined ? { userIsBot: event.userIsBot } : {}),
                             emojiKey: event.emojiKey,
                         });
                     },

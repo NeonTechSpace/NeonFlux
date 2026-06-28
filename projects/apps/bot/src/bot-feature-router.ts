@@ -38,9 +38,7 @@ export type {
     BotFeatureEvent,
     BotFeatureHandlerContext,
     BotFeatureRouteError,
-    BotFeatureRouteIgnoredReason,
     BotFeatureRouteResult,
-    BotMessageCreatedEvent,
 } from './bot-feature-types.js';
 
 export async function routeBotFeatureEvent(

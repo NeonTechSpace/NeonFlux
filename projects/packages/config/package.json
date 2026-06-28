@@ -22,7 +22,6 @@
     },
     "dependencies": {
         "arktype": "^2.2.0",
-        "dotenv": "^17.4.2",
-        "neverthrow": "^8.2.0"
+        "dotenv": "^17.4.2"
     }
 }

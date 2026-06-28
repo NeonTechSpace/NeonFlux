@@ -174,7 +174,7 @@ export function DashboardRoleReconciliationPanel({ guildId }: { guildId: string 
     );
 }
 
-export function DashboardRoleReconciliationLoading() {
+function DashboardRoleReconciliationLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-44 animate-pulse rounded bg-neutral-800' />

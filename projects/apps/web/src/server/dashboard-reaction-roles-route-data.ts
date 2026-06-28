@@ -2,35 +2,47 @@ import { createServerFn } from '@tanstack/react-start';
 
 import type {
     DashboardReactionRoleMessageDeleteResult,
-    DashboardReactionRoleMessageUpdateResult,
-    DashboardReactionRoleOptionDeleteResult,
-    DashboardReactionRoleOptionUpdateResult,
+    DashboardReactionRoleMessageSaveResult,
+    DashboardReactionRolePublishResult,
     DashboardReactionRolesSettingsResult,
 } from './dashboard-reaction-roles.server.js';
+import type {
+    DashboardReactionRoleEmbedPayload,
+    DashboardReactionRoleJsonValue,
+} from './dashboard-reaction-roles-payload.js';
 
 type DashboardGuildRouteInput = {
     guildId: string;
 };
 
-type DashboardReactionRoleMessageUpdateRouteInput = {
+type DashboardReactionRoleMessageSaveRouteInput = {
+    guildId: string;
+    messageId: string;
+    content?: string;
+    embeds?: DashboardReactionRoleEmbedPayload[];
+    mode: 'normal' | 'exclusive';
+    generateOverview: boolean;
+    options: Array<{
+        emojiKey: string;
+        emojiLabel?: string;
+        roleId: string;
+        position: number;
+    }>;
+};
+
+type DashboardReactionRolePublishRouteInput = {
     guildId: string;
     channelId: string;
-    messageId: string;
-    removeOnUnreact?: boolean;
-    enabled?: boolean;
-};
-
-type DashboardReactionRoleOptionUpdateRouteInput = {
-    guildId: string;
-    messageId: string;
-    emojiKey: string;
-    roleId: string;
-};
-
-type DashboardReactionRoleOptionDeleteRouteInput = {
-    guildId: string;
-    messageId: string;
-    emojiKey: string;
+    content?: string;
+    embeds?: DashboardReactionRoleEmbedPayload[];
+    mode: 'normal' | 'exclusive';
+    generateOverview: boolean;
+    options: Array<{
+        emojiKey: string;
+        emojiLabel?: string;
+        roleId: string;
+        position: number;
+    }>;
 };
 
 type DashboardReactionRoleMessageDeleteRouteInput = {
@@ -49,37 +61,26 @@ export const readDashboardReactionRolesSettingsRouteData = createServerFn({ meth
         return loadDashboardReactionRolesSettings(getRequest(), data.guildId);
     });
 
-export const updateDashboardReactionRoleMessageRouteData = createServerFn({ method: 'POST' })
-    .validator(validateReactionRoleMessageUpdateRouteInput)
-    .handler(async ({ data }): Promise<DashboardReactionRoleMessageUpdateResult> => {
+export const publishDashboardReactionRoleMessageRouteData = createServerFn({ method: 'POST' })
+    .validator(validateReactionRolePublishRouteInput)
+    .handler(async ({ data }): Promise<DashboardReactionRolePublishResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { updateDashboardReactionRoleMessage } = await import('./dashboard-reaction-roles.server.js');
+        const { publishDashboardReactionRoleMessage } = await import('./dashboard-reaction-roles.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return updateDashboardReactionRoleMessage(getRequest(), data);
+        return publishDashboardReactionRoleMessage(getRequest(), data);
     });
 
-export const updateDashboardReactionRoleOptionRouteData = createServerFn({ method: 'POST' })
-    .validator(validateReactionRoleOptionUpdateRouteInput)
-    .handler(async ({ data }): Promise<DashboardReactionRoleOptionUpdateResult> => {
+export const saveDashboardReactionRoleMessageRouteData = createServerFn({ method: 'POST' })
+    .validator(validateReactionRoleMessageSaveRouteInput)
+    .handler(async ({ data }): Promise<DashboardReactionRoleMessageSaveResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { updateDashboardReactionRoleOption } = await import('./dashboard-reaction-roles.server.js');
+        const { saveDashboardReactionRoleMessage } = await import('./dashboard-reaction-roles.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return updateDashboardReactionRoleOption(getRequest(), data);
-    });
-
-export const deleteDashboardReactionRoleOptionRouteData = createServerFn({ method: 'POST' })
-    .validator(validateReactionRoleOptionDeleteRouteInput)
-    .handler(async ({ data }): Promise<DashboardReactionRoleOptionDeleteResult> => {
-        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { deleteDashboardReactionRoleOption } = await import('./dashboard-reaction-roles.server.js');
-
-        setResponseHeader('Cache-Control', 'no-store');
-
-        return deleteDashboardReactionRoleOption(getRequest(), data);
+        return saveDashboardReactionRoleMessage(getRequest(), data);
     });
 
 export const deleteDashboardReactionRoleMessageRouteData = createServerFn({ method: 'POST' })
@@ -105,9 +106,15 @@ function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteIn
     };
 }
 
-function validateReactionRoleMessageUpdateRouteInput(input: unknown): DashboardReactionRoleMessageUpdateRouteInput {
+function validateReactionRolePublishRouteInput(input: unknown): DashboardReactionRolePublishRouteInput {
     if (!input || typeof input !== 'object') {
-        return { guildId: '', channelId: '', messageId: '' };
+        return {
+            guildId: '',
+            channelId: '',
+            mode: 'normal',
+            generateOverview: false,
+            options: [],
+        };
     }
 
     const payload = input as Record<string, unknown>;
@@ -115,15 +122,23 @@ function validateReactionRoleMessageUpdateRouteInput(input: unknown): DashboardR
     return {
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
         channelId: typeof payload.channelId === 'string' ? payload.channelId : '',
-        messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
-        ...(typeof payload.removeOnUnreact === 'boolean' ? { removeOnUnreact: payload.removeOnUnreact } : {}),
-        ...(typeof payload.enabled === 'boolean' ? { enabled: payload.enabled } : {}),
+        ...(typeof payload.content === 'string' ? { content: payload.content } : {}),
+        embeds: Array.isArray(payload.embeds) ? toSerializableEmbedArray(payload.embeds) : [],
+        mode: payload.mode === 'exclusive' ? 'exclusive' : 'normal',
+        generateOverview: payload.generateOverview === true,
+        options: Array.isArray(payload.options) ? payload.options.map(validateReactionRolePublishOptionRouteInput) : [],
     };
 }
 
-function validateReactionRoleOptionUpdateRouteInput(input: unknown): DashboardReactionRoleOptionUpdateRouteInput {
+function validateReactionRoleMessageSaveRouteInput(input: unknown): DashboardReactionRoleMessageSaveRouteInput {
     if (!input || typeof input !== 'object') {
-        return { guildId: '', messageId: '', emojiKey: '', roleId: '' };
+        return {
+            guildId: '',
+            messageId: '',
+            mode: 'normal',
+            generateOverview: false,
+            options: [],
+        };
     }
 
     const payload = input as Record<string, unknown>;
@@ -131,23 +146,63 @@ function validateReactionRoleOptionUpdateRouteInput(input: unknown): DashboardRe
     return {
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
         messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
-        emojiKey: typeof payload.emojiKey === 'string' ? payload.emojiKey : '',
-        roleId: typeof payload.roleId === 'string' ? payload.roleId : '',
+        ...(typeof payload.content === 'string' ? { content: payload.content } : {}),
+        embeds: Array.isArray(payload.embeds) ? toSerializableEmbedArray(payload.embeds) : [],
+        mode: payload.mode === 'exclusive' ? 'exclusive' : 'normal',
+        generateOverview: payload.generateOverview === true,
+        options: Array.isArray(payload.options) ? payload.options.map(validateReactionRolePublishOptionRouteInput) : [],
     };
 }
 
-function validateReactionRoleOptionDeleteRouteInput(input: unknown): DashboardReactionRoleOptionDeleteRouteInput {
-    if (!input || typeof input !== 'object') {
-        return { guildId: '', messageId: '', emojiKey: '' };
-    }
-
-    const payload = input as Record<string, unknown>;
+function validateReactionRolePublishOptionRouteInput(input: unknown) {
+    const option = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
 
     return {
-        guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
-        messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
-        emojiKey: typeof payload.emojiKey === 'string' ? payload.emojiKey : '',
+        emojiKey: typeof option.emojiKey === 'string' ? option.emojiKey : '',
+        ...(typeof option.emojiLabel === 'string' ? { emojiLabel: option.emojiLabel } : {}),
+        roleId: typeof option.roleId === 'string' ? option.roleId : '',
+        position: typeof option.position === 'number' && Number.isInteger(option.position) ? option.position : 0,
     };
+}
+
+function toSerializableEmbedArray(values: unknown[]): DashboardReactionRoleEmbedPayload[] {
+    return values.map(toJsonValue).filter(isSerializableRecord);
+}
+
+function isSerializableRecord(
+    value: DashboardReactionRoleJsonValue | undefined
+): value is DashboardReactionRoleEmbedPayload {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toJsonValue(value: unknown): DashboardReactionRoleJsonValue | undefined {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+        return value;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : undefined;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(toJsonValue).filter((item) => item !== undefined);
+    }
+
+    if (typeof value === 'object') {
+        const output: { [key: string]: DashboardReactionRoleJsonValue } = {};
+
+        for (const [key, child] of Object.entries(value)) {
+            const jsonValue = toJsonValue(child);
+
+            if (jsonValue !== undefined) {
+                output[key] = jsonValue;
+            }
+        }
+
+        return output;
+    }
+
+    return undefined;
 }
 
 function validateReactionRoleMessageDeleteRouteInput(input: unknown): DashboardReactionRoleMessageDeleteRouteInput {

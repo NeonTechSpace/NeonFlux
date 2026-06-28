@@ -54,7 +54,7 @@ export type DashboardVcGeneratorRule = {
     updatedAt: string;
 };
 
-export type DashboardVcGeneratorStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
+type DashboardVcGeneratorStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardVcGeneratorSettingsResult =
     | {

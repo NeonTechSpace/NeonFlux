@@ -135,7 +135,7 @@ export type DashboardLiveEvent =
           event: 'dashboard-audit-events.changed';
       };
 
-export function isDashboardLiveArea(value: unknown): value is DashboardLiveArea {
+function isDashboardLiveArea(value: unknown): value is DashboardLiveArea {
     return typeof value === 'string' && (dashboardLiveAreas as readonly string[]).includes(value);
 }
 

@@ -646,6 +646,7 @@ describe('createBotApp', () => {
             channelId: 'channel-1',
             guildId: 'guild-1',
             userId: 'user-1',
+            userIsBot: false,
             emojiKey: 'emoji:1',
         });
 

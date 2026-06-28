@@ -371,6 +371,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             channelId: 'channel-1',
             guildId: 'guild-1',
             userId: 'reactor-1',
+            userIsBot: false,
             emojiKey: 'emoji:1',
         });
         expect(reactionRemoved.mock.calls[0]?.[0]).toStrictEqual({
@@ -378,6 +379,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             channelId: 'channel-2',
             guildId: 'guild-1',
             userId: 'user-2',
+            userIsBot: false,
             emojiKey: 'emoji:2',
         });
     });

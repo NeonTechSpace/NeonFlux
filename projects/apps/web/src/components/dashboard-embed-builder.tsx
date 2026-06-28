@@ -17,7 +17,7 @@ export type DashboardEmbedDraft = {
     includeTimestamp: boolean;
 };
 
-export type DashboardEmbedPayload = {
+type DashboardEmbedPayload = {
     color?: number;
     author?: {
         name: string;
