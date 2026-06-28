@@ -19,7 +19,7 @@ export type DashboardCategoryDefinition = {
     status: 'active' | 'planned';
 };
 
-export type DashboardCategoryTo =
+type DashboardCategoryTo =
     | '/dashboard/$guildId'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/messaging'

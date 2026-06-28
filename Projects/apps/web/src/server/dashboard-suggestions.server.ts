@@ -17,7 +17,7 @@ import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
-export type DashboardSuggestionChannel = {
+type DashboardSuggestionChannel = {
     id: string;
     name: string;
     type: number;
@@ -35,7 +35,7 @@ export type DashboardSuggestionBoard = {
     updatedAt: string;
 };
 
-export type DashboardSuggestionsStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
+type DashboardSuggestionsStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardSuggestionsSettingsResult =
     | {

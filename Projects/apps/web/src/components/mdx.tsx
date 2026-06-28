@@ -21,8 +21,6 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
     };
 }
 
-export const useMDXComponents = getMDXComponents;
-
 declare global {
     type MDXProvidedComponents = ReturnType<typeof getMDXComponents>;
 }

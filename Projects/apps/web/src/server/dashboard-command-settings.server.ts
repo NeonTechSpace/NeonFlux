@@ -10,7 +10,7 @@ import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
-export const DEFAULT_DASHBOARD_COMMAND_PREFIX = '!';
+const DEFAULT_DASHBOARD_COMMAND_PREFIX = '!';
 
 export type DashboardCommandSettings = {
     prefix: string;

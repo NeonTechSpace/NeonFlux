@@ -145,7 +145,7 @@ export function DashboardGuildPendingPage({
     );
 }
 
-export function useDashboardGuildData(): AuthorizedDashboardGuildRouteData {
+function useDashboardGuildData(): AuthorizedDashboardGuildRouteData {
     const data = use(DashboardGuildDataContext);
 
     if (!data) {
@@ -316,14 +316,6 @@ export function DashboardGuildAuditCategory() {
     );
 }
 
-export function DashboardGuildPlannedCategory({ categoryId }: { categoryId: DashboardCategoryId }) {
-    return (
-        <DashboardCategorySection categoryId={categoryId}>
-            <DashboardPlannedCategoryNotice categoryId={categoryId} />
-        </DashboardCategorySection>
-    );
-}
-
 function DashboardGuildView({
     data,
     activeCategoryId,
@@ -400,19 +392,6 @@ function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: Dash
         <DashboardCategorySection categoryId={activeCategoryId}>
             <StatusCard title='Loading settings' body='Fetching saved settings for this category.' isLoading />
         </DashboardCategorySection>
-    );
-}
-
-function DashboardPlannedCategoryNotice({ categoryId }: { categoryId: DashboardCategoryId }) {
-    const category = getDashboardCategory(categoryId);
-
-    return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-            <h3 className='text-lg font-semibold text-white'>{category.label} is not built yet</h3>
-            <p className='mt-2 text-sm leading-6 text-neutral-400'>
-                This category is reserved so the dashboard can grow without crowding current tools.
-            </p>
-        </article>
     );
 }
 

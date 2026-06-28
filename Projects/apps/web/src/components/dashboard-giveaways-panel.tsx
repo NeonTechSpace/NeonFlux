@@ -376,7 +376,7 @@ function TextInput({ label, value, onChange }: { label: string; value: string; o
     );
 }
 
-export function DashboardGiveawaysLoading() {
+function DashboardGiveawaysLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-28 animate-pulse rounded bg-neutral-800' />

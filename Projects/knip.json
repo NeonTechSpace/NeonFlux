@@ -1,0 +1,8 @@
+{
+    "$schema": "https://unpkg.com/knip@6/schema.json",
+    "ignoreBinaries": ["taskkill", "where.exe", "powershell.exe"],
+    "ignoreDependencies": ["prettier-plugin-tailwindcss"],
+    "ignoreIssues": {
+        "apps/web/source.config.ts": ["exports"]
+    }
+}

@@ -409,7 +409,7 @@ function CommandAccessRuleRow({
     );
 }
 
-export function DashboardCommandAccessLoading() {
+function DashboardCommandAccessLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-40 animate-pulse rounded bg-neutral-800' />

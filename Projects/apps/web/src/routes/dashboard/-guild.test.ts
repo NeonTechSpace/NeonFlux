@@ -45,7 +45,12 @@ import { readDashboardAutomodSettingsRouteData } from '../../server/dashboard-au
 import type * as DashboardAutomodRouteDataModule from '../../server/dashboard-automod-route-data.js';
 import { readDashboardLoggingSettingsRouteData } from '../../server/dashboard-logging-route-data.js';
 import type * as DashboardLoggingRouteDataModule from '../../server/dashboard-logging-route-data.js';
-import { readDashboardReactionRolesSettingsRouteData } from '../../server/dashboard-reaction-roles-route-data.js';
+import {
+    deleteDashboardReactionRoleMessageRouteData,
+    publishDashboardReactionRoleMessageRouteData,
+    readDashboardReactionRolesSettingsRouteData,
+    saveDashboardReactionRoleMessageRouteData,
+} from '../../server/dashboard-reaction-roles-route-data.js';
 import type * as DashboardReactionRolesRouteDataModule from '../../server/dashboard-reaction-roles-route-data.js';
 import { readDashboardRoleReconciliationSettingsRouteData } from '../../server/dashboard-role-reconciliation-route-data.js';
 import type * as DashboardRoleReconciliationRouteDataModule from '../../server/dashboard-role-reconciliation-route-data.js';
@@ -123,7 +128,10 @@ vi.mock('../../server/dashboard-reaction-roles-route-data.js', async (importActu
 
     return {
         ...actual,
+        deleteDashboardReactionRoleMessageRouteData: vi.fn(),
+        publishDashboardReactionRoleMessageRouteData: vi.fn(),
         readDashboardReactionRolesSettingsRouteData: vi.fn(),
+        saveDashboardReactionRoleMessageRouteData: vi.fn(),
     };
 });
 
@@ -284,6 +292,21 @@ describe('/dashboard/$guildId', () => {
         vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue(
             createReactionRolesSettingsReadResult()
         );
+        vi.mocked(publishDashboardReactionRoleMessageRouteData).mockResolvedValue({
+            type: 'published',
+            message: createReactionRolesSettingsReadResult().messages[0],
+            seedFailures: [],
+        });
+        vi.mocked(saveDashboardReactionRoleMessageRouteData).mockResolvedValue({
+            type: 'saved',
+            message: createReactionRolesSettingsReadResult().messages[0],
+            seedFailures: [],
+            cleanupFailures: [],
+        });
+        vi.mocked(deleteDashboardReactionRoleMessageRouteData).mockResolvedValue({
+            type: 'deleted',
+            message: createReactionRolesSettingsReadResult().messages[0],
+        });
         vi.mocked(readDashboardRoleReconciliationSettingsRouteData).mockResolvedValue(
             createRoleReconciliationSettingsReadResult()
         );
@@ -780,6 +803,233 @@ describe('/dashboard/$guildId', () => {
                 guildId: 'guild-1',
             },
         });
+    });
+
+    it('publishes a reaction-role menu from the dashboard builder', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        await screen.findByRole('article', { name: 'Reaction roles' });
+        fireEvent.click(screen.getByRole('button', { name: 'Create menu' }));
+
+        const reactionRoleBuilder = within(await screen.findByRole('form', { name: 'Create reaction-role menu' }));
+        const channelInput = reactionRoleBuilder.getByPlaceholderText('Search channels');
+        fireEvent.focus(channelInput);
+        fireEvent.change(channelInput, { target: { value: 'roles' } });
+        fireEvent.click(await reactionRoleBuilder.findByRole('button', { name: /#roles/u }));
+        fireEvent.click(reactionRoleBuilder.getByRole('button', { name: 'Exclusive' }));
+        fireEvent.change(reactionRoleBuilder.getByLabelText('Message content'), {
+            target: { value: 'Pick roles:\n{list}' },
+        });
+        fireEvent.click(reactionRoleBuilder.getByRole('button', { name: '✅' }));
+
+        const roleInput = reactionRoleBuilder.getByPlaceholderText('Search roles');
+        fireEvent.change(roleInput, { target: { value: 'member' } });
+        fireEvent.click(await reactionRoleBuilder.findByRole('button', { name: /@Member/u }));
+        fireEvent.click(reactionRoleBuilder.getByRole('button', { name: 'Add option' }));
+        fireEvent.click(reactionRoleBuilder.getByRole('button', { name: 'Save changes' }));
+
+        await waitFor(() => {
+            expect(publishDashboardReactionRoleMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    channelId: 'channel-1',
+                    content: 'Pick roles:\n{list}',
+                    embeds: [],
+                    mode: 'exclusive',
+                    generateOverview: true,
+                    options: [
+                        {
+                            emojiKey: '✅',
+                            emojiLabel: '✅',
+                            roleId: 'role-1',
+                            position: 0,
+                        },
+                    ],
+                },
+            });
+        });
+    });
+
+    it('edits existing reaction-role menus only after saving the draft', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        const reactionRoleMenus = within(await screen.findByRole('region', { name: 'Reaction-role menus' }));
+        fireEvent.click(reactionRoleMenus.getByRole('button', { name: 'Edit' }));
+
+        const editor = within(await screen.findByRole('form', { name: 'Edit reaction-role menu' }));
+        fireEvent.click(editor.getByRole('button', { name: 'Exclusive' }));
+        expect(saveDashboardReactionRoleMessageRouteData).not.toHaveBeenCalled();
+
+        fireEvent.click(editor.getByRole('button', { name: '⭐' }));
+
+        const roleInput = editor.getByPlaceholderText('Search roles');
+        fireEvent.change(roleInput, { target: { value: 'member' } });
+        fireEvent.click(await editor.findByRole('button', { name: /@Member/u }));
+        fireEvent.click(editor.getByRole('button', { name: 'Add option' }));
+        expect(saveDashboardReactionRoleMessageRouteData).not.toHaveBeenCalled();
+
+        fireEvent.click(editor.getByRole('button', { name: 'Save changes' }));
+
+        await waitFor(() => {
+            expect(saveDashboardReactionRoleMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    messageId: 'message-1',
+                    content: 'Pick roles',
+                    embeds: [],
+                    mode: 'exclusive',
+                    generateOverview: false,
+                    options: [
+                        {
+                            emojiKey: 'unicode:check',
+                            emojiLabel: 'unicode:check',
+                            roleId: 'role-1',
+                            position: 0,
+                        },
+                        {
+                            emojiKey: '⭐',
+                            emojiLabel: '⭐',
+                            roleId: 'role-1',
+                            position: 1,
+                        },
+                    ],
+                },
+            });
+        });
+    });
+
+    it('sorts draft reaction-role options alphabetically before save', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Create menu' }));
+        const editor = within(await screen.findByRole('form', { name: 'Create reaction-role menu' }));
+        const channelInput = editor.getByPlaceholderText('Search channels');
+        fireEvent.focus(channelInput);
+        fireEvent.change(channelInput, { target: { value: 'roles' } });
+        fireEvent.click(await editor.findByRole('button', { name: /#roles/u }));
+        fireEvent.change(editor.getByLabelText('Message content'), { target: { value: 'Pick roles' } });
+
+        fireEvent.click(editor.getByRole('button', { name: '⭐' }));
+        const firstRoleInput = editor.getByPlaceholderText('Search roles');
+        fireEvent.change(firstRoleInput, { target: { value: 'zeta' } });
+        fireEvent.click(await editor.findByRole('button', { name: /@Zeta/u }));
+        fireEvent.click(editor.getByRole('button', { name: 'Add option' }));
+
+        fireEvent.click(editor.getByRole('button', { name: '✅' }));
+        const secondRoleInput = editor.getByPlaceholderText('Search roles');
+        fireEvent.change(secondRoleInput, { target: { value: 'member' } });
+        fireEvent.click(await editor.findByRole('button', { name: /@Member/u }));
+        fireEvent.click(editor.getByRole('button', { name: 'Add option' }));
+
+        fireEvent.click(editor.getByRole('button', { name: 'Sort alphabetically' }));
+        fireEvent.click(editor.getByRole('button', { name: 'Save changes' }));
+
+        await waitFor(() => {
+            expect(publishDashboardReactionRoleMessageRouteData).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    options: [
+                        expect.objectContaining({ emojiKey: '✅', roleId: 'role-1', position: 0 }),
+                        expect.objectContaining({ emojiKey: '⭐', roleId: 'role-zeta', position: 1 }),
+                    ],
+                }),
+            });
+        });
+    });
+
+    it('shows a reaction sync warning after saving an existing reaction-role menu', async () => {
+        vi.mocked(saveDashboardReactionRoleMessageRouteData).mockResolvedValueOnce({
+            type: 'saved-with-reaction-errors',
+            message: createReactionRolesSettingsReadResult().messages[0],
+            seedFailures: ['⭐'],
+            cleanupFailures: [],
+        });
+
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+        const editor = within(await screen.findByRole('form', { name: 'Edit reaction-role menu' }));
+        fireEvent.click(editor.getByRole('button', { name: '⭐' }));
+
+        const roleInput = editor.getByPlaceholderText('Search roles');
+        fireEvent.change(roleInput, { target: { value: 'member' } });
+        fireEvent.click(await editor.findByRole('button', { name: /@Member/u }));
+        fireEvent.click(editor.getByRole('button', { name: 'Add option' }));
+        fireEvent.click(editor.getByRole('button', { name: 'Save changes' }));
+
+        expect(await screen.findByText('Menu saved, but one or more reactions could not be synced.')).toBeTruthy();
+    });
+
+    it('cancels existing reaction-role menu edits without saving', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+        const editor = within(await screen.findByRole('form', { name: 'Edit reaction-role menu' }));
+        fireEvent.click(editor.getByRole('button', { name: 'Exclusive' }));
+        fireEvent.click(editor.getByRole('button', { name: 'Cancel' }));
+
+        expect(saveDashboardReactionRoleMessageRouteData).not.toHaveBeenCalled();
+        expect(await screen.findByRole('region', { name: 'Reaction-role menus' })).toBeTruthy();
+    });
+
+    it('shows an empty reaction-role state that prompts the first menu', async () => {
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValueOnce({
+            ...createReactionRolesSettingsReadResult(),
+            messages: [],
+        });
+
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        expect(await screen.findByText('Create your first reaction-role menu')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Create first reaction-role menu' }));
+
+        expect(await screen.findByRole('form', { name: 'Create reaction-role menu' })).toBeTruthy();
+    });
+
+    it('deletes reaction-role menus from the overview as a separate action', async () => {
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        const reactionRoleMenus = within(await screen.findByRole('region', { name: 'Reaction-role menus' }));
+        fireEvent.click(reactionRoleMenus.getByRole('button', { name: 'Delete' }));
+
+        await waitFor(() => {
+            expect(deleteDashboardReactionRoleMessageRouteData).toHaveBeenCalledWith({
+                data: {
+                    guildId: 'guild-1',
+                    messageId: 'message-1',
+                },
+            });
+        });
+    });
+
+    it('shows a cleanup warning when saving after removing an option cannot sync reactions', async () => {
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValueOnce(
+            createReactionRolesSettingsReadResult({
+                options: [
+                    createReactionRoleOptionReadResult({ emojiKey: 'unicode:check', roleId: 'role-1', position: 0 }),
+                    createReactionRoleOptionReadResult({
+                        emojiKey: '⭐',
+                        emojiLabel: '⭐',
+                        roleId: 'role-1',
+                        position: 1,
+                    }),
+                ],
+            })
+        );
+        vi.mocked(saveDashboardReactionRoleMessageRouteData).mockResolvedValueOnce({
+            type: 'saved-with-reaction-errors',
+            message: createReactionRolesSettingsReadResult().messages[0],
+            seedFailures: [],
+            cleanupFailures: ['unicode:check'],
+        });
+
+        renderGuildPage(createGuildRouteData(), 'access');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+        const editor = within(await screen.findByRole('form', { name: 'Edit reaction-role menu' }));
+        fireEvent.click(editor.getAllByRole('button', { name: 'Remove' })[0]);
+        fireEvent.click(editor.getByRole('button', { name: 'Save changes' }));
+
+        expect(await screen.findByText('Menu saved, but one or more reactions could not be synced.')).toBeTruthy();
     });
 
     it('renders preview guild data only for pending SPA navigation', () => {
@@ -1744,15 +1994,27 @@ function createAutoroleSettingsReadResult() {
     };
 }
 
-function createReactionRolesSettingsReadResult() {
+function createReactionRolesSettingsReadResult(
+    overrides: {
+        options?: ReturnType<typeof createReactionRoleOptionReadResult>[];
+    } = {}
+) {
     return {
         type: 'settings' as const,
         structureReadStatus: 'available' as const,
+        emojiReadStatus: 'available' as const,
         roles: [
             {
                 id: 'role-1',
                 name: 'Member',
                 position: 10,
+                color: 0,
+            },
+            {
+                id: 'role-zeta',
+                name: 'Zeta',
+                position: 9,
+                color: 0,
             },
         ],
         channels: [
@@ -1763,25 +2025,45 @@ function createReactionRolesSettingsReadResult() {
                 position: 1,
             },
         ],
+        emojis: [],
         messages: [
             {
                 id: 'reaction-role-message-1',
                 channelId: 'channel-1',
                 channelName: 'roles',
                 messageId: 'message-1',
-                removeOnUnreact: true,
+                mode: 'normal' as const,
+                source: 'existing' as const,
+                messageContent: 'Pick roles',
+                messageEmbeds: [],
+                generateOverview: false,
                 enabled: true,
                 updatedAt: '2026-06-26T10:00:00.000Z',
-                options: [
-                    {
-                        id: 'reaction-role-option-1',
-                        emojiKey: 'unicode:check',
-                        roleId: 'role-1',
-                        roleName: 'Member',
-                    },
-                ],
+                options: overrides.options ?? [createReactionRoleOptionReadResult()],
             },
         ],
+    };
+}
+
+function createReactionRoleOptionReadResult(
+    overrides: {
+        id?: string;
+        emojiKey?: string;
+        emojiLabel?: string;
+        roleId?: string;
+        roleName?: string;
+        roleColor?: number;
+        position?: number;
+    } = {}
+) {
+    return {
+        id: overrides.id ?? `reaction-role-option-${String(overrides.position ?? 0)}`,
+        emojiKey: overrides.emojiKey ?? 'unicode:check',
+        ...(overrides.emojiLabel ? { emojiLabel: overrides.emojiLabel } : {}),
+        roleId: overrides.roleId ?? 'role-1',
+        roleName: overrides.roleName ?? (overrides.roleId === 'role-zeta' ? 'Zeta' : 'Member'),
+        roleColor: overrides.roleColor ?? 0,
+        position: overrides.position ?? 0,
     };
 }
 

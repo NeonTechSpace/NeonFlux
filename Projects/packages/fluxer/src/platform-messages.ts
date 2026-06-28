@@ -24,6 +24,7 @@ type SdkMessage = {
     }>;
     delete(): Promise<void>;
     react(emoji: string): Promise<void>;
+    removeReaction?(emoji: string, userId?: string): Promise<void>;
 };
 
 type SdkMessageReactions = {
@@ -80,6 +81,8 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         }) => editMessage(client, input),
         delete: (input: { channelId: string; messageId: string }) => deleteMessage(client, input),
         react: (input: { channelId: string; messageId: string; emoji: string }) => reactToMessage(client, input),
+        removeReaction: (input: { channelId: string; messageId: string; emoji: string; userId: string }) =>
+            removeMessageReaction(client, input),
         listReactionUsers: (input: {
             channelId: string;
             messageId: string;
@@ -220,6 +223,40 @@ async function reactToMessage(
 
     try {
         await messageResult.value.react(emoji);
+
+        return ok(undefined);
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
+}
+
+async function removeMessageReaction(
+    client: FluxerBot['client'],
+    input: { channelId: string; messageId: string; emoji: string; userId: string }
+): Promise<Result<void, FluxerPlatformError>> {
+    const emoji = input.emoji.trim();
+    const userId = input.userId.trim();
+
+    if (!emoji) {
+        return err({ type: 'missing-input', field: 'emoji' });
+    }
+
+    if (!userId) {
+        return err({ type: 'missing-input', field: 'userId' });
+    }
+
+    const messageResult = await fetchSdkMessage(client, input);
+
+    if (messageResult.isErr()) {
+        return err(messageResult.error);
+    }
+
+    if (typeof messageResult.value.removeReaction !== 'function') {
+        return err({ type: 'unsupported', feature: 'message-reaction-removal' });
+    }
+
+    try {
+        await messageResult.value.removeReaction(emoji, userId);
 
         return ok(undefined);
     } catch (error) {

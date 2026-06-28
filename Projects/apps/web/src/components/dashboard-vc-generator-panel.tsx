@@ -329,7 +329,7 @@ function RuleList({
     );
 }
 
-export function DashboardVcGeneratorLoading() {
+function DashboardVcGeneratorLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-32 animate-pulse rounded bg-neutral-800' />

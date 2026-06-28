@@ -12,6 +12,10 @@ export type ReactionRoleMessageRecord = typeof reactionRoleMessages.$inferSelect
 export type ReactionRoleOptionRecord = typeof reactionRoleOptions.$inferSelect;
 export type ReactionRoleAssignmentRecord = typeof reactionRoleAssignments.$inferSelect;
 export type ReactionRolesRepositoryError = GuildFeatureRepositoryError;
+export const reactionRoleMessageModes = ['normal', 'exclusive'] as const;
+export type ReactionRoleMessageMode = (typeof reactionRoleMessageModes)[number];
+export const reactionRoleMessageSources = ['existing', 'dashboard'] as const;
+export type ReactionRoleMessageSource = (typeof reactionRoleMessageSources)[number];
 export type ReactionRoleMessageWithOptions = ReactionRoleMessageRecord & {
     options: ReactionRoleOptionRecord[];
 };
@@ -26,7 +30,11 @@ export async function upsertReactionRoleMessage(
         guildId: string;
         channelId: string;
         messageId: string;
-        removeOnUnreact?: boolean;
+        mode?: ReactionRoleMessageMode;
+        source?: ReactionRoleMessageSource;
+        messageContent?: string | null;
+        messageEmbeds?: unknown[];
+        generateOverview?: boolean;
         enabled?: boolean;
     }
 ): Promise<Result<ReactionRoleMessageRecord, ReactionRolesRepositoryError>> {
@@ -34,10 +42,17 @@ export async function upsertReactionRoleMessage(
     const channelId = normalizeRequiredText(input.channelId, 'channelId');
     const messageId = normalizeRequiredText(input.messageId, 'messageId');
     const updatedAt = new Date();
+    const mode = input.mode ?? 'normal';
+    const source = input.source ?? 'existing';
+    const messageContent = input.messageContent?.trim() ?? null;
+    const messageEmbeds = input.messageEmbeds ?? [];
 
     if (guildId.isErr()) return err(guildId.error);
     if (channelId.isErr()) return err(channelId.error);
     if (messageId.isErr()) return err(messageId.error);
+    if (!isReactionRoleMessageMode(mode)) return err({ type: 'invalid-value', field: 'mode' });
+    if (!isReactionRoleMessageSource(source)) return err({ type: 'invalid-value', field: 'source' });
+    if (!Array.isArray(messageEmbeds)) return err({ type: 'invalid-value', field: 'messageEmbeds' });
 
     try {
         const rows = await db
@@ -46,7 +61,11 @@ export async function upsertReactionRoleMessage(
                 guildId: guildId.value,
                 channelId: channelId.value,
                 messageId: messageId.value,
-                removeOnUnreact: input.removeOnUnreact ?? true,
+                mode,
+                source,
+                messageContent,
+                messageEmbeds,
+                generateOverview: input.generateOverview ?? false,
                 enabled: input.enabled ?? true,
                 updatedAt,
             })
@@ -54,7 +73,11 @@ export async function upsertReactionRoleMessage(
                 target: [reactionRoleMessages.guildId, reactionRoleMessages.messageId],
                 set: {
                     channelId: channelId.value,
-                    removeOnUnreact: input.removeOnUnreact ?? true,
+                    mode,
+                    source,
+                    messageContent,
+                    messageEmbeds,
+                    generateOverview: input.generateOverview ?? false,
                     enabled: input.enabled ?? true,
                     staleAt: null,
                     updatedAt,
@@ -71,7 +94,7 @@ export async function upsertReactionRoleMessage(
 
 export async function upsertReactionRoleOption(
     db: GuildFeatureRepositoryDatabase,
-    input: { reactionRoleMessageId: string; emojiKey: string; roleId: string }
+    input: { reactionRoleMessageId: string; emojiKey: string; roleId: string; position?: number }
 ): Promise<Result<ReactionRoleOptionRecord, ReactionRolesRepositoryError>> {
     const reactionRoleMessageId = normalizeRequiredText(input.reactionRoleMessageId, 'reactionRoleMessageId');
     const emojiKey = normalizeRequiredText(input.emojiKey, 'emojiKey');
@@ -81,6 +104,9 @@ export async function upsertReactionRoleOption(
     if (reactionRoleMessageId.isErr()) return err(reactionRoleMessageId.error);
     if (emojiKey.isErr()) return err(emojiKey.error);
     if (roleId.isErr()) return err(roleId.error);
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
 
     try {
         const rows = await db
@@ -89,12 +115,14 @@ export async function upsertReactionRoleOption(
                 reactionRoleMessageId: reactionRoleMessageId.value,
                 emojiKey: emojiKey.value,
                 roleId: roleId.value,
+                position: input.position ?? 0,
                 updatedAt,
             })
             .onConflictDoUpdate({
                 target: [reactionRoleOptions.reactionRoleMessageId, reactionRoleOptions.emojiKey],
                 set: {
                     roleId: roleId.value,
+                    position: input.position ?? 0,
                     updatedAt,
                 },
             })
@@ -109,7 +137,7 @@ export async function upsertReactionRoleOption(
 
 export async function upsertReactionRoleOptionByMessage(
     db: GuildFeatureRepositoryDatabase,
-    input: { guildId: string; messageId: string; emojiKey: string; roleId: string }
+    input: { guildId: string; messageId: string; emojiKey: string; roleId: string; position?: number }
 ): Promise<Result<ReactionRoleOptionRecord, ReactionRolesRepositoryError>> {
     const messageResult = await findReactionRoleMessage(db, {
         guildId: input.guildId,
@@ -124,6 +152,7 @@ export async function upsertReactionRoleOptionByMessage(
         reactionRoleMessageId: messageResult.value.id,
         emojiKey: input.emojiKey,
         roleId: input.roleId,
+        ...(input.position !== undefined ? { position: input.position } : {}),
     });
 }
 
@@ -148,7 +177,7 @@ export async function listReactionRoleMessagesByGuildId(
                       .select()
                       .from(reactionRoleOptions)
                       .where(inArray(reactionRoleOptions.reactionRoleMessageId, messageIds))
-                      .orderBy(asc(reactionRoleOptions.emojiKey))
+                      .orderBy(asc(reactionRoleOptions.position), asc(reactionRoleOptions.emojiKey))
                 : [];
         const optionsByMessageId = new Map<string, ReactionRoleOptionRecord[]>();
 
@@ -358,6 +387,70 @@ export async function listActiveReactionRoleAssignmentsByGuildUser(
     }
 }
 
+export async function listActiveReactionRoleAssignmentsByGuildMessageUser(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; messageId: string; userId: string }
+): Promise<Result<ReactionRoleAssignmentRecord[], ReactionRolesRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const messageId = normalizeRequiredText(input.messageId, 'messageId');
+    const userId = normalizeRequiredText(input.userId, 'userId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (messageId.isErr()) return err(messageId.error);
+    if (userId.isErr()) return err(userId.error);
+
+    try {
+        const rows = await db
+            .select()
+            .from(reactionRoleAssignments)
+            .where(
+                and(
+                    eq(reactionRoleAssignments.guildId, guildId.value),
+                    eq(reactionRoleAssignments.messageId, messageId.value),
+                    eq(reactionRoleAssignments.userId, userId.value),
+                    isNull(reactionRoleAssignments.removedAt)
+                )
+            )
+            .orderBy(asc(reactionRoleAssignments.assignedAt), asc(reactionRoleAssignments.roleId));
+
+        return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function markReactionRoleAssignmentsRemovedByMessageUser(
+    db: GuildFeatureRepositoryDatabase,
+    input: { guildId: string; messageId: string; userId: string }
+): Promise<Result<ReactionRoleAssignmentRecord[], ReactionRolesRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const messageId = normalizeRequiredText(input.messageId, 'messageId');
+    const userId = normalizeRequiredText(input.userId, 'userId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (messageId.isErr()) return err(messageId.error);
+    if (userId.isErr()) return err(userId.error);
+
+    try {
+        const rows = await db
+            .update(reactionRoleAssignments)
+            .set({ removedAt: new Date() })
+            .where(
+                and(
+                    eq(reactionRoleAssignments.guildId, guildId.value),
+                    eq(reactionRoleAssignments.messageId, messageId.value),
+                    eq(reactionRoleAssignments.userId, userId.value),
+                    isNull(reactionRoleAssignments.removedAt)
+                )
+            )
+            .returning();
+
+        return ok(rows);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function deleteReactionRoleMessage(
     db: GuildFeatureRepositoryDatabase,
     input: { guildId: string; messageId: string }
@@ -460,4 +553,12 @@ export async function findReactionRoleOption(
     } catch {
         return err({ type: 'database-error' });
     }
+}
+
+function isReactionRoleMessageMode(value: string): value is ReactionRoleMessageMode {
+    return reactionRoleMessageModes.includes(value as ReactionRoleMessageMode);
+}
+
+function isReactionRoleMessageSource(value: string): value is ReactionRoleMessageSource {
+    return reactionRoleMessageSources.includes(value as ReactionRoleMessageSource);
 }

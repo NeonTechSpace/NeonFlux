@@ -42,7 +42,7 @@ export type DashboardStructureExportSummary = {
     channelCount: number;
 };
 
-export type DashboardStructureJsonValue =
+type DashboardStructureJsonValue =
     | string
     | number
     | boolean
@@ -50,7 +50,7 @@ export type DashboardStructureJsonValue =
     | DashboardStructureJsonValue[]
     | { [key: string]: DashboardStructureJsonValue };
 
-export type DashboardStructureJsonRecord = {
+type DashboardStructureJsonRecord = {
     [key: string]: DashboardStructureJsonValue;
 };
 
@@ -74,7 +74,7 @@ export type DashboardStructureImportRun = {
     actions: DashboardStructureImportAction[];
 };
 
-export type DashboardStructureObservedState = {
+type DashboardStructureObservedState = {
     observedChangeCount: number;
     lastEventType?: string;
     lastTargetType?: string;
@@ -467,7 +467,7 @@ function mapRepositoryError(error: { type: string }): DashboardStructureErrorRes
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
 }
 
-export function getStructureImportConfirmationText(importRunId: string): string {
+function getStructureImportConfirmationText(importRunId: string): string {
     return `CONFIRM ${importRunId.trim()}`;
 }
 

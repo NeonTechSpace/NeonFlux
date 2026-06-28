@@ -25,7 +25,7 @@ export type DashboardAutoroleRule = {
     updatedAt: string;
 };
 
-export type DashboardAutoroleRoleReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
+type DashboardAutoroleRoleReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardAutoroleSettingsResult =
     | {

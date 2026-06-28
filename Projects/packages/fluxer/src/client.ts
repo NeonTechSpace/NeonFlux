@@ -68,6 +68,7 @@ export type FluxerBotReactionEvent = {
     channelId: string;
     guildId: string | null;
     userId: string;
+    userIsBot?: boolean;
     emojiKey: string;
 };
 
@@ -449,6 +450,7 @@ function normalizeReactionEvent(
         channelId,
         guildId: reaction.guildId,
         userId: userId || user.id,
+        userIsBot: user.bot,
         emojiKey: reaction.emojiIdentifier,
     };
 }

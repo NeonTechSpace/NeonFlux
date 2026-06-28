@@ -9,7 +9,7 @@ export type DashboardStructureSnapshot = {
     channels: FluxerGuildChannel[];
 };
 
-export type DashboardStructurePlannedAction = {
+type DashboardStructurePlannedAction = {
     actionType: 'create' | 'update' | 'delete';
     targetType: 'role' | 'category' | 'channel';
     targetId?: string;
@@ -17,7 +17,7 @@ export type DashboardStructurePlannedAction = {
     details: Record<string, unknown>;
 };
 
-export type DashboardStructurePlanSummary = {
+type DashboardStructurePlanSummary = {
     creates: number;
     updates: number;
     deletes: number;

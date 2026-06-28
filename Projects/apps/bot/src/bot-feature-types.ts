@@ -56,6 +56,7 @@ export type BotFeatureEvent =
           channelId: string;
           guildId: string | null;
           userId: string;
+          userIsBot?: boolean;
           emojiKey: string;
       }
     | {

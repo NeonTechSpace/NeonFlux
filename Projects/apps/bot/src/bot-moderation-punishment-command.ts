@@ -19,7 +19,7 @@ import type {
 } from './bot-feature-types.js';
 import { formatUser } from './bot-moderation-command-format.js';
 
-export type ModerationPunishmentCommand = 'kick' | 'ban' | 'unban' | 'timeout' | 'untimeout';
+type ModerationPunishmentCommand = 'kick' | 'ban' | 'unban' | 'timeout' | 'untimeout';
 
 type ModerationPunishmentInput = {
     commandName: ModerationPunishmentCommand;

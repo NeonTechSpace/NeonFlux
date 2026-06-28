@@ -270,7 +270,7 @@ function BoardList({
     );
 }
 
-export function DashboardSuggestionsLoading() {
+function DashboardSuggestionsLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-28 animate-pulse rounded bg-neutral-800' />

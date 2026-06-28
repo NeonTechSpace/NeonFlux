@@ -357,7 +357,7 @@ function VerificationFlowList({
     );
 }
 
-export function DashboardVerificationLoading() {
+function DashboardVerificationLoading() {
     return (
         <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
             <div className='h-5 w-36 animate-pulse rounded bg-neutral-800' />

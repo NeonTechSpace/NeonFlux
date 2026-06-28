@@ -21,7 +21,7 @@ export type DashboardPostMessageInput = {
     embeds?: unknown[];
 };
 
-export type DashboardPostedMessage = {
+type DashboardPostedMessage = {
     id: string;
     guildId: string;
     channelId: string;
@@ -36,7 +36,7 @@ export type DashboardPostingChannel = {
     position?: number;
 };
 
-export type DashboardAuditMetadata = Record<string, string | number | boolean | null>;
+type DashboardAuditMetadata = Record<string, string | number | boolean | null>;
 export type DashboardAuditSearchScope = BotActionEventSearchScope;
 
 export type DashboardPostMessageResult =

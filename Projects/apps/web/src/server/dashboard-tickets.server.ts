@@ -22,7 +22,7 @@ import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
-export type DashboardTicketChannel = {
+type DashboardTicketChannel = {
     id: string;
     name: string;
     type: number;
@@ -31,19 +31,19 @@ export type DashboardTicketChannel = {
     parentName?: string;
 };
 
-export type DashboardTicketCategory = {
+type DashboardTicketCategory = {
     id: string;
     name: string;
     position: number;
 };
 
-export type DashboardTicketRole = {
+type DashboardTicketRole = {
     id: string;
     name: string;
     position: number;
 };
 
-export type DashboardTicketPanelConfig = {
+type DashboardTicketPanelConfig = {
     description: string;
     openEmoji: string;
     openEmojiKey: string;
@@ -66,7 +66,7 @@ export type DashboardTicketPanel = {
     updatedAt: string;
 };
 
-export type DashboardTicketsStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
+type DashboardTicketsStructureReadStatus = 'available' | 'bot-token-missing' | 'fetch-failed';
 
 export type DashboardTicketsSettingsResult =
     | {
