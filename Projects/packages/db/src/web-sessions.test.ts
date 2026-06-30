@@ -1,19 +1,9 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createPgliteTestDatabase, type PgliteTestDatabase } from '../test-support/pglite-test-database.js';
 
-import * as schema from './schema.js';
 import { createWebSession, findActiveWebSessionById, revokeWebSession, type WebSessionRecord } from './web-sessions.js';
 
-const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
-const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
-const testDataRoot = join(projectRoot, 'data', 'pglite-web-sessions-test');
 const validSessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const secondValidSessionId = '9876543210abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = 'fluxer-user-id';
@@ -21,16 +11,20 @@ const expiresAt = new Date('2100-01-01T00:00:00.000Z');
 
 let testDatabase: TestDatabase | undefined;
 
+beforeAll(async () => {
+    testDatabase = await createTestDatabase();
+});
+
+beforeEach(async () => {
+    await resetTestDatabase();
+});
+
+afterAll(async () => {
+    await testDatabase?.close();
+    testDatabase = undefined;
+});
+
 describe('createWebSession', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
-    });
-
     it('creates a session row and returns normalized camelCase fields', async () => {
         const session = await createSession();
 
@@ -89,15 +83,6 @@ describe('createWebSession', () => {
 });
 
 describe('findActiveWebSessionById', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
-    });
-
     it('finds an active unexpired, unrevoked session', async () => {
         await createSession();
 
@@ -155,15 +140,6 @@ describe('findActiveWebSessionById', () => {
 });
 
 describe('revokeWebSession', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
-    });
-
     it('revokes an existing session and sets revokedAt', async () => {
         const revokedAt = new Date('2099-01-01T00:00:00.000Z');
 
@@ -206,6 +182,14 @@ async function createSession(): Promise<WebSessionRecord> {
     return result._unsafeUnwrap();
 }
 
+async function resetTestDatabase(): Promise<void> {
+    if (!testDatabase) {
+        throw new Error('Test database was not initialized');
+    }
+
+    await testDatabase.reset();
+}
+
 function getDb(): Parameters<typeof createWebSession>[0] {
     if (!testDatabase) {
         throw new Error('Test database was not initialized');
@@ -214,26 +198,8 @@ function getDb(): Parameters<typeof createWebSession>[0] {
     return testDatabase.db;
 }
 
-type TestDatabase = {
-    db: Parameters<typeof createWebSession>[0];
-    close: () => Promise<void>;
-};
+type TestDatabase = PgliteTestDatabase;
 
-async function createTestDatabase(): Promise<TestDatabase> {
-    const dataDir = join(testDataRoot, randomUUID());
-
-    await mkdir(dataDir, { recursive: true });
-
-    const client = new PGlite(dataDir);
-    const db = drizzle(client, { schema });
-
-    await migrate(db, { migrationsFolder });
-
-    return {
-        db,
-        async close() {
-            await client.close();
-            await rm(dataDir, { recursive: true, force: true });
-        },
-    };
+function createTestDatabase(): Promise<TestDatabase> {
+    return createPgliteTestDatabase('web-sessions');
 }

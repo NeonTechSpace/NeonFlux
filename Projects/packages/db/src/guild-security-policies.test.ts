@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
+import { createPgliteTestDatabase, type PgliteTestDatabase } from '../test-support/pglite-test-database.js';
 
 import { deleteBotInstallation, upsertBotInstallation } from './bot-installations.js';
 import { findGuildById } from './guilds.js';
@@ -28,7 +28,6 @@ import {
     upsertGuildDefconExemption,
     upsertGuildSecurityPolicy,
 } from './guild-security-policies.js';
-import * as schema from './schema.js';
 
 const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
@@ -37,12 +36,16 @@ const testDataRoot = join(projectRoot, 'data', 'pglite-guild-security-policies-t
 let testDatabase: TestDatabase | undefined;
 
 describe('guild security policy repository', () => {
-    beforeEach(async () => {
+    beforeAll(async () => {
         testDatabase = await createTestDatabase();
+    });
+
+    beforeEach(async () => {
+        await resetTestDatabase();
         await installGuild('guild-1');
     });
 
-    afterEach(async () => {
+    afterAll(async () => {
         await testDatabase?.close();
         testDatabase = undefined;
     });
@@ -417,6 +420,14 @@ async function upsertExemption(input: Parameters<typeof upsertGuildDefconExempti
     return result._unsafeUnwrap();
 }
 
+async function resetTestDatabase(): Promise<void> {
+    if (!testDatabase) {
+        throw new Error('Test database was not initialized');
+    }
+
+    await testDatabase.reset();
+}
+
 function getDb(): TestDatabase['db'] {
     if (!testDatabase) {
         throw new Error('Test database was not initialized');
@@ -425,26 +436,8 @@ function getDb(): TestDatabase['db'] {
     return testDatabase.db;
 }
 
-type TestDatabase = {
-    db: Parameters<typeof upsertGuildSecurityPolicy>[0];
-    close: () => Promise<void>;
-};
+type TestDatabase = PgliteTestDatabase;
 
-async function createTestDatabase(): Promise<TestDatabase> {
-    const dataDir = join(testDataRoot, randomUUID());
-
-    await mkdir(dataDir, { recursive: true });
-
-    const client = new PGlite(dataDir);
-    const db = drizzle(client, { schema });
-
-    await migrate(db, { migrationsFolder });
-
-    return {
-        db,
-        async close() {
-            await client.close();
-            await rm(dataDir, { recursive: true, force: true });
-        },
-    };
+function createTestDatabase(): Promise<TestDatabase> {
+    return createPgliteTestDatabase('guild-security-policies');
 }

@@ -1,12 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPgliteTestDatabase, type PgliteTestDatabase } from '../test-support/pglite-test-database.js';
 
 import {
     findUsableFluxerOAuthTokenSetByUserId,
@@ -14,12 +8,8 @@ import {
     upsertFluxerOAuthTokenSet,
     type FluxerOAuthTokenRecord,
 } from './fluxer-oauth-tokens.js';
-import * as schema from './schema.js';
 import type { EncryptedOAuthTokenPayload } from './schema.js';
 
-const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
-const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
-const testDataRoot = join(projectRoot, 'data', 'pglite-fluxer-oauth-tokens-test');
 const fluxerUserId = 'fluxer-user-id';
 const accessTokenExpiresAt = new Date('2026-06-22T00:00:00.000Z');
 const replacementAccessTokenExpiresAt = new Date('2026-06-23T00:00:00.000Z');
@@ -30,14 +20,21 @@ const replacementEncryptedRefreshToken = createEncryptedToken('replacement-refre
 
 let testDatabase: TestDatabase | undefined;
 
-describe('upsertFluxerOAuthTokenSet', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
+beforeAll(async () => {
+    testDatabase = await createTestDatabase();
+});
 
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
+beforeEach(async () => {
+    await resetTestDatabase();
+});
+
+afterAll(async () => {
+    await testDatabase?.close();
+    testDatabase = undefined;
+});
+
+describe('upsertFluxerOAuthTokenSet', () => {
+    afterEach(() => {
         vi.useRealTimers();
     });
 
@@ -204,15 +201,6 @@ describe('upsertFluxerOAuthTokenSet', () => {
 });
 
 describe('findUsableFluxerOAuthTokenSetByUserId', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
-    });
-
     it('finds a non-invalidated token set by Fluxer user id', async () => {
         await upsertTokenSet();
 
@@ -280,15 +268,6 @@ describe('findUsableFluxerOAuthTokenSetByUserId', () => {
 });
 
 describe('invalidateFluxerOAuthTokenSet', () => {
-    beforeEach(async () => {
-        testDatabase = await createTestDatabase();
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
-    });
-
     it('invalidates an existing token set', async () => {
         const invalidatedAt = new Date('2026-06-21T00:00:00.000Z');
 
@@ -354,6 +333,14 @@ function createEncryptedToken(prefix: string): EncryptedOAuthTokenPayload {
     };
 }
 
+async function resetTestDatabase(): Promise<void> {
+    if (!testDatabase) {
+        throw new Error('Test database was not initialized');
+    }
+
+    await testDatabase.reset();
+}
+
 function getDb(): Parameters<typeof upsertFluxerOAuthTokenSet>[0] {
     if (!testDatabase) {
         throw new Error('Test database was not initialized');
@@ -362,26 +349,8 @@ function getDb(): Parameters<typeof upsertFluxerOAuthTokenSet>[0] {
     return testDatabase.db;
 }
 
-type TestDatabase = {
-    db: Parameters<typeof upsertFluxerOAuthTokenSet>[0];
-    close: () => Promise<void>;
-};
+type TestDatabase = PgliteTestDatabase;
 
-async function createTestDatabase(): Promise<TestDatabase> {
-    const dataDir = join(testDataRoot, randomUUID());
-
-    await mkdir(dataDir, { recursive: true });
-
-    const client = new PGlite(dataDir);
-    const db = drizzle(client, { schema });
-
-    await migrate(db, { migrationsFolder });
-
-    return {
-        db,
-        async close() {
-            await client.close();
-            await rm(dataDir, { recursive: true, force: true });
-        },
-    };
+function createTestDatabase(): Promise<TestDatabase> {
+    return createPgliteTestDatabase('fluxer-oauth-tokens');
 }

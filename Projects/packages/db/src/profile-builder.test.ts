@@ -1,12 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createPgliteTestDatabase, type PgliteTestDatabase } from '../test-support/pglite-test-database.js';
 
 import { upsertGuild } from './guilds.js';
 import {
@@ -22,24 +16,26 @@ import {
     upsertProfileField,
     upsertProfileForm,
 } from './profile-builder.js';
-import * as schema from './schema.js';
-
-const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
-const migrationsFolder = join(projectRoot, 'packages', 'db', 'drizzle');
-const testDataRoot = join(projectRoot, 'data', 'pglite-profile-builder-test');
 
 let testDatabase: TestDatabase | undefined;
 
+beforeAll(async () => {
+    testDatabase = await createTestDatabase();
+});
+
+beforeEach(async () => {
+    await resetTestDatabase();
+});
+
+afterAll(async () => {
+    await testDatabase?.close();
+    testDatabase = undefined;
+});
+
 describe('profile builder repository', () => {
     beforeEach(async () => {
-        testDatabase = await createTestDatabase();
         await expectOk(upsertGuild(getDb(), { guildId: 'guild-1' }));
         await expectOk(upsertGuild(getDb(), { guildId: 'guild-2' }));
-    });
-
-    afterEach(async () => {
-        await testDatabase?.close();
-        testDatabase = undefined;
     });
 
     it('upserts, lists, and finds guild-scoped profile forms', async () => {
@@ -298,21 +294,16 @@ async function createDefaultForm() {
     );
 }
 
-async function createTestDatabase(): Promise<TestDatabase> {
-    await mkdir(testDataRoot, { recursive: true });
-    const dataDirectory = join(testDataRoot, randomUUID());
-    const client = new PGlite(dataDirectory);
-    const db = drizzle(client, { schema });
+function createTestDatabase(): Promise<TestDatabase> {
+    return createPgliteTestDatabase('profile-builder');
+}
 
-    await migrate(db, { migrationsFolder });
+async function resetTestDatabase(): Promise<void> {
+    if (!testDatabase) {
+        throw new Error('Test database was not initialized');
+    }
 
-    return {
-        db,
-        async close() {
-            await client.close();
-            await rm(dataDirectory, { recursive: true, force: true });
-        },
-    };
+    await testDatabase.reset();
 }
 
 function getDb() {
@@ -331,7 +322,4 @@ async function expectOk<T>(resultPromise: Promise<{ isOk(): boolean; _unsafeUnwr
     return result._unsafeUnwrap();
 }
 
-type TestDatabase = {
-    db: ReturnType<typeof drizzle<typeof schema>>;
-    close: () => Promise<void>;
-};
+type TestDatabase = PgliteTestDatabase;
