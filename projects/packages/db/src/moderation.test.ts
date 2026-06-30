@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
+import { createPgliteTestDatabase, type PgliteTestDatabase } from '../test-support/pglite-test-database.js';
 
 import { upsertGuild } from './guilds.js';
 import {
@@ -29,13 +30,17 @@ const testDataRoot = join(projectRoot, 'data', 'pglite-moderation-test');
 let testDatabase: TestDatabase | undefined;
 
 describe('moderation repository', () => {
-    beforeEach(async () => {
+    beforeAll(async () => {
         testDatabase = await createTestDatabase();
+    });
+
+    beforeEach(async () => {
+        await resetTestDatabase();
         await expectOk(upsertGuild(getDb(), { guildId: 'guild-1' }));
         await expectOk(upsertGuild(getDb(), { guildId: 'guild-2' }));
     });
 
-    afterEach(async () => {
+    afterAll(async () => {
         await testDatabase?.close();
         testDatabase = undefined;
     });
@@ -317,6 +322,14 @@ async function expectOk<TValue>(promise: Promise<{ isOk(): boolean; _unsafeUnwra
     return result._unsafeUnwrap();
 }
 
+async function resetTestDatabase(): Promise<void> {
+    if (!testDatabase) {
+        throw new Error('Test database was not initialized');
+    }
+
+    await testDatabase.reset();
+}
+
 function getDb(): TestDatabase['db'] {
     if (!testDatabase) {
         throw new Error('Test database was not initialized');
@@ -325,28 +338,10 @@ function getDb(): TestDatabase['db'] {
     return testDatabase.db;
 }
 
-type TestDatabase = {
-    db: Parameters<typeof upsertGuild>[0];
-    close: () => Promise<void>;
-};
+type TestDatabase = PgliteTestDatabase;
 
-async function createTestDatabase(): Promise<TestDatabase> {
-    const dataDir = join(testDataRoot, randomUUID());
-
-    await mkdir(dataDir, { recursive: true });
-
-    const client = new PGlite(dataDir);
-    const db = drizzle(client, { schema });
-
-    await migrate(db, { migrationsFolder });
-
-    return {
-        db,
-        async close() {
-            await client.close();
-            await rm(dataDir, { recursive: true, force: true });
-        },
-    };
+function createTestDatabase(): Promise<TestDatabase> {
+    return createPgliteTestDatabase('moderation');
 }
 
 async function applySqlMigrationsBeforeCaseCounters(client: PGlite): Promise<void> {
