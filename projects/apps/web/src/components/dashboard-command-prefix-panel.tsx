@@ -181,27 +181,28 @@ export function DashboardCommandPrefixSettingsPanel({
 
     return (
         <article
-            className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'
+            className='relative overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(56,189,248,0.34)] bg-[rgba(7,10,16,0.9)] p-4 shadow-[var(--dash-shadow-surface)] md:bg-[linear-gradient(135deg,rgba(56,189,248,0.12),rgba(167,139,250,0.08)_42%,rgba(7,10,16,0.88)_100%)] md:backdrop-blur-md'
             aria-busy={commandSettingsQuery.isFetching || undefined}>
+            <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(0,229,255,0.8),rgba(255,43,214,0.52),rgba(255,234,0,0.34))]' />
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <h2 className='text-lg font-semibold text-white'>Command prefix</h2>
-                    <p className='mt-2 text-sm leading-6 text-neutral-400'>
+                    <h2 className='text-xl font-semibold text-[var(--dash-text)]'>Command prefix</h2>
+                    <p className='mt-2 text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>
                         Current prefix:{' '}
-                        <code className='rounded bg-neutral-950 px-1.5 py-0.5 text-sm text-sky-200'>
+                        <code className='rounded-[var(--dash-radius-control)] border border-[rgba(56,189,248,0.28)] bg-[rgba(2,6,23,0.72)] px-1.5 py-0.5 text-sm font-semibold text-[var(--dash-primary)]'>
                             {liveCommandSettings.prefix}
                         </code>
                     </p>
                 </div>
                 {liveCommandSettings.prefix === DEFAULT_COMMAND_PREFIX ? (
-                    <span className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-300'>
+                    <span className='rounded-[var(--dash-radius-control)] border border-[rgba(167,139,250,0.4)] bg-[rgba(167,139,250,0.12)] px-2 py-1 text-xs font-semibold text-violet-100'>
                         Default
                     </span>
                 ) : null}
             </div>
 
             <form className='mt-4 flex flex-col gap-3' onSubmit={submitPrefixUpdate}>
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                <label className='space-y-2 text-sm font-semibold text-[var(--dash-text)]'>
                     <span>New prefix</span>
                     <input
                         value={displayedDraftPrefix}
@@ -217,21 +218,21 @@ export function DashboardCommandPrefixSettingsPanel({
                                 formMessage: undefined,
                             }));
                         }}
-                        className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                        className='min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[rgba(107,125,152,0.72)] bg-[rgba(2,6,23,0.76)] px-3 text-base text-[var(--dash-text)] transition outline-none placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)]'
                         maxLength={6}
                         inputMode='text'
                         autoComplete='off'
                         aria-describedby='command-prefix-help command-prefix-message'
                     />
                 </label>
-                <p id='command-prefix-help' className='text-xs leading-5 text-neutral-500'>
+                <p id='command-prefix-help' className='text-xs leading-5 text-[var(--dash-text-muted)]'>
                     Start with an allowed symbol, then use up to two more letters, numbers, or symbols.
                 </p>
                 <div className='flex flex-wrap items-center gap-3'>
                     <button
                         type='submit'
                         disabled={!canSubmit}
-                        className='inline-flex min-h-10 items-center rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-neutral-950 transition hover:bg-sky-300 focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'>
                         {mutation.isPending ? 'Saving...' : 'Save prefix'}
                     </button>
                     <span
@@ -239,14 +240,14 @@ export function DashboardCommandPrefixSettingsPanel({
                         role='status'
                         className={
                             displayedFormMessage?.type === 'success'
-                                ? 'text-sm text-emerald-300'
-                                : 'text-sm text-rose-300'
+                                ? 'text-sm text-cyan-200'
+                                : 'text-sm text-rose-200'
                         }>
                         {displayedFormMessage?.text}
                     </span>
                 </div>
                 {commandSettingsQuery.isError ? (
-                    <p className='text-sm text-rose-300'>Could not refresh this setting.</p>
+                    <p className='text-sm text-rose-200'>Could not refresh this setting.</p>
                 ) : null}
             </form>
         </article>
@@ -255,31 +256,34 @@ export function DashboardCommandPrefixSettingsPanel({
 
 export function DashboardCommandPrefixSettingsPanelLoading() {
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
+        <article
+            className='relative overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(56,189,248,0.24)] bg-[rgba(7,10,16,0.9)] p-4 shadow-[var(--dash-shadow-surface)] md:bg-[linear-gradient(135deg,rgba(56,189,248,0.08),rgba(167,139,250,0.06)_42%,rgba(7,10,16,0.9)_100%)] md:backdrop-blur-md'
+            aria-busy='true'>
+            <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(0,229,255,0.6),rgba(255,43,214,0.42),rgba(255,234,0,0.24))]' />
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <h2 className='text-lg font-semibold text-white'>Command prefix</h2>
-                    <p className='mt-2 text-sm leading-6 text-neutral-400'>Current prefix is loading.</p>
+                    <h2 className='text-xl font-semibold text-[var(--dash-text)]'>Command prefix</h2>
+                    <p className='mt-2 text-sm leading-6 text-[var(--dash-text-muted)]'>Loading current prefix.</p>
                 </div>
-                <span className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-500'>
+                <span className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 py-1 text-xs font-medium text-[var(--dash-text-muted)]'>
                     Loading
                 </span>
             </div>
             <div className='mt-4 flex flex-col gap-3'>
-                <label className='space-y-2 text-sm font-medium text-neutral-500'>
+                <label className='space-y-2 text-sm font-medium text-[var(--dash-text-muted)]'>
                     <span>New prefix</span>
                     <input
                         value=''
                         disabled
-                        className='min-h-10 w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 text-base text-neutral-500 outline-none'
+                        className='min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(2,6,23,0.72)] px-3 text-base text-[var(--dash-text-muted)] outline-none'
                         aria-label='New prefix'
                     />
                 </label>
-                <div className='h-4 w-52 animate-pulse rounded bg-neutral-800' />
+                <div className='h-4 w-52 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
                 <button
                     type='button'
                     disabled
-                    className='inline-flex min-h-10 w-fit items-center rounded-md bg-neutral-700 px-4 text-sm font-semibold text-neutral-400'>
+                    className='inline-flex min-h-10 w-fit items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] px-4 text-sm font-semibold text-[var(--dash-text-disabled)]'>
                     Save prefix
                 </button>
             </div>

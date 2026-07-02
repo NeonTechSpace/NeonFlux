@@ -31,16 +31,7 @@ const deploymentConfigUnavailableMessage = 'NeonFlux deployment config unavailab
 const communityUnavailableMessage = 'This community is not available for this account.';
 
 export type DashboardGuildRouteData =
-    | {
-          type: 'guild';
-          mode: 'single' | 'multi';
-          guild: {
-              id: string;
-              name: string;
-              iconUrl?: string;
-          };
-          commandSettings: DashboardCommandSettings;
-      }
+    | Extract<DashboardCommandSettingsPageDataResult, { type: 'guild' }>
     | {
           type: 'single-unauthorized';
           configuredGuildId: string;

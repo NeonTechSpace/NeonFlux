@@ -1,0 +1,58 @@
+name: neonflux-convex
+
+services:
+    convex-db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${CONVEX_POSTGRES_USER:-convex}
+            POSTGRES_PASSWORD: ${CONVEX_POSTGRES_PASSWORD:?CONVEX_POSTGRES_PASSWORD is required}
+            POSTGRES_DB: ${CONVEX_POSTGRES_DB:?CONVEX_POSTGRES_DB is required}
+        volumes:
+            - convex-postgres-data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+    backend:
+        image: ghcr.io/get-convex/convex-backend:${CONVEX_REV:-latest}
+        restart: unless-stopped
+        stop_grace_period: 10s
+        stop_signal: SIGINT
+        environment:
+            INSTANCE_NAME: ${CONVEX_INSTANCE_NAME:?CONVEX_INSTANCE_NAME is required}
+            INSTANCE_SECRET: ${CONVEX_INSTANCE_SECRET:?CONVEX_INSTANCE_SECRET is required}
+            POSTGRES_URL: postgresql://${CONVEX_POSTGRES_USER:-convex}:${CONVEX_POSTGRES_PASSWORD:?CONVEX_POSTGRES_PASSWORD is required}@convex-db:5432
+            CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN:?CONVEX_CLOUD_ORIGIN is required}
+            CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN:?CONVEX_SITE_ORIGIN is required}
+            DO_NOT_REQUIRE_SSL: ${CONVEX_DO_NOT_REQUIRE_SSL:-1}
+            RUST_LOG: ${CONVEX_RUST_LOG:-info}
+        volumes:
+            - convex-backend-data:/convex/data
+        ports:
+            - '${CONVEX_PORT:-3210}:3210'
+            - '${CONVEX_SITE_PROXY_PORT:-3211}:3211'
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3210/version']
+            interval: 5s
+            start_period: 10s
+        depends_on:
+            convex-db:
+                condition: service_healthy
+
+    dashboard:
+        image: ghcr.io/get-convex/convex-dashboard:${CONVEX_REV:-latest}
+        restart: unless-stopped
+        environment:
+            NEXT_PUBLIC_DEPLOYMENT_URL: ${NEXT_PUBLIC_DEPLOYMENT_URL:?NEXT_PUBLIC_DEPLOYMENT_URL is required}
+        ports:
+            - '${CONVEX_DASHBOARD_PORT:-6791}:6791'
+        depends_on:
+            backend:
+                condition: service_healthy
+
+volumes:
+    convex-postgres-data:
+    convex-backend-data:

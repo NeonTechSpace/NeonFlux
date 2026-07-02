@@ -18,16 +18,9 @@ export type DashboardCommandSettings = {
 };
 
 export type DashboardCommandSettingsPageDataResult =
-    | {
-          type: 'guild';
-          mode: 'single' | 'multi';
-          guild: {
-              id: string;
-              name: string;
-              iconUrl?: string;
-          };
+    | (Extract<DashboardGuildPageDataResult, { type: 'guild' }> & {
           commandSettings: DashboardCommandSettings;
-      }
+      })
     | Exclude<DashboardGuildPageDataResult, { type: 'guild' }>;
 
 export type DashboardCommandPrefixUpdateResult =

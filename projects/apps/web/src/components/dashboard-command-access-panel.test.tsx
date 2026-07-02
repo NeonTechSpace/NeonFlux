@@ -34,14 +34,14 @@ describe('DashboardCommandAccessPanel', () => {
         vi.clearAllMocks();
     });
 
-    it('saves role and user grants for a selected command', async () => {
+    it('saves discovered role grants for a selected command', async () => {
         vi.mocked(readDashboardCommandAccessRouteData).mockResolvedValue(createAccessResult());
         vi.mocked(updateDashboardCommandAccessRouteData).mockResolvedValue({
             type: 'updated',
             rule: {
                 targetType: 'command',
                 targetId: 'moderation.ban',
-                userIds: ['user-1'],
+                userIds: [],
                 roleIds: ['role-mod'],
                 updatedAt: '2026-06-28T00:00:00.000Z',
             },
@@ -53,7 +53,6 @@ describe('DashboardCommandAccessPanel', () => {
         fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'moderation.ban' } });
         fireEvent.change(screen.getByPlaceholderText('Search roles'), { target: { value: 'mod' } });
         fireEvent.click(await screen.findByRole('button', { name: /Moderator/u }));
-        fireEvent.change(screen.getByLabelText('User IDs'), { target: { value: 'user-1' } });
         fireEvent.click(screen.getByRole('button', { name: 'Save command grant' }));
 
         await waitFor(() => expect(updateDashboardCommandAccessRouteData).toHaveBeenCalled());
@@ -62,7 +61,7 @@ describe('DashboardCommandAccessPanel', () => {
                 guildId: 'guild-1',
                 targetType: 'command',
                 targetId: 'moderation.ban',
-                userIds: ['user-1'],
+                userIds: [],
                 roleIds: ['role-mod'],
             },
         });

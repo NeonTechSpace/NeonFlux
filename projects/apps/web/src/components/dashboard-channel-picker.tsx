@@ -34,15 +34,15 @@ export function DashboardChannelPicker({
     const matchedChannels = matchChannels(channels, search).slice(0, 8);
 
     return (
-        <div className='space-y-2 text-sm font-medium text-neutral-200'>
-            <label className='space-y-2'>
+        <div className='space-y-2'>
+            <label className='dashboard-label'>
                 <span>{label}</span>
                 <input
                     value={search}
                     onBlur={onBlur}
                     onChange={(event) => onSearchChange(event.currentTarget.value)}
                     onFocus={onFocus}
-                    className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                    className='dashboard-field mt-2'
                     autoComplete='off'
                     role='combobox'
                     aria-autocomplete='list'
@@ -52,13 +52,13 @@ export function DashboardChannelPicker({
                 />
             </label>
 
-            {isLoading ? <p className='text-xs leading-5 text-neutral-500'>Loading channels...</p> : null}
+            {isLoading ? <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>Loading channels...</p> : null}
             {hasError ? <p className='text-xs leading-5 text-rose-300'>Could not load channels.</p> : null}
 
             {isOpen && !isLoading && !hasError ? (
                 <ul
                     id={listboxId}
-                    className='max-h-56 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950'
+                    className='max-h-56 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(5,9,16,0.96)] p-1 shadow-[var(--dash-shadow-popover)]'
                     role='listbox'>
                     {matchedChannels.length > 0 ? (
                         matchedChannels.map((channel) => (
@@ -67,16 +67,16 @@ export function DashboardChannelPicker({
                                     type='button'
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => onSelect(channel)}
-                                    className='flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-neutral-100 transition hover:bg-neutral-800 focus:bg-neutral-800 focus:outline-none'>
+                                    className='flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--dash-radius-control)] px-3 text-left text-sm text-[var(--dash-text)] transition hover:bg-[rgba(56,189,248,0.14)] focus:bg-[rgba(56,189,248,0.14)] focus:outline-none'>
                                     <span className='min-w-0 truncate'>{formatDashboardChannelLabel(channel)}</span>
-                                    <span className='shrink-0 text-xs text-neutral-500'>
+                                    <span className='shrink-0 text-xs text-[var(--dash-text-muted)]'>
                                         {channel.parentName ?? channel.id}
                                     </span>
                                 </button>
                             </li>
                         ))
                     ) : (
-                        <li className='px-3 py-3 text-sm text-neutral-500'>No matching channels.</li>
+                        <li className='px-3 py-3 text-sm text-[var(--dash-text-muted)]'>No matching channels.</li>
                     )}
                 </ul>
             ) : null}

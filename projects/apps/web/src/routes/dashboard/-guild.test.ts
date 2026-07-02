@@ -231,6 +231,8 @@ vi.mock('../../server/dashboard-posting-templates-route-data.js', async (importA
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
+const botInviteUrl =
+    'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8';
 let renderedViews: Array<ReturnType<typeof render>> = [];
 let documentVisibilityState = 'visible';
 
@@ -261,6 +263,8 @@ describe('/dashboard/$guildId', () => {
                 protectedUserIds: [],
                 protectedRoleIds: [],
             },
+            structureReadStatus: 'available',
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
         });
         vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
             type: 'channels',
@@ -286,6 +290,9 @@ describe('/dashboard/$guildId', () => {
         vi.mocked(readDashboardAutoroleSettingsRouteData).mockResolvedValue(createAutoroleSettingsReadResult());
         vi.mocked(readDashboardAutomodSettingsRouteData).mockResolvedValue({
             type: 'settings',
+            structureReadStatus: 'available',
+            channels: [{ id: 'channel-1', name: 'general', type: 0, position: 1 }],
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
             rules: [],
             events: [],
         });
@@ -428,19 +435,14 @@ describe('/dashboard/$guildId', () => {
 
         expect(await screen.findByRole('heading', { name: 'Guild One' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Guild One icon' })).toBeTruthy();
-        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
+        expect(screen.getByText('guild-1')).toBeTruthy();
         expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
         expect(await screen.findByText('Last 30 days')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Member flow' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Message activity' })).toBeTruthy();
-        expect(
-            screen.getByText(
-                'No member flow recorded yet. The chart stays on the baseline until join or leave events arrive.'
-            )
-        ).toBeTruthy();
-        expect(
-            screen.getByText('No messages counted yet. The chart stays flat until new non-bot messages are tracked.')
-        ).toBeTruthy();
+        expect(screen.queryByText('No joins or leaves in this window.')).toBeNull();
+        expect(screen.queryByText('No message activity in this window.')).toBeNull();
+        expect(screen.queryByText(/chart stays/u)).toBeNull();
         expect(screen.queryByText('Data health')).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Top inviters' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Audit events' })).toBeNull();
@@ -457,8 +459,28 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Audit Events' }).getAttribute('href')).toBe(
             '/dashboard/guild-1/audit'
         );
-        expect(screen.getByLabelText('Dashboard category')).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Choose server' }).getAttribute('href')).toBe('/dashboard');
+        expect(screen.getAllByRole('navigation', { name: 'Servers' }).length).toBeGreaterThan(0);
+        fireEvent.click(screen.getByRole('button', { name: 'Show server picker' }));
+        expect(screen.getAllByRole('link', { name: 'Invite bot' })[0]?.getAttribute('href')).toBe(botInviteUrl);
+        expect(screen.queryByRole('link', { name: 'Guild One' })).toBeNull();
+        expect(screen.getAllByRole('link', { name: 'Guild Two' })[0]?.getAttribute('href')).toBe('/dashboard/guild-2');
+    });
+
+    it('does not render a server selector in single-instance guild mode', async () => {
+        const routeData = createGuildRouteData();
+
+        renderGuildPage(
+            {
+                ...routeData,
+                mode: 'single',
+                manageableGuilds: [routeData.guild],
+            },
+            'overview'
+        );
+
+        expect(await screen.findByRole('heading', { name: 'Guild One' })).toBeTruthy();
+        expect(screen.queryByRole('navigation', { name: 'Servers' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Show server picker' })).toBeNull();
     });
 
     it('renders populated overview metrics and graph data without invite tracker details', async () => {
@@ -521,7 +543,7 @@ describe('/dashboard/$guildId', () => {
 
         expect(await screen.findByText('+2')).toBeTruthy();
         expect(screen.getByText('3 joins / 1 leaves')).toBeTruthy();
-        expect(screen.getByText('12 in the busiest tracked channel')).toBeTruthy();
+        expect(screen.getByText('12 in busiest channel')).toBeTruthy();
         expect(screen.queryByText('16 tracked uses')).toBeNull();
         expect(screen.queryByText('alpha · 5 uses')).toBeNull();
         expect(screen.queryByRole('region', { name: 'Top inviters' })).toBeNull();
@@ -679,30 +701,27 @@ describe('/dashboard/$guildId', () => {
     it('saves moderation protection policy from the dashboard', async () => {
         renderGuildPage(createGuildRouteData(), 'moderation');
 
-        fireEvent.change(await screen.findByLabelText('Protected user IDs'), {
-            target: { value: 'user-1, user-1\nuser-2' },
+        fireEvent.change(await screen.findByLabelText('Protected roles'), {
+            target: { value: 'Moderator' },
         });
-        fireEvent.change(screen.getByLabelText('Protected role IDs'), {
-            target: { value: 'role-1\nrole-2' },
-        });
+        fireEvent.click(screen.getByRole('button', { name: /@Moderator/u }));
         fireEvent.click(screen.getByRole('button', { name: 'Save policy' }));
 
         await waitFor(() => expect(updateDashboardModerationPolicyRouteData).toHaveBeenCalled());
         expect(updateDashboardModerationPolicyRouteData).toHaveBeenCalledWith({
             data: {
                 guildId: 'guild-1',
-                protectedUserIds: ['user-1', 'user-2'],
-                protectedRoleIds: ['role-1', 'role-2'],
+                protectedUserIds: [],
+                protectedRoleIds: ['role-1'],
             },
         });
         expect(await screen.findByText('Moderation policy saved.')).toBeTruthy();
     });
 
-    it('navigates from the mobile category selector', async () => {
+    it('navigates from the category navigation', async () => {
         const view = renderGuildPage();
-        const categorySelect = screen.getByLabelText('Dashboard category');
 
-        fireEvent.change(categorySelect, { target: { value: 'audit' } });
+        fireEvent.click(screen.getByRole('link', { name: 'Audit Events' }));
 
         await waitFor(() => expect(view.router.state.location.pathname).toBe('/dashboard/guild-1/audit'));
     });
@@ -725,59 +744,58 @@ describe('/dashboard/$guildId', () => {
 
         expect(await screen.findByRole('region', { name: 'Community' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'XP rules' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'Giveaways' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'VC generator' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'Profile builder' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'Tickets' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'Suggestions' })).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Community' }).getAttribute('aria-current')).toBe('page');
+        expect(screen.queryByRole('heading', { name: 'Giveaways' })).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'VC generator' })).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Profile builder' })).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Tickets' })).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Suggestions' })).toBeNull();
+        const communityDisclosure = screen.getByRole('button', { name: 'Collapse Community' });
+        expect(communityDisclosure).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Giveaways' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/community/giveaways'
+        );
+        expect(screen.getByRole('link', { name: 'Profile Builder' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/community/profile-builder'
+        );
+        expect(screen.getByRole('link', { name: 'Voice Rooms' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/community/vc-generator'
+        );
+        expect(screen.getByRole('link', { name: 'Tickets' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/community/tickets'
+        );
+        expect(screen.getByRole('link', { name: 'Suggestions' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1/community/suggestions'
+        );
+        fireEvent.click(communityDisclosure);
+        expect(screen.getByRole('button', { name: 'Expand Community' })).toBeTruthy();
+        await waitFor(() => expect(screen.queryByRole('link', { name: 'Giveaways' })).toBeNull());
         expect(readDashboardXpSettingsRouteData).toHaveBeenCalledWith({
             data: {
                 guildId: 'guild-1',
             },
         });
-        expect(readDashboardVcGeneratorSettingsRouteData).toHaveBeenCalledWith({
-            data: {
-                guildId: 'guild-1',
-            },
-        });
-        expect(readDashboardProfileBuilderSettingsRouteData).toHaveBeenCalledWith({
-            data: {
-                guildId: 'guild-1',
-            },
-        });
-        expect(readDashboardGiveawaysSettingsRouteData).toHaveBeenCalledWith({
-            data: {
-                guildId: 'guild-1',
-            },
-        });
-        expect(readDashboardTicketsSettingsRouteData).toHaveBeenCalledWith({
-            data: {
-                guildId: 'guild-1',
-            },
-        });
-        expect(readDashboardSuggestionsSettingsRouteData).toHaveBeenCalledWith({
-            data: {
-                guildId: 'guild-1',
-            },
-        });
+        expect(readDashboardVcGeneratorSettingsRouteData).not.toHaveBeenCalled();
+        expect(readDashboardProfileBuilderSettingsRouteData).not.toHaveBeenCalled();
+        expect(readDashboardGiveawaysSettingsRouteData).not.toHaveBeenCalled();
+        expect(readDashboardTicketsSettingsRouteData).not.toHaveBeenCalled();
+        expect(readDashboardSuggestionsSettingsRouteData).not.toHaveBeenCalled();
     });
 
     it('renders command access without granting dashboard access', async () => {
         renderGuildPage(createGuildRouteData(), 'access');
 
         expect(await screen.findByRole('region', { name: 'Roles & Access' })).toBeTruthy();
-        expect(await screen.findByRole('heading', { name: 'Autorole' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Add join role' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'Reaction roles' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'Verification' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'Role reconciliation' })).toBeTruthy();
         expect(await screen.findByRole('heading', { name: 'Command access' })).toBeTruthy();
-        expect(screen.getAllByText('Member').length).toBeGreaterThan(0);
+        expect((await screen.findAllByText('@Member')).length).toBeGreaterThan(0);
         expect(screen.getAllByText('unicode:check').length).toBeGreaterThan(0);
         expect(screen.getByText('Verified')).toBeTruthy();
         expect(screen.getByText('Add or update grant')).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Save command grant' })).toBeTruthy();
-        expect(screen.getByText(/Dashboard access still requires Manage Server/u)).toBeTruthy();
+        expect(screen.getByText('Manage Server is still required for dashboard access.')).toBeTruthy();
         expect(readDashboardAutoroleSettingsRouteData).toHaveBeenCalledWith({
             data: {
                 guildId: 'guild-1',
@@ -1047,8 +1065,8 @@ describe('/dashboard/$guildId', () => {
 
         expect(screen.getByRole('heading', { name: 'Preview Guild' })).toBeTruthy();
         expect(screen.getByRole('img', { name: 'Preview Guild icon' })).toBeTruthy();
-        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
-        expect(screen.getByText('Loading settings')).toBeTruthy();
+        expect(screen.getByText('guild-1')).toBeTruthy();
+        expect(screen.getAllByText('Loading settings').length).toBeGreaterThan(0);
         expect(screen.getByRole('navigation', { name: 'Dashboard categories' })).toBeTruthy();
         expect(screen.getByRole('region', { name: 'Overview' })).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Messaging' })).toBeTruthy();
@@ -1907,6 +1925,18 @@ function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
             name: 'Guild One',
             iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
         },
+        manageableGuilds: [
+            {
+                id: 'guild-1',
+                name: 'Guild One',
+                iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
+            },
+            {
+                id: 'guild-2',
+                name: 'Guild Two',
+            },
+        ],
+        botInviteUrl,
         commandSettings: {
             prefix: '?',
             isDefaultPrefix: false,
@@ -1914,7 +1944,7 @@ function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
     };
 }
 
-function createGuildRouteData(): DashboardGuildRouteData {
+function createGuildRouteData(): Extract<DashboardGuildRouteData, { type: 'guild' }> {
     return {
         type: 'guild',
         mode: 'multi',
@@ -1923,6 +1953,18 @@ function createGuildRouteData(): DashboardGuildRouteData {
             name: 'Guild One',
             iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
         },
+        manageableGuilds: [
+            {
+                id: 'guild-1',
+                name: 'Guild One',
+                iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
+            },
+            {
+                id: 'guild-2',
+                name: 'Guild Two',
+            },
+        ],
+        botInviteUrl,
         commandSettings: {
             prefix: '?',
             isDefaultPrefix: false,
@@ -2210,6 +2252,7 @@ function createTicketsSettingsReadResult() {
                 id: 'support-role-1',
                 name: 'Support',
                 position: 5,
+                color: 0x38bdf8,
             },
         ],
         panels: [

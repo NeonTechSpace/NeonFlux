@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { getDashboardModerationPolicyQueryKey } from '../dashboard-query-keys.js';
 import {
@@ -7,6 +7,8 @@ import {
     updateDashboardModerationPolicyRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardModerationPolicy } from '../server/dashboard-moderation.server.js';
+import { DashboardEntitySelector } from './dashboard-entity-selector.js';
+import type { DashboardEntityOption } from './dashboard-entity-selector.js';
 
 export function DashboardModerationPolicyPanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
@@ -24,14 +26,14 @@ export function DashboardModerationPolicyPanel({ guildId }: { guildId: string })
                 throw new Error('Could not load moderation policy.');
             }
 
-            return result.policy;
+            return result;
         },
     });
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy={policyQuery.isFetching}>
+        <article className='dashboard-glass-panel p-5' aria-busy={policyQuery.isFetching}>
             <div>
-                <h2 className='text-lg font-semibold text-white'>Protection policy</h2>
-                <p className='mt-2 text-sm leading-6 text-neutral-400'>
+                <h2 className='text-xl font-semibold text-[var(--dash-text)]'>Protection policy</h2>
+                <p className='mt-2 text-sm leading-6 text-[var(--dash-text-muted)]'>
                     Protected users and roles cannot be kicked, banned, or unbanned by NeonFlux commands.
                 </p>
             </div>
@@ -44,9 +46,11 @@ export function DashboardModerationPolicyPanel({ guildId }: { guildId: string })
                 <ModerationPolicyForm
                     key={guildId}
                     guildId={guildId}
-                    policy={policyQuery.data}
+                    policy={policyQuery.data.policy}
                     policyQueryKey={policyQueryKey}
                     queryClient={queryClient}
+                    roles={policyQuery.data.roles}
+                    structureReadStatus={policyQuery.data.structureReadStatus}
                 />
             ) : null}
         </article>
@@ -58,22 +62,34 @@ function ModerationPolicyForm({
     policy,
     policyQueryKey,
     queryClient,
+    roles,
+    structureReadStatus,
 }: {
     guildId: string;
     policy: DashboardModerationPolicy;
     policyQueryKey: ReturnType<typeof getDashboardModerationPolicyQueryKey>;
     queryClient: ReturnType<typeof useQueryClient>;
+    roles: { id: string; name: string; color: number }[];
+    structureReadStatus: string;
 }) {
-    const [protectedUserIds, setProtectedUserIds] = useState(policy.protectedUserIds.join('\n'));
-    const [protectedRoleIds, setProtectedRoleIds] = useState(policy.protectedRoleIds.join('\n'));
+    const [protectedUserIds, setProtectedUserIds] = useState(policy.protectedUserIds);
+    const [protectedRoleIds, setProtectedRoleIds] = useState(policy.protectedRoleIds);
     const [saveMessage, setSaveMessage] = useState<string | undefined>();
+    const roleOptions = useMemo<DashboardEntityOption[]>(
+        () => roles.map((role) => ({ id: role.id, name: role.name, color: role.color })),
+        [roles]
+    );
+    const userOptions = useMemo<DashboardEntityOption[]>(
+        () => protectedUserIds.map((userId) => ({ id: userId, name: userId })),
+        [protectedUserIds]
+    );
     const mutation = useMutation({
         mutationFn: async () => {
             const result = await updateDashboardModerationPolicyRouteData({
                 data: {
                     guildId,
-                    protectedUserIds: parseIdList(protectedUserIds),
-                    protectedRoleIds: parseIdList(protectedRoleIds),
+                    protectedUserIds,
+                    protectedRoleIds,
                 },
             });
 
@@ -84,7 +100,16 @@ function ModerationPolicyForm({
             return result.policy;
         },
         onSuccess(updatedPolicy) {
-            queryClient.setQueryData(policyQueryKey, updatedPolicy);
+            queryClient.setQueryData(policyQueryKey, (current: unknown) =>
+                current && typeof current === 'object'
+                    ? { ...current, policy: updatedPolicy }
+                    : {
+                          type: 'policy',
+                          policy: updatedPolicy,
+                          structureReadStatus,
+                          roles,
+                      }
+            );
             setSaveMessage('Moderation policy saved.');
         },
         onError() {
@@ -94,79 +119,53 @@ function ModerationPolicyForm({
 
     return (
         <form
-            className='mt-4 grid gap-4 lg:grid-cols-2'
+            className='mt-5 grid gap-4 lg:grid-cols-2'
             onSubmit={(event) => {
                 event.preventDefault();
                 setSaveMessage(undefined);
                 mutation.mutate();
             }}>
-            <PolicyTextarea
-                label='Protected user IDs'
-                value={protectedUserIds}
-                onChange={setProtectedUserIds}
-                placeholder='1517169145576165376'
+            <DashboardEntitySelector
+                kind='user'
+                label='Protected users'
+                options={userOptions}
+                selectedIds={protectedUserIds}
+                unavailableText='User search is not available yet.'
+                onSelectedIdsChange={setProtectedUserIds}
             />
-            <PolicyTextarea
-                label='Protected role IDs'
-                value={protectedRoleIds}
-                onChange={setProtectedRoleIds}
-                placeholder='1514728169414852609'
+            <DashboardEntitySelector
+                kind='role'
+                label='Protected roles'
+                options={roleOptions}
+                selectedIds={protectedRoleIds}
+                unavailableText={structureReadStatus === 'available' ? undefined : toStructureUnavailableText(structureReadStatus)}
+                onSelectedIdsChange={setProtectedRoleIds}
             />
             <div className='flex flex-wrap items-center gap-3 lg:col-span-2'>
                 <button
                     type='submit'
                     disabled={mutation.isPending}
-                    className='min-h-10 rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60'>
+                    className='dashboard-primary-button min-h-10 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60'>
                     {mutation.isPending ? 'Saving...' : 'Save policy'}
                 </button>
                 {mutation.isError ? <p className='text-sm text-rose-300'>Could not save moderation policy.</p> : null}
-                {saveMessage ? <p className='text-sm text-emerald-300'>{saveMessage}</p> : null}
+                {saveMessage ? <p className='text-sm text-[var(--dash-primary)]'>{saveMessage}</p> : null}
             </div>
         </form>
-    );
-}
-
-function PolicyTextarea({
-    label,
-    value,
-    onChange,
-    placeholder,
-}: {
-    label: string;
-    value: string;
-    onChange: (value: string) => void;
-    placeholder: string;
-}) {
-    return (
-        <label className='block space-y-2 text-sm font-medium text-neutral-200'>
-            <span>{label}</span>
-            <textarea
-                value={value}
-                onChange={(event) => onChange(event.currentTarget.value)}
-                className='min-h-32 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                placeholder={placeholder}
-                spellCheck={false}
-            />
-        </label>
     );
 }
 
 function PolicyLoading() {
     return (
         <div className='mt-4 grid gap-4 lg:grid-cols-2' aria-label='Loading moderation policy'>
-            <div className='h-32 animate-pulse rounded-md bg-neutral-800' />
-            <div className='h-32 animate-pulse rounded-md bg-neutral-800' />
+            <div className='h-32 animate-pulse rounded-[var(--dash-radius-panel)] bg-[var(--dash-surface-raised)]' />
+            <div className='h-32 animate-pulse rounded-[var(--dash-radius-panel)] bg-[var(--dash-surface-raised)]' />
         </div>
     );
 }
 
-function parseIdList(value: string): string[] {
-    return [
-        ...new Set(
-            value
-                .split(/[\s,]+/u)
-                .map((entry) => entry.trim())
-                .filter(Boolean)
-        ),
-    ];
+function toStructureUnavailableText(status: string): string {
+    return status === 'bot-token-missing'
+        ? 'Set FLUXER_BOT_TOKEN to load server roles.'
+        : 'Could not load server roles.';
 }

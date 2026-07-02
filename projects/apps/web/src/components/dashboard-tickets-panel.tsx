@@ -9,6 +9,8 @@ import {
 } from '../server/dashboard-tickets-route-data.js';
 import type { DashboardTicketPanel } from '../server/dashboard-tickets.server.js';
 import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
+import { DashboardEntitySelector } from './dashboard-entity-selector.js';
+import type { DashboardEntityOption } from './dashboard-entity-selector.js';
 
 type TicketPanelDraft = {
     panelId: string;
@@ -18,7 +20,7 @@ type TicketPanelDraft = {
     description: string;
     openEmoji: string;
     ticketCategoryId: string;
-    staffRoleIds: string;
+    staffRoleIds: string[];
     ticketNameTemplate: string;
     maxOpenPerUser: number;
     privateTickets: boolean;
@@ -33,7 +35,7 @@ const defaultDraft: TicketPanelDraft = {
     description: 'React to open a ticket.',
     openEmoji: '🎫',
     ticketCategoryId: '',
-    staffRoleIds: '',
+    staffRoleIds: [],
     ticketNameTemplate: 'ticket-{number}',
     maxOpenPerUser: 1,
     privateTickets: true,
@@ -63,6 +65,15 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
         () => settingsQuery.data?.textChannels.find((channel) => channel.id === draft.channelId),
         [draft.channelId, settingsQuery.data?.textChannels]
     );
+    const roleOptions = useMemo<DashboardEntityOption[]>(
+        () =>
+            settingsQuery.data?.roles.map((role) => ({
+                id: role.id,
+                name: role.name,
+                color: role.color,
+            })) ?? [],
+        [settingsQuery.data?.roles]
+    );
 
     async function refreshSettings(): Promise<void> {
         await queryClient.invalidateQueries({ queryKey });
@@ -88,7 +99,7 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
                     description: draft.description,
                     openEmoji: draft.openEmoji,
                     ticketCategoryId: draft.ticketCategoryId,
-                    staffRoleIds: parseRoleIds(draft.staffRoleIds),
+                    staffRoleIds: draft.staffRoleIds,
                     ticketNameTemplate: draft.ticketNameTemplate,
                     maxOpenPerUser: draft.maxOpenPerUser,
                     privateTickets: draft.privateTickets,
@@ -141,24 +152,22 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
 
     if (settingsQuery.isError) {
         return (
-            <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                <h3 className='text-lg font-semibold text-white'>Tickets</h3>
+            <article className='dashboard-glass-panel p-5'>
+                <h3 className='text-lg font-semibold text-[var(--dash-text)]'>Tickets</h3>
                 <p className='mt-2 text-sm leading-6 text-rose-300'>Could not load ticket settings.</p>
             </article>
         );
     }
 
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900'>
-            <div className='border-b border-neutral-800 px-4 py-3'>
-                <h3 className='text-lg font-semibold text-white'>Tickets</h3>
-                <p className='mt-1 text-sm leading-6 text-neutral-400'>
-                    Publish reaction panels that open tracked support channels.
-                </p>
+        <article className='dashboard-glass-panel overflow-hidden'>
+            <div className='border-b border-[var(--dash-border)] px-5 py-4'>
+                <h3 className='text-xl font-semibold text-[var(--dash-text)]'>Tickets</h3>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>Reaction panels for private support channels.</p>
             </div>
-            <div className='grid gap-0 divide-y divide-neutral-800 xl:grid-cols-[minmax(20rem,30rem)_minmax(0,1fr)] xl:divide-x xl:divide-y-0'>
-                <section className='space-y-4 p-4' aria-labelledby='tickets-editor-heading'>
-                    <h4 id='tickets-editor-heading' className='text-sm font-semibold text-white'>
+            <div className='grid gap-0 divide-y divide-[var(--dash-border)] xl:grid-cols-[minmax(22rem,32rem)_minmax(0,1fr)] xl:divide-x xl:divide-y-0'>
+                <section className='space-y-4 p-5' aria-labelledby='tickets-editor-heading'>
+                    <h4 id='tickets-editor-heading' className='text-base font-semibold text-[var(--dash-text)]'>
                         Panel editor
                     </h4>
                     <StructureStatus status={settingsQuery.data.structureReadStatus} />
@@ -203,7 +212,7 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
                             value={draft.openEmoji}
                             onChange={(openEmoji) => setDraft({ ...draft, openEmoji })}
                         />
-                        <label className='block space-y-2 text-sm font-medium text-neutral-200'>
+                        <label className='dashboard-label block'>
                             <span>Max open per user</span>
                             <input
                                 type='number'
@@ -216,16 +225,16 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
                                         maxOpenPerUser: Number(event.currentTarget.value),
                                     })
                                 }
-                                className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                                className='dashboard-field mt-2'
                             />
                         </label>
                     </div>
-                    <label className='block space-y-2 text-sm font-medium text-neutral-200'>
+                    <label className='dashboard-label block'>
                         <span>Ticket category</span>
                         <select
                             value={draft.ticketCategoryId}
                             onChange={(event) => setDraft({ ...draft, ticketCategoryId: event.currentTarget.value })}
-                            className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'>
+                            className='dashboard-field mt-2'>
                             <option value=''>No category</option>
                             {settingsQuery.data.categories.map((category) => (
                                 <option key={category.id} value={category.id}>
@@ -239,19 +248,18 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
                         value={draft.ticketNameTemplate}
                         onChange={(ticketNameTemplate) => setDraft({ ...draft, ticketNameTemplate })}
                     />
-                    <label className='block space-y-2 text-sm font-medium text-neutral-200'>
-                        <span>Staff role IDs</span>
-                        <textarea
-                            value={draft.staffRoleIds}
-                            onChange={(event) => setDraft({ ...draft, staffRoleIds: event.currentTarget.value })}
-                            rows={3}
-                            className='w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                            placeholder={settingsQuery.data.roles
-                                .slice(0, 2)
-                                .map((role) => role.id)
-                                .join('\n')}
-                        />
-                    </label>
+                    <DashboardEntitySelector
+                        kind='role'
+                        label='Staff roles'
+                        options={roleOptions}
+                        selectedIds={draft.staffRoleIds}
+                        unavailableText={
+                            settingsQuery.data.structureReadStatus === 'available'
+                                ? undefined
+                                : toStructureStatusMessage(settingsQuery.data.structureReadStatus)
+                        }
+                        onSelectedIdsChange={(staffRoleIds) => setDraft({ ...draft, staffRoleIds })}
+                    />
                     <div className='flex flex-wrap gap-2'>
                         <Toggle
                             label='Private tickets'
@@ -268,10 +276,10 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
                         type='button'
                         onClick={() => void publishPanel()}
                         disabled={Boolean(busyPanelId)}
-                        className='min-h-10 w-full rounded-md bg-sky-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                        className='dashboard-primary-button min-h-10 w-full px-4 text-sm'>
                         Publish ticket panel
                     </button>
-                    {status ? <p className='text-sm text-neutral-400'>{status}</p> : null}
+                    {status ? <p className='text-sm text-[var(--dash-text-muted)]'>{status}</p> : null}
                 </section>
                 <TicketPanelList
                     panels={settingsQuery.data.panels}
@@ -296,16 +304,16 @@ function TicketPanelList({
     onDelete: (panel: DashboardTicketPanel) => void;
 }) {
     return (
-        <section className='p-4' aria-labelledby='ticket-panels-heading'>
-            <h4 id='ticket-panels-heading' className='text-sm font-semibold text-white'>
+        <section className='p-5' aria-labelledby='ticket-panels-heading'>
+            <h4 id='ticket-panels-heading' className='text-base font-semibold text-[var(--dash-text)]'>
                 Published panels
             </h4>
             {panels.length === 0 ? (
-                <p className='mt-3 text-sm leading-6 text-neutral-400'>No ticket panels are published yet.</p>
+                <p className='mt-3 text-sm leading-6 text-[var(--dash-text-muted)]'>No ticket panels are published yet.</p>
             ) : (
                 <div className='mt-3 overflow-x-auto'>
                     <table className='w-full min-w-[42rem] text-left text-sm'>
-                        <thead className='border-b border-neutral-800 text-xs text-neutral-500 uppercase'>
+                        <thead className='border-b border-[var(--dash-border)] text-xs text-[var(--dash-text-subtle)] uppercase'>
                             <tr>
                                 <th className='py-2 pr-3 font-semibold'>Panel</th>
                                 <th className='px-3 py-2 font-semibold'>Channel</th>
@@ -314,23 +322,23 @@ function TicketPanelList({
                                 <th className='py-2 pl-3 text-right font-semibold'>Actions</th>
                             </tr>
                         </thead>
-                        <tbody className='divide-y divide-neutral-800'>
+                        <tbody className='divide-y divide-[var(--dash-border)]'>
                             {panels.map((panel) => (
                                 <tr key={panel.id}>
-                                    <td className='py-3 pr-3 align-top font-medium text-neutral-100'>
+                                    <td className='py-3 pr-3 align-top font-medium text-[var(--dash-text)]'>
                                         <p>{panel.title}</p>
                                         {panel.messageId ? (
-                                            <p className='mt-1 font-mono text-xs text-neutral-500'>{panel.messageId}</p>
+                                            <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>{panel.messageId}</p>
                                         ) : null}
                                     </td>
-                                    <td className='px-3 py-3 align-top text-neutral-300'>
+                                    <td className='px-3 py-3 align-top text-[var(--dash-text-muted)]'>
                                         <p>{panel.channelName ? `#${panel.channelName}` : panel.channelId}</p>
-                                        <p className='mt-1 font-mono text-xs text-neutral-500'>{panel.channelId}</p>
+                                        <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>{panel.channelId}</p>
                                     </td>
-                                    <td className='px-3 py-3 align-top text-neutral-300'>
+                                    <td className='px-3 py-3 align-top text-[var(--dash-text-muted)]'>
                                         {panel.config.openEmoji} / {panel.config.maxOpenPerUser}
                                     </td>
-                                    <td className='px-3 py-3 align-top text-neutral-300'>
+                                    <td className='px-3 py-3 align-top text-[var(--dash-text-muted)]'>
                                         {panel.enabled ? panel.config.syncStatus : 'disabled'}
                                     </td>
                                     <td className='py-3 pl-3 text-right align-top'>
@@ -338,14 +346,14 @@ function TicketPanelList({
                                             <button
                                                 type='button'
                                                 onClick={() => onEdit(panel)}
-                                                className='min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200'>
+                                                className='dashboard-secondary-button min-h-9 px-3 text-sm'>
                                                 Edit
                                             </button>
                                             <button
                                                 type='button'
                                                 onClick={() => onDelete(panel)}
                                                 disabled={busyPanelId === panel.id}
-                                                className='min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-rose-300 hover:text-rose-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                                className='dashboard-danger-button min-h-9 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60'>
                                                 Remove
                                             </button>
                                         </div>
@@ -362,12 +370,12 @@ function TicketPanelList({
 
 function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
     return (
-        <label className='block space-y-2 text-sm font-medium text-neutral-200'>
+        <label className='dashboard-label block'>
             <span>{label}</span>
             <input
                 value={value}
                 onChange={(event) => onChange(event.currentTarget.value)}
-                className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                className='dashboard-field mt-2'
             />
         </label>
     );
@@ -375,7 +383,7 @@ function TextInput({ label, value, onChange }: { label: string; value: string; o
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
     return (
-        <label className='inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100'>
+        <label className='dashboard-secondary-button inline-flex min-h-10 items-center gap-2 px-3 text-sm'>
             <input
                 type='checkbox'
                 checked={checked}
@@ -389,11 +397,11 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 function DashboardTicketsLoading() {
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy='true'>
-            <div className='h-5 w-24 animate-pulse rounded bg-neutral-800' />
+        <article className='dashboard-glass-panel p-5' aria-busy='true'>
+            <div className='h-5 w-24 animate-pulse rounded bg-[var(--dash-primary-soft)]' />
             <div className='mt-4 grid gap-3 sm:grid-cols-2'>
-                <div className='h-10 animate-pulse rounded bg-neutral-800' />
-                <div className='h-10 animate-pulse rounded bg-neutral-800' />
+                <div className='h-10 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
+                <div className='h-10 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
             </div>
         </article>
     );
@@ -404,24 +412,13 @@ function StructureStatus({ status }: { status: string }) {
         return null;
     }
 
-    return (
-        <p className='text-sm leading-6 text-rose-300'>
-            {status === 'bot-token-missing'
-                ? 'Set FLUXER_BOT_TOKEN for the web service to load ticket targets.'
-                : 'Could not read server channels and roles.'}
-        </p>
-    );
+    return <p className='text-sm leading-6 text-rose-300'>{toStructureStatusMessage(status)}</p>;
 }
 
-function parseRoleIds(value: string): string[] {
-    return [
-        ...new Set(
-            value
-                .split(/[,\n]/u)
-                .map((roleId) => roleId.trim())
-                .filter(Boolean)
-        ),
-    ];
+function toStructureStatusMessage(status: string): string {
+    return status === 'bot-token-missing'
+        ? 'Set FLUXER_BOT_TOKEN for the web service to load ticket targets.'
+        : 'Could not read server channels and roles.';
 }
 
 function toDraft(panel: DashboardTicketPanel): TicketPanelDraft {
@@ -433,7 +430,7 @@ function toDraft(panel: DashboardTicketPanel): TicketPanelDraft {
         description: panel.config.description,
         openEmoji: panel.config.openEmoji,
         ticketCategoryId: panel.config.ticketCategoryId,
-        staffRoleIds: panel.config.staffRoleIds.join('\n'),
+        staffRoleIds: panel.config.staffRoleIds,
         ticketNameTemplate: panel.config.ticketNameTemplate,
         maxOpenPerUser: panel.config.maxOpenPerUser,
         privateTickets: panel.config.privateTickets,

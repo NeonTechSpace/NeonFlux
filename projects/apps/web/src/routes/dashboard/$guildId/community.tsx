@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildCommunityCategory } from '../../../components/dashboard-guild-page.js';
+import { DashboardCommunityWorkbench } from '../../../components/dashboard-community-workbench.js';
+import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/community');
 
@@ -9,5 +10,7 @@ export const Route = createRoute({
 });
 
 function DashboardGuildCommunityRoute() {
-    return <DashboardGuildCommunityCategory />;
+    const params = Route.useParams();
+
+    return <DashboardCommunityWorkbench guildId={getGuildIdParam(params)} />;
 }

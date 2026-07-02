@@ -28,6 +28,13 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/invites'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/xp'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/giveaways'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/profile-builder'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/vc-generator'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/tickets'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/suggestions'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/audit'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events'");
         expect(routeTree).toContain("fullPath: '/dashboard/'");
@@ -160,8 +167,8 @@ describe('/dashboard', () => {
     it('renders authorized dashboard communities', () => {
         renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
-        expect(screen.getByRole('heading', { name: 'NeonFlux Dashboard' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Servers' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Choose server' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Manageable servers' })).toBeTruthy();
         expect(screen.getByRole('link', { name: /Guild One/ }).getAttribute('href')).toBe('/dashboard/guild-1');
         expect(document.body.textContent).not.toContain('Community');
     });
@@ -197,7 +204,7 @@ describe('/dashboard', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'No manageable servers' })).toBeTruthy();
-        expect(screen.getByText('No servers are available for this account.')).toBeTruthy();
+        expect(screen.getByText('Use an account with Manage Server, or invite the bot to a server you own.')).toBeTruthy();
     });
 
     it('renders generic dashboard unavailable errors', () => {
