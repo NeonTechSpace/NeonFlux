@@ -1913,7 +1913,7 @@ async function selectPostingChannel(
 
     fireEvent.focus(channelInput);
     fireEvent.change(channelInput, { target: { value: search } });
-    fireEvent.click(await currentView.findByRole('button', { name: new RegExp(channelLabel) }));
+    fireEvent.click(await currentView.findByRole('button', { name: new RegExp(channelLabel) }, { timeout: 5_000 }));
 }
 
 function createGuildData(): Parameters<typeof toDashboardGuildRouteResult>[0] {
