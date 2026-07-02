@@ -239,9 +239,7 @@ export function DashboardCommandPrefixSettingsPanel({
                         id='command-prefix-message'
                         role='status'
                         className={
-                            displayedFormMessage?.type === 'success'
-                                ? 'text-sm text-cyan-200'
-                                : 'text-sm text-rose-200'
+                            displayedFormMessage?.type === 'success' ? 'text-sm text-cyan-200' : 'text-sm text-rose-200'
                         }>
                         {displayedFormMessage?.text}
                     </span>

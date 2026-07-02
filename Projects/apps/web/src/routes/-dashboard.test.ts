@@ -204,7 +204,9 @@ describe('/dashboard', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'No manageable servers' })).toBeTruthy();
-        expect(screen.getByText('Use an account with Manage Server, or invite the bot to a server you own.')).toBeTruthy();
+        expect(
+            screen.getByText('Use an account with Manage Server, or invite the bot to a server you own.')
+        ).toBeTruthy();
     });
 
     it('renders generic dashboard unavailable errors', () => {

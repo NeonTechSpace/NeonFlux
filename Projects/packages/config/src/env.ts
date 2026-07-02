@@ -107,7 +107,7 @@ function loadLocalDotEnvFile(path: string): void {
     for (const [key, value] of Object.entries(parsed)) {
         const currentValue = process.env[key];
 
-        if (currentValue === undefined || currentValue.trim().length === 0) {
+        if (currentValue === undefined) {
             process.env[key] = value;
         }
     }
@@ -181,7 +181,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
 }
 
 function parseEnv(env: NodeJS.ProcessEnv): ParsedEnv {
-    if (env === process.env) {
+    if (env === process.env && shouldAutoLoadLocalEnv(env)) {
         loadLocalEnv();
     }
 
@@ -192,6 +192,10 @@ function parseEnv(env: NodeJS.ProcessEnv): ParsedEnv {
     }
 
     return parsed;
+}
+
+function shouldAutoLoadLocalEnv(env: NodeJS.ProcessEnv): boolean {
+    return env.NODE_ENV !== 'test' && env.VITEST !== 'true';
 }
 
 function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {

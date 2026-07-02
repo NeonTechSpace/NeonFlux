@@ -163,7 +163,9 @@ export function DashboardTicketsPanel({ guildId }: { guildId: string }) {
         <article className='dashboard-glass-panel overflow-hidden'>
             <div className='border-b border-[var(--dash-border)] px-5 py-4'>
                 <h3 className='text-xl font-semibold text-[var(--dash-text)]'>Tickets</h3>
-                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>Reaction panels for private support channels.</p>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                    Reaction panels for private support channels.
+                </p>
             </div>
             <div className='grid gap-0 divide-y divide-[var(--dash-border)] xl:grid-cols-[minmax(22rem,32rem)_minmax(0,1fr)] xl:divide-x xl:divide-y-0'>
                 <section className='space-y-4 p-5' aria-labelledby='tickets-editor-heading'>
@@ -309,7 +311,9 @@ function TicketPanelList({
                 Published panels
             </h4>
             {panels.length === 0 ? (
-                <p className='mt-3 text-sm leading-6 text-[var(--dash-text-muted)]'>No ticket panels are published yet.</p>
+                <p className='mt-3 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                    No ticket panels are published yet.
+                </p>
             ) : (
                 <div className='mt-3 overflow-x-auto'>
                     <table className='w-full min-w-[42rem] text-left text-sm'>
@@ -328,12 +332,16 @@ function TicketPanelList({
                                     <td className='py-3 pr-3 align-top font-medium text-[var(--dash-text)]'>
                                         <p>{panel.title}</p>
                                         {panel.messageId ? (
-                                            <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>{panel.messageId}</p>
+                                            <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>
+                                                {panel.messageId}
+                                            </p>
                                         ) : null}
                                     </td>
                                     <td className='px-3 py-3 align-top text-[var(--dash-text-muted)]'>
                                         <p>{panel.channelName ? `#${panel.channelName}` : panel.channelId}</p>
-                                        <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>{panel.channelId}</p>
+                                        <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>
+                                            {panel.channelId}
+                                        </p>
                                     </td>
                                     <td className='px-3 py-3 align-top text-[var(--dash-text-muted)]'>
                                         {panel.config.openEmoji} / {panel.config.maxOpenPerUser}

@@ -206,9 +206,7 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
     const domain = getMessageActivityDomain(overview.messages.graph);
 
     return (
-        <ChartPanel
-            title='Message activity'
-            legendItems={[{ label: 'Messages', className: 'bg-[#00e5ff]' }]}>
+        <ChartPanel title='Message activity' legendItems={[{ label: 'Messages', className: 'bg-[#00e5ff]' }]}>
             <ResponsiveContainer width='100%' height='100%'>
                 <AreaChart data={overview.messages.graph} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
                     <defs>

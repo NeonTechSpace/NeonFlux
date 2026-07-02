@@ -14,10 +14,12 @@ vi.mock('./dashboard-guild-access.server.js', () => ({
 
 describe('loadDashboardData', () => {
     beforeEach(() => {
+        vi.stubEnv('FLUXER_BOT_INVITE_URL', '');
         vi.mocked(loadDashboardGuildAccess).mockResolvedValue(ok(createAuthorizedGuildAccess()));
     });
 
     afterEach(() => {
+        vi.unstubAllEnvs();
         vi.clearAllMocks();
     });
 

@@ -129,11 +129,7 @@ export function DashboardGuildPendingPage({
     }
 
     return (
-        <DashboardGuildFrame
-            guild={preview}
-            manageableGuilds={[preview]}
-            mode={preview.mode}
-            isLoading>
+        <DashboardGuildFrame guild={preview} manageableGuilds={[preview]} mode={preview.mode} isLoading>
             <DashboardCategoryLayout guildId={guildId} activeCategoryId={activeCategoryId}>
                 <DashboardPendingCategory activeCategoryId={activeCategoryId} />
             </DashboardCategoryLayout>
@@ -477,9 +473,7 @@ function DashboardCategorySection({ categoryId, children }: { categoryId: Dashbo
                 <h2 id={headingId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
                     {title}
                 </h2>
-                <p className='mt-1 max-w-3xl text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>
-                    {description}
-                </p>
+                <p className='mt-1 max-w-3xl text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>{description}</p>
             </div>
             {children}
         </section>
@@ -559,7 +553,7 @@ function DashboardGuildHeader({
                 }>
                 <div className='flex min-w-0 items-center gap-3 sm:gap-4'>
                     <DashboardGuildAvatar guild={guild} />
-                    <div className='min-w-0 w-56 max-w-[calc(100vw-7rem)] shrink text-center sm:w-64 lg:w-64'>
+                    <div className='w-56 max-w-[calc(100vw-7rem)] min-w-0 shrink text-center sm:w-64 lg:w-64'>
                         <h1 className='block truncate text-center text-[1.7rem] leading-tight font-semibold text-[var(--dash-text)] [text-shadow:0_2px_16px_rgba(0,0,0,0.76)]'>
                             {guild.name}
                         </h1>

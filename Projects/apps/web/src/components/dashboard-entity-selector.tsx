@@ -129,7 +129,7 @@ export function DashboardEntitySelector({
                                     <EntityGlyph kind={kind} option={option} />
                                     <span className='min-w-0 flex-1 truncate'>{formatEntityName(kind, option)}</span>
                                     {option.detail ? (
-                                        <span className='min-w-0 max-w-44 truncate text-xs text-[var(--dash-text-muted)]'>
+                                        <span className='max-w-44 min-w-0 truncate text-xs text-[var(--dash-text-muted)]'>
                                             {option.detail}
                                         </span>
                                     ) : null}
@@ -199,12 +199,9 @@ function matchEntityOptions(
 
 function scoreEntityOption(option: DashboardEntityOption, query: string, kind: DashboardEntityKind): number {
     const tokens = query.split(/\s+/).filter(Boolean);
-    const searchableValues = [
-        option.name,
-        option.id,
-        option.detail ?? '',
-        formatEntityName(kind, option),
-    ].map(normalizeEntitySearch);
+    const searchableValues = [option.name, option.id, option.detail ?? '', formatEntityName(kind, option)].map(
+        normalizeEntitySearch
+    );
     let score = 0;
 
     for (const token of tokens) {
