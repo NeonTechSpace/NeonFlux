@@ -10,12 +10,12 @@ export function HomePage() {
                     A multi functional bot for Fluxer.
                 </p>
                 <div className='mt-9 grid w-full max-w-sm grid-cols-1 gap-3 sm:grid-cols-2'>
-                    <Link
-                        to='/dashboard'
+                    <a
+                        href='/dashboard'
                         className='inline-flex h-11 items-center justify-center gap-2 rounded-md bg-white px-5 text-sm font-medium text-black transition hover:bg-neutral-200 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none'>
                         <LayoutDashboard className='size-4' aria-hidden='true' />
                         Dashboard
-                    </Link>
+                    </a>
                     <Link
                         to='/docs/topic'
                         className='inline-flex h-11 items-center justify-center gap-2 rounded-md border border-neutral-800 bg-black px-5 text-sm font-medium text-neutral-100 transition hover:border-neutral-600 hover:bg-neutral-950 focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:outline-none'>

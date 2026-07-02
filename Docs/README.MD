@@ -34,6 +34,7 @@ The planned feature areas are:
 - Dashboard audit events
 - Dashboard server overview and growth tracking
 - Docker / GHCR deployment
+- Free game alerts
 - Fumadocs documentation under `/docs`
 - Giveaways
 - Import/export for roles, channels, categories, emojis, and permissions

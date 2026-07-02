@@ -33,24 +33,23 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/'");
     });
 
-    it('keeps dashboard loading scoped to cold index loads, not guild detail navigation', () => {
+    it('keeps auth-bearing dashboard pending paths from rendering dashboard chrome', () => {
         const dashboardIndexRoute = readWebSourceFile('src/routes/dashboard.index.tsx');
         const dashboardGuildRoute = readWebSourceFile('src/routes/dashboard.$guildId.tsx');
         const router = readWebSourceFile('src/router.tsx');
         const dashboardIndexPage = readWebSourceFile('src/components/dashboard-index-page.tsx');
-        const dashboardLoading = readWebSourceFile('src/components/dashboard-loading.tsx');
         const dashboardLayout = readWebSourceFile('src/components/dashboard-layout.tsx');
 
-        expect(dashboardLoading).toContain('DashboardRouteLoading');
-        expect(dashboardLoading).toContain("role='status'");
-        expect(dashboardLoading).toContain('Loading dashboard');
-        expect(dashboardIndexRoute).toContain('pendingComponent: DashboardRouteLoading');
-        expect(dashboardIndexRoute).toContain('fallback={<DashboardRouteLoading />}');
+        expect(dashboardIndexRoute).not.toContain('DashboardRouteLoading');
+        expect(dashboardIndexRoute).not.toContain('pendingComponent');
+        expect(dashboardIndexRoute).not.toContain('fallback=');
+        expect(dashboardIndexRoute).not.toContain('lazy(');
         expect(dashboardGuildRoute).not.toContain('pendingComponent: DashboardRouteLoading');
         expect(dashboardGuildRoute).not.toContain('fallback={<DashboardRouteLoading />}');
         expect(dashboardGuildRoute).toContain('loader: ({ params }) =>');
         expect(dashboardGuildRoute).toContain('loadDashboardGuildRouteData');
         expect(dashboardGuildRoute).toContain('pendingComponent: DashboardGuildPendingRoute');
+        expect(dashboardGuildRoute).toContain('readDashboardGuildPreview');
         expect(dashboardGuildRoute).not.toContain('pendingMs: 0');
         expect(dashboardGuildRoute).not.toContain('pendingMinMs: 0');
         expect(router).toContain('defaultPendingMs: 0');

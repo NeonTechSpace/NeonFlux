@@ -116,6 +116,23 @@ describe('/auth/fluxer/callback', () => {
             `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`,
         ]);
     });
+
+    it('redirects denied authorization back to the homepage and clears the state cookie', async () => {
+        vi.stubEnv('APP_ENV', 'development');
+
+        const response = await handleFluxerCallbackRequest(
+            createCallbackRequest(
+                'http://localhost:3000/auth/fluxer/callback?error=access_denied&state=state-value',
+                'state-value'
+            )
+        );
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/');
+        expect(getSetCookieHeaders(response)).toEqual([
+            `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`,
+        ]);
+    });
 });
 
 function createCallbackRequest(url: string, state: string): Request {

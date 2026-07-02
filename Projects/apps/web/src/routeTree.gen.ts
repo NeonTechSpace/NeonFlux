@@ -33,6 +33,12 @@ import { Route as DashboardGuildIdAuditRouteImport } from './routes/dashboard/$g
 import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$guildId/access'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
+import { Route as DashboardGuildIdAccessIndexRouteImport } from './routes/dashboard/$guildId/access/index'
+import { Route as DashboardGuildIdAccessVerificationRouteImport } from './routes/dashboard/$guildId/access/verification'
+import { Route as DashboardGuildIdAccessRoleReconciliationRouteImport } from './routes/dashboard/$guildId/access/role-reconciliation'
+import { Route as DashboardGuildIdAccessReactionRolesRouteImport } from './routes/dashboard/$guildId/access/reaction-roles'
+import { Route as DashboardGuildIdAccessCommandAccessRouteImport } from './routes/dashboard/$guildId/access/command-access'
+import { Route as DashboardGuildIdAccessAutorolesRouteImport } from './routes/dashboard/$guildId/access/autoroles'
 
 const ProfileBuilderRoute = ProfileBuilderRouteImport.update({
   id: '/profile-builder',
@@ -158,6 +164,42 @@ const AuthFluxerCallbackRoute = AuthFluxerCallbackRouteImport.update({
   path: '/auth/fluxer/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardGuildIdAccessIndexRoute =
+  DashboardGuildIdAccessIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
+const DashboardGuildIdAccessVerificationRoute =
+  DashboardGuildIdAccessVerificationRouteImport.update({
+    id: '/verification',
+    path: '/verification',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
+const DashboardGuildIdAccessRoleReconciliationRoute =
+  DashboardGuildIdAccessRoleReconciliationRouteImport.update({
+    id: '/role-reconciliation',
+    path: '/role-reconciliation',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
+const DashboardGuildIdAccessReactionRolesRoute =
+  DashboardGuildIdAccessReactionRolesRouteImport.update({
+    id: '/reaction-roles',
+    path: '/reaction-roles',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
+const DashboardGuildIdAccessCommandAccessRoute =
+  DashboardGuildIdAccessCommandAccessRouteImport.update({
+    id: '/command-access',
+    path: '/command-access',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
+const DashboardGuildIdAccessAutorolesRoute =
+  DashboardGuildIdAccessAutorolesRouteImport.update({
+    id: '/autoroles',
+    path: '/autoroles',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -170,7 +212,7 @@ export interface FileRoutesByFullPath {
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
-  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
@@ -184,6 +226,12 @@ export interface FileRoutesByFullPath {
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
+  '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
+  '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
+  '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
+  '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -192,7 +240,6 @@ export interface FileRoutesByTo {
   '/docs': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
-  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
@@ -206,6 +253,12 @@ export interface FileRoutesByTo {
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId': typeof DashboardGuildIdIndexRoute
   '/docs/topic': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
+  '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
+  '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
+  '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -219,7 +272,7 @@ export interface FileRoutesById {
   '/docs/': typeof DocsIndexRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
-  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRoute
+  '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
@@ -233,6 +286,12 @@ export interface FileRoutesById {
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
+  '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
+  '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
+  '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
+  '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -261,6 +320,12 @@ export interface FileRouteTypes {
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
+    | '/dashboard/$guildId/access/autoroles'
+    | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/reaction-roles'
+    | '/dashboard/$guildId/access/role-reconciliation'
+    | '/dashboard/$guildId/access/verification'
+    | '/dashboard/$guildId/access/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -269,7 +334,6 @@ export interface FileRouteTypes {
     | '/docs'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
-    | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/audit'
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
@@ -283,6 +347,12 @@ export interface FileRouteTypes {
     | '/docs/topic/$'
     | '/dashboard/$guildId'
     | '/docs/topic'
+    | '/dashboard/$guildId/access/autoroles'
+    | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/reaction-roles'
+    | '/dashboard/$guildId/access/role-reconciliation'
+    | '/dashboard/$guildId/access/verification'
+    | '/dashboard/$guildId/access'
   id:
     | '__root__'
     | '/'
@@ -309,6 +379,12 @@ export interface FileRouteTypes {
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
+    | '/dashboard/$guildId/access/autoroles'
+    | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/reaction-roles'
+    | '/dashboard/$guildId/access/role-reconciliation'
+    | '/dashboard/$guildId/access/verification'
+    | '/dashboard/$guildId/access/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -490,11 +566,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthFluxerCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/$guildId/access/': {
+      id: '/dashboard/$guildId/access/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/access/'
+      preLoaderRoute: typeof DashboardGuildIdAccessIndexRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
+    '/dashboard/$guildId/access/verification': {
+      id: '/dashboard/$guildId/access/verification'
+      path: '/verification'
+      fullPath: '/dashboard/$guildId/access/verification'
+      preLoaderRoute: typeof DashboardGuildIdAccessVerificationRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
+    '/dashboard/$guildId/access/role-reconciliation': {
+      id: '/dashboard/$guildId/access/role-reconciliation'
+      path: '/role-reconciliation'
+      fullPath: '/dashboard/$guildId/access/role-reconciliation'
+      preLoaderRoute: typeof DashboardGuildIdAccessRoleReconciliationRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
+    '/dashboard/$guildId/access/reaction-roles': {
+      id: '/dashboard/$guildId/access/reaction-roles'
+      path: '/reaction-roles'
+      fullPath: '/dashboard/$guildId/access/reaction-roles'
+      preLoaderRoute: typeof DashboardGuildIdAccessReactionRolesRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
+    '/dashboard/$guildId/access/command-access': {
+      id: '/dashboard/$guildId/access/command-access'
+      path: '/command-access'
+      fullPath: '/dashboard/$guildId/access/command-access'
+      preLoaderRoute: typeof DashboardGuildIdAccessCommandAccessRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
+    '/dashboard/$guildId/access/autoroles': {
+      id: '/dashboard/$guildId/access/autoroles'
+      path: '/autoroles'
+      fullPath: '/dashboard/$guildId/access/autoroles'
+      preLoaderRoute: typeof DashboardGuildIdAccessAutorolesRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
   }
 }
 
+interface DashboardGuildIdAccessRouteChildren {
+  DashboardGuildIdAccessAutorolesRoute: typeof DashboardGuildIdAccessAutorolesRoute
+  DashboardGuildIdAccessCommandAccessRoute: typeof DashboardGuildIdAccessCommandAccessRoute
+  DashboardGuildIdAccessReactionRolesRoute: typeof DashboardGuildIdAccessReactionRolesRoute
+  DashboardGuildIdAccessRoleReconciliationRoute: typeof DashboardGuildIdAccessRoleReconciliationRoute
+  DashboardGuildIdAccessVerificationRoute: typeof DashboardGuildIdAccessVerificationRoute
+  DashboardGuildIdAccessIndexRoute: typeof DashboardGuildIdAccessIndexRoute
+}
+
+const DashboardGuildIdAccessRouteChildren: DashboardGuildIdAccessRouteChildren =
+  {
+    DashboardGuildIdAccessAutorolesRoute: DashboardGuildIdAccessAutorolesRoute,
+    DashboardGuildIdAccessCommandAccessRoute:
+      DashboardGuildIdAccessCommandAccessRoute,
+    DashboardGuildIdAccessReactionRolesRoute:
+      DashboardGuildIdAccessReactionRolesRoute,
+    DashboardGuildIdAccessRoleReconciliationRoute:
+      DashboardGuildIdAccessRoleReconciliationRoute,
+    DashboardGuildIdAccessVerificationRoute:
+      DashboardGuildIdAccessVerificationRoute,
+    DashboardGuildIdAccessIndexRoute: DashboardGuildIdAccessIndexRoute,
+  }
+
+const DashboardGuildIdAccessRouteWithChildren =
+  DashboardGuildIdAccessRoute._addFileChildren(
+    DashboardGuildIdAccessRouteChildren,
+  )
+
 interface DashboardGuildIdRouteChildren {
-  DashboardGuildIdAccessRoute: typeof DashboardGuildIdAccessRoute
+  DashboardGuildIdAccessRoute: typeof DashboardGuildIdAccessRouteWithChildren
   DashboardGuildIdAuditRoute: typeof DashboardGuildIdAuditRoute
   DashboardGuildIdCommunityRoute: typeof DashboardGuildIdCommunityRoute
   DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRoute
@@ -508,7 +654,7 @@ interface DashboardGuildIdRouteChildren {
 }
 
 const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
-  DashboardGuildIdAccessRoute: DashboardGuildIdAccessRoute,
+  DashboardGuildIdAccessRoute: DashboardGuildIdAccessRouteWithChildren,
   DashboardGuildIdAuditRoute: DashboardGuildIdAuditRoute,
   DashboardGuildIdCommunityRoute: DashboardGuildIdCommunityRoute,
   DashboardGuildIdEventsRoute: DashboardGuildIdEventsRoute,
