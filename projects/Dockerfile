@@ -7,11 +7,13 @@ ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /app
 
-RUN npm install --global pnpm@11.6.0
+RUN corepack enable
 
 FROM base AS package-manifests
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+
 COPY packages/config/package.json ./packages/config/package.json
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/db/package.json ./packages/db/package.json
@@ -21,7 +23,11 @@ COPY apps/web/package.json ./apps/web/package.json
 
 FROM package-manifests AS deps
 
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked pnpm install --frozen-lockfile --store-dir /pnpm/store
+ARG TARGETARCH
+ARG TARGETOS
+
+RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 FROM deps AS build-bot
 
@@ -42,7 +48,11 @@ RUN pnpm -r --filter neonflux-web... build
 
 FROM package-manifests AS production-deps
 
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked pnpm install --frozen-lockfile --prod --store-dir /pnpm/store
+ARG TARGETARCH
+ARG TARGETOS
+
+RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prod --store-dir /pnpm/store
 
 FROM base AS bot
 
