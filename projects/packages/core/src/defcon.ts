@@ -83,6 +83,8 @@ export function resolveEffectiveGuildDefcon(input: DefconPolicyInput): GuildDefc
         case 'production':
             return input.storedLevel ?? 3;
     }
+
+    return unreachableAppEnv(input.appEnv);
 }
 
 export function authorizeCommandAction(input: CommandAuthorizationInput): DefconAuthorizationResult {
@@ -118,6 +120,8 @@ export function authorizeCommandAction(input: CommandAuthorizationInput): Defcon
 
             return denied(effectiveDefconLevel, 'missing-command-permission');
     }
+
+    return unreachableDefconLevel(effectiveDefconLevel);
 }
 
 export function authorizeDashboardAccess(input: DashboardAuthorizationInput): DefconAuthorizationResult {
@@ -141,6 +145,8 @@ export function authorizeDashboardAccess(input: DashboardAuthorizationInput): De
 
             return denied(effectiveDefconLevel, 'missing-dashboard-permission');
     }
+
+    return unreachableDefconLevel(effectiveDefconLevel);
 }
 
 function stricterDefcon(left: GuildDefconLevel, right: GuildDefconLevel): GuildDefconLevel {
@@ -179,4 +185,12 @@ function denied(
         effectiveDefconLevel,
         reason,
     };
+}
+
+function unreachableAppEnv(appEnv: never): never {
+    throw new Error(`Unsupported app environment: ${String(appEnv)}`);
+}
+
+function unreachableDefconLevel(level: never): never {
+    throw new Error(`Unsupported DEFCON level: ${String(level)}`);
 }
