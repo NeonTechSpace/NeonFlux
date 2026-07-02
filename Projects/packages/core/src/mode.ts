@@ -26,6 +26,8 @@ export function shouldHandleGuildEvent(mode: AppMode, event: GuildEventScope): b
         case 'multi':
             return isInstalledGuild(event.guildId, event.installedGuildIds);
     }
+
+    return unreachableAppMode(mode);
 }
 
 export function selectDashboardGuilds(mode: AppMode, guilds: readonly DashboardGuild[]): DashboardGuild[] {
@@ -36,6 +38,8 @@ export function selectDashboardGuilds(mode: AppMode, guilds: readonly DashboardG
         case 'multi':
             return guilds.filter((guild) => guild.canManage && guild.botInstalled === true);
     }
+
+    return unreachableAppMode(mode);
 }
 
 function isInstalledGuild(
@@ -51,4 +55,8 @@ function isInstalledGuild(
     }
 
     return installedGuildIds.includes(guildId);
+}
+
+function unreachableAppMode(mode: never): never {
+    throw new Error(`Unsupported instance mode: ${String(mode)}`);
 }
