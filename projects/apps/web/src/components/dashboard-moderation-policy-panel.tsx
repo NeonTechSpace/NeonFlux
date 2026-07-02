@@ -138,7 +138,9 @@ function ModerationPolicyForm({
                 label='Protected roles'
                 options={roleOptions}
                 selectedIds={protectedRoleIds}
-                unavailableText={structureReadStatus === 'available' ? undefined : toStructureUnavailableText(structureReadStatus)}
+                unavailableText={
+                    structureReadStatus === 'available' ? undefined : toStructureUnavailableText(structureReadStatus)
+                }
                 onSelectedIdsChange={setProtectedRoleIds}
             />
             <div className='flex flex-wrap items-center gap-3 lg:col-span-2'>

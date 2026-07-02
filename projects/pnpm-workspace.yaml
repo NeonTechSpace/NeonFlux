@@ -1,9 +1,9 @@
 packages:
-  - 'apps/*'
-  - 'packages/*'
+    - 'apps/*'
+    - 'packages/*'
 
 allowBuilds:
-  '@tsparticles/engine': false
-  esbuild: true
-  lightningcss: true
-  unrs-resolver: true
+    '@tsparticles/engine': false
+    esbuild: true
+    lightningcss: true
+    unrs-resolver: true

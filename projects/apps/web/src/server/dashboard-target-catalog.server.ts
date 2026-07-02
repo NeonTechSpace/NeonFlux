@@ -51,7 +51,9 @@ export async function loadDashboardTargetCatalog(guildId: string): Promise<Dashb
         return emptyTargetCatalog('fetch-failed');
     }
 
-    const categoriesById = new Map(toDashboardTargetCategories(structureResult.value.categories).map((category) => [category.id, category]));
+    const categoriesById = new Map(
+        toDashboardTargetCategories(structureResult.value.categories).map((category) => [category.id, category])
+    );
 
     return {
         status: 'available',

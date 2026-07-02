@@ -3,7 +3,10 @@ import { DashboardShell } from './dashboard-layout.js';
 export function DashboardRouteLoading() {
     return (
         <DashboardShell>
-            <section className='flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden' role='status' aria-label='Loading dashboard'>
+            <section
+                className='flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden'
+                role='status'
+                aria-label='Loading dashboard'>
                 <span className='sr-only'>Loading dashboard</span>
                 <header className='shrink-0 border-b border-[var(--dash-border)] px-1 pt-1 pb-4'>
                     <div className='flex items-center gap-4'>

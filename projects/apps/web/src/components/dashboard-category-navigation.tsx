@@ -69,7 +69,9 @@ export function DashboardCategoryNavigation({
     }
 
     return (
-        <nav className='min-h-0 min-w-0 shrink-0 xl:h-full xl:border-r xl:border-[var(--dash-border)] xl:pr-4' aria-label='Dashboard categories'>
+        <nav
+            className='min-h-0 min-w-0 shrink-0 xl:h-full xl:border-r xl:border-[var(--dash-border)] xl:pr-4'
+            aria-label='Dashboard categories'>
             <div className='xl:hidden'>
                 <button
                     type='button'
@@ -81,9 +83,15 @@ export function DashboardCategoryNavigation({
                     ) : (
                         <Menu className='size-4 text-[var(--dash-primary)]' aria-hidden='true' />
                     )}
-                    <span className='min-w-0 flex-1 truncate'>{dashboardCategories.find((category) => category.id === activeCategoryId)?.label ?? 'Dashboard'}</span>
+                    <span className='min-w-0 flex-1 truncate'>
+                        {dashboardCategories.find((category) => category.id === activeCategoryId)?.label ?? 'Dashboard'}
+                    </span>
                     <ChevronRight
-                        className={mobileOpen ? 'size-4 rotate-90 text-[var(--dash-text-muted)] transition' : 'size-4 text-[var(--dash-text-muted)] transition'}
+                        className={
+                            mobileOpen
+                                ? 'size-4 rotate-90 text-[var(--dash-text-muted)] transition'
+                                : 'size-4 text-[var(--dash-text-muted)] transition'
+                        }
                         aria-hidden='true'
                     />
                 </button>
@@ -112,7 +120,9 @@ export function DashboardCategoryNavigation({
             </div>
             <div className='hidden h-full min-h-0 flex-col xl:flex'>
                 <div className='px-2 pt-1 pb-3'>
-                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-primary)] uppercase'>Dashboard</p>
+                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-primary)] uppercase'>
+                        Dashboard
+                    </p>
                 </div>
                 <div className='min-h-0 overflow-y-auto pr-2'>
                     <DashboardCategoryNavigationList

@@ -234,9 +234,7 @@ describe('handleFluxerCallbackRequest', () => {
         });
 
         const response = await handleFluxerCallbackRequest(
-            createCallbackRequest(
-                'http://localhost:3000/auth/fluxer/callback?error=access_denied&state=state-value'
-            )
+            createCallbackRequest('http://localhost:3000/auth/fluxer/callback?error=access_denied&state=state-value')
         );
 
         expect(response.status).toBe(302);

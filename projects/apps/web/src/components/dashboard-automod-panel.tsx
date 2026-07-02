@@ -65,7 +65,9 @@ export function DashboardAutomodPanel({ guildId }: { guildId: string }) {
         <article className='dashboard-glass-panel overflow-hidden'>
             <div className='border-b border-[var(--dash-border)] px-5 py-4'>
                 <h3 className='text-xl font-semibold text-[var(--dash-text)]'>Automod</h3>
-                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>Rules for blocked terms and invite links.</p>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                    Rules for blocked terms and invite links.
+                </p>
             </div>
             <div className='grid gap-0 divide-y divide-[var(--dash-border)] xl:grid-cols-[minmax(20rem,28rem)_minmax(0,1fr)] xl:divide-x xl:divide-y-0'>
                 <AutomodRuleEditor
@@ -271,7 +273,11 @@ function AutomodRuleEditor({
                     label='Ignore channels'
                     options={channelOptions}
                     selectedIds={ignoredChannelIds}
-                    unavailableText={structureReadStatus === 'available' ? undefined : toStructureUnavailableText(structureReadStatus)}
+                    unavailableText={
+                        structureReadStatus === 'available'
+                            ? undefined
+                            : toStructureUnavailableText(structureReadStatus)
+                    }
                     onSelectedIdsChange={setIgnoredChannelIds}
                 />
                 <DashboardEntitySelector
@@ -279,7 +285,11 @@ function AutomodRuleEditor({
                     label='Ignore roles'
                     options={roleOptions}
                     selectedIds={ignoredRoleIds}
-                    unavailableText={structureReadStatus === 'available' ? undefined : toStructureUnavailableText(structureReadStatus)}
+                    unavailableText={
+                        structureReadStatus === 'available'
+                            ? undefined
+                            : toStructureUnavailableText(structureReadStatus)
+                    }
                     onSelectedIdsChange={setIgnoredRoleIds}
                 />
                 <DashboardEntitySelector
@@ -310,7 +320,9 @@ function AutomodRuleEditor({
             {status ? <p className='mt-3 text-sm text-[var(--dash-text-muted)]'>{status}</p> : null}
             {rules.length > 0 ? (
                 <div className='mt-5 space-y-2'>
-                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>Quick edit</p>
+                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>
+                        Quick edit
+                    </p>
                     {rules.map((rule) => (
                         <button
                             key={rule.id}
@@ -375,7 +387,9 @@ function AutomodRuleList({
                                     </span>
                                     <span
                                         className={
-                                            rule.enabled ? 'text-xs text-[var(--dash-primary)]' : 'text-xs text-[var(--dash-text-muted)]'
+                                            rule.enabled
+                                                ? 'text-xs text-[var(--dash-primary)]'
+                                                : 'text-xs text-[var(--dash-text-muted)]'
                                         }>
                                         {rule.enabled ? 'Enabled' : 'Disabled'}
                                     </span>
@@ -387,7 +401,9 @@ function AutomodRuleList({
                                     {rule.actionType === 'timeout' && rule.timeoutDurationSeconds
                                         ? `, ${String(Math.round(rule.timeoutDurationSeconds / 60))} minute timeout`
                                         : ''}
-                                    {getIgnoreCount(rule) > 0 ? `, ${String(getIgnoreCount(rule))} ignored targets` : ''}
+                                    {getIgnoreCount(rule) > 0
+                                        ? `, ${String(getIgnoreCount(rule))} ignored targets`
+                                        : ''}
                                 </p>
                             </div>
                             <button
@@ -421,7 +437,9 @@ function AutomodEventList({ events }: { events: DashboardAutomodEvent[] }) {
                             className='grid gap-2 py-3 text-sm text-[var(--dash-text-muted)] sm:grid-cols-[10rem_minmax(0,1fr)]'>
                             <time className='text-[var(--dash-text-subtle)]'>{formatTimestamp(event.createdAt)}</time>
                             <div className='min-w-0'>
-                                <p className='font-medium text-[var(--dash-text)]'>{triggerLabels[event.triggerType]}</p>
+                                <p className='font-medium text-[var(--dash-text)]'>
+                                    {triggerLabels[event.triggerType]}
+                                </p>
                                 <p className='mt-1 text-xs font-semibold text-[var(--dash-primary)]'>
                                     {actionLabels[event.actionType]} - {event.status.replaceAll('_', ' ')}
                                 </p>

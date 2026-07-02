@@ -42,10 +42,14 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
                         </p>
                     </header>
 
-                    <section className='min-h-0 space-y-4 overflow-y-auto pb-8' aria-labelledby='dashboard-servers-heading'>
+                    <section
+                        className='min-h-0 space-y-4 overflow-y-auto pb-8'
+                        aria-labelledby='dashboard-servers-heading'>
                         <div className='flex items-end justify-between gap-4'>
                             <div>
-                                <h2 id='dashboard-servers-heading' className='text-xl font-semibold text-[var(--dash-text)]'>
+                                <h2
+                                    id='dashboard-servers-heading'
+                                    className='text-xl font-semibold text-[var(--dash-text)]'>
                                     Manageable servers
                                 </h2>
                                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
@@ -107,12 +111,16 @@ function DashboardNoManageableServers({ botInviteUrl }: { botInviteUrl?: string 
                     </p>
                     <div className='mt-6 flex flex-wrap justify-center gap-3'>
                         {botInviteUrl ? (
-                            <a href={botInviteUrl} className='dashboard-primary-button inline-flex min-h-11 items-center gap-2 px-4'>
+                            <a
+                                href={botInviteUrl}
+                                className='dashboard-primary-button inline-flex min-h-11 items-center gap-2 px-4'>
                                 <Plus className='size-4' aria-hidden='true' />
                                 Invite bot
                             </a>
                         ) : null}
-                        <Link to={fluxerLoginPath} className='dashboard-secondary-button inline-flex min-h-11 items-center gap-2 px-4'>
+                        <Link
+                            to={fluxerLoginPath}
+                            className='dashboard-secondary-button inline-flex min-h-11 items-center gap-2 px-4'>
                             <ExternalLink className='size-4' aria-hidden='true' />
                             Use another account
                         </Link>

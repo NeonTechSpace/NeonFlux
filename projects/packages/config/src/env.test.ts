@@ -155,7 +155,7 @@ describe('loadWebConfig', () => {
         );
     });
 
-    it('loads local .env values into blank process env keys without overriding non-blank process values', async () => {
+    it('loads local .env values only into missing process env keys', async () => {
         const tempDir = mkdtempSync(join(tmpdir(), 'neonflux-env-'));
         tempEnvDirs.push(tempDir);
         writeFileSync(
@@ -170,13 +170,13 @@ describe('loadWebConfig', () => {
         process.env.FLUXER_BOT_INVITE_URL = '   ';
         vi.resetModules();
 
-        const { loadWebConfig: loadWebConfigFromLocalEnv } = await import('./env.js');
+        const { loadLocalEnv: loadLocalEnvFromTempDir, loadWebConfig: loadWebConfigFromLocalEnv } =
+            await import('./env.js');
+        loadLocalEnvFromTempDir();
         const config = loadWebConfigFromLocalEnv();
 
         expect(config.fluxerAppId).toBe('runtime-app');
-        expect(config.fluxerBotInviteUrl).toBe(
-            'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
-        );
+        expect(config.fluxerBotInviteUrl).toBeUndefined();
     });
 });
 
@@ -236,7 +236,7 @@ describe('loadRuntimeConfig', () => {
 
 function restoreProcessEnvValue(name: string, value: string | undefined): void {
     if (value === undefined) {
-        delete process.env[name];
+        Reflect.deleteProperty(process.env, name);
         return;
     }
 
