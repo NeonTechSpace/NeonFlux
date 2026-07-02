@@ -1,10 +1,15 @@
 import { Link } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 
+import { DashboardAmbientSurface } from './dashboard-ambient-surface.js';
+
 export function DashboardShell({ children }: { children: ReactNode }) {
     return (
-        <main className='dashboard-theme min-h-screen bg-neutral-950 px-5 py-8 text-neutral-100 sm:px-8'>
-            <div className='mx-auto flex w-full max-w-7xl flex-col gap-8'>{children}</div>
+        <main className='dashboard-theme h-dvh overflow-hidden px-3 py-4 text-neutral-100 sm:px-5 lg:px-6'>
+            <DashboardAmbientSurface />
+            <div className='relative z-10 mx-auto flex h-full w-full max-w-[1540px] min-w-0 flex-col gap-5 overflow-hidden'>
+                {children}
+            </div>
         </main>
     );
 }

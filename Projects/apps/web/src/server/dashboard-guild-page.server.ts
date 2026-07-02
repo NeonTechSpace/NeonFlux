@@ -1,17 +1,23 @@
 import '@tanstack/react-start/server-only';
 
+import { loadWebConfig } from '@neonflux/config';
+
 import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccessError } from './dashboard-guild-access.server.js';
+
+export type DashboardGuildShellGuild = {
+    id: string;
+    name: string;
+    iconUrl?: string;
+};
 
 export type DashboardGuildPageDataResult =
     | {
           type: 'guild';
           mode: 'single' | 'multi';
-          guild: {
-              id: string;
-              name: string;
-              iconUrl?: string;
-          };
+          guild: DashboardGuildShellGuild;
+          manageableGuilds?: DashboardGuildShellGuild[];
+          botInviteUrl?: string;
       }
     | { type: 'auth-required' }
     | { type: 'not-found' }
@@ -50,14 +56,14 @@ export async function loadDashboardGuildPageData(
                 return { type: 'not-found' };
             }
 
+            const config = loadWebConfig();
+
             return {
                 type: 'guild',
                 mode: guildAccess.mode.instanceMode,
-                guild: {
-                    id: guild.id,
-                    name: guild.name ?? guild.id,
-                    ...(guild.iconUrl ? { iconUrl: guild.iconUrl } : {}),
-                },
+                guild: toDashboardGuildShellGuild(guild),
+                manageableGuilds: guildAccess.guilds.map(toDashboardGuildShellGuild),
+                ...(config.fluxerBotInviteUrl ? { botInviteUrl: config.fluxerBotInviteUrl } : {}),
             };
         }
 
@@ -75,6 +81,14 @@ export async function loadDashboardGuildPageData(
         case 'no-manageable-guilds':
             return { type: 'not-found' };
     }
+}
+
+function toDashboardGuildShellGuild(guild: { id: string; name?: string; iconUrl?: string }): DashboardGuildShellGuild {
+    return {
+        id: guild.id,
+        name: guild.name ?? guild.id,
+        ...(guild.iconUrl ? { iconUrl: guild.iconUrl } : {}),
+    };
 }
 
 function mapDashboardGuildPageAccessError(error: DashboardGuildAccessError): DashboardGuildPageDataResult {

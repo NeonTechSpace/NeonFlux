@@ -18,7 +18,7 @@
 
 ## Initial Plan
 
-NeonFlux is planned as a Fluxer bot with a small web dashboard.
+NeonFlux is planned as a Fluxer bot with a web dashboard and Convex-backed live dashboard data.
 
 It supports two modes:
 
@@ -30,6 +30,7 @@ The planned feature areas are:
 - Autorole
 - Bot installation sync and reconciliation
 - Command help
+- Convex dashboard data
 - Dashboard access for single and multi instance
 - Dashboard audit events
 - Dashboard server overview and growth tracking
@@ -101,8 +102,12 @@ Local development does not require running Postgres on this machine. PGlite is u
 
 Real bot/web smoke tests do require a reachable Postgres-compatible database through `DATABASE_URL`.
 
+## Convex
+
+NeonFlux uses Convex for live dashboard data where configured. Use Convex Cloud by default. To self-host Convex with Docker Compose, see [Docs/Convex.md](Docs/Convex.md).
+
 ## Docker
 
 Docker users can run NeonFlux with the published GHCR images for the bot and web app.
 
-See [Docs/Docker.md](Docs/Docker.md) for the Docker Compose guide.
+See [Docs/Docker.md](Docs/Docker.md) for the Docker Compose guide, including environment setup through [Projects/.env.example](Projects/.env.example). The main stack is [Projects/docker-compose.yml](Projects/docker-compose.yml); the optional Convex stack is [Projects/docker-compose.convex.yml](Projects/docker-compose.convex.yml).

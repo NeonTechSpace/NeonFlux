@@ -7,13 +7,14 @@ export type DashboardViewModel =
           type: 'guild-list';
           mode: 'single' | 'multi';
           guilds: DashboardViewModelGuild[];
+          botInviteUrl?: string;
       }
     | {
           type: 'single-unauthorized';
           configuredGuildId: string;
           configuredGuildName: string;
       }
-    | { type: 'multi-empty' };
+    | { type: 'multi-empty'; botInviteUrl?: string };
 
 export type DashboardViewModelGuild = {
     id: string;
@@ -21,7 +22,10 @@ export type DashboardViewModelGuild = {
     iconUrl?: string;
 };
 
-export function toDashboardViewModel(guildAccess: DashboardGuildAccess): DashboardViewModel {
+export function toDashboardViewModel(
+    guildAccess: DashboardGuildAccess,
+    options: { botInviteUrl?: string } = {}
+): DashboardViewModel {
     switch (guildAccess.type) {
         case 'authorized':
             return {
@@ -32,6 +36,7 @@ export function toDashboardViewModel(guildAccess: DashboardGuildAccess): Dashboa
                     name: guild.name ?? guild.id,
                     ...(guild.iconUrl ? { iconUrl: guild.iconUrl } : {}),
                 })),
+                ...(options.botInviteUrl ? { botInviteUrl: options.botInviteUrl } : {}),
             };
 
         case 'unauthorized':
@@ -44,6 +49,7 @@ export function toDashboardViewModel(guildAccess: DashboardGuildAccess): Dashboa
         case 'no-manageable-guilds':
             return {
                 type: 'multi-empty',
+                ...(options.botInviteUrl ? { botInviteUrl: options.botInviteUrl } : {}),
             };
     }
 }

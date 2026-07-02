@@ -201,6 +201,7 @@ describe('dashboard ticket panel settings', () => {
                     id: 'support-role-1',
                     name: 'Support',
                     position: 5,
+                    color: 0,
                 },
             ],
             panels: [

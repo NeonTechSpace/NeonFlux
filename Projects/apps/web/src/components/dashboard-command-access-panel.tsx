@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, KeyRound, Search, ShieldAlert } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useMemo, useState, useTransition } from 'react';
 
 import { getDashboardCommandAccessQueryKey } from '../dashboard-query-keys.js';
@@ -22,7 +23,6 @@ import { CommandAccessRolePicker, matchCommandAccessRoles } from './dashboard-co
 type FormState = {
     targetType: DashboardCommandAccessTargetType;
     targetId: string;
-    userIdsText: string;
     roleSearch: string;
     roleIds: string[];
 };
@@ -81,7 +81,10 @@ export function DashboardCommandAccessPanel({ guildId }: { guildId: string }) {
             const optimisticRule = toOptimisticRule(input);
 
             if (previousAccess) {
-                queryClient.setQueryData<CommandAccessData>(queryKey, upsertCommandAccessRule(previousAccess, optimisticRule));
+                queryClient.setQueryData<CommandAccessData>(
+                    queryKey,
+                    upsertCommandAccessRule(previousAccess, optimisticRule)
+                );
             }
 
             setStatus({ tone: 'neutral', message: 'Saving command access...' });
@@ -169,18 +172,16 @@ export function DashboardCommandAccessPanel({ guildId }: { guildId: string }) {
     return (
         <section className='space-y-4' aria-labelledby='command-access-workflow-heading'>
             <h3 className='sr-only'>Command access</h3>
-            <div className='grid gap-3 md:grid-cols-3'>
-                <CommandAccessMetric label='Grantable targets' value={access.catalog.categories.length + access.catalog.commands.length} />
-                <CommandAccessMetric label='Active grants' value={access.rules.length} />
-                <CommandAccessMetric label='Known roles' value={access.roles.length} />
-            </div>
-            <div className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface)]'>
-                <div className='border-b border-[var(--dash-border)] px-4 py-3'>
-                    <h4 id='command-access-workflow-heading' className='text-base font-semibold text-[var(--dash-text)]'>
-                        Command grant workflow
+            <CommandAccessSummary access={access} />
+            <div className='overflow-hidden rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[linear-gradient(180deg,rgba(13,16,22,0.92),rgba(9,11,16,0.96))] shadow-[var(--dash-shadow-surface)]'>
+                <div className='flex flex-wrap items-center justify-between gap-2 border-b border-[var(--dash-border)] px-4 py-3'>
+                    <h4
+                        id='command-access-workflow-heading'
+                        className='text-base font-semibold text-[var(--dash-text)]'>
+                        Grant editor
                     </h4>
-                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        Select a guarded category or command, choose trusted roles or users, then save. Dashboard access still requires Manage Server.
+                    <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>
+                        Manage Server is still required for dashboard access.
                     </p>
                 </div>
                 <CommandAccessEditor
@@ -198,7 +199,11 @@ export function DashboardCommandAccessPanel({ guildId }: { guildId: string }) {
                 catalog={access.catalog}
                 roles={access.roles}
                 rules={access.rules}
-                busyTargetKey={deleteMutation.variables ? getRuleKey(deleteMutation.variables.targetType, deleteMutation.variables.targetId) : undefined}
+                busyTargetKey={
+                    deleteMutation.variables
+                        ? getRuleKey(deleteMutation.variables.targetType, deleteMutation.variables.targetId)
+                        : undefined
+                }
                 onDelete={(rule) => {
                     setStatus(undefined);
                     deleteMutation.mutate({
@@ -233,7 +238,6 @@ function CommandAccessEditor({
     const [form, setForm] = useState<FormState>(() => ({
         targetType: 'category',
         targetId: catalog.categories[0]?.id ?? '',
-        userIdsText: '',
         roleSearch: '',
         roleIds: [],
     }));
@@ -260,8 +264,7 @@ function CommandAccessEditor({
         () => filterCommandAccessTargets(targetOptions, targetSearch).slice(0, 12),
         [targetOptions, targetSearch]
     );
-    const canSave =
-        effectiveTargetId.trim().length > 0 && (parseIds(form.userIdsText).length > 0 || form.roleIds.length > 0);
+    const canSave = effectiveTargetId.trim().length > 0 && form.roleIds.length > 0;
 
     function updateTargetType(targetType: DashboardCommandAccessTargetType): void {
         startTargetTransition(() => {
@@ -269,17 +272,28 @@ function CommandAccessEditor({
             setForm((current) => ({
                 ...current,
                 targetType,
-                targetId: targetType === 'category' ? (catalog.categories[0]?.id ?? '') : (catalog.commands[0]?.id ?? ''),
+                targetId:
+                    targetType === 'category' ? (catalog.categories[0]?.id ?? '') : (catalog.commands[0]?.id ?? ''),
             }));
         });
     }
 
     return (
-        <section className='grid gap-0 lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]' aria-labelledby='command-access-editor-heading'>
-            <div className='border-b border-[var(--dash-border)] p-4 lg:border-r lg:border-b-0'>
+        <section
+            className='grid gap-0 lg:grid-cols-[minmax(18rem,23rem)_minmax(0,1fr)]'
+            aria-labelledby='command-access-editor-heading'>
+            <div className='border-b border-[var(--dash-border)] bg-[rgba(7,8,11,0.36)] p-4 lg:border-r lg:border-b-0'>
                 <div className='grid grid-cols-2 gap-2'>
-                    <TargetTypeButton label='Category' selected={form.targetType === 'category'} onClick={() => updateTargetType('category')} />
-                    <TargetTypeButton label='Command' selected={form.targetType === 'command'} onClick={() => updateTargetType('command')} />
+                    <TargetTypeButton
+                        label='Category'
+                        selected={form.targetType === 'category'}
+                        onClick={() => updateTargetType('category')}
+                    />
+                    <TargetTypeButton
+                        label='Command'
+                        selected={form.targetType === 'command'}
+                        onClick={() => updateTargetType('command')}
+                    />
                 </div>
                 <label className='mt-4 block space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                     <span>{form.targetType === 'category' ? 'Command category' : 'Command'}</span>
@@ -308,38 +322,56 @@ function CommandAccessEditor({
                         placeholder='Search targets'
                     />
                 </label>
-                <div className='mt-3 max-h-72 overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)]'>
+                <div className='mt-3 max-h-72 overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-1'>
                     {filteredTargets.map((target) => (
-                        <button
+                        <motion.button
                             key={target.id}
                             type='button'
+                            layout
+                            whileHover={{ x: 2 }}
+                            whileTap={{ scale: 0.99 }}
                             onClick={() => setForm((current) => ({ ...current, targetId: target.id }))}
-                            className={
-                                target.id === effectiveTargetId
-                                    ? 'flex w-full items-start gap-2 border-l-2 border-[var(--dash-primary)] bg-[var(--dash-primary-soft)] px-3 py-2 text-left'
-                                    : 'flex w-full items-start gap-2 border-l-2 border-transparent px-3 py-2 text-left transition hover:bg-[var(--dash-surface-raised)]'
-                            }>
-                            <KeyRound className='mt-0.5 size-4 shrink-0 text-[var(--dash-primary)]' aria-hidden='true' />
+                            className='relative flex min-h-12 w-full items-start gap-2 overflow-hidden rounded-[var(--dash-radius-control)] px-3 py-2 text-left transition outline-none hover:bg-[var(--dash-surface-raised)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                            {target.id === effectiveTargetId ? (
+                                <motion.span
+                                    layoutId='command-access-target-active'
+                                    className='absolute inset-0 border-l-2 border-[var(--dash-primary)] bg-[var(--dash-primary-soft)]'
+                                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                                />
+                            ) : null}
+                            <KeyRound
+                                className={
+                                    target.id === effectiveTargetId
+                                        ? 'relative mt-0.5 size-4 shrink-0 text-[var(--dash-primary)]'
+                                        : 'relative mt-0.5 size-4 shrink-0 text-[var(--dash-text-subtle)]'
+                                }
+                                aria-hidden='true'
+                            />
                             <span className='min-w-0'>
-                                <span className='block truncate text-sm font-semibold text-[var(--dash-text)]'>
+                                <span className='relative block truncate text-sm font-semibold text-[var(--dash-text)]'>
                                     {formatTargetLabel(target)}
                                 </span>
-                                <span className='block truncate font-mono text-xs text-[var(--dash-text-subtle)]'>
+                                <span className='relative block truncate font-mono text-xs text-[var(--dash-text-subtle)]'>
                                     {target.id}
                                 </span>
                             </span>
-                        </button>
+                        </motion.button>
                     ))}
                 </div>
             </div>
-            <div className='p-4'>
+            <div className='p-4 sm:p-5'>
                 <h4 id='command-access-editor-heading' className='text-sm font-semibold text-[var(--dash-text)]'>
                     Add or update grant
                 </h4>
                 {selectedTarget ? (
-                    <p className='mt-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-3 py-2 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                    <motion.p
+                        key={`${form.targetType}:${effectiveTargetId}`}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        className='mt-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-3 py-2 text-sm leading-6 text-[var(--dash-text-muted)]'>
                         {getTargetDescription(selectedTarget)}
-                    </p>
+                    </motion.p>
                 ) : null}
                 <CommandAccessRolePicker
                     roles={roles}
@@ -362,28 +394,13 @@ function CommandAccessEditor({
                         }))
                     }
                 />
-                <label className='mt-4 block space-y-2 text-sm font-medium text-[var(--dash-text)]'>
-                    <span>User IDs</span>
-                    <textarea
-                        value={form.userIdsText}
-                        onChange={(event) => {
-                            const userIdsText = event.currentTarget.value;
-
-                            setForm((current) => ({ ...current, userIdsText }));
-                        }}
-                        rows={4}
-                        spellCheck={false}
-                        className='w-full resize-y rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-3 py-2 font-mono text-xs text-[var(--dash-text)] outline-none placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]'
-                        placeholder='One Fluxer/Discord user ID per line'
-                    />
-                </label>
                 <button
                     type='button'
                     onClick={() =>
                         onSave({
                             targetType: form.targetType,
                             targetId: effectiveTargetId,
-                            userIds: parseIds(form.userIdsText),
+                            userIds: [],
                             roleIds: form.roleIds,
                         })
                     }
@@ -400,19 +417,32 @@ function CommandAccessEditor({
 function DashboardCommandAccessLoading() {
     return (
         <section className='space-y-4' aria-label='Loading command access' aria-busy='true'>
-            <div className='grid gap-3 md:grid-cols-3'>
-                {Array.from({ length: 3 }, (_, index) => (
-                    <div key={index} className='rounded-[var(--dash-radius-surface)] border border-[var(--dash-border)] bg-[var(--dash-surface)] p-4'>
-                        <div className='h-3 w-24 animate-pulse rounded bg-neutral-800' />
-                        <div className='mt-3 h-6 w-12 animate-pulse rounded bg-neutral-800' />
-                    </div>
-                ))}
-            </div>
+            <div className='h-8 w-72 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
             <div className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface)] p-4'>
                 <div className='h-5 w-40 animate-pulse rounded bg-neutral-800' />
                 <div className='mt-4 h-44 animate-pulse rounded bg-neutral-800/70' />
             </div>
         </section>
+    );
+}
+
+function CommandAccessSummary({ access }: { access: CommandAccessData }) {
+    const targetCount = access.catalog.categories.length + access.catalog.commands.length;
+
+    return (
+        <div
+            className='flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dash-text-muted)]'
+            aria-label='Command access status'>
+            <span>
+                <span className='font-semibold text-[var(--dash-text)]'>{targetCount}</span> guarded targets
+            </span>
+            <span>
+                <span className='font-semibold text-[var(--dash-text)]'>{access.rules.length}</span> active grants
+            </span>
+            <span>
+                <span className='font-semibold text-[var(--dash-text)]'>{access.roles.length}</span> roles indexed
+            </span>
+        </div>
     );
 }
 
@@ -437,35 +467,18 @@ function StatusMessage({ status }: { status: PanelStatus }) {
     const Icon = status.tone === 'success' ? CheckCircle2 : status.tone === 'error' ? ShieldAlert : KeyRound;
 
     return (
-        <p className={`inline-flex items-center gap-2 rounded-[var(--dash-radius-surface)] border px-3 py-2 text-sm ${colorClass}`}>
+        <p
+            className={`inline-flex items-center gap-2 rounded-[var(--dash-radius-surface)] border px-3 py-2 text-sm ${colorClass}`}>
             <Icon className='size-4' aria-hidden='true' />
             {status.message}
         </p>
     );
 }
 
-function CommandAccessMetric({ label, value }: { label: string; value: number }) {
-    return (
-        <div className='rounded-[var(--dash-radius-surface)] border border-[var(--dash-border)] bg-[var(--dash-surface)] p-4'>
-            <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>{label}</p>
-            <p className='mt-2 text-2xl font-semibold text-[var(--dash-text)]'>{value}</p>
-        </div>
-    );
-}
-
-function parseIds(value: string): string[] {
-    return [
-        ...new Set(
-            value
-                .split(/[\s,]+/)
-                .map((id) => id.trim())
-                .filter(Boolean)
-        ),
-    ];
-}
-
 function filterCommandAccessTargets(
-    targets: Array<DashboardCommandAccessCatalog['categories'][number] | DashboardCommandAccessCatalog['commands'][number]>,
+    targets: Array<
+        DashboardCommandAccessCatalog['categories'][number] | DashboardCommandAccessCatalog['commands'][number]
+    >,
     query: string
 ) {
     const normalizedQuery = query.trim().toLowerCase();
@@ -506,7 +519,9 @@ function toOptimisticRule(input: SaveRuleInput): DashboardCommandAccessRule {
 
 function upsertCommandAccessRule(access: CommandAccessData, rule: DashboardCommandAccessRule): CommandAccessData {
     const targetKey = getRuleKey(rule.targetType, rule.targetId);
-    const nextRules = access.rules.filter((currentRule) => getRuleKey(currentRule.targetType, currentRule.targetId) !== targetKey);
+    const nextRules = access.rules.filter(
+        (currentRule) => getRuleKey(currentRule.targetType, currentRule.targetId) !== targetKey
+    );
 
     return {
         ...access,

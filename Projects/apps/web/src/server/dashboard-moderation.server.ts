@@ -12,6 +12,8 @@ import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import { getWebDatabaseClient } from './database.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import type { DashboardTargetCatalogStatus, DashboardTargetRole } from './dashboard-target-catalog.server.js';
+import { loadDashboardTargetCatalog } from './dashboard-target-catalog.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 export type DashboardModerationCase = {
@@ -44,6 +46,8 @@ export type DashboardModerationPolicyResult =
     | {
           type: 'policy';
           policy: DashboardModerationPolicy;
+          structureReadStatus: DashboardTargetCatalogStatus;
+          roles: DashboardTargetRole[];
       }
     | DashboardModerationErrorResult;
 
@@ -111,11 +115,14 @@ export async function loadDashboardModerationPolicy(
     const policyResult = await findGuildModerationPolicyByGuildId(getWebDatabaseClient().db, {
         guildId: guildPageData.guild.id,
     });
+    const targetCatalog = await loadDashboardTargetCatalog(guildPageData.guild.id);
 
     if (policyResult.isOk()) {
         return {
             type: 'policy',
             policy: toDashboardModerationPolicy(policyResult.value),
+            structureReadStatus: targetCatalog.status,
+            roles: targetCatalog.roles,
         };
     }
 
@@ -126,6 +133,8 @@ export async function loadDashboardModerationPolicy(
                 protectedUserIds: [],
                 protectedRoleIds: [],
             },
+            structureReadStatus: targetCatalog.status,
+            roles: targetCatalog.roles,
         };
     }
 

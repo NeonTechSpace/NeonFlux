@@ -1,6 +1,12 @@
 # NeonFlux Docker Guide
 
-This guide is for running NeonFlux from the published Docker images.
+Use this for self-hosted NeonFlux deployments.
+
+## Compose Files
+
+- Main bot/web/db stack: [Projects/docker-compose.yml](../Projects/docker-compose.yml)
+- Optional self-hosted Convex stack: [Projects/docker-compose.convex.yml](../Projects/docker-compose.convex.yml)
+- Convex self-hosting guide: [Docs/Convex.md](Convex.md)
 
 ## Images
 
@@ -8,134 +14,37 @@ This guide is for running NeonFlux from the published Docker images.
 - `ghcr.io/neontechspace/neonflux-web`
 - `postgres:17-alpine`
 
-Use pinned version tags for stable deployments:
-
-```yaml
-ghcr.io/neontechspace/neonflux-bot:1.2.0
-ghcr.io/neontechspace/neonflux-web:1.4.0
-```
-
-`latest` is available, but version tags are easier to roll back.
-
-## Compose File
-
-```yaml
-name: neonflux
-
-services:
-    db:
-        image: postgres:17-alpine
-        restart: unless-stopped
-        environment:
-            POSTGRES_USER: neonflux
-            POSTGRES_PASSWORD: change-me
-            POSTGRES_DB: neonflux
-        volumes:
-            - postgres-data:/var/lib/postgresql/data
-        healthcheck:
-            test:
-                [
-                    "CMD-SHELL",
-                    'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"',
-                ]
-            interval: 10s
-            timeout: 5s
-            retries: 10
-
-    bot:
-        image: ghcr.io/neontechspace/neonflux-bot:latest
-        restart: unless-stopped
-        environment:
-            APP_ENV: production
-            NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
-            INSTANCE_MODE: ${INSTANCE_MODE:-multi}
-            SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
-            PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
-            GUILD_DEFCON_OVERRIDE: ${GUILD_DEFCON_OVERRIDE:-auto}
-            FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
-            LOG_LEVEL: ${LOG_LEVEL:-info}
-            OWNER_IDS: ${OWNER_IDS:-}
-        depends_on:
-            db:
-                condition: service_healthy
-
-    web:
-        image: ghcr.io/neontechspace/neonflux-web:latest
-        restart: unless-stopped
-        environment:
-            APP_ENV: production
-            NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
-            FLUXER_APP_ID: ${FLUXER_APP_ID:?FLUXER_APP_ID is required}
-            FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
-            FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?FLUXER_CLIENT_SECRET is required}
-            FLUXER_OAUTH_REDIRECT_URL: ${FLUXER_OAUTH_REDIRECT_URL:?FLUXER_OAUTH_REDIRECT_URL is required}
-            SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
-            FLUXER_TOKEN_ENCRYPTION_KEY: ${FLUXER_TOKEN_ENCRYPTION_KEY:?FLUXER_TOKEN_ENCRYPTION_KEY is required}
-            GUILD_DEFCON_OVERRIDE: ${GUILD_DEFCON_OVERRIDE:-auto}
-            LOG_LEVEL: ${LOG_LEVEL:-info}
-            HOST: "0.0.0.0"
-            PORT: "3000"
-        ports:
-            - "3000:3000"
-        depends_on:
-            db:
-                condition: service_healthy
-
-volumes:
-    postgres-data:
-```
+Use pinned tags for stable deployments. `latest` is convenient for testing but harder to roll back.
 
 ## Environment
 
-Use the same key names as local development. In Docker, `DATABASE_URL` must use the Compose service name `db`.
+Use [Projects/.env.example](../Projects/.env.example) as the source of truth for variable order and explanations.
 
-```env
-AUTO_MIGRATE=true
+Important deployment notes:
 
-DATABASE_URL=postgres://neonflux:change-me@db:5432/neonflux
+- `DATABASE_URL` must use the Compose service name `db`, for example `postgres://neonflux:change-me@db:5432/neonflux`.
+- `FLUXER_OAUTH_REDIRECT_URL` must match the URL registered in the Fluxer application.
+- `FLUXER_BOT_INVITE_URL` is optional and controls the `+` invite action in dashboard guild navigation.
+- `SESSION_SECRET` signs web sessions.
+- `FLUXER_TOKEN_ENCRYPTION_KEY` encrypts stored Fluxer OAuth tokens.
+- `CONVEX_*` values are only needed when using [Projects/docker-compose.convex.yml](../Projects/docker-compose.convex.yml).
 
-# Bot bootstrap behavior config. The bot writes this into deployment_config;
-# the web service reads the DB row instead of these env vars.
-INSTANCE_MODE=multi
-SINGLE_GUILD_ID=
-PUBLIC_WEB_URL=https://your-domain.example
-OWNER_IDS=
+Generate secrets from the `Projects` folder:
 
-# Safety override read by bot and web before DB policy.
-# auto: development defaults to DEFCON 2; production uses DB/default DEFCON 3.
-# Use 3 locally when you intentionally want to unlock dev.
-GUILD_DEFCON_OVERRIDE=auto
+Run `pnpm generate:session-secret` and `pnpm generate:token-encryption-key`.
 
-FLUXER_APP_ID=
-FLUXER_CLIENT_SECRET=
-FLUXER_BOT_TOKEN=
-FLUXER_OAUTH_REDIRECT_URL=https://your-domain.example/auth/fluxer/callback
+## Start
 
-SESSION_SECRET=
-FLUXER_TOKEN_ENCRYPTION_KEY=
-LOG_LEVEL=info
-```
+From `Projects`:
 
-Generate `SESSION_SECRET` with:
+Run `docker compose up -d`.
 
-```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
+For self-hosted Convex:
 
-Generate `FLUXER_TOKEN_ENCRYPTION_KEY` with:
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
+Run `docker compose -f docker-compose.convex.yml up -d`.
 
 ## Migrations
 
 `AUTO_MIGRATE=true` lets bot and web run pending migrations on startup.
 
-Both services may start at the same time. NeonFlux uses a Postgres lock so only one service migrates, and already-applied migrations are skipped.
-
-If migration fails, the app fails startup instead of running against an unsafe schema.
+NeonFlux uses a Postgres lock so only one service migrates. If migration fails, the app fails startup instead of running against an unsafe schema.

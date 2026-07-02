@@ -1,5 +1,7 @@
 import '@tanstack/react-start/server-only';
 
+import { loadWebConfig } from '@neonflux/config';
+
 import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccessError } from './dashboard-guild-access.server.js';
 import { toDashboardViewModel } from './dashboard-view-model.server.js';
@@ -22,9 +24,13 @@ export async function loadDashboardData(request: Request): Promise<DashboardData
         return mapDashboardAccessError(guildAccessResult.error);
     }
 
+    const config = loadWebConfig();
+
     return {
         type: 'dashboard',
-        viewModel: toDashboardViewModel(guildAccessResult.value),
+        viewModel: toDashboardViewModel(guildAccessResult.value, {
+            ...(config.fluxerBotInviteUrl ? { botInviteUrl: config.fluxerBotInviteUrl } : {}),
+        }),
     };
 }
 

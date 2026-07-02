@@ -1,8 +1,8 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { type } from 'arktype';
-import { config as loadDotEnv } from 'dotenv';
+import { config as loadDotEnv, parse as parseDotEnv } from 'dotenv';
 
 const devDatabaseUrl = 'postgres://postgres:postgres@localhost:5432/neonflux_dev';
 
@@ -22,6 +22,7 @@ const rawEnv = type({
     'FLUXER_APP_ID?': 'string',
     'FLUXER_CLIENT_SECRET?': 'string',
     'FLUXER_BOT_CUSTOM_STATUS?': 'string',
+    'FLUXER_BOT_INVITE_URL?': 'string',
     'FLUXER_BOT_TOKEN?': 'string',
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
@@ -60,6 +61,7 @@ export type BotConfig = RuntimeConfig &
 
 export type WebConfig = RuntimeConfig & {
     fluxerAppId?: string;
+    fluxerBotInviteUrl?: string;
     fluxerBotToken?: string;
     fluxerClientSecret?: string;
     fluxerOauthRedirectUrl?: string;
@@ -75,6 +77,7 @@ let loadedDotEnvPath: string | undefined;
 
 export function loadLocalEnv(startDir = process.cwd()): string | undefined {
     if (loadedDotEnvPath) {
+        loadLocalDotEnvFile(loadedDotEnvPath);
         return loadedDotEnvPath;
     }
 
@@ -85,7 +88,7 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
         const candidate = join(currentDir, '.env');
 
         if (existsSync(candidate)) {
-            loadDotEnv({ path: candidate, override: false });
+            loadLocalDotEnvFile(candidate);
             loadedDotEnvPath = candidate;
             return candidate;
         }
@@ -95,6 +98,19 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
     }
 
     return undefined;
+}
+
+function loadLocalDotEnvFile(path: string): void {
+    const result = loadDotEnv({ path, override: false });
+    const parsed = result.parsed ?? parseDotEnv(readFileSync(path));
+
+    for (const [key, value] of Object.entries(parsed)) {
+        const currentValue = process.env[key];
+
+        if (currentValue === undefined || currentValue.trim().length === 0) {
+            process.env[key] = value;
+        }
+    }
 }
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -141,6 +157,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
     const parsed = parseEnv(env);
     const runtimeConfig = createRuntimeConfig(parsed);
     const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
+    const fluxerBotInviteUrl = optionalHttpUrl(parsed.FLUXER_BOT_INVITE_URL, 'FLUXER_BOT_INVITE_URL');
     const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
     const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
@@ -150,6 +167,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
     return {
         ...runtimeConfig,
         ...(fluxerAppId ? { fluxerAppId } : {}),
+        ...(fluxerBotInviteUrl ? { fluxerBotInviteUrl } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
         ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
@@ -197,6 +215,28 @@ function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {
 function optionalValue(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function optionalHttpUrl(value: string | undefined, name: string): string | undefined {
+    const normalizedValue = optionalValue(value);
+
+    if (!normalizedValue) {
+        return undefined;
+    }
+
+    let url: URL;
+
+    try {
+        url = new URL(normalizedValue);
+    } catch {
+        throw new Error(`${name} must be a valid HTTP or HTTPS URL`);
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error(`${name} must be a valid HTTP or HTTPS URL`);
+    }
+
+    return url.toString();
 }
 
 function valueOrFallback(value: string | undefined, fallback: string | undefined): string {

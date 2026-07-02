@@ -1,6 +1,6 @@
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Trash2, UsersRound } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 
 import type {
@@ -37,7 +37,7 @@ export function CommandAccessRuleTable({
 
     return (
         <section
-            className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface)]'
+            className='overflow-hidden rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(13,16,22,0.72)]'
             aria-labelledby='current-command-grants-heading'>
             <div className='flex flex-wrap items-center justify-between gap-3 border-b border-[var(--dash-border)] px-4 py-3'>
                 <div>
@@ -45,19 +45,16 @@ export function CommandAccessRuleTable({
                         Current grants
                     </h4>
                     <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                        Cached grants update optimistically, then revalidate with the server.
+                        Updates apply immediately and revalidate with the server.
                     </p>
                 </div>
-                <UsersRound className='size-5 text-[var(--dash-primary)]' aria-hidden='true' />
             </div>
             {rules.length === 0 ? (
-                <div className='p-5'>
-                    <div className='rounded-[var(--dash-radius-surface)] border border-dashed border-[var(--dash-border-strong)] bg-[var(--dash-primary-soft)] p-5'>
-                        <h5 className='text-base font-semibold text-[var(--dash-text)]'>No command grants yet</h5>
-                        <p className='mt-2 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
-                            Start with a guarded category or a specific command, then assign roles or user IDs.
-                        </p>
-                    </div>
+                <div className='px-4 py-8'>
+                    <h5 className='text-base font-semibold text-[var(--dash-text)]'>No command grants yet</h5>
+                    <p className='mt-2 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
+                        Pick a guarded category or command, then add roles.
+                    </p>
                 </div>
             ) : (
                 <div className='overflow-x-auto'>

@@ -37,7 +37,7 @@ export const dashboardCategories = [
         label: 'Overview',
         path: '',
         to: '/dashboard/$guildId',
-        description: 'Server growth and message activity.',
+        description: 'Growth and message activity.',
         status: 'active',
     },
     {

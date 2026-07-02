@@ -35,9 +35,9 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
 
     if (overviewQuery.isError || !overview) {
         return (
-            <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                <h3 className='text-lg font-semibold text-white'>Server overview</h3>
-                <p className='mt-2 text-sm leading-6 text-rose-300'>Could not load server overview.</p>
+            <article className='rounded-[var(--dash-radius-panel)] border border-[rgba(251,113,133,0.42)] bg-[var(--dash-danger-soft)] p-4'>
+                <h3 className='text-lg font-semibold text-[var(--dash-text)]'>Server overview</h3>
+                <p className='mt-2 text-sm leading-6 text-rose-100'>Could not load server overview.</p>
             </article>
         );
     }
@@ -56,26 +56,28 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
 export function DashboardServerOverviewLoading() {
     return (
         <section className='space-y-5' aria-label='Loading server overview'>
-            <div className='rounded-lg border border-neutral-800 bg-neutral-900/70 p-4'>
-                <div className='h-4 w-52 animate-pulse rounded bg-neutral-800' />
+            <div className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,10,16,0.84)] p-4'>
+                <div className='h-4 w-52 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
                 <div className='mt-5 grid gap-3 md:grid-cols-2'>
                     {Array.from({ length: 2 }, (_, index) => (
-                        <div key={index} className='space-y-3 border-neutral-800 first:border-l-0 md:border-l md:pl-4'>
-                            <div className='h-3 w-24 animate-pulse rounded bg-neutral-800' />
-                            <div className='h-7 w-16 animate-pulse rounded bg-neutral-800' />
-                            <div className='h-3 w-32 animate-pulse rounded bg-neutral-800' />
+                        <div
+                            key={index}
+                            className='space-y-3 border-[var(--dash-border)] first:border-l-0 md:border-l md:pl-4'>
+                            <div className='h-3 w-24 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
+                            <div className='h-7 w-16 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
+                            <div className='h-3 w-32 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
                         </div>
                     ))}
                 </div>
             </div>
             <div className='grid gap-4 xl:grid-cols-2'>
-                <div className='h-80 rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                    <div className='h-4 w-36 animate-pulse rounded bg-neutral-800' />
-                    <div className='mt-5 h-60 animate-pulse rounded bg-neutral-800/70' />
+                <div className='h-80 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,10,16,0.84)] p-4'>
+                    <div className='h-4 w-36 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
+                    <div className='mt-5 h-60 animate-pulse rounded bg-[rgba(19,24,35,0.7)]' />
                 </div>
-                <div className='h-80 rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                    <div className='h-4 w-36 animate-pulse rounded bg-neutral-800' />
-                    <div className='mt-5 h-60 animate-pulse rounded bg-neutral-800/70' />
+                <div className='h-80 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,10,16,0.84)] p-4'>
+                    <div className='h-4 w-36 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
+                    <div className='mt-5 h-60 animate-pulse rounded bg-[rgba(19,24,35,0.7)]' />
                 </div>
             </div>
         </section>
@@ -84,23 +86,26 @@ export function DashboardServerOverviewLoading() {
 
 function OverviewSummary({ overview }: { overview: DashboardGuildOverview }) {
     return (
-        <section className='rounded-lg border border-neutral-800 bg-neutral-900/70'>
-            <div className='flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3'>
+        <section className='overflow-hidden rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,10,16,0.86)] shadow-[var(--dash-shadow-surface)]'>
+            <div className='flex flex-wrap items-center justify-between gap-3 px-4 py-3'>
                 <div>
-                    <p className='text-sm font-semibold text-white'>Last 30 days</p>
-                    <p className='mt-1 text-xs text-neutral-500'>{formatTrackingWindow(overview)}</p>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Last 30 days</p>
                 </div>
                 {overview.trackingStartedAt ? (
-                    <p className='text-xs text-neutral-500'>
+                    <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>
                         Tracking since {formatDateTime(overview.trackingStartedAt)}
                     </p>
                 ) : null}
             </div>
-            <dl className='grid divide-y divide-neutral-800 md:grid-cols-2 md:divide-x md:divide-y-0'>
+            <dl className='grid border-t border-[var(--dash-border)] md:grid-cols-2 md:divide-x md:divide-[var(--dash-border)]'>
                 <SummaryMetric
                     label='Member change'
                     value={formatSignedNumber(overview.memberFlow.netGrowth)}
-                    detail={`${overview.memberFlow.totalJoins} joins / ${overview.memberFlow.totalLeaves} leaves`}
+                    detail={
+                        overview.dataHealth.hasMemberFlow
+                            ? `${overview.memberFlow.totalJoins} joins / ${overview.memberFlow.totalLeaves} leaves`
+                            : undefined
+                    }
                 />
                 <SummaryMetric
                     label='Messages'
@@ -112,12 +117,12 @@ function OverviewSummary({ overview }: { overview: DashboardGuildOverview }) {
     );
 }
 
-function SummaryMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+function SummaryMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
     return (
         <div className='min-w-0 p-4'>
-            <dt className='text-xs font-medium tracking-wide text-neutral-500 uppercase'>{label}</dt>
-            <dd className='mt-2 truncate text-2xl font-semibold text-white'>{value}</dd>
-            <dd className='mt-1 truncate text-sm text-neutral-400'>{detail}</dd>
+            <dt className='text-xs font-semibold tracking-wide text-[var(--dash-text-muted)] uppercase'>{label}</dt>
+            <dd className='mt-2 truncate text-[1.7rem] leading-tight font-semibold text-[var(--dash-text)]'>{value}</dd>
+            {detail ? <dd className='mt-1 truncate text-[0.95rem] text-[var(--dash-text-muted)]'>{detail}</dd> : null}
         </div>
     );
 }
@@ -132,23 +137,20 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
     return (
         <ChartPanel
             title='Member flow'
-            detail={`Overall change ${formatSignedNumber(overview.memberFlow.netGrowth)} from ${overview.memberFlow.totalJoins} joins and ${overview.memberFlow.totalLeaves} leaves.`}
             legendItems={[
-                { label: 'Joins', className: 'bg-emerald-400' },
-                { label: 'Leaves', className: 'bg-rose-400' },
-                { label: 'Overall change', className: 'bg-sky-400' },
-            ]}
-            empty={!overview.dataHealth.hasMemberFlow}
-            emptyText='No member flow recorded yet. The chart stays on the baseline until join or leave events arrive.'>
+                { label: 'Joins', className: 'bg-[#00e5ff]' },
+                { label: 'Leaves', className: 'bg-[#ff2bd6]' },
+                { label: 'Net', className: 'bg-[#a78bfa]' },
+            ]}>
             <ResponsiveContainer width='100%' height='100%'>
                 <LineChart data={chartData} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
-                    <CartesianGrid stroke='rgb(38 38 38)' strokeDasharray='4 4' vertical={false} />
+                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
                     <XAxis
                         dataKey='date'
                         minTickGap={24}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
                         tickFormatter={formatChartDate}
                     />
                     <YAxis
@@ -156,7 +158,7 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                         allowDecimals={false}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
                         tickFormatter={(value) => String(Math.abs(Number(value)))}
                     />
                     <Tooltip
@@ -171,7 +173,7 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                         type='monotone'
                         dataKey='joins'
                         name='Joins'
-                        stroke='rgb(52 211 153)'
+                        stroke='rgb(0 229 255)'
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 4 }}
@@ -180,7 +182,7 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                         type='monotone'
                         dataKey='leaveLoss'
                         name='Leaves'
-                        stroke='rgb(251 113 133)'
+                        stroke='rgb(255 43 214)'
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 4 }}
@@ -188,8 +190,8 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                     <Line
                         type='monotone'
                         dataKey='netGrowth'
-                        name='Overall change'
-                        stroke='rgb(56 189 248)'
+                        name='Net'
+                        stroke='rgb(167 139 250)'
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 4 }}
@@ -206,25 +208,22 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
     return (
         <ChartPanel
             title='Message activity'
-            detail={`${overview.messages.totalMessages} tracked messages across visible channel activity.`}
-            legendItems={[{ label: 'Messages', className: 'bg-sky-400' }]}
-            empty={!overview.dataHealth.hasMessageActivity}
-            emptyText='No messages counted yet. The chart stays flat until new non-bot messages are tracked.'>
+            legendItems={[{ label: 'Messages', className: 'bg-[#00e5ff]' }]}>
             <ResponsiveContainer width='100%' height='100%'>
                 <AreaChart data={overview.messages.graph} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
                     <defs>
                         <linearGradient id='messageActivityFill' x1='0' y1='0' x2='0' y2='1'>
-                            <stop offset='5%' stopColor='rgb(56 189 248)' stopOpacity={0.45} />
-                            <stop offset='95%' stopColor='rgb(56 189 248)' stopOpacity={0.02} />
+                            <stop offset='5%' stopColor='rgb(0 229 255)' stopOpacity={0.42} />
+                            <stop offset='95%' stopColor='rgb(0 229 255)' stopOpacity={0.02} />
                         </linearGradient>
                     </defs>
-                    <CartesianGrid stroke='rgb(38 38 38)' strokeDasharray='4 4' vertical={false} />
+                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
                     <XAxis
                         dataKey='date'
                         minTickGap={24}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
                         tickFormatter={formatChartDate}
                     />
                     <YAxis
@@ -232,7 +231,7 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
                         allowDecimals={false}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(115 115 115)', fontSize: 12 }}
+                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
                     />
                     <Tooltip
                         cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
@@ -246,7 +245,7 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
                         type='monotone'
                         dataKey='messageCount'
                         name='Messages'
-                        stroke='rgb(56 189 248)'
+                        stroke='rgb(0 229 255)'
                         strokeWidth={2}
                         fill='url(#messageActivityFill)'
                         dot={false}
@@ -260,37 +259,27 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
 
 function ChartPanel({
     title,
-    detail,
     legendItems,
-    empty,
-    emptyText,
     children,
 }: {
     title: string;
-    detail: string;
     legendItems: Array<{ label: string; className: string }>;
-    empty: boolean;
-    emptyText: string;
     children: ReactNode;
 }) {
     return (
-        <section className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
+        <section className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,10,16,0.86)] p-4 shadow-[var(--dash-shadow-surface)]'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
-                <div>
-                    <h3 className='text-lg font-semibold text-white'>{title}</h3>
-                    <p className='mt-1 text-sm leading-6 text-neutral-400'>{detail}</p>
-                </div>
+                <h3 className='text-lg font-semibold text-[var(--dash-text)]'>{title}</h3>
                 <ChartLegend items={legendItems} />
             </div>
             <div className='mt-4 h-64'>{children}</div>
-            {empty ? <p className='mt-3 text-xs leading-5 text-neutral-500'>{emptyText}</p> : null}
         </section>
     );
 }
 
 function ChartLegend({ items }: { items: Array<{ label: string; className: string }> }) {
     return (
-        <div className='flex flex-wrap gap-3 text-xs text-neutral-400' aria-hidden='true'>
+        <div className='flex flex-wrap gap-3 text-xs font-semibold text-[var(--dash-text-muted)]' aria-hidden='true'>
             {items.map((item) => (
                 <span key={item.label} className='inline-flex items-center gap-1'>
                     <span className={`size-2 rounded-full ${item.className}`} />
@@ -302,17 +291,17 @@ function ChartLegend({ items }: { items: Array<{ label: string; className: strin
 }
 
 const chartTooltipStyle = {
-    backgroundColor: 'rgb(10 10 10)',
-    border: '1px solid rgb(38 38 38)',
+    backgroundColor: 'rgb(7 8 11)',
+    border: '1px solid rgb(34 41 56)',
     borderRadius: '8px',
-    color: 'rgb(245 245 245)',
+    color: 'rgb(244 247 251)',
 };
 const chartTooltipLabelStyle = {
-    color: 'rgb(229 229 229)',
+    color: 'rgb(244 247 251)',
     fontWeight: 600,
 };
 const chartTooltipItemStyle = {
-    color: 'rgb(212 212 212)',
+    color: 'rgb(177 186 200)',
 };
 
 function getMemberFlowDomain(data: MemberFlowChartDay[]): [number, number] {
@@ -344,16 +333,10 @@ function formatMessageTooltipValue(value: unknown): [string, string] {
     return [Number.isFinite(numericValue) ? String(numericValue) : String(value), 'Messages'];
 }
 
-function formatMessageSummary(overview: DashboardGuildOverview): string {
+function formatMessageSummary(overview: DashboardGuildOverview): string | undefined {
     const topChannel = overview.messages.topChannels.at(0);
 
-    return topChannel ? `${topChannel.messageCount} in the busiest tracked channel` : 'No messages counted yet';
-}
-
-function formatTrackingWindow(overview: DashboardGuildOverview): string {
-    return overview.trackingStartedAt
-        ? 'Tracked activity inside the current rolling window.'
-        : 'Tracking starts when NeonFlux receives new server activity.';
+    return topChannel ? `${topChannel.messageCount} in busiest channel` : undefined;
 }
 
 function formatSignedNumber(value: number): string {

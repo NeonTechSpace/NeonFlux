@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start';
+import { type } from 'arktype';
 
 import type {
     DashboardAutoroleRuleDeleteResult,
@@ -21,6 +22,22 @@ type DashboardAutoroleRuleDeleteRouteInput = {
     guildId: string;
     roleId: string;
 };
+
+const dashboardGuildRouteInput = type({
+    guildId: 'string',
+});
+
+const dashboardAutoroleRuleUpdateRouteInput = type({
+    guildId: 'string',
+    roleId: 'string',
+    'name?': 'string',
+    'enabled?': 'boolean',
+});
+
+const dashboardAutoroleRuleDeleteRouteInput = type({
+    guildId: 'string',
+    roleId: 'string',
+});
 
 export const readDashboardAutoroleSettingsRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
@@ -56,47 +73,31 @@ export const deleteDashboardAutoroleRuleRouteData = createServerFn({ method: 'PO
     });
 
 function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteInput {
-    if (!input || typeof input !== 'object') {
+    const parsed = dashboardGuildRouteInput(input);
+
+    if (parsed instanceof type.errors) {
         return { guildId: '' };
     }
 
-    const guildId = (input as Record<string, unknown>).guildId;
-
-    return {
-        guildId: typeof guildId === 'string' ? guildId : '',
-    };
+    return parsed;
 }
 
 function validateDashboardAutoroleRuleUpdateRouteInput(input: unknown): DashboardAutoroleRuleUpdateRouteInput {
-    if (!input || typeof input !== 'object') {
+    const parsed = dashboardAutoroleRuleUpdateRouteInput(input);
+
+    if (parsed instanceof type.errors) {
         return { guildId: '', roleId: '' };
     }
 
-    const payload = input as Record<string, unknown>;
-    const guildId = payload.guildId;
-    const roleId = payload.roleId;
-    const name = payload.name;
-    const enabled = payload.enabled;
-
-    return {
-        guildId: typeof guildId === 'string' ? guildId : '',
-        roleId: typeof roleId === 'string' ? roleId : '',
-        ...(typeof name === 'string' ? { name } : {}),
-        ...(typeof enabled === 'boolean' ? { enabled } : {}),
-    };
+    return parsed;
 }
 
 function validateDashboardAutoroleRuleDeleteRouteInput(input: unknown): DashboardAutoroleRuleDeleteRouteInput {
-    if (!input || typeof input !== 'object') {
+    const parsed = dashboardAutoroleRuleDeleteRouteInput(input);
+
+    if (parsed instanceof type.errors) {
         return { guildId: '', roleId: '' };
     }
 
-    const payload = input as Record<string, unknown>;
-    const guildId = payload.guildId;
-    const roleId = payload.roleId;
-
-    return {
-        guildId: typeof guildId === 'string' ? guildId : '',
-        roleId: typeof roleId === 'string' ? roleId : '',
-    };
+    return parsed;
 }

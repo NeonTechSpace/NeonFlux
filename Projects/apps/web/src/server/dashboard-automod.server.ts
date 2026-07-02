@@ -13,6 +13,8 @@ import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import { getWebDatabaseClient } from './database.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import type { DashboardTargetCatalogStatus, DashboardTargetChannel, DashboardTargetRole } from './dashboard-target-catalog.server.js';
+import { loadDashboardTargetCatalog } from './dashboard-target-catalog.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 export type DashboardAutomodRule = {
@@ -48,6 +50,9 @@ export type DashboardAutomodEvent = {
 export type DashboardAutomodSettingsResult =
     | {
           type: 'settings';
+          structureReadStatus: DashboardTargetCatalogStatus;
+          channels: DashboardTargetChannel[];
+          roles: DashboardTargetRole[];
           rules: DashboardAutomodRule[];
           events: DashboardAutomodEvent[];
       }
@@ -123,8 +128,13 @@ export async function loadDashboardAutomodSettings(
         return { type: 'database-error' };
     }
 
+    const targetCatalog = await loadDashboardTargetCatalog(guildPageData.guild.id);
+
     return {
         type: 'settings',
+        structureReadStatus: targetCatalog.status,
+        channels: targetCatalog.channels,
+        roles: targetCatalog.roles,
         rules: rulesResult.value.map(toDashboardAutomodRule),
         events: eventsResult.value.map(toDashboardAutomodEvent),
     };

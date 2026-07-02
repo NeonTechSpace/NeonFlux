@@ -41,6 +41,7 @@ type DashboardTicketRole = {
     id: string;
     name: string;
     position: number;
+    color: number;
 };
 
 type DashboardTicketPanelConfig = {
@@ -446,6 +447,7 @@ function toDashboardRoles(roles: FluxerGuildRole[]): DashboardTicketRole[] {
             id: role.id,
             name: role.name,
             position: role.position,
+            color: role.color,
         }))
         .sort((left, right) => right.position - left.position || left.name.localeCompare(right.name));
 }

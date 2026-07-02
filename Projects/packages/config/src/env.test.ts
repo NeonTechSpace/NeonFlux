@@ -1,6 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadBotConfig, loadRuntimeConfig, loadWebConfig } from './env.js';
+
+const originalCwd = process.cwd();
+const originalFluxerBotInviteUrl = process.env.FLUXER_BOT_INVITE_URL;
+const originalFluxerAppId = process.env.FLUXER_APP_ID;
+const tempEnvDirs: string[] = [];
+
+afterEach(() => {
+    process.chdir(originalCwd);
+    restoreProcessEnvValue('FLUXER_BOT_INVITE_URL', originalFluxerBotInviteUrl);
+    restoreProcessEnvValue('FLUXER_APP_ID', originalFluxerAppId);
+
+    for (const dir of tempEnvDirs.splice(0)) {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 
 describe('loadBotConfig', () => {
     it('fails when single mode does not include SINGLE_GUILD_ID', () => {
@@ -95,6 +114,8 @@ describe('loadWebConfig', () => {
     it('loads web-only OAuth and session secrets', () => {
         const config = loadWebConfig({
             FLUXER_APP_ID: ' app-id ',
+            FLUXER_BOT_INVITE_URL:
+                ' https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8 ',
             FLUXER_BOT_TOKEN: ' bot-token ',
             FLUXER_CLIENT_SECRET: ' client-secret ',
             FLUXER_OAUTH_REDIRECT_URL: ' redirect-url ',
@@ -104,6 +125,8 @@ describe('loadWebConfig', () => {
 
         expect(config).toMatchObject({
             fluxerAppId: 'app-id',
+            fluxerBotInviteUrl:
+                'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
             fluxerBotToken: 'bot-token',
             fluxerClientSecret: 'client-secret',
             fluxerOauthRedirectUrl: 'redirect-url',
@@ -114,6 +137,46 @@ describe('loadWebConfig', () => {
         expect('singleGuildId' in config).toBe(false);
         expect('ownerIds' in config).toBe(false);
         expect('publicWebUrl' in config).toBe(false);
+    });
+
+    it('omits a blank bot invite URL', () => {
+        expect(loadWebConfig({ FLUXER_BOT_INVITE_URL: '   ' }).fluxerBotInviteUrl).toBeUndefined();
+    });
+
+    it('rejects non-http bot invite URLs', () => {
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'discord://oauth2/authorize' })).toThrow(
+            'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
+        );
+    });
+
+    it('rejects malformed bot invite URLs', () => {
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.canary.fluxer.app/oauth2/authorize' })).toThrow(
+            'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
+        );
+    });
+
+    it('loads local .env values into blank process env keys without overriding non-blank process values', async () => {
+        const tempDir = mkdtempSync(join(tmpdir(), 'neonflux-env-'));
+        tempEnvDirs.push(tempDir);
+        writeFileSync(
+            join(tempDir, '.env'),
+            [
+                'FLUXER_APP_ID=file-app',
+                'FLUXER_BOT_INVITE_URL=https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+            ].join('\n')
+        );
+        process.chdir(tempDir);
+        process.env.FLUXER_APP_ID = 'runtime-app';
+        process.env.FLUXER_BOT_INVITE_URL = '   ';
+        vi.resetModules();
+
+        const { loadWebConfig: loadWebConfigFromLocalEnv } = await import('./env.js');
+        const config = loadWebConfigFromLocalEnv();
+
+        expect(config.fluxerAppId).toBe('runtime-app');
+        expect(config.fluxerBotInviteUrl).toBe(
+            'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
+        );
     });
 });
 
@@ -170,3 +233,12 @@ describe('loadRuntimeConfig', () => {
         expect(() => loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: 'locked' })).toThrow('Invalid environment');
     });
 });
+
+function restoreProcessEnvValue(name: string, value: string | undefined): void {
+    if (value === undefined) {
+        delete process.env[name];
+        return;
+    }
+
+    process.env[name] = value;
+}

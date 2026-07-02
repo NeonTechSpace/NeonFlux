@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { loadDashboardTargetCatalog } from './dashboard-target-catalog.server.js';
 import {
     loadDashboardModerationCases,
     loadDashboardModerationPolicy,
@@ -45,6 +46,10 @@ vi.mock('./dashboard-guild-page.server.js', () => ({
 
 vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
+}));
+
+vi.mock('./dashboard-target-catalog.server.js', () => ({
+    loadDashboardTargetCatalog: vi.fn(),
 }));
 
 vi.mock('@neonflux/db', async (importActual) => {
@@ -96,6 +101,11 @@ describe('loadDashboardModerationCases', () => {
             ])
         );
         vi.mocked(findGuildModerationPolicyByGuildId).mockResolvedValue(err({ type: 'not-found' }));
+        vi.mocked(loadDashboardTargetCatalog).mockResolvedValue({
+            status: 'available',
+            channels: [],
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
+        });
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
         vi.mocked(getFluxerCurrentUser).mockResolvedValue(
             ok({
@@ -183,6 +193,8 @@ describe('loadDashboardModerationCases', () => {
                 protectedUserIds: [],
                 protectedRoleIds: [],
             },
+            structureReadStatus: 'available',
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
         });
     });
 
@@ -198,6 +210,8 @@ describe('loadDashboardModerationCases', () => {
                 protectedRoleIds: ['role-1'],
                 updatedAt: '2026-06-26T10:01:00.000Z',
             },
+            structureReadStatus: 'available',
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
         });
         expect(findGuildModerationPolicyByGuildId).toHaveBeenCalledWith(
             {},

@@ -1,6 +1,8 @@
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { loadWebConfig } from '@neonflux/config';
+import type * as NeonFluxConfig from '@neonflux/config';
 import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccess, DashboardGuildAccessError } from './dashboard-guild-access.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
@@ -11,8 +13,18 @@ vi.mock('./dashboard-guild-access.server.js', () => ({
     loadDashboardGuildAccess: vi.fn(),
 }));
 
+vi.mock('@neonflux/config', async (importActual) => {
+    const actual = await importActual<typeof NeonFluxConfig>();
+
+    return {
+        ...actual,
+        loadWebConfig: vi.fn(),
+    };
+});
+
 describe('loadDashboardGuildPageData', () => {
     beforeEach(() => {
+        vi.mocked(loadWebConfig).mockReturnValue(createWebConfig());
         vi.mocked(loadDashboardGuildAccess).mockResolvedValue(ok(createAuthorizedGuildAccess()));
     });
 
@@ -29,6 +41,32 @@ describe('loadDashboardGuildPageData', () => {
                 name: 'Guild One',
                 iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
             },
+            manageableGuilds: [
+                {
+                    id: 'guild-1',
+                    name: 'Guild One',
+                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
+                },
+                {
+                    id: 'guild-2',
+                    name: 'Guild Two',
+                },
+            ],
+        });
+    });
+
+    it('includes the configured bot invite URL for authorized guild routes', async () => {
+        vi.mocked(loadWebConfig).mockReturnValueOnce(
+            createWebConfig({
+                fluxerBotInviteUrl:
+                    'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+            })
+        );
+
+        await expect(loadDashboardGuildPageData(request, 'guild-1')).resolves.toMatchObject({
+            type: 'guild',
+            botInviteUrl:
+                'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
         });
     });
 
@@ -56,11 +94,17 @@ describe('loadDashboardGuildPageData', () => {
                 id: 'guild-1',
                 name: 'guild-1',
             },
+            manageableGuilds: [
+                {
+                    id: 'guild-1',
+                    name: 'guild-1',
+                },
+            ],
         });
     });
 
     it('returns not-found for a guild outside the manageable list', async () => {
-        await expect(loadDashboardGuildPageData(request, 'guild-2')).resolves.toStrictEqual({
+        await expect(loadDashboardGuildPageData(request, 'guild-3')).resolves.toStrictEqual({
             type: 'not-found',
         });
     });
@@ -164,6 +208,24 @@ function createAuthorizedGuildAccess(): DashboardGuildAccess {
                 canManage: true,
                 botInstalled: true,
             },
+            {
+                id: 'guild-2',
+                name: 'Guild Two',
+                canManage: true,
+                botInstalled: true,
+            },
         ],
+    };
+}
+
+function createWebConfig(overrides: Partial<ReturnType<typeof loadWebConfig>> = {}): ReturnType<typeof loadWebConfig> {
+    return {
+        appEnv: 'development',
+        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
+        autoMigrate: true,
+        guildDefconOverride: 'auto',
+        logLevel: 'info',
+        nodeEnv: 'test',
+        ...overrides,
     };
 }

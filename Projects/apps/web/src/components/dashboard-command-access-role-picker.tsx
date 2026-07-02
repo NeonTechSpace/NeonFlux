@@ -24,33 +24,35 @@ export function CommandAccessRolePicker({
 }) {
     return (
         <div className='mt-4'>
-            <label className='block space-y-2 text-sm font-medium text-neutral-200'>
+            <label className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                 <span>Roles</span>
                 <input
                     value={search}
                     onChange={(event) => onSearchChange(event.currentTarget.value)}
-                    className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                    className='min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-3 text-[0.95rem] text-[var(--dash-text)] outline-none placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]'
                     autoComplete='off'
                     placeholder='Search roles'
                     disabled={roles.length === 0}
                 />
             </label>
             {roleReadStatus === 'bot-token-missing' ? (
-                <p className='mt-2 text-xs leading-5 text-rose-300'>Set FLUXER_BOT_TOKEN for role names.</p>
+                <p className='mt-2 text-xs leading-5 text-rose-200'>Set FLUXER_BOT_TOKEN for role names.</p>
             ) : null}
             {roleReadStatus === 'fetch-failed' ? (
-                <p className='mt-2 text-xs leading-5 text-rose-300'>Could not read server roles.</p>
+                <p className='mt-2 text-xs leading-5 text-rose-200'>Could not read server roles.</p>
             ) : null}
             {search && matchedRoles.length > 0 ? (
-                <ul className='mt-2 max-h-52 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950'>
+                <ul className='mt-2 max-h-52 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-1'>
                     {matchedRoles.map((role) => (
                         <li key={role.id}>
                             <button
                                 type='button'
                                 onClick={() => onAddRole(role.id)}
-                                className='flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-neutral-100 hover:bg-neutral-800 focus:bg-neutral-800 focus:outline-none'>
+                                className='flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--dash-radius-control)] px-3 text-left text-[0.92rem] text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-raised)] focus:bg-[var(--dash-surface-raised)] focus:outline-none'>
                                 <span className='min-w-0 truncate'>{role.name}</span>
-                                <span className='shrink-0 font-mono text-xs text-neutral-500'>{role.id}</span>
+                                <span className='shrink-0 font-mono text-xs text-[var(--dash-text-muted)]'>
+                                    {role.id}
+                                </span>
                             </button>
                         </li>
                     ))}
@@ -63,7 +65,7 @@ export function CommandAccessRolePicker({
                             key={role.id}
                             type='button'
                             onClick={() => onRemoveRole(role.id)}
-                            className='min-h-8 rounded-md border border-neutral-700 px-2 text-xs font-semibold text-neutral-200 transition hover:border-rose-300 hover:text-rose-200'>
+                            className='min-h-8 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] px-2 text-xs font-semibold text-[var(--dash-text)] transition hover:border-rose-300 hover:bg-[var(--dash-danger-soft)] hover:text-rose-100'>
                             @{role.name}
                         </button>
                     ))}

@@ -18,6 +18,7 @@ import {
     updateDashboardAutomodRule,
 } from './dashboard-automod.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { loadDashboardTargetCatalog } from './dashboard-target-catalog.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 const request = new Request('http://localhost:3000/dashboard/guild-1/moderation');
@@ -47,6 +48,10 @@ vi.mock('./dashboard-guild-page.server.js', () => ({
 
 vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
+}));
+
+vi.mock('./dashboard-target-catalog.server.js', () => ({
+    loadDashboardTargetCatalog: vi.fn(),
 }));
 
 vi.mock('@neonflux/db', async (importActual) => {
@@ -93,6 +98,11 @@ describe('dashboard automod settings', () => {
         );
         vi.mocked(listAutomodRulesByGuildId).mockResolvedValue(ok([createRuleRecord()]));
         vi.mocked(listAutomodEventsByGuildId).mockResolvedValue(ok([createEventRecord()]));
+        vi.mocked(loadDashboardTargetCatalog).mockResolvedValue({
+            status: 'available',
+            channels: [{ id: 'channel-1', name: 'general', type: 0, position: 1 }],
+            roles: [{ id: 'role-1', name: 'Moderator', position: 10, color: 0x38bdf8 }],
+        });
         vi.mocked(saveAutomodRule).mockResolvedValue(ok(createRuleRecord()));
         vi.mocked(deleteAutomodRule).mockResolvedValue(ok(createRuleRecord()));
         vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createAuditEventRecord()));
