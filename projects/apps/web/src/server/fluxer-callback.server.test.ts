@@ -223,6 +223,31 @@ describe('handleFluxerCallbackRequest', () => {
         expect(createWebSession).not.toHaveBeenCalled();
     });
 
+    it('redirects canceled Fluxer authorization back to the homepage without creating a session', async () => {
+        let fetchCalled = false;
+
+        stubMinimalEnv();
+        vi.stubGlobal('fetch', () => {
+            fetchCalled = true;
+
+            return Promise.resolve(createTokenResponse());
+        });
+
+        const response = await handleFluxerCallbackRequest(
+            createCallbackRequest(
+                'http://localhost:3000/auth/fluxer/callback?error=access_denied&state=state-value'
+            )
+        );
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/');
+        expect(await response.text()).toBe('');
+        expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(fetchCalled).toBe(false);
+        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(createWebSession).not.toHaveBeenCalled();
+    });
+
     it('returns 400, clears the state cookie, and does not look up the user, guilds, or create a session when Fluxer rejects token exchange', async () => {
         stubValidEnv();
         const capturedRequests: CapturedFluxerRequest[] = [];

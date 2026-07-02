@@ -18,14 +18,25 @@ import {
 } from './session-cookie.js';
 
 const dashboardPath = '/dashboard';
+const rootPath = '/';
 
 export async function handleFluxerCallbackRequest(request: Request): Promise<Response> {
     const config = loadWebConfig();
+    const url = new URL(request.url);
     const stateResult = validateFluxerOAuthCallbackState({
         request,
-        url: new URL(request.url),
+        url,
     });
     const headers = createCallbackHeaders(config.appEnv);
+
+    if (url.searchParams.get('error') === 'access_denied') {
+        headers.set('Location', rootPath);
+
+        return new Response(null, {
+            status: 302,
+            headers,
+        });
+    }
 
     if (stateResult.isErr()) {
         return new Response('Invalid Fluxer OAuth callback.', {

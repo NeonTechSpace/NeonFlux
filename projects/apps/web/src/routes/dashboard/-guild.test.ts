@@ -1054,13 +1054,14 @@ describe('/dashboard/$guildId', () => {
         expect(screen.getByRole('link', { name: 'Messaging' })).toBeTruthy();
     });
 
-    it('renders a neutral direct-entry pending shell without fake mode, name, or icon', () => {
-        renderWithRouter(createElement(DashboardGuildPendingPage, { guildId: 'guild-1' }));
+    it('renders no direct-entry pending shell while auth is unresolved', () => {
+        const view = renderWithRouter(createElement(DashboardGuildPendingPage, { guildId: 'guild-1' }));
 
-        expect(screen.getByText('Loading server')).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Loading server...' })).toBeTruthy();
-        expect(screen.getByText('Server ID: guild-1')).toBeTruthy();
-        expect(screen.getByText('Loading server settings for this section.')).toBeTruthy();
+        expect(view.container.textContent).toBe('');
+        expect(screen.queryByText('Loading server')).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Loading server...' })).toBeNull();
+        expect(screen.queryByText('Server ID: guild-1')).toBeNull();
+        expect(screen.queryByText('Loading server settings for this section.')).toBeNull();
         expect(screen.queryByText('Dashboard')).toBeNull();
         expect(screen.queryByText('Server guild-1')).toBeNull();
         expect(screen.queryByRole('link', { name: 'Choose server' })).toBeNull();

@@ -12,10 +12,7 @@ import { DashboardAutorolePanel } from './dashboard-autorole-panel.js';
 import { DashboardAutomodPanel } from './dashboard-automod-panel.js';
 import { DashboardCommandAccessPanel } from './dashboard-command-access-panel.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
-import {
-    DashboardCommandPrefixSettingsPanel,
-    DashboardCommandPrefixSettingsPanelLoading,
-} from './dashboard-command-prefix-panel.js';
+import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
 import { DashboardInviteTrackingLoading, DashboardInviteTrackingPanel } from './dashboard-invite-tracking-panel.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardLoggingDestinationsPanel } from './dashboard-logging-destinations-panel.js';
@@ -118,28 +115,15 @@ export function DashboardGuildPendingPage({
     preview?: DashboardGuildPreview;
     activeCategoryId?: DashboardCategoryId;
 }) {
-    if (preview) {
-        return (
-            <DashboardShell>
-                <DashboardGuildHeader mode={preview.mode} guild={preview} isLoading />
-                <DashboardCategoryLayout guildId={guildId} activeCategoryId={activeCategoryId}>
-                    <DashboardPendingCategory activeCategoryId={activeCategoryId} />
-                </DashboardCategoryLayout>
-            </DashboardShell>
-        );
+    if (!preview) {
+        return null;
     }
 
     return (
         <DashboardShell>
-            <header className='space-y-3 border-b border-neutral-800 pb-6'>
-                <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>Loading server</p>
-                <div className='min-w-0'>
-                    <h1 className='truncate text-3xl font-semibold text-white'>Loading server...</h1>
-                    <p className='mt-2 text-sm text-neutral-400'>Server ID: {guildId}</p>
-                </div>
-            </header>
+            <DashboardGuildHeader mode={preview.mode} guild={preview} isLoading />
             <DashboardCategoryLayout guildId={guildId} activeCategoryId={activeCategoryId}>
-                <DashboardCategoryLoadingState />
+                <DashboardPendingCategory activeCategoryId={activeCategoryId} />
             </DashboardCategoryLayout>
         </DashboardShell>
     );
@@ -392,15 +376,6 @@ function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: Dash
         <DashboardCategorySection categoryId={activeCategoryId}>
             <StatusCard title='Loading settings' body='Fetching saved settings for this category.' isLoading />
         </DashboardCategorySection>
-    );
-}
-
-function DashboardCategoryLoadingState() {
-    return (
-        <section className='space-y-4' aria-label='Loading dashboard category'>
-            <DashboardCommandPrefixSettingsPanelLoading />
-            <StatusCard title='Dashboard category' body='Loading server settings for this section.' isLoading />
-        </section>
     );
 }
 

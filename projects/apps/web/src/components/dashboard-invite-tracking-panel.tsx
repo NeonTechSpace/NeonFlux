@@ -5,9 +5,17 @@ import { useMemo, useRef, useState } from 'react';
 import { getDashboardOverviewQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildOverviewRouteData } from '../server/dashboard-guild-route-data.js';
 import type { DashboardGuildOverview } from '../server/dashboard-overview.server.js';
+import { getDashboardVirtualOverscan } from './dashboard-virtualization.js';
 
 type InviterSortMode = 'joins' | 'uses' | 'user';
 type TopInviter = DashboardGuildOverview['invites']['topInviters'][number];
+
+const inviterRowEstimate = 88;
+const inviterViewportEstimate = 448;
+const inviterVirtualOverscan = getDashboardVirtualOverscan({
+    viewportSize: inviterViewportEstimate,
+    itemSize: inviterRowEstimate,
+});
 
 export function DashboardInviteTrackingPanel({ guildId }: { guildId: string }) {
     const [sortMode, setSortMode] = useState<InviterSortMode>('joins');
@@ -148,14 +156,18 @@ function TopInvitersPanel({
     const rowVirtualizer = useVirtualizer({
         count: sortedInviters.length,
         getScrollElement: () => scrollParentRef.current,
-        estimateSize: () => 88,
-        overscan: 6,
+        estimateSize: () => inviterRowEstimate,
+        overscan: inviterVirtualOverscan,
+        initialRect: {
+            width: 960,
+            height: inviterViewportEstimate,
+        },
     });
     const virtualRows = rowVirtualizer.getVirtualItems();
     const renderedRows =
         virtualRows.length > 0
             ? virtualRows.map((row) => ({ inviter: sortedInviters[row.index], offset: row.start }))
-            : sortedInviters.map((inviter, index) => ({ inviter, offset: index * 88 }));
+            : sortedInviters.map((inviter, index) => ({ inviter, offset: index * inviterRowEstimate }));
 
     return (
         <section
@@ -195,7 +207,7 @@ function TopInvitersPanel({
                     <ul
                         className='relative'
                         style={{
-                            height: rowVirtualizer.getTotalSize() || sortedInviters.length * 88,
+                            height: rowVirtualizer.getTotalSize() || sortedInviters.length * inviterRowEstimate,
                         }}>
                         {renderedRows.map(({ inviter, offset }) => (
                             <li

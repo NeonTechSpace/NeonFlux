@@ -9,10 +9,19 @@ import {
     readDashboardPostingChannelsRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardAuditEvent, DashboardAuditSearchScope } from '../server/dashboard-posting.server.js';
+import { getDashboardVirtualFallbackCount, getDashboardVirtualOverscan } from './dashboard-virtualization.js';
 
 const auditPageSize = 40;
-const auditVirtualOverscan = 8;
+const auditViewportEstimate = 520;
 const auditRowEstimate = 176;
+const auditVirtualOverscan = getDashboardVirtualOverscan({
+    viewportSize: auditViewportEstimate,
+    itemSize: auditRowEstimate,
+});
+const auditVirtualFallbackCount = getDashboardVirtualFallbackCount({
+    viewportSize: auditViewportEstimate,
+    itemSize: auditRowEstimate,
+});
 const auditSearchScopes = [
     { value: 'all', label: 'All fields', placeholder: 'Feature, action, actor, channel, message...' },
     { value: 'event', label: 'Event type', placeholder: 'posting, message.sent, settings...' },
@@ -174,14 +183,14 @@ function AuditEventsBody({
         overscan: auditVirtualOverscan,
         initialRect: {
             width: 960,
-            height: 520,
+            height: auditViewportEstimate,
         },
     });
     const virtualItems = rowVirtualizer.getVirtualItems();
     const renderedVirtualItems =
         virtualItems.length > 0
             ? virtualItems
-            : Array.from({ length: Math.min(rowCount, auditPageSize) }, (_, index) => ({
+            : Array.from({ length: Math.min(rowCount, auditVirtualFallbackCount) }, (_, index) => ({
                   key: index,
                   index,
                   start: index * auditRowEstimate,

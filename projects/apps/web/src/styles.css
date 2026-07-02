@@ -50,6 +50,46 @@ body {
     font-family: var(--font-sans);
 }
 
+.dashboard-theme {
+    color-scheme: dark;
+    --dash-bg: #07080b;
+    --dash-bg-elevated: #090b10;
+    --dash-surface: #0d1016;
+    --dash-surface-raised: #131823;
+    --dash-surface-muted: #0a0d12;
+    --dash-surface-selected: #102033;
+    --dash-border: #222938;
+    --dash-border-strong: #334155;
+    --dash-border-interactive: #3b4b63;
+    --dash-text: #f4f7fb;
+    --dash-text-muted: #a4adbb;
+    --dash-text-subtle: #697386;
+    --dash-text-disabled: #4b5565;
+    --dash-primary: #38bdf8;
+    --dash-primary-strong: #0ea5e9;
+    --dash-primary-soft: rgba(56, 189, 248, 0.12);
+    --dash-primary-ring: rgba(56, 189, 248, 0.45);
+    --dash-accent: #a78bfa;
+    --dash-accent-soft: rgba(167, 139, 250, 0.14);
+    --dash-success: #34d399;
+    --dash-success-soft: rgba(52, 211, 153, 0.12);
+    --dash-warning: #f59e0b;
+    --dash-warning-soft: rgba(245, 158, 11, 0.14);
+    --dash-danger: #fb7185;
+    --dash-danger-soft: rgba(251, 113, 133, 0.14);
+    --dash-info: #60a5fa;
+    --dash-info-soft: rgba(96, 165, 250, 0.14);
+    --dash-radius-control: 0.375rem;
+    --dash-radius-surface: 0.5rem;
+    --dash-radius-panel: 0.625rem;
+    --dash-radius-drawer: 0.875rem;
+    --dash-shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --dash-shadow-popover: 0 18px 50px rgba(0, 0, 0, 0.42);
+    --dash-shadow-focus:
+        0 0 0 1px rgba(56, 189, 248, 0.35),
+        0 0 28px rgba(56, 189, 248, 0.14);
+}
+
 code,
 kbd,
 samp,
