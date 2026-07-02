@@ -44,6 +44,25 @@ jobs:
               with:
                   node-version: "24.16.0"
 
+            - name: Read pnpm version
+              id: pnpm
+              working-directory: Projects
+              run: |
+                  package_manager="$(node -p "require('./package.json').packageManager")"
+                  echo "version=${package_manager#pnpm@}" >> "$GITHUB_OUTPUT"
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  version: ${{ steps.pnpm.outputs.version }}
+                  run_install: false
+                  cache: true
+                  cache_dependency_path: Projects/pnpm-lock.yaml
+
+            - name: Install dependencies
+              working-directory: Projects
+              run: pnpm install --frozen-lockfile
+
             - name: Validate release tag version
               id: release
               run: node Projects/scripts/validate-release-tag.mjs "$GITHUB_REF_NAME" "$GITHUB_OUTPUT"
@@ -56,6 +75,25 @@ jobs:
                     echo "::error title=Release tag is not on main::Release tag $GITHUB_REF_NAME points to $GITHUB_SHA, which is not reachable from origin/main. Move the tag to a main commit and push it again."
                     exit 1
                   fi
+
+            - name: Run pre-Docker checks
+              working-directory: Projects
+              run: pnpm check
+
+            - name: Derive image metadata
+              id: image
+              shell: bash
+              run: |
+                  repository="${GITHUB_REPOSITORY,,}"
+                  component="${{ steps.release.outputs.component }}"
+                  image="ghcr.io/${repository}-${component}"
+                  revision="$(git rev-parse HEAD)"
+
+                  echo "name=${image}" >> "$GITHUB_OUTPUT"
+                  echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+                  echo "cache=${image}:buildcache" >> "$GITHUB_OUTPUT"
+                  echo "bot_cache=ghcr.io/${repository}-bot:buildcache" >> "$GITHUB_OUTPUT"
+                  echo "web_cache=ghcr.io/${repository}-web:buildcache" >> "$GITHUB_OUTPUT"
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -74,11 +112,18 @@ jobs:
                   file: ./Projects/Dockerfile
                   target: ${{ steps.release.outputs.component }}
                   push: true
+                  provenance: false
+                  sbom: false
                   tags: |
-                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:${{ steps.release.outputs.version }}
-                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:latest
-                      ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:sha-${{ github.sha }}
+                      ${{ steps.image.outputs.name }}:${{ steps.release.outputs.version }}
+                      ${{ steps.image.outputs.name }}:latest
+                      ${{ steps.image.outputs.name }}:${{ steps.image.outputs.revision }}
+                  labels: |
+                      org.opencontainers.image.source=https://github.com/${{ github.repository }}
+                      org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
+                      org.opencontainers.image.version=${{ steps.release.outputs.version }}
+                      org.opencontainers.image.title=neonflux-${{ steps.release.outputs.component }}
                   cache-from: |
-                      type=registry,ref=ghcr.io/neontechspace/neonflux-bot:buildcache
-                      type=registry,ref=ghcr.io/neontechspace/neonflux-web:buildcache
-                  cache-to: type=registry,ref=ghcr.io/neontechspace/neonflux-${{ steps.release.outputs.component }}:buildcache,mode=max
+                      type=registry,ref=${{ steps.image.outputs.bot_cache }}
+                      type=registry,ref=${{ steps.image.outputs.web_cache }}
+                  cache-to: type=registry,ref=${{ steps.image.outputs.cache }},mode=max,oci-mediatypes=true,compression=zstd

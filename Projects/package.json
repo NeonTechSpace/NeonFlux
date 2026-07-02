@@ -5,7 +5,7 @@
     "type": "module",
     "description": "A multi functional bot for fluxer",
     "license": "MIT",
-    "packageManager": "pnpm@11.6.0",
+    "packageManager": "pnpm@11.9.0",
     "keywords": [
         "fluxer",
         "bot",
@@ -31,7 +31,7 @@
         "dev:reset": "pnpm dev:clear && tsx scripts/reset-dev-database.ts",
         "clean": "pnpm -r clean",
         "build": "pnpm -r build",
-        "check": "pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+        "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
         "typecheck": "pnpm -r typecheck && pnpm typecheck:configs",
         "typecheck:configs": "tsc -p tsconfig.eslint.json --noEmit",
         "lint": "eslint . && pnpm --filter neonflux-web lint",
