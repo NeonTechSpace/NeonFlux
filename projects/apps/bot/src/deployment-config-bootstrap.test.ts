@@ -1,11 +1,11 @@
 import type { AppConfig } from '@neonflux/config';
-import { findDeploymentConfig, upsertDeploymentConfig } from '@neonflux/db';
+import { findDeploymentConfig, upsertDeploymentConfig } from '@neonflux/persistence';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
-vi.mock('@neonflux/db', () => ({
+vi.mock('@neonflux/persistence', () => ({
     findDeploymentConfig: vi.fn(),
     upsertDeploymentConfig: vi.fn(),
 }));
@@ -120,8 +120,7 @@ function createMultiConfig(): AppConfig {
 function createBaseConfig(): Omit<AppConfig, 'instanceMode' | 'singleGuildId'> {
     return {
         appEnv: 'development',
-        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-        autoMigrate: true,
+        convex: {},
         guildDefconOverride: 'auto',
         logLevel: 'info',
         nodeEnv: 'test',

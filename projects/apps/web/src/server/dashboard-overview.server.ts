@@ -1,8 +1,8 @@
 import '@tanstack/react-start/server-only';
 
-import { loadGuildOverviewAggregate } from '@neonflux/db';
+import { loadGuildOverviewAggregate } from '@neonflux/persistence';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 
@@ -82,7 +82,7 @@ export async function loadDashboardGuildOverview(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const aggregateResult = await loadGuildOverviewAggregate(getWebDatabaseClient().db, {
+    const aggregateResult = await loadGuildOverviewAggregate((await getWebPersistence()).db, {
         guildId: guildPageData.guild.id,
         days: 30,
     });

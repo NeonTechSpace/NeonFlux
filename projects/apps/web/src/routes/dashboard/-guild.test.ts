@@ -78,6 +78,57 @@ import type * as DashboardStructureRouteDataModule from '../../server/dashboard-
 import { readDashboardPostingTemplatesRouteData } from '../../server/dashboard-posting-templates-route-data.js';
 import type * as DashboardPostingTemplatesRouteDataModule from '../../server/dashboard-posting-templates-route-data.js';
 
+const { MockConvexReactClient } = vi.hoisted(() => {
+    class MockDashboardLiveWatch {
+        result: unknown[] | undefined;
+        readonly callbacks = new Set<() => void>();
+
+        constructor(readonly args: { areas: string[]; guildId: string }) {}
+
+        localQueryResult(): unknown[] | undefined {
+            return this.result;
+        }
+
+        onUpdate(callback: () => void): () => void {
+            this.callbacks.add(callback);
+            return () => {
+                this.callbacks.delete(callback);
+            };
+        }
+
+        emit(result: unknown[]): void {
+            this.result = result;
+            for (const callback of this.callbacks) {
+                callback();
+            }
+        }
+    }
+
+    class MockConvexReactClient {
+        static instances: MockConvexReactClient[] = [];
+
+        readonly close = vi.fn(async () => undefined);
+        readonly setAuth = vi.fn();
+        readonly watches: MockDashboardLiveWatch[] = [];
+
+        constructor(readonly url: string) {
+            MockConvexReactClient.instances.push(this);
+        }
+
+        watchQuery(_query: unknown, args: { areas: string[]; guildId: string }): MockDashboardLiveWatch {
+            const watch = new MockDashboardLiveWatch(args);
+            this.watches.push(watch);
+            return watch;
+        }
+    }
+
+    return { MockConvexReactClient };
+});
+
+vi.mock('convex/react', () => ({
+    ConvexReactClient: MockConvexReactClient,
+}));
+
 vi.mock('../../server/dashboard-guild-route-data.js', async (importActual) => {
     const actual = await importActual<typeof DashboardGuildRouteDataModule>();
 
@@ -238,13 +289,13 @@ let documentVisibilityState = 'visible';
 
 describe('/dashboard/$guildId', () => {
     beforeEach(() => {
-        MockEventSource.instances = [];
+        MockConvexReactClient.instances = [];
         documentVisibilityState = 'visible';
         Object.defineProperty(document, 'visibilityState', {
             configurable: true,
             get: () => documentVisibilityState,
         });
-        vi.stubGlobal('EventSource', MockEventSource);
+        vi.stubEnv('VITE_CONVEX_URL', 'https://dashboard-live.test.convex.cloud');
         vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValue({
             type: 'events',
             auditEvents: [],
@@ -377,6 +428,7 @@ describe('/dashboard/$guildId', () => {
         renderedViews = [];
         vi.clearAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
     });
 
     it('maps authorized guild data into route data', () => {
@@ -1090,9 +1142,7 @@ describe('/dashboard/$guildId', () => {
 
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
         expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
-        );
+        await waitForDashboardLiveWatch('guild-1', ['commands']);
     });
 
     it('invalidates command settings when a visible matching live event arrives', async () => {
@@ -1100,17 +1150,9 @@ describe('/dashboard/$guildId', () => {
 
         renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
-        );
-        MockEventSource.instances.at(0)?.emit(
-            'guild-feature-settings.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'commands',
-                event: 'guild-feature-settings.changed',
-            })
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['commands']);
+        emitDashboardLiveBaseline(watch, 'guild-1', ['commands']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'commands');
 
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
         expect(screen.getByText('$')).toBeTruthy();
@@ -1119,20 +1161,12 @@ describe('/dashboard/$guildId', () => {
     it('invalidates overview metrics when an overview live event arrives', async () => {
         renderGuildPage(createGuildRouteData(), 'overview');
         await screen.findByText('Member change');
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=overview')
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['overview']);
         await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
         vi.mocked(readDashboardGuildOverviewRouteData).mockClear();
 
-        MockEventSource.instances.at(0)?.emit(
-            'overview.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'overview',
-                event: 'overview.changed',
-            })
-        );
+        emitDashboardLiveBaseline(watch, 'guild-1', ['overview']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'overview');
 
         await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
     });
@@ -1140,20 +1174,12 @@ describe('/dashboard/$guildId', () => {
     it('invalidates invite tracking when an invite live event arrives', async () => {
         renderGuildPage(createGuildRouteData(), 'invites');
         await screen.findByText('Invite attribution');
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=invites')
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['invites']);
         await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
         vi.mocked(readDashboardGuildOverviewRouteData).mockClear();
 
-        MockEventSource.instances.at(0)?.emit(
-            'invites.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'invites',
-                event: 'invites.changed',
-            })
-        );
+        emitDashboardLiveBaseline(watch, 'guild-1', ['invites']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'invites');
 
         await waitFor(() => expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(1));
     });
@@ -1161,20 +1187,12 @@ describe('/dashboard/$guildId', () => {
     it('invalidates posting templates when a posting live event arrives', async () => {
         renderGuildPage(createGuildRouteData(), 'messaging');
         await screen.findByText('Templates');
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=posting')
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['posting']);
         await waitFor(() => expect(readDashboardPostingTemplatesRouteData).toHaveBeenCalledTimes(1));
         vi.mocked(readDashboardPostingTemplatesRouteData).mockClear();
 
-        MockEventSource.instances.at(0)?.emit(
-            'posting-templates.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'posting',
-                event: 'posting-templates.changed',
-            })
-        );
+        emitDashboardLiveBaseline(watch, 'guild-1', ['posting']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'posting');
 
         await waitFor(() => expect(readDashboardPostingTemplatesRouteData).toHaveBeenCalledTimes(1));
     });
@@ -1182,34 +1200,17 @@ describe('/dashboard/$guildId', () => {
     it('invalidates structure tools when a structure live event arrives', async () => {
         renderGuildPage(createGuildRouteData(), 'structure');
         await screen.findByText('Structure tools');
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe(
-                '/dashboard/guild-1/events?areas=import_export%2Cstructure'
-            )
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['import_export', 'structure']);
         await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
         vi.mocked(readDashboardStructureSettingsRouteData).mockClear();
 
-        MockEventSource.instances.at(0)?.emit(
-            'structure.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'structure',
-                event: 'structure.changed',
-            })
-        );
+        emitDashboardLiveBaseline(watch, 'guild-1', ['import_export', 'structure']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'structure');
 
         await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
         vi.mocked(readDashboardStructureSettingsRouteData).mockClear();
 
-        MockEventSource.instances.at(0)?.emit(
-            'guild-feature-settings.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'import_export',
-                event: 'guild-feature-settings.changed',
-            })
-        );
+        emitDashboardLiveUpdate(watch, 'guild-1', 'import_export');
 
         await waitFor(() => expect(readDashboardStructureSettingsRouteData).toHaveBeenCalledTimes(1));
     });
@@ -1217,17 +1218,9 @@ describe('/dashboard/$guildId', () => {
     it('does not invalidate for unrelated guild live events', async () => {
         renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
-        );
-        MockEventSource.instances.at(0)?.emit(
-            'guild-feature-settings.changed',
-            JSON.stringify({
-                guildId: 'guild-2',
-                area: 'commands',
-                event: 'guild-feature-settings.changed',
-            })
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['commands']);
+        emitDashboardLiveBaseline(watch, 'guild-1', ['commands']);
+        emitDashboardLiveUpdate(watch, 'guild-2', 'commands');
         await Promise.resolve();
 
         expect(readDashboardCommandSettingsRouteData).not.toHaveBeenCalled();
@@ -1236,21 +1229,36 @@ describe('/dashboard/$guildId', () => {
     it('closes live subscriptions while hidden and refetches once when visible again', async () => {
         renderGuildPage(createGuildRouteData(), 'general');
         expect(await screen.findByDisplayValue('?')).toBeTruthy();
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
-        );
-        const firstEventSource = MockEventSource.instances.at(0);
+        await waitForDashboardLiveWatch('guild-1', ['commands']);
+        const firstClient = MockConvexReactClient.instances.at(0);
 
         documentVisibilityState = 'hidden';
         document.dispatchEvent(new Event('visibilitychange'));
+        await waitFor(() => expect(firstClient?.close).toHaveBeenCalledTimes(1));
+
         documentVisibilityState = 'visible';
         document.dispatchEvent(new Event('visibilitychange'));
 
-        expect(firstEventSource?.close).toHaveBeenCalledTimes(1);
-        expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
-        expect(MockEventSource.instances.at(-1)?.url).toBe('/dashboard/guild-1/events?areas=commands');
+        await waitFor(() => expect(MockConvexReactClient.instances.length).toBeGreaterThanOrEqual(2));
+        await waitForDashboardLiveWatch('guild-1', ['commands']);
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
         expect(screen.queryByText('Refreshing live setting...')).toBeNull();
+    });
+
+    it('closes live subscriptions on pagehide and reconnects on pageshow', async () => {
+        renderGuildPage(createGuildRouteData(), 'general');
+        expect(await screen.findByDisplayValue('?')).toBeTruthy();
+        await waitForDashboardLiveWatch('guild-1', ['commands']);
+        const firstClient = MockConvexReactClient.instances.at(0);
+
+        window.dispatchEvent(new Event('pagehide'));
+        await waitFor(() => expect(firstClient?.close).toHaveBeenCalledTimes(1));
+
+        window.dispatchEvent(new Event('pageshow'));
+
+        await waitFor(() => expect(MockConvexReactClient.instances.length).toBeGreaterThanOrEqual(2));
+        await waitForDashboardLiveWatch('guild-1', ['commands']);
+        await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalled());
     });
 
     it('does not overwrite dirty prefix input when another source changes the saved value', async () => {
@@ -1258,19 +1266,11 @@ describe('/dashboard/$guildId', () => {
         const { container } = renderGuildPage(createGuildRouteData(), 'general');
         const currentView = within(container);
         const prefixInput = await currentView.findByDisplayValue<HTMLInputElement>('?');
-        await waitFor(() =>
-            expect(MockEventSource.instances.at(0)?.url).toBe('/dashboard/guild-1/events?areas=commands')
-        );
+        const watch = await waitForDashboardLiveWatch('guild-1', ['commands']);
 
         fireEvent.change(prefixInput, { target: { value: '?1' } });
-        MockEventSource.instances.at(0)?.emit(
-            'guild-feature-settings.changed',
-            JSON.stringify({
-                guildId: 'guild-1',
-                area: 'commands',
-                event: 'guild-feature-settings.changed',
-            })
-        );
+        emitDashboardLiveBaseline(watch, 'guild-1', ['commands']);
+        emitDashboardLiveUpdate(watch, 'guild-1', 'commands');
 
         await waitFor(() => expect(readDashboardCommandSettingsRouteData).toHaveBeenCalledTimes(1));
         expect(await currentView.findByText('Command prefix changed elsewhere to $.')).toBeTruthy();
@@ -2547,37 +2547,60 @@ function getRedirectOptions(error: unknown): Record<string, unknown> {
     return (error as { options: Record<string, unknown> }).options;
 }
 
-class MockEventSource {
-    static instances: MockEventSource[] = [];
+type MockDashboardLiveWatch = {
+    args: {
+        areas: string[];
+        guildId: string;
+    };
+    emit(result: MockDashboardLiveState[]): void;
+};
 
-    readonly url: string;
-    readonly close = vi.fn();
-    onmessage: ((event: MessageEvent<string>) => void) | null = null;
-    private readonly listeners = new Map<string, Set<EventListener>>();
+type MockDashboardLiveState = {
+    area: string;
+    guildId: string;
+    updatedAt: string;
+    version: number;
+};
 
-    constructor(url: string) {
-        this.url = url;
-        MockEventSource.instances.push(this);
-    }
+async function waitForDashboardLiveWatch(
+    guildId: string,
+    areas: readonly string[]
+): Promise<MockDashboardLiveWatch> {
+    let watch: MockDashboardLiveWatch | undefined;
 
-    addEventListener(type: string, listener: EventListener): void {
-        const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    await waitFor(() => {
+        watch = MockConvexReactClient.instances.at(-1)?.watches.at(-1);
+        expect(watch?.args).toStrictEqual({
+            areas,
+            guildId,
+        });
+    });
 
-        listeners.add(listener);
-        this.listeners.set(type, listeners);
-    }
+    return watch as MockDashboardLiveWatch;
+}
 
-    removeEventListener(type: string, listener: EventListener): void {
-        this.listeners.get(type)?.delete(listener);
-    }
+function emitDashboardLiveBaseline(
+    watch: MockDashboardLiveWatch,
+    guildId: string,
+    areas: readonly string[]
+): void {
+    watch.emit(areas.map((area) => createDashboardLiveState(guildId, area, 1)));
+}
 
-    emit(type: string, data: string): void {
-        const event = new MessageEvent(type, { data });
+function emitDashboardLiveUpdate(
+    watch: MockDashboardLiveWatch,
+    guildId: string,
+    area: string,
+    version = 2
+): void {
+    watch.emit([createDashboardLiveState(guildId, area, version)]);
+}
 
-        this.onmessage?.(event);
-
-        for (const listener of this.listeners.get(type) ?? []) {
-            listener(event);
-        }
-    }
+function createDashboardLiveState(guildId: string, area: string, version: number): MockDashboardLiveState {
+    return {
+        area,
+        guildId,
+        updatedAt: `2026-07-03T00:00:0${version}.000Z`,
+        version,
+    };
 }

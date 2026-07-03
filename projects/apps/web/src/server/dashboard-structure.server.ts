@@ -10,16 +10,16 @@ import {
     listStructureImportRunsByGuildId,
     recordStructureImportAction,
     updateStructureImportRunStatus,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import type {
     StructureExportSnapshotRecord,
     StructureImportActionRecord,
     StructureImportRunWithActionsRecord,
     StructureObservedEventStateRecord,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
 import type {
     AuthorizedStructureContext,
@@ -140,7 +140,7 @@ export async function loadDashboardStructureSettings(
 
     if (context.type !== 'authorized') return context;
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const snapshotsResult = await listStructureExportSnapshotsByGuildId(database.db, {
         guildId: context.guild.id,
         limit: 20,
@@ -183,7 +183,7 @@ export async function exportDashboardStructure(
     if (structureResult.isErr()) return { type: 'structure-read-failed' };
 
     const snapshot = toDashboardStructureSnapshot(structureResult.value);
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const snapshotResult = await createStructureExportSnapshot(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,
@@ -274,7 +274,7 @@ export async function confirmDashboardStructureImportRun(
         return { type: 'confirmation-mismatch', expectedText };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const importRunResult = await findStructureImportRunByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
@@ -323,7 +323,7 @@ async function persistStructureImportDryRun(
     plan: DashboardStructurePlan,
     requestedSnapshot: DashboardStructureSnapshot
 ): Promise<DashboardStructureDryRunResult> {
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const runResult = await createStructureImportRun(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,

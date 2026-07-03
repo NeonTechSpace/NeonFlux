@@ -4,7 +4,7 @@ import {
     listBotInstallationGuildIds,
     upsertBotInstallation,
     type BotInstallationRecord,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,7 +14,7 @@ import {
     removeBotInstallationEvent,
 } from './bot-installation-sync.js';
 
-vi.mock('@neonflux/db', () => {
+vi.mock('@neonflux/persistence', () => {
     return {
         deleteBotInstallation: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),

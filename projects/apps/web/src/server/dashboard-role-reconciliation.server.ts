@@ -4,11 +4,11 @@ import {
     findRoleReconciliationSettingsByGuildId,
     recordBotActionEvent,
     upsertRoleReconciliationSettings,
-} from '@neonflux/db';
-import type { RoleReconciliationSettingsRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { RoleReconciliationSettingsRecord } from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -67,7 +67,7 @@ export async function loadDashboardRoleReconciliationSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const settingsResult = await findRoleReconciliationSettingsByGuildId(getWebDatabaseClient().db, {
+    const settingsResult = await findRoleReconciliationSettingsByGuildId((await getWebPersistence()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -103,7 +103,7 @@ export async function updateDashboardRoleReconciliationSettings(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const settingsResult = await upsertRoleReconciliationSettings(database.db, {
         guildId: guildPageData.guild.id,
         enabled: input.enabled,

@@ -6,11 +6,16 @@ import {
     listAutomodRulesByGuildId,
     recordBotActionEvent,
     saveAutomodRule,
-} from '@neonflux/db';
-import type { AutomodActionType, AutomodEventRecord, AutomodRuleRecord, AutomodTriggerType } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type {
+    AutomodActionType,
+    AutomodEventRecord,
+    AutomodRuleRecord,
+    AutomodTriggerType,
+} from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type {
@@ -119,7 +124,7 @@ export async function loadDashboardAutomodSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const [rulesResult, eventsResult] = await Promise.all([
         listAutomodRulesByGuildId(database.db, { guildId: guildPageData.guild.id }),
         listAutomodEventsByGuildId(database.db, {
@@ -161,7 +166,7 @@ export async function updateDashboardAutomodRule(
     }
 
     const normalizedTerms = normalizeTerms(input.terms ?? []);
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const ruleResult = await saveAutomodRule(database.db, {
         guildId: guildPageData.guild.id,
         ruleId: input.ruleId,
@@ -230,7 +235,7 @@ export async function deleteDashboardAutomodRule(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const ruleResult = await deleteAutomodRule(database.db, {
         guildId: guildPageData.guild.id,
         ruleId: input.ruleId,

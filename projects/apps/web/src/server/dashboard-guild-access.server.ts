@@ -4,14 +4,18 @@ import type { AppMode } from '@neonflux/config';
 import { loadWebConfig } from '@neonflux/config';
 import { authorizeDashboardAccess } from '@neonflux/core/defcon';
 import type { DashboardGuild } from '@neonflux/core';
-import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
-import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/db';
+import {
+    findDeploymentConfig,
+    listGuildSecurityPoliciesByGuildIds,
+    listBotInstallationGuildIds,
+} from '@neonflux/persistence';
+import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/persistence';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { toDashboardGuild } from '@neonflux/fluxer/permissions';
 import { err, ok } from 'neverthrow';
 import type { Result } from 'neverthrow';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { AuthenticatedFluxerContextError } from './fluxer-auth-context.server.js';
 
@@ -40,7 +44,7 @@ export async function loadDashboardGuildAccess(
         return err(authContextResult.error);
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const modeResult = await findDeploymentConfig(database.db);
 
     if (modeResult.isErr()) {
@@ -117,7 +121,7 @@ async function selectSingleDashboardGuildAccess(
 async function selectMultiDashboardGuildAccess(
     context: DashboardSelectionContext & { mode: Extract<AppMode, { instanceMode: 'multi' }> }
 ): Promise<Result<DashboardGuildAccess, DashboardGuildAccessError>> {
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const installedGuildIdsResult = await listBotInstallationGuildIds(database.db);
 
     if (installedGuildIdsResult.isErr()) {
@@ -179,7 +183,7 @@ type DashboardPolicyContext = {
 async function loadDashboardPolicyContext(
     guilds: readonly DashboardGuild[]
 ): Promise<Result<DashboardPolicyContext, 'database-error'>> {
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const guildIds = guilds.map((guild) => guild.id);
     const securityPoliciesResult = await listGuildSecurityPoliciesByGuildIds(database.db, { guildIds });
 

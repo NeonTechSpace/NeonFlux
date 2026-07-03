@@ -17,6 +17,7 @@ import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DocsTopicRouteImport } from './routes/docs/topic'
 import { Route as DashboardGuildIdRouteImport } from './routes/dashboard.$guildId'
+import { Route as DotwellKnownJwksDotjsonRouteImport } from './routes/[.]well-known.jwks[.]json'
 import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
 import { Route as DashboardGuildIdIndexRouteImport } from './routes/dashboard/$guildId/index'
 import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
@@ -33,6 +34,7 @@ import { Route as DashboardGuildIdAuditRouteImport } from './routes/dashboard/$g
 import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$guildId/access'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
+import { Route as AuthConvexTokenRouteImport } from './routes/auth/convex/token'
 import { Route as DashboardGuildIdCommunityIndexRouteImport } from './routes/dashboard/$guildId/community/index'
 import { Route as DashboardGuildIdAccessIndexRouteImport } from './routes/dashboard/$guildId/access/index'
 import { Route as DashboardGuildIdCommunityXpRouteImport } from './routes/dashboard/$guildId/community/xp'
@@ -86,6 +88,11 @@ const DashboardGuildIdRoute = DashboardGuildIdRouteImport.update({
   id: '/$guildId',
   path: '/$guildId',
   getParentRoute: () => DashboardRoute,
+} as any)
+const DotwellKnownJwksDotjsonRoute = DotwellKnownJwksDotjsonRouteImport.update({
+  id: '/.well-known/jwks.json',
+  path: '/.well-known/jwks.json',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DocsTopicIndexRoute = DocsTopicIndexRouteImport.update({
   id: '/',
@@ -169,6 +176,11 @@ const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
 const AuthFluxerCallbackRoute = AuthFluxerCallbackRouteImport.update({
   id: '/auth/fluxer/callback',
   path: '/auth/fluxer/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthConvexTokenRoute = AuthConvexTokenRouteImport.update({
+  id: '/auth/convex/token',
+  path: '/auth/convex/token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardGuildIdCommunityIndexRoute =
@@ -255,10 +267,12 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/profile-builder': typeof ProfileBuilderRoute
+  '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
   '/docs/': typeof DocsIndexRoute
+  '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
@@ -292,8 +306,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/profile-builder': typeof ProfileBuilderRoute
+  '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
+  '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
@@ -328,10 +344,12 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/profile-builder': typeof ProfileBuilderRoute
+  '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
   '/docs/': typeof DocsIndexRoute
+  '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
@@ -369,10 +387,12 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/profile-builder'
+    | '/.well-known/jwks.json'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
     | '/docs/'
+    | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/access'
@@ -406,8 +426,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/profile-builder'
+    | '/.well-known/jwks.json'
     | '/dashboard'
     | '/docs'
+    | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/audit'
@@ -441,10 +463,12 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/profile-builder'
+    | '/.well-known/jwks.json'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
     | '/docs/'
+    | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/access'
@@ -481,6 +505,8 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
   DocsRoute: typeof DocsRouteWithChildren
   ProfileBuilderRoute: typeof ProfileBuilderRoute
+  DotwellKnownJwksDotjsonRoute: typeof DotwellKnownJwksDotjsonRoute
+  AuthConvexTokenRoute: typeof AuthConvexTokenRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
 }
@@ -542,6 +568,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/$guildId'
       preLoaderRoute: typeof DashboardGuildIdRouteImport
       parentRoute: typeof DashboardRoute
+    }
+    '/.well-known/jwks.json': {
+      id: '/.well-known/jwks.json'
+      path: '/.well-known/jwks.json'
+      fullPath: '/.well-known/jwks.json'
+      preLoaderRoute: typeof DotwellKnownJwksDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/docs/topic/': {
       id: '/docs/topic/'
@@ -653,6 +686,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/fluxer/callback'
       fullPath: '/auth/fluxer/callback'
       preLoaderRoute: typeof AuthFluxerCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/convex/token': {
+      id: '/auth/convex/token'
+      path: '/auth/convex/token'
+      fullPath: '/auth/convex/token'
+      preLoaderRoute: typeof AuthConvexTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard/$guildId/community/': {
@@ -886,6 +926,8 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
   DocsRoute: DocsRouteWithChildren,
   ProfileBuilderRoute: ProfileBuilderRoute,
+  DotwellKnownJwksDotjsonRoute: DotwellKnownJwksDotjsonRoute,
+  AuthConvexTokenRoute: AuthConvexTokenRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,
 }

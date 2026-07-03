@@ -1,6 +1,6 @@
-import { findXpSettingsByGuildId, recordBotActionEvent, upsertXpSettings } from '@neonflux/db';
-import type { XpSettingsRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+import { findXpSettingsByGuildId, recordBotActionEvent, upsertXpSettings } from '@neonflux/persistence';
+import type { XpSettingsRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
@@ -25,8 +25,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-21T01:00:00.000Z'),
 };
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -39,7 +39,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

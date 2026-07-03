@@ -7,7 +7,7 @@ import {
     listModerationCasesByGuildId,
     updateModerationCaseReason,
     voidModerationCase,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import { authorizeBotCommand } from './bot-command-authorization.js';

@@ -9,9 +9,9 @@ import {
     recordBotActionEvent,
     recordGiveawayEvent,
     updateGiveawayStatus,
-} from '@neonflux/db';
-import type { GiveawayEntryRecord, GiveawayRecord, GiveawayWinnerRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { GiveawayEntryRecord, GiveawayRecord, GiveawayWinnerRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import {
     reactFluxerBotGuildChannelMessage,
     readFluxerBotGuildStructure,
@@ -48,8 +48,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-21T01:00:00.000Z'),
 };
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -66,7 +66,7 @@ vi.mock('@neonflux/config', () => ({
     loadWebConfig: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {
@@ -448,8 +448,6 @@ function createPublishInput(overrides: Partial<Parameters<typeof publishDashboar
 function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
     return {
         appEnv: 'production',
-        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-        autoMigrate: true,
         guildDefconOverride: 'auto',
         logLevel: 'info',
         nodeEnv: 'test',

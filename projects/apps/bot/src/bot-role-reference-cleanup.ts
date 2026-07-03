@@ -1,4 +1,4 @@
-import { cleanupDeletedGuildRoleReferences, findRoleReconciliationSettingsByGuildId } from '@neonflux/db';
+import { cleanupDeletedGuildRoleReferences, findRoleReconciliationSettingsByGuildId } from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';

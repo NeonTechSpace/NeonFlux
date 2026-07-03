@@ -5,8 +5,8 @@ import {
     updateAutomodEventStatus,
     type AutomodEventRecord,
     type AutomodRuleRecord,
-} from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+} from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { ok } from 'neverthrow';
@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routeAutomodMessageEvent } from './bot-automod.js';
 import type { BotFeatureHandlerContext, BotMessageCreatedEvent } from './bot-feature-types.js';
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

@@ -3,7 +3,7 @@ title: Instance modes
 description: How NeonFlux separates single and multi instance behavior.
 ---
 
-NeonFlux has one deployment mode at a time. The bot writes deployment behavior into the database during startup, and web reads that database value as the source of truth.
+NeonFlux has one deployment mode at a time. The bot writes deployment behavior into Convex during startup, and web reads that Convex value as the source of truth.
 
 <Tabs items={['Single instance', 'Multi instance']}>
   <Tab>
@@ -22,17 +22,17 @@ NeonFlux has one deployment mode at a time. The bot writes deployment behavior i
 
 ## Source of truth
 
-Deployment behavior starts in bot environment variables, then becomes database-backed config.
+Deployment behavior starts in bot environment variables, then becomes Convex-backed config.
 
 | Area               | Source                       |
 | ------------------ | ---------------------------- |
-| Bot token          | Bot environment              |
-| Instance mode      | Bot bootstrap, then database |
-| Single guild id    | Bot bootstrap, then database |
-| Public web origin  | Bot bootstrap, then database |
-| OAuth and sessions | Web environment              |
+| Bot token          | Bot environment            |
+| Instance mode      | Bot bootstrap, then Convex |
+| Single guild id    | Bot bootstrap, then Convex |
+| Public web origin  | Bot bootstrap, then Convex |
+| OAuth and sessions | Web environment            |
 
-This avoids asking both services to carry the same behavior flags. Bot and web both still need `DATABASE_URL` because both services connect to Postgres directly.
+This avoids asking both services to carry the same behavior flags.
 
 ## Dashboard behavior
 

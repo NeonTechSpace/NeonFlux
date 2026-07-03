@@ -1,4 +1,4 @@
-import type { ReactionRoleMessageMode } from '@neonflux/db';
+import type { ReactionRoleMessageMode } from '@neonflux/persistence';
 
 import type {
     DashboardReactionRoleEmbedPayload,

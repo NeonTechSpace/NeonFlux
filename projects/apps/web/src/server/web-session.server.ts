@@ -1,12 +1,12 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { findActiveWebSessionById } from '@neonflux/db';
-import type { WebSessionRecord, WebSessionRepositoryError } from '@neonflux/db';
+import { findActiveWebSessionById } from '@neonflux/persistence';
+import type { WebSessionRecord, WebSessionRepositoryError } from '@neonflux/persistence';
 import { err, ok } from 'neverthrow';
 import type { Result } from 'neverthrow';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { readSessionCookie } from './session-cookie.js';
 import type { SessionCookieError } from './session-cookie.js';
 
@@ -31,7 +31,7 @@ export async function readAuthenticatedWebSession(
         return err(mapSessionCookieError(cookieResult.error));
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const sessionResult = await findActiveWebSessionById(database.db, {
         sessionId: cookieResult.value.sessionId,
     });

@@ -4,7 +4,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { loadBotConfig, loadRuntimeConfig, loadWebConfig } from './env.js';
+import {
+    loadBotConfig,
+    loadConvexConfig,
+    loadRuntimeConfig,
+    loadWebConfig,
+    requireConvexConfig,
+} from './env.js';
 
 const originalCwd = process.cwd();
 const originalFluxerBotInviteUrl = process.env.FLUXER_BOT_INVITE_URL;
@@ -44,7 +50,6 @@ describe('loadBotConfig', () => {
         });
 
         expect(config).toMatchObject({
-            autoMigrate: true,
             instanceMode: 'multi',
         });
         expect('singleGuildId' in config).toBe(false);
@@ -180,38 +185,133 @@ describe('loadWebConfig', () => {
     });
 });
 
+describe('loadConvexConfig', () => {
+    it('omits missing or blank Convex values', () => {
+        const config = loadConvexConfig({
+            CONVEX_DEPLOYMENT: '   ',
+            CONVEX_DEPLOY_KEY: '',
+            CONVEX_URL: '   ',
+            NEONFLUX_AUTH_JWT_AUDIENCE: '',
+            NEONFLUX_AUTH_JWT_ISSUER: '   ',
+            NEONFLUX_AUTH_JWT_PRIVATE_KEY: '',
+            VITE_CONVEX_URL: '   ',
+        });
+
+        expect(config).toEqual({});
+    });
+
+    it('loads and normalizes Convex deployment and auth values', () => {
+        const config = loadConvexConfig({
+            CONVEX_DEPLOYMENT: ' team:neonflux-prod ',
+            CONVEX_DEPLOY_KEY: ' deploy-key ',
+            CONVEX_URL: ' https://neonflux.convex.cloud ',
+            NEONFLUX_AUTH_JWT_AUDIENCE: ' neonflux-convex ',
+            NEONFLUX_AUTH_JWT_ISSUER: ' https://neonflux.example/auth ',
+            NEONFLUX_AUTH_JWT_PRIVATE_KEY: ' -----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY----- ',
+            VITE_CONVEX_URL: ' https://neonflux.convex.cloud ',
+        });
+
+        expect(config).toEqual({
+            authJwtAudience: 'neonflux-convex',
+            authJwtIssuer: 'https://neonflux.example/auth',
+            authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+            deployKey: 'deploy-key',
+            deployment: 'team:neonflux-prod',
+            publicUrl: 'https://neonflux.convex.cloud/',
+            url: 'https://neonflux.convex.cloud/',
+        });
+    });
+
+    it('rejects invalid Convex URLs', () => {
+        expect(() => loadConvexConfig({ CONVEX_URL: 'convex.example' })).toThrow(
+            'CONVEX_URL must be a valid HTTP or HTTPS URL'
+        );
+        expect(() => loadConvexConfig({ VITE_CONVEX_URL: 'ssh://convex.example' })).toThrow(
+            'VITE_CONVEX_URL must be a valid HTTP or HTTPS URL'
+        );
+        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_ISSUER: 'auth.example' })).toThrow(
+            'NEONFLUX_AUTH_JWT_ISSUER must be a valid HTTP or HTTPS URL'
+        );
+    });
+});
+
+describe('requireConvexConfig', () => {
+    it('requires every Convex cutover value', () => {
+        expect(() => requireConvexConfig({})).toThrow('NEONFLUX_AUTH_JWT_AUDIENCE is required');
+        expect(() =>
+            requireConvexConfig({
+                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
+            })
+        ).toThrow('NEONFLUX_AUTH_JWT_ISSUER is required');
+        expect(() =>
+            requireConvexConfig({
+                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
+                NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+            })
+        ).toThrow('NEONFLUX_AUTH_JWT_PRIVATE_KEY is required');
+    });
+
+    it('returns strict Convex config when all cutover values are present', () => {
+        const config = requireConvexConfig({
+            CONVEX_DEPLOYMENT: 'team:neonflux-prod',
+            CONVEX_DEPLOY_KEY: 'deploy-key',
+            CONVEX_URL: 'https://neonflux.convex.cloud',
+            NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
+            NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+            NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+            VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
+        });
+
+        expect(config).toEqual({
+            authJwtAudience: 'neonflux-convex',
+            authJwtIssuer: 'https://neonflux.example/auth',
+            authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+            deployKey: 'deploy-key',
+            deployment: 'team:neonflux-prod',
+            publicUrl: 'https://neonflux.convex.cloud/',
+            url: 'https://neonflux.convex.cloud/',
+        });
+    });
+});
+
 describe('loadRuntimeConfig', () => {
-    it('defaults AUTO_MIGRATE to true', () => {
-        expect(loadRuntimeConfig({}).autoMigrate).toBe(true);
-    });
-
-    it('loads AUTO_MIGRATE=false', () => {
-        expect(loadRuntimeConfig({ AUTO_MIGRATE: 'false' }).autoMigrate).toBe(false);
-    });
-
-    it('rejects invalid AUTO_MIGRATE values', () => {
-        expect(() => loadRuntimeConfig({ AUTO_MIGRATE: 'yes' })).toThrow('Invalid environment');
-    });
-
     it('rejects staging because the project only has dev and prod bots', () => {
         expect(() => loadRuntimeConfig({ APP_ENV: 'staging' })).toThrow('Invalid environment');
     });
 
-    it('requires production database url', () => {
+    it('does not require app Postgres config for production runtime loading', () => {
         expect(() =>
             loadRuntimeConfig({
                 APP_ENV: 'production',
-            })
-        ).toThrow('DATABASE_URL is required');
-    });
-
-    it('does not require service-specific secrets in the runtime config loader', () => {
-        expect(() =>
-            loadRuntimeConfig({
-                APP_ENV: 'production',
-                DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
             })
         ).not.toThrow();
+    });
+
+    it('allows production runtime without DATABASE_URL when Convex config is complete', () => {
+        const config = loadRuntimeConfig({
+            ...createCompleteConvexEnv(),
+            APP_ENV: 'production',
+        });
+
+        expect(config.convex).toMatchObject({
+            authJwtAudience: 'neonflux-convex',
+            authJwtIssuer: 'https://neonflux.example/auth',
+            deployment: 'team:neonflux-prod',
+            publicUrl: 'https://neonflux.convex.cloud/',
+            url: 'https://neonflux.convex.cloud/',
+        });
+    });
+
+    it('loads optional Convex config through runtime config without requiring cutover values', () => {
+        const config = loadRuntimeConfig({
+            CONVEX_URL: 'https://neonflux.convex.cloud',
+            VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
+        });
+
+        expect(config.convex).toEqual({
+            publicUrl: 'https://neonflux.convex.cloud/',
+            url: 'https://neonflux.convex.cloud/',
+        });
     });
 
     it('defaults guild DEFCON override to auto', () => {
@@ -241,4 +341,16 @@ function restoreProcessEnvValue(name: string, value: string | undefined): void {
     }
 
     process.env[name] = value;
+}
+
+function createCompleteConvexEnv(): NodeJS.ProcessEnv {
+    return {
+        CONVEX_DEPLOYMENT: 'team:neonflux-prod',
+        CONVEX_DEPLOY_KEY: 'deploy-key',
+        CONVEX_URL: 'https://neonflux.convex.cloud',
+        NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
+        NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+        NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+        VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
+    };
 }

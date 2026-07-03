@@ -6,7 +6,7 @@ import {
     recordModerationCaseEvent,
     updateModerationCaseStatus,
     voidModerationCase,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { createFluxerPlatform, type FluxerPlatform, type FluxerPlatformError } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

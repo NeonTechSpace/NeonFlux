@@ -4,7 +4,7 @@ import {
     markReactionRoleAssignmentRemoved,
     type ReactionRoleAssignmentRecord,
     upsertReactionRoleAssignment,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

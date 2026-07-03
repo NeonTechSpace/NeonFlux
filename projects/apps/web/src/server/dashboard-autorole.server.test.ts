@@ -1,8 +1,13 @@
 import { loadWebConfig } from '@neonflux/config';
 import type * as NeonFluxConfig from '@neonflux/config';
-import { deleteAutoroleRule, listAutoroleRulesByGuildId, recordBotActionEvent, upsertAutoroleRule } from '@neonflux/db';
-import type { AutoroleRuleRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+import {
+    deleteAutoroleRule,
+    listAutoroleRulesByGuildId,
+    recordBotActionEvent,
+    upsertAutoroleRule,
+} from '@neonflux/persistence';
+import type { AutoroleRuleRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as NeonFluxFluxer from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
@@ -42,8 +47,8 @@ vi.mock('@neonflux/config', async (importActual) => {
     };
 });
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -56,7 +61,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {
@@ -90,8 +95,6 @@ describe('dashboard autorole settings', () => {
     beforeEach(() => {
         vi.mocked(loadWebConfig).mockReturnValue({
             appEnv: 'development',
-            databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-            autoMigrate: true,
             guildDefconOverride: 'auto',
             logLevel: 'info',
             nodeEnv: 'test',
@@ -185,8 +188,6 @@ describe('dashboard autorole settings', () => {
     it('returns saved rules when role reads are unavailable', async () => {
         vi.mocked(loadWebConfig).mockReturnValueOnce({
             appEnv: 'development',
-            databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-            autoMigrate: true,
             guildDefconOverride: 'auto',
             logLevel: 'info',
             nodeEnv: 'test',

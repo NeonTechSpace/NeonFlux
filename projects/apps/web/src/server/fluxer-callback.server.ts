@@ -1,14 +1,14 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { createWebSession as createWebSessionRecord, upsertFluxerOAuthTokenSet } from '@neonflux/db';
-import type { EncryptedOAuthTokenPayload } from '@neonflux/db';
+import { createWebSession as createWebSessionRecord, upsertFluxerOAuthTokenSet } from '@neonflux/persistence';
+import type { EncryptedOAuthTokenPayload } from '@neonflux/persistence';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { exchangeFluxerAuthorizationCode } from '@neonflux/fluxer/oauth';
 import type { FluxerOAuthTokenExchangeError } from '@neonflux/fluxer/oauth';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { encryptFluxerToken } from './fluxer-token-crypto.js';
 import { createClearFluxerOAuthStateCookie, validateFluxerOAuthCallbackState } from './oauth-state.js';
 import {
@@ -141,7 +141,7 @@ export async function handleFluxerCallbackRequest(request: Request): Promise<Res
 }
 
 async function createDefaultWebSession(input: { sessionId: string; fluxerUserId: string; expiresAt: Date }) {
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
 
     return createWebSessionRecord(database.db, input);
 }
@@ -175,7 +175,7 @@ async function persistDefaultFluxerOAuthTokenSet(input: {
 
     const accessToken: EncryptedOAuthTokenPayload = encryptedAccessTokenResult.value;
     const refreshToken: EncryptedOAuthTokenPayload = encryptedRefreshTokenResult.value;
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
 
     return upsertFluxerOAuthTokenSet(database.db, {
         fluxerUserId: input.fluxerUserId,

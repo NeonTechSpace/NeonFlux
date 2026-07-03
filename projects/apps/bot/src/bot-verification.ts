@@ -3,7 +3,7 @@ import {
     findEnabledVerificationFlowByReaction,
     listVerificationFlowsByGuildId,
     upsertVerificationRecord,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

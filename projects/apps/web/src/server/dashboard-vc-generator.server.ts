@@ -9,8 +9,8 @@ import {
     recordBotActionEvent,
     upsertVcGeneratorControlPanel,
     upsertVcGeneratorRule,
-} from '@neonflux/db';
-import type { VcGeneratorControlPanelRecord, VcGeneratorRuleRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { VcGeneratorControlPanelRecord, VcGeneratorRuleRecord } from '@neonflux/persistence';
 import {
     reactFluxerBotGuildChannelMessage,
     readFluxerBotGuildStructure,
@@ -19,7 +19,7 @@ import {
 import type { FluxerGuildChannel } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -123,7 +123,7 @@ export async function loadDashboardVcGeneratorSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const rulesResult = await listVcGeneratorRulesByGuildId(database.db, {
         guildId: guildPageData.guild.id,
     });
@@ -174,7 +174,7 @@ export async function updateDashboardVcGeneratorRule(
         return { type: 'bot-token-missing' };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const ruleResult = await upsertVcGeneratorRule(database.db, {
         guildId: guildPageData.guild.id,
         sourceChannelId: input.sourceChannelId,
@@ -259,7 +259,7 @@ export async function deleteDashboardVcGeneratorRule(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const structureResult = await loadDashboardVcGeneratorStructure(guildPageData.guild.id);
     const ruleResult = await deleteVcGeneratorRule(database.db, {
         guildId: guildPageData.guild.id,
@@ -314,7 +314,7 @@ async function syncVcGeneratorControlPanel(input: {
         return { type: 'bot-token-missing' };
     }
 
-    const existingPanelResult = await findVcGeneratorControlPanelByRuleId(getWebDatabaseClient().db, {
+    const existingPanelResult = await findVcGeneratorControlPanelByRuleId((await getWebPersistence()).db, {
         guildId: input.guildId,
         ruleId: input.rule.id,
     });
@@ -349,7 +349,7 @@ async function syncVcGeneratorControlPanel(input: {
         messageId: sendResult.value.id,
     });
 
-    const panelResult = await upsertVcGeneratorControlPanel(getWebDatabaseClient().db, {
+    const panelResult = await upsertVcGeneratorControlPanel((await getWebPersistence()).db, {
         guildId: input.guildId,
         ruleId: input.rule.id,
         channelId: sendResult.value.channelId,

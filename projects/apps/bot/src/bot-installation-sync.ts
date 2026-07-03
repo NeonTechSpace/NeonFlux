@@ -4,7 +4,7 @@ import {
     listBotInstallationGuildIds,
     upsertBotInstallation,
     type BotInstallationRepositoryError,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import { shouldProcessBotGuildEvent } from './mode-gate.js';

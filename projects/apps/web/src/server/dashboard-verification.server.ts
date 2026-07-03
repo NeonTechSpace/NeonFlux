@@ -6,12 +6,12 @@ import {
     listVerificationFlowsByGuildId,
     recordBotActionEvent,
     upsertVerificationFlow,
-} from '@neonflux/db';
-import type { VerificationFlowRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { VerificationFlowRecord } from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -104,7 +104,7 @@ export async function loadDashboardVerificationSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const flowsResult = await listVerificationFlowsByGuildId(getWebDatabaseClient().db, {
+    const flowsResult = await listVerificationFlowsByGuildId((await getWebPersistence()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -141,7 +141,7 @@ export async function updateDashboardVerificationFlow(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const flowResult = await upsertVerificationFlow(database.db, {
         guildId: guildPageData.guild.id,
         channelId: input.channelId,
@@ -197,7 +197,7 @@ export async function deleteDashboardVerificationFlow(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const flowResult = await deleteVerificationFlow(database.db, {
         guildId: guildPageData.guild.id,
         messageId: input.messageId,

@@ -13,5 +13,6 @@
 # Docker Compose interpolation applies to unquoted and double-quoted values, but Prettier rewrites them to single quotes.
 docker-compose.yml
 apps/web/src/routeTree.gen.ts
+convex/_generated
 packages/db/drizzle
 pnpm-lock.yaml

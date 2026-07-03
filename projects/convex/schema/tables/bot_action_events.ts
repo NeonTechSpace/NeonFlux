@@ -1,0 +1,27 @@
+import { defineTable } from 'convex/server';
+import { v } from 'convex/values';
+
+import {
+    encryptedOAuthTokenPayload,
+    jsonValue,
+    optionalNumber,
+    optionalString,
+    optionalTimestamp,
+    timestamp,
+} from '../shared.js';
+
+export const botActionEventsTable = defineTable({
+    action: v.string(),
+    actorUserId: optionalString,
+    createdAt: timestamp,
+    feature: v.string(),
+    guildId: optionalString,
+    legacyId: v.string(),
+    metadata: jsonValue,
+    targetId: optionalString,
+})
+    .index('by_feature_created', ['feature', 'createdAt'])
+    .index('by_feature_created_legacy', ['feature', 'createdAt', 'legacyId'])
+    .index('by_guild_created', ['guildId', 'createdAt'])
+    .index('by_guild_created_legacy', ['guildId', 'createdAt', 'legacyId'])
+    .index('by_guild_feature_created_legacy', ['guildId', 'feature', 'createdAt', 'legacyId']);

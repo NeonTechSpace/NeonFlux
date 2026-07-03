@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import { recordBotActionEvent } from '@neonflux/db';
+import { recordBotActionEvent } from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';

@@ -1,0 +1,43 @@
+{
+    "name": "@neonflux/convex",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "import": "./dist/index.js"
+        },
+        "./client": {
+            "types": "./src/client.ts",
+            "import": "./dist/client.js"
+        },
+        "./api": {
+            "types": "./src/api.ts",
+            "import": "./dist/api.js"
+        },
+        "./jwt": {
+            "types": "./src/jwt.ts",
+            "import": "./dist/jwt.js"
+        },
+        "./migration-tables": {
+            "types": "./src/migration-tables.ts",
+            "import": "./dist/migration-tables.js"
+        },
+        "./migration": {
+            "types": "./src/migration/index.ts",
+            "import": "./dist/migration/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "convex": "^1.30.0",
+        "jose": "^6.1.3"
+    }
+}

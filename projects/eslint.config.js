@@ -32,6 +32,7 @@ export default defineConfig([
             'scripts/**/*.mjs',
             '**/data/**',
             '**/.local/**',
+            'convex/_generated/**',
             'packages/db/drizzle/**',
         ],
     },

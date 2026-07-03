@@ -1,15 +1,15 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
-import type { BotActionEventCursor, BotActionEventSearchScope } from '@neonflux/db';
+import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/persistence';
+import type { BotActionEventCursor, BotActionEventSearchScope } from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
@@ -180,7 +180,7 @@ export async function postDashboardGuildMessage(
         guildId: sentMessage.guildId,
         channelId: sentMessage.channelId,
     });
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const postedMessageResult = await recordPostedMessage(database.db, {
         guildId: sentMessage.guildId,
         channelId: sentMessage.channelId,
@@ -251,7 +251,7 @@ export async function loadDashboardGuildAuditEventsPage(
         return { type: 'database-error' };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const currentActorProfile = await resolveCurrentRequestActorProfile(request);
     const eventsResult = await listBotActionEventPageByGuildId(database.db, {
         guildId: guildPageData.guild.id,

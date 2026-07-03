@@ -4,7 +4,11 @@ import {
     normalizeCommandPrefix,
 } from '@neonflux/core/command-prefix';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
+import {
+    findGuildCommandSettingsByGuildId,
+    recordBotActionEvent,
+    upsertGuildCommandPrefix,
+} from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import { authorizeBotCommand } from './bot-command-authorization.js';

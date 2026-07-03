@@ -5,11 +5,11 @@ import {
     listMessageTemplatesByGuildId,
     recordBotActionEvent,
     upsertMessageTemplate,
-} from '@neonflux/db';
-import type { MessageTemplateRecord, PostingRepositoryError } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { MessageTemplateRecord, PostingRepositoryError } from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -99,7 +99,7 @@ export async function loadDashboardMessageTemplates(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const templatesResult = await listMessageTemplatesByGuildId(database.db, {
         guildId: guildPageData.guild.id,
     });
@@ -130,7 +130,7 @@ export async function saveDashboardMessageTemplate(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const templateResult = await upsertMessageTemplate(database.db, {
         guildId: guildPageData.guild.id,
         name: input.name,
@@ -174,7 +174,7 @@ export async function deleteDashboardMessageTemplate(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const deleteResult = await deleteMessageTemplate(database.db, {
         guildId: guildPageData.guild.id,
         templateId: input.templateId,

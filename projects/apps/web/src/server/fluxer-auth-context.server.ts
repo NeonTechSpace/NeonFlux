@@ -5,19 +5,20 @@ import {
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
     upsertFluxerOAuthTokenSet,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import type {
     EncryptedOAuthTokenPayload,
     FluxerOAuthTokenRecord,
     FluxerOAuthTokenRepositoryError,
+    RuntimePersistenceClient,
     WebSessionRecord,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { refreshFluxerOAuthToken } from '@neonflux/fluxer/oauth';
 import type { FluxerOAuthTokenRefreshError } from '@neonflux/fluxer/oauth';
 import { err, ok } from 'neverthrow';
 import type { Result } from 'neverthrow';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { decryptFluxerToken, encryptFluxerToken } from './fluxer-token-crypto.js';
 import type { EncryptedFluxerToken, FluxerTokenCryptoError } from './fluxer-token-crypto.js';
 import { readAuthenticatedWebSession } from './web-session.server.js';
@@ -41,7 +42,7 @@ export type AuthenticatedFluxerContextError =
     | 'decrypt-failed'
     | 'database-error';
 
-type WebDatabase = ReturnType<typeof getWebDatabaseClient>['db'];
+type WebDatabase = RuntimePersistenceClient['db'];
 
 export async function readAuthenticatedFluxerContext(
     request: Request
@@ -54,7 +55,7 @@ export async function readAuthenticatedFluxerContext(
 
     const config = loadWebConfig();
     const tokenEncryptionKey = requireConfigValue(config.fluxerTokenEncryptionKey, 'FLUXER_TOKEN_ENCRYPTION_KEY');
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const tokenSetResult = await findUsableFluxerOAuthTokenSetByUserId(database.db, {
         fluxerUserId: sessionResult.value.fluxerUserId,
     });

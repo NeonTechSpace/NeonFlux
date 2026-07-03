@@ -1,6 +1,10 @@
 import { loadWebConfig } from '@neonflux/config';
-import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+import {
+    findDeploymentConfig,
+    listGuildSecurityPoliciesByGuildIds,
+    listBotInstallationGuildIds,
+} from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';
 import { err, ok } from 'neverthrow';
@@ -25,8 +29,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-21T01:00:00.000Z'),
 } satisfies AuthenticatedFluxerContext;
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -39,7 +43,7 @@ vi.mock('@neonflux/config', () => ({
     loadWebConfig: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {
@@ -64,8 +68,6 @@ describe('loadDashboardGuildAccess', () => {
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
         vi.mocked(loadWebConfig).mockReturnValue({
             appEnv: 'production',
-            databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-            autoMigrate: true,
             guildDefconOverride: 'auto',
             logLevel: 'info',
             nodeEnv: 'test',

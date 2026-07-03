@@ -5,11 +5,11 @@ import {
     findStructureImportRunByGuildId,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
-} from '@neonflux/db';
-import type { StructureImportActionRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { StructureImportActionRecord } from '@neonflux/persistence';
 import { applyFluxerBotGuildStructureAction, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
@@ -67,7 +67,7 @@ export async function applyDashboardStructureImportRun(
         return { type: 'confirmation-mismatch', expectedText };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const importRunResult = await findStructureImportRunByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
@@ -195,7 +195,7 @@ async function applyReadyActions(
     actions: StructureImportActionRecord[],
     sourceGuildId: string | undefined
 ) {
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const results: Array<{ actionId: string; status: 'applied' | 'failed' }> = [];
     const idMap: Record<string, string> = {};
 

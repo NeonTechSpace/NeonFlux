@@ -1,5 +1,5 @@
-import { loadGuildOverviewAggregate } from '@neonflux/db';
-import type { GuildOverviewAggregate } from '@neonflux/db';
+import { loadGuildOverviewAggregate } from '@neonflux/persistence';
+import type { GuildOverviewAggregate } from '@neonflux/persistence';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,8 +8,8 @@ import { loadDashboardGuildOverview } from './dashboard-overview.server.js';
 
 const request = new Request('http://localhost:3000/dashboard/guild-1');
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -18,7 +18,7 @@ vi.mock('./dashboard-guild-page.server.js', () => ({
     loadDashboardGuildPageData: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', () => ({
+vi.mock('@neonflux/persistence', () => ({
     loadGuildOverviewAggregate: vi.fn(),
 }));
 

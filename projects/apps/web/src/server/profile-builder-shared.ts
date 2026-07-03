@@ -1,4 +1,4 @@
-import type { ProfileFieldRecord } from '@neonflux/db';
+import type { ProfileFieldRecord } from '@neonflux/persistence';
 
 export type DashboardProfileFieldType = 'text' | 'textarea' | 'url';
 

@@ -1,12 +1,12 @@
 import { loadBotConfig } from '@neonflux/config';
 import { createLogger } from '@neonflux/core/logging';
-import { createDatabaseClient } from '@neonflux/db';
+import { createRuntimePersistence } from '@neonflux/persistence';
 
 import { createBotApp } from './bot-app.js';
 
 const config = loadBotConfig();
 const logger = createLogger(config);
-const database = createDatabaseClient(config.databaseUrl);
+const database = await createRuntimePersistence(config, { serviceName: 'bot' });
 const app = createBotApp({ config, logger, database });
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {

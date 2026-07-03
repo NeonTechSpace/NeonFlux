@@ -1,5 +1,5 @@
 import type { AppEnv, AppMode, GuildDefconOverride } from '@neonflux/config';
-import type { DatabaseClient } from '@neonflux/db';
+import type { RuntimePersistenceClient } from '@neonflux/persistence';
 import type { FluxerBot } from '@neonflux/fluxer';
 
 export type BotFeatureEvent =
@@ -93,7 +93,7 @@ export type BotFeatureEvent =
 export type BotMessageCreatedEvent = Extract<BotFeatureEvent, { type: 'message.created' }>;
 
 export type BotFeatureHandlerContext = {
-    db: DatabaseClient['db'];
+    db: RuntimePersistenceClient['db'];
     mode: AppMode;
     appEnv: AppEnv;
     guildDefconOverride: GuildDefconOverride;

@@ -117,7 +117,7 @@ import {
     type XpGrantRecord,
     type XpSettingsRecord,
     type XpVoiceSessionRecord,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import {
     createFluxerPlatform,
     readFluxerGuildInvites,
@@ -129,7 +129,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routeBotFeatureEvent, type BotFeatureHandlerContext } from './bot-feature-router.js';
 
-vi.mock('@neonflux/db', () => {
+vi.mock('@neonflux/persistence', () => {
     return {
         deleteBotInstallation: vi.fn(),
         addModerationCaseNote: vi.fn(),

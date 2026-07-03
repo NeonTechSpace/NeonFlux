@@ -15,6 +15,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
 
 COPY packages/config/package.json ./packages/config/package.json
+COPY packages/convex/package.json ./packages/convex/package.json
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/fluxer/package.json ./packages/fluxer/package.json

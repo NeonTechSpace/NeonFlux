@@ -1,20 +1,20 @@
 import { Buffer } from 'node:buffer';
 
-import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FLUXER_OAUTH_STATE_COOKIE_NAME } from '../../../server/oauth-state.js';
 import { SESSION_COOKIE_NAME } from '../../../server/session-cookie.js';
 import { handleFluxerCallbackRequest } from '../../../server/fluxer-callback.server.js';
 
-vi.mock('../../../server/database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('../../../server/persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
     const { ok } = await import('neverthrow');
 

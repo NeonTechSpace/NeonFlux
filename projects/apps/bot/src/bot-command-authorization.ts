@@ -8,7 +8,7 @@ import {
     findGuildCommandPermissionRule,
     findGuildSecurityPolicyByGuildId,
     listGuildDefconExemptionCategories,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureHandlerContext, BotMessageCreatedEvent } from './bot-feature-types.js';

@@ -1,7 +1,7 @@
 import type { AppConfig } from '@neonflux/config';
 import { resolveEffectiveGuildDefcon } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
-import { runDatabaseMigrations, type DatabaseClient } from '@neonflux/db';
+import type { RuntimePersistenceClient } from '@neonflux/persistence';
 import {
     createFluxerBot,
     type FluxerBot,
@@ -32,7 +32,7 @@ export type BotApp = {
 export type CreateBotAppInput = {
     config: AppConfig;
     logger: AppLogger;
-    database: DatabaseClient;
+    database: RuntimePersistenceClient;
 };
 
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
@@ -52,11 +52,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
     return {
         async start() {
-            const migration = await runDatabaseMigrations(database, {
-                autoMigrate: config.autoMigrate,
-            });
-
-            logger.info('database.migration', { status: migration.status });
+            logger.info('database.runtime', { store: 'convex' });
 
             const deploymentConfigResult = await bootstrapDeploymentConfig(database.db, config);
 

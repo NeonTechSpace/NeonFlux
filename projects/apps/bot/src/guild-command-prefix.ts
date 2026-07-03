@@ -1,5 +1,5 @@
 import { DEFAULT_COMMAND_PREFIX } from '@neonflux/core/command-prefix';
-import { findGuildCommandSettingsByGuildId } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId } from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';

@@ -4,9 +4,9 @@ import {
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
     upsertFluxerOAuthTokenSet,
-} from '@neonflux/db';
-import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { refreshFluxerOAuthToken } from '@neonflux/fluxer/oauth';
 import type * as NeonFluxerOAuth from '@neonflux/fluxer/oauth';
 import { err, ok } from 'neverthrow';
@@ -35,8 +35,8 @@ const futureAccessTokenExpiresAt = new Date('2026-06-21T01:00:00.000Z');
 const expiredAccessTokenExpiresAt = new Date('2026-06-20T23:59:59.999Z');
 const refreshedAccessTokenExpiresAt = new Date('2026-06-21T02:00:00.000Z');
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -45,7 +45,7 @@ vi.mock('./web-session.server.js', () => ({
     readAuthenticatedWebSession: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

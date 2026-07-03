@@ -82,7 +82,8 @@ The main workspace is in `projects`.
 - `apps/bot`: Fluxer bot process
 - `apps/web`: web dashboard
 - `packages/config`: shared env parsing
-- `packages/db`: Postgres schema and database access
+- `packages/convex`: shared Convex client, API, JWT, and migration helpers
+- `packages/persistence`: runtime persistence boundary
 - `packages/core`: shared bot/web rules
 - `packages/fluxer`: Fluxer API and permission helpers
 
@@ -98,13 +99,13 @@ pnpm generate:session-secret
 
 Put the output in `SESSION_SECRET`.
 
-Local development does not require running Postgres on this machine. PGlite is used for local migration checks.
+Local development does not require app Postgres. Convex is the durable store target.
 
-Real bot/web smoke tests do require a reachable Postgres-compatible database through `DATABASE_URL`.
+During the migration window only, source Postgres export tooling reads `DATABASE_URL` from `projects/.env`.
 
 ## Convex
 
-NeonFlux uses Convex for live dashboard data where configured. Use Convex Cloud by default. To self-host Convex with Docker Compose, see [docs/Convex.md](docs/Convex.md).
+NeonFlux uses Convex for durable state and live dashboard data. To self-host Convex separately from NeonFlux app data, see [docs/Convex.md](docs/Convex.md).
 
 ## Docker
 

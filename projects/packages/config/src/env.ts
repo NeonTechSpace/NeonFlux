@@ -4,21 +4,19 @@ import { dirname, join, resolve } from 'node:path';
 import { type } from 'arktype';
 import { config as loadDotEnv, parse as parseDotEnv } from 'dotenv';
 
-const devDatabaseUrl = 'postgres://postgres:postgres@localhost:5432/neonflux_dev';
-
 const appEnv = type("'development' | 'production'");
 const instanceMode = type("'single' | 'multi'");
 const guildDefconOverride = type("'auto' | '1' | '2' | '3'");
 const logLevel = type("'debug' | 'info' | 'warn' | 'error'");
 const nodeEnv = type("'development' | 'test' | 'production'");
-const autoMigrate = type("'true' | 'false'");
 
 const rawEnv = type({
     'APP_ENV?': appEnv,
     'INSTANCE_MODE?': instanceMode,
     'SINGLE_GUILD_ID?': 'string',
-    'DATABASE_URL?': 'string',
-    'AUTO_MIGRATE?': autoMigrate,
+    'CONVEX_DEPLOYMENT?': 'string',
+    'CONVEX_DEPLOY_KEY?': 'string',
+    'CONVEX_URL?': 'string',
     'FLUXER_APP_ID?': 'string',
     'FLUXER_CLIENT_SECRET?': 'string',
     'FLUXER_BOT_CUSTOM_STATUS?': 'string',
@@ -27,7 +25,11 @@ const rawEnv = type({
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
     'SESSION_SECRET?': 'string',
+    'NEONFLUX_AUTH_JWT_AUDIENCE?': 'string',
+    'NEONFLUX_AUTH_JWT_ISSUER?': 'string',
+    'NEONFLUX_AUTH_JWT_PRIVATE_KEY?': 'string',
     'PUBLIC_WEB_URL?': 'string',
+    'VITE_CONVEX_URL?': 'string',
     'GUILD_DEFCON_OVERRIDE?': guildDefconOverride,
     'LOG_LEVEL?': logLevel,
     'NODE_ENV?': nodeEnv,
@@ -42,10 +44,29 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' };
 
+export type ConvexConfig = {
+    authJwtAudience?: string;
+    authJwtIssuer?: string;
+    authJwtPrivateKey?: string;
+    deployKey?: string;
+    deployment?: string;
+    publicUrl?: string;
+    url?: string;
+};
+
+export type RequiredConvexConfig = {
+    authJwtAudience: string;
+    authJwtIssuer: string;
+    authJwtPrivateKey: string;
+    deployKey: string;
+    deployment: string;
+    publicUrl: string;
+    url: string;
+};
+
 export type RuntimeConfig = {
     appEnv: AppEnv;
-    databaseUrl: string;
-    autoMigrate: boolean;
+    convex?: ConvexConfig;
     guildDefconOverride: GuildDefconOverride;
     logLevel: LogLevel;
     nodeEnv: 'development' | 'test' | 'production';
@@ -115,6 +136,24 @@ function loadLocalDotEnvFile(path: string): void {
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
     return createRuntimeConfig(parseEnv(env));
+}
+
+export function loadConvexConfig(env: NodeJS.ProcessEnv = process.env): ConvexConfig {
+    return createConvexConfig(parseEnv(env));
+}
+
+export function requireConvexConfig(env: NodeJS.ProcessEnv = process.env): RequiredConvexConfig {
+    const config = loadConvexConfig(env);
+
+    return {
+        authJwtAudience: requireConfigValue(config.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
+        authJwtIssuer: requireConfigValue(config.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
+        authJwtPrivateKey: requireConfigValue(config.authJwtPrivateKey, 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'),
+        deployKey: requireConfigValue(config.deployKey, 'CONVEX_DEPLOY_KEY'),
+        deployment: requireConfigValue(config.deployment, 'CONVEX_DEPLOYMENT'),
+        publicUrl: requireConfigValue(config.publicUrl, 'VITE_CONVEX_URL'),
+        url: requireConfigValue(config.url, 'CONVEX_URL'),
+    };
 }
 
 export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
@@ -200,19 +239,34 @@ function shouldAutoLoadLocalEnv(env: NodeJS.ProcessEnv): boolean {
 
 function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {
     const appEnvValue = parsed.APP_ENV ?? 'development';
-    const databaseUrl = valueOrFallback(parsed.DATABASE_URL, appEnvValue === 'production' ? undefined : devDatabaseUrl);
-
-    if (appEnvValue === 'production') {
-        requireEnvValue(databaseUrl, 'DATABASE_URL');
-    }
+    const convex = createConvexConfig(parsed);
 
     return {
         appEnv: appEnvValue,
-        databaseUrl,
-        autoMigrate: parsed.AUTO_MIGRATE !== 'false',
+        convex,
         guildDefconOverride: parseGuildDefconOverride(parsed.GUILD_DEFCON_OVERRIDE),
         logLevel: parsed.LOG_LEVEL ?? 'info',
         nodeEnv: parsed.NODE_ENV ?? 'development',
+    };
+}
+
+function createConvexConfig(parsed: ParsedEnv): ConvexConfig {
+    const authJwtAudience = optionalValue(parsed.NEONFLUX_AUTH_JWT_AUDIENCE);
+    const authJwtIssuer = optionalHttpUrl(parsed.NEONFLUX_AUTH_JWT_ISSUER, 'NEONFLUX_AUTH_JWT_ISSUER');
+    const authJwtPrivateKey = optionalValue(parsed.NEONFLUX_AUTH_JWT_PRIVATE_KEY);
+    const deployKey = optionalValue(parsed.CONVEX_DEPLOY_KEY);
+    const deployment = optionalValue(parsed.CONVEX_DEPLOYMENT);
+    const publicUrl = optionalHttpUrl(parsed.VITE_CONVEX_URL, 'VITE_CONVEX_URL');
+    const url = optionalHttpUrl(parsed.CONVEX_URL, 'CONVEX_URL');
+
+    return {
+        ...(authJwtAudience ? { authJwtAudience } : {}),
+        ...(authJwtIssuer ? { authJwtIssuer } : {}),
+        ...(authJwtPrivateKey ? { authJwtPrivateKey } : {}),
+        ...(deployKey ? { deployKey } : {}),
+        ...(deployment ? { deployment } : {}),
+        ...(publicUrl ? { publicUrl } : {}),
+        ...(url ? { url } : {}),
     };
 }
 
@@ -241,12 +295,6 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
     }
 
     return url.toString();
-}
-
-function valueOrFallback(value: string | undefined, fallback: string | undefined): string {
-    const parsedValue = optionalValue(value) ?? fallback;
-    requireEnvValue(parsedValue, 'DATABASE_URL');
-    return parsedValue;
 }
 
 function optionalPublicWebUrl(value: string | undefined): string | undefined {
@@ -285,6 +333,11 @@ function requireEnvValue(value: string | undefined, name: string): asserts value
     if (!value) {
         throw new Error(`${name} is required`);
     }
+}
+
+function requireConfigValue(value: string | undefined, name: string): string {
+    requireEnvValue(value, name);
+    return value;
 }
 
 function parseGuildDefconOverride(value: 'auto' | '1' | '2' | '3' | undefined): GuildDefconOverride {

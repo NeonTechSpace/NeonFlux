@@ -1,4 +1,4 @@
-import { findGeneratedVoiceChannelByChannelId, updateGeneratedVoiceChannelStatus } from '@neonflux/db';
+import { findGeneratedVoiceChannelByChannelId, updateGeneratedVoiceChannelStatus } from '@neonflux/persistence';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

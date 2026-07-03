@@ -7,8 +7,8 @@ import {
     listTicketPanelsByGuildId,
     recordBotActionEvent,
     updateTicketPanel,
-} from '@neonflux/db';
-import type { TicketPanelRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { TicketPanelRecord } from '@neonflux/persistence';
 import {
     reactFluxerBotGuildChannelMessage,
     readFluxerBotGuildStructure,
@@ -17,7 +17,7 @@ import {
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -143,7 +143,7 @@ export async function loadDashboardTicketsSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const panelsResult = await listTicketPanelsByGuildId(getWebDatabaseClient().db, {
+    const panelsResult = await listTicketPanelsByGuildId((await getWebPersistence()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -226,7 +226,7 @@ export async function updateDashboardTicketPanel(
         ...payloadResult.config,
         syncStatus: reactionResult.isOk() ? 'active' : 'stale',
     };
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const panelResult = input.panelId
         ? await updateTicketPanel(database.db, {
               guildId: guildPageData.guild.id,
@@ -295,7 +295,7 @@ export async function deleteDashboardTicketPanel(
     }
 
     const structureResult = await loadTicketsStructure(guildPageData.guild.id);
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const panelResult = await deleteTicketPanel(database.db, {
         guildId: guildPageData.guild.id,
         panelId: input.panelId,

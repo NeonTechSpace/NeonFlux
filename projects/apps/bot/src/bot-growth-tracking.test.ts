@@ -4,7 +4,7 @@ import {
     listGuildInviteSnapshots,
     recordGuildMemberFlowEvent,
     syncGuildInviteSnapshots,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { readFluxerGuildInvites, type FluxerBot, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
 import type { BotFeatureHandlerContext, BotFeatureEvent } from './bot-feature-types.js';
 
-vi.mock('@neonflux/db', () => ({
+vi.mock('@neonflux/persistence', () => ({
     incrementGuildMessageActivityDay: vi.fn(),
     listGuildInviteSnapshots: vi.fn(),
     recordGuildMemberFlowEvent: vi.fn(),

@@ -12,11 +12,11 @@ import {
     reviewProfileSubmission,
     upsertProfileField,
     upsertProfileForm,
-} from '@neonflux/db';
-import type { ProfileFormRecord, ProfileSubmissionRecord } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { ProfileFormRecord, ProfileSubmissionRecord } from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -119,7 +119,7 @@ export async function loadDashboardProfileBuilderSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const formsResult = await listProfileFormsByGuildId(database.db, { guildId: guildPageData.guild.id });
     const submissionsResult = await listProfileSubmissionsByGuildId(database.db, {
         guildId: guildPageData.guild.id,
@@ -175,7 +175,7 @@ export async function updateDashboardProfileBuilderForm(
         return payload;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const formResult = await upsertProfileForm(database.db, {
         guildId: guildPageData.guild.id,
         name: payload.name,
@@ -236,7 +236,7 @@ export async function reviewDashboardProfileSubmission(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const reviewResult = await reviewProfileSubmission(database.db, {
         guildId: guildPageData.guild.id,
         submissionId: input.submissionId,

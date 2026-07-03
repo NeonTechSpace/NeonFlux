@@ -3,9 +3,9 @@ import {
     listModerationCasesByGuildId,
     recordBotActionEvent,
     upsertGuildModerationPolicy,
-} from '@neonflux/db';
-import type { GuildModerationPolicyRecord, ModerationCaseRecord } from '@neonflux/db';
-import type * as NeonFluxDb from '@neonflux/db';
+} from '@neonflux/persistence';
+import type { GuildModerationPolicyRecord, ModerationCaseRecord } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/persistence';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,8 +34,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-26T12:00:00.000Z'),
 };
 
-vi.mock('./database.server.js', () => ({
-    getWebDatabaseClient: () => ({
+vi.mock('./persistence.server.js', () => ({
+    getWebPersistence: () => ({
         db: {},
     }),
 }));
@@ -52,7 +52,7 @@ vi.mock('./dashboard-target-catalog.server.js', () => ({
     loadDashboardTargetCatalog: vi.fn(),
 }));
 
-vi.mock('@neonflux/db', async (importActual) => {
+vi.mock('@neonflux/persistence', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

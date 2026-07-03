@@ -3,7 +3,7 @@ import {
     findRecentModerationCaseByTargetAction,
     listModerationCaseEventsByCaseId,
     recordModerationCaseEvent,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureEvent, BotFeatureHandlerContext, BotFeatureRouteError } from './bot-feature-types.js';

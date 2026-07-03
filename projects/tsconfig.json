@@ -5,10 +5,16 @@
             "path": "./packages/config"
         },
         {
+            "path": "./packages/convex"
+        },
+        {
             "path": "./packages/core"
         },
         {
             "path": "./packages/db"
+        },
+        {
+            "path": "./packages/persistence"
         },
         {
             "path": "./packages/fluxer"

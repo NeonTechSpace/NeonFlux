@@ -1,12 +1,17 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { deleteAutoroleRule, listAutoroleRulesByGuildId, recordBotActionEvent, upsertAutoroleRule } from '@neonflux/db';
-import type { AutoroleRuleRecord } from '@neonflux/db';
+import {
+    deleteAutoroleRule,
+    listAutoroleRulesByGuildId,
+    recordBotActionEvent,
+    upsertAutoroleRule,
+} from '@neonflux/persistence';
+import type { AutoroleRuleRecord } from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -86,7 +91,7 @@ export async function loadDashboardAutoroleSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const rulesResult = await listAutoroleRulesByGuildId(getWebDatabaseClient().db, {
+    const rulesResult = await listAutoroleRulesByGuildId((await getWebPersistence()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -120,7 +125,7 @@ export async function updateDashboardAutoroleRule(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const ruleResult = await upsertAutoroleRule(database.db, {
         guildId: guildPageData.guild.id,
         roleId: input.roleId,
@@ -173,7 +178,7 @@ export async function deleteDashboardAutoroleRule(
         return actorResult;
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const ruleResult = await deleteAutoroleRule(database.db, {
         guildId: guildPageData.guild.id,
         roleId: input.roleId,

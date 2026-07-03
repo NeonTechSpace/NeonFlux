@@ -1,4 +1,4 @@
-import { listEnabledAutoroleRulesByGuildId } from '@neonflux/db';
+import { listEnabledAutoroleRulesByGuildId } from '@neonflux/persistence';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

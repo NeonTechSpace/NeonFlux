@@ -1,7 +1,8 @@
 import type { AppConfig } from '@neonflux/config';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
-import type * as NeonFluxDb from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/persistence';
+import type { RuntimePersistenceClient } from '@neonflux/persistence';
 import {
     addTicketMember,
     createVcGeneratorControlRequest,
@@ -33,7 +34,6 @@ import {
     listGuildXpLeaderboard,
     listEnabledAutomodRulesByGuildId,
     listBotInstallationGuildIds,
-    runDatabaseMigrations,
     closeXpVoiceSession,
     recordTicketEvent,
     recordRoleReconciliationAction,
@@ -48,8 +48,7 @@ import {
     upsertGiveawayEntry,
     upsertSuggestionVote,
     upsertBotInstallation,
-    type DatabaseClient,
-} from '@neonflux/db';
+} from '@neonflux/persistence';
 import {
     createFluxerPlatform,
     createFluxerBot,
@@ -67,7 +66,7 @@ import { createVcGeneratorMaintenanceScheduler } from './bot-vc-generator-mainte
 import type * as BotVcGeneratorMaintenance from './bot-vc-generator-maintenance.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
-vi.mock('@neonflux/db', async (importOriginal) => {
+vi.mock('@neonflux/persistence', async (importOriginal) => {
     const actual = await importOriginal<typeof NeonFluxDb>();
 
     return {
@@ -102,7 +101,6 @@ vi.mock('@neonflux/db', async (importOriginal) => {
         listGuildXpLeaderboard: vi.fn(),
         listEnabledAutomodRulesByGuildId: vi.fn(),
         listBotInstallationGuildIds: vi.fn(),
-        runDatabaseMigrations: vi.fn(),
         closeXpVoiceSession: vi.fn(),
         recordTicketEvent: vi.fn(),
         recordRoleReconciliationAction: vi.fn(),
@@ -148,7 +146,6 @@ vi.mock('./bot-vc-generator-maintenance.js', async (importOriginal) => {
     };
 });
 
-const runDatabaseMigrationsMock = vi.mocked(runDatabaseMigrations);
 const bootstrapDeploymentConfigMock = vi.mocked(bootstrapDeploymentConfig);
 const createGiveawayMaintenanceSchedulerMock = vi.mocked(createGiveawayMaintenanceScheduler);
 const createVcGeneratorMaintenanceSchedulerMock = vi.mocked(createVcGeneratorMaintenanceScheduler);
@@ -199,7 +196,11 @@ const updateRoleReconciliationRunStatusMock = vi.mocked(updateRoleReconciliation
 const upsertGuildCommandPrefixMock = vi.mocked(upsertGuildCommandPrefix);
 const upsertGiveawayEntryMock = vi.mocked(upsertGiveawayEntry);
 const upsertSuggestionVoteMock = vi.mocked(upsertSuggestionVote);
-const testDb = {} as DatabaseClient['db'];
+const testDb = {
+    client: {} as never,
+    kind: 'convex',
+    serviceName: 'bot',
+} satisfies RuntimePersistenceClient['db'];
 const testFluxerClient = {
     user: {
         id: 'bot-user',
@@ -227,10 +228,6 @@ describe('createBotApp', () => {
         fluxerStartMock = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
         fluxerStopMock = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 
-        runDatabaseMigrationsMock.mockResolvedValue({
-            status: 'applied',
-            migrationsFolder: 'migrations',
-        });
         bootstrapDeploymentConfigMock.mockResolvedValue(ok({ instanceMode: 'multi' }));
         createFluxerBotMock.mockImplementation((config, _logger, lifecycleHandlers = {}) => {
             capturedFluxerConfig = config;
@@ -324,22 +321,21 @@ describe('createBotApp', () => {
         );
     });
 
-    it('runs migrations before deployment config bootstrap', async () => {
+    it('uses Convex persistence before deployment config bootstrap', async () => {
+        const logger = createLogger();
         const database = createDatabase();
         const app = createBotApp({
             config: createMultiConfig(),
-            logger: createLogger(),
+            logger,
             database,
         });
 
         await app.start();
 
-        expect(runDatabaseMigrationsMock).toHaveBeenCalledWith(database, {
-            autoMigrate: true,
+        expect(logger.info).toHaveBeenCalledWith('database.runtime', {
+            store: 'convex',
         });
-        expect(runDatabaseMigrationsMock.mock.invocationCallOrder[0]).toBeLessThan(
-            bootstrapDeploymentConfigMock.mock.invocationCallOrder[0] ?? 0
-        );
+        expect(bootstrapDeploymentConfigMock).toHaveBeenCalledWith(database.db, expect.anything());
     });
 
     it('bootstraps deployment config before Fluxer login', async () => {
@@ -810,11 +806,14 @@ describe('createBotApp', () => {
     });
 });
 
-function createDatabase(): DatabaseClient {
+function createDatabase(): RuntimePersistenceClient {
     return {
-        db: testDb,
-        pool: {} as DatabaseClient['pool'],
+        client: {} as never,
         close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+        db: testDb,
+        deployment: 'dev:neonflux',
+        serviceName: 'bot',
+        url: 'https://neonflux.convex.cloud',
     };
 }
 
@@ -853,8 +852,7 @@ type TestConfigOptions = {
 function createBaseConfig(options: TestConfigOptions = {}): Omit<AppConfig, 'instanceMode'> {
     return {
         appEnv: options.appEnv ?? 'development',
-        databaseUrl: 'postgres://postgres:postgres@localhost:5432/neonflux_test',
-        autoMigrate: true,
+        convex: {},
         ...(options.fluxerBotCustomStatusText ? { fluxerBotCustomStatusText: options.fluxerBotCustomStatusText } : {}),
         ...(options.fluxerBotToken === null ? {} : { fluxerBotToken: options.fluxerBotToken ?? 'bot-token' }),
         guildDefconOverride: options.guildDefconOverride ?? 'auto',

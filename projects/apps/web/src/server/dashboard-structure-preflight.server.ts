@@ -1,11 +1,11 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { findStructureImportRunByGuildId } from '@neonflux/db';
-import type { StructureImportActionRecord } from '@neonflux/db';
+import { findStructureImportRunByGuildId } from '@neonflux/persistence';
+import type { StructureImportActionRecord } from '@neonflux/persistence';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
@@ -46,7 +46,7 @@ export async function preflightDashboardStructureImportRun(
         return { type: 'invalid-input', message: 'Choose a confirmed import dry-run to preflight.' };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const importRunResult = await findStructureImportRunByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,

@@ -7,11 +7,15 @@ import {
     listReactionRoleMessagesByGuildId,
     upsertReactionRoleMessage,
     upsertReactionRoleOptionByMessage,
-} from '@neonflux/db';
-import type { ReactionRoleMessageRecord, ReactionRoleMessageWithOptions } from '@neonflux/db';
+} from '@neonflux/persistence';
+import type {
+    ReactionRoleMessageRecord,
+    ReactionRoleMessageWithOptions,
+    RuntimePersistenceClient,
+} from '@neonflux/persistence';
 import { editFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 
-import { getWebDatabaseClient } from './database.server.js';
+import { getWebPersistence } from './persistence.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
     mapDashboardGuildPageError,
@@ -55,7 +59,7 @@ export async function saveDashboardReactionRoleMessage(
         return { type: 'bot-token-missing' };
     }
 
-    const database = getWebDatabaseClient();
+    const database = await getWebPersistence();
     const currentMessageResult = await findReactionRoleMessage(database.db, {
         guildId: guildPageData.guild.id,
         messageId: input.messageId,
@@ -163,7 +167,7 @@ export async function saveDashboardReactionRoleMessage(
 }
 
 async function persistReactionRoleMessageSave(input: {
-    database: ReturnType<typeof getWebDatabaseClient>;
+    database: RuntimePersistenceClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     currentMessage: ReactionRoleMessageWithOptions;
     payload: Extract<ReturnType<typeof normalizeReactionRolePublishPayload>, { type: 'payload' }>;
@@ -278,7 +282,7 @@ async function persistReactionRoleMessageSave(input: {
 }
 
 async function recordReactionRoleSaveAudit(input: {
-    database: ReturnType<typeof getWebDatabaseClient>;
+    database: RuntimePersistenceClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     currentMessage: ReactionRoleMessageWithOptions;
     payload: Extract<ReturnType<typeof normalizeReactionRolePublishPayload>, { type: 'payload' }>;
@@ -363,7 +367,7 @@ async function recordReactionRoleSaveAudit(input: {
 }
 
 async function recordReactionRoleSyncFailureAudit(input: {
-    database: ReturnType<typeof getWebDatabaseClient>;
+    database: RuntimePersistenceClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     actor: Extract<Awaited<ReturnType<typeof resolveReactionRoleActor>>, { type: 'actor' }>;
     currentMessage: ReactionRoleMessageWithOptions;
