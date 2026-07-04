@@ -23,7 +23,7 @@ export function isDashboardLiveTransportActive(): boolean {
     return true;
 }
 
-export function subscribeDashboardLiveTransportActivity(onChange: () => void): () => void {
+function subscribeDashboardLiveTransportActivity(onChange: () => void): () => void {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
         return () => undefined;
     }

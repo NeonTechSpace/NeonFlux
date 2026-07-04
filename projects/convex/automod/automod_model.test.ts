@@ -13,7 +13,7 @@ import {
 } from './automod_model.js';
 
 describe('automod model', () => {
-    it('normalizes blocked-term rules like the Postgres repository', () => {
+    it('normalizes blocked-term rules to the app-facing contract', () => {
         const document = buildAutomodRuleDocument(
             {
                 config: {

@@ -40,7 +40,7 @@ type StoredAutomodEventDocument = AutomodEventDocument & {
     _id: GenericId<'automodEvents'>;
 };
 
-const allowedAutomodServices = ['bot', 'web', 'migration'] as const;
+const allowedAutomodServices = ['bot', 'web'] as const;
 const automodTriggerTypeValidator = v.union(v.literal('blocked_terms'), v.literal('invite_links'));
 const automodActionTypeValidator = v.union(
     v.literal('record'),

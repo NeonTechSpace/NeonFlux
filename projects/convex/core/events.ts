@@ -36,7 +36,7 @@ type BotActionEventDocumentPage = {
     nextCursor?: BotActionEventCursor;
 };
 
-const allowedEventServices = ['bot', 'web', 'migration'] as const;
+const allowedEventServices = ['bot', 'web'] as const;
 const searchScanLimit = 1000;
 
 const botActionEventRecordValidator = v.object({

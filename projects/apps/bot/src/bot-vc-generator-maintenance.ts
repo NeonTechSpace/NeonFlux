@@ -1,4 +1,4 @@
-import { expirePendingVcGeneratorControlRequests } from '@neonflux/persistence';
+import { expirePendingVcGeneratorControlRequests } from '@neonflux/db';
 import type { AppLogger } from '@neonflux/core/logging';
 import { err, ok, type Result } from 'neverthrow';
 

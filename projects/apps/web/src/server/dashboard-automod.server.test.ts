@@ -4,9 +4,9 @@ import {
     listAutomodRulesByGuildId,
     recordBotActionEvent,
     saveAutomodRule,
-} from '@neonflux/persistence';
-import type { AutomodEventRecord, AutomodRuleRecord } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { AutomodEventRecord, AutomodRuleRecord } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
@@ -36,8 +36,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-21T01:00:00.000Z'),
 };
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -54,7 +54,7 @@ vi.mock('./dashboard-target-catalog.server.js', () => ({
     loadDashboardTargetCatalog: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

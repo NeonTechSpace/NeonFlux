@@ -31,7 +31,7 @@ type StoredRuleDocument = VcGeneratorRuleDocument & { _id: GenericId<'vcGenerato
 type StoredGeneratedChannelDocument = GeneratedVoiceChannelDocument & { _id: GenericId<'generatedVoiceChannels'> };
 type StoredControlPanelDocument = VcGeneratorControlPanelDocument & { _id: GenericId<'vcGeneratorControlPanels'> };
 
-const allowedVcGeneratorServices = ['bot', 'web', 'migration'] as const;
+const allowedVcGeneratorServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const generatedChannelStatuses = ['active', 'deleted', 'orphaned'] as const;
 const controlPanelStatuses = ['active', 'stale', 'disabled'] as const;

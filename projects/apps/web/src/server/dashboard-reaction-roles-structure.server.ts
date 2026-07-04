@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import type { ReactionRoleMessageWithOptions } from '@neonflux/persistence';
+import type { ReactionRoleMessageWithOptions } from '@neonflux/db';
 import { readFluxerBotGuildEmojis, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import type {

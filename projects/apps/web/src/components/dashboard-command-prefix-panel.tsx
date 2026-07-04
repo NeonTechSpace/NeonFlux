@@ -252,43 +252,6 @@ export function DashboardCommandPrefixSettingsPanel({
     );
 }
 
-export function DashboardCommandPrefixSettingsPanelLoading() {
-    return (
-        <article
-            className='relative overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(56,189,248,0.24)] bg-[rgba(7,10,16,0.9)] p-4 shadow-[var(--dash-shadow-surface)] md:bg-[linear-gradient(135deg,rgba(56,189,248,0.08),rgba(167,139,250,0.06)_42%,rgba(7,10,16,0.9)_100%)] md:backdrop-blur-md'
-            aria-busy='true'>
-            <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(0,229,255,0.6),rgba(255,43,214,0.42),rgba(255,234,0,0.24))]' />
-            <div className='flex flex-wrap items-start justify-between gap-3'>
-                <div>
-                    <h2 className='text-xl font-semibold text-[var(--dash-text)]'>Command prefix</h2>
-                    <p className='mt-2 text-sm leading-6 text-[var(--dash-text-muted)]'>Loading current prefix.</p>
-                </div>
-                <span className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 py-1 text-xs font-medium text-[var(--dash-text-muted)]'>
-                    Loading
-                </span>
-            </div>
-            <div className='mt-4 flex flex-col gap-3'>
-                <label className='space-y-2 text-sm font-medium text-[var(--dash-text-muted)]'>
-                    <span>New prefix</span>
-                    <input
-                        value=''
-                        disabled
-                        className='min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(2,6,23,0.72)] px-3 text-base text-[var(--dash-text-muted)] outline-none'
-                        aria-label='New prefix'
-                    />
-                </label>
-                <div className='h-4 w-52 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                <button
-                    type='button'
-                    disabled
-                    className='inline-flex min-h-10 w-fit items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] px-4 text-sm font-semibold text-[var(--dash-text-disabled)]'>
-                    Save prefix
-                </button>
-            </div>
-        </article>
-    );
-}
-
 function validateDashboardCommandPrefix(
     prefix: string
 ): { valid: true; prefix: string } | { valid: false; message: string } {

@@ -26,7 +26,7 @@ type StoredReactionRoleMessageDocument = {
     legacyId: string;
 };
 
-const allowedRoleReferenceCleanupServices = ['bot', 'migration'] as const;
+const allowedRoleReferenceCleanupServices = ['bot'] as const;
 const cleanupScanLimit = 5000;
 const summaryValidator = v.object({
     autoroleRulesDisabled: v.number(),

@@ -7,8 +7,8 @@ import {
     listTicketPanelsByGuildId,
     recordBotActionEvent,
     updateTicketPanel,
-} from '@neonflux/persistence';
-import type { TicketPanelRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { TicketPanelRecord } from '@neonflux/db';
 import {
     reactFluxerBotGuildChannelMessage,
     readFluxerBotGuildStructure,
@@ -17,7 +17,7 @@ import {
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -143,7 +143,7 @@ export async function loadDashboardTicketsSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const panelsResult = await listTicketPanelsByGuildId((await getWebPersistence()).db, {
+    const panelsResult = await listTicketPanelsByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -226,7 +226,7 @@ export async function updateDashboardTicketPanel(
         ...payloadResult.config,
         syncStatus: reactionResult.isOk() ? 'active' : 'stale',
     };
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const panelResult = input.panelId
         ? await updateTicketPanel(database.db, {
               guildId: guildPageData.guild.id,
@@ -295,7 +295,7 @@ export async function deleteDashboardTicketPanel(
     }
 
     const structureResult = await loadTicketsStructure(guildPageData.guild.id);
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const panelResult = await deleteTicketPanel(database.db, {
         guildId: guildPageData.guild.id,
         panelId: input.panelId,

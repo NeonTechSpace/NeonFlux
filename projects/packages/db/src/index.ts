@@ -1,38 +1,388 @@
-export * from './autorole.js';
-export * from './automod.js';
-export * from './bot-installations.js';
-export * from './client.js';
-export * from './deployment-config.js';
-export * from './feature-repository-types.js';
-export * from './fluxer-oauth-tokens.js';
-export * from './giveaway-maintenance.js';
-export * from './giveaway-reconciliation.js';
-export * from './giveaways.js';
-export * from './guild-command-settings.js';
-export * from './guild-command-permission-rules.js';
-export * from './growth-overview.js';
-export * from './guilds.js';
-export * from './guild-dashboard-permission-rules.js';
-export * from './guild-security-policies.js';
-export * from './logging.js';
-export * from './logging-destinations.js';
-export * from './migrations.js';
-export * from './moderation.js';
-export * from './moderation-observed-events.js';
-export * from './moderation-policy.js';
-export * from './moderation-temporary-actions.js';
-export * from './posting.js';
-export * from './profile-builder.js';
-export * from './reaction-roles.js';
-export * from './role-reconciliation.js';
-export * from './role-reference-cleanup.js';
-export * from './schema.js';
-export * from './structure-import-export.js';
-export * from './suggestions.js';
-export * from './tickets.js';
-export * from './vc-generator-control-requests.js';
-export * from './vc-generator.js';
-export * from './verification.js';
-export * from './web-sessions.js';
-export * from './xp.js';
-export * from './xp-voice-sessions.js';
+// Runtime database boundary. App code imports Convex-backed operations and
+// app-facing type contracts from here.
+export { automodActionTypes, automodTriggerTypes } from './contracts.js';
+export { reactionRoleMessageModes, reactionRoleMessageSources } from './contracts-reaction-roles.js';
+export { STRUCTURE_IMPORT_EXPORT_FEATURE } from './contracts-structure.js';
+export type {
+    AutomodActionType,
+    AutomodEventRecord,
+    AutomodRepositoryError,
+    AutomodRuleConfig,
+    AutomodRuleRecord,
+    AutomodTriggerType,
+    AutoroleRepositoryError,
+    AutoroleRuleRecord,
+    BotActionEventCursor,
+    BotActionEventPage,
+    BotActionEventRecord,
+    BotActionEventSearchScope,
+    BotInstallationRecord,
+    BotInstallationRepositoryError,
+    DeletedGuildRoleReferenceCleanupResult,
+    DeletedGuildRoleReferenceCleanupSummary,
+    DeploymentConfigInput,
+    DeploymentConfigRecord,
+    DeploymentConfigRepositoryError,
+    EncryptedOAuthTokenPayload,
+    FluxerOAuthTokenRecord,
+    FluxerOAuthTokenRepositoryError,
+    GuildCommandSettingsRecord,
+    GuildCommandSettingsRepositoryError,
+    GuildDefconExemptionRecord,
+    GuildDefconLevel,
+    GuildCommandPermissionRuleRecord,
+    GuildCommandPermissionRuleRepositoryError,
+    GuildCommandPermissionRuleTargetType,
+    GuildDashboardPermissionRuleRecord,
+    GuildDashboardPermissionRuleRepositoryError,
+    GuildFeatureRepositoryError,
+    GuildInviteAttributionStatus,
+    GuildInviteSnapshotInput,
+    GuildInviteSnapshotRecord,
+    GuildLoggingDestinationRecord,
+    GuildLoggingDestinationRepositoryError,
+    GuildMemberFlowEventRecord,
+    GuildMemberFlowEventType,
+    GuildMessageActivityDayRecord,
+    GuildModerationPolicyRecord,
+    GuildModerationPolicyRepositoryError,
+    GuildOverviewAggregate,
+    GuildSecurityPolicyRecord,
+    GuildSecurityPolicyRepositoryError,
+    GrowthOverviewRepositoryError,
+    LoggingRepositoryError,
+    MessageTemplateRecord,
+    ModerationTemporaryActionRecord,
+    ModerationTemporaryActionRepositoryError,
+    ModerationTemporaryActionStatus,
+    PostedMessageRecord,
+    PostingRepositoryError,
+    RecordAutomodEventInput,
+    RoleReconciliationActionRecord,
+    RoleReconciliationRepositoryError,
+    RoleReconciliationRunRecord,
+    RoleReconciliationSettingsInput,
+    RoleReconciliationSettingsRecord,
+    SaveAutomodRuleInput,
+    SuggestionBoardRecord,
+    SuggestionRecord,
+    SuggestionsRepositoryError,
+    SuggestionVoteRecord,
+    VerificationFlowRecord,
+    VerificationRecord,
+    VerificationRepositoryError,
+    WebSessionRecord,
+    WebSessionRepositoryError,
+    UpdateAutomodEventStatusInput,
+} from './contracts.js';
+export type {
+    ModerationCaseEventRecord,
+    ModerationCaseRecord,
+    ModerationRepositoryError,
+} from './contracts-moderation.js';
+export type {
+    ClosedXpVoiceSession,
+    GrantGuildUserXpResult,
+    GuildUserXpRank,
+    GuildUserXpRecord,
+    XpGrantRecord,
+    XpGrantSource,
+    XpRepositoryError,
+    XpRoleRewardRecord,
+    XpSettingsRecord,
+    XpVoiceSessionRecord,
+    XpVoiceSessionRepositoryError,
+    XpVoiceSessionTransition,
+} from './contracts-xp.js';
+export type {
+    ReactionRoleAssignmentRecord,
+    ReactionRoleMessageMode,
+    ReactionRoleMessageRecord,
+    ReactionRoleMessageSource,
+    ReactionRoleMessageWithOptions,
+    ReactionRoleOptionMatch,
+    ReactionRoleOptionRecord,
+    ReactionRolesRepositoryError,
+} from './contracts-reaction-roles.js';
+export type {
+    GiveawayEntryRecord,
+    GiveawayEventRecord,
+    GiveawayMaintenanceRepositoryError,
+    GiveawayRecord,
+    GiveawayReconciliationRepositoryError,
+    GiveawaysRepositoryError,
+    GiveawaySyncStatus,
+    GiveawayWinnerRecord,
+} from './contracts-giveaways.js';
+export type {
+    ProfileBuilderRepositoryError,
+    ProfileFieldRecord,
+    ProfileFormRecord,
+    ProfileSubmissionRecord,
+    ProfileSubmissionReviewRecord,
+} from './contracts-profile-builder.js';
+export type {
+    StructureExportSnapshotRecord,
+    StructureImportActionRecord,
+    StructureImportExportRepositoryError,
+    StructureImportRunRecord,
+    StructureImportRunWithActionsRecord,
+    StructureObservedEventStateRecord,
+} from './contracts-structure.js';
+export type {
+    TicketEventRecord,
+    TicketMemberRecord,
+    TicketPanelRecord,
+    TicketRecord,
+    TicketsRepositoryError,
+} from './contracts-tickets.js';
+export type {
+    GeneratedVoiceChannelControlRecord,
+    GeneratedVoiceChannelRecord,
+    GeneratedVoiceChannelStatus,
+    VcGeneratorControlAction,
+    VcGeneratorControlMode,
+    VcGeneratorControlPanelRecord,
+    VcGeneratorControlPanelStatus,
+    VcGeneratorControlRequestError,
+    VcGeneratorControlRequestRecord,
+    VcGeneratorControlRequestStatus,
+    VcGeneratorRepositoryError,
+    VcGeneratorRuleRecord,
+} from './contracts-vc-generator.js';
+export {
+    deleteBotInstallation,
+    findDeploymentConfig,
+    listBotActionEventPageByGuildId,
+    listBotActionEventsByGuildId,
+    listBotInstallationGuildIds,
+    listGuildSecurityPoliciesByGuildIds,
+    recordBotActionEvent,
+    upsertBotInstallation,
+    upsertDeploymentConfig,
+} from './runtime.js';
+export {
+    deleteGuildCommandPermissionRule,
+    findGuildCommandPermissionRule,
+    findGuildDashboardPermissionRule,
+    listGuildCommandPermissionRulesByGuildId,
+    listGuildDashboardPermissionRulesByGuildIds,
+    upsertGuildCommandPermissionRule,
+    upsertGuildDashboardPermissionRule,
+} from './runtime-access.js';
+export {
+    createWebSession,
+    findActiveWebSessionById,
+    findUsableFluxerOAuthTokenSetByUserId,
+    invalidateFluxerOAuthTokenSet,
+    revokeWebSession,
+    upsertFluxerOAuthTokenSet,
+} from './runtime-auth.js';
+export {
+    deleteGuildDefconExemption,
+    findGuildCommandSettingsByGuildId,
+    findGuildModerationPolicyByGuildId,
+    findGuildSecurityPolicyByGuildId,
+    listGuildDefconExemptionCategories,
+    upsertGuildCommandPrefix,
+    upsertGuildDefconExemption,
+    upsertGuildModerationPolicy,
+    upsertGuildSecurityPolicy,
+} from './runtime-settings.js';
+export {
+    deleteAutoroleRule,
+    deleteGuildLoggingDestination,
+    findGuildLoggingDestinationByEventGroup,
+    listAutoroleRulesByGuildId,
+    listEnabledAutoroleRulesByGuildId,
+    listGuildLoggingDestinationsByGuildId,
+    upsertAutoroleRule,
+    upsertGuildLoggingDestination,
+} from './runtime-roles-logging.js';
+export {
+    deleteMessageTemplate,
+    findMessageTemplateByName,
+    listMessageTemplatesByGuildId,
+    recordPostedMessage,
+    upsertMessageTemplate,
+} from './runtime-posting.js';
+export {
+    deleteVerificationFlow,
+    findActiveVerificationRecord,
+    findEnabledVerificationFlowByReaction,
+    listVerificationFlowsByGuildId,
+    revokeVerificationRecord,
+    upsertVerificationFlow,
+    upsertVerificationRecord,
+} from './runtime-verification.js';
+export {
+    deleteAutomodRule,
+    listAutomodEventsByGuildId,
+    listAutomodRulesByGuildId,
+    listEnabledAutomodRulesByGuildId,
+    recordAutomodEvent,
+    saveAutomodRule,
+    updateAutomodEventStatus,
+} from './runtime-automod.js';
+export {
+    cleanupDeletedGuildRoleReferences,
+    createRoleReconciliationRun,
+    findRoleReconciliationSettingsByGuildId,
+    recordRoleReconciliationAction,
+    updateRoleReconciliationRunStatus,
+    upsertRoleReconciliationSettings,
+} from './runtime-role-reconciliation.js';
+export {
+    incrementGuildMessageActivityDay,
+    listGuildInviteSnapshots,
+    loadGuildOverviewAggregate,
+    recordGuildMemberFlowEvent,
+    syncGuildInviteSnapshots,
+} from './runtime-growth-overview.js';
+export {
+    addGuildUserXp,
+    findGuildUserXp,
+    findGuildUserXpRank,
+    findXpSettingsByGuildId,
+    grantGuildUserXp,
+    listGuildXpLeaderboard,
+    upsertXpRoleReward,
+    upsertXpSettings,
+} from './runtime-xp.js';
+export { closeXpVoiceSession, startXpVoiceSession, transitionXpVoiceSession } from './runtime-xp-voice.js';
+export {
+    createSuggestion,
+    createSuggestionBoard,
+    deleteSuggestionBoard,
+    deleteSuggestionVote,
+    findDefaultSuggestionBoardByGuildId,
+    findSuggestionByGuildMessageId,
+    findSuggestionVote,
+    listSuggestionBoardsByGuildId,
+    upsertSuggestionBoard,
+    upsertSuggestionVote,
+} from './runtime-suggestions.js';
+export {
+    deleteReactionRoleMessage,
+    deleteReactionRoleOption,
+    deleteReactionRoleOptionByMessage,
+    findEnabledReactionRoleOptionByReaction,
+    findReactionRoleMessage,
+    findReactionRoleOption,
+    listActiveReactionRoleAssignmentsByGuildMessageUser,
+    listActiveReactionRoleAssignmentsByGuildUser,
+    listReactionRoleMessagesByGuildId,
+    markReactionRoleAssignmentRemoved,
+    markReactionRoleAssignmentsRemovedByMessageUser,
+    upsertReactionRoleAssignment,
+    upsertReactionRoleMessage,
+    upsertReactionRoleOption,
+    upsertReactionRoleOptionByMessage,
+} from './runtime-reaction-roles.js';
+export {
+    addModerationCaseNote,
+    createChannelModerationCase,
+    createModerationCase,
+    createObservedModerationCase,
+    findModerationCaseByGuildCaseNumber,
+    findRecentModerationCaseByTargetAction,
+    listModerationCaseEventsByCaseId,
+    listModerationCasesByGuildId,
+    recordModerationCaseEvent,
+    updateModerationCaseReason,
+    updateModerationCaseStatus,
+    voidModerationCase,
+} from './runtime-moderation.js';
+export {
+    cancelPendingModerationTemporaryActionsByTarget,
+    createModerationTemporaryAction,
+    findPendingModerationTemporaryActionByTarget,
+    listDueModerationTemporaryActions,
+    updateModerationTemporaryActionStatus,
+} from './runtime-moderation-temporary-actions.js';
+export {
+    deleteVcGeneratorRule,
+    findGeneratedVoiceChannelByChannelId,
+    findVcGeneratorControlPanelByMessageId,
+    findVcGeneratorControlPanelByRuleId,
+    findVcGeneratorRuleBySourceChannelId,
+    listGeneratedVoiceChannelsByGuildId,
+    listVcGeneratorControlPanelsByGuildId,
+    listVcGeneratorRulesByGuildId,
+    updateGeneratedVoiceChannelStatus,
+    upsertGeneratedVoiceChannel,
+    upsertVcGeneratorControlPanel,
+    upsertVcGeneratorRule,
+} from './runtime-vc-generator.js';
+export {
+    createVcGeneratorControlRequest,
+    expirePendingVcGeneratorControlRequests,
+    findActiveGeneratedVoiceChannelByOwner,
+    findPendingVcGeneratorControlRequest,
+    updateVcGeneratorControlRequest,
+} from './runtime-vc-generator-control-requests.js';
+export {
+    createTicketPanel,
+    deleteTicketPanel,
+    findEnabledTicketPanelByMessageId,
+    listTicketPanelsByGuildId,
+    reserveNextTicketNumber,
+    updateTicketPanel,
+    updateTicketPanelEnabled,
+} from './runtime-tickets-panels.js';
+export {
+    addTicketMember,
+    createTicket,
+    findOpenTicketByPanelAndOpener,
+    findTicketByChannelId,
+    listOpenTicketsByPanelAndOpener,
+    recordTicketEvent,
+    updateTicketChannelId,
+    updateTicketStatus,
+} from './runtime-tickets.js';
+export {
+    createStructureExportSnapshot,
+    createStructureImportRun,
+    findStructureExportSnapshotByGuildId,
+    findStructureImportRunByGuildId,
+    findStructureObservedEventStateByGuildId,
+    listStructureExportSnapshotsByGuildId,
+    listStructureImportRunsByGuildId,
+    recordStructureImportAction,
+    recordStructureObservedEvent,
+    updateStructureImportActionStatus,
+    updateStructureImportRunStatus,
+} from './runtime-structure.js';
+export {
+    createProfileSubmission,
+    deleteProfileField,
+    findProfileFormByGuildName,
+    findProfileSubmissionById,
+    listProfileFieldsByFormId,
+    listProfileFormsByGuildId,
+    listProfileSubmissionsByGuildId,
+    reviewProfileSubmission,
+    upsertProfileField,
+    upsertProfileForm,
+} from './runtime-profile-builder.js';
+export {
+    createGiveaway,
+    drawGiveawayWinners,
+    findActiveGiveawayByGuildMessageId,
+    listActiveGiveawayEntries,
+    listGiveawaysByGuildId,
+    listGiveawayWinners,
+    recordGiveawayEvent,
+    removeGiveawayEntry,
+    updateGiveawayStatus,
+    upsertGiveawayEntry,
+} from './runtime-giveaways.js';
+export {
+    listExpiredActiveGiveaways,
+    listReactionReconciliationGiveaways,
+    listStaleActiveGiveaways,
+    reconcileGiveawayEntries,
+    updateGiveawaySyncStatus,
+} from './runtime-giveaways-maintenance.js';
+export { createRuntimeDb, isConvexRuntimeDb, isRequiredConvexConfig } from './service.js';
+export type { RuntimeDbClient } from './service.js';

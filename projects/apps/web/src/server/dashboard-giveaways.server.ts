@@ -10,12 +10,12 @@ import {
     recordBotActionEvent,
     recordGiveawayEvent,
     updateGiveawayStatus,
-} from '@neonflux/persistence';
-import type { GiveawayRecord, GiveawayWinnerRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { GiveawayRecord, GiveawayWinnerRecord } from '@neonflux/db';
 import { reactFluxerBotGuildChannelMessage, sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGiveawayChannel } from './dashboard-giveaways-structure.server.js';
@@ -104,7 +104,7 @@ export async function loadDashboardGiveawaysSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const giveawaysResult = await listGiveawaysByGuildId(database.db, {
         guildId: guildPageData.guild.id,
         limit: 50,
@@ -167,7 +167,7 @@ export async function publishDashboardGiveaway(
         messageId: sendResult.value.id,
         emoji: payload.entryEmoji,
     });
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const giveawayResult = await createGiveaway(database.db, {
         guildId: context.guild.id,
         channelId: payload.channelId,
@@ -240,7 +240,7 @@ export async function cancelDashboardGiveaway(
 
     if (!botToken) return { type: 'bot-token-missing' };
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const giveawayResult = await updateGiveawayStatus(database.db, {
         guildId: context.guild.id,
         giveawayId: input.giveawayId,
@@ -287,7 +287,7 @@ async function drawDashboardGiveaway(
 
     if (!botToken) return { type: 'bot-token-missing' };
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const drawResult = await drawGiveawayWinners(database.db, {
         guildId: context.guild.id,
         giveawayId: input.giveawayId,
@@ -473,7 +473,7 @@ async function recordGiveawayAudit(
     action: string,
     metadata: Record<string, unknown>
 ): Promise<'recorded' | 'database-error'> {
-    const result = await recordBotActionEvent((await getWebPersistence()).db, {
+    const result = await recordBotActionEvent((await getWebDb()).db, {
         guildId: context.guild.id,
         feature: dashboardGiveawaysFeature,
         action,

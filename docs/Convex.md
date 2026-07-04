@@ -2,7 +2,7 @@
 
 This guide is for running Convex yourself instead of using a hosted Convex deployment.
 
-The current NeonFlux migration target is Convex. See `Research/convex-full-migration.md` for that migration plan.
+NeonFlux uses Convex as its durable runtime store. This guide covers optional self-hosted Convex infrastructure.
 
 ## Defaults
 
@@ -11,9 +11,9 @@ The current NeonFlux migration target is Convex. See `Research/convex-full-migra
 - Postgres default: `postgres:17-alpine`. Convex docs say Postgres 17 is tested.
 - Postgres 18 is unvalidated until Convex documents support or this repo records a passing smoke test.
 - Do not share the NeonFlux app database with Convex.
-- Do not move OAuth sessions, encrypted Fluxer tokens, deployment config, or bot bootstrap into Convex without a migration plan.
+- Do not add new durable NeonFlux app domains to Convex without an ownership, lifecycle, retention, deletion, and rollback plan.
 
-## Convex Migration Config
+## Convex Runtime Config
 
 Runtime-facing values:
 
@@ -22,6 +22,7 @@ CONVEX_URL=
 VITE_CONVEX_URL=
 NEONFLUX_AUTH_JWT_ISSUER=
 NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
+NEONFLUX_AUTH_JWT_JWKS=
 NEONFLUX_AUTH_JWT_PRIVATE_KEY=
 ```
 
@@ -34,7 +35,7 @@ CONVEX_DEPLOY_KEY=
 
 `CONVEX_DEPLOY_KEY` is for deploy/codegen automation only and must not be exposed to browser code.
 
-The current foundation keeps these optional until Convex-backed services or migration tooling need them. Use `requireConvexConfig` as the cutover/deploy gate.
+Convex-backed runtime and deploy commands fail fast through `requireConvexConfig` when required connection/auth values are missing.
 
 ## Convex Deployment Link
 
@@ -47,9 +48,57 @@ CONVEX_DEPLOYMENT=
 CONVEX_DEPLOY_KEY=
 NEONFLUX_AUTH_JWT_ISSUER=
 NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
+NEONFLUX_AUTH_JWT_JWKS=
 ```
 
-`NEONFLUX_AUTH_JWT_ISSUER` must be the public web auth origin that serves `/.well-known/jwks.json`.
+`NEONFLUX_AUTH_JWT_ISSUER` is the stable `iss` claim for NeonFlux-issued Convex JWTs. It is separate from Fluxer OAuth URLs and does not need to be publicly fetchable when `NEONFLUX_AUTH_JWT_JWKS` is set.
+
+Prefer `NEONFLUX_AUTH_JWT_JWKS=data:application/json,...` with the public JWKS for local dev and deployment. Convex deploy/codegen environments should receive issuer, audience, and public JWKS only. `NEONFLUX_AUTH_JWT_PRIVATE_KEY` stays server-only for web, bot, and service signing.
+
+Generate the public JWKS data URI from the current server-only signing key:
+
+```sh
+pnpm --silent generate:convex-jwks
+```
+
+Dry-run the public Convex auth env update before applying it:
+
+```sh
+pnpm convex:configure-auth-env -- --issuer http://localhost:3000/auth --deployment <CONVEX_DEPLOYMENT>
+```
+
+For deployed environments, use that environment's stable NeonFlux issuer instead of `localhost`. This command only mutates Convex env when `--apply --confirm-apply-target <target>` is added and the confirmation target exactly matches the selected deployment. It sends issuer, audience, and public JWKS only. It does not send `NEONFLUX_AUTH_JWT_PRIVATE_KEY` to Convex.
+
+Apply only after the dry-run output targets the intended deployment:
+
+```sh
+pnpm convex:configure-auth-env -- --issuer <stable-NeonFlux-issuer> --deployment <target> --apply --confirm-apply-target <target>
+```
+
+After target Convex env is updated, make the local shell or protected deploy environment use the same public auth values. Then validate and redeploy so `auth.config.ts` is evaluated with those values:
+
+```sh
+pnpm convex:validate-auth-config
+pnpm convex:check-auth-env -- --compare-deploy-env
+pnpm convex:deploy
+```
+
+For protected environments, set the same public auth values in protected environment variables and use the protected Convex deploy workflow instead of a local shell. After the deployment updates auth config, prove the target auth env is configured and run a bounded local/dev Convex check with:
+
+```sh
+pnpm convex:check-auth-env
+pnpm convex:dev:once
+```
+
+`pnpm convex:check-auth-env` first checks required env names, then validates the public issuer, audience, and JWKS values without printing JWKS content. It rejects Fluxer-owned issuers and any public JWKS value that exposes private key parameters.
+
+For GitHub codegen/deploy jobs, store `NEONFLUX_AUTH_JWT_ISSUER`, `NEONFLUX_AUTH_JWT_AUDIENCE`, and `NEONFLUX_AUTH_JWT_JWKS` as protected environment or repository variables. Keep only `CONVEX_DEPLOY_KEY` in secrets for Convex deploy automation.
+
+Validate deploy/codegen auth config from the current process environment without reading local `.env` private signing material:
+
+```sh
+pnpm convex:validate-auth-config
+```
 
 Generate typed Convex API files:
 
@@ -70,13 +119,15 @@ Deploy Convex functions only from the protected `Deploy Convex` GitHub workflow 
 pnpm convex:deploy
 ```
 
-The current migration switches web and bot runtime to Convex before app Postgres and Drizzle are removed. The old app database stays only until cutover and removal gates are satisfied.
+The current codebase uses Convex for durable web and bot runtime state and removes old app Postgres and Drizzle infrastructure. Do not add dual DB runtime or Postgres fallback paths.
 
 ## Convex Auth Bridge
 
 Fluxer OAuth remains the web login flow. After the existing web session is valid, NeonFlux issues short-lived Convex JWTs signed with `NEONFLUX_AUTH_JWT_PRIVATE_KEY`.
 
-Public JWKS endpoint:
+Fluxer-owned OAuth hosts such as `web.fluxer.app` are not valid NeonFlux JWT issuers. Use a NeonFlux issuer and configure Convex with the matching public JWKS through `NEONFLUX_AUTH_JWT_JWKS`. Convex auth config fails closed when JWT auth is enabled without that public JWKS value.
+
+Optional public JWKS endpoint for diagnostics/compatibility:
 
 ```text
 /.well-known/jwks.json
@@ -211,12 +262,11 @@ Pin a known Convex image version/revision for production. Do not stay on mutable
 
 ## Self-Hosted Experiment Rule
 
-This self-hosted stack is not the current NeonFlux migration target. Do not use it to move NeonFlux app data without the Convex migration runbook.
+This self-hosted stack is optional infrastructure research. Do not use it to move NeonFlux app data without a new, explicit data-movement plan.
 
 For local or self-hosted experiments:
 
-1. Stand up Convex as an optional side stack.
-2. Pick one dashboard live-data proof slice.
-3. Choose Convex or existing Postgres as that domain's owner.
-4. Avoid dual writes.
-5. Move durable data only after backup, restore, retention, deletion, and rollback are defined.
+1. Stand up Convex as an isolated side stack.
+2. Keep NeonFlux app data on the configured Convex runtime unless a new data-movement plan is approved.
+3. Do not create new Postgres-owned app domains or dual-write paths.
+4. Move any durable experiment data only after backup, restore, retention, deletion, and rollback are defined.

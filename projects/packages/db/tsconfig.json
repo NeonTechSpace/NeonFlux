@@ -4,13 +4,16 @@
         "composite": true,
         "outDir": "dist",
         "rootDir": "src",
+        "types": ["node", "vitest/globals"],
         "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
     },
     "include": ["src/**/*.ts"],
-    "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"],
     "references": [
         {
             "path": "../config"
+        },
+        {
+            "path": "../convex"
         }
     ]
 }

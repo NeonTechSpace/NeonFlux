@@ -11,6 +11,9 @@ import { nitro } from 'nitro/vite';
 
 const config = defineConfig({
     resolve: { tsconfigPaths: true },
+    ssr: {
+        external: ['tslib'],
+    },
     plugins: [
         mdx(),
         devtools(),

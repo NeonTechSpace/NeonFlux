@@ -41,7 +41,7 @@ type StoredTicketPanelDocument = TicketPanelDocument & { _id: GenericId<'ticketP
 type StoredTicketDocument = TicketDocument & { _id: GenericId<'tickets'> };
 type StoredTicketMemberDocument = TicketMemberDocument & { _id: GenericId<'ticketMembers'> };
 
-const allowedTicketServices = ['bot', 'web', 'migration'] as const;
+const allowedTicketServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const panelRecordValidator = v.object({
     channelId: v.string(),

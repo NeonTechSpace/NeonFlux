@@ -1,4 +1,4 @@
-import { recordStructureObservedEvent } from '@neonflux/persistence';
+import { recordStructureObservedEvent } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureEvent, BotFeatureHandlerContext } from './bot-feature-types.js';

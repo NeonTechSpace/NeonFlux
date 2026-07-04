@@ -39,7 +39,7 @@ type StoredReactionRoleAssignmentDocument = ReactionRoleAssignmentDocument & {
     _id: GenericId<'reactionRoleAssignments'>;
 };
 
-const allowedReactionRoleServices = ['bot', 'web', 'migration'] as const;
+const allowedReactionRoleServices = ['bot', 'web'] as const;
 const messageRecordValidator = v.object({
     channelId: v.string(),
     createdAt: v.string(),

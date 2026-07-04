@@ -97,7 +97,7 @@ export function DashboardAccessWorkbench({ guildId, children }: { guildId: strin
     );
 }
 
-export function getDashboardAccessTool(id: DashboardAccessToolId): DashboardAccessTool {
+function getDashboardAccessTool(id: DashboardAccessToolId): DashboardAccessTool {
     const tool = dashboardAccessTools.find((candidate) => candidate.id === id);
 
     if (!tool) {
@@ -107,7 +107,7 @@ export function getDashboardAccessTool(id: DashboardAccessToolId): DashboardAcce
     return tool;
 }
 
-export function getDashboardAccessToolIdFromPathname(guildId: string, pathname: string): DashboardAccessToolId {
+function getDashboardAccessToolIdFromPathname(guildId: string, pathname: string): DashboardAccessToolId {
     const guildIdParam = getGuildIdParam({ guildId });
     const accessPrefix = `/dashboard/${guildIdParam}/access`;
     const segment = pathname

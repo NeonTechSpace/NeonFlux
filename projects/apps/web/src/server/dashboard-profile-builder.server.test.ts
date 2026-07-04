@@ -9,7 +9,7 @@ import {
     reviewProfileSubmission,
     upsertProfileField,
     upsertProfileForm,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import type {
     BotActionEventRecord,
     DeploymentConfigRecord,
@@ -17,8 +17,8 @@ import type {
     ProfileFormRecord,
     ProfileSubmissionRecord,
     ProfileSubmissionReviewRecord,
-} from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { ok } from 'neverthrow';
@@ -48,8 +48,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-26T01:00:00.000Z'),
 };
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -62,7 +62,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

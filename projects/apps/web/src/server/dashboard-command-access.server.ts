@@ -8,12 +8,12 @@ import {
     listGuildCommandPermissionRulesByGuildId,
     recordBotActionEvent,
     upsertGuildCommandPermissionRule,
-} from '@neonflux/persistence';
-import type { GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleTargetType } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleTargetType } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -118,7 +118,7 @@ export async function loadDashboardCommandAccessPage(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const rulesResult = await listGuildCommandPermissionRulesByGuildId(database.db, {
         guildId: guildPageData.guild.id,
     });
@@ -160,7 +160,7 @@ export async function updateDashboardCommandAccessRule(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const upsertResult = await upsertGuildCommandPermissionRule(database.db, {
         guildId: guildPageData.guild.id,
         targetType: target.targetType,
@@ -213,7 +213,7 @@ export async function deleteDashboardCommandAccessRule(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const deleteResult = await deleteGuildCommandPermissionRule(database.db, {
         guildId: guildPageData.guild.id,
         targetType: target.targetType,

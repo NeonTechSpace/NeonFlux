@@ -11,7 +11,7 @@ export type NeonFluxConvexUserIdentity = {
 
 export type NeonFluxConvexServiceIdentity = {
     kind: 'service';
-    serviceName: 'bot' | 'migration' | 'web';
+    serviceName: 'bot' | 'web';
     subject: string;
     tokenIdentifier: string;
 };
@@ -106,7 +106,7 @@ function readUserIdentity(identity: UserIdentity): NeonFluxConvexUserIdentity | 
 function readServiceIdentity(identity: UserIdentity): NeonFluxConvexServiceIdentity | null {
     const serviceName = readStringClaim(identity, 'serviceName');
 
-    if (serviceName !== 'bot' && serviceName !== 'migration' && serviceName !== 'web') {
+    if (serviceName !== 'bot' && serviceName !== 'web') {
         return null;
     }
 

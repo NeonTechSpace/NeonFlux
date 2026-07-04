@@ -82,8 +82,8 @@ The main workspace is in `projects`.
 - `apps/bot`: Fluxer bot process
 - `apps/web`: web dashboard
 - `packages/config`: shared env parsing
-- `packages/convex`: shared Convex client, API, JWT, and migration helpers
-- `packages/persistence`: runtime persistence boundary
+- `packages/convex`: shared Convex client, API, and JWT helpers
+- `packages/db`: runtime database boundary
 - `packages/core`: shared bot/web rules
 - `packages/fluxer`: Fluxer API and permission helpers
 
@@ -100,8 +100,6 @@ pnpm generate:session-secret
 Put the output in `SESSION_SECRET`.
 
 Local development does not require app Postgres. Convex is the durable store target.
-
-During the migration window only, source Postgres export tooling reads `DATABASE_URL` from `projects/.env`.
 
 ## Convex
 

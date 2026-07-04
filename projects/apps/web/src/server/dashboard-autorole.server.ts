@@ -6,12 +6,12 @@ import {
     listAutoroleRulesByGuildId,
     recordBotActionEvent,
     upsertAutoroleRule,
-} from '@neonflux/persistence';
-import type { AutoroleRuleRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { AutoroleRuleRecord } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -91,7 +91,7 @@ export async function loadDashboardAutoroleSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const rulesResult = await listAutoroleRulesByGuildId((await getWebPersistence()).db, {
+    const rulesResult = await listAutoroleRulesByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -125,7 +125,7 @@ export async function updateDashboardAutoroleRule(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const ruleResult = await upsertAutoroleRule(database.db, {
         guildId: guildPageData.guild.id,
         roleId: input.roleId,
@@ -178,7 +178,7 @@ export async function deleteDashboardAutoroleRule(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const ruleResult = await deleteAutoroleRule(database.db, {
         guildId: guildPageData.guild.id,
         roleId: input.roleId,

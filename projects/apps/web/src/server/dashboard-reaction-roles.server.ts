@@ -6,10 +6,10 @@ import {
     listReactionRoleMessagesByGuildId,
     upsertReactionRoleMessage,
     upsertReactionRoleOptionByMessage,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
     mapDashboardGuildPageError,
@@ -45,7 +45,7 @@ export async function loadDashboardReactionRolesSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const messagesResult = await listReactionRoleMessagesByGuildId((await getWebPersistence()).db, {
+    const messagesResult = await listReactionRoleMessagesByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -118,7 +118,7 @@ export async function publishDashboardReactionRoleMessage(
         return { type: 'send-failed' };
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const messageResult = await upsertReactionRoleMessage(database.db, {
         guildId: guildPageData.guild.id,
         channelId: sendResult.value.channelId,
@@ -228,7 +228,7 @@ export async function deleteDashboardReactionRoleMessage(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const messageResult = await deleteReactionRoleMessage(database.db, {
         guildId: guildPageData.guild.id,
         messageId: input.messageId,

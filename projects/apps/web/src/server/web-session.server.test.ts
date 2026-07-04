@@ -1,6 +1,6 @@
-import { findActiveWebSessionById } from '@neonflux/persistence';
-import type { WebSessionRecord } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+import { findActiveWebSessionById } from '@neonflux/db';
+import type { WebSessionRecord } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,13 +18,13 @@ const activeSession = {
     revokedAt: null,
 } satisfies WebSessionRecord;
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

@@ -21,14 +21,6 @@
         "./jwt": {
             "types": "./src/jwt.ts",
             "import": "./dist/jwt.js"
-        },
-        "./migration-tables": {
-            "types": "./src/migration-tables.ts",
-            "import": "./dist/migration-tables.js"
-        },
-        "./migration": {
-            "types": "./src/migration/index.ts",
-            "import": "./dist/migration/index.js"
         }
     },
     "scripts": {

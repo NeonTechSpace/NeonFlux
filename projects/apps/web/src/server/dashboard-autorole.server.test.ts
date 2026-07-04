@@ -5,9 +5,9 @@ import {
     listAutoroleRulesByGuildId,
     recordBotActionEvent,
     upsertAutoroleRule,
-} from '@neonflux/persistence';
-import type { AutoroleRuleRecord } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { AutoroleRuleRecord } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as NeonFluxFluxer from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
@@ -47,8 +47,8 @@ vi.mock('@neonflux/config', async (importActual) => {
     };
 });
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -61,7 +61,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

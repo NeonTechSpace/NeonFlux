@@ -14,7 +14,7 @@ import {
 type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
 type DashboardLiveMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
 
-const allowedLiveMutationServices = ['bot', 'web', 'migration'] as const;
+const allowedLiveMutationServices = ['bot', 'web'] as const;
 const dashboardLiveAreaValidator = v.union(...dashboardLiveAreas.map((area) => v.literal(area)));
 const dashboardLiveStateValidator = v.object({
     area: dashboardLiveAreaValidator,

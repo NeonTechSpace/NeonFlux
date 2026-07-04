@@ -8,7 +8,7 @@ import {
     findGuildCommandSettingsByGuildId,
     recordBotActionEvent,
     upsertGuildCommandPrefix,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import { authorizeBotCommand } from './bot-command-authorization.js';

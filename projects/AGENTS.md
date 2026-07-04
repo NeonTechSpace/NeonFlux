@@ -2,7 +2,7 @@
 
 - Use pnpm only for Node.js work.
 - Target pnpm 11. Keep pnpm settings in `pnpm-workspace.yaml`, and pin Node with root `package.json` `devEngines.runtime`.
-- Use Postgres only. Do not add SQLite, `node:sqlite`, or local DB-file runtime support. PGlite is only for tests and migration validation.
+- Use the Convex-backed database boundary for durable app runtime. Do not add new Postgres, Drizzle, SQLite, `node:sqlite`, local DB-file runtime support, or dual-store fallback paths.
 - There is no staging environment. Runtime environments are development and production.
 - `INSTANCE_MODE` bootstrap and DB-effective mode behavior must be handled with `switch` statements.
 - Keep shared logic in `packages/*`. Bot and web consume it through workspace package imports.
@@ -12,11 +12,11 @@
 - Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests. Mock only real runtime boundaries such as network, DB, env, clock, and randomness.
 - Releases are tag-driven from `main`: use `web-vX.Y.Z` for web outputs and/or `bot-vX.Y.Z` for bot. GHCR images get version, `latest`, and commit SHA tags.
 - Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
-- Shared package changes do not force every image to release, but DB migrations must stay compatible with deployed bot and web versions.
-- For DB design, model ownership before writing schema: name the durable concept, lifecycle, cardinality, authority, retention/deletion behavior, and expected access paths. Each table should own one durable concept.
+- Shared package changes do not force every image to release, but persistence/schema changes must stay compatible with deployed bot and web versions.
+- For Convex data design, model ownership before writing schema: name the durable concept, lifecycle, cardinality, authority, retention/deletion behavior, and expected access paths. Each table should own one durable concept.
 - Deployment behavior config lives in the dedicated `deployment_config` row. Do not copy it into entity rows such as `bot_installations`.
 - Use guild-scoped generic settings only for small feature toggles/config. Add dedicated feature tables when a feature owns records, workflows, submissions, logs, approvals, counters, or user data.
-- Keep startup migration behavior in application-owned bootstrap code, not Docker shell command chains, so Docker and local production-style starts share the same locked migration path.
+- Do not reintroduce startup database migrations, app Postgres bootstrap, source-export tooling, or import/smoke scripts in app or Docker paths.
 - When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`. Current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit. Before writing `Since Last Release Tag`, check whether a relevant `web-vX.Y.Z` or `bot-vX.Y.Z` release tag exists. If no relevant release tag exists, write `Since Last Release Tag: no release tag exists yet`. Do not infer or fill this section from the template. If a relevant tag exists, aggregate unreleased impact since that tag. Current deployable outputs are `bot`, `web`, and `web-docs`, so state `bot`, `web`, `web-docs`, `both web variants`, `both`, or `none` for each section. Use `both web variants` when `web` and `web-docs` are affected but `bot` is not. Use `both` when `bot` and at least one web output are affected.
 - Never commit secrets, `.env`, generated `dist`, local DB data, or machine-specific absolute paths.
 - Do not stage, commit, tag, push, squash, rebase, or run mutating VCS commands without explicit permission.

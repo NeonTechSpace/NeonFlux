@@ -38,7 +38,7 @@ type StoredGuildDefconExemptionDocument = GuildDefconExemptionDocument & {
     _id: GenericId<'guildDefconExemptions'>;
 };
 
-const allowedSecurityPolicyServices = ['bot', 'web', 'migration'] as const;
+const allowedSecurityPolicyServices = ['bot', 'web'] as const;
 const defconExemptionCategoryLimit = 500;
 
 const defconLevelValidator = v.union(v.literal(1), v.literal(2), v.literal(3));

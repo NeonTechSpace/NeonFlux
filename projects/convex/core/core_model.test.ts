@@ -9,7 +9,7 @@ import {
 } from './core_model.js';
 
 describe('Convex core model helpers', () => {
-    it('normalizes single-mode deployment config like the Postgres repository', () => {
+    it('normalizes single-mode deployment config to the app-facing contract', () => {
         expect(
             normalizeDeploymentConfigInput({
                 instanceMode: ' single ',

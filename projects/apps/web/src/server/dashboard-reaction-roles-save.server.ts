@@ -7,15 +7,15 @@ import {
     listReactionRoleMessagesByGuildId,
     upsertReactionRoleMessage,
     upsertReactionRoleOptionByMessage,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import type {
     ReactionRoleMessageRecord,
     ReactionRoleMessageWithOptions,
-    RuntimePersistenceClient,
-} from '@neonflux/persistence';
+    RuntimeDbClient,
+} from '@neonflux/db';
 import { editFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
     mapDashboardGuildPageError,
@@ -59,7 +59,7 @@ export async function saveDashboardReactionRoleMessage(
         return { type: 'bot-token-missing' };
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const currentMessageResult = await findReactionRoleMessage(database.db, {
         guildId: guildPageData.guild.id,
         messageId: input.messageId,
@@ -167,7 +167,7 @@ export async function saveDashboardReactionRoleMessage(
 }
 
 async function persistReactionRoleMessageSave(input: {
-    database: RuntimePersistenceClient;
+    database: RuntimeDbClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     currentMessage: ReactionRoleMessageWithOptions;
     payload: Extract<ReturnType<typeof normalizeReactionRolePublishPayload>, { type: 'payload' }>;
@@ -282,7 +282,7 @@ async function persistReactionRoleMessageSave(input: {
 }
 
 async function recordReactionRoleSaveAudit(input: {
-    database: RuntimePersistenceClient;
+    database: RuntimeDbClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     currentMessage: ReactionRoleMessageWithOptions;
     payload: Extract<ReturnType<typeof normalizeReactionRolePublishPayload>, { type: 'payload' }>;
@@ -367,7 +367,7 @@ async function recordReactionRoleSaveAudit(input: {
 }
 
 async function recordReactionRoleSyncFailureAudit(input: {
-    database: RuntimePersistenceClient;
+    database: RuntimeDbClient;
     guildPageData: Extract<Awaited<ReturnType<typeof loadDashboardGuildPageData>>, { type: 'guild' }>;
     actor: Extract<Awaited<ReturnType<typeof resolveReactionRoleActor>>, { type: 'actor' }>;
     currentMessage: ReactionRoleMessageWithOptions;

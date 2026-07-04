@@ -39,7 +39,7 @@ type StoredPostedMessageDocument = PostedMessageDocument & {
     _id: GenericId<'postedMessages'>;
 };
 
-const allowedPostingServices = ['bot', 'web', 'migration'] as const;
+const allowedPostingServices = ['bot', 'web'] as const;
 const messageTemplateRecordValidator = v.object({
     content: v.union(v.string(), v.null()),
     createdAt: v.string(),

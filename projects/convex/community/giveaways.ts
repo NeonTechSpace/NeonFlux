@@ -37,7 +37,7 @@ type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> }
 type StoredGiveawayEntryDocument = GiveawayEntryDocument & { _id: GenericId<'giveawayEntries'> };
 type StoredGiveawayWinnerDocument = GiveawayWinnerDocument & { _id: GenericId<'giveawayWinners'> };
 
-const allowedGiveawayServices = ['bot', 'web', 'migration'] as const;
+const allowedGiveawayServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const giveawayRecordValidator = v.object({
     channelId: v.string(),

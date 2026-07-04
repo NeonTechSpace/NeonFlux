@@ -41,7 +41,7 @@ type StoredRoleReconciliationActionDocument = RoleReconciliationActionDocument &
     _id: GenericId<'roleReconciliationActions'>;
 };
 
-const allowedRoleReconciliationServices = ['bot', 'web', 'migration'] as const;
+const allowedRoleReconciliationServices = ['bot', 'web'] as const;
 const settingsRecordValidator = v.object({
     cleanupDeletedRoleReferences: v.boolean(),
     createdAt: v.optional(v.string()),

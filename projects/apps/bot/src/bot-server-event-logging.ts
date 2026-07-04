@@ -1,5 +1,5 @@
 import { getServerLogEventGroupForEventType, type ServerLogEventGroup } from '@neonflux/core/server-event-logging';
-import { findGuildLoggingDestinationByEventGroup } from '@neonflux/persistence';
+import { findGuildLoggingDestinationByEventGroup } from '@neonflux/db';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

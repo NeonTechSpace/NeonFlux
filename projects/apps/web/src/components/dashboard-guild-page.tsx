@@ -51,14 +51,6 @@ const accessLiveArea = [
     'role_reconciliation',
     'verification',
 ] as const satisfies readonly DashboardLiveArea[];
-const communityLiveArea = [
-    'xp',
-    'vc_generator',
-    'tickets',
-    'suggestions',
-    'profile_builder',
-    'giveaways',
-] as const satisfies readonly DashboardLiveArea[];
 const communityXpLiveArea = ['xp'] as const satisfies readonly DashboardLiveArea[];
 const communityVcGeneratorLiveArea = ['vc_generator'] as const satisfies readonly DashboardLiveArea[];
 const communityTicketsLiveArea = ['tickets'] as const satisfies readonly DashboardLiveArea[];
@@ -298,26 +290,6 @@ export function DashboardGuildCommunitySuggestionsCategory() {
     });
 
     return <DashboardSuggestionsPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunityStackedCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityLiveArea,
-    });
-
-    return (
-        <DashboardCategorySection categoryId='community'>
-            <DashboardXpSettingsPanel guildId={data.guild.id} />
-            <DashboardGiveawaysPanel guildId={data.guild.id} />
-            <DashboardProfileBuilderPanel guildId={data.guild.id} />
-            <DashboardVcGeneratorPanel guildId={data.guild.id} />
-            <DashboardTicketsPanel guildId={data.guild.id} />
-            <DashboardSuggestionsPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
 }
 
 export function DashboardGuildModerationCategory() {

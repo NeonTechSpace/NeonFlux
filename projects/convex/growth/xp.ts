@@ -41,7 +41,7 @@ type StoredGuildUserXpDocument = GuildUserXpDocument & { _id: GenericId<'guildUs
 type StoredXpGrantDocument = XpGrantDocument & { _id: GenericId<'xpGrants'> };
 type StoredXpRoleRewardDocument = XpRoleRewardDocument & { _id: GenericId<'xpRoleRewards'> };
 
-const allowedXpServices = ['bot', 'web', 'migration'] as const;
+const allowedXpServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const settingsRecordValidator = v.object({
     config: v.any(),

@@ -30,7 +30,7 @@ type StoredModerationTemporaryActionDocument = ModerationTemporaryActionDocument
     _id: GenericId<'moderationTemporaryActions'>;
 };
 
-const allowedModerationServices = ['bot', 'web', 'migration'] as const;
+const allowedModerationServices = ['bot', 'web'] as const;
 const temporaryActionStatusValidator = v.union(
     v.literal('pending'),
     v.literal('completed'),

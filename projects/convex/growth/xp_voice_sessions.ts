@@ -27,7 +27,7 @@ type XpVoiceMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredXpVoiceSessionDocument = XpVoiceSessionDocument & { _id: GenericId<'xpVoiceSessions'> };
 
-const allowedXpVoiceServices = ['bot', 'web', 'migration'] as const;
+const allowedXpVoiceServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const sessionRecordValidator = v.object({
     channelId: v.string(),

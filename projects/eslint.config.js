@@ -33,7 +33,6 @@ export default defineConfig([
             '**/data/**',
             '**/.local/**',
             'convex/_generated/**',
-            'packages/db/drizzle/**',
         ],
     },
     {

@@ -145,7 +145,7 @@ export function matchRoles(roles: DashboardAutoroleRole[], query: string): Dashb
         .map((match) => match.role);
 }
 
-export function toMutationStatus(resultType: string): string {
+function toMutationStatus(resultType: string): string {
     switch (resultType) {
         case 'invalid-input':
             return 'Choose a role before saving.';

@@ -37,7 +37,7 @@ type StoredMessageActivityDayDocument = GuildMessageActivityDayDocument & {
     _id: GenericId<'guildMessageActivityDays'>;
 };
 
-const allowedGrowthServices = ['bot', 'web', 'migration'] as const;
+const allowedGrowthServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const attributionStatusValidator = v.union(
     v.literal('ambiguous'),

@@ -11,7 +11,7 @@ import {
 } from './access_permissions_model.js';
 
 describe('access permission model', () => {
-    it('normalizes command permission rules like the Postgres repository', () => {
+    it('normalizes command permission rules to the app-facing contract', () => {
         const document = buildCommandPermissionRuleDocument(
             {
                 guildId: ' guild-1 ',

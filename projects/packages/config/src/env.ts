@@ -9,6 +9,8 @@ const instanceMode = type("'single' | 'multi'");
 const guildDefconOverride = type("'auto' | '1' | '2' | '3'");
 const logLevel = type("'debug' | 'info' | 'warn' | 'error'");
 const nodeEnv = type("'development' | 'test' | 'production'");
+const privateJwkParameters = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth'] as const;
+const base64UrlPattern = /^[A-Za-z0-9_-]+$/u;
 
 const rawEnv = type({
     'APP_ENV?': appEnv,
@@ -27,6 +29,7 @@ const rawEnv = type({
     'SESSION_SECRET?': 'string',
     'NEONFLUX_AUTH_JWT_AUDIENCE?': 'string',
     'NEONFLUX_AUTH_JWT_ISSUER?': 'string',
+    'NEONFLUX_AUTH_JWT_JWKS?': 'string',
     'NEONFLUX_AUTH_JWT_PRIVATE_KEY?': 'string',
     'PUBLIC_WEB_URL?': 'string',
     'VITE_CONVEX_URL?': 'string',
@@ -47,6 +50,7 @@ export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { inst
 export type ConvexConfig = {
     authJwtAudience?: string;
     authJwtIssuer?: string;
+    authJwtJwks?: string;
     authJwtPrivateKey?: string;
     deployKey?: string;
     deployment?: string;
@@ -57,8 +61,8 @@ export type ConvexConfig = {
 export type RequiredConvexConfig = {
     authJwtAudience: string;
     authJwtIssuer: string;
+    authJwtJwks: string;
     authJwtPrivateKey: string;
-    deployKey: string;
     deployment: string;
     publicUrl: string;
     url: string;
@@ -122,7 +126,7 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
 }
 
 function loadLocalDotEnvFile(path: string): void {
-    const result = loadDotEnv({ path, override: false });
+    const result = loadDotEnv({ path, override: false, quiet: true });
     const parsed = result.parsed ?? parseDotEnv(readFileSync(path));
 
     for (const [key, value] of Object.entries(parsed)) {
@@ -148,8 +152,8 @@ export function requireConvexConfig(env: NodeJS.ProcessEnv = process.env): Requi
     return {
         authJwtAudience: requireConfigValue(config.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
         authJwtIssuer: requireConfigValue(config.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
+        authJwtJwks: requireConfigValue(config.authJwtJwks, 'NEONFLUX_AUTH_JWT_JWKS'),
         authJwtPrivateKey: requireConfigValue(config.authJwtPrivateKey, 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'),
-        deployKey: requireConfigValue(config.deployKey, 'CONVEX_DEPLOY_KEY'),
         deployment: requireConfigValue(config.deployment, 'CONVEX_DEPLOYMENT'),
         publicUrl: requireConfigValue(config.publicUrl, 'VITE_CONVEX_URL'),
         url: requireConfigValue(config.url, 'CONVEX_URL'),
@@ -252,7 +256,8 @@ function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {
 
 function createConvexConfig(parsed: ParsedEnv): ConvexConfig {
     const authJwtAudience = optionalValue(parsed.NEONFLUX_AUTH_JWT_AUDIENCE);
-    const authJwtIssuer = optionalHttpUrl(parsed.NEONFLUX_AUTH_JWT_ISSUER, 'NEONFLUX_AUTH_JWT_ISSUER');
+    const authJwtIssuer = optionalNeonFluxJwtIssuer(parsed.NEONFLUX_AUTH_JWT_ISSUER);
+    const authJwtJwks = optionalJwksConfig(parsed.NEONFLUX_AUTH_JWT_JWKS, 'NEONFLUX_AUTH_JWT_JWKS');
     const authJwtPrivateKey = optionalValue(parsed.NEONFLUX_AUTH_JWT_PRIVATE_KEY);
     const deployKey = optionalValue(parsed.CONVEX_DEPLOY_KEY);
     const deployment = optionalValue(parsed.CONVEX_DEPLOYMENT);
@@ -262,6 +267,7 @@ function createConvexConfig(parsed: ParsedEnv): ConvexConfig {
     return {
         ...(authJwtAudience ? { authJwtAudience } : {}),
         ...(authJwtIssuer ? { authJwtIssuer } : {}),
+        ...(authJwtJwks ? { authJwtJwks } : {}),
         ...(authJwtPrivateKey ? { authJwtPrivateKey } : {}),
         ...(deployKey ? { deployKey } : {}),
         ...(deployment ? { deployment } : {}),
@@ -282,10 +288,30 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
         return undefined;
     }
 
+    return parseHttpUrl(normalizedValue, name).toString();
+}
+
+function optionalNeonFluxJwtIssuer(value: string | undefined): string | undefined {
+    const normalizedValue = optionalValue(value);
+
+    if (!normalizedValue) {
+        return undefined;
+    }
+
+    const url = parseHttpUrl(normalizedValue, 'NEONFLUX_AUTH_JWT_ISSUER');
+
+    if (url.hostname.toLowerCase().endsWith('fluxer.app')) {
+        throw new Error('NEONFLUX_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host');
+    }
+
+    return url.toString();
+}
+
+function parseHttpUrl(value: string, name: string): URL {
     let url: URL;
 
     try {
-        url = new URL(normalizedValue);
+        url = new URL(value);
     } catch {
         throw new Error(`${name} must be a valid HTTP or HTTPS URL`);
     }
@@ -294,7 +320,114 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
         throw new Error(`${name} must be a valid HTTP or HTTPS URL`);
     }
 
-    return url.toString();
+    return url;
+}
+
+function optionalJwksConfig(value: string | undefined, name: string): string | undefined {
+    const normalizedValue = optionalValue(value);
+
+    if (!normalizedValue) {
+        return undefined;
+    }
+
+    let url: URL;
+
+    try {
+        url = new URL(normalizedValue);
+    } catch {
+        throw new Error(`${name} must be a valid HTTP(S) URL or JWKS data URI`);
+    }
+
+    if (url.protocol !== 'data:' && url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error(`${name} must be a valid HTTP(S) URL or JWKS data URI`);
+    }
+
+    if (url.protocol === 'data:') {
+        assertPublicJwksDataUri(normalizedValue, name);
+    }
+
+    return url.protocol === 'data:' ? normalizedValue : url.toString();
+}
+
+function assertPublicJwksDataUri(value: string, name: string): void {
+    const commaIndex = value.indexOf(',');
+
+    if (commaIndex < 0) {
+        throw new Error(`${name} must include a comma-separated data payload`);
+    }
+
+    const metadata = value.slice('data:'.length, commaIndex).toLowerCase();
+    const encodedPayload = value.slice(commaIndex + 1);
+    const isBase64 = metadata.split(';').includes('base64');
+    let body: string;
+
+    try {
+        body = isBase64 ? Buffer.from(encodedPayload, 'base64').toString('utf8') : decodeURIComponent(encodedPayload);
+    } catch {
+        throw new Error(`${name} data URI could not be decoded`);
+    }
+
+    let jwks: unknown;
+
+    try {
+        jwks = JSON.parse(body);
+    } catch {
+        throw new Error(`${name} data URI must decode to JSON`);
+    }
+
+    if (!isObjectRecord(jwks) || !Array.isArray(jwks.keys) || jwks.keys.length === 0) {
+        throw new Error(`${name} must contain a non-empty "keys" array`);
+    }
+
+    for (const [index, key] of jwks.keys.entries()) {
+        if (!isObjectRecord(key)) {
+            throw new Error(`${name} has a non-object key at index ${index}`);
+        }
+
+        const leakedParameter = privateJwkParameters.find((parameter) => parameter in key);
+
+        if (leakedParameter) {
+            throw new Error(`${name} exposes private JWK parameter "${leakedParameter}"`);
+        }
+
+        assertPublicRsaSigningJwk(key, index, name);
+    }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function assertPublicRsaSigningJwk(key: Record<string, unknown>, index: number, name: string): void {
+    if (key.kty !== 'RSA') {
+        throw new Error(`${name} key at index ${index} must be an RSA public JWK`);
+    }
+
+    if (!isNonEmptyString(key.kid)) {
+        throw new Error(`${name} key at index ${index} must include a non-empty "kid"`);
+    }
+
+    if (key.alg !== 'RS256') {
+        throw new Error(`${name} key at index ${index} must use alg "RS256"`);
+    }
+
+    if (key.use !== 'sig') {
+        throw new Error(`${name} key at index ${index} must use "sig"`);
+    }
+
+    for (const parameter of ['n', 'e'] as const) {
+        if (!isBase64UrlString(key[parameter])) {
+            throw new Error(`${name} key at index ${index} must include public RSA parameter "${parameter}"`);
+        }
+    }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isBase64UrlString(value: unknown): value is string {
+    return isNonEmptyString(value) && base64UrlPattern.test(value);
 }
 
 function optionalPublicWebUrl(value: string | undefined): string | undefined {

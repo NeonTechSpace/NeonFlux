@@ -7,11 +7,11 @@ import {
     listGuildLoggingDestinationsByGuildId,
     recordBotActionEvent,
     upsertGuildLoggingDestination,
-} from '@neonflux/persistence';
-import type { GuildLoggingDestinationRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { GuildLoggingDestinationRecord } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -88,7 +88,7 @@ export async function loadDashboardLoggingSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const destinationsResult = await listGuildLoggingDestinationsByGuildId((await getWebPersistence()).db, {
+    const destinationsResult = await listGuildLoggingDestinationsByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
     });
 
@@ -123,7 +123,7 @@ export async function updateDashboardLoggingDestination(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const destinationResult = await upsertGuildLoggingDestination(database.db, {
         guildId: guildPageData.guild.id,
         eventGroup: input.eventGroup,
@@ -176,7 +176,7 @@ export async function deleteDashboardLoggingDestination(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const destinationResult = await deleteGuildLoggingDestination(database.db, {
         guildId: guildPageData.guild.id,
         eventGroup: input.eventGroup,

@@ -5,10 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
     createNeonFluxJwks,
+    createNeonFluxJwksDataUri,
     normalizePrivateKeyPem,
+    parseNeonFluxJwksDataUri,
     signNeonFluxServiceJwt,
     signNeonFluxUserJwt,
     verifyNeonFluxJwt,
+    verifyNeonFluxJwtWithConfiguredJwks,
+    verifyNeonFluxJwtWithJwkSet,
     type NeonFluxJwtSignerConfig,
 } from './jwt.js';
 
@@ -42,7 +46,7 @@ describe('NeonFlux Convex JWTs', () => {
         });
     });
 
-    it('signs short-lived service JWTs for bot and migration workers', async () => {
+    it('signs short-lived service JWTs for runtime workers', async () => {
         const config = createJwtConfig();
         const token = await signNeonFluxServiceJwt(config, {
             now: new Date(),
@@ -96,13 +100,13 @@ describe('NeonFlux Convex JWTs', () => {
                 privateKeyPem: escapedPrivateKey,
             },
             {
-                serviceName: 'migration',
+                serviceName: 'bot',
             }
         );
 
         await expect(verifyNeonFluxJwt(config, token)).resolves.toMatchObject({
             neonflux: {
-                serviceName: 'migration',
+                serviceName: 'bot',
             },
         });
         expect(normalizePrivateKeyPem(escapedPrivateKey)).toContain('\n');
@@ -115,6 +119,54 @@ describe('NeonFlux Convex JWTs', () => {
         });
 
         await expect(jwtVerify(token, createLocalJWKSet(createNeonFluxJwks(config)))).resolves.toBeDefined();
+    });
+
+    it('creates an inline public JWKS data URI for Convex custom JWT auth', async () => {
+        const config = createJwtConfig();
+        const jwksDataUri = createNeonFluxJwksDataUri(config);
+        const token = await signNeonFluxServiceJwt(config, {
+            serviceName: 'web',
+        });
+
+        expect(jwksDataUri).toMatch(/^data:application\/json,/);
+        expect(parseNeonFluxJwksDataUri(jwksDataUri)).toEqual(createNeonFluxJwks(config));
+        await expect(verifyNeonFluxJwtWithConfiguredJwks(config, token, jwksDataUri)).resolves.toMatchObject({
+            neonflux: {
+                serviceName: 'web',
+            },
+        });
+    });
+
+    it('rejects inline JWKS data URIs that expose private key parameters', () => {
+        const jwksDataUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({ keys: [{ d: 'private', kid: 'leaked', kty: 'RSA' }] })
+        )}`;
+
+        expect(() => parseNeonFluxJwksDataUri(jwksDataUri, 'NEONFLUX_AUTH_JWT_JWKS')).toThrow(
+            'NEONFLUX_AUTH_JWT_JWKS exposes private JWK parameter "d"'
+        );
+    });
+
+    it('rejects inline JWKS data URIs without usable RSA public key material', () => {
+        const jwksDataUri = `data:application/json,${encodeURIComponent(
+            JSON.stringify({ keys: [{ alg: 'RS256', e: 'AQAB', kid: 'test', kty: 'RSA', use: 'sig' }] })
+        )}`;
+
+        expect(() => parseNeonFluxJwksDataUri(jwksDataUri, 'NEONFLUX_AUTH_JWT_JWKS')).toThrow(
+            'NEONFLUX_AUTH_JWT_JWKS key at index 0 must include public RSA parameter "n"'
+        );
+    });
+
+    it('fails verification when the issuer JWKS does not match the signing key', async () => {
+        const config = createJwtConfig();
+        const mismatchedConfig = createJwtConfig();
+        const token = await signNeonFluxServiceJwt(config, {
+            serviceName: 'web',
+        });
+
+        await expect(
+            verifyNeonFluxJwtWithJwkSet(config, token, createLocalJWKSet(createNeonFluxJwks(mismatchedConfig)))
+        ).rejects.toThrow();
     });
 });
 

@@ -5,11 +5,11 @@ import {
     listModerationCasesByGuildId,
     recordBotActionEvent,
     upsertGuildModerationPolicy,
-} from '@neonflux/persistence';
-import type { GuildModerationPolicyRecord, ModerationCaseRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { GuildModerationPolicyRecord, ModerationCaseRecord } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardTargetCatalogStatus, DashboardTargetRole } from './dashboard-target-catalog.server.js';
@@ -87,7 +87,7 @@ export async function loadDashboardModerationCases(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const casesResult = await listModerationCasesByGuildId((await getWebPersistence()).db, {
+    const casesResult = await listModerationCasesByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
         limit: recentModerationCaseLimit,
     });
@@ -112,7 +112,7 @@ export async function loadDashboardModerationPolicy(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const policyResult = await findGuildModerationPolicyByGuildId((await getWebPersistence()).db, {
+    const policyResult = await findGuildModerationPolicyByGuildId((await getWebDb()).db, {
         guildId: guildPageData.guild.id,
     });
     const targetCatalog = await loadDashboardTargetCatalog(guildPageData.guild.id);
@@ -159,7 +159,7 @@ export async function updateDashboardModerationPolicy(
 
     const protectedUserIds = normalizeIdList(input.protectedUserIds ?? []);
     const protectedRoleIds = normalizeIdList(input.protectedRoleIds ?? []);
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const policyResult = await upsertGuildModerationPolicy(database.db, {
         guildId: guildPageData.guild.id,
         protectedUserIds,

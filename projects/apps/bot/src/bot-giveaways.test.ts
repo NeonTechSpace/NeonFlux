@@ -3,15 +3,15 @@ import {
     removeGiveawayEntry,
     upsertGiveawayEntry,
     type GiveawayRecord,
-} from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 import { routeGiveawayReactionEvent } from './bot-giveaways.js';
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

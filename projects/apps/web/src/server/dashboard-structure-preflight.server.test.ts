@@ -1,7 +1,7 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { findStructureImportRunByGuildId } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+import { findStructureImportRunByGuildId } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { ok } from 'neverthrow';
@@ -13,8 +13,8 @@ import { preflightDashboardStructureImportRun } from './dashboard-structure-pref
 
 const request = new Request('http://localhost:3000/dashboard/guild-1/structure');
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -33,7 +33,7 @@ vi.mock('@neonflux/config', () => ({
     loadWebConfig: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

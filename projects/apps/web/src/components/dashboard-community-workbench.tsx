@@ -107,7 +107,7 @@ export function DashboardCommunityWorkbench({ guildId, children }: { guildId: st
     );
 }
 
-export function getDashboardCommunityTool(id: DashboardCommunityToolId): DashboardCommunityTool {
+function getDashboardCommunityTool(id: DashboardCommunityToolId): DashboardCommunityTool {
     const tool = dashboardCommunityTools.find((candidate) => candidate.id === id);
 
     if (!tool) {
@@ -117,7 +117,7 @@ export function getDashboardCommunityTool(id: DashboardCommunityToolId): Dashboa
     return tool;
 }
 
-export function getDashboardCommunityToolIdFromPathname(guildId: string, pathname: string): DashboardCommunityToolId {
+function getDashboardCommunityToolIdFromPathname(guildId: string, pathname: string): DashboardCommunityToolId {
     const guildIdParam = getGuildIdParam({ guildId });
     const communityPrefix = `/dashboard/${guildIdParam}/community`;
     const segment = pathname

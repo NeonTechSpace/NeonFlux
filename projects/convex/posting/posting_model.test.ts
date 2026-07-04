@@ -12,7 +12,7 @@ import {
 } from './posting_model.js';
 
 describe('posting model', () => {
-    it('normalizes message template input like the Postgres repository', () => {
+    it('normalizes message template input to the app-facing contract', () => {
         const document = buildMessageTemplateDocument(
             {
                 content: ' Ship it ',

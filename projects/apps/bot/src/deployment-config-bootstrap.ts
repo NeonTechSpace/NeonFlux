@@ -4,7 +4,7 @@ import {
     upsertDeploymentConfig,
     type DeploymentConfigRecord,
     type DeploymentConfigRepositoryError,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 type DeploymentConfigDatabase = Parameters<typeof upsertDeploymentConfig>[0];

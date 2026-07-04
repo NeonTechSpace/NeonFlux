@@ -67,9 +67,10 @@ export function readSessionCookie(input: {
         return err('invalid-cookie');
     }
 
-    const [sessionId, signature] = cookieParts;
+    const sessionId = cookieParts[0];
+    const signature = cookieParts[1];
 
-    if (!isValidSessionId(sessionId) || signature.length === 0) {
+    if (!isValidSessionId(sessionId) || !signature) {
         return err('invalid-cookie');
     }
 

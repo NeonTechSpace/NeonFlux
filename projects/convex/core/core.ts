@@ -54,8 +54,8 @@ type DeploymentConfigPatch = {
     updatedAt: string;
 };
 
-const allowedRuntimeServices = ['bot', 'web', 'migration'] as const;
-const allowedMutationServices = ['bot', 'migration'] as const;
+const allowedRuntimeServices = ['bot', 'web'] as const;
+const allowedMutationServices = ['bot'] as const;
 
 const timestampValidator = v.string();
 const guildIdArgs = {

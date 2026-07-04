@@ -88,6 +88,8 @@ import {
     type BotInstallationRecord,
     type GuildCommandSettingsRecord,
     type GuildModerationPolicyRecord,
+    type GuildMemberFlowEventRecord,
+    type GuildMessageActivityDayRecord,
     type GuildLoggingDestinationRecord,
     type ModerationCaseRecord,
     type ModerationCaseEventRecord,
@@ -117,7 +119,7 @@ import {
     type XpGrantRecord,
     type XpSettingsRecord,
     type XpVoiceSessionRecord,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import {
     createFluxerPlatform,
     readFluxerGuildInvites,
@@ -129,7 +131,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routeBotFeatureEvent, type BotFeatureHandlerContext } from './bot-feature-router.js';
 
-vi.mock('@neonflux/persistence', () => {
+vi.mock('@neonflux/db', () => {
     return {
         deleteBotInstallation: vi.fn(),
         addModerationCaseNote: vi.fn(),
@@ -5112,7 +5114,7 @@ function createGuildRole(overrides: { id: string; name: string; position: number
     };
 }
 
-function createMemberFlowRecord() {
+function createMemberFlowRecord(): GuildMemberFlowEventRecord {
     return {
         id: 'flow-1',
         guildId: 'guild-1',
@@ -5125,7 +5127,7 @@ function createMemberFlowRecord() {
     };
 }
 
-function createMessageActivityRecord() {
+function createMessageActivityRecord(): GuildMessageActivityDayRecord {
     return {
         id: 'activity-1',
         guildId: 'guild-1',

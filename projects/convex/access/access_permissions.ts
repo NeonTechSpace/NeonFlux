@@ -38,7 +38,7 @@ type StoredDashboardPermissionRuleDocument = DashboardPermissionRuleDocument & {
     _id: GenericId<'guildDashboardPermissionRules'>;
 };
 
-const allowedAccessServices = ['bot', 'web', 'migration'] as const;
+const allowedAccessServices = ['bot', 'web'] as const;
 const commandRuleListLimit = 1000;
 
 const commandTargetTypeValidator = v.union(v.literal('category'), v.literal('command'));

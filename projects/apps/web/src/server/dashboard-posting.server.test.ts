@@ -1,7 +1,7 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
@@ -34,8 +34,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-21T01:00:00.000Z'),
 };
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -52,7 +52,7 @@ vi.mock('@neonflux/config', () => ({
     loadWebConfig: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

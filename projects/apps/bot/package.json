@@ -14,7 +14,7 @@
     "dependencies": {
         "@neonflux/config": "workspace:*",
         "@neonflux/core": "workspace:*",
-        "@neonflux/persistence": "workspace:*",
+        "@neonflux/db": "workspace:*",
         "@neonflux/fluxer": "workspace:*",
         "neverthrow": "^8.2.0"
     },

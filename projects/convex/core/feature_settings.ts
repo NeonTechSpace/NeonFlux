@@ -31,7 +31,7 @@ type StoredGuildFeatureSettingDocument = GuildFeatureSettingDocument & {
     _id: GenericId<'guildFeatureSettings'>;
 };
 
-const allowedFeatureSettingServices = ['bot', 'web', 'migration'] as const;
+const allowedFeatureSettingServices = ['bot', 'web'] as const;
 
 const guildFeatureSettingRecordValidator = v.object({
     config: v.any(),

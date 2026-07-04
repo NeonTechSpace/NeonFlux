@@ -27,7 +27,7 @@ type StoredControlRequestDocument = VcGeneratorControlRequestDocument & {
     _id: GenericId<'vcGeneratorControlRequests'>;
 };
 
-const allowedVcGeneratorServices = ['bot', 'web', 'migration'] as const;
+const allowedVcGeneratorServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const controlRequestStatuses = ['pending', 'applied', 'failed', 'cancelled', 'expired'] as const;
 const generatedChannelRecordValidator = v.object({

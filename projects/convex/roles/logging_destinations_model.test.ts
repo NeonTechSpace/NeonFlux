@@ -10,7 +10,7 @@ import {
 } from './logging_destinations_model.js';
 
 describe('logging destination model', () => {
-    it('normalizes logging destination input like the Postgres repository', () => {
+    it('normalizes logging destination input to the app-facing contract', () => {
         const document = buildGuildLoggingDestinationDocument(
             {
                 channelId: ' channel-1 ',

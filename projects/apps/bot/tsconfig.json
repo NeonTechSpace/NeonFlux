@@ -4,6 +4,7 @@
         "composite": true,
         "outDir": "dist",
         "rootDir": "src",
+        "types": ["node"],
         "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
     },
     "include": ["src/**/*.ts"],
@@ -16,9 +17,6 @@
         },
         {
             "path": "../../packages/db"
-        },
-        {
-            "path": "../../packages/persistence"
         },
         {
             "path": "../../packages/fluxer"

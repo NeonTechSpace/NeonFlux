@@ -55,6 +55,7 @@ jobs:
             CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
             NEONFLUX_AUTH_JWT_AUDIENCE: ${{ vars.NEONFLUX_AUTH_JWT_AUDIENCE }}
             NEONFLUX_AUTH_JWT_ISSUER: ${{ vars.NEONFLUX_AUTH_JWT_ISSUER }}
+            NEONFLUX_AUTH_JWT_JWKS: ${{ vars.NEONFLUX_AUTH_JWT_JWKS }}
 
         steps:
             - name: Check out repository
@@ -85,18 +86,15 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Skip when Convex deployment is not configured
-              if: env.CONVEX_DEPLOY_KEY == ''
-              run: echo "::notice title=Convex codegen skipped::Set CONVEX_DEPLOY_KEY to enable generated API drift checks."
+              if: env.CONVEX_DEPLOY_KEY == '' || env.CONVEX_DEPLOYMENT == ''
+              run: echo "::notice title=Convex codegen skipped::Set CONVEX_DEPLOY_KEY and CONVEX_DEPLOYMENT to enable generated API drift checks."
 
             - name: Validate Convex auth variables
-              if: env.CONVEX_DEPLOY_KEY != ''
-              run: |
-                  if [ -z "$NEONFLUX_AUTH_JWT_ISSUER" ] || [ -z "$NEONFLUX_AUTH_JWT_AUDIENCE" ]; then
-                    echo "::error title=Convex auth config missing::Set NEONFLUX_AUTH_JWT_ISSUER and NEONFLUX_AUTH_JWT_AUDIENCE before Convex codegen/deploy."
-                    exit 1
-                  fi
+              if: env.CONVEX_DEPLOY_KEY != '' && env.CONVEX_DEPLOYMENT != ''
+              working-directory: projects
+              run: pnpm convex:validate-auth-config
 
             - name: Run Convex codegen drift check
-              if: env.CONVEX_DEPLOY_KEY != ''
+              if: env.CONVEX_DEPLOY_KEY != '' && env.CONVEX_DEPLOYMENT != ''
               working-directory: projects
               run: pnpm convex:codegen:check

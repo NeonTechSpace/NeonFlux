@@ -30,7 +30,7 @@ type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredVerificationFlowDocument = VerificationFlowDocument & { _id: GenericId<'verificationFlows'> };
 type StoredVerificationRecordDocument = VerificationRecordDocument & { _id: GenericId<'verificationRecords'> };
 
-const allowedVerificationServices = ['bot', 'web', 'migration'] as const;
+const allowedVerificationServices = ['bot', 'web'] as const;
 const verificationFlowRecordValidator = v.object({
     channelId: v.string(),
     createdAt: v.string(),

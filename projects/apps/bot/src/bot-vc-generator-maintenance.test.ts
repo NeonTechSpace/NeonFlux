@@ -1,12 +1,12 @@
-import { expirePendingVcGeneratorControlRequests } from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+import { expirePendingVcGeneratorControlRequests } from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 import { createVcGeneratorMaintenanceScheduler, runVcGeneratorMaintenance } from './bot-vc-generator-maintenance.js';
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

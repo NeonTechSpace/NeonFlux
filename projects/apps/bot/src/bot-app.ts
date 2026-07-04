@@ -1,7 +1,7 @@
 import type { AppConfig } from '@neonflux/config';
 import { resolveEffectiveGuildDefcon } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
-import type { RuntimePersistenceClient } from '@neonflux/persistence';
+import type { RuntimeDbClient } from '@neonflux/db';
 import {
     createFluxerBot,
     type FluxerBot,
@@ -32,7 +32,7 @@ export type BotApp = {
 export type CreateBotAppInput = {
     config: AppConfig;
     logger: AppLogger;
-    database: RuntimePersistenceClient;
+    database: RuntimeDbClient;
 };
 
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {

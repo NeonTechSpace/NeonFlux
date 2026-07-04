@@ -1,8 +1,8 @@
 import type { AppConfig } from '@neonflux/config';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
-import type * as NeonFluxDb from '@neonflux/persistence';
-import type { RuntimePersistenceClient } from '@neonflux/persistence';
+import type * as NeonFluxDb from '@neonflux/db';
+import type { RuntimeDbClient } from '@neonflux/db';
 import {
     addTicketMember,
     createVcGeneratorControlRequest,
@@ -48,7 +48,7 @@ import {
     upsertGiveawayEntry,
     upsertSuggestionVote,
     upsertBotInstallation,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import {
     createFluxerPlatform,
     createFluxerBot,
@@ -66,7 +66,7 @@ import { createVcGeneratorMaintenanceScheduler } from './bot-vc-generator-mainte
 import type * as BotVcGeneratorMaintenance from './bot-vc-generator-maintenance.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
-vi.mock('@neonflux/persistence', async (importOriginal) => {
+vi.mock('@neonflux/db', async (importOriginal) => {
     const actual = await importOriginal<typeof NeonFluxDb>();
 
     return {
@@ -200,7 +200,7 @@ const testDb = {
     client: {} as never,
     kind: 'convex',
     serviceName: 'bot',
-} satisfies RuntimePersistenceClient['db'];
+} satisfies RuntimeDbClient['db'];
 const testFluxerClient = {
     user: {
         id: 'bot-user',
@@ -321,7 +321,7 @@ describe('createBotApp', () => {
         );
     });
 
-    it('uses Convex persistence before deployment config bootstrap', async () => {
+    it('uses Convex database before deployment config bootstrap', async () => {
         const logger = createLogger();
         const database = createDatabase();
         const app = createBotApp({
@@ -806,7 +806,7 @@ describe('createBotApp', () => {
     });
 });
 
-function createDatabase(): RuntimePersistenceClient {
+function createDatabase(): RuntimeDbClient {
     return {
         client: {} as never,
         close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),

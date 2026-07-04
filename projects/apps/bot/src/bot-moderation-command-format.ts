@@ -1,5 +1,5 @@
 import type { BotCommandDefinition } from '@neonflux/core';
-import type { ModerationCaseRecord } from '@neonflux/persistence';
+import type { ModerationCaseRecord } from '@neonflux/db';
 
 export function createUsageReply(command: BotCommandDefinition, prefix: string): string {
     return `Use: \`${command.usage(prefix)}\`.`;

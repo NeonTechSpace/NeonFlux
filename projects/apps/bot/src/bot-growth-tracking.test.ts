@@ -4,7 +4,10 @@ import {
     listGuildInviteSnapshots,
     recordGuildMemberFlowEvent,
     syncGuildInviteSnapshots,
-} from '@neonflux/persistence';
+    type GuildInviteSnapshotRecord,
+    type GuildMemberFlowEventRecord,
+    type GuildMessageActivityDayRecord,
+} from '@neonflux/db';
 import { readFluxerGuildInvites, type FluxerBot, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
 import type { BotFeatureHandlerContext, BotFeatureEvent } from './bot-feature-types.js';
 
-vi.mock('@neonflux/persistence', () => ({
+vi.mock('@neonflux/db', () => ({
     incrementGuildMessageActivityDay: vi.fn(),
     listGuildInviteSnapshots: vi.fn(),
     recordGuildMemberFlowEvent: vi.fn(),
@@ -233,7 +236,7 @@ function createFluxerInvite(overrides: Partial<FluxerGuildInvite> = {}): FluxerG
     };
 }
 
-function createInviteSnapshot(overrides: Record<string, unknown> = {}) {
+function createInviteSnapshot(overrides: Partial<GuildInviteSnapshotRecord> = {}): GuildInviteSnapshotRecord {
     const timestamp = new Date('2026-06-26T00:00:00.000Z');
 
     return {
@@ -254,7 +257,7 @@ function createInviteSnapshot(overrides: Record<string, unknown> = {}) {
     };
 }
 
-function createMemberFlowRecord(overrides: Record<string, unknown> = {}) {
+function createMemberFlowRecord(overrides: Partial<GuildMemberFlowEventRecord> = {}): GuildMemberFlowEventRecord {
     return {
         id: 'flow-1',
         guildId: 'guild-1',
@@ -268,7 +271,9 @@ function createMemberFlowRecord(overrides: Record<string, unknown> = {}) {
     };
 }
 
-function createMessageActivityRecord(overrides: Record<string, unknown> = {}) {
+function createMessageActivityRecord(
+    overrides: Partial<GuildMessageActivityDayRecord> = {}
+): GuildMessageActivityDayRecord {
     return {
         id: 'activity-1',
         guildId: 'guild-1',

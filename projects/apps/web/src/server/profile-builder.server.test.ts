@@ -3,14 +3,14 @@ import {
     findProfileFormByGuildName,
     listProfileFieldsByFormId,
     recordBotActionEvent,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import type {
     BotActionEventRecord,
     ProfileFieldRecord,
     ProfileFormRecord,
     ProfileSubmissionRecord,
-} from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as FluxerGuilds from '@neonflux/fluxer/guilds';
 import { err, ok } from 'neverthrow';
@@ -35,8 +35,8 @@ const authContext = {
     accessTokenExpiresAt: new Date('2026-06-26T01:00:00.000Z'),
 };
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
@@ -45,7 +45,7 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

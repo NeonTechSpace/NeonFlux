@@ -48,11 +48,7 @@ type StoredFluxerOAuthTokenDocument = {
     updatedAt: string;
 };
 
-const allowedAuthStoreServices = ['web', 'migration'] as const;
-
-type IdIndexRangeBuilder<QueryBuilder> = {
-    eq(fieldName: 'id', value: string): QueryBuilder;
-};
+const allowedAuthStoreServices = ['web'] as const;
 
 const encryptedOAuthTokenPayloadValidator = v.object({
     authTag: v.string(),
@@ -264,7 +260,7 @@ async function findWebSessionDocument(
 ): Promise<StoredWebSessionDocument | null> {
     return await ctx.db
         .query('webSessions')
-        .withIndex('by_session_id', (query) => eqIdIndex(query, sessionId))
+        .withIndex('by_session_id', (query) => query.eq('id', sessionId))
         .unique();
 }
 
@@ -284,10 +280,6 @@ function unwrap<Value>(result: { ok: true; value: Value } | { error: string; ok:
     }
 
     return result.value;
-}
-
-function eqIdIndex<QueryBuilder>(query: QueryBuilder, id: string): QueryBuilder {
-    return (query as unknown as IdIndexRangeBuilder<QueryBuilder>).eq('id', id);
 }
 
 function toWebSessionRecord(document: {

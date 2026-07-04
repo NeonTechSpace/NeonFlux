@@ -33,7 +33,7 @@ type StoredGuildLoggingDestinationDocument = GuildLoggingDestinationDocument & {
     _id: GenericId<'guildLoggingDestinations'>;
 };
 
-const allowedLoggingDestinationServices = ['bot', 'web', 'migration'] as const;
+const allowedLoggingDestinationServices = ['bot', 'web'] as const;
 const serverLogEventGroupValidator = v.union(
     v.literal('channels'),
     v.literal('members'),

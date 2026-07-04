@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 
-import { createWebSession, upsertFluxerOAuthTokenSet } from '@neonflux/persistence';
-import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/persistence';
+import { createWebSession, upsertFluxerOAuthTokenSet } from '@neonflux/db';
+import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/db';
 import { FLUXER_OAUTH_TOKEN_URL } from '@neonflux/fluxer/oauth';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,13 +20,13 @@ const expectedAccessTokenExpiresAt = new Date('2026-06-21T01:00:00.000Z');
 const currentUserUrl = 'https://api.fluxer.app/v1/oauth2/userinfo';
 const currentUserGuildsUrl = 'https://api.fluxer.app/v1/users/@me/guilds';
 
-vi.mock('./persistence.server.js', () => ({
-    getWebPersistence: () => ({
+vi.mock('./db.server.js', () => ({
+    getWebDb: () => ({
         db: {},
     }),
 }));
 
-vi.mock('@neonflux/persistence', () => ({
+vi.mock('@neonflux/db', () => ({
     createWebSession: vi.fn(),
     upsertFluxerOAuthTokenSet: vi.fn(),
 }));

@@ -36,7 +36,7 @@ type StoredImportRunDocument = StructureImportRunDocument & { _id: GenericId<'st
 type StoredImportActionDocument = StructureImportActionDocument & { _id: GenericId<'structureImportActions'> };
 type StoredObservedEventDocument = StructureObservedEventStateDocument & { _id: GenericId<'guildFeatureSettings'> };
 
-const allowedStructureServices = ['bot', 'web', 'migration'] as const;
+const allowedStructureServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const exportRecordValidator = v.object({
     createdAt: v.string(),

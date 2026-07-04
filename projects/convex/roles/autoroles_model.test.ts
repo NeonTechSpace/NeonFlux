@@ -9,7 +9,7 @@ import {
 } from './autoroles_model.js';
 
 describe('autorole model', () => {
-    it('normalizes autorole rule input like the Postgres repository', () => {
+    it('normalizes autorole rule input to the app-facing contract', () => {
         const document = buildAutoroleRuleDocument(
             {
                 guildId: ' guild-1 ',

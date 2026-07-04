@@ -31,7 +31,7 @@ type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredModerationCaseDocument = ModerationCaseDocument & { _id: GenericId<'moderationCases'> };
 type StoredModerationCaseEventDocument = ModerationCaseEventDocument & { _id: GenericId<'moderationCaseEvents'> };
 
-const allowedModerationServices = ['bot', 'web', 'migration'] as const;
+const allowedModerationServices = ['bot', 'web'] as const;
 const targetTypeValidator = v.union(v.literal('channel'), v.literal('user'));
 const moderationCaseRecordValidator = v.object({
     action: v.string(),

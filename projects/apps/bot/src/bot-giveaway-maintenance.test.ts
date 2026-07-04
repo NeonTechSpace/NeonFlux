@@ -7,8 +7,8 @@ import {
     updateGiveawaySyncStatus,
     type GiveawayRecord,
     type GiveawayWinnerRecord,
-} from '@neonflux/persistence';
-import type * as NeonFluxDb from '@neonflux/persistence';
+} from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
 import { createFluxerPlatform } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
@@ -22,7 +22,7 @@ import {
     runGiveawayMaintenance,
 } from './bot-giveaways.js';
 
-vi.mock('@neonflux/persistence', async (importActual) => {
+vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
     return {

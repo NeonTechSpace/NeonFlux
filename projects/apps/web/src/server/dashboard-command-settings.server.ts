@@ -5,11 +5,11 @@ import {
     findGuildCommandSettingsByGuildId,
     recordBotActionEvent,
     upsertGuildCommandPrefix,
-} from '@neonflux/persistence';
-import type { GuildCommandSettingsRepositoryError } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { GuildCommandSettingsRepositoryError } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -104,7 +104,7 @@ export async function updateDashboardGuildCommandPrefix(
 async function loadDashboardCommandSettings(
     guildId: string
 ): Promise<{ type: 'settings'; commandSettings: DashboardCommandSettings } | { type: 'database-error' }> {
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const settingsResult = await findGuildCommandSettingsByGuildId(database.db, { guildId });
 
     if (settingsResult.isOk()) {
@@ -146,7 +146,7 @@ async function updateCommandPrefixForAuthorizedGuild(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const updateResult = await upsertGuildCommandPrefix(database.db, { guildId, prefix });
 
     if (updateResult.isOk()) {

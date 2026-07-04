@@ -11,7 +11,7 @@ import {
 } from './security_policies_model.js';
 
 describe('security policy model', () => {
-    it('normalizes guild DEFCON policies like the Postgres repository', () => {
+    it('normalizes guild DEFCON policies to the app-facing contract', () => {
         const document = buildGuildSecurityPolicyDocument(
             {
                 defconLevel: 2,

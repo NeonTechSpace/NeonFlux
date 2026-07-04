@@ -55,7 +55,7 @@ describe('bot action event model', () => {
         });
     });
 
-    it('preserves legacy ids and explicit timestamps for migration imports', () => {
+    it('preserves legacy ids and explicit timestamps for imported records', () => {
         expect(
             buildBotActionEventDocument(
                 {

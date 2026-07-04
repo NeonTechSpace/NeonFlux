@@ -36,7 +36,7 @@ type StoredSuggestionBoardDocument = SuggestionBoardDocument & { _id: GenericId<
 type StoredSuggestionDocument = SuggestionDocument & { _id: GenericId<'suggestions'> };
 type StoredSuggestionVoteDocument = SuggestionVoteDocument & { _id: GenericId<'suggestionVotes'> };
 
-const allowedSuggestionServices = ['bot', 'web', 'migration'] as const;
+const allowedSuggestionServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const boardRecordValidator = v.object({
     channelId: v.string(),

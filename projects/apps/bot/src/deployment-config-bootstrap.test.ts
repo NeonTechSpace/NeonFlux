@@ -1,11 +1,11 @@
 import type { AppConfig } from '@neonflux/config';
-import { findDeploymentConfig, upsertDeploymentConfig } from '@neonflux/persistence';
+import { findDeploymentConfig, upsertDeploymentConfig } from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
-vi.mock('@neonflux/persistence', () => ({
+vi.mock('@neonflux/db', () => ({
     findDeploymentConfig: vi.fn(),
     upsertDeploymentConfig: vi.fn(),
 }));

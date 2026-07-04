@@ -5,10 +5,10 @@ import {
     findProfileFormByGuildName,
     listProfileFieldsByFormId,
     recordBotActionEvent,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import { normalizeProfileBuilderValues, toDashboardProfileField } from './profile-builder-shared.js';
 import type { DashboardProfileField } from './profile-builder-shared.js';
@@ -55,7 +55,7 @@ export async function loadPublicProfileBuilderPage(input: {
         return { type: 'not-found' };
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const formResult = await findProfileFormByGuildName(database.db, {
         guildId,
         name: formName,
@@ -121,7 +121,7 @@ export async function submitPublicProfileBuilderForm(
     }
 
     const status = pageResult.approvalRequired ? 'pending' : 'approved';
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const submissionResult = await createProfileSubmission(database.db, {
         guildId: pageResult.guildId,
         formId: pageResult.formId,

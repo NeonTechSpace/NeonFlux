@@ -10,9 +10,9 @@
             "types": "./src/index.ts",
             "import": "./dist/index.js"
         },
-        "./schema": {
-            "types": "./src/schema.ts",
-            "import": "./dist/schema.js"
+        "./convex": {
+            "types": "./src/convex.ts",
+            "import": "./dist/convex.js"
         }
     },
     "scripts": {
@@ -22,12 +22,8 @@
     },
     "dependencies": {
         "@neonflux/config": "workspace:*",
+        "@neonflux/convex": "workspace:*",
         "@neonflux/core": "workspace:*",
-        "drizzle-orm": "^0.45.2",
-        "neverthrow": "^8.2.0",
-        "pg": "^8.21.0"
-    },
-    "devDependencies": {
-        "@electric-sql/pglite": "^0.5.3"
+        "neverthrow": "^8.2.0"
     }
 }

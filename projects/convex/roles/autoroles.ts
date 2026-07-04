@@ -31,7 +31,7 @@ type StoredAutoroleRuleDocument = AutoroleRuleDocument & {
     _id: GenericId<'autoroleRules'>;
 };
 
-const allowedAutoroleServices = ['bot', 'web', 'migration'] as const;
+const allowedAutoroleServices = ['bot', 'web'] as const;
 const autoroleRuleRecordValidator = v.object({
     createdAt: v.string(),
     enabled: v.boolean(),

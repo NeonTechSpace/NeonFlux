@@ -6,13 +6,13 @@ import {
     listSuggestionBoardsByGuildId,
     recordBotActionEvent,
     upsertSuggestionBoard,
-} from '@neonflux/persistence';
-import type { SuggestionBoardRecord } from '@neonflux/persistence';
+} from '@neonflux/db';
+import type { SuggestionBoardRecord } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type { FluxerGuildChannel } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -96,7 +96,7 @@ export async function loadDashboardSuggestionsSettings(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const boardsResult = await listSuggestionBoardsByGuildId(database.db, {
         guildId: guildPageData.guild.id,
     });
@@ -135,7 +135,7 @@ export async function updateDashboardSuggestionBoard(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const boardResult = await upsertSuggestionBoard(database.db, {
         guildId: guildPageData.guild.id,
         name: input.name,
@@ -193,7 +193,7 @@ export async function deleteDashboardSuggestionBoard(
         return actorResult;
     }
 
-    const database = await getWebPersistence();
+    const database = await getWebDb();
     const structureResult = await loadDashboardSuggestionsStructure(guildPageData.guild.id);
     const boardResult = await deleteSuggestionBoard(database.db, {
         guildId: guildPageData.guild.id,

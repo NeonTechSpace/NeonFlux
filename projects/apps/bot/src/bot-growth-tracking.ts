@@ -6,7 +6,7 @@ import {
     type GuildInviteAttributionStatus,
     type GuildInviteSnapshotInput,
     type GuildInviteSnapshotRecord,
-} from '@neonflux/persistence';
+} from '@neonflux/db';
 import { readFluxerGuildInvites, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 

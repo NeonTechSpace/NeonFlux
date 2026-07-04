@@ -4,13 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    loadBotConfig,
-    loadConvexConfig,
-    loadRuntimeConfig,
-    loadWebConfig,
-    requireConvexConfig,
-} from './env.js';
+import { loadBotConfig, loadConvexConfig, loadRuntimeConfig, loadWebConfig, requireConvexConfig } from './env.js';
 
 const originalCwd = process.cwd();
 const originalFluxerBotInviteUrl = process.env.FLUXER_BOT_INVITE_URL;
@@ -193,6 +187,7 @@ describe('loadConvexConfig', () => {
             CONVEX_URL: '   ',
             NEONFLUX_AUTH_JWT_AUDIENCE: '',
             NEONFLUX_AUTH_JWT_ISSUER: '   ',
+            NEONFLUX_AUTH_JWT_JWKS: '   ',
             NEONFLUX_AUTH_JWT_PRIVATE_KEY: '',
             VITE_CONVEX_URL: '   ',
         });
@@ -201,12 +196,14 @@ describe('loadConvexConfig', () => {
     });
 
     it('loads and normalizes Convex deployment and auth values', () => {
+        const jwks = publicJwksDataUri();
         const config = loadConvexConfig({
             CONVEX_DEPLOYMENT: ' team:neonflux-prod ',
             CONVEX_DEPLOY_KEY: ' deploy-key ',
             CONVEX_URL: ' https://neonflux.convex.cloud ',
             NEONFLUX_AUTH_JWT_AUDIENCE: ' neonflux-convex ',
             NEONFLUX_AUTH_JWT_ISSUER: ' https://neonflux.example/auth ',
+            NEONFLUX_AUTH_JWT_JWKS: ` ${jwks} `,
             NEONFLUX_AUTH_JWT_PRIVATE_KEY: ' -----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY----- ',
             VITE_CONVEX_URL: ' https://neonflux.convex.cloud ',
         });
@@ -214,6 +211,7 @@ describe('loadConvexConfig', () => {
         expect(config).toEqual({
             authJwtAudience: 'neonflux-convex',
             authJwtIssuer: 'https://neonflux.example/auth',
+            authJwtJwks: jwks,
             authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
             deployKey: 'deploy-key',
             deployment: 'team:neonflux-prod',
@@ -232,6 +230,29 @@ describe('loadConvexConfig', () => {
         expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_ISSUER: 'auth.example' })).toThrow(
             'NEONFLUX_AUTH_JWT_ISSUER must be a valid HTTP or HTTPS URL'
         );
+        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_ISSUER: 'https://web.fluxer.app' })).toThrow(
+            'NEONFLUX_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host'
+        );
+        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_JWKS: 'not-a-url' })).toThrow(
+            'NEONFLUX_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+        );
+        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_JWKS: 'file:///tmp/jwks.json' })).toThrow(
+            'NEONFLUX_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+        );
+        expect(() =>
+            loadConvexConfig({
+                NEONFLUX_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
+                    JSON.stringify({ keys: [{ d: 'private', kid: 'test' }] })
+                )}`,
+            })
+        ).toThrow('NEONFLUX_AUTH_JWT_JWKS exposes private JWK parameter "d"');
+        expect(() =>
+            loadConvexConfig({
+                NEONFLUX_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
+                    JSON.stringify({ keys: [{ alg: 'RS256', e: 'AQAB', kid: 'test', kty: 'RSA', use: 'sig' }] })
+                )}`,
+            })
+        ).toThrow('NEONFLUX_AUTH_JWT_JWKS key at index 0 must include public RSA parameter "n"');
     });
 });
 
@@ -248,16 +269,24 @@ describe('requireConvexConfig', () => {
                 NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
                 NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
             })
+        ).toThrow('NEONFLUX_AUTH_JWT_JWKS is required');
+        expect(() =>
+            requireConvexConfig({
+                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
+                NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+                NEONFLUX_AUTH_JWT_JWKS: publicJwksDataUri(),
+            })
         ).toThrow('NEONFLUX_AUTH_JWT_PRIVATE_KEY is required');
     });
 
     it('returns strict Convex config when all cutover values are present', () => {
+        const jwks = publicJwksDataUri();
         const config = requireConvexConfig({
             CONVEX_DEPLOYMENT: 'team:neonflux-prod',
-            CONVEX_DEPLOY_KEY: 'deploy-key',
             CONVEX_URL: 'https://neonflux.convex.cloud',
             NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
             NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+            NEONFLUX_AUTH_JWT_JWKS: jwks,
             NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
             VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
         });
@@ -265,8 +294,8 @@ describe('requireConvexConfig', () => {
         expect(config).toEqual({
             authJwtAudience: 'neonflux-convex',
             authJwtIssuer: 'https://neonflux.example/auth',
+            authJwtJwks: jwks,
             authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
-            deployKey: 'deploy-key',
             deployment: 'team:neonflux-prod',
             publicUrl: 'https://neonflux.convex.cloud/',
             url: 'https://neonflux.convex.cloud/',
@@ -350,7 +379,25 @@ function createCompleteConvexEnv(): NodeJS.ProcessEnv {
         CONVEX_URL: 'https://neonflux.convex.cloud',
         NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
         NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
+        NEONFLUX_AUTH_JWT_JWKS: publicJwksDataUri(),
         NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
         VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
     };
+}
+
+function publicJwksDataUri(): string {
+    return `data:application/json,${encodeURIComponent(
+        JSON.stringify({
+            keys: [
+                {
+                    alg: 'RS256',
+                    e: 'AQAB',
+                    kid: 'test-key',
+                    kty: 'RSA',
+                    n: 'test-modulus',
+                    use: 'sig',
+                },
+            ],
+        })
+    )}`;
 }

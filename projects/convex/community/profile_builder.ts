@@ -40,7 +40,7 @@ type StoredProfileFormDocument = ProfileFormDocument & { _id: GenericId<'profile
 type StoredProfileFieldDocument = ProfileFieldDocument & { _id: GenericId<'profileFields'> };
 type StoredProfileSubmissionDocument = ProfileSubmissionDocument & { _id: GenericId<'profileSubmissions'> };
 
-const allowedProfileBuilderServices = ['bot', 'web', 'migration'] as const;
+const allowedProfileBuilderServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const formRecordValidator = v.object({
     approvalRequired: v.boolean(),

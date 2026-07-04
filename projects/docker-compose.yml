@@ -1,21 +1,6 @@
 name: neonflux
 
 services:
-    db:
-        image: postgres:17-alpine
-        restart: unless-stopped
-        environment:
-            POSTGRES_USER: ${POSTGRES_USER:-neonflux}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-            POSTGRES_DB: ${POSTGRES_DB:-neonflux}
-        volumes:
-            - postgres-data:/var/lib/postgresql/data
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
-            interval: 10s
-            timeout: 5s
-            retries: 10
-
     bot:
         image: ghcr.io/neontechspace/neonflux-bot:${NEONFLUX_BOT_IMAGE_TAG:-latest}
         build:
@@ -26,8 +11,13 @@ services:
         environment:
             APP_ENV: production
             NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+            CONVEX_DEPLOYMENT: ${CONVEX_DEPLOYMENT:?CONVEX_DEPLOYMENT is required}
+            CONVEX_URL: ${CONVEX_URL:?CONVEX_URL is required}
+            VITE_CONVEX_URL: ${VITE_CONVEX_URL:?VITE_CONVEX_URL is required}
+            NEONFLUX_AUTH_JWT_ISSUER: ${NEONFLUX_AUTH_JWT_ISSUER:?NEONFLUX_AUTH_JWT_ISSUER is required}
+            NEONFLUX_AUTH_JWT_AUDIENCE: ${NEONFLUX_AUTH_JWT_AUDIENCE:-neonflux-convex}
+            NEONFLUX_AUTH_JWT_JWKS: ${NEONFLUX_AUTH_JWT_JWKS:?NEONFLUX_AUTH_JWT_JWKS is required}
+            NEONFLUX_AUTH_JWT_PRIVATE_KEY: ${NEONFLUX_AUTH_JWT_PRIVATE_KEY:?NEONFLUX_AUTH_JWT_PRIVATE_KEY is required}
             INSTANCE_MODE: ${INSTANCE_MODE:-multi}
             SINGLE_GUILD_ID: ${SINGLE_GUILD_ID:-}
             PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
@@ -36,9 +26,6 @@ services:
             FLUXER_BOT_CUSTOM_STATUS: ${FLUXER_BOT_CUSTOM_STATUS:-}
             LOG_LEVEL: ${LOG_LEVEL:-info}
             OWNER_IDS: ${OWNER_IDS:-}
-        depends_on:
-            db:
-                condition: service_healthy
 
     web:
         image: ghcr.io/neontechspace/neonflux-web:${NEONFLUX_WEB_IMAGE_TAG:-latest}
@@ -50,8 +37,13 @@ services:
         environment:
             APP_ENV: production
             NODE_ENV: production
-            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-            AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+            CONVEX_DEPLOYMENT: ${CONVEX_DEPLOYMENT:?CONVEX_DEPLOYMENT is required}
+            CONVEX_URL: ${CONVEX_URL:?CONVEX_URL is required}
+            VITE_CONVEX_URL: ${VITE_CONVEX_URL:?VITE_CONVEX_URL is required}
+            NEONFLUX_AUTH_JWT_ISSUER: ${NEONFLUX_AUTH_JWT_ISSUER:?NEONFLUX_AUTH_JWT_ISSUER is required}
+            NEONFLUX_AUTH_JWT_AUDIENCE: ${NEONFLUX_AUTH_JWT_AUDIENCE:-neonflux-convex}
+            NEONFLUX_AUTH_JWT_JWKS: ${NEONFLUX_AUTH_JWT_JWKS:?NEONFLUX_AUTH_JWT_JWKS is required}
+            NEONFLUX_AUTH_JWT_PRIVATE_KEY: ${NEONFLUX_AUTH_JWT_PRIVATE_KEY:?NEONFLUX_AUTH_JWT_PRIVATE_KEY is required}
             FLUXER_APP_ID: ${FLUXER_APP_ID:?FLUXER_APP_ID is required}
             FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?FLUXER_BOT_TOKEN is required}
             FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?FLUXER_CLIENT_SECRET is required}
@@ -65,9 +57,3 @@ services:
             PORT: '3000'
         ports:
             - '${WEB_PORT:-3000}:3000'
-        depends_on:
-            db:
-                condition: service_healthy
-
-volumes:
-    postgres-data:

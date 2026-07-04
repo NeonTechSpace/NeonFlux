@@ -10,7 +10,7 @@ import type { DashboardGuildAccess } from './dashboard-guild-access.server.js';
 import { readAuthenticatedWebSession } from './web-session.server.js';
 import type { WebSessionValidationError } from './web-session.server.js';
 
-export const convexUserTokenLifetimeSeconds = 5 * 60;
+const convexUserTokenLifetimeSeconds = 5 * 60;
 
 type ConvexTokenBody = {
     expiresAt: string;

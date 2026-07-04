@@ -74,6 +74,18 @@ describe('Convex NeonFlux auth helpers', () => {
         ).rejects.toThrow('NeonFlux service authentication required');
     });
 
+    it('rejects retired migration service tokens', async () => {
+        await expect(
+            requireNeonFluxService(
+                createContext({
+                    'neonflux.kind': 'service',
+                    'neonflux.serviceName': 'migration',
+                }),
+                ['bot', 'web']
+            )
+        ).rejects.toThrow('NeonFlux service authentication required');
+    });
+
     it('enforces guild access through manageable guild claims', async () => {
         await expect(
             requireGuildAccess(

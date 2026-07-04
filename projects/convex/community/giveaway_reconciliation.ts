@@ -16,7 +16,7 @@ type GiveawayReconciliationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
 type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> };
 type StoredGiveawayEntryDocument = GiveawayEntryDocument & { _id: GenericId<'giveawayEntries'> };
 
-const allowedGiveawayReconciliationServices = ['bot', 'migration'] as const;
+const allowedGiveawayReconciliationServices = ['bot'] as const;
 
 export const reconcileGiveawayEntries = mutationGeneric({
     args: {

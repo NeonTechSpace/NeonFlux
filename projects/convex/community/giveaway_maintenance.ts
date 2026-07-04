@@ -23,7 +23,7 @@ type GiveawayMaintenanceQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
 type GiveawayMaintenanceMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
 type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> };
 
-const allowedGiveawayMaintenanceServices = ['bot', 'web', 'migration'] as const;
+const allowedGiveawayMaintenanceServices = ['bot', 'web'] as const;
 const nullableString = v.union(v.string(), v.null());
 const giveawayRecordValidator = v.object({
     channelId: v.string(),

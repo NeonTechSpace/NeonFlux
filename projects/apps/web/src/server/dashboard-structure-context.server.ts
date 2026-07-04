@@ -1,9 +1,9 @@
 import '@tanstack/react-start/server-only';
 
-import { recordBotActionEvent } from '@neonflux/persistence';
+import { recordBotActionEvent } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebPersistence } from './persistence.server.js';
+import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -56,7 +56,7 @@ export async function recordStructureAudit(
     targetId: string,
     metadata: Record<string, unknown>
 ): Promise<'recorded' | 'database-error'> {
-    const result = await recordBotActionEvent((await getWebPersistence()).db, {
+    const result = await recordBotActionEvent((await getWebDb()).db, {
         guildId: context.guild.id,
         feature: structureFeature,
         action,

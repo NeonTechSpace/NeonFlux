@@ -52,7 +52,6 @@ import type * as growth_xp_voice_sessions from "../growth/xp_voice_sessions.js";
 import type * as growth_xp_voice_sessions_model from "../growth/xp_voice_sessions_model.js";
 import type * as growth_overview from "../growth_overview.js";
 import type * as logging_destinations from "../logging_destinations.js";
-import type * as migration_readiness from "../migration/readiness.js";
 import type * as moderation from "../moderation.js";
 import type * as moderation_moderation from "../moderation/moderation.js";
 import type * as moderation_moderation_model from "../moderation/moderation_model.js";
@@ -216,7 +215,6 @@ declare const fullApi: ApiFromModules<{
   "growth/xp_voice_sessions_model": typeof growth_xp_voice_sessions_model;
   growth_overview: typeof growth_overview;
   logging_destinations: typeof logging_destinations;
-  "migration/readiness": typeof migration_readiness;
   moderation: typeof moderation;
   "moderation/moderation": typeof moderation_moderation;
   "moderation/moderation_model": typeof moderation_moderation_model;
