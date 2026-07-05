@@ -1,9 +1,5 @@
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
-import {
-    findGuildCommandSettingsByGuildId,
-    recordBotActionEvent,
-    upsertGuildCommandPrefix,
-} from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
 import type { BotActionEventRecord, GuildCommandSettingsRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';

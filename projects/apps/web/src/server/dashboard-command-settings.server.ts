@@ -1,11 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
-import {
-    findGuildCommandSettingsByGuildId,
-    recordBotActionEvent,
-    upsertGuildCommandPrefix,
-} from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
 import type { GuildCommandSettingsRepositoryError } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 

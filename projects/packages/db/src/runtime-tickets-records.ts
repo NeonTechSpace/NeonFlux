@@ -1,9 +1,4 @@
-import type {
-    TicketEventRecord,
-    TicketMemberRecord,
-    TicketPanelRecord,
-    TicketRecord,
-} from './contracts-tickets.js';
+import type { TicketEventRecord, TicketMemberRecord, TicketPanelRecord, TicketRecord } from './contracts-tickets.js';
 import type { GuildFeatureRepositoryError } from './contracts.js';
 import { err, ok, type Result } from 'neverthrow';
 

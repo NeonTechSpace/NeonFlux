@@ -1,8 +1,5 @@
 import { api } from '@neonflux/convex/api';
-import type {
-    TicketPanelRecord,
-    TicketsRepositoryError,
-} from './contracts-tickets.js';
+import type { TicketPanelRecord, TicketsRepositoryError } from './contracts-tickets.js';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { ConvexDatabase } from './convex.js';

@@ -1,8 +1,6 @@
 import { err, ok, type Result } from 'neverthrow';
 
-import type {
-    GuildFeatureRepositoryError,
-} from './contracts.js';
+import type { GuildFeatureRepositoryError } from './contracts.js';
 import type {
     ProfileBuilderRepositoryError,
     ProfileFieldRecord,

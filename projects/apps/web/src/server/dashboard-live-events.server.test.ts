@@ -19,7 +19,9 @@ describe('dashboard live events compatibility route', () => {
 
     it('deduplicates supported dashboard areas', () => {
         expect(
-            readDashboardLiveAreas(new Request('http://localhost/dashboard/guild-1/events?areas=commands,commands,audit'))
+            readDashboardLiveAreas(
+                new Request('http://localhost/dashboard/guild-1/events?areas=commands,commands,audit')
+            )
         ).toStrictEqual({
             areas: ['commands', 'audit'],
             valid: true,

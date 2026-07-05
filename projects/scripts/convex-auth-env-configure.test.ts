@@ -113,7 +113,9 @@ describe('createConvexAuthEnvPlan', () => {
             'Next: ensure the local or protected deploy environment has the same public auth values'
         );
         expect(output).toContain('Then run: pnpm convex:validate-auth-config');
-        expect(output).toContain('Then run: pnpm convex:check-auth-env -- --deployment dev:target --compare-deploy-env');
+        expect(output).toContain(
+            'Then run: pnpm convex:check-auth-env -- --deployment dev:target --compare-deploy-env'
+        );
         expect(output).toContain('Then deploy Convex functions/auth config for this environment');
         expect(output).toContain('Then run: pnpm convex:check-auth-env -- --deployment dev:target');
         expect(output).toContain('For local/dev rehearsal, run: pnpm convex:dev:once');

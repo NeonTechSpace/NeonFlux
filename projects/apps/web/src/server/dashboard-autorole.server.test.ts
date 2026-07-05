@@ -1,11 +1,6 @@
 import { loadWebConfig } from '@neonflux/config';
 import type * as NeonFluxConfig from '@neonflux/config';
-import {
-    deleteAutoroleRule,
-    listAutoroleRulesByGuildId,
-    recordBotActionEvent,
-    upsertAutoroleRule,
-} from '@neonflux/db';
+import { deleteAutoroleRule, listAutoroleRulesByGuildId, recordBotActionEvent, upsertAutoroleRule } from '@neonflux/db';
 import type { AutoroleRuleRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';

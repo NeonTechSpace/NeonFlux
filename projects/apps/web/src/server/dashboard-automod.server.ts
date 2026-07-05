@@ -7,12 +7,7 @@ import {
     recordBotActionEvent,
     saveAutomodRule,
 } from '@neonflux/db';
-import type {
-    AutomodActionType,
-    AutomodEventRecord,
-    AutomodRuleRecord,
-    AutomodTriggerType,
-} from '@neonflux/db';
+import type { AutomodActionType, AutomodEventRecord, AutomodRuleRecord, AutomodTriggerType } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDb } from './db.server.js';

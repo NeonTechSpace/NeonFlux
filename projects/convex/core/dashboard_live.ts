@@ -1,4 +1,9 @@
-import { mutationGeneric, queryGeneric, type DataModelFromSchemaDefinition, type GenericMutationCtx } from 'convex/server';
+import {
+    mutationGeneric,
+    queryGeneric,
+    type DataModelFromSchemaDefinition,
+    type GenericMutationCtx,
+} from 'convex/server';
 import { v } from 'convex/values';
 
 import { requireGuildAccess, requireNeonFluxService } from '../auth.js';

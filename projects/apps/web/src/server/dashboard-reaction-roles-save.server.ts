@@ -8,11 +8,7 @@ import {
     upsertReactionRoleMessage,
     upsertReactionRoleOptionByMessage,
 } from '@neonflux/db';
-import type {
-    ReactionRoleMessageRecord,
-    ReactionRoleMessageWithOptions,
-    RuntimeDbClient,
-} from '@neonflux/db';
+import type { ReactionRoleMessageRecord, ReactionRoleMessageWithOptions, RuntimeDbClient } from '@neonflux/db';
 import { editFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';

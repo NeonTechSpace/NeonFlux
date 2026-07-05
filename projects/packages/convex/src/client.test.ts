@@ -88,9 +88,7 @@ describe('createNeonFluxConvexHttpClient', () => {
         });
 
         await expect(client.query(convexApi.core.readDeploymentConfig, {})).rejects.toThrow(
-            `Convex query ${getFunctionName(
-                convexApi.core.readDeploymentConfig
-            )} returned HTTP 401: NoAuthProvider`
+            `Convex query ${getFunctionName(convexApi.core.readDeploymentConfig)} returned HTTP 401: NoAuthProvider`
         );
     });
 });

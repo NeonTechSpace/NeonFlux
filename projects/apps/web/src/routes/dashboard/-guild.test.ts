@@ -2562,10 +2562,7 @@ type MockDashboardLiveState = {
     version: number;
 };
 
-async function waitForDashboardLiveWatch(
-    guildId: string,
-    areas: readonly string[]
-): Promise<MockDashboardLiveWatch> {
+async function waitForDashboardLiveWatch(guildId: string, areas: readonly string[]): Promise<MockDashboardLiveWatch> {
     let watch: MockDashboardLiveWatch | undefined;
 
     await waitFor(() => {
@@ -2579,20 +2576,11 @@ async function waitForDashboardLiveWatch(
     return watch as MockDashboardLiveWatch;
 }
 
-function emitDashboardLiveBaseline(
-    watch: MockDashboardLiveWatch,
-    guildId: string,
-    areas: readonly string[]
-): void {
+function emitDashboardLiveBaseline(watch: MockDashboardLiveWatch, guildId: string, areas: readonly string[]): void {
     watch.emit(areas.map((area) => createDashboardLiveState(guildId, area, 1)));
 }
 
-function emitDashboardLiveUpdate(
-    watch: MockDashboardLiveWatch,
-    guildId: string,
-    area: string,
-    version = 2
-): void {
+function emitDashboardLiveUpdate(watch: MockDashboardLiveWatch, guildId: string, area: string, version = 2): void {
     watch.emit([createDashboardLiveState(guildId, area, version)]);
 }
 

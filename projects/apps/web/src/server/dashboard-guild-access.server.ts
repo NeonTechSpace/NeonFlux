@@ -4,11 +4,7 @@ import type { AppMode } from '@neonflux/config';
 import { loadWebConfig } from '@neonflux/config';
 import { authorizeDashboardAccess } from '@neonflux/core/defcon';
 import type { DashboardGuild } from '@neonflux/core';
-import {
-    findDeploymentConfig,
-    listGuildSecurityPoliciesByGuildIds,
-    listBotInstallationGuildIds,
-} from '@neonflux/db';
+import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
 import type { DeploymentConfigRecord, DeploymentConfigRepositoryError } from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import { toDashboardGuild } from '@neonflux/fluxer/permissions';

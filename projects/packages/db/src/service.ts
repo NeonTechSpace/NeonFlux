@@ -1,10 +1,6 @@
 import type { ConvexConfig, RequiredConvexConfig, RuntimeConfig } from '@neonflux/config/env';
 
-import {
-    createConvexServiceDb,
-    type ConvexDbServiceName,
-    type ConvexServiceDbClient,
-} from './convex.js';
+import { createConvexServiceDb, type ConvexDbServiceName, type ConvexServiceDbClient } from './convex.js';
 
 export type RuntimeDbClient = ConvexServiceDbClient;
 

@@ -1,9 +1,5 @@
 import { loadWebConfig } from '@neonflux/config';
-import {
-    findDeploymentConfig,
-    listGuildSecurityPoliciesByGuildIds,
-    listBotInstallationGuildIds,
-} from '@neonflux/db';
+import { findDeploymentConfig, listGuildSecurityPoliciesByGuildIds, listBotInstallationGuildIds } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { listFluxerCurrentUserGuilds } from '@neonflux/fluxer/guilds';
 import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';

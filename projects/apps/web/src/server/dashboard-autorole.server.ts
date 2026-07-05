@@ -1,12 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import {
-    deleteAutoroleRule,
-    listAutoroleRulesByGuildId,
-    recordBotActionEvent,
-    upsertAutoroleRule,
-} from '@neonflux/db';
+import { deleteAutoroleRule, listAutoroleRulesByGuildId, recordBotActionEvent, upsertAutoroleRule } from '@neonflux/db';
 import type { AutoroleRuleRecord } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
