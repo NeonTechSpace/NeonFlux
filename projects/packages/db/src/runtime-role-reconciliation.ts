@@ -71,9 +71,12 @@ export async function findRoleReconciliationSettingsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = (await db.client.query(convexApi.role_reconciliation.findRoleReconciliationSettingsByGuildId, {
-            guildId: guildId.value,
-        })) as ConvexRoleReconciliationSettingsRecord;
+        const settings = await db.client.query<ConvexRoleReconciliationSettingsRecord>(
+            convexApi.role_reconciliation.findRoleReconciliationSettingsByGuildId,
+            {
+                guildId: guildId.value,
+            }
+        );
 
         return ok(toRoleReconciliationSettingsRecord(settings));
     } catch (error) {
@@ -90,18 +93,25 @@ export async function upsertRoleReconciliationSettings(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = (await db.client.mutation(convexApi.role_reconciliation.upsertRoleReconciliationSettings, {
-            ...(input.cleanupDeletedRoleReferences === undefined
-                ? {}
-                : { cleanupDeletedRoleReferences: input.cleanupDeletedRoleReferences }),
-            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-            guildId: guildId.value,
-            ...(input.restoreAutoroleRoles === undefined ? {} : { restoreAutoroleRoles: input.restoreAutoroleRoles }),
-            ...(input.restoreReactionRoles === undefined ? {} : { restoreReactionRoles: input.restoreReactionRoles }),
-            ...(input.restoreVerificationRoles === undefined
-                ? {}
-                : { restoreVerificationRoles: input.restoreVerificationRoles }),
-        })) as ConvexRoleReconciliationSettingsRecord;
+        const settings = await db.client.mutation<ConvexRoleReconciliationSettingsRecord>(
+            convexApi.role_reconciliation.upsertRoleReconciliationSettings,
+            {
+                ...(input.cleanupDeletedRoleReferences === undefined
+                    ? {}
+                    : { cleanupDeletedRoleReferences: input.cleanupDeletedRoleReferences }),
+                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+                guildId: guildId.value,
+                ...(input.restoreAutoroleRoles === undefined
+                    ? {}
+                    : { restoreAutoroleRoles: input.restoreAutoroleRoles }),
+                ...(input.restoreReactionRoles === undefined
+                    ? {}
+                    : { restoreReactionRoles: input.restoreReactionRoles }),
+                ...(input.restoreVerificationRoles === undefined
+                    ? {}
+                    : { restoreVerificationRoles: input.restoreVerificationRoles }),
+            }
+        );
 
         return ok(toRoleReconciliationSettingsRecord(settings));
     } catch (error) {
@@ -120,10 +130,13 @@ export async function createRoleReconciliationRun(
     if (summary.isErr()) return err(summary.error);
 
     try {
-        const run = (await db.client.mutation(convexApi.role_reconciliation.createRoleReconciliationRun, {
-            guildId: guildId.value,
-            ...(summary.value === undefined ? {} : { summary: summary.value }),
-        })) as ConvexRoleReconciliationRunRecord;
+        const run = await db.client.mutation<ConvexRoleReconciliationRunRecord>(
+            convexApi.role_reconciliation.createRoleReconciliationRun,
+            {
+                guildId: guildId.value,
+                ...(summary.value === undefined ? {} : { summary: summary.value }),
+            }
+        );
 
         return ok(toRoleReconciliationRunRecord(run));
     } catch (error) {
@@ -144,11 +157,14 @@ export async function updateRoleReconciliationRunStatus(
     if (summary.isErr()) return err(summary.error);
 
     try {
-        const run = (await db.client.mutation(convexApi.role_reconciliation.updateRoleReconciliationRunStatus, {
-            runId: runId.value,
-            status: status.value,
-            ...(summary.value === undefined ? {} : { summary: summary.value }),
-        })) as ConvexRoleReconciliationRunRecord | null;
+        const run = await db.client.mutation<ConvexRoleReconciliationRunRecord | null>(
+            convexApi.role_reconciliation.updateRoleReconciliationRunStatus,
+            {
+                runId: runId.value,
+                status: status.value,
+                ...(summary.value === undefined ? {} : { summary: summary.value }),
+            }
+        );
 
         return run ? ok(toRoleReconciliationRunRecord(run)) : err({ type: 'not-found' });
     } catch (error) {
@@ -179,13 +195,16 @@ export async function recordRoleReconciliationAction(
     if (details.isErr()) return err(details.error);
 
     try {
-        const action = (await db.client.mutation(convexApi.role_reconciliation.recordRoleReconciliationAction, {
-            actionType: actionType.value,
-            ...(details.value === undefined ? {} : { details: details.value }),
-            ...(roleId.value === undefined ? {} : { roleId: roleId.value }),
-            runId: runId.value,
-            ...(status.value === undefined ? {} : { status: status.value }),
-        })) as ConvexRoleReconciliationActionRecord;
+        const action = await db.client.mutation<ConvexRoleReconciliationActionRecord>(
+            convexApi.role_reconciliation.recordRoleReconciliationAction,
+            {
+                actionType: actionType.value,
+                ...(details.value === undefined ? {} : { details: details.value }),
+                ...(roleId.value === undefined ? {} : { roleId: roleId.value }),
+                runId: runId.value,
+                ...(status.value === undefined ? {} : { status: status.value }),
+            }
+        );
 
         return ok(toRoleReconciliationActionRecord(action));
     } catch (error) {
@@ -206,11 +225,14 @@ export async function cleanupDeletedGuildRoleReferences(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const result = (await db.client.mutation(convexApi.role_reference_cleanup.cleanupDeletedGuildRoleReferences, {
-            guildId: guildId.value,
-            ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
-            roleId: roleId.value,
-        })) as DeletedGuildRoleReferenceCleanupResult;
+        const result = await db.client.mutation<DeletedGuildRoleReferenceCleanupResult>(
+            convexApi.role_reference_cleanup.cleanupDeletedGuildRoleReferences,
+            {
+                guildId: guildId.value,
+                ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
+                roleId: roleId.value,
+            }
+        );
 
         return ok(result);
     } catch (error) {

@@ -180,13 +180,15 @@ export function assertPublicNeonFluxJwks(jwks: unknown, source = 'JWKS'): assert
 
     for (const [index, key] of jwks.keys.entries()) {
         if (!isObjectRecord(key)) {
-            throw new Error(`${source} has a non-object key at index ${index}`);
+            throw new Error(`${source} has a non-object key at index ${String(index)}`);
         }
 
         const leakedParameter = privateJwkParameters.find((parameter) => parameter in key);
 
         if (leakedParameter) {
-            throw new Error(`${source} exposes private JWK parameter "${leakedParameter}" at key index ${index}`);
+            throw new Error(
+                `${source} exposes private JWK parameter "${leakedParameter}" at key index ${String(index)}`
+            );
         }
 
         assertPublicRsaSigningJwk(key, index, source);
@@ -260,25 +262,27 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertPublicRsaSigningJwk(key: Record<string, unknown>, index: number, source: string): void {
+    const keyIndex = String(index);
+
     if (key.kty !== 'RSA') {
-        throw new Error(`${source} key at index ${index} must be an RSA public JWK`);
+        throw new Error(`${source} key at index ${keyIndex} must be an RSA public JWK`);
     }
 
     if (!isNonEmptyString(key.kid)) {
-        throw new Error(`${source} key at index ${index} must include a non-empty "kid"`);
+        throw new Error(`${source} key at index ${keyIndex} must include a non-empty "kid"`);
     }
 
     if (key.alg !== 'RS256') {
-        throw new Error(`${source} key at index ${index} must use alg "RS256"`);
+        throw new Error(`${source} key at index ${keyIndex} must use alg "RS256"`);
     }
 
     if (key.use !== 'sig') {
-        throw new Error(`${source} key at index ${index} must use "sig"`);
+        throw new Error(`${source} key at index ${keyIndex} must use "sig"`);
     }
 
     for (const parameter of ['n', 'e'] as const) {
         if (!isBase64UrlString(key[parameter])) {
-            throw new Error(`${source} key at index ${index} must include public RSA parameter "${parameter}"`);
+            throw new Error(`${source} key at index ${keyIndex} must include public RSA parameter "${parameter}"`);
         }
     }
 }

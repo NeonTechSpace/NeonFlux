@@ -46,9 +46,9 @@ export function validateConvexAuthConfigEnv(env: ConvexAuthConfigValidationEnvir
     const config = loadConvexConfig(env);
 
     return {
-        audience: config.authJwtAudience!,
-        issuer: config.authJwtIssuer!,
-        jwksDescription: describeJwksConfig(config.authJwtJwks!),
+        audience: requireConfigValue(config.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
+        issuer: requireConfigValue(config.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
+        jwksDescription: describeJwksConfig(requireConfigValue(config.authJwtJwks, 'NEONFLUX_AUTH_JWT_JWKS')),
     };
 }
 
@@ -63,13 +63,15 @@ export function formatConvexAuthConfigValidation(validation: ConvexAuthConfigVal
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    await main().catch((error: unknown) => {
+    try {
+        main();
+    } catch (error: unknown) {
         process.stderr.write(`${formatErrorMessage(error)}\n`);
         process.exitCode = 1;
-    });
+    }
 }
 
-async function main(): Promise<void> {
+function main(): void {
     assertNoArgs();
 
     const validation = validateConvexAuthConfigEnv(process.env);
@@ -84,12 +86,18 @@ function describeJwksConfig(value: string): string {
     }
 
     const jwks = parseNeonFluxJwksDataUri(value, 'NEONFLUX_AUTH_JWT_JWKS');
-    return `inline data URI (${jwks.keys.length} key${jwks.keys.length === 1 ? '' : 's'})`;
+    return `inline data URI (${String(jwks.keys.length)} key${jwks.keys.length === 1 ? '' : 's'})`;
 }
 
 function optionalValue(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function requireConfigValue(value: string | undefined, name: string): string {
+    const normalized = optionalValue(value);
+    if (!normalized) throw new Error(`${name} is required`);
+    return normalized;
 }
 
 function formatErrorMessage(error: unknown): string {

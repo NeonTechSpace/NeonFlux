@@ -174,10 +174,11 @@ export const createObservedModerationCase = mutationGeneric({
             )
         );
 
+        const details = normalizeOptionalRecord(args.details);
         await ctx.db.insert('moderationCases', document);
         await insertModerationCaseEvent(ctx, {
             caseId: document.legacyId,
-            details: args.details,
+            ...(details === undefined ? {} : { details }),
             eventType: args.eventType,
         });
 
@@ -280,7 +281,11 @@ export const recordModerationCaseEvent = mutationGeneric({
     returns: moderationCaseEventRecordValidator,
     handler: async (ctx: ModerationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const event = await insertModerationCaseEvent(ctx, args);
+        const details = normalizeOptionalRecord(args.details);
+        const event = await insertModerationCaseEvent(ctx, {
+            ...args,
+            ...(details === undefined ? {} : { details }),
+        });
 
         return toModerationCaseEventRecord(event);
     },
@@ -400,7 +405,7 @@ async function insertModerationCaseEvent(
         actorUserId?: string;
         caseId: string;
         createdAt?: string;
-        details?: Record<string, unknown>;
+        details?: Record<string, unknown> | null;
         eventType: string;
         legacyId?: string;
     }
@@ -548,4 +553,16 @@ function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok
     }
 
     return result.value;
+}
+
+function normalizeOptionalRecord(value: unknown): Record<string, unknown> | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (isObjectRecord(value)) return value;
+
+    throw new Error('invalid-value');
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

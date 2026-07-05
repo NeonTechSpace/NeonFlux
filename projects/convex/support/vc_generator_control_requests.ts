@@ -247,7 +247,7 @@ async function requireGeneratedChannel(
     input: { generatedChannelId: string; guildId: string }
 ): Promise<StoredGeneratedChannelDocument> {
     const channel = await findGeneratedByLegacyId(ctx, input.generatedChannelId);
-    if (!channel || channel.guildId !== input.guildId) throw new Error('generated-channel-not-found');
+    if (channel?.guildId !== input.guildId) throw new Error('generated-channel-not-found');
     return channel;
 }
 

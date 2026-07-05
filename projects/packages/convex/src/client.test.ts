@@ -42,7 +42,7 @@ describe('createNeonFluxConvexHttpClient', () => {
         });
         expect(fetch).toHaveBeenCalledWith(new URL('https://neonflux-test.convex.cloud/api/query'), {
             body: JSON.stringify({
-                args: [convexToJson({} as never)],
+                args: [convexToJson({})],
                 format: 'convex_encoded_json',
                 path: getFunctionName(convexApi.core.readDeploymentConfig),
             }),
@@ -94,7 +94,7 @@ describe('createNeonFluxConvexHttpClient', () => {
 });
 
 function stubFetch(response: Response) {
-    const fetch = vi.fn(async () => response);
+    const fetch = vi.fn(() => Promise.resolve(response));
 
     vi.stubGlobal('fetch', fetch);
 

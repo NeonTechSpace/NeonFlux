@@ -1,14 +1,7 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-import {
-    encryptedOAuthTokenPayload,
-    jsonValue,
-    optionalNumber,
-    optionalString,
-    optionalTimestamp,
-    timestamp,
-} from '../shared.js';
+import { jsonValue, optionalTimestamp, timestamp } from '../shared.js';
 
 export const profileSubmissionsTable = defineTable({
     formLegacyId: v.string(),

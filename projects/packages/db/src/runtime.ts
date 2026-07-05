@@ -89,10 +89,10 @@ export async function findDeploymentConfig(
     db: DeploymentConfigDb
 ): Promise<Result<DeploymentConfigRecord, DeploymentConfigRepositoryError>> {
     try {
-        const config = (await db.client.query(
+        const config = await db.client.query<ConvexDeploymentConfigRecord | null>(
             convexApi.core.readDeploymentConfig,
             {}
-        )) as ConvexDeploymentConfigRecord | null;
+        );
 
         return config ? ok(config) : err('not-found');
     } catch {
@@ -109,10 +109,10 @@ export async function upsertDeploymentConfig(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const config = (await db.client.mutation(
+        const config = await db.client.mutation<ConvexDeploymentConfigRecord>(
             convexApi.core.upsertDeploymentConfig,
             normalizedInput.value
-        )) as ConvexDeploymentConfigRecord;
+        );
 
         return ok(config);
     } catch {
@@ -125,10 +125,10 @@ export async function upsertBotInstallation(
     input: { guildId: string }
 ): Promise<Result<BotInstallationRecord, BotInstallationRepositoryError>> {
     try {
-        const installation = (await db.client.mutation(
+        const installation = await db.client.mutation<ConvexBotInstallationRecord>(
             convexApi.core.upsertBotInstallation,
             input
-        )) as ConvexBotInstallationRecord;
+        );
 
         return ok(toBotInstallationRecord(installation));
     } catch (error) {
@@ -144,10 +144,13 @@ export async function listBotInstallationGuildIds(
         let afterGuildId: string | undefined;
 
         do {
-            const page = (await db.client.query(convexApi.core.listBotInstallationGuildIdsPage, {
-                ...(afterGuildId ? { afterGuildId } : {}),
-                limit: 500,
-            })) as { guildIds: string[]; nextCursor?: string };
+            const page = await db.client.query<{ guildIds: string[]; nextCursor?: string }>(
+                convexApi.core.listBotInstallationGuildIdsPage,
+                {
+                    ...(afterGuildId ? { afterGuildId } : {}),
+                    limit: 500,
+                }
+            );
 
             guildIds.push(...page.guildIds);
             afterGuildId = page.nextCursor;
@@ -164,10 +167,10 @@ export async function deleteBotInstallation(
     input: { guildId: string }
 ): Promise<Result<BotInstallationRecord, BotInstallationRepositoryError>> {
     try {
-        const installation = (await db.client.mutation(
+        const installation = await db.client.mutation<ConvexBotInstallationRecord | null>(
             convexApi.core.deleteBotInstallation,
             input
-        )) as ConvexBotInstallationRecord | null;
+        );
 
         return installation ? ok(toBotInstallationRecord(installation)) : err('not-found');
     } catch (error) {
@@ -180,9 +183,12 @@ export async function listGuildSecurityPoliciesByGuildIds(
     input: { guildIds: readonly string[] }
 ): Promise<Result<GuildSecurityPolicyRecord[], GuildSecurityPolicyRepositoryError>> {
     try {
-        const policies = (await db.client.query(convexApi.security_policies.listGuildSecurityPoliciesByGuildIds, {
-            guildIds: [...input.guildIds],
-        })) as ConvexGuildSecurityPolicyRecord[];
+        const policies = await db.client.query<ConvexGuildSecurityPolicyRecord[]>(
+            convexApi.security_policies.listGuildSecurityPoliciesByGuildIds,
+            {
+                guildIds: [...input.guildIds],
+            }
+        );
 
         return ok(policies.map(toGuildSecurityPolicyRecord));
     } catch {
@@ -202,10 +208,10 @@ export async function recordBotActionEvent(
     }
 ): Promise<Result<BotActionEventRecord, LoggingRepositoryError>> {
     try {
-        const event = (await db.client.mutation(
+        const event = await db.client.mutation<ConvexBotActionEventRecord>(
             convexApi.events.recordBotActionEvent,
             input
-        )) as ConvexBotActionEventRecord;
+        );
 
         return ok(toBotActionEventRecord(event));
     } catch {
@@ -218,10 +224,10 @@ export async function listBotActionEventsByGuildId(
     input: { feature?: string; guildId: string; limit?: number }
 ): Promise<Result<BotActionEventRecord[], LoggingRepositoryError>> {
     try {
-        const events = (await db.client.query(
+        const events = await db.client.query<ConvexBotActionEventRecord[]>(
             convexApi.events.listBotActionEventsByGuildId,
             input
-        )) as ConvexBotActionEventRecord[];
+        );
 
         return ok(events.map(toBotActionEventRecord));
     } catch {
@@ -242,10 +248,10 @@ export async function listBotActionEventPageByGuildId(
     }
 ): Promise<Result<BotActionEventPage, LoggingRepositoryError>> {
     try {
-        const page = (await db.client.query(convexApi.events.listBotActionEventPageByGuildId, {
+        const page = await db.client.query<ConvexBotActionEventPage>(convexApi.events.listBotActionEventPageByGuildId, {
             ...input,
             ...(input.cursor ? { cursor: toConvexBotActionEventCursor(input.cursor) } : {}),
-        })) as ConvexBotActionEventPage;
+        });
 
         return ok({
             ...(page.nextCursor ? { nextCursor: toBotActionEventCursor(page.nextCursor) } : {}),

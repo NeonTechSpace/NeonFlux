@@ -1,7 +1,8 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { createRuntimeDb, type RuntimeDbClient } from '@neonflux/db';
+import type { RuntimeDbClient } from '@neonflux/db';
+import { createRuntimeDb } from '@neonflux/db';
 
 let webDbClient: RuntimeDbClient | undefined;
 let webDbStart: Promise<RuntimeDbClient> | undefined;

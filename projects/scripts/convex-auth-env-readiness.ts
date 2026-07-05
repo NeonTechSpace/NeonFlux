@@ -112,8 +112,8 @@ async function main(): Promise<void> {
     const deploymentLabel = deployment ?? 'default dev deployment';
     const targetValues = await getAvailableConvexAuthEnvValues(deployment, readiness.names);
     const valueReadiness = evaluateConvexAuthEnvValues(targetValues);
-    const valueErrors = valueReadiness?.valueErrors ?? [];
-    const valueMissing = (valueReadiness?.missing ?? []).filter((name) => !readiness.missing.includes(name));
+    const valueErrors = valueReadiness.valueErrors;
+    const valueMissing = valueReadiness.missing.filter((name) => !readiness.missing.includes(name));
     const deployEnvValues = args.compareDeployEnv ? readPublicConvexAuthEnvValues(process.env) : undefined;
     const deployEnvErrors = deployEnvValues
         ? [
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
         const remediation = createRemediationLines(deployment);
 
         process.stderr.write(
-            [
+            `${[
                 `Convex auth env is not ready for ${deploymentLabel}.`,
                 readiness.missing.length > 0 ? `Missing: ${readiness.missing.join(', ')}` : undefined,
                 readiness.forbiddenPresent.length > 0
@@ -138,22 +138,26 @@ async function main(): Promise<void> {
                 ...remediation,
             ]
                 .filter((line): line is string => Boolean(line))
-                .join('\n') + '\n'
+                .join('\n')}\n`
         );
         process.exitCode = 1;
         return;
     }
 
+    const issuer = requireReadinessValue(valueReadiness.issuer, 'issuer');
+    const audience = requireReadinessValue(valueReadiness.audience, 'audience');
+    const jwksDescription = requireReadinessValue(valueReadiness.jwksDescription, 'jwksDescription');
+
     process.stdout.write(
-        [
+        `${[
             `Convex auth env is ready for ${deploymentLabel}: ${requiredConvexAuthEnvNames.join(', ')}.`,
-            `Issuer: ${valueReadiness?.issuer}`,
-            `Audience: ${valueReadiness?.audience}`,
-            `JWKS: ${valueReadiness?.jwksDescription}`,
+            `Issuer: ${issuer}`,
+            `Audience: ${audience}`,
+            `JWKS: ${jwksDescription}`,
             args.compareDeployEnv ? 'Deploy env public auth values match target.' : undefined,
         ]
             .filter((line): line is string => Boolean(line))
-            .join('\n') + '\n'
+            .join('\n')}\n`
     );
 }
 
@@ -189,7 +193,7 @@ async function getAvailableConvexAuthEnvValues(
         availableRequiredNames.map(async (name) => [name, await getConvexEnvValue(name, deployment)] as const)
     );
 
-    return Object.fromEntries(entries) as ConvexAuthEnvValues;
+    return Object.fromEntries(entries);
 }
 
 async function getConvexEnvValue(name: string, deployment: string | undefined): Promise<string> {
@@ -231,6 +235,9 @@ export function parseConvexAuthEnvReadinessArgs(args: string[]): { compareDeploy
         const arg = args[index];
 
         switch (arg) {
+            case undefined:
+                throw new Error('Missing option');
+
             case '--':
                 break;
 
@@ -274,6 +281,11 @@ function optionalValue(value: string | undefined): string | undefined {
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
+function requireReadinessValue(value: string | undefined, field: string): string {
+    if (value === undefined) throw new Error(`Missing ready ${field}`);
+    return value;
+}
+
 function describeJwksConfig(value: string): string {
     const url = new URL(value);
 
@@ -282,7 +294,7 @@ function describeJwksConfig(value: string): string {
     }
 
     const jwks = parseNeonFluxJwksDataUri(value, 'NEONFLUX_AUTH_JWT_JWKS');
-    return `inline data URI (${jwks.keys.length} key${jwks.keys.length === 1 ? '' : 's'})`;
+    return `inline data URI (${String(jwks.keys.length)} key${jwks.keys.length === 1 ? '' : 's'})`;
 }
 
 function readPublicConvexAuthEnvValues(env: NodeJS.ProcessEnv): ConvexAuthEnvValues {

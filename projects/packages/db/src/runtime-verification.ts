@@ -66,10 +66,10 @@ export async function upsertVerificationFlow(
     }
 
     try {
-        const flow = (await db.client.mutation(
+        const flow = await db.client.mutation<ConvexVerificationFlowRecord>(
             convexApi.verification.upsertVerificationFlow,
             normalizedInput.value
-        )) as ConvexVerificationFlowRecord;
+        );
 
         return ok(toVerificationFlowRecord(flow));
     } catch {
@@ -88,10 +88,13 @@ export async function listVerificationFlowsByGuildId(
     }
 
     try {
-        const flows = (await db.client.query(convexApi.verification.listVerificationFlowsByGuildId, {
-            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-            guildId: guildId.value,
-        })) as ConvexVerificationFlowRecord[];
+        const flows = await db.client.query<ConvexVerificationFlowRecord[]>(
+            convexApi.verification.listVerificationFlowsByGuildId,
+            {
+                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+                guildId: guildId.value,
+            }
+        );
 
         return ok(flows.map(toVerificationFlowRecord));
     } catch {
@@ -110,10 +113,10 @@ export async function findEnabledVerificationFlowByReaction(
     }
 
     try {
-        const flow = (await db.client.query(
+        const flow = await db.client.query<ConvexVerificationFlowRecord | null>(
             convexApi.verification.findEnabledVerificationFlowByReaction,
             normalizedInput.value
-        )) as ConvexVerificationFlowRecord | null;
+        );
 
         return flow ? ok(toVerificationFlowRecord(flow)) : err({ type: 'not-found' });
     } catch {
@@ -132,10 +135,13 @@ export async function deleteVerificationFlow(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const flow = (await db.client.mutation(convexApi.verification.deleteVerificationFlow, {
-            guildId: guildId.value,
-            messageId: messageId.value,
-        })) as ConvexVerificationFlowRecord | null;
+        const flow = await db.client.mutation<ConvexVerificationFlowRecord | null>(
+            convexApi.verification.deleteVerificationFlow,
+            {
+                guildId: guildId.value,
+                messageId: messageId.value,
+            }
+        );
 
         return flow ? ok(toVerificationFlowRecord(flow)) : err({ type: 'not-found' });
     } catch {
@@ -154,10 +160,10 @@ export async function upsertVerificationRecord(
     }
 
     try {
-        const record = (await db.client.mutation(
+        const record = await db.client.mutation<ConvexVerificationRecord>(
             convexApi.verification.upsertVerificationRecord,
             normalizedInput.value
-        )) as ConvexVerificationRecord;
+        );
 
         return ok(toVerificationRecord(record));
     } catch {
@@ -176,10 +182,13 @@ export async function revokeVerificationRecord(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const record = (await db.client.mutation(convexApi.verification.revokeVerificationRecord, {
-            guildId: guildId.value,
-            userId: userId.value,
-        })) as ConvexVerificationRecord | null;
+        const record = await db.client.mutation<ConvexVerificationRecord | null>(
+            convexApi.verification.revokeVerificationRecord,
+            {
+                guildId: guildId.value,
+                userId: userId.value,
+            }
+        );
 
         return record ? ok(toVerificationRecord(record)) : err({ type: 'not-found' });
     } catch {
@@ -198,10 +207,13 @@ export async function findActiveVerificationRecord(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const record = (await db.client.query(convexApi.verification.findActiveVerificationRecord, {
-            guildId: guildId.value,
-            userId: userId.value,
-        })) as ConvexVerificationRecord | null;
+        const record = await db.client.query<ConvexVerificationRecord | null>(
+            convexApi.verification.findActiveVerificationRecord,
+            {
+                guildId: guildId.value,
+                userId: userId.value,
+            }
+        );
 
         return record ? ok(toVerificationRecord(record)) : err({ type: 'not-found' });
     } catch {

@@ -61,11 +61,11 @@ export async function createWebSession(
     }
 
     try {
-        const session = (await db.client.mutation(convexApi.auth_store.createWebSession, {
+        const session = await db.client.mutation<ConvexWebSessionRecord>(convexApi.auth_store.createWebSession, {
             expiresAt: input.expiresAt.toISOString(),
             fluxerUserId: input.fluxerUserId,
             sessionId: input.sessionId,
-        })) as ConvexWebSessionRecord;
+        });
 
         return ok(toWebSessionRecord(session));
     } catch (error) {
@@ -85,10 +85,13 @@ export async function findActiveWebSessionById(
     }
 
     try {
-        const session = (await db.client.query(convexApi.auth_store.findActiveWebSessionById, {
-            ...(input.now ? { now: input.now.toISOString() } : {}),
-            sessionId: input.sessionId,
-        })) as ConvexWebSessionRecord | null;
+        const session = await db.client.query<ConvexWebSessionRecord | null>(
+            convexApi.auth_store.findActiveWebSessionById,
+            {
+                ...(input.now ? { now: input.now.toISOString() } : {}),
+                sessionId: input.sessionId,
+            }
+        );
 
         return session ? ok(toWebSessionRecord(session)) : err('not-found');
     } catch (error) {
@@ -108,10 +111,10 @@ export async function revokeWebSession(
     }
 
     try {
-        const session = (await db.client.mutation(convexApi.auth_store.revokeWebSession, {
+        const session = await db.client.mutation<ConvexWebSessionRecord | null>(convexApi.auth_store.revokeWebSession, {
             ...(input.revokedAt ? { revokedAt: input.revokedAt.toISOString() } : {}),
             sessionId: input.sessionId,
-        })) as ConvexWebSessionRecord | null;
+        });
 
         return session ? ok(toWebSessionRecord(session)) : err('not-found');
     } catch (error) {
@@ -135,14 +138,17 @@ export async function upsertFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = (await db.client.mutation(convexApi.auth_store.upsertFluxerOAuthTokenSet, {
-            accessToken: input.accessToken,
-            accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
-            fluxerUserId: input.fluxerUserId,
-            ...(input.refreshToken ? { refreshToken: input.refreshToken } : {}),
-            scopes: [...input.scopes],
-            tokenType: input.tokenType,
-        })) as ConvexFluxerOAuthTokenRecord;
+        const tokenSet = await db.client.mutation<ConvexFluxerOAuthTokenRecord>(
+            convexApi.auth_store.upsertFluxerOAuthTokenSet,
+            {
+                accessToken: input.accessToken,
+                accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
+                fluxerUserId: input.fluxerUserId,
+                ...(input.refreshToken ? { refreshToken: input.refreshToken } : {}),
+                scopes: [...input.scopes],
+                tokenType: input.tokenType,
+            }
+        );
 
         return ok(toFluxerOAuthTokenRecord(tokenSet));
     } catch (error) {
@@ -155,10 +161,10 @@ export async function findUsableFluxerOAuthTokenSetByUserId(
     input: { fluxerUserId: string }
 ): Promise<Result<FluxerOAuthTokenRecord, FluxerOAuthTokenRepositoryError>> {
     try {
-        const tokenSet = (await db.client.query(
+        const tokenSet = await db.client.query<ConvexFluxerOAuthTokenRecord | null>(
             convexApi.auth_store.findUsableFluxerOAuthTokenSetByUserId,
             input
-        )) as ConvexFluxerOAuthTokenRecord | null;
+        );
 
         return tokenSet ? ok(toFluxerOAuthTokenRecord(tokenSet)) : err('not-found');
     } catch (error) {
@@ -178,10 +184,13 @@ export async function invalidateFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = (await db.client.mutation(convexApi.auth_store.invalidateFluxerOAuthTokenSet, {
-            fluxerUserId: input.fluxerUserId,
-            ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),
-        })) as ConvexFluxerOAuthTokenRecord | null;
+        const tokenSet = await db.client.mutation<ConvexFluxerOAuthTokenRecord | null>(
+            convexApi.auth_store.invalidateFluxerOAuthTokenSet,
+            {
+                fluxerUserId: input.fluxerUserId,
+                ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),
+            }
+        );
 
         return tokenSet ? ok(toFluxerOAuthTokenRecord(tokenSet)) : err('not-found');
     } catch (error) {

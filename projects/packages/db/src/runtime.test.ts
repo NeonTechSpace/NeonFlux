@@ -241,13 +241,13 @@ function createConvexDb(input: { mutationResults?: unknown[]; queryResults?: unk
     const client = {
         mutationCalls: [] as Array<{ args: unknown; reference: unknown }>,
         queryCalls: [] as Array<{ args: unknown; reference: unknown }>,
-        async mutation(reference: unknown, args: unknown): Promise<unknown> {
+        mutation(reference: unknown, args: unknown): Promise<unknown> {
             this.mutationCalls.push({ args, reference });
-            return mutationResults.shift();
+            return Promise.resolve(mutationResults.shift());
         },
-        async query(reference: unknown, args: unknown): Promise<unknown> {
+        query(reference: unknown, args: unknown): Promise<unknown> {
             this.queryCalls.push({ args, reference });
-            return queryResults.shift();
+            return Promise.resolve(queryResults.shift());
         },
     };
 

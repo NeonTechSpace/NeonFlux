@@ -1,6 +1,5 @@
 import { getFunctionName } from 'convex/server';
-import type { JSONValue } from 'convex/values';
-import { convexToJson, jsonToConvex } from 'convex/values';
+import { convexToJson, jsonToConvex, type JSONValue } from 'convex/values';
 
 export type NeonFluxConvexClientConfig = {
     authToken?: string;
@@ -53,7 +52,7 @@ async function callConvexFunction<Result>(
     const body = await response.text();
 
     if (!response.ok && response.status !== 560) {
-        throw new Error(`Convex ${operation} ${path} returned HTTP ${response.status}: ${body}`);
+        throw new Error(`Convex ${operation} ${path} returned HTTP ${String(response.status)}: ${body}`);
     }
 
     const payload = parseConvexHttpJson(body, operation, path);

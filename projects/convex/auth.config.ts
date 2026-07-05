@@ -125,7 +125,7 @@ function assertPublicJwksDataUri(value: string): void {
 
     for (const [index, key] of jwks.keys.entries()) {
         if (!isObjectRecord(key)) {
-            throw new Error(`NEONFLUX_AUTH_JWT_JWKS has a non-object key at index ${index}`);
+            throw new Error(`NEONFLUX_AUTH_JWT_JWKS has a non-object key at index ${String(index)}`);
         }
 
         const leakedParameter = privateJwkParameters.find((parameter) => parameter in key);
@@ -143,26 +143,28 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertPublicRsaSigningJwk(key: Record<string, unknown>, index: number): void {
+    const keyIndex = String(index);
+
     if (key.kty !== 'RSA') {
-        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${index} must be an RSA public JWK`);
+        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${keyIndex} must be an RSA public JWK`);
     }
 
     if (!isNonEmptyString(key.kid)) {
-        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${index} must include a non-empty "kid"`);
+        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${keyIndex} must include a non-empty "kid"`);
     }
 
     if (key.alg !== 'RS256') {
-        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${index} must use alg "RS256"`);
+        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${keyIndex} must use alg "RS256"`);
     }
 
     if (key.use !== 'sig') {
-        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${index} must use "sig"`);
+        throw new Error(`NEONFLUX_AUTH_JWT_JWKS key at index ${keyIndex} must use "sig"`);
     }
 
     for (const parameter of ['n', 'e'] as const) {
         if (!isBase64UrlString(key[parameter])) {
             throw new Error(
-                `NEONFLUX_AUTH_JWT_JWKS key at index ${index} must include public RSA parameter "${parameter}"`
+                `NEONFLUX_AUTH_JWT_JWKS key at index ${keyIndex} must include public RSA parameter "${parameter}"`
             );
         }
     }

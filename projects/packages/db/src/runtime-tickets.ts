@@ -53,10 +53,10 @@ export async function createTicket(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const ticket = (await db.client.mutation(
+        const ticket = await db.client.mutation<ConvexTicketRecord>(
             convexApi.tickets.createTicket,
             normalizedInput.value
-        )) as ConvexTicketRecord;
+        );
 
         return ok(toTicketRecord(ticket));
     } catch {
@@ -72,10 +72,10 @@ export async function findOpenTicketByPanelAndOpener(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const ticket = (await db.client.query(
+        const ticket = await db.client.query<ConvexTicketRecord | null>(
             convexApi.tickets.findOpenTicketByPanelAndOpener,
             normalizedInput.value
-        )) as ConvexTicketRecord | null;
+        );
 
         return ticket ? ok(toTicketRecord(ticket)) : err({ type: 'not-found' });
     } catch {
@@ -94,10 +94,10 @@ export async function listOpenTicketsByPanelAndOpener(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const tickets = (await db.client.query(convexApi.tickets.listOpenTicketsByPanelAndOpener, {
+        const tickets = await db.client.query<ConvexTicketRecord[]>(convexApi.tickets.listOpenTicketsByPanelAndOpener, {
             ...normalizedInput.value,
             limit: limit.value,
-        })) as ConvexTicketRecord[];
+        });
 
         return ok(tickets.map(toTicketRecord));
     } catch {
@@ -116,10 +116,10 @@ export async function findTicketByChannelId(
     if (channelId.isErr()) return err(channelId.error);
 
     try {
-        const ticket = (await db.client.query(convexApi.tickets.findTicketByChannelId, {
+        const ticket = await db.client.query<ConvexTicketRecord | null>(convexApi.tickets.findTicketByChannelId, {
             channelId: channelId.value,
             guildId: guildId.value,
-        })) as ConvexTicketRecord | null;
+        });
 
         return ticket ? ok(toTicketRecord(ticket)) : err({ type: 'not-found' });
     } catch {
@@ -138,10 +138,10 @@ export async function updateTicketChannelId(
     if (channelId.isErr()) return err(channelId.error);
 
     try {
-        const ticket = (await db.client.mutation(convexApi.tickets.updateTicketChannelId, {
+        const ticket = await db.client.mutation<ConvexTicketRecord | null>(convexApi.tickets.updateTicketChannelId, {
             channelId: channelId.value,
             ticketId: ticketId.value,
-        })) as ConvexTicketRecord | null;
+        });
 
         return ticket ? ok(toTicketRecord(ticket)) : err({ type: 'not-found' });
     } catch {
@@ -160,10 +160,10 @@ export async function updateTicketStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const ticket = (await db.client.mutation(convexApi.tickets.updateTicketStatus, {
+        const ticket = await db.client.mutation<ConvexTicketRecord | null>(convexApi.tickets.updateTicketStatus, {
             status: status.value,
             ticketId: ticketId.value,
-        })) as ConvexTicketRecord | null;
+        });
 
         return ticket ? ok(toTicketRecord(ticket)) : err({ type: 'not-found' });
     } catch {
@@ -183,11 +183,11 @@ export async function addTicketMember(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const member = (await db.client.mutation(convexApi.tickets.addTicketMember, {
+        const member = await db.client.mutation<ConvexTicketMemberRecord>(convexApi.tickets.addTicketMember, {
             ...(role ? { role } : {}),
             ticketId: ticketId.value,
             userId: userId.value,
-        })) as ConvexTicketMemberRecord;
+        });
 
         return ok(toTicketMemberRecord(member));
     } catch {
@@ -207,12 +207,12 @@ export async function recordTicketEvent(
     if (eventType.isErr()) return err(eventType.error);
 
     try {
-        const event = (await db.client.mutation(convexApi.tickets.recordTicketEvent, {
+        const event = await db.client.mutation<ConvexTicketEventRecord>(convexApi.tickets.recordTicketEvent, {
             ...(actorUserId ? { actorUserId } : {}),
             details: input.details ?? {},
             eventType: eventType.value,
             ticketId: ticketId.value,
-        })) as ConvexTicketEventRecord;
+        });
 
         return ok(toTicketEventRecord(event));
     } catch {

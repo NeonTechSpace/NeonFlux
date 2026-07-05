@@ -153,7 +153,7 @@ export function buildProfileFieldDocument(
     const label = normalizeRequiredString(input.label, 'label');
     const fieldType = normalizeRequiredString(input.fieldType, 'fieldType');
     const position = normalizeNonNegativeInteger(input.position ?? 0, 'position');
-    const maxLength = input.maxLength === null || input.maxLength === undefined ? undefined : input.maxLength;
+    const maxLength = input.maxLength ?? undefined;
     const createdAt =
         input.createdAt === undefined ? (existing?.createdAt ?? now) : normalizeTimestamp(input.createdAt);
     const updatedAt = input.updatedAt === undefined ? now : normalizeTimestamp(input.updatedAt);

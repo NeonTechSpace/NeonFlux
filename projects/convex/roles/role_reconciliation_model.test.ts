@@ -172,7 +172,8 @@ describe('role reconciliation model', () => {
             status: 'applied',
             updatedAt: now,
         });
-        const { roleId: _roleId, ...actionWithoutRole } = result.value;
+        const { roleId, ...actionWithoutRole } = result.value;
+        expect(roleId).toBe('role-1');
 
         expect(toRoleReconciliationActionRecord(actionWithoutRole).roleId).toBeNull();
     });

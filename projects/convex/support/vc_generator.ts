@@ -290,7 +290,7 @@ export const updateGeneratedVoiceChannelStatus = mutationGeneric({
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
         const channel = await findGeneratedByChannelId(ctx, args.channelId);
 
-        if (!channel || channel.guildId !== guildId) return null;
+        if (channel?.guildId !== guildId) return null;
 
         const updated = unwrap(
             buildGeneratedVoiceChannelDocument({ ...channel, status: args.status }, new Date().toISOString(), channel)
@@ -456,7 +456,7 @@ async function requireRule(
     input: { guildId: string; ruleId: string }
 ): Promise<StoredRuleDocument> {
     const rule = await findRuleByLegacyId(ctx, input.ruleId);
-    if (!rule || rule.guildId !== input.guildId) throw new Error('vc-generator-rule-not-found');
+    if (rule?.guildId !== input.guildId) throw new Error('vc-generator-rule-not-found');
     return rule;
 }
 

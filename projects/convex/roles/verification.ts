@@ -105,17 +105,16 @@ export const listVerificationFlowsByGuildId = queryGeneric({
     handler: async (ctx: VerificationQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedVerificationServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const enabled = args.enabled;
         const flows =
-            args.enabled === undefined
+            enabled === undefined
                 ? await ctx.db
                       .query('verificationFlows')
                       .withIndex('by_guild_channel_message', (query) => query.eq('guildId', guildId))
                       .collect()
                 : await ctx.db
                       .query('verificationFlows')
-                      .withIndex('by_guild_enabled', (query) =>
-                          query.eq('guildId', guildId).eq('enabled', args.enabled!)
-                      )
+                      .withIndex('by_guild_enabled', (query) => query.eq('guildId', guildId).eq('enabled', enabled))
                       .collect();
 
         return flows

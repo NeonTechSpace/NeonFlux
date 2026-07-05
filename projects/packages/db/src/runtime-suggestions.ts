@@ -74,10 +74,10 @@ export async function createSuggestionBoard(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const board = (await db.client.mutation(
+        const board = await db.client.mutation<ConvexSuggestionBoardRecord>(
             convexApi.suggestions.createSuggestionBoard,
             normalizedInput.value
-        )) as ConvexSuggestionBoardRecord;
+        );
 
         return ok(toSuggestionBoardRecord(board));
     } catch {
@@ -94,10 +94,13 @@ export async function upsertSuggestionBoard(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const board = (await db.client.mutation(convexApi.suggestions.upsertSuggestionBoard, {
-            ...normalizedInput.value,
-            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-        })) as ConvexSuggestionBoardRecord;
+        const board = await db.client.mutation<ConvexSuggestionBoardRecord>(
+            convexApi.suggestions.upsertSuggestionBoard,
+            {
+                ...normalizedInput.value,
+                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+            }
+        );
 
         return ok(toSuggestionBoardRecord(board));
     } catch {
@@ -114,10 +117,13 @@ export async function listSuggestionBoardsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const boards = (await db.client.query(convexApi.suggestions.listSuggestionBoardsByGuildId, {
-            ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
-            guildId: guildId.value,
-        })) as ConvexSuggestionBoardRecord[];
+        const boards = await db.client.query<ConvexSuggestionBoardRecord[]>(
+            convexApi.suggestions.listSuggestionBoardsByGuildId,
+            {
+                ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
+                guildId: guildId.value,
+            }
+        );
 
         return ok(boards.map(toSuggestionBoardRecord));
     } catch {
@@ -134,9 +140,12 @@ export async function findDefaultSuggestionBoardByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const board = (await db.client.query(convexApi.suggestions.findDefaultSuggestionBoardByGuildId, {
-            guildId: guildId.value,
-        })) as ConvexSuggestionBoardRecord | null;
+        const board = await db.client.query<ConvexSuggestionBoardRecord | null>(
+            convexApi.suggestions.findDefaultSuggestionBoardByGuildId,
+            {
+                guildId: guildId.value,
+            }
+        );
 
         return board ? ok(toSuggestionBoardRecord(board)) : err({ type: 'not-found' });
     } catch {
@@ -155,10 +164,13 @@ export async function deleteSuggestionBoard(
     if (name.isErr()) return err(name.error);
 
     try {
-        const board = (await db.client.mutation(convexApi.suggestions.deleteSuggestionBoard, {
-            guildId: guildId.value,
-            name: name.value,
-        })) as ConvexSuggestionBoardRecord | null;
+        const board = await db.client.mutation<ConvexSuggestionBoardRecord | null>(
+            convexApi.suggestions.deleteSuggestionBoard,
+            {
+                guildId: guildId.value,
+                name: name.value,
+            }
+        );
 
         return board ? ok(toSuggestionBoardRecord(board)) : err({ type: 'not-found' });
     } catch {
@@ -182,10 +194,10 @@ export async function createSuggestion(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const suggestion = (await db.client.mutation(
+        const suggestion = await db.client.mutation<ConvexSuggestionRecord>(
             convexApi.suggestions.createSuggestion,
             normalizedInput.value
-        )) as ConvexSuggestionRecord;
+        );
 
         return ok(toSuggestionRecord(suggestion));
     } catch {
@@ -204,10 +216,13 @@ export async function findSuggestionByGuildMessageId(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const suggestion = (await db.client.query(convexApi.suggestions.findSuggestionByGuildMessageId, {
-            guildId: guildId.value,
-            messageId: messageId.value,
-        })) as ConvexSuggestionRecord | null;
+        const suggestion = await db.client.query<ConvexSuggestionRecord | null>(
+            convexApi.suggestions.findSuggestionByGuildMessageId,
+            {
+                guildId: guildId.value,
+                messageId: messageId.value,
+            }
+        );
 
         return suggestion ? ok(toSuggestionRecord(suggestion)) : err({ type: 'not-found' });
     } catch {
@@ -224,10 +239,10 @@ export async function upsertSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = (await db.client.mutation(
+        const vote = await db.client.mutation<ConvexSuggestionVoteRecord>(
             convexApi.suggestions.upsertSuggestionVote,
             normalizedInput.value
-        )) as ConvexSuggestionVoteRecord;
+        );
 
         return ok(toSuggestionVoteRecord(vote));
     } catch {
@@ -244,10 +259,10 @@ export async function deleteSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = (await db.client.mutation(
+        const vote = await db.client.mutation<ConvexSuggestionVoteRecord | null>(
             convexApi.suggestions.deleteSuggestionVote,
             normalizedInput.value
-        )) as ConvexSuggestionVoteRecord | null;
+        );
 
         return vote ? ok(toSuggestionVoteRecord(vote)) : err({ type: 'not-found' });
     } catch {
@@ -264,10 +279,10 @@ export async function findSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = (await db.client.query(
+        const vote = await db.client.query<ConvexSuggestionVoteRecord | null>(
             convexApi.suggestions.findSuggestionVote,
             normalizedInput.value
-        )) as ConvexSuggestionVoteRecord | null;
+        );
 
         return vote ? ok(toSuggestionVoteRecord(vote)) : err({ type: 'not-found' });
     } catch {

@@ -43,7 +43,7 @@ export type ConvexAuthEnvPlan = {
     issuer: string;
     jwksDataUri: string;
     keyIds: string[];
-    names: readonly (typeof publicConvexAuthEnvNames)[number][];
+    names: ReadonlyArray<(typeof publicConvexAuthEnvNames)[number]>;
 };
 export type ConvexAuthEnvSetOperation = {
     name: (typeof publicConvexAuthEnvApplyOrder)[number];
@@ -248,6 +248,9 @@ export function parseConvexAuthEnvConfigureArgs(args: string[]): {
         const arg = args[index];
 
         switch (arg) {
+            case undefined:
+                throw new Error('Missing option');
+
             case '--':
                 break;
 

@@ -49,10 +49,10 @@ export async function createModerationTemporaryAction(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const action = (await db.client.mutation(
+        const action = await db.client.mutation<ConvexModerationTemporaryActionRecord>(
             convexApi.moderation_temporary_actions.createModerationTemporaryAction,
             normalizedInput.value
-        )) as ConvexModerationTemporaryActionRecord;
+        );
 
         return ok(toTemporaryActionRecord(action));
     } catch {
@@ -71,13 +71,13 @@ export async function findPendingModerationTemporaryActionByTarget(
     if (now.isErr()) return err(now.error);
 
     try {
-        const action = (await db.client.query(
+        const action = await db.client.query<ConvexModerationTemporaryActionRecord | null>(
             convexApi.moderation_temporary_actions.findPendingModerationTemporaryActionByTarget,
             {
                 ...normalizedInput.value,
                 now: now.value.toISOString(),
             }
-        )) as ConvexModerationTemporaryActionRecord | null;
+        );
 
         return action ? ok(toTemporaryActionRecord(action)) : err({ type: 'not-found' });
     } catch {
@@ -96,14 +96,14 @@ export async function listDueModerationTemporaryActions(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const actions = (await db.client.query(
+        const actions = await db.client.query<ConvexModerationTemporaryActionRecord[]>(
             convexApi.moderation_temporary_actions.listDueModerationTemporaryActions,
             {
                 ...(normalizeOptionalText(input.action) ? { action: normalizeOptionalText(input.action) } : {}),
                 limit: limit.value,
                 now: now.value.toISOString(),
             }
-        )) as ConvexModerationTemporaryActionRecord[];
+        );
 
         return ok(actions.map(toTemporaryActionRecord));
     } catch {
@@ -119,7 +119,7 @@ export async function cancelPendingModerationTemporaryActionsByTarget(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const actions = (await db.client.mutation(
+        const actions = await db.client.mutation<ConvexModerationTemporaryActionRecord[]>(
             convexApi.moderation_temporary_actions.cancelPendingModerationTemporaryActionsByTarget,
             {
                 ...normalizedInput.value,
@@ -127,7 +127,7 @@ export async function cancelPendingModerationTemporaryActionsByTarget(
                     ? { excludeId: normalizeOptionalText(input.excludeId) }
                     : {}),
             }
-        )) as ConvexModerationTemporaryActionRecord[];
+        );
 
         return ok(actions.map(toTemporaryActionRecord));
     } catch {
@@ -146,13 +146,13 @@ export async function updateModerationTemporaryActionStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const action = (await db.client.mutation(
+        const action = await db.client.mutation<ConvexModerationTemporaryActionRecord | null>(
             convexApi.moderation_temporary_actions.updateModerationTemporaryActionStatus,
             {
                 id: id.value,
                 status: status.value,
             }
-        )) as ConvexModerationTemporaryActionRecord | null;
+        );
 
         return action ? ok(toTemporaryActionRecord(action)) : err({ type: 'not-found' });
     } catch {

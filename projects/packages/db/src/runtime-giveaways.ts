@@ -75,10 +75,10 @@ export async function createGiveaway(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const giveaway = (await db.client.mutation(
+        const giveaway = await db.client.mutation<ConvexGiveawayRecord>(
             convexApi.giveaways.createGiveaway,
             normalizedInput.value
-        )) as ConvexGiveawayRecord;
+        );
 
         return ok(toGiveawayRecord(giveaway));
     } catch (error) {
@@ -94,10 +94,10 @@ export async function listGiveawaysByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const giveaways = (await db.client.query(convexApi.giveaways.listGiveawaysByGuildId, {
+        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(convexApi.giveaways.listGiveawaysByGuildId, {
             guildId: guildId.value,
             limit: normalizeCreateLimit(input.limit),
-        })) as ConvexGiveawayRecord[];
+        });
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch (error) {
@@ -116,10 +116,13 @@ export async function findActiveGiveawayByGuildMessageId(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const giveaway = (await db.client.query(convexApi.giveaways.findActiveGiveawayByGuildMessageId, {
-            guildId: guildId.value,
-            messageId: messageId.value,
-        })) as ConvexGiveawayRecord | null;
+        const giveaway = await db.client.query<ConvexGiveawayRecord | null>(
+            convexApi.giveaways.findActiveGiveawayByGuildMessageId,
+            {
+                guildId: guildId.value,
+                messageId: messageId.value,
+            }
+        );
 
         return giveaway ? ok(toGiveawayRecord(giveaway)) : err({ type: 'not-found' });
     } catch (error) {
@@ -141,14 +144,17 @@ export async function updateGiveawayStatus(
     if (transition.isErr()) return err(transition.error);
 
     try {
-        const giveaway = (await db.client.mutation(convexApi.giveaways.updateGiveawayStatus, {
-            ...(normalizeOptionalText(input.actorUserId)
-                ? { actorUserId: normalizeOptionalText(input.actorUserId) }
-                : {}),
-            giveawayId: existing.value.id,
-            guildId: existing.value.guildId,
-            status: status.value,
-        })) as ConvexGiveawayRecord | null;
+        const giveaway = await db.client.mutation<ConvexGiveawayRecord | null>(
+            convexApi.giveaways.updateGiveawayStatus,
+            {
+                ...(normalizeOptionalText(input.actorUserId)
+                    ? { actorUserId: normalizeOptionalText(input.actorUserId) }
+                    : {}),
+                giveawayId: existing.value.id,
+                guildId: existing.value.guildId,
+                status: status.value,
+            }
+        );
 
         return giveaway ? ok(toGiveawayRecord(giveaway)) : err({ type: 'not-found' });
     } catch (error) {
@@ -164,10 +170,10 @@ export async function upsertGiveawayEntry(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const entry = (await db.client.mutation(
+        const entry = await db.client.mutation<ConvexGiveawayEntryRecord>(
             convexApi.giveaways.upsertGiveawayEntry,
             normalizedInput.value
-        )) as ConvexGiveawayEntryRecord;
+        );
 
         return ok(toGiveawayEntryRecord(entry));
     } catch (error) {
@@ -183,10 +189,10 @@ export async function removeGiveawayEntry(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const entry = (await db.client.mutation(
+        const entry = await db.client.mutation<ConvexGiveawayEntryRecord | null>(
             convexApi.giveaways.removeGiveawayEntry,
             normalizedInput.value
-        )) as ConvexGiveawayEntryRecord | null;
+        );
 
         return entry ? ok(toGiveawayEntryRecord(entry)) : err({ type: 'not-found' });
     } catch (error) {
@@ -202,10 +208,13 @@ export async function listActiveGiveawayEntries(
     if (giveawayId.isErr()) return err(giveawayId.error);
 
     try {
-        const entries = (await db.client.query(convexApi.giveaways.listActiveGiveawayEntries, {
-            giveawayId: giveawayId.value,
-            limit: 1000,
-        })) as ConvexGiveawayEntryRecord[];
+        const entries = await db.client.query<ConvexGiveawayEntryRecord[]>(
+            convexApi.giveaways.listActiveGiveawayEntries,
+            {
+                giveawayId: giveawayId.value,
+                limit: 1000,
+            }
+        );
 
         return ok(entries.map(toGiveawayEntryRecord));
     } catch (error) {
@@ -221,10 +230,10 @@ export async function listGiveawayWinners(
     if (giveawayId.isErr()) return err(giveawayId.error);
 
     try {
-        const winners = (await db.client.query(convexApi.giveaways.listGiveawayWinners, {
+        const winners = await db.client.query<ConvexGiveawayWinnerRecord[]>(convexApi.giveaways.listGiveawayWinners, {
             giveawayId: giveawayId.value,
             limit: 1000,
-        })) as ConvexGiveawayWinnerRecord[];
+        });
 
         return ok(winners.map(toGiveawayWinnerRecord));
     } catch (error) {
@@ -246,14 +255,17 @@ export async function drawGiveawayWinners(
     }
 
     try {
-        const result = (await db.client.mutation(convexApi.giveaways.drawGiveawayWinners, {
+        const result = await db.client.mutation<{
+            giveaway: ConvexGiveawayRecord;
+            winners: ConvexGiveawayWinnerRecord[];
+        }>(convexApi.giveaways.drawGiveawayWinners, {
             ...(normalizeOptionalText(input.actorUserId)
                 ? { actorUserId: normalizeOptionalText(input.actorUserId) }
                 : {}),
             giveawayId: existing.value.id,
             guildId: existing.value.guildId,
             ...(input.reroll === undefined ? {} : { reroll: input.reroll }),
-        })) as { giveaway: ConvexGiveawayRecord; winners: ConvexGiveawayWinnerRecord[] };
+        });
 
         return ok({
             giveaway: toGiveawayRecord(result.giveaway),
@@ -272,10 +284,10 @@ export async function recordGiveawayEvent(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = (await db.client.mutation(
+        const event = await db.client.mutation<ConvexGiveawayEventRecord>(
             convexApi.giveaways.recordGiveawayEvent,
             normalizedInput.value
-        )) as ConvexGiveawayEventRecord;
+        );
 
         return ok(toGiveawayEventRecord(event));
     } catch (error) {
@@ -294,10 +306,10 @@ async function readConvexGiveawayById(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const giveaway = (await db.client.query(convexApi.giveaways.findGiveawayById, {
+        const giveaway = await db.client.query<ConvexGiveawayRecord | null>(convexApi.giveaways.findGiveawayById, {
             giveawayId: giveawayId.value,
             guildId: guildId.value,
-        })) as ConvexGiveawayRecord | null;
+        });
 
         return giveaway ? ok(giveaway) : err({ type: 'not-found' });
     } catch (error) {

@@ -260,7 +260,7 @@ describe('/docs routing', () => {
         expect(instanceModes).toContain('Single instance targets one configured community.');
         expect(instanceModes).toContain("<Tabs items={['Single instance', 'Multi instance']}>");
         expect(instanceModes).toContain('## Source of truth');
-        expect(docker).toContain('three services');
+        expect(docker).toContain('two app services');
         expect(docker).toContain('<Files>');
         expect(docker).toContain('<Steps>');
     });

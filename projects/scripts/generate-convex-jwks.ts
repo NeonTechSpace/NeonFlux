@@ -5,13 +5,15 @@ import { createConvexAuthJwksDataUriFromEnv } from './convex-jwks.js';
 import { assertNoArgs } from './script-args.js';
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    await main().catch((error: unknown) => {
+    try {
+        main();
+    } catch (error: unknown) {
         process.stderr.write(`${formatErrorMessage(error)}\n`);
         process.exitCode = 1;
-    });
+    }
 }
 
-async function main(): Promise<void> {
+function main(): void {
     assertNoArgs();
     loadLocalEnv();
 

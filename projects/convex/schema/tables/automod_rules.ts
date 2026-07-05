@@ -1,14 +1,7 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-import {
-    encryptedOAuthTokenPayload,
-    jsonValue,
-    optionalNumber,
-    optionalString,
-    optionalTimestamp,
-    timestamp,
-} from '../shared.js';
+import { jsonValue, timestamp } from '../shared.js';
 
 export const automodRulesTable = defineTable({
     actionType: v.union(v.literal('record'), v.literal('delete_message'), v.literal('timeout'), v.literal('warn')),

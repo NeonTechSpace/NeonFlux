@@ -21,7 +21,6 @@ import {
     toGuildMessageActivityDayRecord,
     toGuildOverviewAggregate,
     type GuildInviteSnapshotDocument,
-    type GuildMemberFlowEventDocument,
     type GuildMessageActivityDayDocument,
 } from './growth_overview_model.js';
 import type schema from '../schema.js';
@@ -31,7 +30,6 @@ type GrowthQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
 type GrowthMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
-type StoredMemberFlowEventDocument = GuildMemberFlowEventDocument & { _id: GenericId<'guildMemberFlowEvents'> };
 type StoredInviteSnapshotDocument = GuildInviteSnapshotDocument & { _id: GenericId<'guildInviteSnapshots'> };
 type StoredMessageActivityDayDocument = GuildMessageActivityDayDocument & {
     _id: GenericId<'guildMessageActivityDays'>;

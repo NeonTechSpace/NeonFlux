@@ -111,7 +111,7 @@ export const updateGiveawaySyncStatus = mutationGeneric({
         const giveawayId = unwrap(normalizeRequiredGiveawayId(args.giveawayId));
         const giveaway = await findGiveawayByLegacyId(ctx, giveawayId);
 
-        if (!giveaway || giveaway.guildId !== guildId) return null;
+        if (giveaway?.guildId !== guildId) return null;
 
         const patch = {
             config: { ...giveaway.config, syncStatus: args.syncStatus satisfies GiveawaySyncStatus },

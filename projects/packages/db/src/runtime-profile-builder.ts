@@ -68,10 +68,10 @@ export async function upsertProfileForm(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const form = (await db.client.mutation(convexApi.profile_builder.upsertProfileForm, {
+        const form = await db.client.mutation<ConvexProfileFormRecord>(convexApi.profile_builder.upsertProfileForm, {
             ...normalizedInput.value,
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-        })) as ConvexProfileFormRecord;
+        });
 
         return ok(toProfileFormRecord(form));
     } catch (error) {
@@ -87,11 +87,14 @@ export async function listProfileFormsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const forms = (await db.client.query(convexApi.profile_builder.listProfileFormsByGuildId, {
-            ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
-            guildId: guildId.value,
-            limit: 100,
-        })) as ConvexProfileFormRecord[];
+        const forms = await db.client.query<ConvexProfileFormRecord[]>(
+            convexApi.profile_builder.listProfileFormsByGuildId,
+            {
+                ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
+                guildId: guildId.value,
+                limit: 100,
+            }
+        );
 
         return ok(forms.map(toProfileFormRecord));
     } catch (error) {
@@ -110,11 +113,14 @@ export async function findProfileFormByGuildName(
     if (name.isErr()) return err(name.error);
 
     try {
-        const form = (await db.client.query(convexApi.profile_builder.findProfileFormByGuildName, {
-            ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
-            guildId: guildId.value,
-            name: name.value,
-        })) as ConvexProfileFormRecord | null;
+        const form = await db.client.query<ConvexProfileFormRecord | null>(
+            convexApi.profile_builder.findProfileFormByGuildName,
+            {
+                ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
+                guildId: guildId.value,
+                name: name.value,
+            }
+        );
 
         return form ? ok(toProfileFormRecord(form)) : err({ type: 'not-found' });
     } catch (error) {
@@ -138,10 +144,10 @@ export async function upsertProfileField(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const field = (await db.client.mutation(
+        const field = await db.client.mutation<ConvexProfileFieldRecord>(
             convexApi.profile_builder.upsertProfileField,
             normalizedInput.value
-        )) as ConvexProfileFieldRecord;
+        );
 
         return ok(toProfileFieldRecord(field));
     } catch (error) {
@@ -157,10 +163,13 @@ export async function listProfileFieldsByFormId(
     if (formId.isErr()) return err(formId.error);
 
     try {
-        const fields = (await db.client.query(convexApi.profile_builder.listProfileFieldsByFormId, {
-            formId: formId.value,
-            limit: 100,
-        })) as ConvexProfileFieldRecord[];
+        const fields = await db.client.query<ConvexProfileFieldRecord[]>(
+            convexApi.profile_builder.listProfileFieldsByFormId,
+            {
+                formId: formId.value,
+                limit: 100,
+            }
+        );
 
         return ok(fields.map(toProfileFieldRecord));
     } catch (error) {
@@ -179,10 +188,13 @@ export async function deleteProfileField(
     if (formId.isErr()) return err(formId.error);
 
     try {
-        const field = (await db.client.mutation(convexApi.profile_builder.deleteProfileField, {
-            fieldKey: fieldKey.value,
-            formId: formId.value,
-        })) as ConvexProfileFieldRecord | null;
+        const field = await db.client.mutation<ConvexProfileFieldRecord | null>(
+            convexApi.profile_builder.deleteProfileField,
+            {
+                fieldKey: fieldKey.value,
+                formId: formId.value,
+            }
+        );
 
         return field ? ok(toProfileFieldRecord(field)) : err({ type: 'not-found' });
     } catch (error) {
@@ -198,10 +210,10 @@ export async function createProfileSubmission(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const submission = (await db.client.mutation(
+        const submission = await db.client.mutation<ConvexProfileSubmissionRecord>(
             convexApi.profile_builder.createProfileSubmission,
             normalizedInput.value
-        )) as ConvexProfileSubmissionRecord;
+        );
 
         return ok(toProfileSubmissionRecord(submission));
     } catch (error) {
@@ -217,11 +229,14 @@ export async function listProfileSubmissionsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const submissions = (await db.client.query(convexApi.profile_builder.listProfileSubmissionsByGuildId, {
-            guildId: guildId.value,
-            limit: normalizeListLimit(input.limit),
-            ...(input.status === undefined ? {} : { status: input.status }),
-        })) as ConvexProfileSubmissionRecord[];
+        const submissions = await db.client.query<ConvexProfileSubmissionRecord[]>(
+            convexApi.profile_builder.listProfileSubmissionsByGuildId,
+            {
+                guildId: guildId.value,
+                limit: normalizeListLimit(input.limit),
+                ...(input.status === undefined ? {} : { status: input.status }),
+            }
+        );
 
         return ok(submissions.map(toProfileSubmissionRecord));
     } catch (error) {
@@ -237,10 +252,10 @@ export async function findProfileSubmissionById(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const submission = (await db.client.query(
+        const submission = await db.client.query<ConvexProfileSubmissionRecord | null>(
             convexApi.profile_builder.findProfileSubmissionById,
             normalizedInput.value
-        )) as ConvexProfileSubmissionRecord | null;
+        );
 
         return submission ? ok(toProfileSubmissionRecord(submission)) : err({ type: 'not-found' });
     } catch (error) {
@@ -269,10 +284,10 @@ export async function reviewProfileSubmission(
     }
 
     try {
-        const review = (await db.client.mutation(
+        const review = await db.client.mutation<ConvexProfileSubmissionReviewRecord>(
             convexApi.profile_builder.reviewProfileSubmission,
             normalizedInput.value
-        )) as ConvexProfileSubmissionReviewRecord;
+        );
 
         return ok(toProfileSubmissionReviewRecord(review));
     } catch (error) {

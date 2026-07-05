@@ -104,15 +104,15 @@ const { MockConvexReactClient } = vi.hoisted(() => {
         }
     }
 
-    class MockConvexReactClient {
-        static instances: MockConvexReactClient[] = [];
+    class MockConvexReactClientImpl {
+        static instances: MockConvexReactClientImpl[] = [];
 
         readonly close = vi.fn(async () => undefined);
         readonly setAuth = vi.fn();
         readonly watches: MockDashboardLiveWatch[] = [];
 
         constructor(readonly url: string) {
-            MockConvexReactClient.instances.push(this);
+            MockConvexReactClientImpl.instances.push(this);
         }
 
         watchQuery(_query: unknown, args: { areas: string[]; guildId: string }): MockDashboardLiveWatch {
@@ -122,7 +122,7 @@ const { MockConvexReactClient } = vi.hoisted(() => {
         }
     }
 
-    return { MockConvexReactClient };
+    return { MockConvexReactClient: MockConvexReactClientImpl };
 });
 
 vi.mock('convex/react', () => ({
@@ -2552,7 +2552,7 @@ type MockDashboardLiveWatch = {
         areas: string[];
         guildId: string;
     };
-    emit(result: MockDashboardLiveState[]): void;
+    emit: (result: MockDashboardLiveState[]) => void;
 };
 
 type MockDashboardLiveState = {

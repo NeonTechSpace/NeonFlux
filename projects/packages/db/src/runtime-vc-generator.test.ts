@@ -329,7 +329,7 @@ function toPanelRecord(record: typeof panel) {
         ...record,
         createdAt: new Date(record.createdAt),
         lastSyncedAt: record.lastSyncedAt ? new Date(record.lastSyncedAt) : null,
-        staleAt: record.staleAt ? new Date(record.staleAt) : null,
+        staleAt: null,
         updatedAt: new Date(record.updatedAt),
     };
 }
@@ -362,21 +362,21 @@ function createConvexDb(input: {
     const client = {
         mutationCalls: [] as Array<{ args: unknown; reference: unknown }>,
         queryCalls: [] as Array<{ args: unknown; reference: unknown }>,
-        async mutation(reference: unknown, args: unknown): Promise<unknown> {
+        mutation(reference: unknown, args: unknown): Promise<unknown> {
             this.mutationCalls.push({ args, reference });
             const error = mutationErrors.shift();
 
-            if (error) throw error;
+            if (error) return Promise.reject(error);
 
-            return mutationResults.shift();
+            return Promise.resolve(mutationResults.shift());
         },
-        async query(reference: unknown, args: unknown): Promise<unknown> {
+        query(reference: unknown, args: unknown): Promise<unknown> {
             this.queryCalls.push({ args, reference });
             const error = queryErrors.shift();
 
-            if (error) throw error;
+            if (error) return Promise.reject(error);
 
-            return queryResults.shift();
+            return Promise.resolve(queryResults.shift());
         },
     };
 

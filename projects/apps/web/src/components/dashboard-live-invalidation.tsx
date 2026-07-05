@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@neonflux/convex/api';
 import { ConvexReactClient } from 'convex/react';
+import type { FunctionReference } from 'convex/server';
 import { useEffect, useRef } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
@@ -36,23 +37,33 @@ type DashboardLiveState = {
 };
 
 type DashboardLiveWatch = {
-    localQueryResult(): DashboardLiveState[] | undefined;
-    onUpdate(callback: () => void): () => void;
+    localQueryResult: () => DashboardLiveState[] | undefined;
+    onUpdate: (callback: () => void) => () => void;
 };
 
 type DashboardLiveClient = {
-    close(): Promise<void>;
-    setAuth(
+    close: () => Promise<void>;
+    setAuth: (
         fetchToken: (args: { forceRefreshToken: boolean }) => Promise<string | null | undefined>,
         onChange?: (isAuthenticated: boolean) => void,
         onRefreshChange?: (isRefreshing: boolean) => void
-    ): void;
-    watchQuery(query: unknown, args: { areas: DashboardLiveArea[]; guildId: string }): DashboardLiveWatch;
+    ) => void;
+    watchQuery: (
+        query: DashboardLiveQueryReference,
+        args: { areas: DashboardLiveArea[]; guildId: string }
+    ) => DashboardLiveWatch;
 };
+
+type DashboardLiveQueryReference = FunctionReference<
+    'query',
+    'public',
+    { areas: DashboardLiveArea[]; guildId: string },
+    DashboardLiveState[]
+>;
 
 const convexApi = api as unknown as {
     dashboard_live: {
-        listDashboardLiveStates: unknown;
+        listDashboardLiveStates: DashboardLiveQueryReference;
     };
 };
 
@@ -90,7 +101,6 @@ export function useDashboardLiveInvalidation({
         const client = createDashboardLiveClient(convexUrl);
         const knownVersions = new Map<DashboardLiveArea, number>();
         let hasBaseline = false;
-        let unsubscribe: (() => void) | undefined;
 
         client.setAuth(fetchDashboardConvexToken);
         const watch = client.watchQuery(convexApi.dashboard_live.listDashboardLiveStates, {
@@ -137,10 +147,10 @@ export function useDashboardLiveInvalidation({
             invalidateVisibleAreas(queryClient, guildId, visibleAreas);
         }
 
-        unsubscribe = watch.onUpdate(handleLiveStateUpdate);
+        const unsubscribe = watch.onUpdate(handleLiveStateUpdate);
 
         return () => {
-            unsubscribe?.();
+            unsubscribe();
             void client.close();
         };
     }, [areaKey, areas, guildId, liveTransportActive, queryClient]);
@@ -149,7 +159,7 @@ export function useDashboardLiveInvalidation({
 function createDashboardLiveClient(url: string): DashboardLiveClient {
     return new ConvexReactClient(url, {
         logger: false,
-    }) as DashboardLiveClient;
+    });
 }
 
 async function fetchDashboardConvexToken(): Promise<string | null> {

@@ -42,10 +42,13 @@ export async function listExpiredActiveGiveaways(
     if (now.isErr()) return err(now.error);
 
     try {
-        const giveaways = (await db.client.query(convexApi.giveaway_maintenance.listExpiredActiveGiveaways, {
-            limit: normalizeMaintenanceLimit(input.limit),
-            now: now.value,
-        })) as ConvexGiveawayRecord[];
+        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
+            convexApi.giveaway_maintenance.listExpiredActiveGiveaways,
+            {
+                limit: normalizeMaintenanceLimit(input.limit),
+                now: now.value,
+            }
+        );
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -58,9 +61,12 @@ export async function listStaleActiveGiveaways(
     input: { limit?: number } = {}
 ): Promise<Result<GiveawayRecord[], GiveawayMaintenanceRepositoryError>> {
     try {
-        const giveaways = (await db.client.query(convexApi.giveaway_maintenance.listStaleActiveGiveaways, {
-            limit: normalizeMaintenanceLimit(input.limit),
-        })) as ConvexGiveawayRecord[];
+        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
+            convexApi.giveaway_maintenance.listStaleActiveGiveaways,
+            {
+                limit: normalizeMaintenanceLimit(input.limit),
+            }
+        );
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -73,9 +79,12 @@ export async function listReactionReconciliationGiveaways(
     input: { limit?: number } = {}
 ): Promise<Result<GiveawayRecord[], GiveawayMaintenanceRepositoryError>> {
     try {
-        const giveaways = (await db.client.query(convexApi.giveaway_maintenance.listReactionReconciliationGiveaways, {
-            limit: normalizeMaintenanceLimit(input.limit),
-        })) as ConvexGiveawayRecord[];
+        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
+            convexApi.giveaway_maintenance.listReactionReconciliationGiveaways,
+            {
+                limit: normalizeMaintenanceLimit(input.limit),
+            }
+        );
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -94,11 +103,14 @@ export async function updateGiveawaySyncStatus(
     if (giveawayId.isErr()) return err(giveawayId.error);
 
     try {
-        const giveaway = (await db.client.mutation(convexApi.giveaway_maintenance.updateGiveawaySyncStatus, {
-            giveawayId: giveawayId.value,
-            guildId: guildId.value,
-            syncStatus: input.syncStatus,
-        })) as ConvexGiveawayRecord | null;
+        const giveaway = await db.client.mutation<ConvexGiveawayRecord | null>(
+            convexApi.giveaway_maintenance.updateGiveawaySyncStatus,
+            {
+                giveawayId: giveawayId.value,
+                guildId: guildId.value,
+                syncStatus: input.syncStatus,
+            }
+        );
 
         return giveaway ? ok(toGiveawayRecord(giveaway)) : err({ type: 'not-found' });
     } catch (error) {
@@ -117,11 +129,14 @@ export async function reconcileGiveawayEntries(
     if (reconciledAt?.isErr()) return err(reconciledAt.error);
 
     try {
-        const result = (await db.client.mutation(convexApi.giveaway_reconciliation.reconcileGiveawayEntries, {
-            giveawayId: giveawayId.value,
-            ...(reconciledAt?.isOk() ? { reconciledAt: reconciledAt.value } : {}),
-            userIds: input.userIds.map((userId) => normalizeOptionalText(userId)).filter(Boolean),
-        })) as { added: number; kept: number; removed: number };
+        const result = await db.client.mutation<{ added: number; kept: number; removed: number }>(
+            convexApi.giveaway_reconciliation.reconcileGiveawayEntries,
+            {
+                giveawayId: giveawayId.value,
+                ...(reconciledAt?.isOk() ? { reconciledAt: reconciledAt.value } : {}),
+                userIds: input.userIds.map((userId) => normalizeOptionalText(userId)).filter(Boolean),
+            }
+        );
 
         return ok(result);
     } catch (error) {

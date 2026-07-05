@@ -87,10 +87,10 @@ export async function recordGuildMemberFlowEvent(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = (await db.client.mutation(
+        const event = await db.client.mutation<ConvexGuildMemberFlowEventRecord>(
             convexApi.growth_overview.recordGuildMemberFlowEvent,
             normalizedInput.value
-        )) as ConvexGuildMemberFlowEventRecord;
+        );
 
         return ok(toGuildMemberFlowEventRecord(event));
     } catch {
@@ -107,10 +107,10 @@ export async function syncGuildInviteSnapshots(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const snapshots = (await db.client.mutation(
+        const snapshots = await db.client.mutation<ConvexGuildInviteSnapshotRecord[]>(
             convexApi.growth_overview.syncGuildInviteSnapshots,
             normalizedInput.value
-        )) as ConvexGuildInviteSnapshotRecord[];
+        );
 
         return ok(snapshots.map(toGuildInviteSnapshotRecord));
     } catch {
@@ -127,9 +127,12 @@ export async function listGuildInviteSnapshots(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const snapshots = (await db.client.query(convexApi.growth_overview.listGuildInviteSnapshots, {
-            guildId: guildId.value,
-        })) as ConvexGuildInviteSnapshotRecord[];
+        const snapshots = await db.client.query<ConvexGuildInviteSnapshotRecord[]>(
+            convexApi.growth_overview.listGuildInviteSnapshots,
+            {
+                guildId: guildId.value,
+            }
+        );
 
         return ok(snapshots.map(toGuildInviteSnapshotRecord));
     } catch {
@@ -150,11 +153,14 @@ export async function incrementGuildMessageActivityDay(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const activity = (await db.client.mutation(convexApi.growth_overview.incrementGuildMessageActivityDay, {
-            channelId: channelId.value,
-            guildId: guildId.value,
-            ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
-        })) as ConvexGuildMessageActivityDayRecord;
+        const activity = await db.client.mutation<ConvexGuildMessageActivityDayRecord>(
+            convexApi.growth_overview.incrementGuildMessageActivityDay,
+            {
+                channelId: channelId.value,
+                guildId: guildId.value,
+                ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
+            }
+        );
 
         return ok(toGuildMessageActivityDayRecord(activity));
     } catch {
@@ -175,11 +181,14 @@ export async function loadGuildOverviewAggregate(
     if (now.isErr()) return err(now.error);
 
     try {
-        const aggregate = (await db.client.query(convexApi.growth_overview.loadGuildOverviewAggregate, {
-            ...(days.value === undefined ? {} : { days: days.value }),
-            guildId: guildId.value,
-            ...(now.value === undefined ? {} : { now: now.value }),
-        })) as ConvexGuildOverviewAggregate;
+        const aggregate = await db.client.query<ConvexGuildOverviewAggregate>(
+            convexApi.growth_overview.loadGuildOverviewAggregate,
+            {
+                ...(days.value === undefined ? {} : { days: days.value }),
+                guildId: guildId.value,
+                ...(now.value === undefined ? {} : { now: now.value }),
+            }
+        );
 
         return ok(toGuildOverviewAggregate(aggregate));
     } catch {
@@ -295,7 +304,7 @@ function normalizeInviteSnapshotInput(input: GuildInviteSnapshotInput): Result<
             : normalizeNonNegativeInteger(input.uses, 'uses');
     const maxUses =
         input.maxUses === undefined || input.maxUses === null
-            ? ok(input.maxUses ?? undefined)
+            ? ok(undefined)
             : normalizeNonNegativeInteger(input.maxUses, 'maxUses');
     const expiresAt =
         input.expiresAt === undefined

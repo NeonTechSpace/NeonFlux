@@ -65,10 +65,10 @@ export async function upsertMessageTemplate(
     }
 
     try {
-        const template = (await db.client.mutation(
+        const template = await db.client.mutation<ConvexMessageTemplateRecord>(
             convexApi.posting.upsertMessageTemplate,
             normalizedInput.value
-        )) as ConvexMessageTemplateRecord;
+        );
 
         return ok(toMessageTemplateRecord(template));
     } catch {
@@ -94,10 +94,10 @@ export async function recordPostedMessage(
     }
 
     try {
-        const postedMessage = (await db.client.mutation(
+        const postedMessage = await db.client.mutation<ConvexPostedMessageRecord>(
             convexApi.posting.recordPostedMessage,
             normalizedInput.value
-        )) as ConvexPostedMessageRecord;
+        );
 
         return ok(toPostedMessageRecord(postedMessage));
     } catch {
@@ -116,10 +116,13 @@ export async function listMessageTemplatesByGuildId(
     }
 
     try {
-        const templates = (await db.client.query(convexApi.posting.listMessageTemplatesByGuildId, {
-            guildId: guildId.value,
-            limit: normalizeTemplateLimit(input.limit),
-        })) as ConvexMessageTemplateRecord[];
+        const templates = await db.client.query<ConvexMessageTemplateRecord[]>(
+            convexApi.posting.listMessageTemplatesByGuildId,
+            {
+                guildId: guildId.value,
+                limit: normalizeTemplateLimit(input.limit),
+            }
+        );
 
         return ok(templates.map(toMessageTemplateRecord));
     } catch {
@@ -138,10 +141,13 @@ export async function findMessageTemplateByName(
     if (name.isErr()) return err(name.error);
 
     try {
-        const template = (await db.client.query(convexApi.posting.readMessageTemplateByName, {
-            guildId: guildId.value,
-            name: name.value,
-        })) as ConvexMessageTemplateRecord | null;
+        const template = await db.client.query<ConvexMessageTemplateRecord | null>(
+            convexApi.posting.readMessageTemplateByName,
+            {
+                guildId: guildId.value,
+                name: name.value,
+            }
+        );
 
         return template ? ok(toMessageTemplateRecord(template)) : err({ type: 'not-found' });
     } catch {
@@ -160,10 +166,13 @@ export async function deleteMessageTemplate(
     if (templateId.isErr()) return err(templateId.error);
 
     try {
-        const template = (await db.client.mutation(convexApi.posting.deleteMessageTemplate, {
-            guildId: guildId.value,
-            templateId: templateId.value,
-        })) as ConvexMessageTemplateRecord | null;
+        const template = await db.client.mutation<ConvexMessageTemplateRecord | null>(
+            convexApi.posting.deleteMessageTemplate,
+            {
+                guildId: guildId.value,
+                templateId: templateId.value,
+            }
+        );
 
         return template ? ok(toMessageTemplateRecord(template)) : err({ type: 'not-found' });
     } catch {

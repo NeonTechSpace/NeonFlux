@@ -108,11 +108,12 @@ export const listDueModerationTemporaryActions = queryGeneric({
         await requireNeonFluxService(ctx, allowedModerationServices);
         const now = unwrap(normalizeSinceTimestamp(args.now));
         const limit = normalizeModerationListLimit(args.limit, 25, 100);
-        const rows = args.action
+        const action = args.action;
+        const rows = action
             ? await ctx.db
                   .query('moderationTemporaryActions')
                   .withIndex('by_status_action_expires', (query) =>
-                      query.eq('status', 'pending').eq('action', args.action!.trim()).lte('expiresAt', now)
+                      query.eq('status', 'pending').eq('action', action.trim()).lte('expiresAt', now)
                   )
                   .order('asc')
                   .take(limit)

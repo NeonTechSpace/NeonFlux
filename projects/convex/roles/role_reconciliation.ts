@@ -20,7 +20,6 @@ import {
     toRoleReconciliationActionRecord,
     toRoleReconciliationRunRecord,
     toRoleReconciliationSettingsRecord,
-    type RoleReconciliationActionDocument,
     type RoleReconciliationRunDocument,
 } from './role_reconciliation_model.js';
 import type schema from '../schema.js';
@@ -36,9 +35,6 @@ type StoredGuildFeatureSettingDocument = GuildFeatureSettingDocument & {
 };
 type StoredRoleReconciliationRunDocument = RoleReconciliationRunDocument & {
     _id: GenericId<'roleReconciliationRuns'>;
-};
-type StoredRoleReconciliationActionDocument = RoleReconciliationActionDocument & {
-    _id: GenericId<'roleReconciliationActions'>;
 };
 
 const allowedRoleReconciliationServices = ['bot', 'web'] as const;
@@ -193,9 +189,10 @@ export const updateRoleReconciliationRunStatus = mutationGeneric({
 
         if (!run) return null;
 
+        const summary = normalizeOptionalRecord(args.summary);
         const patchInput = {
             status: args.status,
-            ...(args.summary === undefined ? {} : { summary: args.summary }),
+            ...(summary === undefined ? {} : { summary }),
             ...(args.updatedAt === undefined ? {} : { updatedAt: args.updatedAt }),
         };
         const patch = unwrap(buildRoleReconciliationRunStatusPatch(run, patchInput, new Date().toISOString()));
@@ -254,8 +251,9 @@ export const listRoleReconciliationActionsByRunId = queryGeneric({
     handler: async (ctx: RoleReconciliationQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedRoleReconciliationServices);
         const runId = unwrap(normalizeRequiredRunId(args.runId));
+        const status = args.status?.trim();
         const actions =
-            args.status === undefined
+            status === undefined
                 ? await ctx.db
                       .query('roleReconciliationActions')
                       .withIndex('by_run_created', (query) => query.eq('runLegacyId', runId))
@@ -263,9 +261,7 @@ export const listRoleReconciliationActionsByRunId = queryGeneric({
                       .take(normalizeLimit(args.limit))
                 : await ctx.db
                       .query('roleReconciliationActions')
-                      .withIndex('by_run_status', (query) =>
-                          query.eq('runLegacyId', runId).eq('status', args.status!.trim())
-                      )
+                      .withIndex('by_run_status', (query) => query.eq('runLegacyId', runId).eq('status', status))
                       .order('asc')
                       .take(normalizeLimit(args.limit));
 
@@ -341,4 +337,16 @@ function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok
     }
 
     return result.value;
+}
+
+function normalizeOptionalRecord(value: unknown): Record<string, unknown> | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (isObjectRecord(value)) return value;
+
+    throw new Error('invalid-value');
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

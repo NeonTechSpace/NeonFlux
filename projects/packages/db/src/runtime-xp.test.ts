@@ -232,7 +232,7 @@ function toUserXpRecord(record: typeof userXp) {
         guildId: record.guildId,
         id: record.id,
         lastMessageXpAt: record.lastMessageXpAt ? new Date(record.lastMessageXpAt) : null,
-        lastVoiceXpAt: record.lastVoiceXpAt ? new Date(record.lastVoiceXpAt) : null,
+        lastVoiceXpAt: null,
         level: record.level,
         messageCount: record.messageCount,
         messageXp: record.messageXp,
@@ -310,21 +310,21 @@ function createConvexDb(input: {
     const client = {
         mutationCalls: [] as Array<{ args: unknown; reference: unknown }>,
         queryCalls: [] as Array<{ args: unknown; reference: unknown }>,
-        async mutation(reference: unknown, args: unknown): Promise<unknown> {
+        mutation(reference: unknown, args: unknown): Promise<unknown> {
             this.mutationCalls.push({ args, reference });
             const error = mutationErrors.shift();
 
-            if (error) throw error;
+            if (error) return Promise.reject(error);
 
-            return mutationResults.shift();
+            return Promise.resolve(mutationResults.shift());
         },
-        async query(reference: unknown, args: unknown): Promise<unknown> {
+        query(reference: unknown, args: unknown): Promise<unknown> {
             this.queryCalls.push({ args, reference });
             const error = queryErrors.shift();
 
-            if (error) throw error;
+            if (error) return Promise.reject(error);
 
-            return queryResults.shift();
+            return Promise.resolve(queryResults.shift());
         },
     };
 

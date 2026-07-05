@@ -297,10 +297,7 @@ export const updateStructureImportActionStatus = mutationGeneric({
 
         if (!action) return null;
 
-        const details =
-            typeof args.details === 'object' && args.details !== null && !Array.isArray(args.details)
-                ? args.details
-                : action.details;
+        const details = isObjectRecord(args.details) ? args.details : action.details;
         const updatedAt = new Date().toISOString();
 
         await ctx.db.patch(action._id, { details, status: args.status, updatedAt });
@@ -376,7 +373,7 @@ async function requireSourceSnapshotIfProvided(
     if (!sourceSnapshotId) return;
 
     const snapshot = await findSnapshotByLegacyId(ctx, sourceSnapshotId);
-    if (!snapshot || snapshot.guildId !== input.guildId) throw new Error('structure-export-snapshot-not-found');
+    if (snapshot?.guildId !== input.guildId) throw new Error('structure-export-snapshot-not-found');
 }
 
 async function requireRun(ctx: StructureMutationCtx, runId: string): Promise<StoredImportRunDocument> {
@@ -398,6 +395,10 @@ async function requireGuildDocument(ctx: StructureMutationCtx, guildId: string):
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
     const normalizedValue = value?.trim();
     return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function unwrapRequiredString(value: string, field: string): string {

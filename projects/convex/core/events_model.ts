@@ -320,7 +320,10 @@ function readMetadataScalar(metadata: Record<string, unknown>, key: string): str
         case 'string':
             return String(value);
 
-        default:
+        case 'function':
+        case 'object':
+        case 'symbol':
+        case 'undefined':
             return undefined;
     }
 }
@@ -358,6 +361,6 @@ function normalizeSearchText(value: string | undefined): string {
     return value?.toLowerCase().replace(/[^a-z0-9]+/gu, '') ?? '';
 }
 
-function compactStrings(values: readonly (string | undefined)[]): string[] {
+function compactStrings(values: ReadonlyArray<string | undefined>): string[] {
     return values.filter((value): value is string => typeof value === 'string' && value.length > 0);
 }

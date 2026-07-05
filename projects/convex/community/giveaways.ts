@@ -484,7 +484,7 @@ function randomIndex(length: number): number {
 
     crypto.getRandomValues(values);
 
-    return Number(values[0] ?? 0) % length;
+    return (values[0] ?? 0) % length;
 }
 
 function getNextDrawNumber(winners: readonly GiveawayWinnerDocument[]): number {

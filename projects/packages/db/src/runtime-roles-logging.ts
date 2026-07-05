@@ -69,11 +69,11 @@ export async function upsertAutoroleRule(
     }
 
     try {
-        const rule = (await db.client.mutation(convexApi.autoroles.upsertAutoroleRule, {
+        const rule = await db.client.mutation<ConvexAutoroleRuleRecord>(convexApi.autoroles.upsertAutoroleRule, {
             ...normalizedInput.value,
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
             ...(normalizeOptionalText(input.name) ? { name: normalizeOptionalText(input.name) } : {}),
-        })) as ConvexAutoroleRuleRecord;
+        });
 
         return ok(toAutoroleRuleRecord(rule));
     } catch {
@@ -112,10 +112,10 @@ export async function deleteAutoroleRule(
     }
 
     try {
-        const rule = (await db.client.mutation(
+        const rule = await db.client.mutation<ConvexAutoroleRuleRecord | null>(
             convexApi.autoroles.deleteAutoroleRule,
             normalizedInput.value
-        )) as ConvexAutoroleRuleRecord | null;
+        );
 
         return rule ? ok(toAutoroleRuleRecord(rule)) : err({ type: 'not-found' });
     } catch {
@@ -134,13 +134,13 @@ export async function listGuildLoggingDestinationsByGuildId(
     }
 
     try {
-        const destinations = (await db.client.query(
+        const destinations = await db.client.query<ConvexGuildLoggingDestinationRecord[]>(
             convexApi.logging_destinations.listGuildLoggingDestinationsByGuildId,
             {
                 ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
                 guildId: guildId.value,
             }
-        )) as ConvexGuildLoggingDestinationRecord[];
+        );
 
         return ok(destinations.map(toGuildLoggingDestinationRecord));
     } catch {
@@ -159,10 +159,10 @@ export async function findGuildLoggingDestinationByEventGroup(
     }
 
     try {
-        const destination = (await db.client.query(
+        const destination = await db.client.query<ConvexGuildLoggingDestinationRecord | null>(
             convexApi.logging_destinations.readGuildLoggingDestinationByEventGroup,
             normalizedInput.value
-        )) as ConvexGuildLoggingDestinationRecord | null;
+        );
 
         return destination ? ok(toGuildLoggingDestinationRecord(destination)) : err({ type: 'not-found' });
     } catch {
@@ -186,10 +186,10 @@ export async function upsertGuildLoggingDestination(
     }
 
     try {
-        const destination = (await db.client.mutation(
+        const destination = await db.client.mutation<ConvexGuildLoggingDestinationRecord>(
             convexApi.logging_destinations.upsertGuildLoggingDestination,
             normalizedInput.value
-        )) as ConvexGuildLoggingDestinationRecord;
+        );
 
         return ok(toGuildLoggingDestinationRecord(destination));
     } catch {
@@ -208,10 +208,10 @@ export async function deleteGuildLoggingDestination(
     }
 
     try {
-        const destination = (await db.client.mutation(
+        const destination = await db.client.mutation<ConvexGuildLoggingDestinationRecord | null>(
             convexApi.logging_destinations.deleteGuildLoggingDestination,
             normalizedInput.value
-        )) as ConvexGuildLoggingDestinationRecord | null;
+        );
 
         return destination ? ok(toGuildLoggingDestinationRecord(destination)) : err({ type: 'not-found' });
     } catch {
@@ -230,12 +230,12 @@ async function listAutoroles(
     }
 
     try {
-        const rules = (await db.client.query(
+        const rules = await db.client.query<ConvexAutoroleRuleRecord[]>(
             input.enabledOnly
                 ? convexApi.autoroles.listEnabledAutoroleRulesByGuildId
                 : convexApi.autoroles.listAutoroleRulesByGuildId,
             { guildId: guildId.value, limit: 1000 }
-        )) as ConvexAutoroleRuleRecord[];
+        );
 
         return ok(rules.map(toAutoroleRuleRecord));
     } catch {

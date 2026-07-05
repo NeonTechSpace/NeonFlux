@@ -26,7 +26,6 @@ import {
     toTicketPanelRecord,
     toTicketRecord,
     type TicketDocument,
-    type TicketEventDocument,
     type TicketMemberDocument,
     type TicketPanelDocument,
 } from './tickets_model.js';

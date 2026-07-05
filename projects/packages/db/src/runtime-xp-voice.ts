@@ -47,10 +47,10 @@ export async function transitionXpVoiceSession(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const transition = (await db.client.mutation(
+        const transition = await db.client.mutation<ConvexXpVoiceSessionTransition>(
             convexApi.xp_voice_sessions.transitionXpVoiceSession,
             normalizedInput.value
-        )) as ConvexXpVoiceSessionTransition;
+        );
 
         return ok(toXpVoiceSessionTransition(transition));
     } catch {
@@ -67,10 +67,10 @@ export async function startXpVoiceSession(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const session = (await db.client.mutation(
+        const session = await db.client.mutation<ConvexXpVoiceSessionRecord>(
             convexApi.xp_voice_sessions.startXpVoiceSession,
             normalizedInput.value
-        )) as ConvexXpVoiceSessionRecord;
+        );
 
         return ok(toXpVoiceSessionRecord(session));
     } catch {
@@ -91,11 +91,14 @@ export async function closeXpVoiceSession(
     if (endedAt.isErr()) return err(endedAt.error);
 
     try {
-        const closed = (await db.client.mutation(convexApi.xp_voice_sessions.closeXpVoiceSession, {
-            ...(endedAt.value === undefined ? {} : { endedAt: endedAt.value }),
-            guildId: guildId.value,
-            userId: userId.value,
-        })) as ConvexClosedXpVoiceSession | null;
+        const closed = await db.client.mutation<ConvexClosedXpVoiceSession | null>(
+            convexApi.xp_voice_sessions.closeXpVoiceSession,
+            {
+                ...(endedAt.value === undefined ? {} : { endedAt: endedAt.value }),
+                guildId: guildId.value,
+                userId: userId.value,
+            }
+        );
 
         return closed ? ok(toClosedXpVoiceSession(closed)) : err({ type: 'not-found' });
     } catch {

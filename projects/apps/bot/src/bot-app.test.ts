@@ -2,7 +2,6 @@ import type { AppConfig } from '@neonflux/config';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
 import type * as NeonFluxDb from '@neonflux/db';
-import type { RuntimeDbClient } from '@neonflux/db';
 import {
     addTicketMember,
     createVcGeneratorControlRequest,
@@ -48,6 +47,7 @@ import {
     upsertGiveawayEntry,
     upsertSuggestionVote,
     upsertBotInstallation,
+    type RuntimeDbClient,
 } from '@neonflux/db';
 import {
     createFluxerPlatform,
@@ -322,7 +322,8 @@ describe('createBotApp', () => {
     });
 
     it('uses Convex database before deployment config bootstrap', async () => {
-        const logger = createLogger();
+        const logInfoMock = vi.fn();
+        const logger = createLogger({ info: logInfoMock });
         const database = createDatabase();
         const app = createBotApp({
             config: createMultiConfig(),
@@ -332,7 +333,7 @@ describe('createBotApp', () => {
 
         await app.start();
 
-        expect(logger.info).toHaveBeenCalledWith('database.runtime', {
+        expect(logInfoMock).toHaveBeenCalledWith('database.runtime', {
             store: 'convex',
         });
         expect(bootstrapDeploymentConfigMock).toHaveBeenCalledWith(database.db, expect.anything());
@@ -730,7 +731,7 @@ describe('createBotApp', () => {
 
     it('returns false and closes the database when Fluxer does not start', async () => {
         const database = createDatabase();
-        const closeDatabaseMock = database.close as ReturnType<typeof vi.fn<() => Promise<void>>>;
+        const closeDatabaseMock = database.close;
         const app = createBotApp({
             config: createMultiConfig({ fluxerBotToken: null, guildDefconOverride: 3 }),
             logger: createLogger(),
@@ -752,7 +753,7 @@ describe('createBotApp', () => {
 
     it('stops the Fluxer bot and closes the database', async () => {
         const database = createDatabase();
-        const closeDatabaseMock = database.close as ReturnType<typeof vi.fn<() => Promise<void>>>;
+        const closeDatabaseMock = database.close;
         const app = createBotApp({
             config: createMultiConfig(),
             logger: createLogger(),
@@ -806,7 +807,11 @@ describe('createBotApp', () => {
     });
 });
 
-function createDatabase(): RuntimeDbClient {
+type TestRuntimeDbClient = RuntimeDbClient & {
+    close: ReturnType<typeof vi.fn<() => Promise<void>>>;
+};
+
+function createDatabase(): TestRuntimeDbClient {
     return {
         client: {} as never,
         close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),

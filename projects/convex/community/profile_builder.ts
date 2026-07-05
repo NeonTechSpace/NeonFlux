@@ -27,7 +27,6 @@ import {
     type ProfileFieldDocument,
     type ProfileFormDocument,
     type ProfileSubmissionDocument,
-    type ProfileSubmissionReviewDocument,
 } from './profile_builder_model.js';
 import type schema from '../schema.js';
 
@@ -195,9 +194,10 @@ export const findProfileFormById = queryGeneric({
         const formId = unwrap(normalizeRequiredFormId(args.formId));
         const form = await findProfileFormByLegacyId(ctx, formId);
 
-        return form && form.guildId === guildId && (!args.enabledOnly || form.enabled)
-            ? toProfileFormRecord(form)
-            : null;
+        if (form?.guildId !== guildId) return null;
+        if (args.enabledOnly && !form.enabled) return null;
+
+        return toProfileFormRecord(form);
     },
 });
 
@@ -288,7 +288,7 @@ export const createProfileSubmission = mutationGeneric({
         const formId = unwrap(normalizeRequiredFormId(args.formId));
         const form = await findProfileFormByLegacyId(ctx, formId);
 
-        if (!form || form.guildId !== guildId || !form.enabled) throw new Error('profile-form-not-found');
+        if (form?.guildId !== guildId || !form.enabled) throw new Error('profile-form-not-found');
 
         const document = unwrap(
             buildProfileSubmissionDocument({ ...args, formId, guildId }, new Date().toISOString(), () =>

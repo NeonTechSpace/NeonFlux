@@ -84,10 +84,10 @@ export async function upsertReactionRoleMessage(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const message = (await db.client.mutation(
+        const message = await db.client.mutation<ConvexReactionRoleMessageRecord>(
             convexApi.reaction_roles.upsertReactionRoleMessage,
             normalizedInput.value
-        )) as ConvexReactionRoleMessageRecord;
+        );
 
         return ok(toMessageRecord(message));
     } catch {
@@ -104,10 +104,10 @@ export async function upsertReactionRoleOption(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const option = (await db.client.mutation(
+        const option = await db.client.mutation<ConvexReactionRoleOptionRecord>(
             convexApi.reaction_roles.upsertReactionRoleOption,
             normalizedInput.value
-        )) as ConvexReactionRoleOptionRecord;
+        );
 
         return ok(toOptionRecord(option));
     } catch {
@@ -140,9 +140,12 @@ export async function listReactionRoleMessagesByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const messages = (await db.client.query(convexApi.reaction_roles.listReactionRoleMessagesByGuildId, {
-            guildId: guildId.value,
-        })) as ConvexReactionRoleMessageWithOptions[];
+        const messages = await db.client.query<ConvexReactionRoleMessageWithOptions[]>(
+            convexApi.reaction_roles.listReactionRoleMessagesByGuildId,
+            {
+                guildId: guildId.value,
+            }
+        );
 
         return ok(messages.map(toMessageWithOptionsRecord));
     } catch {
@@ -159,10 +162,10 @@ export async function findReactionRoleMessage(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const message = (await db.client.query(
+        const message = await db.client.query<ConvexReactionRoleMessageRecord | null>(
             convexApi.reaction_roles.findReactionRoleMessage,
             normalizedInput.value
-        )) as ConvexReactionRoleMessageRecord | null;
+        );
 
         return message ? ok(toMessageRecord(message)) : err({ type: 'not-found' });
     } catch {
@@ -179,10 +182,10 @@ export async function findEnabledReactionRoleOptionByReaction(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const match = (await db.client.query(
+        const match = await db.client.query<ConvexReactionRoleOptionMatch | null>(
             convexApi.reaction_roles.findEnabledReactionRoleOptionByReaction,
             normalizedInput.value
-        )) as ConvexReactionRoleOptionMatch | null;
+        );
 
         return match
             ? ok({ message: toMessageRecord(match.message), option: toOptionRecord(match.option) })
@@ -201,10 +204,10 @@ export async function deleteReactionRoleMessage(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const message = (await db.client.mutation(
+        const message = await db.client.mutation<ConvexReactionRoleMessageRecord | null>(
             convexApi.reaction_roles.deleteReactionRoleMessage,
             normalizedInput.value
-        )) as ConvexReactionRoleMessageRecord | null;
+        );
 
         return message ? ok(toMessageRecord(message)) : err({ type: 'not-found' });
     } catch {
@@ -228,10 +231,10 @@ export async function upsertReactionRoleAssignment(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const assignment = (await db.client.mutation(
+        const assignment = await db.client.mutation<ConvexReactionRoleAssignmentRecord>(
             convexApi.reaction_roles.upsertReactionRoleAssignment,
             normalizedInput.value
-        )) as ConvexReactionRoleAssignmentRecord;
+        );
 
         return ok(toAssignmentRecord(assignment));
     } catch {
@@ -248,10 +251,10 @@ export async function markReactionRoleAssignmentRemoved(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const assignment = (await db.client.mutation(
+        const assignment = await db.client.mutation<ConvexReactionRoleAssignmentRecord | null>(
             convexApi.reaction_roles.markReactionRoleAssignmentRemoved,
             normalizedInput.value
-        )) as ConvexReactionRoleAssignmentRecord | null;
+        );
 
         return assignment ? ok(toAssignmentRecord(assignment)) : err({ type: 'not-found' });
     } catch {
@@ -270,13 +273,13 @@ export async function listActiveReactionRoleAssignmentsByGuildUser(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const assignments = (await db.client.query(
+        const assignments = await db.client.query<ConvexReactionRoleAssignmentRecord[]>(
             convexApi.reaction_roles.listActiveReactionRoleAssignmentsByGuildUser,
             {
                 guildId: guildId.value,
                 userId: userId.value,
             }
-        )) as ConvexReactionRoleAssignmentRecord[];
+        );
 
         return ok(assignments.map(toAssignmentRecord));
     } catch {
@@ -297,14 +300,14 @@ export async function listActiveReactionRoleAssignmentsByGuildMessageUser(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const assignments = (await db.client.query(
+        const assignments = await db.client.query<ConvexReactionRoleAssignmentRecord[]>(
             convexApi.reaction_roles.listActiveReactionRoleAssignmentsByGuildMessageUser,
             {
                 guildId: guildId.value,
                 messageId: messageId.value,
                 userId: userId.value,
             }
-        )) as ConvexReactionRoleAssignmentRecord[];
+        );
 
         return ok(assignments.map(toAssignmentRecord));
     } catch {
@@ -325,14 +328,14 @@ export async function markReactionRoleAssignmentsRemovedByMessageUser(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const assignments = (await db.client.mutation(
+        const assignments = await db.client.mutation<ConvexReactionRoleAssignmentRecord[]>(
             convexApi.reaction_roles.markReactionRoleAssignmentsRemovedByMessageUser,
             {
                 guildId: guildId.value,
                 messageId: messageId.value,
                 userId: userId.value,
             }
-        )) as ConvexReactionRoleAssignmentRecord[];
+        );
 
         return ok(assignments.map(toAssignmentRecord));
     } catch {
@@ -363,10 +366,10 @@ export async function deleteReactionRoleOption(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const option = (await db.client.mutation(
+        const option = await db.client.mutation<ConvexReactionRoleOptionRecord | null>(
             convexApi.reaction_roles.deleteReactionRoleOption,
             normalizedInput.value
-        )) as ConvexReactionRoleOptionRecord | null;
+        );
 
         return option ? ok(toOptionRecord(option)) : err({ type: 'not-found' });
     } catch {
@@ -383,10 +386,10 @@ export async function findReactionRoleOption(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const option = (await db.client.query(
+        const option = await db.client.query<ConvexReactionRoleOptionRecord | null>(
             convexApi.reaction_roles.findReactionRoleOption,
             normalizedInput.value
-        )) as ConvexReactionRoleOptionRecord | null;
+        );
 
         return option ? ok(toOptionRecord(option)) : err({ type: 'not-found' });
     } catch {

@@ -86,10 +86,10 @@ export async function saveAutomodRule(
     }
 
     try {
-        const rule = (await db.client.mutation(
+        const rule = await db.client.mutation<ConvexAutomodRuleRecord>(
             convexApi.automod.saveAutomodRule,
             normalizedInput.value
-        )) as ConvexAutomodRuleRecord;
+        );
 
         return ok(toAutomodRuleRecord(rule));
     } catch (error) {
@@ -108,10 +108,10 @@ export async function deleteAutomodRule(
     if (ruleId.isErr()) return err(ruleId.error);
 
     try {
-        const rule = (await db.client.mutation(convexApi.automod.deleteAutomodRule, {
+        const rule = await db.client.mutation<ConvexAutomodRuleRecord | null>(convexApi.automod.deleteAutomodRule, {
             guildId: guildId.value,
             ruleId: ruleId.value,
-        })) as ConvexAutomodRuleRecord | null;
+        });
 
         return rule ? ok(toAutomodRuleRecord(rule)) : err({ type: 'not-found' });
     } catch (error) {
@@ -130,10 +130,10 @@ export async function recordAutomodEvent(
     }
 
     try {
-        const event = (await db.client.mutation(
+        const event = await db.client.mutation<ConvexAutomodEventRecord>(
             convexApi.automod.recordAutomodEvent,
             normalizedInput.value
-        )) as ConvexAutomodEventRecord;
+        );
 
         return ok(toAutomodEventRecord(event));
     } catch (error) {
@@ -152,11 +152,14 @@ export async function updateAutomodEventStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const event = (await db.client.mutation(convexApi.automod.updateAutomodEventStatus, {
-            ...(input.details ? { details: input.details } : {}),
-            eventId: eventId.value,
-            status: status.value,
-        })) as ConvexAutomodEventRecord | null;
+        const event = await db.client.mutation<ConvexAutomodEventRecord | null>(
+            convexApi.automod.updateAutomodEventStatus,
+            {
+                ...(input.details ? { details: input.details } : {}),
+                eventId: eventId.value,
+                status: status.value,
+            }
+        );
 
         return event ? ok(toAutomodEventRecord(event)) : err({ type: 'not-found' });
     } catch (error) {
@@ -175,10 +178,10 @@ export async function listAutomodEventsByGuildId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const events = (await db.client.query(convexApi.automod.listAutomodEventsByGuildId, {
+        const events = await db.client.query<ConvexAutomodEventRecord[]>(convexApi.automod.listAutomodEventsByGuildId, {
             guildId: guildId.value,
             limit: limit.value,
-        })) as ConvexAutomodEventRecord[];
+        });
 
         return ok(events.map(toAutomodEventRecord));
     } catch (error) {
@@ -197,12 +200,12 @@ async function listAutomodRules(
     }
 
     try {
-        const rules = (await db.client.query(
+        const rules = await db.client.query<ConvexAutomodRuleRecord[]>(
             input.enabledOnly
                 ? convexApi.automod.listEnabledAutomodRulesByGuildId
                 : convexApi.automod.listAutomodRulesByGuildId,
             { guildId: guildId.value, limit: 200 }
-        )) as ConvexAutomodRuleRecord[];
+        );
 
         return ok(rules.map(toAutomodRuleRecord));
     } catch (error) {

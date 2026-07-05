@@ -68,10 +68,10 @@ export async function findActiveGeneratedVoiceChannelByOwner(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const channel = (await db.client.query(
+        const channel = await db.client.query<ConvexGeneratedVoiceChannelRecord | null>(
             convexApi.vc_generator_control_requests.findActiveGeneratedVoiceChannelByOwner,
             normalizedInput.value
-        )) as ConvexGeneratedVoiceChannelRecord | null;
+        );
 
         return channel ? ok(toGeneratedChannelRecord(channel)) : err({ type: 'not-found' });
     } catch {
@@ -97,10 +97,10 @@ export async function createVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = (await db.client.mutation(
+        const request = await db.client.mutation<ConvexVcGeneratorControlRequestRecord>(
             convexApi.vc_generator_control_requests.createVcGeneratorControlRequest,
             normalizedInput.value
-        )) as ConvexVcGeneratorControlRequestRecord;
+        );
 
         return ok(toControlRequestRecord(request));
     } catch {
@@ -116,10 +116,10 @@ export async function findPendingVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = (await db.client.query(
+        const request = await db.client.query<ConvexVcGeneratorControlRequestRecord | null>(
             convexApi.vc_generator_control_requests.findPendingVcGeneratorControlRequest,
             normalizedInput.value
-        )) as ConvexVcGeneratorControlRequestRecord | null;
+        );
 
         return request ? ok(toControlRequestRecord(request)) : err({ type: 'not-found' });
     } catch {
@@ -135,10 +135,10 @@ export async function updateVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = (await db.client.mutation(
+        const request = await db.client.mutation<ConvexVcGeneratorControlRequestRecord | null>(
             convexApi.vc_generator_control_requests.updateVcGeneratorControlRequest,
             normalizedInput.value
-        )) as ConvexVcGeneratorControlRequestRecord | null;
+        );
 
         return request ? ok(toControlRequestRecord(request)) : err({ type: 'not-found' });
     } catch {
@@ -157,13 +157,13 @@ export async function expirePendingVcGeneratorControlRequests(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const requests = (await db.client.mutation(
+        const requests = await db.client.mutation<ConvexVcGeneratorControlRequestRecord[]>(
             convexApi.vc_generator_control_requests.expirePendingVcGeneratorControlRequests,
             {
                 limit: limit.value,
                 now: now.value.toISOString(),
             }
-        )) as ConvexVcGeneratorControlRequestRecord[];
+        );
 
         return ok(requests.map(toControlRequestRecord));
     } catch {

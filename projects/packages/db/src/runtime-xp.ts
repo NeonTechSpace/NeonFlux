@@ -71,10 +71,10 @@ export async function upsertXpSettings(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const settings = (await db.client.mutation(
+        const settings = await db.client.mutation<ConvexXpSettingsRecord>(
             convexApi.xp.upsertXpSettings,
             normalizedInput.value
-        )) as ConvexXpSettingsRecord;
+        );
 
         return ok(toXpSettingsRecord(settings));
     } catch {
@@ -91,9 +91,9 @@ export async function findXpSettingsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = (await db.client.query(convexApi.xp.findXpSettingsByGuildId, {
+        const settings = await db.client.query<ConvexXpSettingsRecord | null>(convexApi.xp.findXpSettingsByGuildId, {
             guildId: guildId.value,
-        })) as ConvexXpSettingsRecord | null;
+        });
 
         return settings ? ok(toXpSettingsRecord(settings)) : err({ type: 'not-found' });
     } catch {
@@ -110,10 +110,10 @@ export async function addGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const userXp = (await db.client.mutation(
+        const userXp = await db.client.mutation<ConvexGuildUserXpRecord>(
             convexApi.xp.addGuildUserXp,
             normalizedInput.value
-        )) as ConvexGuildUserXpRecord;
+        );
 
         return ok(toGuildUserXpRecord(userXp));
     } catch {
@@ -139,10 +139,10 @@ export async function grantGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const result = (await db.client.mutation(
+        const result = await db.client.mutation<ConvexGrantGuildUserXpResult>(
             convexApi.xp.grantGuildUserXp,
             normalizedInput.value
-        )) as ConvexGrantGuildUserXpResult;
+        );
 
         return ok(toGrantGuildUserXpResult(result));
     } catch {
@@ -163,11 +163,11 @@ export async function upsertXpRoleReward(
     if (roleId.isErr()) return err(roleId.error);
 
     try {
-        const reward = (await db.client.mutation(convexApi.xp.upsertXpRoleReward, {
+        const reward = await db.client.mutation<ConvexXpRoleRewardRecord>(convexApi.xp.upsertXpRoleReward, {
             guildId: guildId.value,
             level: level.value,
             roleId: roleId.value,
-        })) as ConvexXpRoleRewardRecord;
+        });
 
         return ok(toXpRoleRewardRecord(reward));
     } catch {
@@ -184,10 +184,10 @@ export async function findGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const userXp = (await db.client.query(
+        const userXp = await db.client.query<ConvexGuildUserXpRecord | null>(
             convexApi.xp.findGuildUserXp,
             normalizedInput.value
-        )) as ConvexGuildUserXpRecord | null;
+        );
 
         return userXp ? ok(toGuildUserXpRecord(userXp)) : err({ type: 'not-found' });
     } catch {
@@ -204,10 +204,10 @@ export async function findGuildUserXpRank(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const rank = (await db.client.query(convexApi.xp.findGuildUserXpRank, normalizedInput.value)) as {
+        const rank = await db.client.query<{
             rank: number;
             userXp: ConvexGuildUserXpRecord;
-        } | null;
+        } | null>(convexApi.xp.findGuildUserXpRank, normalizedInput.value);
 
         return rank ? ok({ rank: rank.rank, userXp: toGuildUserXpRecord(rank.userXp) }) : err({ type: 'not-found' });
     } catch {
@@ -226,10 +226,10 @@ export async function listGuildXpLeaderboard(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const leaderboard = (await db.client.query(convexApi.xp.listGuildXpLeaderboard, {
+        const leaderboard = await db.client.query<ConvexGuildUserXpRecord[]>(convexApi.xp.listGuildXpLeaderboard, {
             guildId: guildId.value,
             limit: limit.value,
-        })) as ConvexGuildUserXpRecord[];
+        });
 
         return ok(leaderboard.map(toGuildUserXpRecord));
     } catch {

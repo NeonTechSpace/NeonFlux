@@ -384,7 +384,7 @@ async function requireBoardIfProvided(
 
     const board = await findSuggestionBoardByLegacyId(ctx, input.boardId);
 
-    if (!board || board.guildId !== input.guildId) {
+    if (board?.guildId !== input.guildId) {
         throw new Error('suggestion-board-not-found');
     }
 }

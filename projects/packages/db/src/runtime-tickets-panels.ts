@@ -42,10 +42,10 @@ export async function createTicketPanel(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const panel = (await db.client.mutation(
+        const panel = await db.client.mutation<ConvexTicketPanelRecord>(
             convexApi.tickets.createTicketPanel,
             normalizedInput.value
-        )) as ConvexTicketPanelRecord;
+        );
 
         return ok(toTicketPanelRecord(panel));
     } catch {
@@ -72,10 +72,10 @@ export async function updateTicketPanel(
     if (panelId.isErr()) return err(panelId.error);
 
     try {
-        const panel = (await db.client.mutation(convexApi.tickets.updateTicketPanel, {
+        const panel = await db.client.mutation<ConvexTicketPanelRecord | null>(convexApi.tickets.updateTicketPanel, {
             ...normalizedInput.value,
             panelId: panelId.value,
-        })) as ConvexTicketPanelRecord | null;
+        });
 
         return panel ? ok(toTicketPanelRecord(panel)) : err({ type: 'not-found' });
     } catch {
@@ -91,11 +91,11 @@ export async function listTicketPanelsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const panels = (await db.client.query(convexApi.tickets.listTicketPanelsByGuildId, {
+        const panels = await db.client.query<ConvexTicketPanelRecord[]>(convexApi.tickets.listTicketPanelsByGuildId, {
             ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
             guildId: guildId.value,
             limit: 500,
-        })) as ConvexTicketPanelRecord[];
+        });
 
         return ok(panels.map(toTicketPanelRecord));
     } catch {
@@ -114,10 +114,13 @@ export async function findEnabledTicketPanelByMessageId(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const panel = (await db.client.query(convexApi.tickets.findEnabledTicketPanelByMessageId, {
-            guildId: guildId.value,
-            messageId: messageId.value,
-        })) as ConvexTicketPanelRecord | null;
+        const panel = await db.client.query<ConvexTicketPanelRecord | null>(
+            convexApi.tickets.findEnabledTicketPanelByMessageId,
+            {
+                guildId: guildId.value,
+                messageId: messageId.value,
+            }
+        );
 
         return panel ? ok(toTicketPanelRecord(panel)) : err({ type: 'not-found' });
     } catch {
@@ -136,11 +139,14 @@ export async function updateTicketPanelEnabled(
     if (panelId.isErr()) return err(panelId.error);
 
     try {
-        const panel = (await db.client.mutation(convexApi.tickets.updateTicketPanelEnabled, {
-            enabled: input.enabled,
-            guildId: guildId.value,
-            panelId: panelId.value,
-        })) as ConvexTicketPanelRecord | null;
+        const panel = await db.client.mutation<ConvexTicketPanelRecord | null>(
+            convexApi.tickets.updateTicketPanelEnabled,
+            {
+                enabled: input.enabled,
+                guildId: guildId.value,
+                panelId: panelId.value,
+            }
+        );
 
         return panel ? ok(toTicketPanelRecord(panel)) : err({ type: 'not-found' });
     } catch {
@@ -159,10 +165,10 @@ export async function deleteTicketPanel(
     if (panelId.isErr()) return err(panelId.error);
 
     try {
-        const panel = (await db.client.mutation(convexApi.tickets.deleteTicketPanel, {
+        const panel = await db.client.mutation<ConvexTicketPanelRecord | null>(convexApi.tickets.deleteTicketPanel, {
             guildId: guildId.value,
             panelId: panelId.value,
-        })) as ConvexTicketPanelRecord | null;
+        });
 
         return panel ? ok(toTicketPanelRecord(panel)) : err({ type: 'not-found' });
     } catch {
@@ -178,9 +184,9 @@ export async function reserveNextTicketNumber(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const ticketNumber = (await db.client.mutation(convexApi.tickets.reserveNextTicketNumber, {
+        const ticketNumber = await db.client.mutation<number>(convexApi.tickets.reserveNextTicketNumber, {
             guildId: guildId.value,
-        })) as number;
+        });
 
         return ok(ticketNumber);
     } catch {

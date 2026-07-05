@@ -30,5 +30,6 @@ export function isRequiredConvexConfig(config: ConvexConfig | undefined): config
 }
 
 export function isConvexRuntimeDb(client: RuntimeDbClient): client is ConvexServiceDbClient {
-    return 'kind' in client.db && client.db.kind === 'convex';
+    void client;
+    return true;
 }

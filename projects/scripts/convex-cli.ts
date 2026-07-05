@@ -57,12 +57,14 @@ async function main(): Promise<void> {
 }
 
 export function normalizeConvexCliArgs(args: readonly string[]): string[] {
-    if (args[0] === '--') {
+    const firstArg = args[0];
+
+    if (firstArg === '--') {
         return [...args.slice(1)];
     }
 
     if (args[1] === '--') {
-        return [args[0]!, ...args.slice(2)];
+        return firstArg === undefined ? [...args.slice(2)] : [firstArg, ...args.slice(2)];
     }
 
     return [...args];
@@ -81,7 +83,9 @@ export function shouldValidateConvexCliAuthConfig(args: readonly string[]): bool
 }
 
 export function assertConvexCliAuthConfigReady(args: readonly string[], env: NodeJS.ProcessEnv): void {
-    if (!shouldValidateConvexCliAuthConfig(args)) {
+    const command = args[0];
+
+    if (command !== 'codegen' && command !== 'deploy' && command !== 'dev') {
         return;
     }
 
@@ -90,11 +94,12 @@ export function assertConvexCliAuthConfigReady(args: readonly string[], env: Nod
     } catch (error) {
         throw new Error(
             [
-                `Convex ${args[0]} requires deploy/codegen auth config before invoking the Convex CLI.`,
+                `Convex ${command} requires deploy/codegen auth config before invoking the Convex CLI.`,
                 formatErrorMessage(error),
                 'Next: set a stable NeonFlux issuer, set public NEONFLUX_AUTH_JWT_JWKS from pnpm --silent generate:convex-jwks, run pnpm convex:validate-auth-config, then rerun this command.',
                 'Use pnpm convex:check-auth-env -- --compare-deploy-env before deploy to verify the linked target env too.',
-            ].join('\n')
+            ].join('\n'),
+            { cause: error }
         );
     }
 }
