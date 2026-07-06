@@ -2,15 +2,8 @@ import { getFunctionName } from 'convex/server';
 import { convexToJson } from 'convex/values';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { api } from './api.js';
+import { api } from '@neonflux/convex-api';
 import { createNeonFluxConvexHttpClient } from './client.js';
-
-const convexApi = api as unknown as {
-    core: {
-        readDeploymentConfig: Parameters<ReturnType<typeof createNeonFluxConvexHttpClient>['query']>[0];
-        upsertDeploymentConfig: Parameters<ReturnType<typeof createNeonFluxConvexHttpClient>['mutation']>[0];
-    };
-};
 
 describe('createNeonFluxConvexHttpClient', () => {
     afterEach(() => {
@@ -35,7 +28,7 @@ describe('createNeonFluxConvexHttpClient', () => {
             url: 'https://neonflux-test.convex.cloud',
         });
 
-        await expect(client.query(convexApi.core.readDeploymentConfig, {})).resolves.toStrictEqual({
+        await expect(client.query(api.core.readDeploymentConfig, {})).resolves.toStrictEqual({
             instanceMode: 'multi',
             ownerIds: [],
             publicWebUrl: null,
@@ -44,7 +37,7 @@ describe('createNeonFluxConvexHttpClient', () => {
             body: JSON.stringify({
                 args: [convexToJson({})],
                 format: 'convex_encoded_json',
-                path: getFunctionName(convexApi.core.readDeploymentConfig),
+                path: getFunctionName(api.core.readDeploymentConfig),
             }),
             headers: {
                 Authorization: 'Bearer service-jwt',
@@ -71,12 +64,12 @@ describe('createNeonFluxConvexHttpClient', () => {
         });
 
         await expect(
-            client.mutation(convexApi.core.upsertDeploymentConfig, {
+            client.mutation(api.core.upsertDeploymentConfig, {
                 instanceMode: 'single',
                 singleGuildId: '',
             })
         ).rejects.toThrow(
-            `Convex mutation ${getFunctionName(convexApi.core.upsertDeploymentConfig)} failed: missing-guild-id`
+            `Convex mutation ${getFunctionName(api.core.upsertDeploymentConfig)} failed: missing-guild-id`
         );
     });
 
@@ -87,8 +80,8 @@ describe('createNeonFluxConvexHttpClient', () => {
             url: 'https://neonflux-test.convex.cloud',
         });
 
-        await expect(client.query(convexApi.core.readDeploymentConfig, {})).rejects.toThrow(
-            `Convex query ${getFunctionName(convexApi.core.readDeploymentConfig)} returned HTTP 401: NoAuthProvider`
+        await expect(client.query(api.core.readDeploymentConfig, {})).rejects.toThrow(
+            `Convex query ${getFunctionName(api.core.readDeploymentConfig)} returned HTTP 401: NoAuthProvider`
         );
     });
 });

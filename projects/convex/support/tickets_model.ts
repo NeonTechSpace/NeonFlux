@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type TicketPanelInput = {
     channelId?: string | null;
     config?: Record<string, unknown> | null;
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     title?: string | null;
     updatedAt?: string | null;
@@ -16,7 +17,6 @@ export type TicketPanelDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     messageId?: string;
     title: string;
     updatedAt: string;
@@ -39,7 +39,6 @@ export type TicketInput = {
     claimedByUserId?: string | null;
     closedAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     openedAt?: string | null;
     openerUserId?: string | null;
     panelId?: string | null;
@@ -53,10 +52,9 @@ export type TicketDocument = {
     claimedByUserId?: string;
     closedAt?: string;
     guildId: string;
-    legacyId: string;
     openedAt: string;
     openerUserId: string;
-    panelLegacyId?: string;
+    panelId?: GenericId<'ticketPanels'>;
     status: string;
     ticketNumber: number;
     updatedAt: string;
@@ -78,7 +76,6 @@ export type TicketRecord = {
 
 export type TicketMemberInput = {
     createdAt?: string | null;
-    legacyId?: string | null;
     role?: string | null;
     ticketId?: string | null;
     userId?: string | null;
@@ -86,9 +83,8 @@ export type TicketMemberInput = {
 
 export type TicketMemberDocument = {
     createdAt: string;
-    legacyId: string;
     role: string;
-    ticketLegacyId: string;
+    ticketId: GenericId<'tickets'>;
     userId: string;
 };
 
@@ -105,7 +101,6 @@ export type TicketEventInput = {
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
     eventType?: string | null;
-    legacyId?: string | null;
     ticketId?: string | null;
 };
 
@@ -114,8 +109,7 @@ export type TicketEventDocument = {
     createdAt: string;
     details: Record<string, unknown>;
     eventType: string;
-    legacyId: string;
-    ticketLegacyId: string;
+    ticketId: GenericId<'tickets'>;
 };
 
 export type TicketEventRecord = {
@@ -142,8 +136,7 @@ const ticketStatusTransitions = new Map<string, readonly string[]>([
 export function buildTicketPanelDocument(
     input: TicketPanelInput,
     now: string,
-    existing?: Pick<TicketPanelDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<TicketPanelDocument, 'createdAt'>
 ): TicketInputResult<TicketPanelDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -170,7 +163,6 @@ export function buildTicketPanelDocument(
             createdAt,
             enabled: input.enabled ?? true,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(messageId ? { messageId } : {}),
             title: title.value,
             updatedAt,
@@ -178,11 +170,7 @@ export function buildTicketPanelDocument(
     };
 }
 
-export function buildTicketDocument(
-    input: TicketInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
-): TicketInputResult<TicketDocument> {
+export function buildTicketDocument(input: TicketInput, now: string): TicketInputResult<TicketDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const openerUserId = normalizeRequiredString(input.openerUserId, 'openerUserId');
     const ticketNumber = normalizePositiveInteger(input.ticketNumber, 'ticketNumber');
@@ -204,7 +192,7 @@ export function buildTicketDocument(
 
     const channelId = normalizeOptionalString(input.channelId);
     const claimedByUserId = normalizeOptionalString(input.claimedByUserId);
-    const panelLegacyId = normalizeOptionalString(input.panelId);
+    const panelId = normalizeOptionalString(input.panelId);
 
     return {
         ok: true,
@@ -213,10 +201,9 @@ export function buildTicketDocument(
             ...(claimedByUserId ? { claimedByUserId } : {}),
             ...(closedAt ? { closedAt } : {}),
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             openedAt,
             openerUserId: openerUserId.value,
-            ...(panelLegacyId ? { panelLegacyId } : {}),
+            ...(panelId ? { panelId: panelId as GenericId<'ticketPanels'> } : {}),
             status: status.value,
             ticketNumber: ticketNumber.value,
             updatedAt,
@@ -255,8 +242,7 @@ export function buildTicketStatusPatch(
 export function buildTicketMemberDocument(
     input: TicketMemberInput,
     now: string,
-    existing?: Pick<TicketMemberDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<TicketMemberDocument, 'createdAt'>
 ): TicketInputResult<TicketMemberDocument> {
     const ticketId = normalizeRequiredString(input.ticketId, 'ticketId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -271,19 +257,14 @@ export function buildTicketMemberDocument(
         ok: true,
         value: {
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             role: normalizeOptionalString(input.role) ?? 'participant',
-            ticketLegacyId: ticketId.value,
+            ticketId: ticketId.value as GenericId<'tickets'>,
             userId: userId.value,
         },
     };
 }
 
-export function buildTicketEventDocument(
-    input: TicketEventInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
-): TicketInputResult<TicketEventDocument> {
+export function buildTicketEventDocument(input: TicketEventInput, now: string): TicketInputResult<TicketEventDocument> {
     const ticketId = normalizeRequiredString(input.ticketId, 'ticketId');
     const eventType = normalizeRequiredString(input.eventType, 'eventType');
     const details = normalizeRecord(input.details ?? {});
@@ -303,8 +284,7 @@ export function buildTicketEventDocument(
             createdAt,
             details,
             eventType: eventType.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
-            ticketLegacyId: ticketId.value,
+            ticketId: ticketId.value as GenericId<'tickets'>,
         },
     };
 }
@@ -339,54 +319,54 @@ export function normalizeLimit(limit: number | undefined, fallback = 100): numbe
     return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }
 
-export function toTicketPanelRecord(document: TicketPanelDocument): TicketPanelRecord {
+export function toTicketPanelRecord(document: TicketPanelDocument & { _id: string }): TicketPanelRecord {
     return {
         channelId: document.channelId,
         config: document.config,
         createdAt: document.createdAt,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId ?? null,
         title: document.title,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toTicketRecord(document: TicketDocument): TicketRecord {
+export function toTicketRecord(document: TicketDocument & { _id: string }): TicketRecord {
     return {
         channelId: document.channelId ?? null,
         claimedByUserId: document.claimedByUserId ?? null,
         closedAt: document.closedAt ?? null,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         openedAt: document.openedAt,
         openerUserId: document.openerUserId,
-        panelId: document.panelLegacyId ?? null,
+        panelId: document.panelId ?? null,
         status: document.status,
         ticketNumber: document.ticketNumber,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toTicketMemberRecord(document: TicketMemberDocument): TicketMemberRecord {
+export function toTicketMemberRecord(document: TicketMemberDocument & { _id: string }): TicketMemberRecord {
     return {
         createdAt: document.createdAt,
-        id: document.legacyId,
+        id: document._id,
         role: document.role,
-        ticketId: document.ticketLegacyId,
+        ticketId: document.ticketId,
         userId: document.userId,
     };
 }
 
-export function toTicketEventRecord(document: TicketEventDocument): TicketEventRecord {
+export function toTicketEventRecord(document: TicketEventDocument & { _id: string }): TicketEventRecord {
     return {
         actorUserId: document.actorUserId ?? null,
         createdAt: document.createdAt,
         details: document.details,
         eventType: document.eventType,
-        id: document.legacyId,
-        ticketId: document.ticketLegacyId,
+        id: document._id,
+        ticketId: document.ticketId,
     };
 }
 

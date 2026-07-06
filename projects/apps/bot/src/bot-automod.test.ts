@@ -46,12 +46,6 @@ describe('bot automod', () => {
                     triggerType: 'blocked_terms',
                     config: { terms: ['spam'] },
                 }),
-                createRule({
-                    id: 'rule-invites',
-                    name: 'Invite links',
-                    triggerType: 'invite_links',
-                    config: {},
-                }),
             ])
         );
         vi.mocked(recordAutomodEvent).mockResolvedValue(ok(createAutomodEventRecord()));
@@ -90,22 +84,6 @@ describe('bot automod', () => {
         );
     });
 
-    it('records invite-link rules without storing invite URLs', async () => {
-        await routeAutomodMessageEvent(createContext(), createMessageEvent({ content: 'join discord.gg/example' }));
-
-        expect(recordAutomodEvent).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                ruleId: 'rule-invites',
-                triggerType: 'invite_links',
-                details: {
-                    contentLength: 23,
-                    inviteLinkCount: 1,
-                },
-            })
-        );
-    });
-
     it('deletes messages for delete-message rules and records enforcement status', async () => {
         const platform = createPlatform();
         vi.mocked(createFluxerPlatform).mockReturnValue(platform);
@@ -113,18 +91,15 @@ describe('bot automod', () => {
             ok([
                 createRule({
                     id: 'rule-delete',
-                    name: 'Delete invites',
-                    triggerType: 'invite_links',
+                    name: 'Delete terms',
+                    triggerType: 'blocked_terms',
                     actionType: 'delete_message',
-                    config: {},
+                    config: { terms: ['spam'] },
                 }),
             ])
         );
 
-        const result = await routeAutomodMessageEvent(
-            createContext(),
-            createMessageEvent({ content: 'join discord.gg/example' })
-        );
+        const result = await routeAutomodMessageEvent(createContext(), createMessageEvent({ content: 'spam here' }));
 
         expect(result._unsafeUnwrap()).toStrictEqual({
             status: 'enforced',
@@ -156,10 +131,10 @@ describe('bot automod', () => {
             ok([
                 createRule({
                     id: 'rule-timeout',
-                    name: 'Timeout invites',
-                    triggerType: 'invite_links',
+                    name: 'Timeout terms',
+                    triggerType: 'blocked_terms',
                     actionType: 'timeout',
-                    config: { timeoutDurationSeconds: 600 },
+                    config: { terms: ['spam'], timeoutDurationSeconds: 600 },
                 }),
             ])
         );
@@ -167,7 +142,7 @@ describe('bot automod', () => {
         await routeAutomodMessageEvent(
             createContext(),
             createMessageEvent({
-                content: 'join discord.gg/example',
+                content: 'spam here',
                 authorHasManageServer: true,
             })
         );

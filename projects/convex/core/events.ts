@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -22,14 +15,16 @@ import {
     type BotActionEventCursor,
     type BotActionEventDocument,
 } from './events_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type EventsQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type EventsMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type EventsQueryCtx = QueryCtx;
+type EventsMutationCtx = MutationCtx;
 
 type StoredBotActionEventDocument = BotActionEventDocument & {
+    _creationTime: number;
     _id: GenericId<'botActionEvents'>;
+};
+type ResolvedBotActionEventCursor = BotActionEventCursor & {
+    creationTime: number;
 };
 type BotActionEventDocumentPage = {
     documents: StoredBotActionEventDocument[];
@@ -63,23 +58,22 @@ const listByGuildArgs = {
     limit: v.optional(v.number()),
 };
 
-export const recordBotActionEvent = mutationGeneric({
+export const recordBotActionEvent = mutation({
     args: {
         action: v.string(),
         actorUserId: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         feature: v.string(),
         guildId: v.optional(v.union(v.string(), v.null())),
-        legacyId: v.optional(v.string()),
         metadata: v.optional(v.any()),
         targetId: v.optional(v.string()),
     },
     returns: botActionEventRecordValidator,
     handler: async (ctx: EventsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedEventServices);
-        const document = unwrap(buildBotActionEventDocument(args, new Date().toISOString(), () => crypto.randomUUID()));
+        const document = unwrap(buildBotActionEventDocument(args, new Date().toISOString()));
 
-        await ctx.db.insert('botActionEvents', document);
+        const id = await ctx.db.insert('botActionEvents', document);
         if (document.guildId) {
             await markDashboardLiveAreasChangedInMutation(ctx, {
                 areas: dashboardLiveAreasForBotActionFeature(document.feature),
@@ -88,11 +82,11 @@ export const recordBotActionEvent = mutationGeneric({
             });
         }
 
-        return toBotActionEventRecord(document);
+        return toBotActionEventRecord({ ...document, _id: id });
     },
 });
 
-export const listBotActionEventsByGuildId = queryGeneric({
+export const listBotActionEventsByGuildId = query({
     args: listByGuildArgs,
     returns: v.array(botActionEventRecordValidator),
     handler: async (ctx: EventsQueryCtx, args) => {
@@ -110,7 +104,7 @@ export const listBotActionEventsByGuildId = queryGeneric({
     },
 });
 
-export const listBotActionEventPageByGuildId = queryGeneric({
+export const listBotActionEventPageByGuildId = query({
     args: {
         ...listByGuildArgs,
         cursor: v.optional(botActionEventCursorValidator),
@@ -207,7 +201,7 @@ async function takeSearchedBotActionEventDocumentsByGuild(
     };
 }
 
-export const listBotActionEventsByFeaturePage = queryGeneric({
+export const listBotActionEventsByFeaturePage = query({
     args: {
         cursor: v.optional(botActionEventCursorValidator),
         feature: v.string(),
@@ -250,22 +244,21 @@ async function takeBotActionEventDocumentsByGuild(
         limit: number;
     }
 ): Promise<StoredBotActionEventDocument[]> {
+    const cursor = input.cursor ? await resolveBotActionEventCursor(ctx, input.cursor) : undefined;
     const indexedQuery = input.feature
         ? ctx.db
               .query('botActionEvents')
-              .withIndex('by_guild_feature_created_legacy', (query) =>
+              .withIndex('by_guild_feature_created', (query) =>
                   query.eq('guildId', input.guildId).eq('feature', input.feature ?? '')
               )
-        : ctx.db
-              .query('botActionEvents')
-              .withIndex('by_guild_created_legacy', (query) => query.eq('guildId', input.guildId));
-    const cursorScopedQuery = input.cursor
+        : ctx.db.query('botActionEvents').withIndex('by_guild_created', (query) => query.eq('guildId', input.guildId));
+    const cursorScopedQuery = cursor
         ? indexedQuery.filter((query) =>
               query.or(
-                  query.lt(query.field('createdAt'), input.cursor?.createdAt ?? ''),
+                  query.lt(query.field('createdAt'), cursor.createdAt),
                   query.and(
-                      query.eq(query.field('createdAt'), input.cursor?.createdAt ?? ''),
-                      query.lt(query.field('legacyId'), input.cursor?.id ?? '')
+                      query.eq(query.field('createdAt'), cursor.createdAt),
+                      query.lt(query.field('_creationTime'), cursor.creationTime)
                   )
               )
           )
@@ -282,16 +275,17 @@ async function takeBotActionEventDocumentsByFeature(
         limit: number;
     }
 ): Promise<StoredBotActionEventDocument[]> {
+    const cursor = input.cursor ? await resolveBotActionEventCursor(ctx, input.cursor) : undefined;
     const indexedQuery = ctx.db
         .query('botActionEvents')
-        .withIndex('by_feature_created_legacy', (query) => query.eq('feature', input.feature));
-    const cursorScopedQuery = input.cursor
+        .withIndex('by_feature_created', (query) => query.eq('feature', input.feature));
+    const cursorScopedQuery = cursor
         ? indexedQuery.filter((query) =>
               query.or(
-                  query.lt(query.field('createdAt'), input.cursor?.createdAt ?? ''),
+                  query.lt(query.field('createdAt'), cursor.createdAt),
                   query.and(
-                      query.eq(query.field('createdAt'), input.cursor?.createdAt ?? ''),
-                      query.lt(query.field('legacyId'), input.cursor?.id ?? '')
+                      query.eq(query.field('createdAt'), cursor.createdAt),
+                      query.lt(query.field('_creationTime'), cursor.creationTime)
                   )
               )
           )
@@ -300,11 +294,32 @@ async function takeBotActionEventDocumentsByFeature(
     return await cursorScopedQuery.order('desc').take(input.limit);
 }
 
-function toBotActionEventDocumentCursor(document: BotActionEventDocument): BotActionEventCursor {
+function toBotActionEventDocumentCursor(document: StoredBotActionEventDocument): BotActionEventCursor {
     return {
         createdAt: document.createdAt,
-        id: document.legacyId,
+        id: document._id,
     };
+}
+
+async function resolveBotActionEventCursor(
+    ctx: EventsQueryCtx,
+    cursor: BotActionEventCursor
+): Promise<ResolvedBotActionEventCursor> {
+    const document = await ctx.db.get(parseBotActionEventId(cursor.id));
+
+    if (!document) {
+        throw new Error('invalid-cursor');
+    }
+
+    return {
+        createdAt: cursor.createdAt,
+        creationTime: document._creationTime,
+        id: cursor.id,
+    };
+}
+
+function parseBotActionEventId(eventId: string | GenericId<'botActionEvents'>): GenericId<'botActionEvents'> {
+    return eventId as GenericId<'botActionEvents'>;
 }
 
 function normalizeOptionalString(value: string | undefined): string | undefined {

@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -22,12 +15,10 @@ import {
     toRoleReconciliationSettingsRecord,
     type RoleReconciliationRunDocument,
 } from './role_reconciliation_model.js';
-import type schema from '../schema.js';
 import type { GuildFeatureSettingDocument } from '../core/feature_settings_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type RoleReconciliationQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type RoleReconciliationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type RoleReconciliationQueryCtx = QueryCtx;
+type RoleReconciliationMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredGuildFeatureSettingDocument = GuildFeatureSettingDocument & {
@@ -67,7 +58,7 @@ const actionRecordValidator = v.object({
     updatedAt: v.string(),
 });
 
-export const findRoleReconciliationSettingsByGuildId = queryGeneric({
+export const findRoleReconciliationSettingsByGuildId = query({
     args: { guildId: v.string() },
     returns: settingsRecordValidator,
     handler: async (ctx: RoleReconciliationQueryCtx, args) => {
@@ -79,13 +70,12 @@ export const findRoleReconciliationSettingsByGuildId = queryGeneric({
     },
 });
 
-export const upsertRoleReconciliationSettings = mutationGeneric({
+export const upsertRoleReconciliationSettings = mutation({
     args: {
         cleanupDeletedRoleReferences: v.optional(v.boolean()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         restoreAutoroleRoles: v.optional(v.boolean()),
         restoreReactionRoles: v.optional(v.boolean()),
         restoreVerificationRoles: v.optional(v.boolean()),
@@ -106,8 +96,7 @@ export const upsertRoleReconciliationSettings = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingSetting ?? undefined,
-                () => crypto.randomUUID()
+                existingSetting ?? undefined
             )
         );
 
@@ -125,11 +114,10 @@ export const upsertRoleReconciliationSettings = mutationGeneric({
     },
 });
 
-export const createRoleReconciliationRun = mutationGeneric({
+export const createRoleReconciliationRun = mutation({
     args: {
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         status: v.optional(v.string()),
         summary: v.optional(v.any()),
         updatedAt: v.optional(v.string()),
@@ -147,18 +135,17 @@ export const createRoleReconciliationRun = mutationGeneric({
                     ...args,
                     guildId,
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
-        await ctx.db.insert('roleReconciliationRuns', document);
+        const id = await ctx.db.insert('roleReconciliationRuns', document);
 
-        return toRoleReconciliationRunRecord(document);
+        return toRoleReconciliationRunRecord({ ...document, _id: id });
     },
 });
 
-export const listRoleReconciliationRunsByGuildId = queryGeneric({
+export const listRoleReconciliationRunsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(runRecordValidator),
     handler: async (ctx: RoleReconciliationQueryCtx, args) => {
@@ -174,7 +161,7 @@ export const listRoleReconciliationRunsByGuildId = queryGeneric({
     },
 });
 
-export const updateRoleReconciliationRunStatus = mutationGeneric({
+export const updateRoleReconciliationRunStatus = mutation({
     args: {
         runId: v.string(),
         status: v.string(),
@@ -184,8 +171,8 @@ export const updateRoleReconciliationRunStatus = mutationGeneric({
     returns: v.union(runRecordValidator, v.null()),
     handler: async (ctx: RoleReconciliationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedRoleReconciliationServices);
-        const runId = unwrap(normalizeRequiredRunId(args.runId));
-        const run = await findRoleReconciliationRunByLegacyId(ctx, runId);
+        const runId = parseRunId(args.runId);
+        const run = await findRoleReconciliationRunById(ctx, runId);
 
         if (!run) return null;
 
@@ -206,12 +193,11 @@ export const updateRoleReconciliationRunStatus = mutationGeneric({
     },
 });
 
-export const recordRoleReconciliationAction = mutationGeneric({
+export const recordRoleReconciliationAction = mutation({
     args: {
         actionType: v.string(),
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
-        legacyId: v.optional(v.string()),
         roleId: v.optional(v.string()),
         runId: v.string(),
         status: v.optional(v.string()),
@@ -220,7 +206,7 @@ export const recordRoleReconciliationAction = mutationGeneric({
     returns: actionRecordValidator,
     handler: async (ctx: RoleReconciliationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedRoleReconciliationServices);
-        const runId = unwrap(normalizeRequiredRunId(args.runId));
+        const runId = parseRunId(args.runId);
 
         await requireRoleReconciliationRun(ctx, runId);
 
@@ -230,18 +216,17 @@ export const recordRoleReconciliationAction = mutationGeneric({
                     ...args,
                     runId,
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
-        await ctx.db.insert('roleReconciliationActions', document);
+        const id = await ctx.db.insert('roleReconciliationActions', document);
 
-        return toRoleReconciliationActionRecord(document);
+        return toRoleReconciliationActionRecord({ ...document, _id: id });
     },
 });
 
-export const listRoleReconciliationActionsByRunId = queryGeneric({
+export const listRoleReconciliationActionsByRunId = query({
     args: {
         limit: v.optional(v.number()),
         runId: v.string(),
@@ -250,18 +235,18 @@ export const listRoleReconciliationActionsByRunId = queryGeneric({
     returns: v.array(actionRecordValidator),
     handler: async (ctx: RoleReconciliationQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedRoleReconciliationServices);
-        const runId = unwrap(normalizeRequiredRunId(args.runId));
+        const runId = parseRunId(args.runId);
         const status = args.status?.trim();
         const actions =
             status === undefined
                 ? await ctx.db
                       .query('roleReconciliationActions')
-                      .withIndex('by_run_created', (query) => query.eq('runLegacyId', runId))
+                      .withIndex('by_run_created', (query) => query.eq('runId', runId))
                       .order('asc')
                       .take(normalizeLimit(args.limit))
                 : await ctx.db
                       .query('roleReconciliationActions')
-                      .withIndex('by_run_status', (query) => query.eq('runLegacyId', runId).eq('status', status))
+                      .withIndex('by_run_status', (query) => query.eq('runId', runId).eq('status', status))
                       .order('asc')
                       .take(normalizeLimit(args.limit));
 
@@ -281,27 +266,28 @@ async function findRoleReconciliationSettingDocument(
         .unique();
 }
 
-async function findRoleReconciliationRunByLegacyId(
+async function findRoleReconciliationRunById(
     ctx: RoleReconciliationQueryCtx | RoleReconciliationMutationCtx,
-    legacyId: string
+    runId: GenericId<'roleReconciliationRuns'>
 ): Promise<StoredRoleReconciliationRunDocument | null> {
-    return await ctx.db
-        .query('roleReconciliationRuns')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    return await ctx.db.get(runId);
 }
 
 async function requireRoleReconciliationRun(
     ctx: RoleReconciliationMutationCtx,
-    legacyId: string
+    runId: GenericId<'roleReconciliationRuns'>
 ): Promise<StoredRoleReconciliationRunDocument> {
-    const run = await findRoleReconciliationRunByLegacyId(ctx, legacyId);
+    const run = await findRoleReconciliationRunById(ctx, runId);
 
     if (!run) {
         throw new Error('role-reconciliation-run-not-found');
     }
 
     return run;
+}
+
+function parseRunId(runId: string): GenericId<'roleReconciliationRuns'> {
+    return unwrap(normalizeRequiredRunId(runId)) as GenericId<'roleReconciliationRuns'>;
 }
 
 async function requireGuildDocument(ctx: RoleReconciliationMutationCtx, guildId: string): Promise<StoredGuildDocument> {

@@ -8,8 +8,5 @@ export const ticketEventsTable = defineTable({
     createdAt: timestamp,
     details: jsonValue,
     eventType: v.string(),
-    legacyId: v.string(),
-    ticketLegacyId: v.string(),
-})
-    .index('by_legacy', ['legacyId'])
-    .index('by_ticket_created', ['ticketLegacyId', 'createdAt']);
+    ticketId: v.id('tickets'),
+}).index('by_ticket_created', ['ticketId', 'createdAt']);

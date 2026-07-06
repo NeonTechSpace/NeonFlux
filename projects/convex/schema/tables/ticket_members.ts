@@ -5,10 +5,7 @@ import { timestamp } from '../shared.js';
 
 export const ticketMembersTable = defineTable({
     createdAt: timestamp,
-    legacyId: v.string(),
     role: v.string(),
-    ticketLegacyId: v.string(),
+    ticketId: v.id('tickets'),
     userId: v.string(),
-})
-    .index('by_legacy', ['legacyId'])
-    .index('by_ticket_user', ['ticketLegacyId', 'userId']);
+}).index('by_ticket_user', ['ticketId', 'userId']);

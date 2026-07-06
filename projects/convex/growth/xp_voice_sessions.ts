@@ -1,14 +1,6 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
 import {
     buildActiveXpVoiceSessionDocument,
     closeXpVoiceSessionDocument,
@@ -19,10 +11,9 @@ import {
     type ClosedXpVoiceSessionDocument,
     type XpVoiceSessionDocument,
 } from './xp_voice_sessions_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type XpVoiceQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type XpVoiceMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type XpVoiceQueryCtx = QueryCtx;
+type XpVoiceMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredXpVoiceSessionDocument = XpVoiceSessionDocument & { _id: GenericId<'xpVoiceSessions'> };
@@ -36,7 +27,6 @@ const sessionRecordValidator = v.object({
     endedAt: nullableString,
     guildId: v.string(),
     id: v.string(),
-    legacyId: v.string(),
     startedAt: v.string(),
     status: v.union(v.literal('active'), v.literal('closed')),
     updatedAt: v.string(),
@@ -55,11 +45,10 @@ const transitionValidator = v.union(
     })
 );
 
-export const transitionXpVoiceSession = mutationGeneric({
+export const transitionXpVoiceSession = mutation({
     args: {
         channelId: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         occurredAt: v.optional(v.string()),
         userId: v.string(),
     },
@@ -87,7 +76,6 @@ export const transitionXpVoiceSession = mutationGeneric({
         const started = await insertActiveXpVoiceSession(ctx, {
             channelId,
             guildId,
-            legacyId: args.legacyId,
             startedAt: args.occurredAt,
             userId,
         });
@@ -100,11 +88,10 @@ export const transitionXpVoiceSession = mutationGeneric({
     },
 });
 
-export const startXpVoiceSession = mutationGeneric({
+export const startXpVoiceSession = mutation({
     args: {
         channelId: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         startedAt: v.optional(v.string()),
         userId: v.string(),
     },
@@ -130,7 +117,6 @@ export const startXpVoiceSession = mutationGeneric({
         const started = await insertActiveXpVoiceSession(ctx, {
             channelId,
             guildId,
-            legacyId: args.legacyId,
             startedAt: args.startedAt,
             userId,
         });
@@ -139,7 +125,7 @@ export const startXpVoiceSession = mutationGeneric({
     },
 });
 
-export const closeXpVoiceSession = mutationGeneric({
+export const closeXpVoiceSession = mutation({
     args: { endedAt: v.optional(v.string()), guildId: v.string(), userId: v.string() },
     returns: v.union(closedSessionValidator, v.null()),
     handler: async (ctx: XpVoiceMutationCtx, args) => {
@@ -156,7 +142,7 @@ export const closeXpVoiceSession = mutationGeneric({
     },
 });
 
-export const findActiveXpVoiceSessionByGuildUser = queryGeneric({
+export const findActiveXpVoiceSessionByGuildUser = query({
     args: { guildId: v.string(), userId: v.string() },
     returns: v.union(sessionRecordValidator, v.null()),
     handler: async (ctx: XpVoiceQueryCtx, args) => {
@@ -169,7 +155,7 @@ export const findActiveXpVoiceSessionByGuildUser = queryGeneric({
     },
 });
 
-export const listActiveXpVoiceSessionsByGuildId = queryGeneric({
+export const listActiveXpVoiceSessionsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(sessionRecordValidator),
     handler: async (ctx: XpVoiceQueryCtx, args) => {
@@ -190,7 +176,6 @@ async function insertActiveXpVoiceSession(
     input: {
         channelId: string;
         guildId: string;
-        legacyId?: string | undefined;
         startedAt?: string | undefined;
         userId: string;
     }
@@ -200,12 +185,10 @@ async function insertActiveXpVoiceSession(
             {
                 channelId: input.channelId,
                 guildId: input.guildId,
-                ...(input.legacyId === undefined ? {} : { legacyId: input.legacyId }),
                 ...(input.startedAt === undefined ? {} : { startedAt: input.startedAt }),
                 userId: input.userId,
             },
-            new Date().toISOString(),
-            () => crypto.randomUUID()
+            new Date().toISOString()
         )
     );
     const id = await ctx.db.insert('xpVoiceSessions', document);

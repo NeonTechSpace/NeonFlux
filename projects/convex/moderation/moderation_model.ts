@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type ModerationCaseInput = {
     action?: string | null;
     actorUserId?: string | null;
     caseNumber?: number | null;
     createdAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     reason?: string | null;
     status?: string | null;
     targetChannelId?: string | null;
@@ -19,7 +20,6 @@ export type ModerationCaseDocument = {
     caseNumber: number;
     createdAt: string;
     guildId: string;
-    legacyId: string;
     reason?: string;
     status: string;
     targetChannelId?: string;
@@ -49,16 +49,14 @@ export type ModerationCaseEventInput = {
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
     eventType?: string | null;
-    legacyId?: string | null;
 };
 
 export type ModerationCaseEventDocument = {
     actorUserId?: string;
-    caseLegacyId: string;
+    caseId: GenericId<'moderationCases'>;
     createdAt: string;
     details: Record<string, unknown>;
     eventType: string;
-    legacyId: string;
 };
 
 export type ModerationCaseEventRecord = {
@@ -76,7 +74,6 @@ export type ModerationTemporaryActionInput = {
     createdAt?: string | null;
     expiresAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     status?: string | null;
     targetUserId?: string | null;
     updatedAt?: string | null;
@@ -84,11 +81,10 @@ export type ModerationTemporaryActionInput = {
 
 export type ModerationTemporaryActionDocument = {
     action: string;
-    caseLegacyId?: string;
+    caseId?: GenericId<'moderationCases'>;
     createdAt: string;
     expiresAt: string;
     guildId: string;
-    legacyId: string;
     status: ModerationTemporaryActionStatus;
     targetUserId: string;
     updatedAt: string;
@@ -129,8 +125,7 @@ const temporaryActionStatusTransitions = new Map<string, readonly string[]>([
 
 export function buildModerationCaseDocument(
     input: ModerationCaseInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ModerationInputResult<ModerationCaseDocument> {
     const normalized = normalizeModerationCaseInput(input);
     const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
@@ -145,7 +140,6 @@ export function buildModerationCaseDocument(
         value: {
             ...normalized.value,
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             updatedAt,
         },
     };
@@ -153,8 +147,7 @@ export function buildModerationCaseDocument(
 
 export function buildModerationCaseEventDocument(
     input: ModerationCaseEventInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ModerationInputResult<ModerationCaseEventDocument> {
     const caseId = normalizeRequiredString(input.caseId, 'caseId');
     const eventType = normalizeRequiredString(input.eventType, 'eventType');
@@ -172,19 +165,17 @@ export function buildModerationCaseEventDocument(
         ok: true,
         value: {
             ...(actorUserId ? { actorUserId } : {}),
-            caseLegacyId: caseId.value,
+            caseId: caseId.value as GenericId<'moderationCases'>,
             createdAt,
             details,
             eventType: eventType.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
         },
     };
 }
 
 export function buildModerationTemporaryActionDocument(
     input: ModerationTemporaryActionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ModerationInputResult<ModerationTemporaryActionDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const action = normalizeRequiredString(input.action, 'action');
@@ -202,17 +193,16 @@ export function buildModerationTemporaryActionDocument(
     if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
     if (!status.ok) return status;
 
-    const caseLegacyId = normalizeOptionalString(input.caseId);
+    const caseId = normalizeOptionalString(input.caseId);
 
     return {
         ok: true,
         value: {
             action: action.value,
-            ...(caseLegacyId ? { caseLegacyId } : {}),
+            ...(caseId ? { caseId: caseId as GenericId<'moderationCases'> } : {}),
             createdAt,
             expiresAt,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             status: status.value,
             targetUserId: targetUserId.value,
             updatedAt,
@@ -276,14 +266,14 @@ export function normalizeSinceTimestamp(value: string): ModerationInputResult<st
     return timestamp ? { ok: true, value: timestamp } : { error: { field: 'since', type: 'invalid-value' }, ok: false };
 }
 
-export function toModerationCaseRecord(document: ModerationCaseDocument): ModerationCaseRecord {
+export function toModerationCaseRecord(document: ModerationCaseDocument & { _id: string }): ModerationCaseRecord {
     return {
         action: document.action,
         actorUserId: document.actorUserId ?? null,
         caseNumber: document.caseNumber,
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         reason: document.reason ?? null,
         status: document.status,
         targetChannelId: document.targetChannelId ?? null,
@@ -293,27 +283,29 @@ export function toModerationCaseRecord(document: ModerationCaseDocument): Modera
     };
 }
 
-export function toModerationCaseEventRecord(document: ModerationCaseEventDocument): ModerationCaseEventRecord {
+export function toModerationCaseEventRecord(
+    document: ModerationCaseEventDocument & { _id: string }
+): ModerationCaseEventRecord {
     return {
         actorUserId: document.actorUserId ?? null,
-        caseId: document.caseLegacyId,
+        caseId: document.caseId,
         createdAt: document.createdAt,
         details: document.details,
         eventType: document.eventType,
-        id: document.legacyId,
+        id: document._id,
     };
 }
 
 export function toModerationTemporaryActionRecord(
-    document: ModerationTemporaryActionDocument
+    document: ModerationTemporaryActionDocument & { _id: string }
 ): ModerationTemporaryActionRecord {
     return {
         action: document.action,
-        caseId: document.caseLegacyId ?? null,
+        caseId: document.caseId ?? null,
         createdAt: document.createdAt,
         expiresAt: document.expiresAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         status: document.status,
         targetUserId: document.targetUserId,
         updatedAt: document.updatedAt,
@@ -322,7 +314,7 @@ export function toModerationTemporaryActionRecord(
 
 function normalizeModerationCaseInput(
     input: ModerationCaseInput
-): ModerationInputResult<Omit<ModerationCaseDocument, 'createdAt' | 'legacyId' | 'updatedAt'>> {
+): ModerationInputResult<Omit<ModerationCaseDocument, 'createdAt' | 'updatedAt'>> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const action = normalizeRequiredString(input.action, 'action');
     const targetType = normalizeTargetType(input.targetType ?? 'user');

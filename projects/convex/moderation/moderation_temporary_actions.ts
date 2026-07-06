@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -18,14 +11,12 @@ import {
     toModerationTemporaryActionRecord,
     type ModerationTemporaryActionDocument,
 } from './moderation_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type TemporaryActionQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type TemporaryActionMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type TemporaryActionQueryCtx = QueryCtx;
+type TemporaryActionMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
-type StoredModerationCaseDocument = { _id: GenericId<'moderationCases'>; legacyId: string };
+type StoredModerationCaseDocument = { _id: GenericId<'moderationCases'> };
 type StoredModerationTemporaryActionDocument = ModerationTemporaryActionDocument & {
     _id: GenericId<'moderationTemporaryActions'>;
 };
@@ -49,14 +40,13 @@ const moderationTemporaryActionRecordValidator = v.object({
     updatedAt: v.string(),
 });
 
-export const createModerationTemporaryAction = mutationGeneric({
+export const createModerationTemporaryAction = mutation({
     args: {
         action: v.string(),
         caseId: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         expiresAt: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         status: v.optional(v.string()),
         targetUserId: v.string(),
         updatedAt: v.optional(v.string()),
@@ -67,17 +57,17 @@ export const createModerationTemporaryAction = mutationGeneric({
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
 
         await requireGuildDocument(ctx, guildId);
-        if (args.caseId) await requireModerationCaseLegacyId(ctx, args.caseId);
+        if (args.caseId) await requireModerationCase(ctx, parseModerationCaseId(args.caseId));
 
         const document = unwrap(buildModerationTemporaryActionDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('moderationTemporaryActions', document);
+        const id = await ctx.db.insert('moderationTemporaryActions', document);
 
-        return toModerationTemporaryActionRecord(document);
+        return toModerationTemporaryActionRecord({ ...document, _id: id });
     },
 });
 
-export const findPendingModerationTemporaryActionByTarget = queryGeneric({
+export const findPendingModerationTemporaryActionByTarget = query({
     args: { action: v.string(), guildId: v.string(), now: v.string(), targetUserId: v.string() },
     returns: v.union(moderationTemporaryActionRecordValidator, v.null()),
     handler: async (ctx: TemporaryActionQueryCtx, args) => {
@@ -101,7 +91,7 @@ export const findPendingModerationTemporaryActionByTarget = queryGeneric({
     },
 });
 
-export const listDueModerationTemporaryActions = queryGeneric({
+export const listDueModerationTemporaryActions = query({
     args: { action: v.optional(v.string()), limit: v.optional(v.number()), now: v.string() },
     returns: v.array(moderationTemporaryActionRecordValidator),
     handler: async (ctx: TemporaryActionQueryCtx, args) => {
@@ -127,12 +117,12 @@ export const listDueModerationTemporaryActions = queryGeneric({
     },
 });
 
-export const updateModerationTemporaryActionStatus = mutationGeneric({
+export const updateModerationTemporaryActionStatus = mutation({
     args: { id: v.string(), status: v.string() },
     returns: v.union(moderationTemporaryActionRecordValidator, v.null()),
     handler: async (ctx: TemporaryActionMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const action = await findTemporaryActionByLegacyId(ctx, unwrap(normalizeRequiredTemporaryActionId(args.id)));
+        const action = await findTemporaryActionById(ctx, parseTemporaryActionId(args.id));
 
         if (!action) return null;
 
@@ -144,7 +134,7 @@ export const updateModerationTemporaryActionStatus = mutationGeneric({
     },
 });
 
-export const cancelPendingModerationTemporaryActionsByTarget = mutationGeneric({
+export const cancelPendingModerationTemporaryActionsByTarget = mutation({
     args: { action: v.string(), excludeId: v.optional(v.string()), guildId: v.string(), targetUserId: v.string() },
     returns: v.array(moderationTemporaryActionRecordValidator),
     handler: async (ctx: TemporaryActionMutationCtx, args) => {
@@ -165,7 +155,7 @@ export const cancelPendingModerationTemporaryActionsByTarget = mutationGeneric({
         const cancelled: StoredModerationTemporaryActionDocument[] = [];
 
         for (const row of rows) {
-            if (excludeId && row.legacyId === excludeId) continue;
+            if (excludeId && row._id === excludeId) continue;
 
             const patch = unwrap(buildTemporaryActionStatusPatch(row.status, 'cancelled', now));
 
@@ -177,30 +167,32 @@ export const cancelPendingModerationTemporaryActionsByTarget = mutationGeneric({
     },
 });
 
-async function findTemporaryActionByLegacyId(
+async function findTemporaryActionById(
     ctx: TemporaryActionQueryCtx | TemporaryActionMutationCtx,
-    legacyId: string
+    id: GenericId<'moderationTemporaryActions'>
 ): Promise<StoredModerationTemporaryActionDocument | null> {
-    return await ctx.db
-        .query('moderationTemporaryActions')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    return await ctx.db.get(id);
 }
 
-async function requireModerationCaseLegacyId(
+async function requireModerationCase(
     ctx: TemporaryActionQueryCtx | TemporaryActionMutationCtx,
-    legacyId: string
+    id: GenericId<'moderationCases'>
 ): Promise<StoredModerationCaseDocument> {
-    const moderationCase = await ctx.db
-        .query('moderationCases')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    const moderationCase = await ctx.db.get(id);
 
     if (!moderationCase) {
         throw new Error('moderation-case-not-found');
     }
 
     return moderationCase;
+}
+
+function parseModerationCaseId(caseId: string): GenericId<'moderationCases'> {
+    return caseId.trim() as GenericId<'moderationCases'>;
+}
+
+function parseTemporaryActionId(id: string): GenericId<'moderationTemporaryActions'> {
+    return unwrap(normalizeRequiredTemporaryActionId(id)) as GenericId<'moderationTemporaryActions'>;
 }
 
 async function requireGuildDocument(ctx: TemporaryActionMutationCtx, guildId: string): Promise<StoredGuildDocument> {

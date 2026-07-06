@@ -2,7 +2,6 @@ export type AutoroleRuleInput = {
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     name?: string | null;
     roleId?: string | null;
     updatedAt?: string | null;
@@ -12,7 +11,6 @@ export type AutoroleRuleDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     name?: string;
     roleId: string;
     updatedAt: string;
@@ -37,8 +35,7 @@ export type AutoroleInputResult<Value, ErrorValue> = { ok: true; value: Value } 
 export function buildAutoroleRuleDocument(
     input: AutoroleRuleInput,
     now: string,
-    existing?: Pick<AutoroleRuleDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<AutoroleRuleDocument, 'createdAt'>
 ): AutoroleInputResult<AutoroleRuleDocument, AutoroleInputError> {
     const lookup = normalizeAutoroleRuleLookupInput(input);
     const createdAt =
@@ -65,7 +62,6 @@ export function buildAutoroleRuleDocument(
             ...lookup.value,
             createdAt,
             enabled: input.enabled ?? true,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(name ? { name } : {}),
             updatedAt,
         },
@@ -113,12 +109,12 @@ export function normalizeAutoroleRuleLimit(limit: number | undefined): number {
     return Math.min(Math.max(Math.trunc(limit), 1), 1000);
 }
 
-export function toAutoroleRuleRecord(document: AutoroleRuleDocument): AutoroleRuleRecord {
+export function toAutoroleRuleRecord(document: AutoroleRuleDocument & { _id: string }): AutoroleRuleRecord {
     return {
         createdAt: document.createdAt,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         name: document.name ?? null,
         roleId: document.roleId,
         updatedAt: document.updatedAt,

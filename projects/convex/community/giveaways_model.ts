@@ -1,3 +1,5 @@
+import type { GenericId } from 'convex/values';
+
 export type GiveawayStatus = 'active' | 'cancelled' | 'closed' | 'draft';
 export type GiveawaySyncStatus = 'active' | 'stale';
 
@@ -12,7 +14,6 @@ export type GiveawayInput = {
     endsAt?: string | null;
     entryEmoji?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     prize?: string | null;
     status?: string | null;
@@ -32,7 +33,6 @@ export type GiveawayDocument = {
     endsAt?: string;
     entryEmoji: string;
     guildId: string;
-    legacyId: string;
     messageId?: string;
     prize: string;
     status: GiveawayStatus;
@@ -44,15 +44,13 @@ export type GiveawayDocument = {
 export type GiveawayEntryInput = {
     enteredAt?: string | null;
     giveawayId?: string | null;
-    legacyId?: string | null;
     removedAt?: string | null;
     userId?: string | null;
 };
 
 export type GiveawayEntryDocument = {
     enteredAt: string;
-    giveawayLegacyId: string;
-    legacyId: string;
+    giveawayId: GenericId<'giveaways'>;
     removedAt?: string;
     userId: string;
 };
@@ -60,15 +58,13 @@ export type GiveawayEntryDocument = {
 export type GiveawayWinnerInput = {
     drawNumber?: number | null;
     giveawayId?: string | null;
-    legacyId?: string | null;
     selectedAt?: string | null;
     userId?: string | null;
 };
 
 export type GiveawayWinnerDocument = {
     drawNumber: number;
-    giveawayLegacyId: string;
-    legacyId: string;
+    giveawayId: GenericId<'giveaways'>;
     selectedAt: string;
     userId: string;
 };
@@ -79,7 +75,6 @@ export type GiveawayEventInput = {
     details?: Record<string, unknown> | null;
     eventType?: string | null;
     giveawayId?: string | null;
-    legacyId?: string | null;
 };
 
 export type GiveawayEventDocument = {
@@ -87,8 +82,7 @@ export type GiveawayEventDocument = {
     createdAt: string;
     details: Record<string, unknown>;
     eventType: string;
-    giveawayLegacyId: string;
-    legacyId: string;
+    giveawayId: GenericId<'giveaways'>;
 };
 
 export type GiveawayInputError =
@@ -103,11 +97,7 @@ const statusTransitions = new Map<GiveawayStatus, readonly GiveawayStatus[]>([
     ['cancelled', []],
 ]);
 
-export function buildGiveawayDocument(
-    input: GiveawayInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
-): GiveawayInputResult<GiveawayDocument> {
+export function buildGiveawayDocument(input: GiveawayInput, now: string): GiveawayInputResult<GiveawayDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
     const title = normalizeRequiredString(input.title, 'title');
@@ -153,7 +143,6 @@ export function buildGiveawayDocument(
             ...(endsAt ? { endsAt } : {}),
             entryEmoji: entryEmoji.value,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             ...optional('messageId', input.messageId),
             prize: prize.value,
             status: status.value,
@@ -194,8 +183,7 @@ export function buildGiveawayStatusPatch(
 export function buildGiveawayEntryDocument(
     input: GiveawayEntryInput,
     now: string,
-    existing?: Pick<GiveawayEntryDocument, 'enteredAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<GiveawayEntryDocument, 'enteredAt'>
 ): GiveawayInputResult<GiveawayEntryDocument> {
     const giveawayId = normalizeRequiredString(input.giveawayId, 'giveawayId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -215,8 +203,7 @@ export function buildGiveawayEntryDocument(
         ok: true,
         value: {
             enteredAt,
-            giveawayLegacyId: giveawayId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
+            giveawayId: giveawayId.value as GenericId<'giveaways'>,
             ...(removedAt ? { removedAt } : {}),
             userId: userId.value,
         },
@@ -225,8 +212,7 @@ export function buildGiveawayEntryDocument(
 
 export function buildGiveawayWinnerDocument(
     input: GiveawayWinnerInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): GiveawayInputResult<GiveawayWinnerDocument> {
     const giveawayId = normalizeRequiredString(input.giveawayId, 'giveawayId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -242,8 +228,7 @@ export function buildGiveawayWinnerDocument(
         ok: true,
         value: {
             drawNumber: drawNumber.value,
-            giveawayLegacyId: giveawayId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
+            giveawayId: giveawayId.value as GenericId<'giveaways'>,
             selectedAt,
             userId: userId.value,
         },
@@ -252,8 +237,7 @@ export function buildGiveawayWinnerDocument(
 
 export function buildGiveawayEventDocument(
     input: GiveawayEventInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): GiveawayInputResult<GiveawayEventDocument> {
     const giveawayId = normalizeRequiredString(input.giveawayId, 'giveawayId');
     const eventType = normalizeRequiredString(input.eventType, 'eventType');
@@ -272,8 +256,7 @@ export function buildGiveawayEventDocument(
             createdAt,
             details,
             eventType: eventType.value,
-            giveawayLegacyId: giveawayId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
+            giveawayId: giveawayId.value as GenericId<'giveaways'>,
         },
     };
 }
@@ -288,7 +271,7 @@ export function normalizeGiveawayLimit(limit: number | undefined, fallback = 50,
     return Math.min(Math.max(Math.trunc(limit), 1), max);
 }
 
-export function toGiveawayRecord(document: GiveawayDocument) {
+export function toGiveawayRecord(document: GiveawayDocument & { _id: string }) {
     return {
         channelId: document.channelId,
         closedAt: document.closedAt ?? null,
@@ -300,7 +283,7 @@ export function toGiveawayRecord(document: GiveawayDocument) {
         endsAt: document.endsAt ?? null,
         entryEmoji: document.entryEmoji,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId ?? null,
         prize: document.prize,
         status: document.status,
@@ -310,34 +293,34 @@ export function toGiveawayRecord(document: GiveawayDocument) {
     };
 }
 
-export function toGiveawayEntryRecord(document: GiveawayEntryDocument) {
+export function toGiveawayEntryRecord(document: GiveawayEntryDocument & { _id: string }) {
     return {
         enteredAt: document.enteredAt,
-        giveawayId: document.giveawayLegacyId,
-        id: document.legacyId,
+        giveawayId: document.giveawayId,
+        id: document._id,
         removedAt: document.removedAt ?? null,
         userId: document.userId,
     };
 }
 
-export function toGiveawayWinnerRecord(document: GiveawayWinnerDocument) {
+export function toGiveawayWinnerRecord(document: GiveawayWinnerDocument & { _id: string }) {
     return {
         drawNumber: document.drawNumber,
-        giveawayId: document.giveawayLegacyId,
-        id: document.legacyId,
+        giveawayId: document.giveawayId,
+        id: document._id,
         selectedAt: document.selectedAt,
         userId: document.userId,
     };
 }
 
-export function toGiveawayEventRecord(document: GiveawayEventDocument) {
+export function toGiveawayEventRecord(document: GiveawayEventDocument & { _id: string }) {
     return {
         actorUserId: document.actorUserId ?? null,
         createdAt: document.createdAt,
         details: document.details,
         eventType: document.eventType,
-        giveawayId: document.giveawayLegacyId,
-        id: document.legacyId,
+        giveawayId: document.giveawayId,
+        id: document._id,
     };
 }
 

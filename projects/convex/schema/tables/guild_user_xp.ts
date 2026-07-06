@@ -7,7 +7,6 @@ export const guildUserXpTable = defineTable({
     guildId: v.string(),
     lastMessageXpAt: optionalTimestamp,
     lastVoiceXpAt: optionalTimestamp,
-    legacyId: v.string(),
     level: v.number(),
     messageCount: v.number(),
     messageXp: v.number(),
@@ -19,5 +18,4 @@ export const guildUserXpTable = defineTable({
 })
     .index('by_guild_level', ['guildId', 'level'])
     .index('by_guild_user', ['guildId', 'userId'])
-    .index('by_guild_xp_level_user', ['guildId', 'xp', 'level', 'userId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_xp_level_user', ['guildId', 'xp', 'level', 'userId']);

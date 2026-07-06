@@ -7,13 +7,11 @@ export const structureImportActionsTable = defineTable({
     actionType: v.string(),
     createdAt: timestamp,
     details: jsonValue,
-    legacyId: v.string(),
-    runLegacyId: v.string(),
+    runId: v.id('structureImportRuns'),
     status: v.string(),
     targetId: optionalString,
     targetType: v.string(),
     updatedAt: timestamp,
 })
-    .index('by_run_created', ['runLegacyId', 'createdAt'])
-    .index('by_run_status', ['runLegacyId', 'status'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_run_created', ['runId', 'createdAt'])
+    .index('by_run_status', ['runId', 'status']);

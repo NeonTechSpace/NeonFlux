@@ -14,10 +14,6 @@
             "types": "./src/client.ts",
             "import": "./dist/client.js"
         },
-        "./api": {
-            "types": "./src/api.ts",
-            "import": "./dist/api.js"
-        },
         "./jwt": {
             "types": "./src/jwt.ts",
             "import": "./dist/jwt.js"
@@ -31,5 +27,8 @@
     "dependencies": {
         "convex": "^1.30.0",
         "jose": "^6.1.3"
+    },
+    "devDependencies": {
+        "@neonflux/convex-api": "workspace:*"
     }
 }

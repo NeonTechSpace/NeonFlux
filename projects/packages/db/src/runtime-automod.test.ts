@@ -150,18 +150,18 @@ describe('Convex automod database functions', () => {
 
         const missingUpdate = await saveAutomodRule(db, {
             actionType: 'record',
-            config: {},
+            config: { terms: ['spam'] },
             guildId: 'guild-1',
             name: 'Invites',
             ruleId: 'missing-rule',
-            triggerType: 'invite_links',
+            triggerType: 'blocked_terms',
         });
         const failedRecord = await recordAutomodEvent(db, {
             authorUserId: 'user-1',
             channelId: 'channel-1',
             guildId: 'guild-1',
             messageId: 'message-1',
-            triggerType: 'invite_links',
+            triggerType: 'blocked_terms',
         });
 
         expect(missingUpdate._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });

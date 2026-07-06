@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import type {
     GiveawayMaintenanceRepositoryError,
     GiveawayRecord,
@@ -7,7 +7,6 @@ import type {
 } from './contracts-giveaways.js';
 import { err, ok, type Result } from 'neverthrow';
 
-import type { ConvexDatabase } from './convex.js';
 import {
     mapGiveawayConvexError,
     normalizeDate,
@@ -15,24 +14,8 @@ import {
     normalizeOptionalText,
     normalizeRequiredText,
     toGiveawayRecord,
-    type ConvexGiveawayRecord,
 } from './runtime-giveaways-records.js';
 import type { GiveawaysDb } from './runtime-giveaways.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    giveaway_maintenance: {
-        listExpiredActiveGiveaways: ConvexQueryReference;
-        listReactionReconciliationGiveaways: ConvexQueryReference;
-        listStaleActiveGiveaways: ConvexQueryReference;
-        updateGiveawaySyncStatus: ConvexMutationReference;
-    };
-    giveaway_reconciliation: {
-        reconcileGiveawayEntries: ConvexMutationReference;
-    };
-};
 
 export async function listExpiredActiveGiveaways(
     db: GiveawaysDb,
@@ -42,13 +25,10 @@ export async function listExpiredActiveGiveaways(
     if (now.isErr()) return err(now.error);
 
     try {
-        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
-            convexApi.giveaway_maintenance.listExpiredActiveGiveaways,
-            {
-                limit: normalizeMaintenanceLimit(input.limit),
-                now: now.value,
-            }
-        );
+        const giveaways = await db.client.query(api.giveaway_maintenance.listExpiredActiveGiveaways, {
+            limit: normalizeMaintenanceLimit(input.limit),
+            now: now.value,
+        });
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -61,12 +41,9 @@ export async function listStaleActiveGiveaways(
     input: { limit?: number } = {}
 ): Promise<Result<GiveawayRecord[], GiveawayMaintenanceRepositoryError>> {
     try {
-        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
-            convexApi.giveaway_maintenance.listStaleActiveGiveaways,
-            {
-                limit: normalizeMaintenanceLimit(input.limit),
-            }
-        );
+        const giveaways = await db.client.query(api.giveaway_maintenance.listStaleActiveGiveaways, {
+            limit: normalizeMaintenanceLimit(input.limit),
+        });
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -79,12 +56,9 @@ export async function listReactionReconciliationGiveaways(
     input: { limit?: number } = {}
 ): Promise<Result<GiveawayRecord[], GiveawayMaintenanceRepositoryError>> {
     try {
-        const giveaways = await db.client.query<ConvexGiveawayRecord[]>(
-            convexApi.giveaway_maintenance.listReactionReconciliationGiveaways,
-            {
-                limit: normalizeMaintenanceLimit(input.limit),
-            }
-        );
+        const giveaways = await db.client.query(api.giveaway_maintenance.listReactionReconciliationGiveaways, {
+            limit: normalizeMaintenanceLimit(input.limit),
+        });
 
         return ok(giveaways.map(toGiveawayRecord));
     } catch {
@@ -103,14 +77,11 @@ export async function updateGiveawaySyncStatus(
     if (giveawayId.isErr()) return err(giveawayId.error);
 
     try {
-        const giveaway = await db.client.mutation<ConvexGiveawayRecord | null>(
-            convexApi.giveaway_maintenance.updateGiveawaySyncStatus,
-            {
-                giveawayId: giveawayId.value,
-                guildId: guildId.value,
-                syncStatus: input.syncStatus,
-            }
-        );
+        const giveaway = await db.client.mutation(api.giveaway_maintenance.updateGiveawaySyncStatus, {
+            giveawayId: giveawayId.value,
+            guildId: guildId.value,
+            syncStatus: input.syncStatus,
+        });
 
         return giveaway ? ok(toGiveawayRecord(giveaway)) : err({ type: 'not-found' });
     } catch (error) {
@@ -129,14 +100,13 @@ export async function reconcileGiveawayEntries(
     if (reconciledAt?.isErr()) return err(reconciledAt.error);
 
     try {
-        const result = await db.client.mutation<{ added: number; kept: number; removed: number }>(
-            convexApi.giveaway_reconciliation.reconcileGiveawayEntries,
-            {
-                giveawayId: giveawayId.value,
-                ...(reconciledAt?.isOk() ? { reconciledAt: reconciledAt.value } : {}),
-                userIds: input.userIds.map((userId) => normalizeOptionalText(userId)).filter(Boolean),
-            }
-        );
+        const result = await db.client.mutation(api.giveaway_reconciliation.reconcileGiveawayEntries, {
+            giveawayId: giveawayId.value,
+            ...(reconciledAt?.isOk() ? { reconciledAt: reconciledAt.value } : {}),
+            userIds: input.userIds
+                .map((userId) => normalizeOptionalText(userId))
+                .filter((userId): userId is string => Boolean(userId)),
+        });
 
         return ok(result);
     } catch (error) {

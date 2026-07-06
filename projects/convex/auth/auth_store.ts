@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -20,11 +13,9 @@ import {
     type FluxerOAuthTokenRecord,
     type WebSessionRecord,
 } from './auth_store_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type AuthStoreQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type AuthStoreMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type AuthStoreQueryCtx = QueryCtx;
+type AuthStoreMutationCtx = MutationCtx;
 
 type StoredWebSessionDocument = {
     _id: GenericId<'webSessions'>;
@@ -75,7 +66,7 @@ const fluxerOAuthTokenRecordValidator = v.object({
     updatedAt: v.string(),
 });
 
-export const createWebSession = mutationGeneric({
+export const createWebSession = mutation({
     args: {
         expiresAt: v.string(),
         fluxerUserId: v.string(),
@@ -107,7 +98,7 @@ export const createWebSession = mutationGeneric({
     },
 });
 
-export const findActiveWebSessionById = queryGeneric({
+export const findActiveWebSessionById = query({
     args: {
         now: v.optional(v.string()),
         sessionId: v.string(),
@@ -127,7 +118,7 @@ export const findActiveWebSessionById = queryGeneric({
     },
 });
 
-export const revokeWebSession = mutationGeneric({
+export const revokeWebSession = mutation({
     args: {
         revokedAt: v.optional(v.string()),
         sessionId: v.string(),
@@ -152,7 +143,7 @@ export const revokeWebSession = mutationGeneric({
     },
 });
 
-export const upsertFluxerOAuthTokenSet = mutationGeneric({
+export const upsertFluxerOAuthTokenSet = mutation({
     args: {
         accessToken: encryptedOAuthTokenPayloadValidator,
         accessTokenExpiresAt: v.string(),
@@ -209,7 +200,7 @@ export const upsertFluxerOAuthTokenSet = mutationGeneric({
     },
 });
 
-export const findUsableFluxerOAuthTokenSetByUserId = queryGeneric({
+export const findUsableFluxerOAuthTokenSetByUserId = query({
     args: {
         fluxerUserId: v.string(),
     },
@@ -227,7 +218,7 @@ export const findUsableFluxerOAuthTokenSetByUserId = queryGeneric({
     },
 });
 
-export const invalidateFluxerOAuthTokenSet = mutationGeneric({
+export const invalidateFluxerOAuthTokenSet = mutation({
     args: {
         fluxerUserId: v.string(),
         invalidatedAt: v.optional(v.string()),

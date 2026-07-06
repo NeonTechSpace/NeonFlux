@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -20,11 +13,9 @@ import {
     type MessageTemplateDocument,
     type PostedMessageDocument,
 } from './posting_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type PostingQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type PostingMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type PostingQueryCtx = QueryCtx;
+type PostingMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -62,14 +53,13 @@ const postedMessageRecordValidator = v.object({
     updatedAt: v.string(),
 });
 
-export const upsertMessageTemplate = mutationGeneric({
+export const upsertMessageTemplate = mutation({
     args: {
         content: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.string()),
         embeds: v.optional(v.array(v.any())),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         updatedAt: v.optional(v.string()),
     },
@@ -91,8 +81,7 @@ export const upsertMessageTemplate = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingTemplate ?? undefined,
-                () => crypto.randomUUID()
+                existingTemplate ?? undefined
             )
         );
 
@@ -102,21 +91,20 @@ export const upsertMessageTemplate = mutationGeneric({
                 embeds: document.embeds,
                 updatedAt: document.updatedAt,
             });
+            return toMessageTemplateRecord({ ...existingTemplate, ...document });
         } else {
-            await ctx.db.insert('messageTemplates', document);
+            const id = await ctx.db.insert('messageTemplates', document);
+            return toMessageTemplateRecord({ ...document, _id: id });
         }
-
-        return toMessageTemplateRecord(document);
     },
 });
 
-export const recordPostedMessage = mutationGeneric({
+export const recordPostedMessage = mutation({
     args: {
         channelId: v.string(),
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.string(),
         purpose: v.optional(v.string()),
         templateId: v.optional(v.string()),
@@ -130,7 +118,7 @@ export const recordPostedMessage = mutationGeneric({
         await requireGuildDocument(ctx, lookup.guildId);
 
         if (args.templateId) {
-            await requireMessageTemplateLegacyId(ctx, args.templateId);
+            await requireMessageTemplateDocument(ctx, args.templateId, lookup.guildId);
         }
 
         const existingMessage = await findPostedMessageDocument(ctx, lookup);
@@ -139,11 +127,9 @@ export const recordPostedMessage = mutationGeneric({
                 {
                     ...args,
                     ...lookup,
-                    ...(args.templateId ? { templateLegacyId: args.templateId } : {}),
                 },
                 new Date().toISOString(),
-                existingMessage ?? undefined,
-                () => crypto.randomUUID()
+                existingMessage ?? undefined
             )
         );
 
@@ -151,18 +137,18 @@ export const recordPostedMessage = mutationGeneric({
             await ctx.db.patch(existingMessage._id, {
                 createdByUserId: document.createdByUserId,
                 purpose: document.purpose,
-                templateLegacyId: document.templateLegacyId,
+                templateId: document.templateId,
                 updatedAt: document.updatedAt,
             });
+            return toPostedMessageRecord({ ...existingMessage, ...document });
         } else {
-            await ctx.db.insert('postedMessages', document);
+            const id = await ctx.db.insert('postedMessages', document);
+            return toPostedMessageRecord({ ...document, _id: id });
         }
-
-        return toPostedMessageRecord(document);
     },
 });
 
-export const listMessageTemplatesByGuildId = queryGeneric({
+export const listMessageTemplatesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -181,7 +167,7 @@ export const listMessageTemplatesByGuildId = queryGeneric({
     },
 });
 
-export const readMessageTemplateByName = queryGeneric({
+export const readMessageTemplateByName = query({
     args: {
         guildId: v.string(),
         name: v.string(),
@@ -199,7 +185,7 @@ export const readMessageTemplateByName = queryGeneric({
     },
 });
 
-export const deleteMessageTemplate = mutationGeneric({
+export const deleteMessageTemplate = mutation({
     args: {
         guildId: v.string(),
         templateId: v.string(),
@@ -209,12 +195,9 @@ export const deleteMessageTemplate = mutationGeneric({
         await requireNeonFluxService(ctx, allowedPostingServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
         const templateId = unwrap(normalizeRequiredTemplateId(args.templateId));
-        const template = await findMessageTemplateByLegacyIdDocument(ctx, {
-            guildId,
-            legacyId: templateId,
-        });
+        const template = await findMessageTemplateByIdDocument(ctx, parseMessageTemplateId(templateId));
 
-        if (!template) {
+        if (template?.guildId !== guildId) {
             return null;
         }
 
@@ -237,28 +220,25 @@ async function findMessageTemplateByNameDocument(
         .unique();
 }
 
-async function findMessageTemplateByLegacyIdDocument(
+async function findMessageTemplateByIdDocument(
     ctx: PostingQueryCtx | PostingMutationCtx,
-    input: {
-        guildId: string;
-        legacyId: string;
-    }
+    templateId: GenericId<'messageTemplates'>
 ): Promise<StoredMessageTemplateDocument | null> {
-    return await ctx.db
-        .query('messageTemplates')
-        .withIndex('by_guild_legacy', (query) => query.eq('guildId', input.guildId).eq('legacyId', input.legacyId))
-        .unique();
+    return await ctx.db.get(templateId);
 }
 
-async function requireMessageTemplateLegacyId(ctx: PostingMutationCtx, legacyId: string): Promise<void> {
-    const template = await ctx.db
-        .query('messageTemplates')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+async function requireMessageTemplateDocument(
+    ctx: PostingMutationCtx,
+    templateId: string,
+    guildId: string
+): Promise<StoredMessageTemplateDocument> {
+    const template = await findMessageTemplateByIdDocument(ctx, parseMessageTemplateId(templateId));
 
-    if (!template) {
+    if (template?.guildId !== guildId) {
         throw new Error('template-not-found');
     }
+
+    return template;
 }
 
 async function findPostedMessageDocument(
@@ -288,6 +268,10 @@ async function requireGuildDocument(ctx: PostingMutationCtx, guildId: string): P
     }
 
     return guild;
+}
+
+function parseMessageTemplateId(templateId: string | GenericId<'messageTemplates'>): GenericId<'messageTemplates'> {
+    return unwrap(normalizeRequiredTemplateId(templateId)) as GenericId<'messageTemplates'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

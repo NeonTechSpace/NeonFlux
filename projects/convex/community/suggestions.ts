@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -25,11 +18,9 @@ import {
     type SuggestionDocument,
     type SuggestionVoteDocument,
 } from './suggestions_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type SuggestionsQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type SuggestionsMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type SuggestionsQueryCtx = QueryCtx;
+type SuggestionsMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredSuggestionBoardDocument = SuggestionBoardDocument & { _id: GenericId<'suggestionBoards'> };
@@ -70,13 +61,12 @@ const voteRecordValidator = v.object({
     vote: v.union(v.literal('down'), v.literal('up')),
 });
 
-export const createSuggestionBoard = mutationGeneric({
+export const createSuggestionBoard = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         updatedAt: v.optional(v.string()),
     },
@@ -91,26 +81,21 @@ export const createSuggestionBoard = mutationGeneric({
             throw new Error('suggestion-board-conflict');
         }
 
-        const document = unwrap(
-            buildSuggestionBoardDocument({ ...args, guildId }, new Date().toISOString(), undefined, () =>
-                crypto.randomUUID()
-            )
-        );
+        const document = unwrap(buildSuggestionBoardDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('suggestionBoards', document);
+        const id = await ctx.db.insert('suggestionBoards', document);
 
-        return toSuggestionBoardRecord(document);
+        return toSuggestionBoardRecord({ ...document, _id: id });
     },
 });
 
-export const upsertSuggestionBoard = mutationGeneric({
+export const upsertSuggestionBoard = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         updatedAt: v.optional(v.string()),
     },
@@ -133,15 +118,15 @@ export const upsertSuggestionBoard = mutationGeneric({
                 enabled: document.enabled,
                 updatedAt: document.updatedAt,
             });
+            return toSuggestionBoardRecord({ ...existingBoard, ...document });
         } else {
-            await ctx.db.insert('suggestionBoards', document);
+            const id = await ctx.db.insert('suggestionBoards', document);
+            return toSuggestionBoardRecord({ ...document, _id: id });
         }
-
-        return toSuggestionBoardRecord(document);
     },
 });
 
-export const listSuggestionBoardsByGuildId = queryGeneric({
+export const listSuggestionBoardsByGuildId = query({
     args: {
         enabledOnly: v.optional(v.boolean()),
         guildId: v.string(),
@@ -169,7 +154,7 @@ export const listSuggestionBoardsByGuildId = queryGeneric({
     },
 });
 
-export const findDefaultSuggestionBoardByGuildId = queryGeneric({
+export const findDefaultSuggestionBoardByGuildId = query({
     args: { guildId: v.string() },
     returns: v.union(boardRecordValidator, v.null()),
     handler: async (ctx: SuggestionsQueryCtx, args) => {
@@ -185,7 +170,7 @@ export const findDefaultSuggestionBoardByGuildId = queryGeneric({
     },
 });
 
-export const deleteSuggestionBoard = mutationGeneric({
+export const deleteSuggestionBoard = mutation({
     args: { guildId: v.string(), name: v.string() },
     returns: v.union(boardRecordValidator, v.null()),
     handler: async (ctx: SuggestionsMutationCtx, args) => {
@@ -198,11 +183,11 @@ export const deleteSuggestionBoard = mutationGeneric({
 
         const suggestions = await ctx.db
             .query('suggestions')
-            .withIndex('by_board_created', (query) => query.eq('boardLegacyId', board.legacyId))
+            .withIndex('by_board_created', (query) => query.eq('boardId', board._id))
             .take(500);
 
         for (const suggestion of suggestions) {
-            await ctx.db.patch(suggestion._id, { boardLegacyId: undefined });
+            await ctx.db.patch(suggestion._id, { boardId: undefined });
         }
 
         await ctx.db.delete(board._id);
@@ -211,7 +196,7 @@ export const deleteSuggestionBoard = mutationGeneric({
     },
 });
 
-export const createSuggestion = mutationGeneric({
+export const createSuggestion = mutation({
     args: {
         authorUserId: v.string(),
         boardId: v.optional(v.string()),
@@ -220,7 +205,6 @@ export const createSuggestion = mutationGeneric({
         content: v.string(),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.optional(v.string()),
         status: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
@@ -233,17 +217,15 @@ export const createSuggestion = mutationGeneric({
         await requireGuildDocument(ctx, guildId);
         await requireBoardIfProvided(ctx, { boardId: args.boardId, guildId });
 
-        const document = unwrap(
-            buildSuggestionDocument({ ...args, guildId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildSuggestionDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('suggestions', document);
+        const id = await ctx.db.insert('suggestions', document);
 
-        return toSuggestionRecord(document);
+        return toSuggestionRecord({ ...document, _id: id });
     },
 });
 
-export const findSuggestionByGuildMessageId = queryGeneric({
+export const findSuggestionByGuildMessageId = query({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(suggestionRecordValidator, v.null()),
     handler: async (ctx: SuggestionsQueryCtx, args) => {
@@ -259,10 +241,9 @@ export const findSuggestionByGuildMessageId = queryGeneric({
     },
 });
 
-export const upsertSuggestionVote = mutationGeneric({
+export const upsertSuggestionVote = mutation({
     args: {
         createdAt: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         suggestionId: v.string(),
         updatedAt: v.optional(v.string()),
         userId: v.string(),
@@ -271,7 +252,7 @@ export const upsertSuggestionVote = mutationGeneric({
     returns: voteRecordValidator,
     handler: async (ctx: SuggestionsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedSuggestionServices);
-        const suggestionId = unwrap(normalizeRequiredSuggestionId(args.suggestionId));
+        const suggestionId = parseSuggestionId(unwrap(normalizeRequiredSuggestionId(args.suggestionId)));
         const userId = unwrap(normalizeRequiredUserId(args.userId));
 
         await requireSuggestion(ctx, suggestionId);
@@ -294,20 +275,20 @@ export const upsertSuggestionVote = mutationGeneric({
                 updatedAt: document.updatedAt,
                 vote: document.vote,
             });
+            return toSuggestionVoteRecord({ ...existingVote, ...document });
         } else {
-            await ctx.db.insert('suggestionVotes', document);
+            const id = await ctx.db.insert('suggestionVotes', document);
+            return toSuggestionVoteRecord({ ...document, _id: id });
         }
-
-        return toSuggestionVoteRecord(document);
     },
 });
 
-export const deleteSuggestionVote = mutationGeneric({
+export const deleteSuggestionVote = mutation({
     args: { suggestionId: v.string(), userId: v.string() },
     returns: v.union(voteRecordValidator, v.null()),
     handler: async (ctx: SuggestionsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedSuggestionServices);
-        const suggestionId = unwrap(normalizeRequiredSuggestionId(args.suggestionId));
+        const suggestionId = parseSuggestionId(unwrap(normalizeRequiredSuggestionId(args.suggestionId)));
         const userId = unwrap(normalizeRequiredUserId(args.userId));
         const vote = await findSuggestionVoteDocument(ctx, { suggestionId, userId });
 
@@ -319,12 +300,12 @@ export const deleteSuggestionVote = mutationGeneric({
     },
 });
 
-export const findSuggestionVote = queryGeneric({
+export const findSuggestionVote = query({
     args: { suggestionId: v.string(), userId: v.string() },
     returns: v.union(voteRecordValidator, v.null()),
     handler: async (ctx: SuggestionsQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedSuggestionServices);
-        const suggestionId = unwrap(normalizeRequiredSuggestionId(args.suggestionId));
+        const suggestionId = parseSuggestionId(unwrap(normalizeRequiredSuggestionId(args.suggestionId)));
         const userId = unwrap(normalizeRequiredUserId(args.userId));
         const vote = await findSuggestionVoteDocument(ctx, { suggestionId, userId });
 
@@ -344,34 +325,28 @@ async function findSuggestionBoardByGuildName(
         .unique();
 }
 
-async function findSuggestionBoardByLegacyId(
+async function findSuggestionBoardById(
     ctx: SuggestionsQueryCtx | SuggestionsMutationCtx,
-    legacyId: string
+    id: GenericId<'suggestionBoards'>
 ): Promise<StoredSuggestionBoardDocument | null> {
-    return await ctx.db
-        .query('suggestionBoards')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId.trim()))
-        .unique();
+    return await ctx.db.get(id);
 }
 
-async function findSuggestionByLegacyId(
+async function findSuggestionById(
     ctx: SuggestionsQueryCtx | SuggestionsMutationCtx,
     suggestionId: string
 ): Promise<StoredSuggestionDocument | null> {
-    return await ctx.db
-        .query('suggestions')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', suggestionId.trim()))
-        .unique();
+    return await ctx.db.get(parseSuggestionId(suggestionId));
 }
 
 async function findSuggestionVoteDocument(
     ctx: SuggestionsQueryCtx | SuggestionsMutationCtx,
-    input: { suggestionId: string; userId: string }
+    input: { suggestionId: GenericId<'suggestions'>; userId: string }
 ): Promise<StoredSuggestionVoteDocument | null> {
     return await ctx.db
         .query('suggestionVotes')
         .withIndex('by_suggestion_user', (query) =>
-            query.eq('suggestionLegacyId', input.suggestionId).eq('userId', input.userId)
+            query.eq('suggestionId', input.suggestionId).eq('userId', input.userId)
         )
         .unique();
 }
@@ -382,7 +357,7 @@ async function requireBoardIfProvided(
 ): Promise<void> {
     if (!input.boardId) return;
 
-    const board = await findSuggestionBoardByLegacyId(ctx, input.boardId);
+    const board = await findSuggestionBoardById(ctx, parseSuggestionBoardId(input.boardId));
 
     if (board?.guildId !== input.guildId) {
         throw new Error('suggestion-board-not-found');
@@ -390,11 +365,19 @@ async function requireBoardIfProvided(
 }
 
 async function requireSuggestion(ctx: SuggestionsMutationCtx, suggestionId: string): Promise<StoredSuggestionDocument> {
-    const suggestion = await findSuggestionByLegacyId(ctx, suggestionId);
+    const suggestion = await findSuggestionById(ctx, suggestionId);
 
     if (!suggestion) throw new Error('suggestion-not-found');
 
     return suggestion;
+}
+
+function parseSuggestionBoardId(value: string): GenericId<'suggestionBoards'> {
+    return value.trim() as GenericId<'suggestionBoards'>;
+}
+
+function parseSuggestionId(value: string): GenericId<'suggestions'> {
+    return value.trim() as GenericId<'suggestions'>;
 }
 
 async function requireGuildDocument(ctx: SuggestionsMutationCtx, guildId: string): Promise<StoredGuildDocument> {

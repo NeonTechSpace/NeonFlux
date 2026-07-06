@@ -114,7 +114,7 @@ describe('loadWebConfig', () => {
         const config = loadWebConfig({
             FLUXER_APP_ID: ' app-id ',
             FLUXER_BOT_INVITE_URL:
-                ' https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8 ',
+                ' https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8 ',
             FLUXER_BOT_TOKEN: ' bot-token ',
             FLUXER_CLIENT_SECRET: ' client-secret ',
             FLUXER_OAUTH_REDIRECT_URL: ' redirect-url ',
@@ -125,7 +125,7 @@ describe('loadWebConfig', () => {
         expect(config).toMatchObject({
             fluxerAppId: 'app-id',
             fluxerBotInviteUrl:
-                'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+                'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
             fluxerBotToken: 'bot-token',
             fluxerClientSecret: 'client-secret',
             fluxerOauthRedirectUrl: 'redirect-url',
@@ -143,13 +143,13 @@ describe('loadWebConfig', () => {
     });
 
     it('rejects non-http bot invite URLs', () => {
-        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'discord://oauth2/authorize' })).toThrow(
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'fluxer://oauth2/authorize' })).toThrow(
             'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
         );
     });
 
     it('rejects malformed bot invite URLs', () => {
-        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.canary.fluxer.app/oauth2/authorize' })).toThrow(
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.fluxer.app/oauth2/authorize' })).toThrow(
             'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
         );
     });
@@ -161,7 +161,7 @@ describe('loadWebConfig', () => {
             join(tempDir, '.env'),
             [
                 'FLUXER_APP_ID=file-app',
-                'FLUXER_BOT_INVITE_URL=https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+                'FLUXER_BOT_INVITE_URL=https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
             ].join('\n')
         );
         process.chdir(tempDir);

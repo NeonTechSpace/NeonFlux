@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import type {
     GeneratedVoiceChannelControlRecord,
     VcGeneratorControlAction,
@@ -10,19 +10,6 @@ import { err, ok, type Result } from 'neverthrow';
 
 import type { ConvexDatabase } from './convex.js';
 import type { GuildFeatureRepositoryError } from './contracts.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    vc_generator_control_requests: {
-        createVcGeneratorControlRequest: ConvexMutationReference;
-        expirePendingVcGeneratorControlRequests: ConvexMutationReference;
-        findActiveGeneratedVoiceChannelByOwner: ConvexQueryReference;
-        findPendingVcGeneratorControlRequest: ConvexQueryReference;
-        updateVcGeneratorControlRequest: ConvexMutationReference;
-    };
-};
 
 type VcGeneratorControlRequestDb = ConvexDatabase;
 
@@ -68,8 +55,8 @@ export async function findActiveGeneratedVoiceChannelByOwner(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const channel = await db.client.query<ConvexGeneratedVoiceChannelRecord | null>(
-            convexApi.vc_generator_control_requests.findActiveGeneratedVoiceChannelByOwner,
+        const channel = await db.client.query(
+            api.vc_generator_control_requests.findActiveGeneratedVoiceChannelByOwner,
             normalizedInput.value
         );
 
@@ -97,8 +84,8 @@ export async function createVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = await db.client.mutation<ConvexVcGeneratorControlRequestRecord>(
-            convexApi.vc_generator_control_requests.createVcGeneratorControlRequest,
+        const request = await db.client.mutation(
+            api.vc_generator_control_requests.createVcGeneratorControlRequest,
             normalizedInput.value
         );
 
@@ -116,8 +103,8 @@ export async function findPendingVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = await db.client.query<ConvexVcGeneratorControlRequestRecord | null>(
-            convexApi.vc_generator_control_requests.findPendingVcGeneratorControlRequest,
+        const request = await db.client.query(
+            api.vc_generator_control_requests.findPendingVcGeneratorControlRequest,
             normalizedInput.value
         );
 
@@ -135,8 +122,8 @@ export async function updateVcGeneratorControlRequest(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const request = await db.client.mutation<ConvexVcGeneratorControlRequestRecord | null>(
-            convexApi.vc_generator_control_requests.updateVcGeneratorControlRequest,
+        const request = await db.client.mutation(
+            api.vc_generator_control_requests.updateVcGeneratorControlRequest,
             normalizedInput.value
         );
 
@@ -157,8 +144,8 @@ export async function expirePendingVcGeneratorControlRequests(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const requests = await db.client.mutation<ConvexVcGeneratorControlRequestRecord[]>(
-            convexApi.vc_generator_control_requests.expirePendingVcGeneratorControlRequests,
+        const requests = await db.client.mutation(
+            api.vc_generator_control_requests.expirePendingVcGeneratorControlRequests,
             {
                 limit: limit.value,
                 now: now.value.toISOString(),
@@ -219,7 +206,7 @@ function normalizeControlRequestInput(input: {
     requesterUserId: string;
     status?: string;
     targetChannelId: string;
-}): Result<Record<string, unknown>, VcGeneratorControlRequestError> {
+}) {
     const pendingLookup = normalizePendingLookupInput(input);
     const generatedChannelId = normalizeRequiredText(input.generatedChannelId, 'generatedChannelId');
     const targetChannelId = normalizeRequiredText(input.targetChannelId, 'targetChannelId');
@@ -276,7 +263,7 @@ function normalizeControlRequestUpdateInput(input: {
     requestId: string;
     status?: string;
     value?: string;
-}): Result<Record<string, unknown>, VcGeneratorControlRequestError> {
+}) {
     const requestId = normalizeRequiredText(input.requestId, 'requestId');
     let status: VcGeneratorControlRequestStatus | undefined;
 

@@ -9,9 +9,8 @@ export const vcGeneratorControlRequestsTable = defineTable({
     createdAt: timestamp,
     errorMessage: optionalString,
     expiresAt: timestamp,
-    generatedChannelLegacyId: v.string(),
+    generatedChannelId: v.id('generatedVoiceChannels'),
     guildId: v.string(),
-    legacyId: v.string(),
     panelChannelId: v.string(),
     promptMessageId: optionalString,
     requesterUserId: v.string(),
@@ -20,7 +19,6 @@ export const vcGeneratorControlRequestsTable = defineTable({
     updatedAt: timestamp,
     value: optionalString,
 })
-    .index('by_generated_status', ['generatedChannelLegacyId', 'status'])
+    .index('by_generated_status', ['generatedChannelId', 'status'])
     .index('by_guild_panel_requester', ['guildId', 'panelChannelId', 'requesterUserId', 'status'])
-    .index('by_status_expires', ['status', 'expiresAt'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_status_expires', ['status', 'expiresAt']);

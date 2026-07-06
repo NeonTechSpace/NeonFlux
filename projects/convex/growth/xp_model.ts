@@ -28,7 +28,6 @@ export type GuildUserXpDocument = {
     guildId: string;
     lastMessageXpAt?: string;
     lastVoiceXpAt?: string;
-    legacyId: string;
     level: number;
     messageCount: number;
     messageXp: number;
@@ -43,7 +42,6 @@ export type XpGrantDocument = {
     grantedAt: string;
     guildId: string;
     idempotencyKey: string;
-    legacyId: string;
     levelAfter: number;
     levelBefore: number;
     metadata: Record<string, unknown>;
@@ -55,7 +53,6 @@ export type XpGrantDocument = {
 export type XpRoleRewardDocument = {
     createdAt: string;
     guildId: string;
-    legacyId: string;
     level: number;
     roleId: string;
     updatedAt: string;
@@ -120,13 +117,11 @@ export function buildXpSettingsDocument(input: XpSettingsInput, now: string): Xp
 export function buildGuildUserXpDocument(
     input: {
         guildId?: string | null;
-        legacyId?: string | null;
         level?: number | null;
         userId?: string | null;
         xp?: number | null;
     },
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): XpInputResult<GuildUserXpDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -143,7 +138,6 @@ export function buildGuildUserXpDocument(
         value: {
             guildId: guildId.value,
             lastMessageXpAt: now,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             level: level.value,
             messageCount: 1,
             messageXp: xp.value,
@@ -160,7 +154,6 @@ export function buildXpGrantDocument(
     input: {
         guildId?: string | null;
         idempotencyKey?: string | null;
-        legacyId?: string | null;
         metadata?: Record<string, unknown> | null;
         occurredAt?: string | null;
         source?: string | null;
@@ -169,8 +162,7 @@ export function buildXpGrantDocument(
     },
     levelBefore: number,
     levelAfter: number,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): XpInputResult<XpGrantDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -194,7 +186,6 @@ export function buildXpGrantDocument(
             grantedAt,
             guildId: guildId.value,
             idempotencyKey: idempotencyKey.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             levelAfter,
             levelBefore,
             metadata,
@@ -206,10 +197,9 @@ export function buildXpGrantDocument(
 }
 
 export function buildXpRoleRewardDocument(
-    input: { guildId?: string | null; legacyId?: string | null; level?: number | null; roleId?: string | null },
+    input: { guildId?: string | null; level?: number | null; roleId?: string | null },
     now: string,
-    existing?: Pick<XpRoleRewardDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<XpRoleRewardDocument, 'createdAt'>
 ): XpInputResult<XpRoleRewardDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const level = normalizePositiveInteger(input.level, 'level');
@@ -224,7 +214,6 @@ export function buildXpRoleRewardDocument(
         value: {
             createdAt: existing?.createdAt ?? now,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             level: level.value,
             roleId: roleId.value,
             updatedAt: now,
@@ -235,8 +224,7 @@ export function buildXpRoleRewardDocument(
 export function applyXpGrant(
     current: GuildUserXpDocument | null,
     grant: XpGrantDocument,
-    voiceSeconds: number,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    voiceSeconds: number
 ): GuildUserXpDocument {
     const xp = (current?.xp ?? 0) + grant.xp;
     const now = grant.grantedAt;
@@ -247,7 +235,6 @@ export function applyXpGrant(
         guildId: grant.guildId,
         ...(lastMessageXpAt === undefined ? {} : { lastMessageXpAt }),
         ...(lastVoiceXpAt === undefined ? {} : { lastVoiceXpAt }),
-        legacyId: current?.legacyId ?? createLegacyId(),
         level: calculateXpLevel(xp),
         messageCount: (current?.messageCount ?? 0) + (grant.source === 'message' ? 1 : 0),
         messageXp: (current?.messageXp ?? 0) + (grant.source === 'message' ? grant.xp : 0),
@@ -281,21 +268,21 @@ export function toXpSettingsRecord(document: XpSettingsDocument) {
     return document;
 }
 
-export function toGuildUserXpRecord(document: GuildUserXpDocument) {
+export function toGuildUserXpRecord(document: GuildUserXpDocument & { _id: string }) {
     return {
         ...document,
-        id: document.legacyId,
+        id: document._id,
         lastMessageXpAt: document.lastMessageXpAt ?? null,
         lastVoiceXpAt: document.lastVoiceXpAt ?? null,
     };
 }
 
-export function toXpGrantRecord(document: XpGrantDocument) {
-    return { ...document, id: document.legacyId };
+export function toXpGrantRecord(document: XpGrantDocument & { _id: string }) {
+    return { ...document, id: document._id };
 }
 
-export function toXpRoleRewardRecord(document: XpRoleRewardDocument) {
-    return { ...document, id: document.legacyId };
+export function toXpRoleRewardRecord(document: XpRoleRewardDocument & { _id: string }) {
+    return { ...document, id: document._id };
 }
 
 function normalizeRequiredString(value: string | null | undefined, field: string): XpInputResult<string> {
@@ -304,12 +291,6 @@ function normalizeRequiredString(value: string | null | undefined, field: string
     return normalizedValue
         ? { ok: true, value: normalizedValue }
         : { error: { field, type: 'missing-input' }, ok: false };
-}
-
-function normalizeOptionalString(value: string | null | undefined): string | undefined {
-    const normalizedValue = value?.trim();
-
-    return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
 }
 
 function normalizeTimestamp(value: string | null | undefined): string | undefined {

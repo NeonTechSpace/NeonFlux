@@ -19,27 +19,25 @@ describe('growth overview model', () => {
     it('normalizes member flow events and defaults attribution status', () => {
         const join = buildGuildMemberFlowEventDocument(
             { eventType: 'join', guildId: ' guild-1 ', userId: ' user-1 ' },
-            now,
-            () => 'event-1'
+            now
         );
         const leave = buildGuildMemberFlowEventDocument(
             { eventType: 'leave', guildId: 'guild-1', userId: 'user-1' },
-            now,
-            () => 'event-2'
+            now
         );
 
         expect(join).toMatchObject({
             ok: true,
-            value: { attributionStatus: 'unavailable', eventType: 'join', legacyId: 'event-1' },
+            value: { attributionStatus: 'unavailable', eventType: 'join' },
         });
         expect(leave).toMatchObject({
             ok: true,
-            value: { attributionStatus: 'not-applicable', eventType: 'leave', legacyId: 'event-2' },
+            value: { attributionStatus: 'not-applicable', eventType: 'leave' },
         });
 
         if (!join.ok) throw new Error('Expected join event.');
 
-        expect(toGuildMemberFlowEventRecord(join.value)).toMatchObject({
+        expect(toGuildMemberFlowEventRecord({ ...join.value, _id: 'event-1' })).toMatchObject({
             id: 'event-1',
             inviteCode: null,
             inviterUserId: null,
@@ -58,7 +56,7 @@ describe('growth overview model', () => {
                 uses: 4,
             },
             now,
-            { firstSeenAt: '2026-07-01T00:00:00.000Z', legacyId: 'invite-1' }
+            { firstSeenAt: '2026-07-01T00:00:00.000Z' }
         );
 
         expect(snapshot).toMatchObject({
@@ -68,7 +66,6 @@ describe('growth overview model', () => {
                 channelId: 'channel-1',
                 code: 'invite-a',
                 firstSeenAt: '2026-07-01T00:00:00.000Z',
-                legacyId: 'invite-1',
                 maxUses: 10,
                 temporary: true,
                 uses: 4,
@@ -79,7 +76,7 @@ describe('growth overview model', () => {
 
         const revoked = revokeGuildInviteSnapshotDocument(snapshot.value, '2026-07-04T00:00:00.000Z');
 
-        expect(toGuildInviteSnapshotRecord(revoked)).toMatchObject({
+        expect(toGuildInviteSnapshotRecord({ ...revoked, _id: 'invite-1' })).toMatchObject({
             active: false,
             id: 'invite-1',
             revokedAt: '2026-07-04T00:00:00.000Z',
@@ -104,7 +101,9 @@ describe('growth overview model', () => {
             ok: true,
             value: { activityDate: '2026-07-03', messageCount: 2 },
         });
-        expect(toGuildMessageActivityDayRecord(initial.value)).toMatchObject({ id: initial.value.legacyId });
+        expect(toGuildMessageActivityDayRecord({ ...initial.value, _id: 'message-day-1' })).toMatchObject({
+            id: 'message-day-1',
+        });
     });
 
     it('builds aggregate graphs, attribution counts, and top lists', () => {
@@ -117,8 +116,7 @@ describe('growth overview model', () => {
                 occurredAt: '2026-07-02T12:00:00.000Z',
                 userId: 'user-1',
             },
-            now,
-            () => 'event-1'
+            now
         );
         const leave = buildGuildMemberFlowEventDocument(
             {
@@ -127,8 +125,7 @@ describe('growth overview model', () => {
                 occurredAt: '2026-07-03T12:00:00.000Z',
                 userId: 'user-2',
             },
-            now,
-            () => 'event-2'
+            now
         );
         const invite = buildGuildInviteSnapshotDocument(
             'guild-1',

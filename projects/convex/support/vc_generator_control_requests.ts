@@ -1,14 +1,6 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
 import {
     buildVcGeneratorControlRequestDocument,
     normalizeRequiredGuildId,
@@ -18,10 +10,9 @@ import {
     type GeneratedVoiceChannelDocument,
     type VcGeneratorControlRequestDocument,
 } from './vc_generator_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type ControlRequestQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type ControlRequestMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type ControlRequestQueryCtx = QueryCtx;
+type ControlRequestMutationCtx = MutationCtx;
 type StoredGeneratedChannelDocument = GeneratedVoiceChannelDocument & { _id: GenericId<'generatedVoiceChannels'> };
 type StoredControlRequestDocument = VcGeneratorControlRequestDocument & {
     _id: GenericId<'vcGeneratorControlRequests'>;
@@ -59,7 +50,7 @@ const controlRequestRecordValidator = v.object({
     value: nullableString,
 });
 
-export const findActiveGeneratedVoiceChannelByOwner = queryGeneric({
+export const findActiveGeneratedVoiceChannelByOwner = query({
     args: { guildId: v.string(), ownerUserId: v.string(), ruleId: v.optional(v.string()) },
     returns: v.union(generatedChannelRecordValidator, v.null()),
     handler: async (ctx: ControlRequestQueryCtx, args) => {
@@ -72,19 +63,19 @@ export const findActiveGeneratedVoiceChannelByOwner = queryGeneric({
             )
             .order('desc')
             .take(20);
-        const channel = args.ruleId ? channels.find((entry) => entry.ruleLegacyId === args.ruleId) : channels[0];
+        const ruleId = args.ruleId ? parseRuleId(args.ruleId) : undefined;
+        const channel = ruleId ? channels.find((entry) => entry.ruleId === ruleId) : channels[0];
 
         return channel ? toGeneratedVoiceChannelRecord(channel) : null;
     },
 });
 
-export const createVcGeneratorControlRequest = mutationGeneric({
+export const createVcGeneratorControlRequest = mutation({
     args: {
         controlAction: v.string(),
         expiresAt: v.string(),
         generatedChannelId: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         panelChannelId: v.string(),
         promptMessageId: v.optional(v.union(v.string(), v.null())),
         requesterUserId: v.string(),
@@ -113,13 +104,13 @@ export const createVcGeneratorControlRequest = mutationGeneric({
             }
         }
 
-        await ctx.db.insert('vcGeneratorControlRequests', document);
+        const id = await ctx.db.insert('vcGeneratorControlRequests', document);
 
-        return toVcGeneratorControlRequestRecord(document);
+        return toVcGeneratorControlRequestRecord({ ...document, _id: id });
     },
 });
 
-export const findPendingVcGeneratorControlRequest = queryGeneric({
+export const findPendingVcGeneratorControlRequest = query({
     args: { guildId: v.string(), panelChannelId: v.string(), requesterUserId: v.string() },
     returns: v.union(controlRequestRecordValidator, v.null()),
     handler: async (ctx: ControlRequestQueryCtx, args) => {
@@ -130,7 +121,7 @@ export const findPendingVcGeneratorControlRequest = queryGeneric({
     },
 });
 
-export const updateVcGeneratorControlRequest = mutationGeneric({
+export const updateVcGeneratorControlRequest = mutation({
     args: {
         errorMessage: v.optional(v.union(v.string(), v.null())),
         promptMessageId: v.optional(v.union(v.string(), v.null())),
@@ -142,7 +133,7 @@ export const updateVcGeneratorControlRequest = mutationGeneric({
     handler: async (ctx: ControlRequestMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedVcGeneratorServices);
         assertStatus(args.status, controlRequestStatuses, 'status');
-        const request = await findControlRequestByLegacyId(ctx, args.requestId);
+        const request = await findControlRequestById(ctx, parseControlRequestId(args.requestId));
 
         if (!request) return null;
 
@@ -164,7 +155,7 @@ export const updateVcGeneratorControlRequest = mutationGeneric({
         if (args.errorMessage !== undefined) patch.errorMessage = normalizeOptionalString(args.errorMessage);
 
         await ctx.db.patch(request._id, patch);
-        const updated = await findControlRequestByLegacyId(ctx, args.requestId);
+        const updated = await findControlRequestById(ctx, parseControlRequestId(args.requestId));
 
         if (!updated) throw new Error('control-request-not-found');
 
@@ -172,7 +163,7 @@ export const updateVcGeneratorControlRequest = mutationGeneric({
     },
 });
 
-export const expirePendingVcGeneratorControlRequests = mutationGeneric({
+export const expirePendingVcGeneratorControlRequests = mutation({
     args: { limit: v.optional(v.number()), now: v.string() },
     returns: v.array(controlRequestRecordValidator),
     handler: async (ctx: ControlRequestMutationCtx, args) => {
@@ -205,24 +196,18 @@ export const expirePendingVcGeneratorControlRequests = mutationGeneric({
     },
 });
 
-async function findGeneratedByLegacyId(
+async function findGeneratedById(
     ctx: ControlRequestMutationCtx,
-    legacyId: string
+    generatedChannelId: GenericId<'generatedVoiceChannels'>
 ): Promise<StoredGeneratedChannelDocument | null> {
-    return await ctx.db
-        .query('generatedVoiceChannels')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(legacyId, 'generatedChannelId')))
-        .unique();
+    return await ctx.db.get(generatedChannelId);
 }
 
-async function findControlRequestByLegacyId(
+async function findControlRequestById(
     ctx: ControlRequestMutationCtx,
-    requestId: string
+    requestId: GenericId<'vcGeneratorControlRequests'>
 ): Promise<StoredControlRequestDocument | null> {
-    return await ctx.db
-        .query('vcGeneratorControlRequests')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(requestId, 'requestId')))
-        .unique();
+    return await ctx.db.get(requestId);
 }
 
 async function findPendingControlRequests(
@@ -246,9 +231,21 @@ async function requireGeneratedChannel(
     ctx: ControlRequestMutationCtx,
     input: { generatedChannelId: string; guildId: string }
 ): Promise<StoredGeneratedChannelDocument> {
-    const channel = await findGeneratedByLegacyId(ctx, input.generatedChannelId);
+    const channel = await findGeneratedById(ctx, parseGeneratedChannelId(input.generatedChannelId));
     if (channel?.guildId !== input.guildId) throw new Error('generated-channel-not-found');
     return channel;
+}
+
+function parseGeneratedChannelId(generatedChannelId: string): GenericId<'generatedVoiceChannels'> {
+    return unwrapRequiredString(generatedChannelId, 'generatedChannelId') as GenericId<'generatedVoiceChannels'>;
+}
+
+function parseControlRequestId(requestId: string): GenericId<'vcGeneratorControlRequests'> {
+    return unwrapRequiredString(requestId, 'requestId') as GenericId<'vcGeneratorControlRequests'>;
+}
+
+function parseRuleId(ruleId: string): GenericId<'vcGeneratorRules'> {
+    return unwrapRequiredString(ruleId, 'ruleId') as GenericId<'vcGeneratorRules'>;
 }
 
 function assertStatus(value: string | undefined, allowed: readonly string[], field: string): void {

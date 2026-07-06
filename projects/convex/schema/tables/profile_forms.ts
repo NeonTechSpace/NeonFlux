@@ -9,11 +9,9 @@ export const profileFormsTable = defineTable({
     createdAt: timestamp,
     enabled: v.boolean(),
     guildId: v.string(),
-    legacyId: v.string(),
     name: v.string(),
     outputChannelId: optionalString,
     updatedAt: timestamp,
 })
     .index('by_guild_enabled_name', ['guildId', 'enabled', 'name'])
-    .index('by_guild_name', ['guildId', 'name'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_name', ['guildId', 'name']);

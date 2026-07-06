@@ -15,11 +15,9 @@ export const guildMemberFlowEventsTable = defineTable({
     guildId: v.string(),
     inviteCode: optionalString,
     inviterUserId: optionalString,
-    legacyId: v.string(),
     occurredAt: timestamp,
     userId: v.string(),
 })
     .index('by_guild_event', ['guildId', 'eventType'])
     .index('by_guild_occurred', ['guildId', 'occurredAt'])
-    .index('by_guild_user', ['guildId', 'userId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_user', ['guildId', 'userId']);

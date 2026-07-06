@@ -163,7 +163,7 @@ function VerificationFlowEditor({
                     setIsChannelOpen(false);
                 }}
             />
-            <TextField label='Message ID' value={messageId} placeholder='Discord message ID' onChange={setMessageId} />
+            <TextField label='Message ID' value={messageId} placeholder='Fluxer message ID' onChange={setMessageId} />
             <TextField label='Emoji key' value={emojiKey} placeholder='unicode:✅ or emoji:id' onChange={setEmojiKey} />
             <RolePicker
                 roles={roles}

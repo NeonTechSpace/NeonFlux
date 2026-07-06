@@ -68,7 +68,7 @@ export function DashboardLoggingDestinationsPanel({ guildId }: { guildId: string
                 <div>
                     <h2 className='text-lg font-semibold text-white'>Server event destinations</h2>
                     <p className='mt-2 text-sm leading-6 text-neutral-400'>
-                        Route Discord-style server events to channels by category.
+                        Route Fluxer server events to channels by category.
                     </p>
                 </div>
                 {settingsQuery.isFetching || channelsQuery.isFetching ? (

@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -28,11 +21,9 @@ import {
     type ProfileFormDocument,
     type ProfileSubmissionDocument,
 } from './profile_builder_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type ProfileBuilderQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type ProfileBuilderMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type ProfileBuilderQueryCtx = QueryCtx;
+type ProfileBuilderMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredProfileFormDocument = ProfileFormDocument & { _id: GenericId<'profileForms'> };
@@ -84,13 +75,12 @@ const reviewRecordValidator = v.object({
     submissionId: v.string(),
 });
 
-export const createProfileForm = mutationGeneric({
+export const createProfileForm = mutation({
     args: {
         approvalRequired: v.optional(v.boolean()),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         outputChannelId: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
@@ -105,26 +95,21 @@ export const createProfileForm = mutationGeneric({
             throw new Error('profile-form-conflict');
         }
 
-        const document = unwrap(
-            buildProfileFormDocument({ ...args, guildId }, new Date().toISOString(), undefined, () =>
-                crypto.randomUUID()
-            )
-        );
+        const document = unwrap(buildProfileFormDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('profileForms', document);
+        const id = await ctx.db.insert('profileForms', document);
 
-        return toProfileFormRecord(document);
+        return toProfileFormRecord({ ...document, _id: id });
     },
 });
 
-export const upsertProfileForm = mutationGeneric({
+export const upsertProfileForm = mutation({
     args: {
         approvalRequired: v.optional(v.boolean()),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         outputChannelId: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
@@ -143,15 +128,15 @@ export const upsertProfileForm = mutationGeneric({
 
         if (existingForm) {
             await ctx.db.patch(existingForm._id, toProfileFormPatch(document));
+            return toProfileFormRecord({ ...document, _id: existingForm._id });
         } else {
-            await ctx.db.insert('profileForms', document);
+            const id = await ctx.db.insert('profileForms', document);
+            return toProfileFormRecord({ ...document, _id: id });
         }
-
-        return toProfileFormRecord(document);
     },
 });
 
-export const listProfileFormsByGuildId = queryGeneric({
+export const listProfileFormsByGuildId = query({
     args: { enabledOnly: v.optional(v.boolean()), guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(formRecordValidator),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
@@ -173,7 +158,7 @@ export const listProfileFormsByGuildId = queryGeneric({
     },
 });
 
-export const findProfileFormByGuildName = queryGeneric({
+export const findProfileFormByGuildName = query({
     args: { enabledOnly: v.optional(v.boolean()), guildId: v.string(), name: v.string() },
     returns: v.union(formRecordValidator, v.null()),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
@@ -185,14 +170,14 @@ export const findProfileFormByGuildName = queryGeneric({
     },
 });
 
-export const findProfileFormById = queryGeneric({
+export const findProfileFormById = query({
     args: { enabledOnly: v.optional(v.boolean()), formId: v.string(), guildId: v.string() },
     returns: v.union(formRecordValidator, v.null()),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedProfileBuilderServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const formId = unwrap(normalizeRequiredFormId(args.formId));
-        const form = await findProfileFormByLegacyId(ctx, formId);
+        const formId = parseProfileFormId(args.formId);
+        const form = await findProfileFormByIdDocument(ctx, formId);
 
         if (form?.guildId !== guildId) return null;
         if (args.enabledOnly && !form.enabled) return null;
@@ -201,14 +186,13 @@ export const findProfileFormById = queryGeneric({
     },
 });
 
-export const upsertProfileField = mutationGeneric({
+export const upsertProfileField = mutation({
     args: {
         createdAt: v.optional(v.string()),
         fieldKey: v.string(),
         fieldType: v.string(),
         formId: v.string(),
         label: v.string(),
-        legacyId: v.optional(v.string()),
         maxLength: v.optional(v.number()),
         position: v.optional(v.number()),
         required: v.optional(v.boolean()),
@@ -219,7 +203,7 @@ export const upsertProfileField = mutationGeneric({
         await requireNeonFluxService(ctx, allowedProfileBuilderServices);
         const formId = unwrap(normalizeRequiredFormId(args.formId));
 
-        await requireProfileForm(ctx, formId);
+        await requireProfileForm(ctx, parseProfileFormId(formId));
 
         const existingField = await findProfileFieldByFormKey(ctx, { fieldKey: args.fieldKey, formId });
         const document = unwrap(
@@ -228,15 +212,15 @@ export const upsertProfileField = mutationGeneric({
 
         if (existingField) {
             await ctx.db.patch(existingField._id, toProfileFieldPatch(document));
+            return toProfileFieldRecord({ ...document, _id: existingField._id });
         } else {
-            await ctx.db.insert('profileFields', document);
+            const id = await ctx.db.insert('profileFields', document);
+            return toProfileFieldRecord({ ...document, _id: id });
         }
-
-        return toProfileFieldRecord(document);
     },
 });
 
-export const listProfileFieldsByFormId = queryGeneric({
+export const listProfileFieldsByFormId = query({
     args: { formId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(fieldRecordValidator),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
@@ -244,7 +228,7 @@ export const listProfileFieldsByFormId = queryGeneric({
         const formId = unwrap(normalizeRequiredFormId(args.formId));
         const fields = await ctx.db
             .query('profileFields')
-            .withIndex('by_form_position_label', (query) => query.eq('formLegacyId', formId))
+            .withIndex('by_form_position_label', (query) => query.eq('formId', parseProfileFormId(formId)))
             .order('asc')
             .take(normalizeProfileBuilderLimit(args.limit, 100));
 
@@ -252,7 +236,7 @@ export const listProfileFieldsByFormId = queryGeneric({
     },
 });
 
-export const deleteProfileField = mutationGeneric({
+export const deleteProfileField = mutation({
     args: { fieldKey: v.string(), formId: v.string() },
     returns: v.union(fieldRecordValidator, v.null()),
     handler: async (ctx: ProfileBuilderMutationCtx, args) => {
@@ -269,11 +253,10 @@ export const deleteProfileField = mutationGeneric({
     },
 });
 
-export const createProfileSubmission = mutationGeneric({
+export const createProfileSubmission = mutation({
     args: {
         formId: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         reviewedAt: v.optional(v.string()),
         status: v.optional(v.string()),
         submittedAt: v.optional(v.string()),
@@ -285,24 +268,20 @@ export const createProfileSubmission = mutationGeneric({
     handler: async (ctx: ProfileBuilderMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedProfileBuilderServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const formId = unwrap(normalizeRequiredFormId(args.formId));
-        const form = await findProfileFormByLegacyId(ctx, formId);
+        const formId = parseProfileFormId(args.formId);
+        const form = await findProfileFormByIdDocument(ctx, formId);
 
         if (form?.guildId !== guildId || !form.enabled) throw new Error('profile-form-not-found');
 
-        const document = unwrap(
-            buildProfileSubmissionDocument({ ...args, formId, guildId }, new Date().toISOString(), () =>
-                crypto.randomUUID()
-            )
-        );
+        const document = unwrap(buildProfileSubmissionDocument({ ...args, formId, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('profileSubmissions', document);
+        const id = await ctx.db.insert('profileSubmissions', document);
 
-        return toProfileSubmissionRecord(document);
+        return toProfileSubmissionRecord({ ...document, _id: id });
     },
 });
 
-export const listProfileSubmissionsByGuildId = queryGeneric({
+export const listProfileSubmissionsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()), status: v.optional(v.string()) },
     returns: v.array(submissionRecordValidator),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
@@ -329,25 +308,24 @@ export const listProfileSubmissionsByGuildId = queryGeneric({
     },
 });
 
-export const findProfileSubmissionById = queryGeneric({
+export const findProfileSubmissionById = query({
     args: { guildId: v.string(), submissionId: v.string() },
     returns: v.union(submissionRecordValidator, v.null()),
     handler: async (ctx: ProfileBuilderQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedProfileBuilderServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const submissionId = unwrap(normalizeRequiredSubmissionId(args.submissionId));
-        const submission = await findProfileSubmissionByLegacyId(ctx, submissionId);
+        const submissionId = parseProfileSubmissionId(args.submissionId);
+        const submission = await findProfileSubmissionByIdDocument(ctx, submissionId);
 
         return submission?.guildId === guildId ? toProfileSubmissionRecord(submission) : null;
     },
 });
 
-export const reviewProfileSubmission = mutationGeneric({
+export const reviewProfileSubmission = mutation({
     args: {
         createdAt: v.optional(v.string()),
         decision: v.string(),
         guildId: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         reason: v.optional(v.string()),
         reviewerUserId: v.string(),
         submissionId: v.string(),
@@ -355,24 +333,22 @@ export const reviewProfileSubmission = mutationGeneric({
     returns: reviewRecordValidator,
     handler: async (ctx: ProfileBuilderMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedProfileBuilderServices);
-        const submissionId = unwrap(normalizeRequiredSubmissionId(args.submissionId));
-        const submission = await findProfileSubmissionByLegacyId(ctx, submissionId);
+        const submissionId = parseProfileSubmissionId(args.submissionId);
+        const submission = await findProfileSubmissionByIdDocument(ctx, submissionId);
 
         if (!submission || (args.guildId && submission.guildId !== args.guildId.trim())) {
             throw new Error('profile-submission-not-found');
         }
 
         const review = unwrap(
-            buildProfileSubmissionReviewDocument({ ...args, submissionId }, new Date().toISOString(), () =>
-                crypto.randomUUID()
-            )
+            buildProfileSubmissionReviewDocument({ ...args, submissionId }, new Date().toISOString())
         );
         const patch = unwrap(buildSubmissionReviewPatch(submission.status, review.decision, new Date().toISOString()));
 
         await ctx.db.patch(submission._id, patch);
-        await ctx.db.insert('profileSubmissionReviews', review);
+        const reviewId = await ctx.db.insert('profileSubmissionReviews', review);
 
-        return toProfileSubmissionReviewRecord(review);
+        return toProfileSubmissionReviewRecord({ ...review, _id: reviewId });
     },
 });
 
@@ -409,14 +385,11 @@ async function findProfileFormByGuildNameDocument(
         .unique();
 }
 
-async function findProfileFormByLegacyId(
+async function findProfileFormByIdDocument(
     ctx: ProfileBuilderQueryCtx | ProfileBuilderMutationCtx,
-    formId: string
+    formId: GenericId<'profileForms'>
 ): Promise<StoredProfileFormDocument | null> {
-    return await ctx.db
-        .query('profileForms')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', formId.trim()))
-        .unique();
+    return await ctx.db.get(formId);
 }
 
 async function findProfileFieldByFormKey(
@@ -426,27 +399,35 @@ async function findProfileFieldByFormKey(
     return await ctx.db
         .query('profileFields')
         .withIndex('by_form_key', (query) =>
-            query.eq('formLegacyId', input.formId).eq('fieldKey', input.fieldKey.trim())
+            query.eq('formId', parseProfileFormId(input.formId)).eq('fieldKey', input.fieldKey.trim())
         )
         .unique();
 }
 
-async function findProfileSubmissionByLegacyId(
+async function findProfileSubmissionByIdDocument(
     ctx: ProfileBuilderQueryCtx | ProfileBuilderMutationCtx,
-    submissionId: string
+    submissionId: GenericId<'profileSubmissions'>
 ): Promise<StoredProfileSubmissionDocument | null> {
-    return await ctx.db
-        .query('profileSubmissions')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', submissionId.trim()))
-        .unique();
+    return await ctx.db.get(submissionId);
 }
 
-async function requireProfileForm(ctx: ProfileBuilderMutationCtx, formId: string): Promise<StoredProfileFormDocument> {
-    const form = await findProfileFormByLegacyId(ctx, formId);
+async function requireProfileForm(
+    ctx: ProfileBuilderMutationCtx,
+    formId: GenericId<'profileForms'>
+): Promise<StoredProfileFormDocument> {
+    const form = await findProfileFormByIdDocument(ctx, formId);
 
     if (!form) throw new Error('profile-form-not-found');
 
     return form;
+}
+
+function parseProfileFormId(formId: string): GenericId<'profileForms'> {
+    return unwrap(normalizeRequiredFormId(formId)) as GenericId<'profileForms'>;
+}
+
+function parseProfileSubmissionId(submissionId: string): GenericId<'profileSubmissions'> {
+    return unwrap(normalizeRequiredSubmissionId(submissionId)) as GenericId<'profileSubmissions'>;
 }
 
 async function requireGuildDocument(ctx: ProfileBuilderMutationCtx, guildId: string): Promise<StoredGuildDocument> {

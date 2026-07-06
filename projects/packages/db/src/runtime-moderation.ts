@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { GuildFeatureRepositoryError } from './contracts.js';
@@ -9,26 +9,7 @@ import type {
 } from './contracts-moderation.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    moderation: {
-        addModerationCaseNote: ConvexMutationReference;
-        createChannelModerationCase: ConvexMutationReference;
-        createModerationCase: ConvexMutationReference;
-        createObservedModerationCase: ConvexMutationReference;
-        findModerationCaseByGuildCaseNumber: ConvexQueryReference;
-        findRecentModerationCaseByTargetAction: ConvexQueryReference;
-        listModerationCaseEventsByCaseId: ConvexQueryReference;
-        listModerationCasesByGuildId: ConvexQueryReference;
-        recordModerationCaseEvent: ConvexMutationReference;
-        updateModerationCaseReason: ConvexMutationReference;
-        updateModerationCaseStatus: ConvexMutationReference;
-        voidModerationCase: ConvexMutationReference;
-    };
-};
+import { compactConvexArgs } from './convex-args.js';
 
 type ModerationDb = ConvexDatabase;
 
@@ -55,9 +36,9 @@ export async function createModerationCase(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord>(
-            convexApi.moderation.createModerationCase,
-            normalizedInput.value
+        const moderationCase = await db.client.mutation(
+            api.moderation.createModerationCase,
+            compactConvexArgs(normalizedInput.value)
         );
 
         return ok(toModerationCaseRecord(moderationCase));
@@ -79,17 +60,15 @@ export async function createChannelModerationCase(
     if (targetChannelId.isErr()) return err(targetChannelId.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord>(
-            convexApi.moderation.createChannelModerationCase,
-            {
+        const moderationCase = await db.client.mutation(
+            api.moderation.createChannelModerationCase,
+            compactConvexArgs({
                 action: action.value,
-                ...(normalizeOptionalText(input.actorUserId)
-                    ? { actorUserId: normalizeOptionalText(input.actorUserId) }
-                    : {}),
+                actorUserId: normalizeOptionalText(input.actorUserId),
                 guildId: guildId.value,
-                ...(normalizeOptionalText(input.reason) ? { reason: normalizeOptionalText(input.reason) } : {}),
+                reason: normalizeOptionalText(input.reason),
                 targetChannelId: targetChannelId.value,
-            }
+            })
         );
 
         return ok(toModerationCaseRecord(moderationCase));
@@ -112,8 +91,8 @@ export async function createObservedModerationCase(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord>(
-            convexApi.moderation.createObservedModerationCase,
+        const moderationCase = await db.client.mutation(
+            api.moderation.createObservedModerationCase,
             normalizedInput.value
         );
 
@@ -134,13 +113,10 @@ export async function findModerationCaseByGuildCaseNumber(
     if (caseNumber.isErr()) return err(caseNumber.error);
 
     try {
-        const moderationCase = await db.client.query<ConvexModerationCaseRecord | null>(
-            convexApi.moderation.findModerationCaseByGuildCaseNumber,
-            {
-                caseNumber: caseNumber.value,
-                guildId: guildId.value,
-            }
-        );
+        const moderationCase = await db.client.query(api.moderation.findModerationCaseByGuildCaseNumber, {
+            caseNumber: caseNumber.value,
+            guildId: guildId.value,
+        });
 
         return moderationCase ? ok(toModerationCaseRecord(moderationCase)) : err({ type: 'not-found' });
     } catch {
@@ -159,17 +135,15 @@ export async function listModerationCasesByGuildId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const cases = await db.client.query<ConvexModerationCaseRecord[]>(
-            convexApi.moderation.listModerationCasesByGuildId,
-            {
-                ...(normalizeOptionalText(input.action) ? { action: normalizeOptionalText(input.action) } : {}),
+        const cases = await db.client.query(
+            api.moderation.listModerationCasesByGuildId,
+            compactConvexArgs({
+                action: normalizeOptionalText(input.action),
                 guildId: guildId.value,
                 limit: limit.value,
-                ...(normalizeOptionalText(input.status) ? { status: normalizeOptionalText(input.status) } : {}),
-                ...(normalizeOptionalText(input.targetUserId)
-                    ? { targetUserId: normalizeOptionalText(input.targetUserId) }
-                    : {}),
-            }
+                status: normalizeOptionalText(input.status),
+                targetUserId: normalizeOptionalText(input.targetUserId),
+            })
         );
 
         return ok(cases.map(toModerationCaseRecord));
@@ -186,9 +160,9 @@ export async function findRecentModerationCaseByTargetAction(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const moderationCase = await db.client.query<ConvexModerationCaseRecord | null>(
-            convexApi.moderation.findRecentModerationCaseByTargetAction,
-            normalizedInput.value
+        const moderationCase = await db.client.query(
+            api.moderation.findRecentModerationCaseByTargetAction,
+            compactConvexArgs(normalizedInput.value)
         );
 
         return moderationCase ? ok(toModerationCaseRecord(moderationCase)) : err({ type: 'not-found' });
@@ -205,9 +179,9 @@ export async function recordModerationCaseEvent(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = await db.client.mutation<ConvexModerationCaseEventRecord>(
-            convexApi.moderation.recordModerationCaseEvent,
-            normalizedInput.value
+        const event = await db.client.mutation(
+            api.moderation.recordModerationCaseEvent,
+            compactConvexArgs(normalizedInput.value)
         );
 
         return ok(toModerationCaseEventRecord(event));
@@ -227,15 +201,13 @@ export async function listModerationCaseEventsByCaseId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const events = await db.client.query<ConvexModerationCaseEventRecord[]>(
-            convexApi.moderation.listModerationCaseEventsByCaseId,
-            {
+        const events = await db.client.query(
+            api.moderation.listModerationCaseEventsByCaseId,
+            compactConvexArgs({
                 caseId: caseId.value,
-                ...(normalizeOptionalText(input.eventType)
-                    ? { eventType: normalizeOptionalText(input.eventType) }
-                    : {}),
+                eventType: normalizeOptionalText(input.eventType),
                 limit: limit.value,
-            }
+            })
         );
 
         return ok(events.map(toModerationCaseEventRecord));
@@ -255,13 +227,10 @@ export async function updateModerationCaseStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord | null>(
-            convexApi.moderation.updateModerationCaseStatus,
-            {
-                caseId: caseId.value,
-                status: status.value,
-            }
-        );
+        const moderationCase = await db.client.mutation(api.moderation.updateModerationCaseStatus, {
+            caseId: caseId.value,
+            status: status.value,
+        });
 
         return moderationCase ? ok(toModerationCaseRecord(moderationCase)) : err({ type: 'not-found' });
     } catch {
@@ -280,15 +249,13 @@ export async function updateModerationCaseReason(
     if (reason.isErr()) return err(reason.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord | null>(
-            convexApi.moderation.updateModerationCaseReason,
-            {
-                ...(normalizeOptionalText(input.actorUserId)
-                    ? { actorUserId: normalizeOptionalText(input.actorUserId) }
-                    : {}),
+        const moderationCase = await db.client.mutation(
+            api.moderation.updateModerationCaseReason,
+            compactConvexArgs({
+                actorUserId: normalizeOptionalText(input.actorUserId),
                 caseId: caseId.value,
                 reason: reason.value,
-            }
+            })
         );
 
         return moderationCase ? ok(toModerationCaseRecord(moderationCase)) : err({ type: 'not-found' });
@@ -306,15 +273,13 @@ export async function voidModerationCase(
     if (caseId.isErr()) return err(caseId.error);
 
     try {
-        const moderationCase = await db.client.mutation<ConvexModerationCaseRecord | null>(
-            convexApi.moderation.voidModerationCase,
-            {
-                ...(normalizeOptionalText(input.actorUserId)
-                    ? { actorUserId: normalizeOptionalText(input.actorUserId) }
-                    : {}),
+        const moderationCase = await db.client.mutation(
+            api.moderation.voidModerationCase,
+            compactConvexArgs({
+                actorUserId: normalizeOptionalText(input.actorUserId),
                 caseId: caseId.value,
-                ...(normalizeOptionalText(input.reason) ? { reason: normalizeOptionalText(input.reason) } : {}),
-            }
+                reason: normalizeOptionalText(input.reason),
+            })
         );
 
         return moderationCase ? ok(toModerationCaseRecord(moderationCase)) : err({ type: 'not-found' });
@@ -334,15 +299,13 @@ export async function addModerationCaseNote(
     if (caseId.isErr()) return err(caseId.error);
 
     try {
-        const event = await db.client.mutation<ConvexModerationCaseEventRecord>(
-            convexApi.moderation.addModerationCaseNote,
-            {
-                ...(normalizeOptionalText(input.actorUserId)
-                    ? { actorUserId: normalizeOptionalText(input.actorUserId) }
-                    : {}),
+        const event = await db.client.mutation(
+            api.moderation.addModerationCaseNote,
+            compactConvexArgs({
+                actorUserId: normalizeOptionalText(input.actorUserId),
                 caseId: caseId.value,
                 note: note.value,
-            }
+            })
         );
 
         return ok(toModerationCaseEventRecord(event));
@@ -366,7 +329,7 @@ function normalizeUserCaseInput(input: {
     guildId: string;
     reason?: string;
     targetUserId: string;
-}): Result<Record<string, unknown>, ModerationRepositoryError> {
+}) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const action = normalizeRequiredText(input.action, 'action');
     const targetUserId = normalizeRequiredText(input.targetUserId, 'targetUserId');
@@ -396,7 +359,7 @@ function normalizeObservedCaseInput(input: {
     eventType: string;
     guildId: string;
     targetUserId: string;
-}): Result<Record<string, unknown>, ModerationRepositoryError> {
+}) {
     const base = normalizeUserCaseInput(input);
     const eventType = normalizeRequiredText(input.eventType, 'eventType');
 
@@ -412,7 +375,7 @@ function normalizeRecentCaseInput(input: {
     since: Date;
     statuses?: readonly string[];
     targetUserId: string;
-}): Result<Record<string, unknown>, ModerationRepositoryError> {
+}) {
     const base = normalizeUserCaseInput(input);
     const since = normalizeDate(input.since, 'since');
 
@@ -433,7 +396,7 @@ function normalizeCaseEventInput(input: {
     caseId: string;
     details?: Record<string, unknown>;
     eventType: string;
-}): Result<Record<string, unknown>, ModerationRepositoryError> {
+}) {
     const caseId = normalizeRequiredText(input.caseId, 'caseId');
     const eventType = normalizeRequiredText(input.eventType, 'eventType');
 

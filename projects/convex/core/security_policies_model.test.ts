@@ -111,12 +111,11 @@ describe('security policy model', () => {
         });
     });
 
-    it('normalizes DEFCON exemption documents while preserving legacy ids', () => {
+    it('normalizes DEFCON exemption documents', () => {
         const document = buildGuildDefconExemptionDocument(
             {
                 category: ' bot-mention ',
                 guildId: ' guild-1 ',
-                legacyId: ' exemption-1 ',
             },
             '2026-07-03T08:00:00.000Z'
         );
@@ -127,7 +126,6 @@ describe('security policy model', () => {
                 category: 'bot-mention',
                 createdAt: '2026-07-03T08:00:00.000Z',
                 guildId: 'guild-1',
-                legacyId: 'exemption-1',
             },
         });
 
@@ -150,8 +148,7 @@ describe('security policy model', () => {
                     createdAt: '2026-07-02 09:30:00+02',
                     guildId: 'guild-1',
                 },
-                '2026-07-03T08:00:00.000Z',
-                () => 'exemption-1'
+                '2026-07-03T08:00:00.000Z'
             )
         ).toEqual({
             ok: true,
@@ -159,7 +156,6 @@ describe('security policy model', () => {
                 category: 'bot-mention',
                 createdAt: '2026-07-02T07:30:00.000Z',
                 guildId: 'guild-1',
-                legacyId: 'exemption-1',
             },
         });
     });

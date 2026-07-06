@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { isServerLogEventGroup } from '@neonflux/core/server-event-logging';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -11,24 +11,7 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    autoroles: {
-        deleteAutoroleRule: ConvexMutationReference;
-        listAutoroleRulesByGuildId: ConvexQueryReference;
-        listEnabledAutoroleRulesByGuildId: ConvexQueryReference;
-        upsertAutoroleRule: ConvexMutationReference;
-    };
-    logging_destinations: {
-        deleteGuildLoggingDestination: ConvexMutationReference;
-        listGuildLoggingDestinationsByGuildId: ConvexQueryReference;
-        readGuildLoggingDestinationByEventGroup: ConvexQueryReference;
-        upsertGuildLoggingDestination: ConvexMutationReference;
-    };
-};
+import { compactConvexArgs } from './convex-args.js';
 
 type AutoroleDb = ConvexDatabase;
 type LoggingDestinationDb = ConvexDatabase;
@@ -69,11 +52,14 @@ export async function upsertAutoroleRule(
     }
 
     try {
-        const rule = await db.client.mutation<ConvexAutoroleRuleRecord>(convexApi.autoroles.upsertAutoroleRule, {
-            ...normalizedInput.value,
-            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-            ...(normalizeOptionalText(input.name) ? { name: normalizeOptionalText(input.name) } : {}),
-        });
+        const rule = await db.client.mutation(
+            api.autoroles.upsertAutoroleRule,
+            compactConvexArgs({
+                ...normalizedInput.value,
+                enabled: input.enabled,
+                name: normalizeOptionalText(input.name),
+            })
+        );
 
         return ok(toAutoroleRuleRecord(rule));
     } catch {
@@ -112,10 +98,7 @@ export async function deleteAutoroleRule(
     }
 
     try {
-        const rule = await db.client.mutation<ConvexAutoroleRuleRecord | null>(
-            convexApi.autoroles.deleteAutoroleRule,
-            normalizedInput.value
-        );
+        const rule = await db.client.mutation(api.autoroles.deleteAutoroleRule, normalizedInput.value);
 
         return rule ? ok(toAutoroleRuleRecord(rule)) : err({ type: 'not-found' });
     } catch {
@@ -134,13 +117,10 @@ export async function listGuildLoggingDestinationsByGuildId(
     }
 
     try {
-        const destinations = await db.client.query<ConvexGuildLoggingDestinationRecord[]>(
-            convexApi.logging_destinations.listGuildLoggingDestinationsByGuildId,
-            {
-                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-                guildId: guildId.value,
-            }
-        );
+        const destinations = await db.client.query(api.logging_destinations.listGuildLoggingDestinationsByGuildId, {
+            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+            guildId: guildId.value,
+        });
 
         return ok(destinations.map(toGuildLoggingDestinationRecord));
     } catch {
@@ -159,8 +139,8 @@ export async function findGuildLoggingDestinationByEventGroup(
     }
 
     try {
-        const destination = await db.client.query<ConvexGuildLoggingDestinationRecord | null>(
-            convexApi.logging_destinations.readGuildLoggingDestinationByEventGroup,
+        const destination = await db.client.query(
+            api.logging_destinations.readGuildLoggingDestinationByEventGroup,
             normalizedInput.value
         );
 
@@ -186,8 +166,8 @@ export async function upsertGuildLoggingDestination(
     }
 
     try {
-        const destination = await db.client.mutation<ConvexGuildLoggingDestinationRecord>(
-            convexApi.logging_destinations.upsertGuildLoggingDestination,
+        const destination = await db.client.mutation(
+            api.logging_destinations.upsertGuildLoggingDestination,
             normalizedInput.value
         );
 
@@ -208,8 +188,8 @@ export async function deleteGuildLoggingDestination(
     }
 
     try {
-        const destination = await db.client.mutation<ConvexGuildLoggingDestinationRecord | null>(
-            convexApi.logging_destinations.deleteGuildLoggingDestination,
+        const destination = await db.client.mutation(
+            api.logging_destinations.deleteGuildLoggingDestination,
             normalizedInput.value
         );
 
@@ -230,10 +210,10 @@ async function listAutoroles(
     }
 
     try {
-        const rules = await db.client.query<ConvexAutoroleRuleRecord[]>(
+        const rules = await db.client.query(
             input.enabledOnly
-                ? convexApi.autoroles.listEnabledAutoroleRulesByGuildId
-                : convexApi.autoroles.listAutoroleRulesByGuildId,
+                ? api.autoroles.listEnabledAutoroleRulesByGuildId
+                : api.autoroles.listAutoroleRulesByGuildId,
             { guildId: guildId.value, limit: 1000 }
         );
 

@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import {
@@ -21,11 +14,9 @@ import {
     type AutomodRuleDocument,
 } from './automod_model.js';
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type AutomodQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type AutomodMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type AutomodQueryCtx = QueryCtx;
+type AutomodMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -41,7 +32,7 @@ type StoredAutomodEventDocument = AutomodEventDocument & {
 };
 
 const allowedAutomodServices = ['bot', 'web'] as const;
-const automodTriggerTypeValidator = v.union(v.literal('blocked_terms'), v.literal('invite_links'));
+const automodTriggerTypeValidator = v.literal('blocked_terms');
 const automodActionTypeValidator = v.union(
     v.literal('record'),
     v.literal('delete_message'),
@@ -73,7 +64,7 @@ const automodEventRecordValidator = v.object({
     triggerType: automodTriggerTypeValidator,
 });
 
-export const listAutomodRulesByGuildId = queryGeneric({
+export const listAutomodRulesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -93,7 +84,7 @@ export const listAutomodRulesByGuildId = queryGeneric({
     },
 });
 
-export const listEnabledAutomodRulesByGuildId = queryGeneric({
+export const listEnabledAutomodRulesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -113,14 +104,13 @@ export const listEnabledAutomodRulesByGuildId = queryGeneric({
     },
 });
 
-export const saveAutomodRule = mutationGeneric({
+export const saveAutomodRule = mutation({
     args: {
         actionType: v.optional(v.string()),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         name: v.string(),
         ruleId: v.optional(v.string()),
         triggerType: v.string(),
@@ -134,7 +124,7 @@ export const saveAutomodRule = mutationGeneric({
         await requireGuildDocument(ctx, guildId);
 
         const existingRule = args.ruleId
-            ? await findAutomodRuleByLegacyIdDocument(ctx, { guildId, legacyId: args.ruleId })
+            ? await findAutomodRuleByIdDocument(ctx, { guildId, ruleId: parseRuleId(args.ruleId) })
             : await findAutomodRuleByNameDocument(ctx, { guildId, name: args.name });
 
         if (args.ruleId && !existingRule) {
@@ -148,8 +138,7 @@ export const saveAutomodRule = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingRule ?? undefined,
-                () => crypto.randomUUID()
+                existingRule ?? undefined
             )
         );
 
@@ -162,15 +151,15 @@ export const saveAutomodRule = mutationGeneric({
                 triggerType: document.triggerType,
                 updatedAt: document.updatedAt,
             });
+            return toAutomodRuleRecord({ ...document, _id: existingRule._id });
         } else {
-            await ctx.db.insert('automodRules', document);
+            const id = await ctx.db.insert('automodRules', document);
+            return toAutomodRuleRecord({ ...document, _id: id });
         }
-
-        return toAutomodRuleRecord(document);
     },
 });
 
-export const deleteAutomodRule = mutationGeneric({
+export const deleteAutomodRule = mutation({
     args: {
         guildId: v.string(),
         ruleId: v.string(),
@@ -179,8 +168,7 @@ export const deleteAutomodRule = mutationGeneric({
     handler: async (ctx: AutomodMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedAutomodServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const ruleId = unwrap(normalizeRequiredRuleId(args.ruleId));
-        const rule = await findAutomodRuleByLegacyIdDocument(ctx, { guildId, legacyId: ruleId });
+        const rule = await findAutomodRuleByIdDocument(ctx, { guildId, ruleId: parseRuleId(args.ruleId) });
 
         if (!rule) {
             return null;
@@ -192,7 +180,7 @@ export const deleteAutomodRule = mutationGeneric({
     },
 });
 
-export const recordAutomodEvent = mutationGeneric({
+export const recordAutomodEvent = mutation({
     args: {
         actionType: v.optional(v.string()),
         authorUserId: v.string(),
@@ -200,7 +188,6 @@ export const recordAutomodEvent = mutationGeneric({
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.string(),
         ruleId: v.optional(v.string()),
         status: v.optional(v.string()),
@@ -214,7 +201,7 @@ export const recordAutomodEvent = mutationGeneric({
         await requireGuildDocument(ctx, guildId);
 
         if (args.ruleId) {
-            await requireAutomodRuleLegacyId(ctx, args.ruleId);
+            await requireAutomodRule(ctx, parseRuleId(args.ruleId));
         }
 
         const document = unwrap(
@@ -223,18 +210,17 @@ export const recordAutomodEvent = mutationGeneric({
                     ...args,
                     guildId,
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
-        await ctx.db.insert('automodEvents', document);
+        const id = await ctx.db.insert('automodEvents', document);
 
-        return toAutomodEventRecord(document);
+        return toAutomodEventRecord({ ...document, _id: id });
     },
 });
 
-export const updateAutomodEventStatus = mutationGeneric({
+export const updateAutomodEventStatus = mutation({
     args: {
         details: v.optional(v.any()),
         eventId: v.string(),
@@ -243,8 +229,7 @@ export const updateAutomodEventStatus = mutationGeneric({
     returns: v.union(automodEventRecordValidator, v.null()),
     handler: async (ctx: AutomodMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedAutomodServices);
-        const eventId = unwrap(normalizeRequiredEventId(args.eventId));
-        const event = await findAutomodEventByLegacyIdDocument(ctx, eventId);
+        const event = await findAutomodEventByIdDocument(ctx, parseEventId(args.eventId));
 
         if (!event) {
             return null;
@@ -261,7 +246,7 @@ export const updateAutomodEventStatus = mutationGeneric({
     },
 });
 
-export const listAutomodEventsByGuildId = queryGeneric({
+export const listAutomodEventsByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -281,17 +266,16 @@ export const listAutomodEventsByGuildId = queryGeneric({
     },
 });
 
-async function findAutomodRuleByLegacyIdDocument(
+async function findAutomodRuleByIdDocument(
     ctx: AutomodQueryCtx | AutomodMutationCtx,
     input: {
         guildId: string;
-        legacyId: string;
+        ruleId: GenericId<'automodRules'>;
     }
 ): Promise<StoredAutomodRuleDocument | null> {
-    return await ctx.db
-        .query('automodRules')
-        .withIndex('by_guild_legacy', (query) => query.eq('guildId', input.guildId).eq('legacyId', input.legacyId))
-        .unique();
+    const rule = await ctx.db.get(input.ruleId);
+
+    return rule?.guildId === input.guildId ? rule : null;
 }
 
 async function findAutomodRuleByNameDocument(
@@ -307,25 +291,24 @@ async function findAutomodRuleByNameDocument(
         .unique();
 }
 
-async function requireAutomodRuleLegacyId(ctx: AutomodMutationCtx, legacyId: string): Promise<void> {
-    const rule = await ctx.db
-        .query('automodRules')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+async function requireAutomodRule(
+    ctx: AutomodMutationCtx,
+    ruleId: GenericId<'automodRules'>
+): Promise<StoredAutomodRuleDocument> {
+    const rule = await ctx.db.get(ruleId);
 
     if (!rule) {
         throw new Error('automod-rule-not-found');
     }
+
+    return rule;
 }
 
-async function findAutomodEventByLegacyIdDocument(
+async function findAutomodEventByIdDocument(
     ctx: AutomodMutationCtx,
-    legacyId: string
+    eventId: GenericId<'automodEvents'>
 ): Promise<StoredAutomodEventDocument | null> {
-    return await ctx.db
-        .query('automodEvents')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    return await ctx.db.get(eventId);
 }
 
 async function requireGuildDocument(ctx: AutomodMutationCtx, guildId: string): Promise<StoredGuildDocument> {
@@ -339,6 +322,14 @@ async function requireGuildDocument(ctx: AutomodMutationCtx, guildId: string): P
     }
 
     return guild;
+}
+
+function parseRuleId(ruleId: string): GenericId<'automodRules'> {
+    return unwrap(normalizeRequiredRuleId(ruleId)) as GenericId<'automodRules'>;
+}
+
+function parseEventId(eventId: string): GenericId<'automodEvents'> {
+    return unwrap(normalizeRequiredEventId(eventId)) as GenericId<'automodEvents'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

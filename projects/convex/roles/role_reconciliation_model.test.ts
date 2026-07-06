@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildRoleReconciliationActionDocument,
@@ -12,7 +13,8 @@ import {
 } from './role_reconciliation_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
-const createLegacyId = (): string => 'legacy-1';
+const runId = 'run-1' as GenericId<'roleReconciliationRuns'>;
+const actionId = 'action-1' as GenericId<'roleReconciliationActions'>;
 
 describe('role reconciliation model', () => {
     it('builds default enabled settings and preserves timestamps on update', () => {
@@ -28,7 +30,6 @@ describe('role reconciliation model', () => {
             now,
             {
                 createdAt: '2026-07-02T08:00:00.000Z',
-                legacyId: 'settings-1',
             }
         );
 
@@ -54,22 +55,21 @@ describe('role reconciliation model', () => {
         });
     });
 
-    it('builds role reconciliation runs with app-facing legacy IDs', () => {
+    it('builds role reconciliation runs with app-facing Convex IDs', () => {
         const result = buildRoleReconciliationRunDocument(
             {
                 guildId: ' guild-1 ',
                 summary: { userId: 'user-1' },
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toRoleReconciliationRunRecord(result.value)).toStrictEqual({
+        expect(toRoleReconciliationRunRecord({ ...result.value, _id: runId })).toStrictEqual({
             createdAt: now,
             guildId: 'guild-1',
-            id: 'legacy-1',
+            id: runId,
             status: 'pending',
             summary: { userId: 'user-1' },
             updatedAt: now,
@@ -156,26 +156,25 @@ describe('role reconciliation model', () => {
                 runId: ' run-1 ',
                 status: ' applied ',
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toRoleReconciliationActionRecord(result.value)).toStrictEqual({
+        expect(toRoleReconciliationActionRecord({ ...result.value, _id: actionId })).toStrictEqual({
             actionType: 'member.role_restored',
             createdAt: now,
             details: { sources: ['autorole'] },
-            id: 'legacy-1',
+            id: actionId,
             roleId: 'role-1',
-            runId: 'run-1',
+            runId,
             status: 'applied',
             updatedAt: now,
         });
         const { roleId, ...actionWithoutRole } = result.value;
         expect(roleId).toBe('role-1');
 
-        expect(toRoleReconciliationActionRecord(actionWithoutRole).roleId).toBeNull();
+        expect(toRoleReconciliationActionRecord({ ...actionWithoutRole, _id: actionId }).roleId).toBeNull();
     });
 
     it('rejects blank action types', () => {

@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -9,19 +9,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    posting: {
-        deleteMessageTemplate: ConvexMutationReference;
-        listMessageTemplatesByGuildId: ConvexQueryReference;
-        readMessageTemplateByName: ConvexQueryReference;
-        recordPostedMessage: ConvexMutationReference;
-        upsertMessageTemplate: ConvexMutationReference;
-    };
-};
 
 type PostingDb = ConvexDatabase;
 
@@ -65,8 +52,8 @@ export async function upsertMessageTemplate(
     }
 
     try {
-        const template = await db.client.mutation<ConvexMessageTemplateRecord>(
-            convexApi.posting.upsertMessageTemplate,
+        const template = await db.client.mutation(
+            api.posting.upsertMessageTemplate,
             normalizedInput.value
         );
 
@@ -94,8 +81,8 @@ export async function recordPostedMessage(
     }
 
     try {
-        const postedMessage = await db.client.mutation<ConvexPostedMessageRecord>(
-            convexApi.posting.recordPostedMessage,
+        const postedMessage = await db.client.mutation(
+            api.posting.recordPostedMessage,
             normalizedInput.value
         );
 
@@ -116,8 +103,8 @@ export async function listMessageTemplatesByGuildId(
     }
 
     try {
-        const templates = await db.client.query<ConvexMessageTemplateRecord[]>(
-            convexApi.posting.listMessageTemplatesByGuildId,
+        const templates = await db.client.query(
+            api.posting.listMessageTemplatesByGuildId,
             {
                 guildId: guildId.value,
                 limit: normalizeTemplateLimit(input.limit),
@@ -141,8 +128,8 @@ export async function findMessageTemplateByName(
     if (name.isErr()) return err(name.error);
 
     try {
-        const template = await db.client.query<ConvexMessageTemplateRecord | null>(
-            convexApi.posting.readMessageTemplateByName,
+        const template = await db.client.query(
+            api.posting.readMessageTemplateByName,
             {
                 guildId: guildId.value,
                 name: name.value,
@@ -166,8 +153,8 @@ export async function deleteMessageTemplate(
     if (templateId.isErr()) return err(templateId.error);
 
     try {
-        const template = await db.client.mutation<ConvexMessageTemplateRecord | null>(
-            convexApi.posting.deleteMessageTemplate,
+        const template = await db.client.mutation(
+            api.posting.deleteMessageTemplate,
             {
                 guildId: guildId.value,
                 templateId: templateId.value,

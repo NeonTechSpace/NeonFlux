@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildVerificationFlowDocument,
@@ -9,7 +10,8 @@ import {
 } from './verification_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
-const createLegacyId = (): string => 'legacy-1';
+const flowId = 'flow-1' as GenericId<'verificationFlows'>;
+const recordId = 'record-1' as GenericId<'verificationRecords'>;
 
 describe('verification model', () => {
     it('builds verification flows with defaults and app-facing IDs', () => {
@@ -21,9 +23,7 @@ describe('verification model', () => {
                 messageId: ' message-1 ',
                 verifiedRoleId: ' role-1 ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
@@ -34,11 +34,10 @@ describe('verification model', () => {
             emojiKey: 'unicode:check',
             enabled: true,
             guildId: 'guild-1',
-            legacyId: 'legacy-1',
             messageId: 'message-1',
             verifiedRoleId: 'role-1',
         });
-        expect(toVerificationFlowRecord(result.value).id).toBe('legacy-1');
+        expect(toVerificationFlowRecord({ ...result.value, _id: flowId }).id).toBe(flowId);
     });
 
     it('preserves verification flow identity and created timestamp on update', () => {
@@ -55,7 +54,6 @@ describe('verification model', () => {
             now,
             {
                 createdAt: '2026-07-02T08:00:00.000Z',
-                legacyId: 'flow-1',
             }
         );
 
@@ -65,7 +63,6 @@ describe('verification model', () => {
         expect(result.value).toMatchObject({
             createdAt: '2026-07-02T08:00:00.000Z',
             enabled: false,
-            legacyId: 'flow-1',
             updatedAt: '2026-07-03T09:00:00.000Z',
         });
     });
@@ -95,17 +92,15 @@ describe('verification model', () => {
                 method: ' reaction ',
                 userId: ' user-1 ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
 
-        expect(toVerificationRecord(result.value)).toStrictEqual({
+        expect(toVerificationRecord({ ...result.value, _id: recordId })).toStrictEqual({
             guildId: 'guild-1',
-            id: 'legacy-1',
+            id: recordId,
             method: 'reaction',
             revokedAt: null,
             userId: 'user-1',
@@ -120,13 +115,11 @@ describe('verification model', () => {
                 method: 'reaction',
                 userId: 'user-1',
             },
-            now,
-            { legacyId: 'record-1' }
+            now
         );
 
         expect(reactivated.ok).toBe(true);
         if (!reactivated.ok) return;
-        expect(reactivated.value.legacyId).toBe('record-1');
         expect(reactivated.value.revokedAt).toBeUndefined();
         expect(buildVerificationRecordRevokePatch('bad-date')).toStrictEqual({
             error: { field: 'revokedAt', type: 'invalid-value' },

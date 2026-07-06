@@ -39,8 +39,6 @@ type AutomodEnforcementResult =
     | { status: 'enforcement_failed'; details: Record<string, unknown> }
     | { status: 'skipped'; details: Record<string, unknown> };
 
-const inviteLinkPattern = /(?:https?:\/\/)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/[a-z0-9-]+/giu;
-
 export async function routeAutomodMessageEvent(
     context: BotFeatureHandlerContext,
     event: BotMessageCreatedEvent
@@ -222,13 +220,7 @@ async function enforceAutomodAction(
 }
 
 function evaluateRule(rule: AutomodRuleRecord, content: string): AutomodMatch | undefined {
-    switch (rule.triggerType) {
-        case 'blocked_terms':
-            return evaluateBlockedTermsRule(rule, content);
-
-        case 'invite_links':
-            return evaluateInviteLinksRule(rule, content);
-    }
+    return evaluateBlockedTermsRule(rule, content);
 }
 
 function isRuleIgnoredForEvent(rule: AutomodRuleRecord, event: BotMessageCreatedEvent): boolean {
@@ -260,21 +252,6 @@ function evaluateBlockedTermsRule(rule: AutomodRuleRecord, content: string): Aut
         details: {
             matchedTermCount: matchedTerms.length,
             matchedTerms,
-        },
-    };
-}
-
-function evaluateInviteLinksRule(rule: AutomodRuleRecord, content: string): AutomodMatch | undefined {
-    const matches = content.match(inviteLinkPattern) ?? [];
-
-    if (matches.length === 0) {
-        return undefined;
-    }
-
-    return {
-        rule,
-        details: {
-            inviteLinkCount: matches.length,
         },
     };
 }

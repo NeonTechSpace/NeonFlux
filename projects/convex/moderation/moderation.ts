@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -21,11 +14,9 @@ import {
     type ModerationCaseDocument,
     type ModerationCaseEventDocument,
 } from './moderation_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type ModerationQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type ModerationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type ModerationQueryCtx = QueryCtx;
+type ModerationMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredModerationCaseDocument = ModerationCaseDocument & { _id: GenericId<'moderationCases'> };
@@ -55,14 +46,13 @@ const moderationCaseEventRecordValidator = v.object({
     eventType: v.string(),
     id: v.string(),
 });
-export const createModerationCase = mutationGeneric({
+export const createModerationCase = mutation({
     args: {
         action: v.string(),
         actorUserId: v.optional(v.string()),
         caseNumber: v.optional(v.number()),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         reason: v.optional(v.string()),
         status: v.optional(v.string()),
         targetUserId: v.string(),
@@ -91,24 +81,22 @@ export const createModerationCase = mutationGeneric({
                     guildId,
                     targetType: 'user',
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
-        await ctx.db.insert('moderationCases', document);
+        const id = await ctx.db.insert('moderationCases', document);
 
-        return toModerationCaseRecord(document);
+        return toModerationCaseRecord({ ...document, _id: id });
     },
 });
 
-export const createChannelModerationCase = mutationGeneric({
+export const createChannelModerationCase = mutation({
     args: {
         action: v.string(),
         actorUserId: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         reason: v.optional(v.string()),
         targetChannelId: v.string(),
         updatedAt: v.optional(v.string()),
@@ -129,25 +117,23 @@ export const createChannelModerationCase = mutationGeneric({
                     guildId,
                     targetType: 'channel',
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
-        await ctx.db.insert('moderationCases', document);
+        const id = await ctx.db.insert('moderationCases', document);
 
-        return toModerationCaseRecord(document);
+        return toModerationCaseRecord({ ...document, _id: id });
     },
 });
 
-export const createObservedModerationCase = mutationGeneric({
+export const createObservedModerationCase = mutation({
     args: {
         action: v.string(),
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
         eventType: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         targetUserId: v.string(),
         updatedAt: v.optional(v.string()),
     },
@@ -169,24 +155,23 @@ export const createObservedModerationCase = mutationGeneric({
                     status: 'resolved',
                     targetType: 'user',
                 },
-                now,
-                () => crypto.randomUUID()
+                now
             )
         );
 
         const details = normalizeOptionalRecord(args.details);
-        await ctx.db.insert('moderationCases', document);
+        const id = await ctx.db.insert('moderationCases', document);
         await insertModerationCaseEvent(ctx, {
-            caseId: document.legacyId,
+            caseId: id,
             ...(details === undefined ? {} : { details }),
             eventType: args.eventType,
         });
 
-        return toModerationCaseRecord(document);
+        return toModerationCaseRecord({ ...document, _id: id });
     },
 });
 
-export const findModerationCaseByGuildCaseNumber = queryGeneric({
+export const findModerationCaseByGuildCaseNumber = query({
     args: { caseNumber: v.number(), guildId: v.string() },
     returns: v.union(moderationCaseRecordValidator, v.null()),
     handler: async (ctx: ModerationQueryCtx, args) => {
@@ -198,7 +183,7 @@ export const findModerationCaseByGuildCaseNumber = queryGeneric({
     },
 });
 
-export const listModerationCasesByGuildId = queryGeneric({
+export const listModerationCasesByGuildId = query({
     args: {
         action: v.optional(v.string()),
         guildId: v.string(),
@@ -218,13 +203,13 @@ export const listModerationCasesByGuildId = queryGeneric({
                 query.and(
                     args.targetUserId
                         ? query.eq(query.field('targetUserId'), args.targetUserId.trim())
-                        : query.neq(query.field('legacyId'), ''),
+                        : query.neq(query.field('createdAt'), ''),
                     args.action
                         ? query.eq(query.field('action'), args.action.trim())
-                        : query.neq(query.field('legacyId'), ''),
+                        : query.neq(query.field('createdAt'), ''),
                     args.status
                         ? query.eq(query.field('status'), args.status.trim())
-                        : query.neq(query.field('legacyId'), '')
+                        : query.neq(query.field('createdAt'), '')
                 )
             )
             .order('desc')
@@ -234,7 +219,7 @@ export const listModerationCasesByGuildId = queryGeneric({
     },
 });
 
-export const findRecentModerationCaseByTargetAction = queryGeneric({
+export const findRecentModerationCaseByTargetAction = query({
     args: {
         action: v.string(),
         guildId: v.string(),
@@ -260,7 +245,7 @@ export const findRecentModerationCaseByTargetAction = queryGeneric({
             .filter((query) =>
                 statuses.size > 0
                     ? query.or(...[...statuses].map((status) => query.eq(query.field('status'), status)))
-                    : query.neq(query.field('legacyId'), '')
+                    : query.neq(query.field('createdAt'), '')
             )
             .order('desc')
             .take(1);
@@ -269,14 +254,13 @@ export const findRecentModerationCaseByTargetAction = queryGeneric({
     },
 });
 
-export const recordModerationCaseEvent = mutationGeneric({
+export const recordModerationCaseEvent = mutation({
     args: {
         actorUserId: v.optional(v.string()),
         caseId: v.string(),
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
         eventType: v.string(),
-        legacyId: v.optional(v.string()),
     },
     returns: moderationCaseEventRecordValidator,
     handler: async (ctx: ModerationMutationCtx, args) => {
@@ -291,20 +275,20 @@ export const recordModerationCaseEvent = mutationGeneric({
     },
 });
 
-export const listModerationCaseEventsByCaseId = queryGeneric({
+export const listModerationCaseEventsByCaseId = query({
     args: { caseId: v.string(), eventType: v.optional(v.string()), limit: v.optional(v.number()) },
     returns: v.array(moderationCaseEventRecordValidator),
     handler: async (ctx: ModerationQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const caseId = unwrap(normalizeRequiredCaseId(args.caseId));
+        const caseId = parseModerationCaseId(args.caseId);
         const limit = normalizeModerationListLimit(args.limit, 10, 25);
         const events = await ctx.db
             .query('moderationCaseEvents')
-            .withIndex('by_case_created', (query) => query.eq('caseLegacyId', caseId))
+            .withIndex('by_case_created', (query) => query.eq('caseId', caseId))
             .filter((query) =>
                 args.eventType
                     ? query.eq(query.field('eventType'), args.eventType.trim())
-                    : query.neq(query.field('legacyId'), '')
+                    : query.neq(query.field('createdAt'), '')
             )
             .order('desc')
             .take(limit);
@@ -313,12 +297,12 @@ export const listModerationCaseEventsByCaseId = queryGeneric({
     },
 });
 
-export const updateModerationCaseStatus = mutationGeneric({
+export const updateModerationCaseStatus = mutation({
     args: { caseId: v.string(), status: v.string() },
     returns: v.union(moderationCaseRecordValidator, v.null()),
     handler: async (ctx: ModerationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const moderationCase = await findCaseByLegacyId(ctx, unwrap(normalizeRequiredCaseId(args.caseId)));
+        const moderationCase = await findCaseById(ctx, parseModerationCaseId(args.caseId));
 
         if (!moderationCase) return null;
 
@@ -330,12 +314,12 @@ export const updateModerationCaseStatus = mutationGeneric({
     },
 });
 
-export const updateModerationCaseReason = mutationGeneric({
+export const updateModerationCaseReason = mutation({
     args: { actorUserId: v.optional(v.string()), caseId: v.string(), reason: v.string() },
     returns: v.union(moderationCaseRecordValidator, v.null()),
     handler: async (ctx: ModerationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const moderationCase = await findCaseByLegacyId(ctx, unwrap(normalizeRequiredCaseId(args.caseId)));
+        const moderationCase = await findCaseById(ctx, parseModerationCaseId(args.caseId));
 
         if (!moderationCase) return null;
 
@@ -346,7 +330,7 @@ export const updateModerationCaseReason = mutationGeneric({
 
         await ctx.db.patch(moderationCase._id, patch);
         await insertModerationCaseEvent(ctx, {
-            caseId: moderationCase.legacyId,
+            caseId: moderationCase._id,
             details: { reason },
             eventType: 'reason.updated',
             ...(args.actorUserId ? { actorUserId: args.actorUserId } : {}),
@@ -356,12 +340,12 @@ export const updateModerationCaseReason = mutationGeneric({
     },
 });
 
-export const voidModerationCase = mutationGeneric({
+export const voidModerationCase = mutation({
     args: { actorUserId: v.optional(v.string()), caseId: v.string(), reason: v.optional(v.string()) },
     returns: v.union(moderationCaseRecordValidator, v.null()),
     handler: async (ctx: ModerationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedModerationServices);
-        const moderationCase = await findCaseByLegacyId(ctx, unwrap(normalizeRequiredCaseId(args.caseId)));
+        const moderationCase = await findCaseById(ctx, parseModerationCaseId(args.caseId));
 
         if (!moderationCase) return null;
 
@@ -369,7 +353,7 @@ export const voidModerationCase = mutationGeneric({
 
         await ctx.db.patch(moderationCase._id, patch);
         await insertModerationCaseEvent(ctx, {
-            caseId: moderationCase.legacyId,
+            caseId: moderationCase._id,
             details: { ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}) },
             eventType: 'case.voided',
             ...(args.actorUserId ? { actorUserId: args.actorUserId } : {}),
@@ -379,7 +363,7 @@ export const voidModerationCase = mutationGeneric({
     },
 });
 
-export const addModerationCaseNote = mutationGeneric({
+export const addModerationCaseNote = mutation({
     args: { actorUserId: v.optional(v.string()), caseId: v.string(), note: v.string() },
     returns: moderationCaseEventRecordValidator,
     handler: async (ctx: ModerationMutationCtx, args) => {
@@ -407,12 +391,11 @@ async function insertModerationCaseEvent(
         createdAt?: string;
         details?: Record<string, unknown> | null;
         eventType: string;
-        legacyId?: string;
     }
 ): Promise<StoredModerationCaseEventDocument> {
-    const caseId = unwrap(normalizeRequiredCaseId(input.caseId));
+    const caseId = parseModerationCaseId(input.caseId);
 
-    await requireModerationCaseLegacyId(ctx, caseId);
+    await requireModerationCase(ctx, caseId);
 
     const document = unwrap(buildModerationCaseEventDocument(input, new Date().toISOString()));
     const id = await ctx.db.insert('moderationCaseEvents', document);
@@ -490,27 +473,28 @@ async function findCaseByGuildCaseNumber(
         .unique();
 }
 
-async function findCaseByLegacyId(
+async function findCaseById(
     ctx: ModerationQueryCtx | ModerationMutationCtx,
-    legacyId: string
+    caseId: GenericId<'moderationCases'>
 ): Promise<StoredModerationCaseDocument | null> {
-    return await ctx.db
-        .query('moderationCases')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    return await ctx.db.get(caseId);
 }
 
-async function requireModerationCaseLegacyId(
+async function requireModerationCase(
     ctx: ModerationQueryCtx | ModerationMutationCtx,
-    legacyId: string
+    caseId: GenericId<'moderationCases'>
 ): Promise<StoredModerationCaseDocument> {
-    const moderationCase = await findCaseByLegacyId(ctx, legacyId);
+    const moderationCase = await findCaseById(ctx, caseId);
 
     if (!moderationCase) {
         throw new Error('moderation-case-not-found');
     }
 
     return moderationCase;
+}
+
+function parseModerationCaseId(caseId: string): GenericId<'moderationCases'> {
+    return unwrap(normalizeRequiredCaseId(caseId)) as GenericId<'moderationCases'>;
 }
 
 async function findCaseCounterByGuildId(

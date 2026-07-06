@@ -17,7 +17,6 @@ export type BotActionEventInput = {
     createdAt?: string | null;
     feature?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     metadata?: unknown;
     targetId?: string | null;
 };
@@ -28,7 +27,6 @@ export type BotActionEventDocument = {
     createdAt: string;
     feature: string;
     guildId?: string;
-    legacyId: string;
     metadata: Record<string, unknown>;
     targetId?: string;
 };
@@ -58,8 +56,7 @@ export type EventInputResult<Value, ErrorValue extends string> =
 
 export function buildBotActionEventDocument(
     input: BotActionEventInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): EventInputResult<BotActionEventDocument, BotActionEventInputError> {
     const feature = normalizeOptionalString(input.feature);
     const action = normalizeOptionalString(input.action);
@@ -85,7 +82,6 @@ export function buildBotActionEventDocument(
     const guildId = normalizeOptionalString(input.guildId);
     const actorUserId = normalizeOptionalString(input.actorUserId);
     const targetId = normalizeOptionalString(input.targetId);
-    const legacyId = normalizeOptionalString(input.legacyId) ?? createLegacyId();
 
     return {
         ok: true,
@@ -96,7 +92,6 @@ export function buildBotActionEventDocument(
             action,
             createdAt,
             feature,
-            legacyId,
             metadata: metadata.value,
         },
     };
@@ -175,14 +170,14 @@ export function botActionEventMatchesSearch(
     return search.tokens.every((token) => normalizedFields.some((field) => field.includes(token)));
 }
 
-export function toBotActionEventRecord(document: BotActionEventDocument): BotActionEventRecord {
+export function toBotActionEventRecord(document: BotActionEventDocument & { _id: string }): BotActionEventRecord {
     return {
         action: document.action,
         actorUserId: document.actorUserId ?? null,
         createdAt: document.createdAt,
         feature: document.feature,
         guildId: document.guildId ?? null,
-        id: document.legacyId,
+        id: document._id,
         metadata: document.metadata,
         targetId: document.targetId ?? null,
     };

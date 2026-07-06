@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildCommandPermissionRuleDocument,
@@ -10,6 +11,8 @@ import {
     toDashboardPermissionRuleRecord,
 } from './access_permissions_model.js';
 
+const commandRuleId = 'rule-1' as GenericId<'guildCommandPermissionRules'>;
+
 describe('access permission model', () => {
     it('normalizes command permission rules to the app-facing contract', () => {
         const document = buildCommandPermissionRuleDocument(
@@ -20,9 +23,7 @@ describe('access permission model', () => {
                 targetType: 'category',
                 userIds: [' user-1 '],
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'rule-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -30,7 +31,6 @@ describe('access permission model', () => {
             value: {
                 createdAt: '2026-07-03T08:00:00.000Z',
                 guildId: 'guild-1',
-                legacyId: 'rule-1',
                 roleIds: ['role-1'],
                 targetId: 'settings',
                 targetType: 'category',
@@ -43,10 +43,10 @@ describe('access permission model', () => {
             throw new Error('Expected command permission rule document.');
         }
 
-        expect(toCommandPermissionRuleRecord(document.value)).toEqual({
+        expect(toCommandPermissionRuleRecord({ ...document.value, _id: commandRuleId })).toEqual({
             createdAt: '2026-07-03T08:00:00.000Z',
             guildId: 'guild-1',
-            id: 'rule-1',
+            id: commandRuleId,
             roleIds: ['role-1'],
             targetId: 'settings',
             targetType: 'category',
@@ -55,7 +55,7 @@ describe('access permission model', () => {
         });
     });
 
-    it('preserves command rule legacy identity and created timestamp on update', () => {
+    it('preserves command rule created timestamp on update', () => {
         expect(
             buildCommandPermissionRuleDocument(
                 {
@@ -67,7 +67,6 @@ describe('access permission model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-rule',
                 }
             )
         ).toEqual({
@@ -75,7 +74,6 @@ describe('access permission model', () => {
             value: {
                 createdAt: '2026-07-02T08:00:00.000Z',
                 guildId: 'guild-1',
-                legacyId: 'existing-rule',
                 roleIds: ['role-2'],
                 targetId: 'settings.prefix',
                 targetType: 'command',

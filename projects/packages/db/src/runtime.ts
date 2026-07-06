@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -16,45 +16,12 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    core: {
-        deleteBotInstallation: ConvexMutationReference;
-        listBotInstallationGuildIdsPage: ConvexQueryReference;
-        readDeploymentConfig: ConvexQueryReference;
-        upsertDeploymentConfig: ConvexMutationReference;
-        upsertBotInstallation: ConvexMutationReference;
-    };
-    events: {
-        listBotActionEventPageByGuildId: ConvexQueryReference;
-        listBotActionEventsByGuildId: ConvexQueryReference;
-        recordBotActionEvent: ConvexMutationReference;
-    };
-    security_policies: {
-        listGuildSecurityPoliciesByGuildIds: ConvexQueryReference;
-    };
-};
+import { compactConvexArgs } from './convex-args.js';
 
 type DeploymentConfigDb = ConvexDatabase;
 type BotInstallationDb = ConvexDatabase;
 type SecurityPolicyDb = ConvexDatabase;
 type BotActionEventDb = ConvexDatabase;
-
-type ConvexDeploymentConfigRecord =
-    | {
-          instanceMode: 'single';
-          ownerIds: string[];
-          publicWebUrl: string | null;
-          singleGuildId: string;
-      }
-    | {
-          instanceMode: 'multi';
-          ownerIds: string[];
-          publicWebUrl: string | null;
-      };
 
 type ConvexBotInstallationRecord = {
     guildId: string;
@@ -80,19 +47,11 @@ type ConvexBotActionEventRecord = {
     targetId: string | null;
 };
 
-type ConvexBotActionEventPage = {
-    nextCursor?: { createdAt: string; id: string };
-    records: ConvexBotActionEventRecord[];
-};
-
 export async function findDeploymentConfig(
     db: DeploymentConfigDb
 ): Promise<Result<DeploymentConfigRecord, DeploymentConfigRepositoryError>> {
     try {
-        const config = await db.client.query<ConvexDeploymentConfigRecord | null>(
-            convexApi.core.readDeploymentConfig,
-            {}
-        );
+        const config = await db.client.query(api.core.readDeploymentConfig, {});
 
         return config ? ok(config) : err('not-found');
     } catch {
@@ -109,10 +68,7 @@ export async function upsertDeploymentConfig(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const config = await db.client.mutation<ConvexDeploymentConfigRecord>(
-            convexApi.core.upsertDeploymentConfig,
-            normalizedInput.value
-        );
+        const config = await db.client.mutation(api.core.upsertDeploymentConfig, normalizedInput.value);
 
         return ok(config);
     } catch {
@@ -125,10 +81,7 @@ export async function upsertBotInstallation(
     input: { guildId: string }
 ): Promise<Result<BotInstallationRecord, BotInstallationRepositoryError>> {
     try {
-        const installation = await db.client.mutation<ConvexBotInstallationRecord>(
-            convexApi.core.upsertBotInstallation,
-            input
-        );
+        const installation = await db.client.mutation(api.core.upsertBotInstallation, input);
 
         return ok(toBotInstallationRecord(installation));
     } catch (error) {
@@ -144,13 +97,10 @@ export async function listBotInstallationGuildIds(
         let afterGuildId: string | undefined;
 
         do {
-            const page = await db.client.query<{ guildIds: string[]; nextCursor?: string }>(
-                convexApi.core.listBotInstallationGuildIdsPage,
-                {
-                    ...(afterGuildId ? { afterGuildId } : {}),
-                    limit: 500,
-                }
-            );
+            const page = await db.client.query(api.core.listBotInstallationGuildIdsPage, {
+                ...(afterGuildId ? { afterGuildId } : {}),
+                limit: 500,
+            });
 
             guildIds.push(...page.guildIds);
             afterGuildId = page.nextCursor;
@@ -167,10 +117,7 @@ export async function deleteBotInstallation(
     input: { guildId: string }
 ): Promise<Result<BotInstallationRecord, BotInstallationRepositoryError>> {
     try {
-        const installation = await db.client.mutation<ConvexBotInstallationRecord | null>(
-            convexApi.core.deleteBotInstallation,
-            input
-        );
+        const installation = await db.client.mutation(api.core.deleteBotInstallation, input);
 
         return installation ? ok(toBotInstallationRecord(installation)) : err('not-found');
     } catch (error) {
@@ -183,12 +130,9 @@ export async function listGuildSecurityPoliciesByGuildIds(
     input: { guildIds: readonly string[] }
 ): Promise<Result<GuildSecurityPolicyRecord[], GuildSecurityPolicyRepositoryError>> {
     try {
-        const policies = await db.client.query<ConvexGuildSecurityPolicyRecord[]>(
-            convexApi.security_policies.listGuildSecurityPoliciesByGuildIds,
-            {
-                guildIds: [...input.guildIds],
-            }
-        );
+        const policies = await db.client.query(api.security_policies.listGuildSecurityPoliciesByGuildIds, {
+            guildIds: [...input.guildIds],
+        });
 
         return ok(policies.map(toGuildSecurityPolicyRecord));
     } catch {
@@ -208,10 +152,7 @@ export async function recordBotActionEvent(
     }
 ): Promise<Result<BotActionEventRecord, LoggingRepositoryError>> {
     try {
-        const event = await db.client.mutation<ConvexBotActionEventRecord>(
-            convexApi.events.recordBotActionEvent,
-            input
-        );
+        const event = await db.client.mutation(api.events.recordBotActionEvent, input);
 
         return ok(toBotActionEventRecord(event));
     } catch {
@@ -224,10 +165,7 @@ export async function listBotActionEventsByGuildId(
     input: { feature?: string; guildId: string; limit?: number }
 ): Promise<Result<BotActionEventRecord[], LoggingRepositoryError>> {
     try {
-        const events = await db.client.query<ConvexBotActionEventRecord[]>(
-            convexApi.events.listBotActionEventsByGuildId,
-            input
-        );
+        const events = await db.client.query(api.events.listBotActionEventsByGuildId, input);
 
         return ok(events.map(toBotActionEventRecord));
     } catch {
@@ -248,10 +186,18 @@ export async function listBotActionEventPageByGuildId(
     }
 ): Promise<Result<BotActionEventPage, LoggingRepositoryError>> {
     try {
-        const page = await db.client.query<ConvexBotActionEventPage>(convexApi.events.listBotActionEventPageByGuildId, {
-            ...input,
-            ...(input.cursor ? { cursor: toConvexBotActionEventCursor(input.cursor) } : {}),
-        });
+        const page = await db.client.query(
+            api.events.listBotActionEventPageByGuildId,
+            compactConvexArgs({
+                cursor: input.cursor ? toConvexBotActionEventCursor(input.cursor) : undefined,
+                feature: input.feature,
+                guildId: input.guildId,
+                limit: input.limit,
+                search: input.search,
+                searchOffsetMinutes: input.searchOffsetMinutes,
+                searchScope: input.searchScope,
+            })
+        );
 
         return ok({
             ...(page.nextCursor ? { nextCursor: toBotActionEventCursor(page.nextCursor) } : {}),
@@ -306,9 +252,7 @@ function toBotActionEventCursor(cursor: { createdAt: string; id: string }): BotA
     };
 }
 
-function normalizeDeploymentConfigInput(
-    input: DeploymentConfigInput
-): Result<Record<string, unknown>, DeploymentConfigRepositoryError> {
+function normalizeDeploymentConfigInput(input: DeploymentConfigInput) {
     const instanceMode = input.instanceMode?.trim();
     const publicWebUrl = normalizeOptionalText(input.publicWebUrl);
     const ownerIds = input.ownerIds?.map((ownerId) => ownerId.trim()).filter((ownerId) => ownerId.length > 0) ?? [];

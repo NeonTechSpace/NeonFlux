@@ -282,8 +282,7 @@ vi.mock('../../server/dashboard-posting-templates-route-data.js', async (importA
 const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
-const botInviteUrl =
-    'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8';
+const botInviteUrl = 'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8';
 let renderedViews: Array<ReturnType<typeof render>> = [];
 let documentVisibilityState = 'visible';
 

@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type VcGeneratorRuleInput = {
     categoryId?: string | null;
     config?: Record<string, unknown> | null;
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     nameTemplate?: string | null;
     sourceChannelId?: string | null;
     updatedAt?: string | null;
@@ -16,7 +17,6 @@ export type VcGeneratorRuleDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     nameTemplate: string;
     sourceChannelId: string;
     updatedAt: string;
@@ -27,7 +27,6 @@ export type GeneratedVoiceChannelInput = {
     createdAt?: string | null;
     guildId?: string | null;
     lastSeenAt?: string | null;
-    legacyId?: string | null;
     ownerUserId?: string | null;
     ruleId?: string | null;
     status?: string | null;
@@ -39,9 +38,8 @@ export type GeneratedVoiceChannelDocument = {
     createdAt: string;
     guildId: string;
     lastSeenAt: string;
-    legacyId: string;
     ownerUserId?: string;
-    ruleLegacyId?: string;
+    ruleId?: GenericId<'vcGeneratorRules'>;
     status: string;
     updatedAt: string;
 };
@@ -53,7 +51,6 @@ export type VcGeneratorControlPanelInput = {
     createdAt?: string | null;
     guildId?: string | null;
     lastSyncedAt?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     ruleId?: string | null;
     staleAt?: string | null;
@@ -69,9 +66,8 @@ export type VcGeneratorControlPanelDocument = {
     createdAt: string;
     guildId: string;
     lastSyncedAt?: string;
-    legacyId: string;
     messageId?: string;
-    ruleLegacyId: string;
+    ruleId: GenericId<'vcGeneratorRules'>;
     staleAt?: string;
     status: string;
     updatedAt: string;
@@ -85,7 +81,6 @@ export type VcGeneratorControlRequestInput = {
     expiresAt?: string | null;
     generatedChannelId?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     panelChannelId?: string | null;
     promptMessageId?: string | null;
     requesterUserId?: string | null;
@@ -101,9 +96,8 @@ export type VcGeneratorControlRequestDocument = {
     createdAt: string;
     errorMessage?: string;
     expiresAt: string;
-    generatedChannelLegacyId: string;
+    generatedChannelId: GenericId<'generatedVoiceChannels'>;
     guildId: string;
-    legacyId: string;
     panelChannelId: string;
     promptMessageId?: string;
     requesterUserId: string;
@@ -196,8 +190,7 @@ const controlRequestStatuses = new Set<VcGeneratorControlRequestStatus>([
 export function buildVcGeneratorRuleDocument(
     input: VcGeneratorRuleInput,
     now: string,
-    existing?: Pick<VcGeneratorRuleDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<VcGeneratorRuleDocument, 'createdAt'>
 ): VcGeneratorInputResult<VcGeneratorRuleDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const sourceChannelId = normalizeRequiredString(input.sourceChannelId, 'sourceChannelId');
@@ -224,7 +217,6 @@ export function buildVcGeneratorRuleDocument(
             createdAt,
             enabled: input.enabled ?? true,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             nameTemplate: nameTemplate.value,
             sourceChannelId: sourceChannelId.value,
             updatedAt,
@@ -235,8 +227,7 @@ export function buildVcGeneratorRuleDocument(
 export function buildGeneratedVoiceChannelDocument(
     input: GeneratedVoiceChannelInput,
     now: string,
-    existing?: Pick<GeneratedVoiceChannelDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<GeneratedVoiceChannelDocument, 'createdAt'>
 ): VcGeneratorInputResult<GeneratedVoiceChannelDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -254,7 +245,7 @@ export function buildGeneratedVoiceChannelDocument(
     if (!lastSeenAt) return { error: { field: 'lastSeenAt', type: 'invalid-value' }, ok: false };
 
     const ownerUserId = normalizeOptionalString(input.ownerUserId);
-    const ruleLegacyId = normalizeOptionalString(input.ruleId);
+    const ruleId = normalizeOptionalString(input.ruleId);
 
     return {
         ok: true,
@@ -263,9 +254,8 @@ export function buildGeneratedVoiceChannelDocument(
             createdAt,
             guildId: guildId.value,
             lastSeenAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(ownerUserId ? { ownerUserId } : {}),
-            ...(ruleLegacyId ? { ruleLegacyId } : {}),
+            ...(ruleId ? { ruleId: ruleId as GenericId<'vcGeneratorRules'> } : {}),
             status: status.value,
             updatedAt,
         },
@@ -275,8 +265,7 @@ export function buildGeneratedVoiceChannelDocument(
 export function buildVcGeneratorControlPanelDocument(
     input: VcGeneratorControlPanelInput,
     now: string,
-    existing?: Pick<VcGeneratorControlPanelDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<VcGeneratorControlPanelDocument, 'createdAt'>
 ): VcGeneratorInputResult<VcGeneratorControlPanelDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const ruleId = normalizeRequiredString(input.ruleId, 'ruleId');
@@ -322,9 +311,8 @@ export function buildVcGeneratorControlPanelDocument(
             createdAt,
             guildId: guildId.value,
             ...(input.synced ? { lastSyncedAt: updatedAt } : syncedAt ? { lastSyncedAt: syncedAt } : {}),
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(messageId ? { messageId } : {}),
-            ruleLegacyId: ruleId.value,
+            ruleId: ruleId.value as GenericId<'vcGeneratorRules'>,
             ...(staleAt ? { staleAt } : {}),
             status: status.value,
             updatedAt,
@@ -334,8 +322,7 @@ export function buildVcGeneratorControlPanelDocument(
 
 export function buildVcGeneratorControlRequestDocument(
     input: VcGeneratorControlRequestInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): VcGeneratorInputResult<VcGeneratorControlRequestDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const generatedChannelId = normalizeRequiredString(input.generatedChannelId, 'generatedChannelId');
@@ -376,9 +363,8 @@ export function buildVcGeneratorControlRequestDocument(
             createdAt,
             ...(errorMessage ? { errorMessage } : {}),
             expiresAt,
-            generatedChannelLegacyId: generatedChannelId.value,
+            generatedChannelId: generatedChannelId.value as GenericId<'generatedVoiceChannels'>,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             panelChannelId: panelChannelId.value,
             ...(promptMessageId ? { promptMessageId } : {}),
             requesterUserId: requesterUserId.value,
@@ -399,26 +385,28 @@ export function normalizeRequiredLimit(limit: number | undefined, fallback = 100
     return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }
 
-export function toVcGeneratorRuleRecord(document: VcGeneratorRuleDocument): VcGeneratorRuleRecord {
-    return { ...document, categoryId: document.categoryId ?? null, id: document.legacyId };
+export function toVcGeneratorRuleRecord(document: VcGeneratorRuleDocument & { _id: string }): VcGeneratorRuleRecord {
+    return { ...document, categoryId: document.categoryId ?? null, id: document._id };
 }
 
-export function toGeneratedVoiceChannelRecord(document: GeneratedVoiceChannelDocument): GeneratedVoiceChannelRecord {
+export function toGeneratedVoiceChannelRecord(
+    document: GeneratedVoiceChannelDocument & { _id: string }
+): GeneratedVoiceChannelRecord {
     return {
         channelId: document.channelId,
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         lastSeenAt: document.lastSeenAt,
         ownerUserId: document.ownerUserId ?? null,
-        ruleId: document.ruleLegacyId ?? null,
+        ruleId: document.ruleId ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
     };
 }
 
 export function toVcGeneratorControlPanelRecord(
-    document: VcGeneratorControlPanelDocument
+    document: VcGeneratorControlPanelDocument & { _id: string }
 ): VcGeneratorControlPanelRecord {
     return {
         channelId: document.channelId,
@@ -426,10 +414,10 @@ export function toVcGeneratorControlPanelRecord(
         controlMode: document.controlMode,
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         lastSyncedAt: document.lastSyncedAt ?? null,
         messageId: document.messageId ?? null,
-        ruleId: document.ruleLegacyId,
+        ruleId: document.ruleId,
         staleAt: document.staleAt ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
@@ -437,7 +425,7 @@ export function toVcGeneratorControlPanelRecord(
 }
 
 export function toVcGeneratorControlRequestRecord(
-    document: VcGeneratorControlRequestDocument
+    document: VcGeneratorControlRequestDocument & { _id: string }
 ): VcGeneratorControlRequestRecord {
     return {
         completedAt: document.completedAt ?? null,
@@ -445,9 +433,9 @@ export function toVcGeneratorControlRequestRecord(
         createdAt: document.createdAt,
         errorMessage: document.errorMessage ?? null,
         expiresAt: document.expiresAt,
-        generatedChannelId: document.generatedChannelLegacyId,
+        generatedChannelId: document.generatedChannelId,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         panelChannelId: document.panelChannelId,
         promptMessageId: document.promptMessageId ?? null,
         requesterUserId: document.requesterUserId,

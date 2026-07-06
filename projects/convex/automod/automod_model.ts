@@ -1,4 +1,6 @@
-export const automodTriggerTypes = ['blocked_terms', 'invite_links'] as const;
+import type { GenericId } from 'convex/values';
+
+export const automodTriggerTypes = ['blocked_terms'] as const;
 export type AutomodTriggerType = (typeof automodTriggerTypes)[number];
 
 export const automodActionTypes = ['record', 'delete_message', 'timeout', 'warn'] as const;
@@ -18,7 +20,6 @@ export type AutomodRuleInput = {
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     name?: string | null;
     ruleId?: string | null;
     triggerType?: string | null;
@@ -31,7 +32,6 @@ export type AutomodRuleDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     name: string;
     triggerType: AutomodTriggerType;
     updatedAt: string;
@@ -56,7 +56,6 @@ export type AutomodEventInput = {
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     ruleId?: string | null;
     status?: string | null;
@@ -70,9 +69,8 @@ export type AutomodEventDocument = {
     createdAt: string;
     details: Record<string, unknown>;
     guildId: string;
-    legacyId: string;
     messageId: string;
-    ruleLegacyId?: string;
+    ruleId?: GenericId<'automodRules'>;
     status: string;
     triggerType: AutomodTriggerType;
 };
@@ -101,8 +99,7 @@ export type AutomodInputResult<Value, ErrorValue> = { ok: true; value: Value } |
 export function buildAutomodRuleDocument(
     input: AutomodRuleInput,
     now: string,
-    existing?: Pick<AutomodRuleDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<AutomodRuleDocument, 'createdAt'>
 ): AutomodInputResult<AutomodRuleDocument, AutomodInputError> {
     const normalized = normalizeAutomodRuleInput(input);
     const createdAt =
@@ -127,7 +124,6 @@ export function buildAutomodRuleDocument(
             createdAt,
             enabled: normalized.value.enabled,
             guildId: normalized.value.guildId,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             name: normalized.value.name,
             triggerType: normalized.value.triggerType,
             updatedAt,
@@ -161,7 +157,7 @@ export function normalizeAutomodRuleInput(input: AutomodRuleInput): AutomodInput
     if (!triggerType) return { error: { field: 'triggerType', type: 'invalid-value' }, ok: false };
     if (!actionType) return { error: { field: 'actionType', type: 'invalid-value' }, ok: false };
 
-    const config = normalizeRuleConfig(triggerType, input.config ?? {});
+    const config = normalizeRuleConfig(input.config ?? {});
 
     if (!config.ok) return config;
 
@@ -181,8 +177,7 @@ export function normalizeAutomodRuleInput(input: AutomodRuleInput): AutomodInput
 
 export function buildAutomodEventDocument(
     input: AutomodEventInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): AutomodInputResult<AutomodEventDocument, AutomodInputError> {
     const normalized = normalizeAutomodEventInput(input);
     const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
@@ -198,7 +193,6 @@ export function buildAutomodEventDocument(
         value: {
             ...normalized.value,
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
         },
     };
 }
@@ -211,7 +205,7 @@ export function normalizeAutomodEventInput(input: AutomodEventInput): AutomodInp
         details: Record<string, unknown>;
         guildId: string;
         messageId: string;
-        ruleLegacyId?: string;
+        ruleId?: GenericId<'automodRules'>;
         status: string;
         triggerType: AutomodTriggerType;
     },
@@ -247,7 +241,7 @@ export function normalizeAutomodEventInput(input: AutomodEventInput): AutomodInp
             details,
             guildId: guildId.value,
             messageId: messageId.value,
-            ...(ruleId.value ? { ruleLegacyId: ruleId.value } : {}),
+            ...(ruleId.value ? { ruleId: ruleId.value as GenericId<'automodRules'> } : {}),
             status,
             triggerType,
         },
@@ -297,21 +291,21 @@ export function normalizeAutomodListLimit(limit: number | undefined): AutomodInp
     return { ok: true, value: limit };
 }
 
-export function toAutomodRuleRecord(document: AutomodRuleDocument): AutomodRuleRecord {
+export function toAutomodRuleRecord(document: AutomodRuleDocument & { _id: string }): AutomodRuleRecord {
     return {
         actionType: document.actionType,
         config: document.config,
         createdAt: document.createdAt,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         name: document.name,
         triggerType: document.triggerType,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toAutomodEventRecord(document: AutomodEventDocument): AutomodEventRecord {
+export function toAutomodEventRecord(document: AutomodEventDocument & { _id: string }): AutomodEventRecord {
     return {
         actionType: document.actionType,
         authorUserId: document.authorUserId,
@@ -319,16 +313,15 @@ export function toAutomodEventRecord(document: AutomodEventDocument): AutomodEve
         createdAt: document.createdAt,
         details: document.details,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId,
-        ruleId: document.ruleLegacyId ?? null,
+        ruleId: document.ruleId ?? null,
         status: document.status,
         triggerType: document.triggerType,
     };
 }
 
 function normalizeRuleConfig(
-    triggerType: AutomodTriggerType,
     config: Record<string, unknown>
 ): AutomodInputResult<AutomodRuleConfig, AutomodInputError> {
     const timeoutDurationSeconds = normalizeTimeoutDurationSeconds(config.timeoutDurationSeconds);
@@ -349,10 +342,6 @@ function normalizeRuleConfig(
         ...(ignoredRoleIds.length > 0 ? { ignoredRoleIds } : {}),
         ...(ignoredUserIds.length > 0 ? { ignoredUserIds } : {}),
     };
-
-    if (triggerType === 'invite_links') {
-        return { ok: true, value: sharedConfig };
-    }
 
     const terms = normalizeTerms(config.terms);
 

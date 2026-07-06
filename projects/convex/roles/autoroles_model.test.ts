@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildAutoroleRuleDocument,
@@ -8,6 +9,8 @@ import {
     toAutoroleRuleRecord,
 } from './autoroles_model.js';
 
+const ruleId = 'rule-1' as GenericId<'autoroleRules'>;
+
 describe('autorole model', () => {
     it('normalizes autorole rule input to the app-facing contract', () => {
         const document = buildAutoroleRuleDocument(
@@ -16,9 +19,7 @@ describe('autorole model', () => {
                 name: ' Member ',
                 roleId: ' role-1 ',
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'rule-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -27,7 +28,6 @@ describe('autorole model', () => {
                 createdAt: '2026-07-03T08:00:00.000Z',
                 enabled: true,
                 guildId: 'guild-1',
-                legacyId: 'rule-1',
                 name: 'Member',
                 roleId: 'role-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
@@ -38,18 +38,18 @@ describe('autorole model', () => {
             throw new Error('Expected normalized autorole rule.');
         }
 
-        expect(toAutoroleRuleRecord(document.value)).toEqual({
+        expect(toAutoroleRuleRecord({ ...document.value, _id: ruleId })).toEqual({
             createdAt: '2026-07-03T08:00:00.000Z',
             enabled: true,
             guildId: 'guild-1',
-            id: 'rule-1',
+            id: ruleId,
             name: 'Member',
             roleId: 'role-1',
             updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
-    it('preserves legacy identity and created timestamp on update', () => {
+    it('preserves created timestamp on update', () => {
         expect(
             buildAutoroleRuleDocument(
                 {
@@ -61,7 +61,6 @@ describe('autorole model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-rule',
                 }
             )
         ).toEqual({
@@ -70,7 +69,6 @@ describe('autorole model', () => {
                 createdAt: '2026-07-02T08:00:00.000Z',
                 enabled: false,
                 guildId: 'guild-1',
-                legacyId: 'existing-rule',
                 name: 'Verified Member',
                 roleId: 'role-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
@@ -78,13 +76,12 @@ describe('autorole model', () => {
         });
     });
 
-    it('preserves imported timestamps and legacy ids', () => {
+    it('preserves imported timestamps', () => {
         expect(
             buildAutoroleRuleDocument(
                 {
                     createdAt: '2026-07-02 09:30:00+02',
                     guildId: 'guild-1',
-                    legacyId: 'legacy-rule',
                     roleId: 'role-1',
                     updatedAt: '2026-07-03 09:30:00+02',
                 },
@@ -94,7 +91,6 @@ describe('autorole model', () => {
             ok: true,
             value: {
                 createdAt: '2026-07-02T07:30:00.000Z',
-                legacyId: 'legacy-rule',
                 updatedAt: '2026-07-03T07:30:00.000Z',
             },
         });
@@ -107,9 +103,7 @@ describe('autorole model', () => {
                 name: ' ',
                 roleId: 'role-1',
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'rule-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -118,7 +112,6 @@ describe('autorole model', () => {
                 createdAt: '2026-07-03T08:00:00.000Z',
                 enabled: true,
                 guildId: 'guild-1',
-                legacyId: 'rule-1',
                 roleId: 'role-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
@@ -128,7 +121,7 @@ describe('autorole model', () => {
             throw new Error('Expected normalized autorole rule.');
         }
 
-        expect(toAutoroleRuleRecord(document.value).name).toBeNull();
+        expect(toAutoroleRuleRecord({ ...document.value, _id: ruleId }).name).toBeNull();
     });
 
     it('rejects blank required fields and invalid timestamps', () => {

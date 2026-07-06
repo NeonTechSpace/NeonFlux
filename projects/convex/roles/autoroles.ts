@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import {
@@ -16,11 +9,9 @@ import {
     type AutoroleRuleDocument,
 } from './autoroles_model.js';
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type AutoroleQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type AutoroleMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type AutoroleQueryCtx = QueryCtx;
+type AutoroleMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -46,7 +37,7 @@ const autoroleRuleIdentityArgs = {
     roleId: v.string(),
 };
 
-export const readAutoroleRule = queryGeneric({
+export const readAutoroleRule = query({
     args: autoroleRuleIdentityArgs,
     returns: v.union(autoroleRuleRecordValidator, v.null()),
     handler: async (ctx: AutoroleQueryCtx, args) => {
@@ -58,7 +49,7 @@ export const readAutoroleRule = queryGeneric({
     },
 });
 
-export const listAutoroleRulesByGuildId = queryGeneric({
+export const listAutoroleRulesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -77,7 +68,7 @@ export const listAutoroleRulesByGuildId = queryGeneric({
     },
 });
 
-export const listEnabledAutoroleRulesByGuildId = queryGeneric({
+export const listEnabledAutoroleRulesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -96,12 +87,11 @@ export const listEnabledAutoroleRulesByGuildId = queryGeneric({
     },
 });
 
-export const upsertAutoroleRule = mutationGeneric({
+export const upsertAutoroleRule = mutation({
     args: {
         ...autoroleRuleIdentityArgs,
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
-        legacyId: v.optional(v.string()),
         name: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
     },
@@ -120,8 +110,7 @@ export const upsertAutoroleRule = mutationGeneric({
                     ...lookup,
                 },
                 new Date().toISOString(),
-                existingRule ?? undefined,
-                () => crypto.randomUUID()
+                existingRule ?? undefined
             )
         );
 
@@ -131,15 +120,15 @@ export const upsertAutoroleRule = mutationGeneric({
                 name: document.name,
                 updatedAt: document.updatedAt,
             });
+            return toAutoroleRuleRecord({ ...document, _id: existingRule._id });
         } else {
-            await ctx.db.insert('autoroleRules', document);
+            const id = await ctx.db.insert('autoroleRules', document);
+            return toAutoroleRuleRecord({ ...document, _id: id });
         }
-
-        return toAutoroleRuleRecord(document);
     },
 });
 
-export const deleteAutoroleRule = mutationGeneric({
+export const deleteAutoroleRule = mutation({
     args: autoroleRuleIdentityArgs,
     returns: v.union(autoroleRuleRecordValidator, v.null()),
     handler: async (ctx: AutoroleMutationCtx, args) => {

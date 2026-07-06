@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type ProfileFormInput = {
     approvalRequired?: boolean | null;
     config?: Record<string, unknown> | null;
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     name?: string | null;
     outputChannelId?: string | null;
     updatedAt?: string | null;
@@ -16,7 +17,6 @@ export type ProfileFormDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     name: string;
     outputChannelId?: string;
     updatedAt: string;
@@ -28,7 +28,6 @@ export type ProfileFieldInput = {
     fieldType?: string | null;
     formId?: string | null;
     label?: string | null;
-    legacyId?: string | null;
     maxLength?: number | null;
     position?: number | null;
     required?: boolean | null;
@@ -39,9 +38,8 @@ export type ProfileFieldDocument = {
     createdAt: string;
     fieldKey: string;
     fieldType: string;
-    formLegacyId: string;
+    formId: GenericId<'profileForms'>;
     label: string;
-    legacyId: string;
     maxLength?: number;
     position: number;
     required: boolean;
@@ -51,7 +49,6 @@ export type ProfileFieldDocument = {
 export type ProfileSubmissionInput = {
     formId?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     reviewedAt?: string | null;
     status?: string | null;
     submittedAt?: string | null;
@@ -63,9 +60,8 @@ export type ProfileSubmissionInput = {
 export type ProfileSubmissionStatus = 'approved' | 'pending' | 'rejected';
 
 export type ProfileSubmissionDocument = {
-    formLegacyId: string;
+    formId: GenericId<'profileForms'>;
     guildId: string;
-    legacyId: string;
     reviewedAt?: string;
     status: ProfileSubmissionStatus;
     submittedAt: string;
@@ -77,7 +73,6 @@ export type ProfileSubmissionDocument = {
 export type ProfileSubmissionReviewInput = {
     createdAt?: string | null;
     decision?: string | null;
-    legacyId?: string | null;
     reason?: string | null;
     reviewerUserId?: string | null;
     submissionId?: string | null;
@@ -86,10 +81,9 @@ export type ProfileSubmissionReviewInput = {
 export type ProfileSubmissionReviewDocument = {
     createdAt: string;
     decision: 'approved' | 'rejected';
-    legacyId: string;
     reason?: string;
     reviewerUserId: string;
-    submissionLegacyId: string;
+    submissionId: GenericId<'profileSubmissions'>;
 };
 
 export type ProfileBuilderInputError =
@@ -108,8 +102,7 @@ const submissionStatusTransitions = new Map<ProfileSubmissionStatus, readonly Pr
 export function buildProfileFormDocument(
     input: ProfileFormInput,
     now: string,
-    existing?: Pick<ProfileFormDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<ProfileFormDocument, 'createdAt'>
 ): ProfileBuilderInputResult<ProfileFormDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const name = normalizeRequiredString(input.name, 'name');
@@ -134,7 +127,6 @@ export function buildProfileFormDocument(
             createdAt,
             enabled: input.enabled ?? true,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             name: name.value,
             ...(outputChannelId ? { outputChannelId } : {}),
             updatedAt,
@@ -145,8 +137,7 @@ export function buildProfileFormDocument(
 export function buildProfileFieldDocument(
     input: ProfileFieldInput,
     now: string,
-    existing?: Pick<ProfileFieldDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<ProfileFieldDocument, 'createdAt'>
 ): ProfileBuilderInputResult<ProfileFieldDocument> {
     const formId = normalizeRequiredString(input.formId, 'formId');
     const fieldKey = normalizeRequiredString(input.fieldKey, 'fieldKey');
@@ -175,9 +166,8 @@ export function buildProfileFieldDocument(
             createdAt,
             fieldKey: fieldKey.value,
             fieldType: fieldType.value,
-            formLegacyId: formId.value,
+            formId: formId.value as GenericId<'profileForms'>,
             label: label.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(maxLength === undefined ? {} : { maxLength }),
             position: position.value,
             required: input.required ?? false,
@@ -188,8 +178,7 @@ export function buildProfileFieldDocument(
 
 export function buildProfileSubmissionDocument(
     input: ProfileSubmissionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ProfileBuilderInputResult<ProfileSubmissionDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const formId = normalizeRequiredString(input.formId, 'formId');
@@ -219,9 +208,8 @@ export function buildProfileSubmissionDocument(
     return {
         ok: true,
         value: {
-            formLegacyId: formId.value,
+            formId: formId.value as GenericId<'profileForms'>,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             ...(reviewedAt ? { reviewedAt } : {}),
             status: status.value,
             submittedAt,
@@ -234,8 +222,7 @@ export function buildProfileSubmissionDocument(
 
 export function buildProfileSubmissionReviewDocument(
     input: ProfileSubmissionReviewInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ProfileBuilderInputResult<ProfileSubmissionReviewDocument> {
     const submissionId = normalizeRequiredString(input.submissionId, 'submissionId');
     const reviewerUserId = normalizeRequiredString(input.reviewerUserId, 'reviewerUserId');
@@ -254,10 +241,9 @@ export function buildProfileSubmissionReviewDocument(
         value: {
             createdAt,
             decision: decision.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             ...(reason ? { reason } : {}),
             reviewerUserId: reviewerUserId.value,
-            submissionLegacyId: submissionId.value,
+            submissionId: submissionId.value as GenericId<'profileSubmissions'>,
         },
     };
 }
@@ -286,27 +272,27 @@ export function normalizeProfileBuilderLimit(limit: number | undefined, fallback
     return Math.min(Math.max(Math.trunc(limit), 1), 100);
 }
 
-export function toProfileFormRecord(document: ProfileFormDocument) {
+export function toProfileFormRecord(document: ProfileFormDocument & { _id: string }) {
     return {
         approvalRequired: document.approvalRequired,
         config: document.config,
         createdAt: document.createdAt,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         name: document.name,
         outputChannelId: document.outputChannelId ?? null,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toProfileFieldRecord(document: ProfileFieldDocument) {
+export function toProfileFieldRecord(document: ProfileFieldDocument & { _id: string }) {
     return {
         createdAt: document.createdAt,
         fieldKey: document.fieldKey,
         fieldType: document.fieldType,
-        formId: document.formLegacyId,
-        id: document.legacyId,
+        formId: document.formId,
+        id: document._id,
         label: document.label,
         maxLength: document.maxLength ?? null,
         position: document.position,
@@ -315,11 +301,11 @@ export function toProfileFieldRecord(document: ProfileFieldDocument) {
     };
 }
 
-export function toProfileSubmissionRecord(document: ProfileSubmissionDocument) {
+export function toProfileSubmissionRecord(document: ProfileSubmissionDocument & { _id: string }) {
     return {
-        formId: document.formLegacyId,
+        formId: document.formId,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         reviewedAt: document.reviewedAt ?? null,
         status: document.status,
         submittedAt: document.submittedAt,
@@ -329,14 +315,14 @@ export function toProfileSubmissionRecord(document: ProfileSubmissionDocument) {
     };
 }
 
-export function toProfileSubmissionReviewRecord(document: ProfileSubmissionReviewDocument) {
+export function toProfileSubmissionReviewRecord(document: ProfileSubmissionReviewDocument & { _id: string }) {
     return {
         createdAt: document.createdAt,
         decision: document.decision,
-        id: document.legacyId,
+        id: document._id,
         reason: document.reason ?? null,
         reviewerUserId: document.reviewerUserId,
-        submissionId: document.submissionLegacyId,
+        submissionId: document.submissionId,
     };
 }
 

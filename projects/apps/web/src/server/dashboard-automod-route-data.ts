@@ -14,7 +14,7 @@ type DashboardAutomodRuleUpdateRouteInput = {
     guildId: string;
     ruleId?: string;
     name: string;
-    triggerType: 'blocked_terms' | 'invite_links';
+    triggerType: 'blocked_terms';
     actionType?: 'record' | 'delete_message' | 'timeout' | 'warn';
     enabled?: boolean;
     terms?: string[];
@@ -80,13 +80,11 @@ function validateDashboardAutomodRuleUpdateRouteInput(input: unknown): Dashboard
     }
 
     const payload = input as Record<string, unknown>;
-    const triggerType = payload.triggerType;
-
     return {
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
         ...(typeof payload.ruleId === 'string' ? { ruleId: payload.ruleId } : {}),
         name: typeof payload.name === 'string' ? payload.name : '',
-        triggerType: triggerType === 'invite_links' ? 'invite_links' : 'blocked_terms',
+        triggerType: 'blocked_terms',
         actionType: normalizeActionType(payload.actionType),
         ...(typeof payload.enabled === 'boolean' ? { enabled: payload.enabled } : {}),
         terms: Array.isArray(payload.terms) ? payload.terms.filter(isString) : [],

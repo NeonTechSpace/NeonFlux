@@ -19,7 +19,6 @@ describe('xp voice sessions model', () => {
             {
                 channelId: ' channel-1 ',
                 guildId: ' guild-1 ',
-                legacyId: ' session-1 ',
                 startedAt: now,
                 userId: ' user-1 ',
             },
@@ -33,7 +32,6 @@ describe('xp voice sessions model', () => {
                 createdAt: now,
                 creditedSeconds: 0,
                 guildId: 'guild-1',
-                legacyId: 'session-1',
                 startedAt: now,
                 status: 'active',
                 updatedAt: now,
@@ -45,18 +43,18 @@ describe('xp voice sessions model', () => {
     it('closes sessions with non-negative credited duration', () => {
         const session = buildActiveXpVoiceSessionDocument(
             { channelId: 'channel-1', guildId: 'guild-1', startedAt: now, userId: 'user-1' },
-            now,
-            () => 'session-1'
+            now
         );
 
         if (!session.ok) throw new Error('Expected active session.');
+        const storedSession = { ...session.value, _id: 'session-1' };
 
-        expect(closeXpVoiceSessionDocument(session.value, endedAt)).toEqual({
+        expect(closeXpVoiceSessionDocument(storedSession, endedAt)).toEqual({
             ok: true,
             value: {
                 durationSeconds: 342,
                 session: {
-                    ...session.value,
+                    ...storedSession,
                     creditedSeconds: 342,
                     endedAt,
                     status: 'closed',
@@ -70,13 +68,12 @@ describe('xp voice sessions model', () => {
     it('normalizes records and required IDs', () => {
         const session = buildActiveXpVoiceSessionDocument(
             { channelId: 'channel-1', guildId: 'guild-1', startedAt: now, userId: 'user-1' },
-            now,
-            () => 'session-1'
+            now
         );
 
         if (!session.ok) throw new Error('Expected active session.');
 
-        expect(toXpVoiceSessionRecord(session.value)).toMatchObject({
+        expect(toXpVoiceSessionRecord({ ...session.value, _id: 'session-1' })).toMatchObject({
             endedAt: null,
             id: 'session-1',
         });

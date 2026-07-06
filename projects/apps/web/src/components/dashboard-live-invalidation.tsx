@@ -1,7 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { ConvexReactClient } from 'convex/react';
-import type { FunctionReference } from 'convex/server';
 import { useEffect, useRef } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
@@ -54,18 +53,7 @@ type DashboardLiveClient = {
     ) => DashboardLiveWatch;
 };
 
-type DashboardLiveQueryReference = FunctionReference<
-    'query',
-    'public',
-    { areas: DashboardLiveArea[]; guildId: string },
-    DashboardLiveState[]
->;
-
-const convexApi = api as unknown as {
-    dashboard_live: {
-        listDashboardLiveStates: DashboardLiveQueryReference;
-    };
-};
+type DashboardLiveQueryReference = typeof api.dashboard_live.listDashboardLiveStates;
 
 export function useDashboardLiveInvalidation({
     guildId,
@@ -103,7 +91,7 @@ export function useDashboardLiveInvalidation({
         let hasBaseline = false;
 
         client.setAuth(fetchDashboardConvexToken);
-        const watch = client.watchQuery(convexApi.dashboard_live.listDashboardLiveStates, {
+        const watch = client.watchQuery(api.dashboard_live.listDashboardLiveStates, {
             areas: [...visibleAreas],
             guildId,
         });

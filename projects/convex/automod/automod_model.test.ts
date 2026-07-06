@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildAutomodEventDocument,
@@ -11,6 +12,9 @@ import {
     toAutomodEventRecord,
     toAutomodRuleRecord,
 } from './automod_model.js';
+
+const ruleId = 'rule-1' as GenericId<'automodRules'>;
+const eventId = 'event-1' as GenericId<'automodEvents'>;
 
 describe('automod model', () => {
     it('normalizes blocked-term rules to the app-facing contract', () => {
@@ -26,9 +30,7 @@ describe('automod model', () => {
                 name: ' Blocked terms ',
                 triggerType: 'blocked_terms',
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'rule-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -44,7 +46,6 @@ describe('automod model', () => {
                 createdAt: '2026-07-03T08:00:00.000Z',
                 enabled: true,
                 guildId: 'guild-1',
-                legacyId: 'rule-1',
                 name: 'Blocked terms',
                 triggerType: 'blocked_terms',
                 updatedAt: '2026-07-03T08:00:00.000Z',
@@ -55,7 +56,7 @@ describe('automod model', () => {
             throw new Error('Expected normalized automod rule.');
         }
 
-        expect(toAutomodRuleRecord(document.value)).toEqual({
+        expect(toAutomodRuleRecord({ ...document.value, _id: ruleId })).toEqual({
             actionType: 'record',
             config: {
                 ignoredChannelIds: ['channel-1'],
@@ -66,45 +67,14 @@ describe('automod model', () => {
             createdAt: '2026-07-03T08:00:00.000Z',
             enabled: true,
             guildId: 'guild-1',
-            id: 'rule-1',
+            id: ruleId,
             name: 'Blocked terms',
             triggerType: 'blocked_terms',
             updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
-    it('normalizes invite-link timeout rules', () => {
-        expect(
-            buildAutomodRuleDocument(
-                {
-                    actionType: 'timeout',
-                    config: { timeoutDurationSeconds: 600 },
-                    enabled: false,
-                    guildId: 'guild-1',
-                    name: 'Invite links',
-                    triggerType: 'invite_links',
-                },
-                '2026-07-03T08:00:00.000Z',
-                undefined,
-                () => 'rule-1'
-            )
-        ).toEqual({
-            ok: true,
-            value: {
-                actionType: 'timeout',
-                config: { timeoutDurationSeconds: 600 },
-                createdAt: '2026-07-03T08:00:00.000Z',
-                enabled: false,
-                guildId: 'guild-1',
-                legacyId: 'rule-1',
-                name: 'Invite links',
-                triggerType: 'invite_links',
-                updatedAt: '2026-07-03T08:00:00.000Z',
-            },
-        });
-    });
-
-    it('preserves rule legacy identity and created timestamp on update', () => {
+    it('preserves rule created timestamp on update', () => {
         expect(
             buildAutomodRuleDocument(
                 {
@@ -116,14 +86,12 @@ describe('automod model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-rule',
                 }
             )
         ).toMatchObject({
             ok: true,
             value: {
                 createdAt: '2026-07-02T08:00:00.000Z',
-                legacyId: 'existing-rule',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
@@ -152,10 +120,10 @@ describe('automod model', () => {
             buildAutomodRuleDocument(
                 {
                     actionType: 'timeout',
-                    config: { timeoutDurationSeconds: 10 },
+                    config: { terms: ['spam'], timeoutDurationSeconds: 10 },
                     guildId: 'guild-1',
                     name: 'Bad',
-                    triggerType: 'invite_links',
+                    triggerType: 'blocked_terms',
                 },
                 '2026-07-03T08:00:00.000Z'
             )
@@ -179,8 +147,7 @@ describe('automod model', () => {
                 ruleId: ' rule-1 ',
                 triggerType: 'blocked_terms',
             },
-            '2026-07-03T08:00:00.000Z',
-            () => 'event-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -195,9 +162,8 @@ describe('automod model', () => {
                     matchedTerms: ['spam'],
                 },
                 guildId: 'guild-1',
-                legacyId: 'event-1',
                 messageId: 'message-1',
-                ruleLegacyId: 'rule-1',
+                ruleId,
                 status: 'recorded',
                 triggerType: 'blocked_terms',
             },
@@ -207,9 +173,9 @@ describe('automod model', () => {
             throw new Error('Expected normalized automod event.');
         }
 
-        expect(toAutomodEventRecord(document.value)).toMatchObject({
-            id: 'event-1',
-            ruleId: 'rule-1',
+        expect(toAutomodEventRecord({ ...document.value, _id: eventId })).toMatchObject({
+            id: eventId,
+            ruleId,
             status: 'recorded',
         });
     });

@@ -85,7 +85,7 @@ export const dashboardCategories = [
         label: 'Logging',
         path: 'logging',
         to: '/dashboard/$guildId/logging',
-        description: 'Discord server-event logging destinations and filters.',
+        description: 'Fluxer server-event logging destinations and filters.',
         status: 'active',
     },
     {

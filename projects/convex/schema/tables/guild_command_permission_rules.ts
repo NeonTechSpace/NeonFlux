@@ -6,7 +6,6 @@ import { timestamp } from '../shared.js';
 export const guildCommandPermissionRulesTable = defineTable({
     createdAt: timestamp,
     guildId: v.string(),
-    legacyId: v.string(),
     roleIds: v.array(v.string()),
     targetId: v.string(),
     targetType: v.union(v.literal('category'), v.literal('command')),

@@ -1,7 +1,7 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-import { jsonValue, optionalString, timestamp } from '../shared.js';
+import { jsonValue, timestamp } from '../shared.js';
 
 export const automodEventsTable = defineTable({
     actionType: v.union(v.literal('record'), v.literal('delete_message'), v.literal('timeout'), v.literal('warn')),
@@ -10,13 +10,11 @@ export const automodEventsTable = defineTable({
     createdAt: timestamp,
     details: jsonValue,
     guildId: v.string(),
-    legacyId: v.string(),
     messageId: v.string(),
-    ruleLegacyId: optionalString,
+    ruleId: v.optional(v.id('automodRules')),
     status: v.string(),
-    triggerType: v.union(v.literal('blocked_terms'), v.literal('invite_links')),
+    triggerType: v.literal('blocked_terms'),
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
     .index('by_guild_message', ['guildId', 'messageId'])
-    .index('by_legacy', ['legacyId'])
-    .index('by_rule_created', ['ruleLegacyId', 'createdAt']);
+    .index('by_rule_created', ['ruleId', 'createdAt']);

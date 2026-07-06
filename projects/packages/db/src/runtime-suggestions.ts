@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -10,24 +10,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    suggestions: {
-        createSuggestion: ConvexMutationReference;
-        createSuggestionBoard: ConvexMutationReference;
-        deleteSuggestionBoard: ConvexMutationReference;
-        deleteSuggestionVote: ConvexMutationReference;
-        findDefaultSuggestionBoardByGuildId: ConvexQueryReference;
-        findSuggestionByGuildMessageId: ConvexQueryReference;
-        findSuggestionVote: ConvexQueryReference;
-        listSuggestionBoardsByGuildId: ConvexQueryReference;
-        upsertSuggestionBoard: ConvexMutationReference;
-        upsertSuggestionVote: ConvexMutationReference;
-    };
-};
 
 type SuggestionsDb = ConvexDatabase;
 
@@ -74,8 +56,8 @@ export async function createSuggestionBoard(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const board = await db.client.mutation<ConvexSuggestionBoardRecord>(
-            convexApi.suggestions.createSuggestionBoard,
+        const board = await db.client.mutation(
+            api.suggestions.createSuggestionBoard,
             normalizedInput.value
         );
 
@@ -94,13 +76,10 @@ export async function upsertSuggestionBoard(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const board = await db.client.mutation<ConvexSuggestionBoardRecord>(
-            convexApi.suggestions.upsertSuggestionBoard,
-            {
-                ...normalizedInput.value,
-                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-            }
-        );
+        const board = await db.client.mutation(api.suggestions.upsertSuggestionBoard, {
+            ...normalizedInput.value,
+            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+        });
 
         return ok(toSuggestionBoardRecord(board));
     } catch {
@@ -117,8 +96,8 @@ export async function listSuggestionBoardsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const boards = await db.client.query<ConvexSuggestionBoardRecord[]>(
-            convexApi.suggestions.listSuggestionBoardsByGuildId,
+        const boards = await db.client.query(
+            api.suggestions.listSuggestionBoardsByGuildId,
             {
                 ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
                 guildId: guildId.value,
@@ -140,8 +119,8 @@ export async function findDefaultSuggestionBoardByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const board = await db.client.query<ConvexSuggestionBoardRecord | null>(
-            convexApi.suggestions.findDefaultSuggestionBoardByGuildId,
+        const board = await db.client.query(
+            api.suggestions.findDefaultSuggestionBoardByGuildId,
             {
                 guildId: guildId.value,
             }
@@ -164,8 +143,8 @@ export async function deleteSuggestionBoard(
     if (name.isErr()) return err(name.error);
 
     try {
-        const board = await db.client.mutation<ConvexSuggestionBoardRecord | null>(
-            convexApi.suggestions.deleteSuggestionBoard,
+        const board = await db.client.mutation(
+            api.suggestions.deleteSuggestionBoard,
             {
                 guildId: guildId.value,
                 name: name.value,
@@ -194,8 +173,8 @@ export async function createSuggestion(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const suggestion = await db.client.mutation<ConvexSuggestionRecord>(
-            convexApi.suggestions.createSuggestion,
+        const suggestion = await db.client.mutation(
+            api.suggestions.createSuggestion,
             normalizedInput.value
         );
 
@@ -216,8 +195,8 @@ export async function findSuggestionByGuildMessageId(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const suggestion = await db.client.query<ConvexSuggestionRecord | null>(
-            convexApi.suggestions.findSuggestionByGuildMessageId,
+        const suggestion = await db.client.query(
+            api.suggestions.findSuggestionByGuildMessageId,
             {
                 guildId: guildId.value,
                 messageId: messageId.value,
@@ -239,8 +218,8 @@ export async function upsertSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = await db.client.mutation<ConvexSuggestionVoteRecord>(
-            convexApi.suggestions.upsertSuggestionVote,
+        const vote = await db.client.mutation(
+            api.suggestions.upsertSuggestionVote,
             normalizedInput.value
         );
 
@@ -259,8 +238,8 @@ export async function deleteSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = await db.client.mutation<ConvexSuggestionVoteRecord | null>(
-            convexApi.suggestions.deleteSuggestionVote,
+        const vote = await db.client.mutation(
+            api.suggestions.deleteSuggestionVote,
             normalizedInput.value
         );
 
@@ -279,8 +258,8 @@ export async function findSuggestionVote(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const vote = await db.client.query<ConvexSuggestionVoteRecord | null>(
-            convexApi.suggestions.findSuggestionVote,
+        const vote = await db.client.query(
+            api.suggestions.findSuggestionVote,
             normalizedInput.value
         );
 

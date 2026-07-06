@@ -5,11 +5,8 @@ import { timestamp } from '../shared.js';
 
 export const suggestionVotesTable = defineTable({
     createdAt: timestamp,
-    legacyId: v.string(),
-    suggestionLegacyId: v.string(),
+    suggestionId: v.id('suggestions'),
     updatedAt: timestamp,
     userId: v.string(),
     vote: v.union(v.literal('down'), v.literal('up')),
-})
-    .index('by_legacy', ['legacyId'])
-    .index('by_suggestion_user', ['suggestionLegacyId', 'userId']);
+}).index('by_suggestion_user', ['suggestionId', 'userId']);

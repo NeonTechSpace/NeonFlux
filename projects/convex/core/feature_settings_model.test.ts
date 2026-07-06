@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildGuildFeatureSettingDocument,
@@ -7,6 +8,8 @@ import {
     normalizeRequiredGuildFeatureString,
     toGuildFeatureSettingRecord,
 } from './feature_settings_model.js';
+
+const settingId = 'setting-1' as GenericId<'guildFeatureSettings'>;
 
 describe('guild feature settings model', () => {
     it('normalizes runtime feature setting input', () => {
@@ -17,9 +20,7 @@ describe('guild feature settings model', () => {
                 feature: ' commands ',
                 guildId: ' guild-1 ',
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'setting-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -30,7 +31,6 @@ describe('guild feature settings model', () => {
                 enabled: true,
                 feature: 'commands',
                 guildId: 'guild-1',
-                legacyId: 'setting-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
@@ -39,18 +39,18 @@ describe('guild feature settings model', () => {
             throw new Error('Expected normalized feature setting.');
         }
 
-        expect(toGuildFeatureSettingRecord(document.value)).toEqual({
+        expect(toGuildFeatureSettingRecord({ ...document.value, _id: settingId })).toEqual({
             config: { prefix: '!' },
             createdAt: '2026-07-03T08:00:00.000Z',
             enabled: true,
             feature: 'commands',
             guildId: 'guild-1',
-            id: 'setting-1',
+            id: settingId,
             updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
-    it('preserves existing created timestamp and legacy id on update', () => {
+    it('preserves existing created timestamp on update', () => {
         expect(
             buildGuildFeatureSettingDocument(
                 {
@@ -62,7 +62,6 @@ describe('guild feature settings model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-setting',
                 }
             )
         ).toEqual({
@@ -73,13 +72,12 @@ describe('guild feature settings model', () => {
                 enabled: false,
                 feature: 'moderation',
                 guildId: 'guild-1',
-                legacyId: 'existing-setting',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
     });
 
-    it('preserves imported timestamps and legacy ids', () => {
+    it('preserves imported timestamps', () => {
         expect(
             buildGuildFeatureSettingDocument(
                 {
@@ -87,7 +85,6 @@ describe('guild feature settings model', () => {
                     createdAt: '2026-07-02 09:30:00+02',
                     feature: 'commands',
                     guildId: 'guild-1',
-                    legacyId: 'legacy-setting',
                     updatedAt: '2026-07-03 09:30:00+02',
                 },
                 '2026-07-03T08:00:00.000Z'
@@ -96,7 +93,6 @@ describe('guild feature settings model', () => {
             ok: true,
             value: {
                 createdAt: '2026-07-02T07:30:00.000Z',
-                legacyId: 'legacy-setting',
                 updatedAt: '2026-07-03T07:30:00.000Z',
             },
         });

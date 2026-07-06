@@ -1,3 +1,5 @@
+import type { GenericId } from 'convex/values';
+
 export const reactionRoleMessageModes = ['normal', 'exclusive'] as const;
 export type ReactionRoleMessageMode = (typeof reactionRoleMessageModes)[number];
 
@@ -10,7 +12,6 @@ export type ReactionRoleMessageInput = {
     enabled?: boolean | null;
     generateOverview?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageContent?: string | null;
     messageEmbeds?: unknown[] | null;
     messageId?: string | null;
@@ -27,7 +28,6 @@ export type ReactionRoleMessageDocument = {
     generateOverview: boolean;
     guildId: string;
     kind: string;
-    legacyId: string;
     messageContent?: string;
     messageEmbeds: unknown[];
     messageId: string;
@@ -57,7 +57,6 @@ export type ReactionRoleMessageRecord = {
 export type ReactionRoleOptionInput = {
     createdAt?: string | null;
     emojiKey?: string | null;
-    legacyId?: string | null;
     position?: number | null;
     reactionRoleMessageId?: string | null;
     roleId?: string | null;
@@ -67,9 +66,8 @@ export type ReactionRoleOptionInput = {
 export type ReactionRoleOptionDocument = {
     createdAt: string;
     emojiKey: string;
-    legacyId: string;
     position: number;
-    reactionRoleMessageLegacyId: string;
+    reactionRoleMessageId: GenericId<'reactionRoleMessages'>;
     roleId: string;
     updatedAt: string;
 };
@@ -88,7 +86,6 @@ export type ReactionRoleAssignmentInput = {
     assignedAt?: string | null;
     emojiKey?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     removedAt?: string | null;
     roleId?: string | null;
@@ -99,7 +96,6 @@ export type ReactionRoleAssignmentDocument = {
     assignedAt: string;
     emojiKey: string;
     guildId: string;
-    legacyId: string;
     messageId: string;
     removedAt?: string;
     roleId: string;
@@ -136,8 +132,7 @@ export type ReactionRoleInputResult<Value> = { ok: true; value: Value } | { erro
 export function buildReactionRoleMessageDocument(
     input: ReactionRoleMessageInput,
     now: string,
-    existing?: Pick<ReactionRoleMessageDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<ReactionRoleMessageDocument, 'createdAt'>
 ): ReactionRoleInputResult<ReactionRoleMessageDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -174,7 +169,6 @@ export function buildReactionRoleMessageDocument(
             generateOverview: input.generateOverview ?? false,
             guildId: guildId.value,
             kind: 'reaction_role',
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             ...(messageContent ? { messageContent } : {}),
             messageEmbeds,
             messageId: messageId.value,
@@ -189,8 +183,7 @@ export function buildReactionRoleMessageDocument(
 export function buildReactionRoleOptionDocument(
     input: ReactionRoleOptionInput,
     now: string,
-    existing?: Pick<ReactionRoleOptionDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<ReactionRoleOptionDocument, 'createdAt'>
 ): ReactionRoleInputResult<ReactionRoleOptionDocument> {
     const reactionRoleMessageId = normalizeRequiredString(input.reactionRoleMessageId, 'reactionRoleMessageId');
     const emojiKey = normalizeRequiredString(input.emojiKey, 'emojiKey');
@@ -212,9 +205,8 @@ export function buildReactionRoleOptionDocument(
         value: {
             createdAt,
             emojiKey: emojiKey.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             position,
-            reactionRoleMessageLegacyId: reactionRoleMessageId.value,
+            reactionRoleMessageId: reactionRoleMessageId.value as GenericId<'reactionRoleMessages'>,
             roleId: roleId.value,
             updatedAt,
         },
@@ -223,9 +215,7 @@ export function buildReactionRoleOptionDocument(
 
 export function buildReactionRoleAssignmentDocument(
     input: ReactionRoleAssignmentInput,
-    now: string,
-    existing?: Pick<ReactionRoleAssignmentDocument, 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): ReactionRoleInputResult<ReactionRoleAssignmentDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const messageId = normalizeRequiredString(input.messageId, 'messageId');
@@ -252,7 +242,6 @@ export function buildReactionRoleAssignmentDocument(
             assignedAt,
             emojiKey: emojiKey.value,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             messageId: messageId.value,
             ...(removedAt ? { removedAt } : {}),
             roleId: roleId.value,
@@ -291,14 +280,16 @@ export function normalizeLimit(limit: number | undefined): number {
     return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }
 
-export function toReactionRoleMessageRecord(document: ReactionRoleMessageDocument): ReactionRoleMessageRecord {
+export function toReactionRoleMessageRecord(
+    document: ReactionRoleMessageDocument & { _id: string }
+): ReactionRoleMessageRecord {
     return {
         channelId: document.channelId,
         createdAt: document.createdAt,
         enabled: document.enabled,
         generateOverview: document.generateOverview,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         kind: document.kind,
         messageContent: document.messageContent ?? null,
         messageEmbeds: document.messageEmbeds,
@@ -310,24 +301,28 @@ export function toReactionRoleMessageRecord(document: ReactionRoleMessageDocumen
     };
 }
 
-export function toReactionRoleOptionRecord(document: ReactionRoleOptionDocument): ReactionRoleOptionRecord {
+export function toReactionRoleOptionRecord(
+    document: ReactionRoleOptionDocument & { _id: string }
+): ReactionRoleOptionRecord {
     return {
         createdAt: document.createdAt,
         emojiKey: document.emojiKey,
-        id: document.legacyId,
+        id: document._id,
         position: document.position,
-        reactionRoleMessageId: document.reactionRoleMessageLegacyId,
+        reactionRoleMessageId: document.reactionRoleMessageId,
         roleId: document.roleId,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toReactionRoleAssignmentRecord(document: ReactionRoleAssignmentDocument): ReactionRoleAssignmentRecord {
+export function toReactionRoleAssignmentRecord(
+    document: ReactionRoleAssignmentDocument & { _id: string }
+): ReactionRoleAssignmentRecord {
     return {
         assignedAt: document.assignedAt,
         emojiKey: document.emojiKey,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId,
         removedAt: document.removedAt ?? null,
         roleId: document.roleId,

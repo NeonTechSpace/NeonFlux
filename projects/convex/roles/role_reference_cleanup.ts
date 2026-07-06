@@ -1,4 +1,3 @@
-import { mutationGeneric, type DataModelFromSchemaDefinition, type GenericMutationCtx } from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -14,16 +13,13 @@ import {
     buildRoleReconciliationActionDocument,
     buildRoleReconciliationRunDocument,
 } from './role_reconciliation_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type RoleReferenceCleanupMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, type MutationCtx } from '../_generated/server.js';
+type RoleReferenceCleanupMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredReactionRoleMessageDocument = {
     _id: GenericId<'reactionRoleMessages'>;
     guildId: string;
-    legacyId: string;
 };
 
 const allowedRoleReferenceCleanupServices = ['bot'] as const;
@@ -52,7 +48,7 @@ const cleanupResultValidator = v.union(
     })
 );
 
-export const cleanupDeletedGuildRoleReferences = mutationGeneric({
+export const cleanupDeletedGuildRoleReferences = mutation({
     args: {
         guildId: v.string(),
         occurredAt: v.optional(v.string()),
@@ -101,12 +97,11 @@ export const cleanupDeletedGuildRoleReferences = mutationGeneric({
                     },
                     updatedAt: input.updatedAt,
                 },
-                input.updatedAt,
-                () => crypto.randomUUID()
+                input.updatedAt
             )
         );
 
-        await ctx.db.insert('roleReconciliationRuns', run);
+        const runId = await ctx.db.insert('roleReconciliationRuns', run);
 
         const action = unwrap(
             buildRoleReconciliationActionDocument(
@@ -115,19 +110,18 @@ export const cleanupDeletedGuildRoleReferences = mutationGeneric({
                     createdAt: input.updatedAt,
                     details: summary,
                     roleId: input.roleId,
-                    runId: run.legacyId,
+                    runId,
                     status: 'applied',
                     updatedAt: input.updatedAt,
                 },
-                input.updatedAt,
-                () => crypto.randomUUID()
+                input.updatedAt
             )
         );
 
         await ctx.db.insert('roleReconciliationActions', action);
 
         return {
-            runId: run.legacyId,
+            runId,
             status: 'cleaned' as const,
             summary,
         };
@@ -172,7 +166,7 @@ async function deleteReactionRoleOptions(
     assertBelowCleanupLimit(options.length, 'reaction-role-options');
 
     for (const option of options) {
-        const message = await findReactionRoleMessageByLegacyId(ctx, option.reactionRoleMessageLegacyId);
+        const message = await findReactionRoleMessage(ctx, option.reactionRoleMessageId);
 
         if (message?.guildId !== input.guildId) {
             continue;
@@ -370,14 +364,11 @@ async function deleteXpRoleRewards(
     return deleted;
 }
 
-async function findReactionRoleMessageByLegacyId(
+async function findReactionRoleMessage(
     ctx: RoleReferenceCleanupMutationCtx,
-    legacyId: string
+    id: GenericId<'reactionRoleMessages'>
 ): Promise<StoredReactionRoleMessageDocument | null> {
-    return await ctx.db
-        .query('reactionRoleMessages')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    return await ctx.db.get(id);
 }
 
 async function requireGuildDocument(

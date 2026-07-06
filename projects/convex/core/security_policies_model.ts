@@ -20,14 +20,12 @@ export type GuildDefconExemptionInput = {
     category?: string | null;
     createdAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
 };
 
 export type GuildDefconExemptionDocument = {
     category: string;
     createdAt: string;
     guildId: string;
-    legacyId: string;
 };
 
 export type GuildDefconExemptionRecord = {
@@ -87,8 +85,7 @@ export function buildGuildSecurityPolicyDocument(
 
 export function buildGuildDefconExemptionDocument(
     input: GuildDefconExemptionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): SecurityPolicyInputResult<
     GuildDefconExemptionDocument,
     Extract<SecurityPolicyInputError, 'invalid-created-at' | 'missing-category' | 'missing-guild-id'>
@@ -109,7 +106,6 @@ export function buildGuildDefconExemptionDocument(
         value: {
             ...lookup.value,
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
         },
     };
 }

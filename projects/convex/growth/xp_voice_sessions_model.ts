@@ -6,7 +6,6 @@ export type XpVoiceSessionDocument = {
     creditedSeconds: number;
     endedAt?: string;
     guildId: string;
-    legacyId: string;
     startedAt: string;
     status: XpVoiceSessionStatus;
     updatedAt: string;
@@ -15,7 +14,7 @@ export type XpVoiceSessionDocument = {
 
 export type ClosedXpVoiceSessionDocument = {
     durationSeconds: number;
-    session: XpVoiceSessionDocument;
+    session: XpVoiceSessionDocument & { _id: string };
 };
 
 export type XpVoiceSessionInputError = { field: string; type: 'invalid-value' | 'missing-input' };
@@ -28,12 +27,10 @@ export function buildActiveXpVoiceSessionDocument(
         channelId?: string | null;
         createdAt?: string | null;
         guildId?: string | null;
-        legacyId?: string | null;
         startedAt?: string | null;
         userId?: string | null;
     },
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): XpVoiceSessionInputResult<XpVoiceSessionDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -54,7 +51,6 @@ export function buildActiveXpVoiceSessionDocument(
             createdAt,
             creditedSeconds: 0,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             startedAt,
             status: 'active',
             updatedAt: startedAt,
@@ -64,7 +60,7 @@ export function buildActiveXpVoiceSessionDocument(
 }
 
 export function closeXpVoiceSessionDocument(
-    session: XpVoiceSessionDocument,
+    session: XpVoiceSessionDocument & { _id: string },
     endedAtInput?: string | null
 ): XpVoiceSessionInputResult<ClosedXpVoiceSessionDocument> {
     const endedAt = endedAtInput === undefined ? new Date().toISOString() : normalizeTimestamp(endedAtInput);
@@ -101,11 +97,11 @@ export const normalizeRequiredGuildId = (value: string) => normalizeRequiredStri
 export const normalizeRequiredUserId = (value: string) => normalizeRequiredString(value, 'userId');
 export const normalizeRequiredChannelId = (value: string) => normalizeRequiredString(value, 'channelId');
 
-export function toXpVoiceSessionRecord(document: XpVoiceSessionDocument) {
+export function toXpVoiceSessionRecord(document: XpVoiceSessionDocument & { _id: string }) {
     return {
         ...document,
         endedAt: document.endedAt ?? null,
-        id: document.legacyId,
+        id: document._id,
     };
 }
 
@@ -115,12 +111,6 @@ function normalizeRequiredString(value: string | null | undefined, field: string
     return normalizedValue
         ? { ok: true, value: normalizedValue }
         : { error: { field, type: 'missing-input' }, ok: false };
-}
-
-function normalizeOptionalString(value: string | null | undefined): string | undefined {
-    const normalizedValue = value?.trim();
-
-    return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
 }
 
 function normalizeTimestamp(value: string | null | undefined): string | undefined {

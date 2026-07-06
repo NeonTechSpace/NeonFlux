@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildSuggestionBoardDocument,
@@ -16,6 +17,9 @@ import {
 } from './suggestions_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
+const boardId = 'board-doc-1' as GenericId<'suggestionBoards'>;
+const suggestionId = 'suggestion-doc-1' as GenericId<'suggestions'>;
+const voteId = 'vote-doc-1';
 
 describe('suggestions model', () => {
     it('normalizes suggestion board input and defaults enabled/config', () => {
@@ -25,9 +29,7 @@ describe('suggestions model', () => {
                 guildId: ' guild-1 ',
                 name: ' Ideas ',
             },
-            now,
-            undefined,
-            () => 'board-1'
+            now
         );
 
         expect(document).toEqual({
@@ -38,7 +40,6 @@ describe('suggestions model', () => {
                 createdAt: now,
                 enabled: true,
                 guildId: 'guild-1',
-                legacyId: 'board-1',
                 name: 'Ideas',
                 updatedAt: now,
             },
@@ -46,19 +47,19 @@ describe('suggestions model', () => {
 
         if (!document.ok) throw new Error('Expected normalized board.');
 
-        expect(toSuggestionBoardRecord(document.value)).toEqual({
+        expect(toSuggestionBoardRecord({ ...document.value, _id: boardId })).toEqual({
             channelId: 'channel-1',
             config: {},
             createdAt: now,
             enabled: true,
             guildId: 'guild-1',
-            id: 'board-1',
+            id: boardId,
             name: 'Ideas',
             updatedAt: now,
         });
     });
 
-    it('preserves board identity and creation metadata on upsert', () => {
+    it('preserves board creation metadata on upsert', () => {
         expect(
             buildSuggestionBoardDocument(
                 {
@@ -71,7 +72,6 @@ describe('suggestions model', () => {
                 now,
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-board',
                 }
             )
         ).toEqual({
@@ -82,37 +82,34 @@ describe('suggestions model', () => {
                 createdAt: '2026-07-02T08:00:00.000Z',
                 enabled: false,
                 guildId: 'guild-1',
-                legacyId: 'existing-board',
                 name: 'Ideas',
                 updatedAt: now,
             },
         });
     });
 
-    it('normalizes suggestion input and optional Discord trace fields', () => {
+    it('normalizes suggestion input and optional Fluxer runtime fields', () => {
         const document = buildSuggestionDocument(
             {
                 authorUserId: ' user-1 ',
-                boardId: ' board-1 ',
+                boardId,
                 channelId: ' channel-1 ',
                 content: ' Build the thing ',
                 guildId: ' guild-1 ',
                 messageId: ' message-1 ',
             },
-            now,
-            () => 'suggestion-1'
+            now
         );
 
         expect(document).toEqual({
             ok: true,
             value: {
                 authorUserId: 'user-1',
-                boardLegacyId: 'board-1',
+                boardId,
                 channelId: 'channel-1',
                 content: 'Build the thing',
                 createdAt: now,
                 guildId: 'guild-1',
-                legacyId: 'suggestion-1',
                 messageId: 'message-1',
                 status: 'open',
                 updatedAt: now,
@@ -121,15 +118,15 @@ describe('suggestions model', () => {
 
         if (!document.ok) throw new Error('Expected normalized suggestion.');
 
-        expect(toSuggestionRecord(document.value)).toEqual({
+        expect(toSuggestionRecord({ ...document.value, _id: suggestionId })).toEqual({
             authorUserId: 'user-1',
-            boardId: 'board-1',
+            boardId,
             channelId: 'channel-1',
             closedAt: null,
             content: 'Build the thing',
             createdAt: now,
             guildId: 'guild-1',
-            id: 'suggestion-1',
+            id: suggestionId,
             messageId: 'message-1',
             status: 'open',
             updatedAt: now,
@@ -139,21 +136,18 @@ describe('suggestions model', () => {
     it('normalizes suggestion vote upserts and validates vote values', () => {
         const document = buildSuggestionVoteDocument(
             {
-                suggestionId: ' suggestion-1 ',
+                suggestionId,
                 userId: ' user-1 ',
                 vote: ' up ',
             },
-            now,
-            undefined,
-            () => 'vote-1'
+            now
         );
 
         expect(document).toEqual({
             ok: true,
             value: {
                 createdAt: now,
-                legacyId: 'vote-1',
-                suggestionLegacyId: 'suggestion-1',
+                suggestionId,
                 updatedAt: now,
                 userId: 'user-1',
                 vote: 'up',
@@ -162,10 +156,10 @@ describe('suggestions model', () => {
 
         if (!document.ok) throw new Error('Expected normalized vote.');
 
-        expect(toSuggestionVoteRecord(document.value)).toEqual({
+        expect(toSuggestionVoteRecord({ ...document.value, _id: voteId })).toEqual({
             createdAt: now,
-            id: 'vote-1',
-            suggestionId: 'suggestion-1',
+            id: voteId,
+            suggestionId,
             updatedAt: now,
             userId: 'user-1',
             vote: 'up',
@@ -185,7 +179,6 @@ describe('suggestions model', () => {
                     content: 'Done',
                     createdAt: '2026-07-02 09:00:00+02',
                     guildId: 'guild-1',
-                    legacyId: 'legacy-suggestion',
                     status: 'accepted',
                     updatedAt: '2026-07-03 09:00:00+02',
                 },
@@ -196,7 +189,6 @@ describe('suggestions model', () => {
             value: {
                 closedAt: '2026-07-04T07:00:00.000Z',
                 createdAt: '2026-07-02T07:00:00.000Z',
-                legacyId: 'legacy-suggestion',
                 updatedAt: '2026-07-03T07:00:00.000Z',
             },
         });

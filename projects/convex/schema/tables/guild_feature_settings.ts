@@ -9,7 +9,6 @@ export const guildFeatureSettingsTable = defineTable({
     enabled: v.boolean(),
     feature: v.string(),
     guildId: v.string(),
-    legacyId: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild', ['guildId'])

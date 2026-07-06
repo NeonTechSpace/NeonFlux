@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildGeneratedVoiceChannelDocument,
@@ -12,10 +13,13 @@ import {
 } from './vc_generator_model.js';
 
 const now = '2026-06-26T12:00:00.000Z';
-const legacyId = () => 'legacy-1';
+const ruleId = 'rule-1' as GenericId<'vcGeneratorRules'>;
+const generatedChannelId = 'generated-1' as GenericId<'generatedVoiceChannels'>;
+const controlPanelId = 'control-panel-1' as GenericId<'vcGeneratorControlPanels'>;
+const controlRequestId = 'control-request-1' as GenericId<'vcGeneratorControlRequests'>;
 
 describe('VC generator model', () => {
-    it('builds rule documents with stable legacy ids and record nulls', () => {
+    it('builds rule documents with stable creation metadata and record nulls', () => {
         const first = unwrap(
             buildVcGeneratorRuleDocument(
                 {
@@ -24,9 +28,7 @@ describe('VC generator model', () => {
                     nameTemplate: ' {user} room ',
                     sourceChannelId: ' voice-source-1 ',
                 },
-                now,
-                undefined,
-                legacyId
+                now
             )
         );
         const second = unwrap(
@@ -38,8 +40,7 @@ describe('VC generator model', () => {
                     sourceChannelId: 'voice-source-1',
                 },
                 '2026-06-26T12:05:00.000Z',
-                first,
-                () => 'legacy-2'
+                first
             )
         );
 
@@ -47,16 +48,14 @@ describe('VC generator model', () => {
             categoryId: 'category-1',
             enabled: true,
             guildId: 'guild-1',
-            legacyId: 'legacy-1',
             nameTemplate: '{user} room',
             sourceChannelId: 'voice-source-1',
         });
-        expect(second.legacyId).toBe(first.legacyId);
         expect(second.createdAt).toBe(first.createdAt);
-        expect(toVcGeneratorRuleRecord(second)).toMatchObject({
+        expect(toVcGeneratorRuleRecord({ ...second, _id: ruleId })).toMatchObject({
             categoryId: null,
             enabled: false,
-            id: 'legacy-1',
+            id: ruleId,
         });
     });
 
@@ -69,9 +68,7 @@ describe('VC generator model', () => {
                     ownerUserId: 'user-1',
                     ruleId: 'rule-1',
                 },
-                now,
-                undefined,
-                legacyId
+                now
             )
         );
         const invalid = buildGeneratedVoiceChannelDocument(
@@ -79,11 +76,11 @@ describe('VC generator model', () => {
             now
         );
 
-        expect(toGeneratedVoiceChannelRecord(generated)).toMatchObject({
-            id: 'legacy-1',
+        expect(toGeneratedVoiceChannelRecord({ ...generated, _id: generatedChannelId })).toMatchObject({
+            id: generatedChannelId,
             lastSeenAt: now,
             ownerUserId: 'user-1',
-            ruleId: 'rule-1',
+            ruleId,
             status: 'active',
         });
         expect(invalid).toStrictEqual({ error: { field: 'status', type: 'invalid-value' }, ok: false });
@@ -99,9 +96,7 @@ describe('VC generator model', () => {
                     ruleId: 'rule-1',
                     synced: true,
                 },
-                now,
-                undefined,
-                legacyId
+                now
             )
         );
         const stale = unwrap(
@@ -113,24 +108,23 @@ describe('VC generator model', () => {
                     status: 'stale',
                 },
                 '2026-06-26T12:05:00.000Z',
-                active,
-                () => 'legacy-2'
+                active
             )
         );
 
-        expect(toVcGeneratorControlPanelRecord(active)).toMatchObject({
-            id: 'legacy-1',
+        expect(toVcGeneratorControlPanelRecord({ ...active, _id: controlPanelId })).toMatchObject({
+            id: controlPanelId,
             lastSyncedAt: now,
             messageId: 'panel-message-1',
-            ruleId: 'rule-1',
+            ruleId,
             staleAt: null,
             status: 'active',
         });
-        expect(toVcGeneratorControlPanelRecord(stale)).toMatchObject({
-            id: 'legacy-1',
+        expect(toVcGeneratorControlPanelRecord({ ...stale, _id: controlPanelId })).toMatchObject({
+            id: controlPanelId,
             lastSyncedAt: null,
             messageId: null,
-            ruleId: 'rule-1',
+            ruleId,
             staleAt: '2026-06-26T12:05:00.000Z',
             status: 'stale',
         });
@@ -148,8 +142,7 @@ describe('VC generator model', () => {
                     requesterUserId: 'user-1',
                     targetChannelId: 'target-1',
                 },
-                now,
-                legacyId
+                now
             )
         );
         const invalid = buildVcGeneratorControlRequestDocument(
@@ -165,12 +158,12 @@ describe('VC generator model', () => {
             now
         );
 
-        expect(toVcGeneratorControlRequestRecord(request)).toMatchObject({
+        expect(toVcGeneratorControlRequestRecord({ ...request, _id: controlRequestId })).toMatchObject({
             completedAt: null,
             controlAction: 'rename',
             errorMessage: null,
-            generatedChannelId: 'generated-1',
-            id: 'legacy-1',
+            generatedChannelId,
+            id: controlRequestId,
             promptMessageId: null,
             status: 'pending',
             value: null,

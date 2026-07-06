@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -16,11 +9,9 @@ import {
     toGuildFeatureSettingRecord,
     type GuildFeatureSettingDocument,
 } from './feature_settings_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type FeatureSettingsQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type FeatureSettingsMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type FeatureSettingsQueryCtx = QueryCtx;
+type FeatureSettingsMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -51,7 +42,7 @@ const guildFeatureSettingIdentityArgs = {
     guildId: v.string(),
 };
 
-export const readGuildFeatureSetting = queryGeneric({
+export const readGuildFeatureSetting = query({
     args: guildFeatureSettingIdentityArgs,
     returns: v.union(guildFeatureSettingRecordValidator, v.null()),
     handler: async (ctx: FeatureSettingsQueryCtx, args) => {
@@ -64,7 +55,7 @@ export const readGuildFeatureSetting = queryGeneric({
     },
 });
 
-export const listGuildFeatureSettingsByGuildId = queryGeneric({
+export const listGuildFeatureSettingsByGuildId = query({
     args: {
         afterFeature: v.optional(v.string()),
         guildId: v.string(),
@@ -91,14 +82,13 @@ export const listGuildFeatureSettingsByGuildId = queryGeneric({
     },
 });
 
-export const upsertGuildFeatureSetting = mutationGeneric({
+export const upsertGuildFeatureSetting = mutation({
     args: {
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         feature: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
     },
     returns: guildFeatureSettingRecordValidator,
@@ -116,8 +106,7 @@ export const upsertGuildFeatureSetting = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingSetting ?? undefined,
-                () => crypto.randomUUID()
+                existingSetting ?? undefined
             )
         );
 
@@ -127,15 +116,15 @@ export const upsertGuildFeatureSetting = mutationGeneric({
                 enabled: document.enabled,
                 updatedAt: document.updatedAt,
             });
+            return toGuildFeatureSettingRecord({ ...document, _id: existingSetting._id });
         } else {
-            await ctx.db.insert('guildFeatureSettings', document);
+            const id = await ctx.db.insert('guildFeatureSettings', document);
+            return toGuildFeatureSettingRecord({ ...document, _id: id });
         }
-
-        return toGuildFeatureSettingRecord(document);
     },
 });
 
-export const deleteGuildFeatureSetting = mutationGeneric({
+export const deleteGuildFeatureSetting = mutation({
     args: guildFeatureSettingIdentityArgs,
     returns: v.union(guildFeatureSettingRecordValidator, v.null()),
     handler: async (ctx: FeatureSettingsMutationCtx, args) => {

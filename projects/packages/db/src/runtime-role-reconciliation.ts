@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -12,22 +12,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    role_reconciliation: {
-        createRoleReconciliationRun: ConvexMutationReference;
-        findRoleReconciliationSettingsByGuildId: ConvexQueryReference;
-        recordRoleReconciliationAction: ConvexMutationReference;
-        updateRoleReconciliationRunStatus: ConvexMutationReference;
-        upsertRoleReconciliationSettings: ConvexMutationReference;
-    };
-    role_reference_cleanup: {
-        cleanupDeletedGuildRoleReferences: ConvexMutationReference;
-    };
-};
 
 type RoleReconciliationDb = ConvexDatabase;
 
@@ -71,8 +55,8 @@ export async function findRoleReconciliationSettingsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = await db.client.query<ConvexRoleReconciliationSettingsRecord>(
-            convexApi.role_reconciliation.findRoleReconciliationSettingsByGuildId,
+        const settings = await db.client.query(
+            api.role_reconciliation.findRoleReconciliationSettingsByGuildId,
             {
                 guildId: guildId.value,
             }
@@ -93,8 +77,8 @@ export async function upsertRoleReconciliationSettings(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = await db.client.mutation<ConvexRoleReconciliationSettingsRecord>(
-            convexApi.role_reconciliation.upsertRoleReconciliationSettings,
+        const settings = await db.client.mutation(
+            api.role_reconciliation.upsertRoleReconciliationSettings,
             {
                 ...(input.cleanupDeletedRoleReferences === undefined
                     ? {}
@@ -130,8 +114,8 @@ export async function createRoleReconciliationRun(
     if (summary.isErr()) return err(summary.error);
 
     try {
-        const run = await db.client.mutation<ConvexRoleReconciliationRunRecord>(
-            convexApi.role_reconciliation.createRoleReconciliationRun,
+        const run = await db.client.mutation(
+            api.role_reconciliation.createRoleReconciliationRun,
             {
                 guildId: guildId.value,
                 ...(summary.value === undefined ? {} : { summary: summary.value }),
@@ -157,8 +141,8 @@ export async function updateRoleReconciliationRunStatus(
     if (summary.isErr()) return err(summary.error);
 
     try {
-        const run = await db.client.mutation<ConvexRoleReconciliationRunRecord | null>(
-            convexApi.role_reconciliation.updateRoleReconciliationRunStatus,
+        const run = await db.client.mutation(
+            api.role_reconciliation.updateRoleReconciliationRunStatus,
             {
                 runId: runId.value,
                 status: status.value,
@@ -195,8 +179,8 @@ export async function recordRoleReconciliationAction(
     if (details.isErr()) return err(details.error);
 
     try {
-        const action = await db.client.mutation<ConvexRoleReconciliationActionRecord>(
-            convexApi.role_reconciliation.recordRoleReconciliationAction,
+        const action = await db.client.mutation(
+            api.role_reconciliation.recordRoleReconciliationAction,
             {
                 actionType: actionType.value,
                 ...(details.value === undefined ? {} : { details: details.value }),
@@ -225,8 +209,8 @@ export async function cleanupDeletedGuildRoleReferences(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const result = await db.client.mutation<DeletedGuildRoleReferenceCleanupResult>(
-            convexApi.role_reference_cleanup.cleanupDeletedGuildRoleReferences,
+        const result = await db.client.mutation(
+            api.role_reference_cleanup.cleanupDeletedGuildRoleReferences,
             {
                 guildId: guildId.value,
                 ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),

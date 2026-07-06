@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { normalizeCommandPrefix } from '@neonflux/core/command-prefix';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -15,23 +15,6 @@ import type { ConvexDatabase } from './convex.js';
 
 const GUILD_COMMAND_SETTINGS_FEATURE = 'commands';
 const GUILD_MODERATION_POLICY_FEATURE = 'moderation';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    feature_settings: {
-        readGuildFeatureSetting: ConvexQueryReference;
-        upsertGuildFeatureSetting: ConvexMutationReference;
-    };
-    security_policies: {
-        deleteGuildDefconExemption: ConvexMutationReference;
-        listGuildDefconExemptionCategories: ConvexQueryReference;
-        readGuildSecurityPolicy: ConvexQueryReference;
-        upsertGuildDefconExemption: ConvexMutationReference;
-        upsertGuildSecurityPolicy: ConvexMutationReference;
-    };
-};
 
 type CommandSettingsDb = ConvexDatabase;
 type ModerationPolicyDb = ConvexDatabase;
@@ -108,8 +91,8 @@ export async function upsertGuildCommandPrefix(
     }
 
     try {
-        const setting = await db.client.mutation<ConvexGuildFeatureSettingRecord>(
-            convexApi.feature_settings.upsertGuildFeatureSetting,
+        const setting = await db.client.mutation(
+            api.feature_settings.upsertGuildFeatureSetting,
             {
                 config: { prefix: prefix.value },
                 enabled: true,
@@ -153,8 +136,8 @@ export async function upsertGuildModerationPolicy(
     }
 ): Promise<Result<GuildModerationPolicyRecord, GuildModerationPolicyRepositoryError>> {
     try {
-        const setting = await db.client.mutation<ConvexGuildFeatureSettingRecord>(
-            convexApi.feature_settings.upsertGuildFeatureSetting,
+        const setting = await db.client.mutation(
+            api.feature_settings.upsertGuildFeatureSetting,
             {
                 config: {
                     protectedRoleIds: normalizeIdList(input.protectedRoleIds),
@@ -177,8 +160,8 @@ export async function findGuildSecurityPolicyByGuildId(
     input: { guildId: string }
 ): Promise<Result<GuildSecurityPolicyRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const policy = await db.client.query<ConvexGuildSecurityPolicyRecord | null>(
-            convexApi.security_policies.readGuildSecurityPolicy,
+        const policy = await db.client.query(
+            api.security_policies.readGuildSecurityPolicy,
             input
         );
 
@@ -199,8 +182,8 @@ export async function upsertGuildSecurityPolicy(
     }
 
     try {
-        const policy = await db.client.mutation<ConvexGuildSecurityPolicyRecord>(
-            convexApi.security_policies.upsertGuildSecurityPolicy,
+        const policy = await db.client.mutation(
+            api.security_policies.upsertGuildSecurityPolicy,
             {
                 defconLevel,
                 guildId: input.guildId,
@@ -218,8 +201,8 @@ export async function upsertGuildDefconExemption(
     input: { category: string; guildId: string }
 ): Promise<Result<GuildDefconExemptionRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const exemption = await db.client.mutation<ConvexGuildDefconExemptionRecord>(
-            convexApi.security_policies.upsertGuildDefconExemption,
+        const exemption = await db.client.mutation(
+            api.security_policies.upsertGuildDefconExemption,
             input
         );
 
@@ -234,8 +217,8 @@ export async function listGuildDefconExemptionCategories(
     input: { guildId: string }
 ): Promise<Result<string[], GuildSecurityPolicyRepositoryError>> {
     try {
-        const categories = await db.client.query<string[]>(
-            convexApi.security_policies.listGuildDefconExemptionCategories,
+        const categories = await db.client.query(
+            api.security_policies.listGuildDefconExemptionCategories,
             input
         );
 
@@ -250,8 +233,8 @@ export async function deleteGuildDefconExemption(
     input: { category: string; guildId: string }
 ): Promise<Result<GuildDefconExemptionRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const exemption = await db.client.mutation<ConvexGuildDefconExemptionRecord | null>(
-            convexApi.security_policies.deleteGuildDefconExemption,
+        const exemption = await db.client.mutation(
+            api.security_policies.deleteGuildDefconExemption,
             input
         );
 
@@ -266,8 +249,8 @@ async function readFeatureSetting(
     input: { feature: string; guildId: string }
 ): Promise<Result<ConvexGuildFeatureSettingRecord | null, FeatureSettingWrapperError>> {
     try {
-        const setting = await db.client.query<ConvexGuildFeatureSettingRecord | null>(
-            convexApi.feature_settings.readGuildFeatureSetting,
+        const setting = await db.client.query(
+            api.feature_settings.readGuildFeatureSetting,
             input
         );
 

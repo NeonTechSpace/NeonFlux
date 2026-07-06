@@ -1,8 +1,9 @@
+import type { GenericId } from 'convex/values';
+
 export type StructureExportSnapshotInput = {
     createdAt?: string | null;
     createdByUserId?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     snapshot?: Record<string, unknown> | null;
     source?: string | null;
 };
@@ -11,7 +12,6 @@ export type StructureExportSnapshotDocument = {
     createdAt: string;
     createdByUserId?: string;
     guildId: string;
-    legacyId: string;
     snapshot: Record<string, unknown>;
     source: string;
 };
@@ -22,7 +22,6 @@ export type StructureImportRunInput = {
     createdAt?: string | null;
     createdByUserId?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     plan?: Record<string, unknown> | null;
     sourceSnapshotId?: string | null;
     status?: string | null;
@@ -35,9 +34,8 @@ export type StructureImportRunDocument = {
     createdAt: string;
     createdByUserId?: string;
     guildId: string;
-    legacyId: string;
     plan: Record<string, unknown>;
-    sourceSnapshotLegacyId?: string;
+    sourceSnapshotId?: GenericId<'structureExportSnapshots'>;
     status: string;
     updatedAt: string;
 };
@@ -46,7 +44,6 @@ export type StructureImportActionInput = {
     actionType?: string | null;
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
-    legacyId?: string | null;
     runId?: string | null;
     status?: string | null;
     targetId?: string | null;
@@ -58,8 +55,7 @@ export type StructureImportActionDocument = {
     actionType: string;
     createdAt: string;
     details: Record<string, unknown>;
-    legacyId: string;
-    runLegacyId: string;
+    runId: GenericId<'structureImportRuns'>;
     status: string;
     targetId?: string;
     targetType: string;
@@ -72,7 +68,6 @@ export type StructureObservedEventStateDocument = {
     enabled: boolean;
     feature: 'import_export';
     guildId: string;
-    legacyId: string;
     updatedAt: string;
 };
 
@@ -149,8 +144,7 @@ const importRunStatusTransitions = new Map<string, readonly string[]>([
 
 export function buildStructureExportSnapshotDocument(
     input: StructureExportSnapshotInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): StructureInputResult<StructureExportSnapshotDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const snapshot = normalizeRecord(input.snapshot);
@@ -168,7 +162,6 @@ export function buildStructureExportSnapshotDocument(
             createdAt,
             ...(createdByUserId ? { createdByUserId } : {}),
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             snapshot,
             source: normalizeOptionalString(input.source) ?? 'bot',
         },
@@ -177,8 +170,7 @@ export function buildStructureExportSnapshotDocument(
 
 export function buildStructureImportRunDocument(
     input: StructureImportRunInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): StructureInputResult<StructureImportRunDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const plan = normalizeRecord(input.plan ?? {});
@@ -199,7 +191,7 @@ export function buildStructureImportRunDocument(
     }
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
-    const sourceSnapshotLegacyId = normalizeOptionalString(input.sourceSnapshotId);
+    const sourceSnapshotId = normalizeOptionalString(input.sourceSnapshotId);
 
     return {
         ok: true,
@@ -209,9 +201,10 @@ export function buildStructureImportRunDocument(
             createdAt,
             ...(createdByUserId ? { createdByUserId } : {}),
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             plan,
-            ...(sourceSnapshotLegacyId ? { sourceSnapshotLegacyId } : {}),
+            ...(sourceSnapshotId
+                ? { sourceSnapshotId: sourceSnapshotId as GenericId<'structureExportSnapshots'> }
+                : {}),
             status: normalizeOptionalString(input.status) ?? 'draft',
             updatedAt,
         },
@@ -249,8 +242,7 @@ export function buildStructureImportRunStatusPatch(
 
 export function buildStructureImportActionDocument(
     input: StructureImportActionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): StructureInputResult<StructureImportActionDocument> {
     const runId = normalizeRequiredString(input.runId, 'runId');
     const actionType = normalizeRequiredString(input.actionType, 'actionType');
@@ -274,8 +266,7 @@ export function buildStructureImportActionDocument(
             actionType: actionType.value,
             createdAt,
             details,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
-            runLegacyId: runId.value,
+            runId: runId.value as GenericId<'structureImportRuns'>,
             status: normalizeOptionalString(input.status) ?? 'pending',
             ...(targetId ? { targetId } : {}),
             targetType: targetType.value,
@@ -288,8 +279,7 @@ export function buildObservedEventStateDocument(
     input: { eventType?: string | null; guildId?: string | null; targetId?: string | null; targetType?: string | null },
     existing: StructureObservedEventStateRecord,
     now: string,
-    existingDocument?: Pick<StructureObservedEventStateDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existingDocument?: Pick<StructureObservedEventStateDocument, 'createdAt'>
 ): StructureInputResult<StructureObservedEventStateDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const eventType = normalizeRequiredString(input.eventType, 'eventType');
@@ -316,47 +306,50 @@ export function buildObservedEventStateDocument(
             enabled: true,
             feature: 'import_export',
             guildId: guildId.value,
-            legacyId: existingDocument?.legacyId ?? createLegacyId(),
             updatedAt: now,
         },
     };
 }
 
 export function toStructureExportSnapshotRecord(
-    document: StructureExportSnapshotDocument
+    document: StructureExportSnapshotDocument & { _id: string }
 ): StructureExportSnapshotRecord {
     return {
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         snapshot: document.snapshot,
         source: document.source,
     };
 }
 
-export function toStructureImportRunRecord(document: StructureImportRunDocument): StructureImportRunRecord {
+export function toStructureImportRunRecord(
+    document: StructureImportRunDocument & { _id: string }
+): StructureImportRunRecord {
     return {
         appliedAt: document.appliedAt ?? null,
         confirmedAt: document.confirmedAt ?? null,
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         plan: document.plan,
-        sourceSnapshotId: document.sourceSnapshotLegacyId ?? null,
+        sourceSnapshotId: document.sourceSnapshotId ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toStructureImportActionRecord(document: StructureImportActionDocument): StructureImportActionRecord {
+export function toStructureImportActionRecord(
+    document: StructureImportActionDocument & { _id: string }
+): StructureImportActionRecord {
     return {
         actionType: document.actionType,
         createdAt: document.createdAt,
         details: document.details,
-        id: document.legacyId,
-        runId: document.runLegacyId,
+        id: document._id,
+        runId: document.runId,
         status: document.status,
         targetId: document.targetId ?? null,
         targetType: document.targetType,

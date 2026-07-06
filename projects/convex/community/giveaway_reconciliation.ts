@@ -1,4 +1,3 @@
-import { mutationGeneric, type DataModelFromSchemaDefinition, type GenericMutationCtx } from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -9,16 +8,14 @@ import {
     type GiveawayDocument,
     type GiveawayEntryDocument,
 } from './giveaways_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type GiveawayReconciliationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, type MutationCtx } from '../_generated/server.js';
+type GiveawayReconciliationMutationCtx = MutationCtx;
 type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> };
 type StoredGiveawayEntryDocument = GiveawayEntryDocument & { _id: GenericId<'giveawayEntries'> };
 
 const allowedGiveawayReconciliationServices = ['bot'] as const;
 
-export const reconcileGiveawayEntries = mutationGeneric({
+export const reconcileGiveawayEntries = mutation({
     args: {
         giveawayId: v.string(),
         reconciledAt: v.optional(v.string()),
@@ -27,8 +24,8 @@ export const reconcileGiveawayEntries = mutationGeneric({
     returns: v.object({ added: v.number(), kept: v.number(), removed: v.number() }),
     handler: async (ctx: GiveawayReconciliationMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayReconciliationServices);
-        const giveawayId = unwrap(normalizeRequiredGiveawayId(args.giveawayId));
-        const giveaway = await findGiveawayByLegacyId(ctx, giveawayId);
+        const giveawayId = parseGiveawayId(args.giveawayId);
+        const giveaway = await findGiveawayByIdDocument(ctx, giveawayId);
 
         if (!giveaway) throw new Error('giveaway-not-found');
 
@@ -76,14 +73,11 @@ export const reconcileGiveawayEntries = mutationGeneric({
     },
 });
 
-async function findGiveawayByLegacyId(
+async function findGiveawayByIdDocument(
     ctx: GiveawayReconciliationMutationCtx,
-    giveawayId: string
+    giveawayId: GenericId<'giveaways'>
 ): Promise<StoredGiveawayDocument | null> {
-    return await ctx.db
-        .query('giveaways')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', giveawayId.trim()))
-        .unique();
+    return await ctx.db.get(giveawayId);
 }
 
 async function findGiveawayEntryByUser(
@@ -93,20 +87,24 @@ async function findGiveawayEntryByUser(
     return await ctx.db
         .query('giveawayEntries')
         .withIndex('by_giveaway_user', (query) =>
-            query.eq('giveawayLegacyId', input.giveawayId).eq('userId', input.userId.trim())
+            query.eq('giveawayId', parseGiveawayId(input.giveawayId)).eq('userId', input.userId.trim())
         )
         .unique();
 }
 
 async function listActiveEntryDocuments(
     ctx: GiveawayReconciliationMutationCtx,
-    giveawayId: string
+    giveawayId: string | GenericId<'giveaways'>
 ): Promise<StoredGiveawayEntryDocument[]> {
     return await ctx.db
         .query('giveawayEntries')
-        .withIndex('by_giveaway_removed', (query) => query.eq('giveawayLegacyId', giveawayId))
+        .withIndex('by_giveaway_removed', (query) => query.eq('giveawayId', parseGiveawayId(giveawayId)))
         .filter((query) => query.eq(query.field('removedAt'), undefined))
         .take(normalizeGiveawayLimit(undefined, 1000, 1000));
+}
+
+function parseGiveawayId(giveawayId: string | GenericId<'giveaways'>): GenericId<'giveaways'> {
+    return unwrap(normalizeRequiredGiveawayId(giveawayId)) as GenericId<'giveaways'>;
 }
 
 function normalizeTimestampArg(value: string, field: string): string {

@@ -82,7 +82,8 @@ The main workspace is in `projects`.
 - `apps/bot`: Fluxer bot process
 - `apps/web`: web dashboard
 - `packages/config`: shared env parsing
-- `packages/convex`: shared Convex client, API, and JWT helpers
+- `packages/convex`: shared Convex client and JWT helpers
+- `convex`: Convex functions and the generated `@neonflux/convex-api` workspace package
 - `packages/db`: runtime database boundary
 - `packages/core`: shared bot/web rules
 - `packages/fluxer`: Fluxer API and permission helpers
@@ -138,11 +139,11 @@ Then validate the selected Convex target and run the processes you need:
 
 ```bash
 pnpm convex:check-auth-env
-pnpm dev:web
 pnpm dev:bot
+pnpm dev:web
 ```
 
-Local development does not require app Postgres. Convex is the durable store target.
+For dashboard routes, start the bot before the web app so the bot can bootstrap deployment config and runtime guild state. The homepage and docs can run with only `pnpm dev:web`. Local development does not require app Postgres. Convex is the durable store target.
 
 ### Production
 

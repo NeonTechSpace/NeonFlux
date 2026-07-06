@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildProfileFieldDocument,
@@ -19,6 +20,10 @@ import {
 } from './profile_builder_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
+const formId = 'form-1' as GenericId<'profileForms'>;
+const fieldId = 'field-1' as GenericId<'profileFields'>;
+const submissionId = 'submission-1' as GenericId<'profileSubmissions'>;
+const reviewId = 'review-1' as GenericId<'profileSubmissionReviews'>;
 
 describe('profile builder model', () => {
     it('normalizes profile forms with defaults and app-facing records', () => {
@@ -29,9 +34,7 @@ describe('profile builder model', () => {
                 name: ' default ',
                 outputChannelId: ' channel-1 ',
             },
-            now,
-            undefined,
-            () => 'form-1'
+            now
         );
 
         expect(document).toEqual({
@@ -42,7 +45,6 @@ describe('profile builder model', () => {
                 createdAt: now,
                 enabled: true,
                 guildId: 'guild-1',
-                legacyId: 'form-1',
                 name: 'default',
                 outputChannelId: 'channel-1',
                 updatedAt: now,
@@ -51,13 +53,13 @@ describe('profile builder model', () => {
 
         if (!document.ok) throw new Error('Expected normalized form.');
 
-        expect(toProfileFormRecord(document.value)).toEqual({
+        expect(toProfileFormRecord({ ...document.value, _id: formId })).toEqual({
             approvalRequired: true,
             config: { intro: 'Tell us about yourself.' },
             createdAt: now,
             enabled: true,
             guildId: 'guild-1',
-            id: 'form-1',
+            id: formId,
             name: 'default',
             outputChannelId: 'channel-1',
             updatedAt: now,
@@ -76,7 +78,6 @@ describe('profile builder model', () => {
                 now,
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-form',
                 }
             )
         ).toEqual({
@@ -87,7 +88,6 @@ describe('profile builder model', () => {
                 createdAt: '2026-07-02T08:00:00.000Z',
                 enabled: false,
                 guildId: 'guild-1',
-                legacyId: 'existing-form',
                 name: 'default',
                 updatedAt: now,
             },
@@ -105,9 +105,7 @@ describe('profile builder model', () => {
                 position: 2,
                 required: true,
             },
-            now,
-            undefined,
-            () => 'field-1'
+            now
         );
 
         expect(document).toEqual({
@@ -116,9 +114,8 @@ describe('profile builder model', () => {
                 createdAt: now,
                 fieldKey: 'bio',
                 fieldType: 'textarea',
-                formLegacyId: 'form-1',
+                formId,
                 label: 'About me',
-                legacyId: 'field-1',
                 maxLength: 400,
                 position: 2,
                 required: true,
@@ -128,12 +125,12 @@ describe('profile builder model', () => {
 
         if (!document.ok) throw new Error('Expected normalized field.');
 
-        expect(toProfileFieldRecord(document.value)).toEqual({
+        expect(toProfileFieldRecord({ ...document.value, _id: fieldId })).toEqual({
             createdAt: now,
             fieldKey: 'bio',
             fieldType: 'textarea',
-            formId: 'form-1',
-            id: 'field-1',
+            formId,
+            id: fieldId,
             label: 'About me',
             maxLength: 400,
             position: 2,
@@ -153,16 +150,14 @@ describe('profile builder model', () => {
                 userId: ' user-1 ',
                 values: { name: 'Neon' },
             },
-            now,
-            () => 'submission-1'
+            now
         );
 
         expect(document).toMatchObject({
             ok: true,
             value: {
-                formLegacyId: 'form-1',
+                formId,
                 guildId: 'guild-1',
-                legacyId: 'submission-1',
                 reviewedAt: now,
                 status: 'approved',
                 submittedAt: '2026-07-02T07:00:00.000Z',
@@ -174,10 +169,10 @@ describe('profile builder model', () => {
 
         if (!document.ok) throw new Error('Expected normalized submission.');
 
-        expect(toProfileSubmissionRecord(document.value)).toEqual({
-            formId: 'form-1',
+        expect(toProfileSubmissionRecord({ ...document.value, _id: submissionId })).toEqual({
+            formId,
             guildId: 'guild-1',
-            id: 'submission-1',
+            id: submissionId,
             reviewedAt: now,
             status: 'approved',
             submittedAt: '2026-07-02T07:00:00.000Z',
@@ -195,8 +190,7 @@ describe('profile builder model', () => {
                 reviewerUserId: ' reviewer-1 ',
                 submissionId: ' submission-1 ',
             },
-            now,
-            () => 'review-1'
+            now
         );
 
         expect(document).toEqual({
@@ -204,22 +198,21 @@ describe('profile builder model', () => {
             value: {
                 createdAt: now,
                 decision: 'approved',
-                legacyId: 'review-1',
                 reason: 'Looks good',
                 reviewerUserId: 'reviewer-1',
-                submissionLegacyId: 'submission-1',
+                submissionId,
             },
         });
 
         if (!document.ok) throw new Error('Expected normalized review.');
 
-        expect(toProfileSubmissionReviewRecord(document.value)).toEqual({
+        expect(toProfileSubmissionReviewRecord({ ...document.value, _id: reviewId })).toEqual({
             createdAt: now,
             decision: 'approved',
-            id: 'review-1',
+            id: reviewId,
             reason: 'Looks good',
             reviewerUserId: 'reviewer-1',
-            submissionId: 'submission-1',
+            submissionId,
         });
         expect(buildSubmissionReviewPatch('pending', 'approved', now)).toEqual({
             ok: true,

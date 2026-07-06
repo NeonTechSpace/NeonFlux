@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -9,21 +9,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    verification: {
-        deleteVerificationFlow: ConvexMutationReference;
-        findActiveVerificationRecord: ConvexQueryReference;
-        findEnabledVerificationFlowByReaction: ConvexQueryReference;
-        listVerificationFlowsByGuildId: ConvexQueryReference;
-        revokeVerificationRecord: ConvexMutationReference;
-        upsertVerificationFlow: ConvexMutationReference;
-        upsertVerificationRecord: ConvexMutationReference;
-    };
-};
 
 type VerificationDb = ConvexDatabase;
 
@@ -66,8 +51,8 @@ export async function upsertVerificationFlow(
     }
 
     try {
-        const flow = await db.client.mutation<ConvexVerificationFlowRecord>(
-            convexApi.verification.upsertVerificationFlow,
+        const flow = await db.client.mutation(
+            api.verification.upsertVerificationFlow,
             normalizedInput.value
         );
 
@@ -88,8 +73,8 @@ export async function listVerificationFlowsByGuildId(
     }
 
     try {
-        const flows = await db.client.query<ConvexVerificationFlowRecord[]>(
-            convexApi.verification.listVerificationFlowsByGuildId,
+        const flows = await db.client.query(
+            api.verification.listVerificationFlowsByGuildId,
             {
                 ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
                 guildId: guildId.value,
@@ -113,8 +98,8 @@ export async function findEnabledVerificationFlowByReaction(
     }
 
     try {
-        const flow = await db.client.query<ConvexVerificationFlowRecord | null>(
-            convexApi.verification.findEnabledVerificationFlowByReaction,
+        const flow = await db.client.query(
+            api.verification.findEnabledVerificationFlowByReaction,
             normalizedInput.value
         );
 
@@ -135,8 +120,8 @@ export async function deleteVerificationFlow(
     if (messageId.isErr()) return err(messageId.error);
 
     try {
-        const flow = await db.client.mutation<ConvexVerificationFlowRecord | null>(
-            convexApi.verification.deleteVerificationFlow,
+        const flow = await db.client.mutation(
+            api.verification.deleteVerificationFlow,
             {
                 guildId: guildId.value,
                 messageId: messageId.value,
@@ -160,8 +145,8 @@ export async function upsertVerificationRecord(
     }
 
     try {
-        const record = await db.client.mutation<ConvexVerificationRecord>(
-            convexApi.verification.upsertVerificationRecord,
+        const record = await db.client.mutation(
+            api.verification.upsertVerificationRecord,
             normalizedInput.value
         );
 
@@ -182,8 +167,8 @@ export async function revokeVerificationRecord(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const record = await db.client.mutation<ConvexVerificationRecord | null>(
-            convexApi.verification.revokeVerificationRecord,
+        const record = await db.client.mutation(
+            api.verification.revokeVerificationRecord,
             {
                 guildId: guildId.value,
                 userId: userId.value,
@@ -207,8 +192,8 @@ export async function findActiveVerificationRecord(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const record = await db.client.query<ConvexVerificationRecord | null>(
-            convexApi.verification.findActiveVerificationRecord,
+        const record = await db.client.query(
+            api.verification.findActiveVerificationRecord,
             {
                 guildId: guildId.value,
                 userId: userId.value,

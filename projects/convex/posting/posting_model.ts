@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type MessageTemplateInput = {
     content?: string | null;
     createdAt?: string | null;
     createdByUserId?: string | null;
     embeds?: readonly unknown[] | null;
     guildId?: string | null;
-    legacyId?: string | null;
     name?: string | null;
     updatedAt?: string | null;
 };
@@ -15,7 +16,6 @@ export type MessageTemplateDocument = {
     createdByUserId?: string;
     embeds: unknown[];
     guildId: string;
-    legacyId: string;
     name: string;
     updatedAt: string;
 };
@@ -36,10 +36,9 @@ export type PostedMessageInput = {
     createdAt?: string | null;
     createdByUserId?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     purpose?: string | null;
-    templateLegacyId?: string | null;
+    templateId?: string | null;
     updatedAt?: string | null;
 };
 
@@ -48,10 +47,9 @@ export type PostedMessageDocument = {
     createdAt: string;
     createdByUserId?: string;
     guildId: string;
-    legacyId: string;
     messageId: string;
     purpose: string;
-    templateLegacyId?: string;
+    templateId?: GenericId<'messageTemplates'>;
     updatedAt: string;
 };
 
@@ -85,8 +83,7 @@ export type PostingInputResult<Value, ErrorValue> = { ok: true; value: Value } |
 export function buildMessageTemplateDocument(
     input: MessageTemplateInput,
     now: string,
-    existing?: Pick<MessageTemplateDocument, 'createdAt' | 'createdByUserId' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<MessageTemplateDocument, 'createdAt' | 'createdByUserId'>
 ): PostingInputResult<MessageTemplateDocument, PostingInputError> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const name = normalizeRequiredString(input.name, 'name');
@@ -122,7 +119,6 @@ export function buildMessageTemplateDocument(
             createdAt,
             embeds: embeds.value,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             name: name.value,
             updatedAt,
         },
@@ -132,8 +128,7 @@ export function buildMessageTemplateDocument(
 export function buildPostedMessageDocument(
     input: PostedMessageInput,
     now: string,
-    existing?: Pick<PostedMessageDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<PostedMessageDocument, 'createdAt'>
 ): PostingInputResult<PostedMessageDocument, PostingInputError> {
     const lookup = normalizePostedMessageLookupInput(input);
     const createdAt =
@@ -151,16 +146,15 @@ export function buildPostedMessageDocument(
     }
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
-    const templateLegacyId = normalizeOptionalString(input.templateLegacyId);
+    const templateId = normalizeOptionalString(input.templateId);
 
     return {
         ok: true,
         value: {
             ...lookup.value,
             ...(createdByUserId ? { createdByUserId } : {}),
-            ...(templateLegacyId ? { templateLegacyId } : {}),
+            ...(templateId ? { templateId: templateId as GenericId<'messageTemplates'> } : {}),
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             purpose: normalizeOptionalString(input.purpose) ?? 'manual',
             updatedAt,
         },
@@ -211,29 +205,29 @@ export function normalizeMessageTemplateLimit(limit: number | undefined): number
     return Math.min(Math.max(Math.trunc(limit), 1), 100);
 }
 
-export function toMessageTemplateRecord(document: MessageTemplateDocument): MessageTemplateRecord {
+export function toMessageTemplateRecord(document: MessageTemplateDocument & { _id: string }): MessageTemplateRecord {
     return {
         content: document.content ?? null,
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
         embeds: document.embeds,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         name: document.name,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toPostedMessageRecord(document: PostedMessageDocument): PostedMessageRecord {
+export function toPostedMessageRecord(document: PostedMessageDocument & { _id: string }): PostedMessageRecord {
     return {
         channelId: document.channelId,
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId,
         purpose: document.purpose,
-        templateId: document.templateLegacyId ?? null,
+        templateId: document.templateId ?? null,
         updatedAt: document.updatedAt,
     };
 }

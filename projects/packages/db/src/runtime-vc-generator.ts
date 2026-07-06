@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import type {
     GeneratedVoiceChannelRecord,
     GeneratedVoiceChannelStatus,
@@ -11,6 +11,7 @@ import type {
 import { err, ok, type Result } from 'neverthrow';
 
 import type { ConvexDatabase } from './convex.js';
+import { compactConvexArgs } from './convex-args.js';
 import {
     normalizeNonNegativeInteger,
     normalizeOptionalText,
@@ -18,30 +19,7 @@ import {
     toControlPanelRecord,
     toGeneratedChannelRecord,
     toRuleRecord,
-    type ConvexGeneratedVoiceChannelRecord,
-    type ConvexVcGeneratorControlPanelRecord,
-    type ConvexVcGeneratorRuleRecord,
 } from './runtime-vc-generator-records.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    vc_generator: {
-        deleteVcGeneratorRule: ConvexMutationReference;
-        findGeneratedVoiceChannelByChannelId: ConvexQueryReference;
-        findVcGeneratorControlPanelByMessageId: ConvexQueryReference;
-        findVcGeneratorControlPanelByRuleId: ConvexQueryReference;
-        findVcGeneratorRuleBySourceChannelId: ConvexQueryReference;
-        listGeneratedVoiceChannelsByGuildId: ConvexQueryReference;
-        listVcGeneratorControlPanelsByGuildId: ConvexQueryReference;
-        listVcGeneratorRulesByGuildId: ConvexQueryReference;
-        updateGeneratedVoiceChannelStatus: ConvexMutationReference;
-        upsertGeneratedVoiceChannel: ConvexMutationReference;
-        upsertVcGeneratorControlPanel: ConvexMutationReference;
-        upsertVcGeneratorRule: ConvexMutationReference;
-    };
-};
 
 type VcGeneratorDb = ConvexDatabase;
 
@@ -63,9 +41,9 @@ export async function upsertVcGeneratorRule(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const rule = await db.client.mutation<ConvexVcGeneratorRuleRecord>(
-            convexApi.vc_generator.upsertVcGeneratorRule,
-            normalizedInput.value
+        const rule = await db.client.mutation(
+            api.vc_generator.upsertVcGeneratorRule,
+            compactConvexArgs(normalizedInput.value)
         );
 
         return ok(toRuleRecord(rule));
@@ -82,10 +60,7 @@ export async function upsertGeneratedVoiceChannel(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const channel = await db.client.mutation<ConvexGeneratedVoiceChannelRecord>(
-            convexApi.vc_generator.upsertGeneratedVoiceChannel,
-            normalizedInput.value
-        );
+        const channel = await db.client.mutation(api.vc_generator.upsertGeneratedVoiceChannel, normalizedInput.value);
 
         return ok(toGeneratedChannelRecord(channel));
     } catch {
@@ -101,14 +76,11 @@ export async function listVcGeneratorRulesByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const rules = await db.client.query<ConvexVcGeneratorRuleRecord[]>(
-            convexApi.vc_generator.listVcGeneratorRulesByGuildId,
-            {
-                ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
-                guildId: guildId.value,
-                limit: 500,
-            }
-        );
+        const rules = await db.client.query(api.vc_generator.listVcGeneratorRulesByGuildId, {
+            ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
+            guildId: guildId.value,
+            limit: 500,
+        });
 
         return ok(rules.map(toRuleRecord));
     } catch {
@@ -124,8 +96,8 @@ export async function findVcGeneratorRuleBySourceChannelId(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const rule = await db.client.query<ConvexVcGeneratorRuleRecord | null>(
-            convexApi.vc_generator.findVcGeneratorRuleBySourceChannelId,
+        const rule = await db.client.query(
+            api.vc_generator.findVcGeneratorRuleBySourceChannelId,
             normalizedInput.value
         );
 
@@ -143,10 +115,7 @@ export async function deleteVcGeneratorRule(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const rule = await db.client.mutation<ConvexVcGeneratorRuleRecord | null>(
-            convexApi.vc_generator.deleteVcGeneratorRule,
-            normalizedInput.value
-        );
+        const rule = await db.client.mutation(api.vc_generator.deleteVcGeneratorRule, normalizedInput.value);
 
         return rule ? ok(toRuleRecord(rule)) : err({ type: 'not-found' });
     } catch {
@@ -162,12 +131,9 @@ export async function findGeneratedVoiceChannelByChannelId(
     if (channelId.isErr()) return err(channelId.error);
 
     try {
-        const channel = await db.client.query<ConvexGeneratedVoiceChannelRecord | null>(
-            convexApi.vc_generator.findGeneratedVoiceChannelByChannelId,
-            {
-                channelId: channelId.value,
-            }
-        );
+        const channel = await db.client.query(api.vc_generator.findGeneratedVoiceChannelByChannelId, {
+            channelId: channelId.value,
+        });
 
         return channel ? ok(toGeneratedChannelRecord(channel)) : err({ type: 'not-found' });
     } catch {
@@ -183,13 +149,10 @@ export async function listGeneratedVoiceChannelsByGuildId(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const channels = await db.client.query<ConvexGeneratedVoiceChannelRecord[]>(
-            convexApi.vc_generator.listGeneratedVoiceChannelsByGuildId,
-            {
-                ...normalizedInput.value,
-                limit: 500,
-            }
-        );
+        const channels = await db.client.query(api.vc_generator.listGeneratedVoiceChannelsByGuildId, {
+            ...normalizedInput.value,
+            limit: 500,
+        });
 
         return ok(channels.map(toGeneratedChannelRecord));
     } catch {
@@ -205,8 +168,8 @@ export async function updateGeneratedVoiceChannelStatus(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const channel = await db.client.mutation<ConvexGeneratedVoiceChannelRecord | null>(
-            convexApi.vc_generator.updateGeneratedVoiceChannelStatus,
+        const channel = await db.client.mutation(
+            api.vc_generator.updateGeneratedVoiceChannelStatus,
             normalizedInput.value
         );
 
@@ -233,9 +196,9 @@ export async function upsertVcGeneratorControlPanel(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const panel = await db.client.mutation<ConvexVcGeneratorControlPanelRecord>(
-            convexApi.vc_generator.upsertVcGeneratorControlPanel,
-            normalizedInput.value
+        const panel = await db.client.mutation(
+            api.vc_generator.upsertVcGeneratorControlPanel,
+            compactConvexArgs(normalizedInput.value)
         );
 
         return ok(toControlPanelRecord(panel));
@@ -252,8 +215,8 @@ export async function findVcGeneratorControlPanelByMessageId(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const panel = await db.client.query<ConvexVcGeneratorControlPanelRecord | null>(
-            convexApi.vc_generator.findVcGeneratorControlPanelByMessageId,
+        const panel = await db.client.query(
+            api.vc_generator.findVcGeneratorControlPanelByMessageId,
             normalizedInput.value
         );
 
@@ -271,8 +234,8 @@ export async function findVcGeneratorControlPanelByRuleId(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const panel = await db.client.query<ConvexVcGeneratorControlPanelRecord | null>(
-            convexApi.vc_generator.findVcGeneratorControlPanelByRuleId,
+        const panel = await db.client.query(
+            api.vc_generator.findVcGeneratorControlPanelByRuleId,
             normalizedInput.value
         );
 
@@ -291,8 +254,8 @@ export async function listVcGeneratorControlPanelsByGuildId(
     if (normalizedInput.value.limit === 0) return ok([]);
 
     try {
-        const panels = await db.client.query<ConvexVcGeneratorControlPanelRecord[]>(
-            convexApi.vc_generator.listVcGeneratorControlPanelsByGuildId,
+        const panels = await db.client.query(
+            api.vc_generator.listVcGeneratorControlPanelsByGuildId,
             normalizedInput.value
         );
 
@@ -309,7 +272,7 @@ function normalizeRuleInput(input: {
     guildId: string;
     nameTemplate: string;
     sourceChannelId: string;
-}): Result<Record<string, unknown>, VcGeneratorRepositoryError> {
+}) {
     const sourceLookup = normalizeSourceLookupInput(input);
     const nameTemplate = normalizeRequiredText(input.nameTemplate, 'nameTemplate');
 
@@ -317,10 +280,11 @@ function normalizeRuleInput(input: {
     if (nameTemplate.isErr()) return err(nameTemplate.error);
 
     return ok({
-        ...sourceLookup.value,
-        ...(normalizeOptionalText(input.categoryId) ? { categoryId: normalizeOptionalText(input.categoryId) } : {}),
+        guildId: sourceLookup.value.guildId,
+        sourceChannelId: sourceLookup.value.sourceChannelId,
+        categoryId: normalizeOptionalText(input.categoryId),
         config: input.config ?? {},
-        ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+        enabled: input.enabled,
         nameTemplate: nameTemplate.value,
     });
 }
@@ -331,7 +295,7 @@ function normalizeGeneratedChannelInput(input: {
     ownerUserId?: string;
     ruleId?: string;
     status?: string;
-}): Result<Record<string, unknown>, VcGeneratorRepositoryError> {
+}) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const channelId = normalizeRequiredText(input.channelId, 'channelId');
     const ownerUserId = normalizeOptionalText(input.ownerUserId);
@@ -355,11 +319,7 @@ function normalizeGeneratedChannelInput(input: {
     });
 }
 
-function normalizeGeneratedChannelListInput(input: {
-    guildId: string;
-    ruleId?: string;
-    status?: string;
-}): Result<Record<string, unknown>, VcGeneratorRepositoryError> {
+function normalizeGeneratedChannelListInput(input: { guildId: string; ruleId?: string; status?: string }) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const ruleId = normalizeOptionalText(input.ruleId);
     let status: GeneratedVoiceChannelStatus | undefined;
@@ -403,7 +363,7 @@ function normalizeControlPanelInput(input: {
     ruleId: string;
     status?: string;
     synced?: boolean;
-}): Result<Record<string, unknown>, VcGeneratorRepositoryError> {
+}) {
     const identity = normalizePanelRuleLookupInput(input);
     const channelId = normalizeRequiredText(input.channelId, 'channelId');
     const status = normalizeControlPanelStatus(input.status ?? 'active');

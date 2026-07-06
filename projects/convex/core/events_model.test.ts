@@ -21,8 +21,7 @@ describe('bot action event model', () => {
                 metadata: { channelId: 'channel-1' },
                 targetId: ' message-1 ',
             },
-            '2026-07-03T07:00:00.000Z',
-            () => 'event-1'
+            '2026-07-03T07:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -33,7 +32,6 @@ describe('bot action event model', () => {
                 createdAt: '2026-07-03T07:00:00.000Z',
                 feature: 'posting',
                 guildId: 'guild-1',
-                legacyId: 'event-1',
                 metadata: { channelId: 'channel-1' },
                 targetId: 'message-1',
             },
@@ -43,7 +41,7 @@ describe('bot action event model', () => {
             throw new Error('Expected normalized event document.');
         }
 
-        expect(toBotActionEventRecord(document.value)).toEqual({
+        expect(toBotActionEventRecord({ ...document.value, _id: 'event-1' })).toEqual({
             action: 'message.sent',
             actorUserId: 'user-1',
             createdAt: '2026-07-03T07:00:00.000Z',
@@ -55,23 +53,20 @@ describe('bot action event model', () => {
         });
     });
 
-    it('preserves legacy ids and explicit timestamps for imported records', () => {
+    it('preserves explicit timestamps for imported records', () => {
         expect(
             buildBotActionEventDocument(
                 {
                     action: 'prefix.updated',
                     createdAt: '2026-07-03 09:30:00+02',
                     feature: 'settings',
-                    legacyId: 'legacy-1',
                 },
-                '2026-07-03T07:00:00.000Z',
-                () => 'new-id'
+                '2026-07-03T07:00:00.000Z'
             )
         ).toMatchObject({
             ok: true,
             value: {
                 createdAt: '2026-07-03T07:30:00.000Z',
-                legacyId: 'legacy-1',
             },
         });
     });
@@ -152,8 +147,7 @@ describe('bot action event model', () => {
                 },
                 targetId: 'message-0',
             },
-            '2026-07-03T10:30:00.000Z',
-            () => 'event-1'
+            '2026-07-03T10:30:00.000Z'
         );
 
         expect(document.ok).toBe(true);

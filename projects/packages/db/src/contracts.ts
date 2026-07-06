@@ -66,7 +66,7 @@ export type GuildFeatureRepositoryError =
 
 export type LoggingRepositoryError = GuildFeatureRepositoryError;
 
-export const automodTriggerTypes = ['blocked_terms', 'invite_links'] as const;
+export const automodTriggerTypes = ['blocked_terms'] as const;
 export type AutomodTriggerType = (typeof automodTriggerTypes)[number];
 
 export const automodActionTypes = ['record', 'delete_message', 'timeout', 'warn'] as const;

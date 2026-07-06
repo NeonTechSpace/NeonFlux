@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -10,21 +10,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    access_permissions: {
-        deleteGuildCommandPermissionRule: ConvexMutationReference;
-        listGuildCommandPermissionRulesByGuildId: ConvexQueryReference;
-        listGuildDashboardPermissionRulesByGuildIds: ConvexQueryReference;
-        readGuildCommandPermissionRule: ConvexQueryReference;
-        readGuildDashboardPermissionRule: ConvexQueryReference;
-        upsertGuildCommandPermissionRule: ConvexMutationReference;
-        upsertGuildDashboardPermissionRule: ConvexMutationReference;
-    };
-};
 
 type CommandPermissionDb = ConvexDatabase;
 type DashboardPermissionDb = ConvexDatabase;
@@ -59,14 +44,13 @@ export async function upsertGuildCommandPermissionRule(
     }
 ): Promise<Result<GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleRepositoryError>> {
     try {
-        const rule = await db.client.mutation<ConvexCommandPermissionRuleRecord>(
-            convexApi.access_permissions.upsertGuildCommandPermissionRule,
-            {
-                ...input,
-                ...(input.roleIds ? { roleIds: [...input.roleIds] } : {}),
-                ...(input.userIds ? { userIds: [...input.userIds] } : {}),
-            }
-        );
+        const rule = await db.client.mutation(api.access_permissions.upsertGuildCommandPermissionRule, {
+            guildId: input.guildId,
+            targetId: input.targetId,
+            targetType: input.targetType,
+            ...(input.roleIds ? { roleIds: [...input.roleIds] } : {}),
+            ...(input.userIds ? { userIds: [...input.userIds] } : {}),
+        });
 
         return ok(toCommandPermissionRuleRecord(rule));
     } catch (error) {
@@ -79,10 +63,7 @@ export async function findGuildCommandPermissionRule(
     input: { guildId: string; targetId: string; targetType: GuildCommandPermissionRuleTargetType }
 ): Promise<Result<GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleRepositoryError>> {
     try {
-        const rule = await db.client.query<ConvexCommandPermissionRuleRecord | null>(
-            convexApi.access_permissions.readGuildCommandPermissionRule,
-            input
-        );
+        const rule = await db.client.query(api.access_permissions.readGuildCommandPermissionRule, input);
 
         return rule ? ok(toCommandPermissionRuleRecord(rule)) : err('not-found');
     } catch (error) {
@@ -95,13 +76,10 @@ export async function listGuildCommandPermissionRulesByGuildId(
     input: { guildId: string }
 ): Promise<Result<GuildCommandPermissionRuleRecord[], GuildCommandPermissionRuleRepositoryError>> {
     try {
-        const rules = await db.client.query<ConvexCommandPermissionRuleRecord[]>(
-            convexApi.access_permissions.listGuildCommandPermissionRulesByGuildId,
-            {
-                guildId: input.guildId,
-                limit: 1000,
-            }
-        );
+        const rules = await db.client.query(api.access_permissions.listGuildCommandPermissionRulesByGuildId, {
+            guildId: input.guildId,
+            limit: 1000,
+        });
 
         return ok(rules.map(toCommandPermissionRuleRecord));
     } catch (error) {
@@ -114,10 +92,7 @@ export async function deleteGuildCommandPermissionRule(
     input: { guildId: string; targetId: string; targetType: GuildCommandPermissionRuleTargetType }
 ): Promise<Result<GuildCommandPermissionRuleRecord, GuildCommandPermissionRuleRepositoryError>> {
     try {
-        const rule = await db.client.mutation<ConvexCommandPermissionRuleRecord | null>(
-            convexApi.access_permissions.deleteGuildCommandPermissionRule,
-            input
-        );
+        const rule = await db.client.mutation(api.access_permissions.deleteGuildCommandPermissionRule, input);
 
         return rule ? ok(toCommandPermissionRuleRecord(rule)) : err('not-found');
     } catch (error) {
@@ -130,14 +105,11 @@ export async function upsertGuildDashboardPermissionRule(
     input: { guildId: string; roleIds?: readonly string[]; userIds?: readonly string[] }
 ): Promise<Result<GuildDashboardPermissionRuleRecord, GuildDashboardPermissionRuleRepositoryError>> {
     try {
-        const rule = await db.client.mutation<ConvexDashboardPermissionRuleRecord>(
-            convexApi.access_permissions.upsertGuildDashboardPermissionRule,
-            {
-                guildId: input.guildId,
-                ...(input.roleIds ? { roleIds: [...input.roleIds] } : {}),
-                ...(input.userIds ? { userIds: [...input.userIds] } : {}),
-            }
-        );
+        const rule = await db.client.mutation(api.access_permissions.upsertGuildDashboardPermissionRule, {
+            guildId: input.guildId,
+            ...(input.roleIds ? { roleIds: [...input.roleIds] } : {}),
+            ...(input.userIds ? { userIds: [...input.userIds] } : {}),
+        });
 
         return ok(toDashboardPermissionRuleRecord(rule));
     } catch (error) {
@@ -150,10 +122,7 @@ export async function findGuildDashboardPermissionRule(
     input: { guildId: string }
 ): Promise<Result<GuildDashboardPermissionRuleRecord, GuildDashboardPermissionRuleRepositoryError>> {
     try {
-        const rule = await db.client.query<ConvexDashboardPermissionRuleRecord | null>(
-            convexApi.access_permissions.readGuildDashboardPermissionRule,
-            input
-        );
+        const rule = await db.client.query(api.access_permissions.readGuildDashboardPermissionRule, input);
 
         return rule ? ok(toDashboardPermissionRuleRecord(rule)) : err('not-found');
     } catch (error) {
@@ -166,12 +135,9 @@ export async function listGuildDashboardPermissionRulesByGuildIds(
     input: { guildIds: readonly string[] }
 ): Promise<Result<GuildDashboardPermissionRuleRecord[], GuildDashboardPermissionRuleRepositoryError>> {
     try {
-        const rules = await db.client.query<ConvexDashboardPermissionRuleRecord[]>(
-            convexApi.access_permissions.listGuildDashboardPermissionRulesByGuildIds,
-            {
-                guildIds: [...input.guildIds],
-            }
-        );
+        const rules = await db.client.query(api.access_permissions.listGuildDashboardPermissionRulesByGuildIds, {
+            guildIds: [...input.guildIds],
+        });
 
         return ok(rules.map(toDashboardPermissionRuleRecord));
     } catch (error) {

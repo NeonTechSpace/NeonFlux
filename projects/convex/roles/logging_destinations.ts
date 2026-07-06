@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -18,11 +11,9 @@ import {
     type GuildLoggingDestinationDocument,
     type ServerLogEventGroup,
 } from './logging_destinations_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type LoggingDestinationQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type LoggingDestinationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type LoggingDestinationQueryCtx = QueryCtx;
+type LoggingDestinationMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -56,7 +47,7 @@ const loggingDestinationIdentityArgs = {
     guildId: v.string(),
 };
 
-export const readGuildLoggingDestinationByEventGroup = queryGeneric({
+export const readGuildLoggingDestinationByEventGroup = query({
     args: loggingDestinationIdentityArgs,
     returns: v.union(loggingDestinationRecordValidator, v.null()),
     handler: async (ctx: LoggingDestinationQueryCtx, args) => {
@@ -68,7 +59,7 @@ export const readGuildLoggingDestinationByEventGroup = queryGeneric({
     },
 });
 
-export const listGuildLoggingDestinationsByGuildId = queryGeneric({
+export const listGuildLoggingDestinationsByGuildId = query({
     args: {
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
@@ -90,13 +81,12 @@ export const listGuildLoggingDestinationsByGuildId = queryGeneric({
     },
 });
 
-export const upsertGuildLoggingDestination = mutationGeneric({
+export const upsertGuildLoggingDestination = mutation({
     args: {
         ...loggingDestinationIdentityArgs,
         channelId: v.string(),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
-        legacyId: v.optional(v.string()),
         updatedAt: v.optional(v.string()),
     },
     returns: loggingDestinationRecordValidator,
@@ -114,8 +104,7 @@ export const upsertGuildLoggingDestination = mutationGeneric({
                     ...lookup,
                 },
                 new Date().toISOString(),
-                existingDestination ?? undefined,
-                () => crypto.randomUUID()
+                existingDestination ?? undefined
             )
         );
 
@@ -125,15 +114,15 @@ export const upsertGuildLoggingDestination = mutationGeneric({
                 enabled: document.enabled,
                 updatedAt: document.updatedAt,
             });
+            return toGuildLoggingDestinationRecord({ ...document, _id: existingDestination._id });
         } else {
-            await ctx.db.insert('guildLoggingDestinations', document);
+            const id = await ctx.db.insert('guildLoggingDestinations', document);
+            return toGuildLoggingDestinationRecord({ ...document, _id: id });
         }
-
-        return toGuildLoggingDestinationRecord(document);
     },
 });
 
-export const deleteGuildLoggingDestination = mutationGeneric({
+export const deleteGuildLoggingDestination = mutation({
     args: loggingDestinationIdentityArgs,
     returns: v.union(loggingDestinationRecordValidator, v.null()),
     handler: async (ctx: LoggingDestinationMutationCtx, args) => {

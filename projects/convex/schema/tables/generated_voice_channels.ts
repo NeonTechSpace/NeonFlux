@@ -8,16 +8,14 @@ export const generatedVoiceChannelsTable = defineTable({
     createdAt: timestamp,
     guildId: v.string(),
     lastSeenAt: timestamp,
-    legacyId: v.string(),
     ownerUserId: optionalString,
-    ruleLegacyId: optionalString,
+    ruleId: v.optional(v.id('vcGeneratorRules')),
     status: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
-    .index('by_guild_rule_created', ['guildId', 'ruleLegacyId', 'createdAt'])
+    .index('by_guild_rule_created', ['guildId', 'ruleId', 'createdAt'])
     .index('by_channel', ['channelId'])
-    .index('by_guild_rule_status', ['guildId', 'ruleLegacyId', 'status'])
+    .index('by_guild_rule_status', ['guildId', 'ruleId', 'status'])
     .index('by_guild_status', ['guildId', 'status'])
-    .index('by_guild_owner_status_created', ['guildId', 'ownerUserId', 'status', 'createdAt'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_owner_status_created', ['guildId', 'ownerUserId', 'status', 'createdAt']);

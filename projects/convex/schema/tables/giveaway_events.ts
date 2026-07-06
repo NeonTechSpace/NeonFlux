@@ -8,8 +8,5 @@ export const giveawayEventsTable = defineTable({
     createdAt: timestamp,
     details: jsonValue,
     eventType: v.string(),
-    giveawayLegacyId: v.string(),
-    legacyId: v.string(),
-})
-    .index('by_giveaway_created', ['giveawayLegacyId', 'createdAt'])
-    .index('by_legacy', ['legacyId']);
+    giveawayId: v.id('giveaways'),
+}).index('by_giveaway_created', ['giveawayId', 'createdAt']);

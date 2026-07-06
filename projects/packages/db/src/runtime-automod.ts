@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -17,21 +17,6 @@ import {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    automod: {
-        deleteAutomodRule: ConvexMutationReference;
-        listAutomodEventsByGuildId: ConvexQueryReference;
-        listAutomodRulesByGuildId: ConvexQueryReference;
-        listEnabledAutomodRulesByGuildId: ConvexQueryReference;
-        recordAutomodEvent: ConvexMutationReference;
-        saveAutomodRule: ConvexMutationReference;
-        updateAutomodEventStatus: ConvexMutationReference;
-    };
-};
 
 type AutomodDb = ConvexDatabase;
 
@@ -86,10 +71,7 @@ export async function saveAutomodRule(
     }
 
     try {
-        const rule = await db.client.mutation<ConvexAutomodRuleRecord>(
-            convexApi.automod.saveAutomodRule,
-            normalizedInput.value
-        );
+        const rule = await db.client.mutation(api.automod.saveAutomodRule, normalizedInput.value);
 
         return ok(toAutomodRuleRecord(rule));
     } catch (error) {
@@ -108,7 +90,7 @@ export async function deleteAutomodRule(
     if (ruleId.isErr()) return err(ruleId.error);
 
     try {
-        const rule = await db.client.mutation<ConvexAutomodRuleRecord | null>(convexApi.automod.deleteAutomodRule, {
+        const rule = await db.client.mutation(api.automod.deleteAutomodRule, {
             guildId: guildId.value,
             ruleId: ruleId.value,
         });
@@ -130,10 +112,7 @@ export async function recordAutomodEvent(
     }
 
     try {
-        const event = await db.client.mutation<ConvexAutomodEventRecord>(
-            convexApi.automod.recordAutomodEvent,
-            normalizedInput.value
-        );
+        const event = await db.client.mutation(api.automod.recordAutomodEvent, normalizedInput.value);
 
         return ok(toAutomodEventRecord(event));
     } catch (error) {
@@ -152,14 +131,11 @@ export async function updateAutomodEventStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const event = await db.client.mutation<ConvexAutomodEventRecord | null>(
-            convexApi.automod.updateAutomodEventStatus,
-            {
-                ...(input.details ? { details: input.details } : {}),
-                eventId: eventId.value,
-                status: status.value,
-            }
-        );
+        const event = await db.client.mutation(api.automod.updateAutomodEventStatus, {
+            ...(input.details ? { details: input.details } : {}),
+            eventId: eventId.value,
+            status: status.value,
+        });
 
         return event ? ok(toAutomodEventRecord(event)) : err({ type: 'not-found' });
     } catch (error) {
@@ -178,7 +154,7 @@ export async function listAutomodEventsByGuildId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const events = await db.client.query<ConvexAutomodEventRecord[]>(convexApi.automod.listAutomodEventsByGuildId, {
+        const events = await db.client.query(api.automod.listAutomodEventsByGuildId, {
             guildId: guildId.value,
             limit: limit.value,
         });
@@ -200,10 +176,8 @@ async function listAutomodRules(
     }
 
     try {
-        const rules = await db.client.query<ConvexAutomodRuleRecord[]>(
-            input.enabledOnly
-                ? convexApi.automod.listEnabledAutomodRulesByGuildId
-                : convexApi.automod.listAutomodRulesByGuildId,
+        const rules = await db.client.query(
+            input.enabledOnly ? api.automod.listEnabledAutomodRulesByGuildId : api.automod.listAutomodRulesByGuildId,
             { guildId: guildId.value, limit: 200 }
         );
 
@@ -267,7 +241,7 @@ function normalizeAutomodRuleInput(input: SaveAutomodRuleInput): Result<
     if (!triggerType) return err({ field: 'triggerType', type: 'invalid-value' });
     if (!actionType) return err({ field: 'actionType', type: 'invalid-value' });
 
-    const config = normalizeRuleConfig(triggerType, input.config ?? {});
+    const config = normalizeRuleConfig(input.config ?? {});
 
     if (config.isErr()) {
         return err(config.error);
@@ -328,10 +302,7 @@ function normalizeAutomodEventInput(input: RecordAutomodEventInput): Result<
     });
 }
 
-function normalizeRuleConfig(
-    triggerType: AutomodTriggerType,
-    config: Record<string, unknown>
-): Result<AutomodRuleConfig, AutomodRepositoryError> {
+function normalizeRuleConfig(config: Record<string, unknown>): Result<AutomodRuleConfig, AutomodRepositoryError> {
     const timeoutDurationSeconds = normalizeTimeoutDurationSeconds(config.timeoutDurationSeconds);
     const ignoredChannelIds = normalizeTextArray(config.ignoredChannelIds);
     const ignoredRoleIds = normalizeTextArray(config.ignoredRoleIds);
@@ -350,10 +321,6 @@ function normalizeRuleConfig(
         ...(ignoredRoleIds.length > 0 ? { ignoredRoleIds } : {}),
         ...(ignoredUserIds.length > 0 ? { ignoredUserIds } : {}),
     };
-
-    if (triggerType === 'invite_links') {
-        return ok(sharedConfig);
-    }
 
     const terms = normalizeTerms(config.terms);
 

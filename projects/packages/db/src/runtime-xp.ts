@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { GuildFeatureRepositoryError } from './contracts.js';
@@ -15,38 +15,19 @@ import type {
 
 import type { ConvexDatabase } from './convex.js';
 
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    xp: {
-        addGuildUserXp: ConvexMutationReference;
-        findGuildUserXp: ConvexQueryReference;
-        findGuildUserXpRank: ConvexQueryReference;
-        findXpSettingsByGuildId: ConvexQueryReference;
-        grantGuildUserXp: ConvexMutationReference;
-        listGuildXpLeaderboard: ConvexQueryReference;
-        upsertXpRoleReward: ConvexMutationReference;
-        upsertXpSettings: ConvexMutationReference;
-    };
-};
-
 type XpDb = ConvexDatabase;
 
 type ConvexXpSettingsRecord = Omit<XpSettingsRecord, 'updatedAt'> & { updatedAt: string };
 type ConvexGuildUserXpRecord = Omit<GuildUserXpRecord, 'lastMessageXpAt' | 'lastVoiceXpAt' | 'updatedAt'> & {
     lastMessageXpAt: string | null;
     lastVoiceXpAt: string | null;
-    legacyId: string;
     updatedAt: string;
 };
 type ConvexXpGrantRecord = Omit<XpGrantRecord, 'grantedAt'> & {
     grantedAt: string;
-    legacyId: string;
 };
 type ConvexXpRoleRewardRecord = Omit<XpRoleRewardRecord, 'createdAt' | 'updatedAt'> & {
     createdAt: string;
-    legacyId: string;
     updatedAt: string;
 };
 type ConvexGrantGuildUserXpResult =
@@ -71,8 +52,8 @@ export async function upsertXpSettings(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const settings = await db.client.mutation<ConvexXpSettingsRecord>(
-            convexApi.xp.upsertXpSettings,
+        const settings = await db.client.mutation(
+            api.xp.upsertXpSettings,
             normalizedInput.value
         );
 
@@ -91,7 +72,7 @@ export async function findXpSettingsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const settings = await db.client.query<ConvexXpSettingsRecord | null>(convexApi.xp.findXpSettingsByGuildId, {
+        const settings = await db.client.query(api.xp.findXpSettingsByGuildId, {
             guildId: guildId.value,
         });
 
@@ -110,10 +91,7 @@ export async function addGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const userXp = await db.client.mutation<ConvexGuildUserXpRecord>(
-            convexApi.xp.addGuildUserXp,
-            normalizedInput.value
-        );
+        const userXp = await db.client.mutation(api.xp.addGuildUserXp, normalizedInput.value);
 
         return ok(toGuildUserXpRecord(userXp));
     } catch {
@@ -139,8 +117,8 @@ export async function grantGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const result = await db.client.mutation<ConvexGrantGuildUserXpResult>(
-            convexApi.xp.grantGuildUserXp,
+        const result = await db.client.mutation(
+            api.xp.grantGuildUserXp,
             normalizedInput.value
         );
 
@@ -163,7 +141,7 @@ export async function upsertXpRoleReward(
     if (roleId.isErr()) return err(roleId.error);
 
     try {
-        const reward = await db.client.mutation<ConvexXpRoleRewardRecord>(convexApi.xp.upsertXpRoleReward, {
+        const reward = await db.client.mutation(api.xp.upsertXpRoleReward, {
             guildId: guildId.value,
             level: level.value,
             roleId: roleId.value,
@@ -184,8 +162,8 @@ export async function findGuildUserXp(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const userXp = await db.client.query<ConvexGuildUserXpRecord | null>(
-            convexApi.xp.findGuildUserXp,
+        const userXp = await db.client.query(
+            api.xp.findGuildUserXp,
             normalizedInput.value
         );
 
@@ -204,10 +182,7 @@ export async function findGuildUserXpRank(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const rank = await db.client.query<{
-            rank: number;
-            userXp: ConvexGuildUserXpRecord;
-        } | null>(convexApi.xp.findGuildUserXpRank, normalizedInput.value);
+        const rank = await db.client.query(api.xp.findGuildUserXpRank, normalizedInput.value);
 
         return rank ? ok({ rank: rank.rank, userXp: toGuildUserXpRecord(rank.userXp) }) : err({ type: 'not-found' });
     } catch {
@@ -226,7 +201,7 @@ export async function listGuildXpLeaderboard(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const leaderboard = await db.client.query<ConvexGuildUserXpRecord[]>(convexApi.xp.listGuildXpLeaderboard, {
+        const leaderboard = await db.client.query(api.xp.listGuildXpLeaderboard, {
             guildId: guildId.value,
             limit: limit.value,
         });

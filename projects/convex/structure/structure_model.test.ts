@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildObservedEventStateDocument,
@@ -6,13 +7,16 @@ import {
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
     buildStructureImportRunStatusPatch,
+    toStructureExportSnapshotRecord,
     toStructureImportActionRecord,
     toStructureImportRunRecord,
     toStructureObservedEventStateRecord,
 } from './structure_model.js';
 
 const now = '2026-06-28T12:00:00.000Z';
-const legacyId = () => 'legacy-1';
+const snapshotId = 'snapshot-1' as GenericId<'structureExportSnapshots'>;
+const runId = 'run-1' as GenericId<'structureImportRuns'>;
+const actionId = 'action-1' as GenericId<'structureImportActions'>;
 
 describe('structure model', () => {
     it('builds export snapshots with defaults and validates snapshot shape', () => {
@@ -24,8 +28,7 @@ describe('structure model', () => {
                     snapshot: { roles: [{ id: 'role-1' }] },
                     source: ' dashboard ',
                 },
-                now,
-                legacyId
+                now
             )
         );
         const invalid = buildStructureExportSnapshotDocument({ guildId: 'guild-1', snapshot: [] as never }, now);
@@ -33,9 +36,9 @@ describe('structure model', () => {
         expect(snapshot).toMatchObject({
             createdByUserId: 'actor-1',
             guildId: 'guild-1',
-            legacyId: 'legacy-1',
             source: 'dashboard',
         });
+        expect(toStructureExportSnapshotRecord({ ...snapshot, _id: snapshotId }).id).toBe(snapshotId);
         expect(invalid).toStrictEqual({ error: { field: 'snapshot', type: 'invalid-value' }, ok: false });
     });
 
@@ -48,8 +51,7 @@ describe('structure model', () => {
                     plan: { summary: { creates: 1 } },
                     sourceSnapshotId: 'snapshot-1',
                 },
-                now,
-                legacyId
+                now
             )
         );
         const dryRun = unwrap(buildStructureImportRunStatusPatch(run, { status: 'dry_run_complete' }, now));
@@ -58,10 +60,10 @@ describe('structure model', () => {
         );
         const invalid = buildStructureImportRunStatusPatch(run, { status: 'applied' }, now);
 
-        expect(toStructureImportRunRecord(run)).toMatchObject({
+        expect(toStructureImportRunRecord({ ...run, _id: runId })).toMatchObject({
             confirmedAt: null,
-            id: 'legacy-1',
-            sourceSnapshotId: 'snapshot-1',
+            id: runId,
+            sourceSnapshotId: snapshotId,
             status: 'draft',
         });
         expect(confirmed.confirmedAt).toBe(now);
@@ -80,14 +82,13 @@ describe('structure model', () => {
                     runId: 'run-1',
                     targetType: 'channel',
                 },
-                now,
-                legacyId
+                now
             )
         );
 
-        expect(toStructureImportActionRecord(action)).toMatchObject({
-            id: 'legacy-1',
-            runId: 'run-1',
+        expect(toStructureImportActionRecord({ ...action, _id: actionId })).toMatchObject({
+            id: actionId,
+            runId,
             status: 'pending',
             targetId: null,
         });
@@ -107,9 +108,7 @@ describe('structure model', () => {
                     targetType: 'role',
                 },
                 existing,
-                now,
-                undefined,
-                legacyId
+                now
             )
         );
         const record = toStructureObservedEventStateRecord(observed);

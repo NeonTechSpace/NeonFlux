@@ -27,6 +27,7 @@
         "@fontsource/roboto-mono": "^5.2.9",
         "@neonflux/config": "workspace:*",
         "@neonflux/convex": "workspace:*",
+        "@neonflux/convex-api": "workspace:*",
         "@neonflux/core": "workspace:*",
         "@neonflux/fluxer": "workspace:*",
         "@neonflux/db": "workspace:*",

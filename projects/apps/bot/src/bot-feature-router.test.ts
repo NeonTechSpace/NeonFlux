@@ -1784,10 +1784,10 @@ describe('routeBotFeatureEvent', () => {
             ok([
                 createAutomodRuleRecord({
                     id: 'automod-rule-delete',
-                    name: 'Delete invites',
-                    triggerType: 'invite_links',
+                    name: 'Delete terms',
+                    triggerType: 'blocked_terms',
                     actionType: 'delete_message',
-                    config: {},
+                    config: { terms: ['spam'] },
                 }),
             ])
         );
@@ -1795,7 +1795,7 @@ describe('routeBotFeatureEvent', () => {
         const result = await routeBotFeatureEvent(
             createContext(createMultiMode()),
             createMessageEvent({
-                content: 'join discord.gg/example',
+                content: 'spam here',
                 mentionedUserIds: [],
             })
         );

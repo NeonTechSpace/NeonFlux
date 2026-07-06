@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -29,11 +22,9 @@ import {
     type TicketMemberDocument,
     type TicketPanelDocument,
 } from './tickets_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type TicketsQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type TicketsMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type TicketsQueryCtx = QueryCtx;
+type TicketsMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredTicketPanelDocument = TicketPanelDocument & { _id: GenericId<'ticketPanels'> };
@@ -82,14 +73,13 @@ const eventRecordValidator = v.object({
     ticketId: v.string(),
 });
 
-export const createTicketPanel = mutationGeneric({
+export const createTicketPanel = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.optional(v.string()),
         title: v.string(),
         updatedAt: v.optional(v.string()),
@@ -101,19 +91,15 @@ export const createTicketPanel = mutationGeneric({
 
         await requireGuildDocument(ctx, guildId);
 
-        const document = unwrap(
-            buildTicketPanelDocument({ ...args, guildId }, new Date().toISOString(), undefined, () =>
-                crypto.randomUUID()
-            )
-        );
+        const document = unwrap(buildTicketPanelDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('ticketPanels', document);
+        const id = await ctx.db.insert('ticketPanels', document);
 
-        return toTicketPanelRecord(document);
+        return toTicketPanelRecord({ ...document, _id: id });
     },
 });
 
-export const updateTicketPanel = mutationGeneric({
+export const updateTicketPanel = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
@@ -127,7 +113,7 @@ export const updateTicketPanel = mutationGeneric({
     returns: v.union(panelRecordValidator, v.null()),
     handler: async (ctx: TicketsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedTicketServices);
-        const panel = await findTicketPanelByGuildLegacy(ctx, args);
+        const panel = await findTicketPanelByGuildId(ctx, args);
 
         if (!panel) return null;
 
@@ -136,7 +122,6 @@ export const updateTicketPanel = mutationGeneric({
                 {
                     ...args,
                     guildId: panel.guildId,
-                    legacyId: panel.legacyId,
                 },
                 new Date().toISOString(),
                 panel
@@ -152,11 +137,11 @@ export const updateTicketPanel = mutationGeneric({
             updatedAt: document.updatedAt,
         });
 
-        return toTicketPanelRecord(document);
+        return toTicketPanelRecord({ ...panel, ...document });
     },
 });
 
-export const listTicketPanelsByGuildId = queryGeneric({
+export const listTicketPanelsByGuildId = query({
     args: { enabledOnly: v.optional(v.boolean()), guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(panelRecordValidator),
     handler: async (ctx: TicketsQueryCtx, args) => {
@@ -178,7 +163,7 @@ export const listTicketPanelsByGuildId = queryGeneric({
     },
 });
 
-export const findEnabledTicketPanelByMessageId = queryGeneric({
+export const findEnabledTicketPanelByMessageId = query({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(panelRecordValidator, v.null()),
     handler: async (ctx: TicketsQueryCtx, args) => {
@@ -196,12 +181,12 @@ export const findEnabledTicketPanelByMessageId = queryGeneric({
     },
 });
 
-export const updateTicketPanelEnabled = mutationGeneric({
+export const updateTicketPanelEnabled = mutation({
     args: { enabled: v.boolean(), guildId: v.string(), panelId: v.string() },
     returns: v.union(panelRecordValidator, v.null()),
     handler: async (ctx: TicketsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedTicketServices);
-        const panel = await findTicketPanelByGuildLegacy(ctx, args);
+        const panel = await findTicketPanelByGuildId(ctx, args);
 
         if (!panel) return null;
 
@@ -213,22 +198,22 @@ export const updateTicketPanelEnabled = mutationGeneric({
     },
 });
 
-export const deleteTicketPanel = mutationGeneric({
+export const deleteTicketPanel = mutation({
     args: { guildId: v.string(), panelId: v.string() },
     returns: v.union(panelRecordValidator, v.null()),
     handler: async (ctx: TicketsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedTicketServices);
-        const panel = await findTicketPanelByGuildLegacy(ctx, args);
+        const panel = await findTicketPanelByGuildId(ctx, args);
 
         if (!panel) return null;
 
         const tickets = await ctx.db
             .query('tickets')
-            .withIndex('by_panel', (query) => query.eq('panelLegacyId', panel.legacyId))
+            .withIndex('by_panel', (query) => query.eq('panelId', panel._id))
             .take(500);
 
         for (const ticket of tickets) {
-            await ctx.db.patch(ticket._id, { panelLegacyId: undefined });
+            await ctx.db.patch(ticket._id, { panelId: undefined });
         }
 
         await ctx.db.delete(panel._id);
@@ -237,7 +222,7 @@ export const deleteTicketPanel = mutationGeneric({
     },
 });
 
-export const reserveNextTicketNumber = mutationGeneric({
+export const reserveNextTicketNumber = mutation({
     args: { guildId: v.string() },
     returns: v.number(),
     handler: async (ctx: TicketsMutationCtx, args) => {
@@ -263,11 +248,10 @@ export const reserveNextTicketNumber = mutationGeneric({
     },
 });
 
-export const createTicket = mutationGeneric({
+export const createTicket = mutation({
     args: {
         channelId: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         openedAt: v.optional(v.string()),
         openerUserId: v.string(),
         panelId: v.optional(v.string()),
@@ -283,17 +267,15 @@ export const createTicket = mutationGeneric({
         await requirePanelIfProvided(ctx, args.panelId);
         await requireTicketNumberAvailable(ctx, { guildId, ticketNumber: args.ticketNumber });
 
-        const document = unwrap(
-            buildTicketDocument({ ...args, guildId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildTicketDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('tickets', document);
+        const id = await ctx.db.insert('tickets', document);
 
-        return toTicketRecord(document);
+        return toTicketRecord({ ...document, _id: id });
     },
 });
 
-export const findOpenTicketByPanelAndOpener = queryGeneric({
+export const findOpenTicketByPanelAndOpener = query({
     args: { openerUserId: v.string(), panelId: v.string() },
     returns: v.union(ticketRecordValidator, v.null()),
     handler: async (ctx: TicketsQueryCtx, args) => {
@@ -304,7 +286,7 @@ export const findOpenTicketByPanelAndOpener = queryGeneric({
     },
 });
 
-export const listOpenTicketsByPanelAndOpener = queryGeneric({
+export const listOpenTicketsByPanelAndOpener = query({
     args: { limit: v.optional(v.number()), openerUserId: v.string(), panelId: v.string() },
     returns: v.array(ticketRecordValidator),
     handler: async (ctx: TicketsQueryCtx, args) => {
@@ -315,7 +297,7 @@ export const listOpenTicketsByPanelAndOpener = queryGeneric({
     },
 });
 
-export const findTicketByChannelId = queryGeneric({
+export const findTicketByChannelId = query({
     args: { channelId: v.string(), guildId: v.string() },
     returns: v.union(ticketRecordValidator, v.null()),
     handler: async (ctx: TicketsQueryCtx, args) => {
@@ -332,12 +314,12 @@ export const findTicketByChannelId = queryGeneric({
     },
 });
 
-export const updateTicketChannelId = mutationGeneric({
+export const updateTicketChannelId = mutation({
     args: { channelId: v.string(), ticketId: v.string() },
     returns: v.union(ticketRecordValidator, v.null()),
     handler: async (ctx: TicketsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedTicketServices);
-        const ticket = await findTicketByLegacyId(ctx, args.ticketId);
+        const ticket = await findTicketById(ctx, args.ticketId);
 
         if (!ticket) return null;
 
@@ -350,12 +332,12 @@ export const updateTicketChannelId = mutationGeneric({
     },
 });
 
-export const updateTicketStatus = mutationGeneric({
+export const updateTicketStatus = mutation({
     args: { status: v.string(), ticketId: v.string(), updatedAt: v.optional(v.string()) },
     returns: v.union(ticketRecordValidator, v.null()),
     handler: async (ctx: TicketsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedTicketServices);
-        const ticket = await findTicketByLegacyId(ctx, args.ticketId);
+        const ticket = await findTicketById(ctx, args.ticketId);
 
         if (!ticket) return null;
 
@@ -367,10 +349,9 @@ export const updateTicketStatus = mutationGeneric({
     },
 });
 
-export const addTicketMember = mutationGeneric({
+export const addTicketMember = mutation({
     args: {
         createdAt: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         role: v.optional(v.string()),
         ticketId: v.string(),
         userId: v.string(),
@@ -389,21 +370,20 @@ export const addTicketMember = mutationGeneric({
 
         if (existingMember) {
             await ctx.db.patch(existingMember._id, { role: document.role });
+            return toTicketMemberRecord({ ...existingMember, ...document });
         } else {
-            await ctx.db.insert('ticketMembers', document);
+            const id = await ctx.db.insert('ticketMembers', document);
+            return toTicketMemberRecord({ ...document, _id: id });
         }
-
-        return toTicketMemberRecord(document);
     },
 });
 
-export const recordTicketEvent = mutationGeneric({
+export const recordTicketEvent = mutation({
     args: {
         actorUserId: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
         eventType: v.string(),
-        legacyId: v.optional(v.string()),
         ticketId: v.string(),
     },
     returns: eventRecordValidator,
@@ -413,53 +393,43 @@ export const recordTicketEvent = mutationGeneric({
 
         await requireTicket(ctx, ticketId);
 
-        const document = unwrap(
-            buildTicketEventDocument({ ...args, ticketId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildTicketEventDocument({ ...args, ticketId }, new Date().toISOString()));
 
-        await ctx.db.insert('ticketEvents', document);
+        const id = await ctx.db.insert('ticketEvents', document);
 
-        return toTicketEventRecord(document);
+        return toTicketEventRecord({ ...document, _id: id });
     },
 });
 
-async function findTicketPanelByGuildLegacy(
+async function findTicketPanelByGuildId(
     ctx: TicketsQueryCtx | TicketsMutationCtx,
     input: { guildId: string; panelId: string }
 ): Promise<StoredTicketPanelDocument | null> {
     const guildId = unwrap(normalizeRequiredGuildId(input.guildId));
-    const panelId = unwrap(normalizeRequiredPanelId(input.panelId));
-    const panel = await ctx.db
-        .query('ticketPanels')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', panelId))
-        .unique();
+    const panelId = parseTicketPanelId(unwrap(normalizeRequiredPanelId(input.panelId)));
+    const panel = await ctx.db.get(panelId);
 
     return panel?.guildId === guildId ? panel : null;
 }
 
-async function findTicketByLegacyId(
+async function findTicketById(
     ctx: TicketsQueryCtx | TicketsMutationCtx,
     ticketId: string
 ): Promise<StoredTicketDocument | null> {
-    const normalizedTicketId = unwrap(normalizeRequiredTicketId(ticketId));
-
-    return await ctx.db
-        .query('tickets')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', normalizedTicketId))
-        .unique();
+    return await ctx.db.get(parseTicketId(unwrap(normalizeRequiredTicketId(ticketId))));
 }
 
 async function listOpenTicketsByPanelOpener(
     ctx: TicketsQueryCtx,
     input: { limit?: number; openerUserId: string; panelId: string }
 ): Promise<StoredTicketDocument[]> {
-    const panelId = unwrap(normalizeRequiredPanelId(input.panelId));
+    const panelId = parseTicketPanelId(unwrap(normalizeRequiredPanelId(input.panelId)));
     const openerUserId = unwrap(normalizeRequiredOpenerUserId(input.openerUserId));
 
     return await ctx.db
         .query('tickets')
         .withIndex('by_panel_opener_status_opened', (query) =>
-            query.eq('panelLegacyId', panelId).eq('openerUserId', openerUserId).eq('status', 'open')
+            query.eq('panelId', panelId).eq('openerUserId', openerUserId).eq('status', 'open')
         )
         .order('asc')
         .take(normalizeLimit(input.limit, 10));
@@ -469,14 +439,16 @@ async function findTicketMemberByTicketUser(
     ctx: TicketsMutationCtx,
     input: { ticketId: string; userId: string }
 ): Promise<StoredTicketMemberDocument | null> {
+    const ticketId = parseTicketId(unwrap(normalizeRequiredTicketId(input.ticketId)));
+
     return await ctx.db
         .query('ticketMembers')
-        .withIndex('by_ticket_user', (query) => query.eq('ticketLegacyId', input.ticketId).eq('userId', input.userId))
+        .withIndex('by_ticket_user', (query) => query.eq('ticketId', ticketId).eq('userId', input.userId))
         .unique();
 }
 
 async function requireTicket(ctx: TicketsMutationCtx, ticketId: string): Promise<StoredTicketDocument> {
-    const ticket = await findTicketByLegacyId(ctx, ticketId);
+    const ticket = await findTicketById(ctx, ticketId);
 
     if (!ticket) throw new Error('ticket-not-found');
 
@@ -486,12 +458,17 @@ async function requireTicket(ctx: TicketsMutationCtx, ticketId: string): Promise
 async function requirePanelIfProvided(ctx: TicketsMutationCtx, panelId: string | undefined): Promise<void> {
     if (!panelId) return;
 
-    const panel = await ctx.db
-        .query('ticketPanels')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', panelId.trim()))
-        .unique();
+    const panel = await ctx.db.get(parseTicketPanelId(panelId.trim()));
 
     if (!panel) throw new Error('ticket-panel-not-found');
+}
+
+function parseTicketPanelId(value: string): GenericId<'ticketPanels'> {
+    return value as GenericId<'ticketPanels'>;
+}
+
+function parseTicketId(value: string): GenericId<'tickets'> {
+    return value as GenericId<'tickets'>;
 }
 
 async function requireTicketNumberAvailable(

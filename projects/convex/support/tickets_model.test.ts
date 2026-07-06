@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildTicketDocument,
@@ -13,7 +14,10 @@ import {
 } from './tickets_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
-const createLegacyId = (): string => 'legacy-1';
+const panelId = 'panel-doc-1' as GenericId<'ticketPanels'>;
+const ticketId = 'ticket-doc-1' as GenericId<'tickets'>;
+const memberId = 'member-doc-1';
+const eventId = 'event-doc-1';
 
 describe('tickets model', () => {
     it('builds ticket panels with default enabled state and nullable message ids', () => {
@@ -24,50 +28,47 @@ describe('tickets model', () => {
                 guildId: ' guild-1 ',
                 title: ' Support tickets ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toTicketPanelRecord(result.value)).toStrictEqual({
+        expect(toTicketPanelRecord({ ...result.value, _id: panelId })).toStrictEqual({
             channelId: 'channel-1',
             config: { ticketCategoryId: 'category-1' },
             createdAt: now,
             enabled: true,
             guildId: 'guild-1',
-            id: 'legacy-1',
+            id: panelId,
             messageId: null,
             title: 'Support tickets',
             updatedAt: now,
         });
     });
 
-    it('builds tickets with app-facing nullable fields', () => {
+    it('builds tickets with nullable fields', () => {
         const result = buildTicketDocument(
             {
                 channelId: ' ticket-channel-1 ',
                 guildId: ' guild-1 ',
                 openerUserId: ' user-1 ',
-                panelId: ' panel-1 ',
+                panelId,
                 ticketNumber: 1,
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toTicketRecord(result.value)).toStrictEqual({
+        expect(toTicketRecord({ ...result.value, _id: ticketId })).toStrictEqual({
             channelId: 'ticket-channel-1',
             claimedByUserId: null,
             closedAt: null,
             guildId: 'guild-1',
-            id: 'legacy-1',
+            id: ticketId,
             openedAt: now,
             openerUserId: 'user-1',
-            panelId: 'panel-1',
+            panelId,
             status: 'open',
             ticketNumber: 1,
             updatedAt: now,
@@ -101,41 +102,38 @@ describe('tickets model', () => {
     it('builds ticket members and events', () => {
         const member = buildTicketMemberDocument(
             {
-                ticketId: ' ticket-1 ',
+                ticketId,
                 userId: ' user-1 ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
         const event = buildTicketEventDocument(
             {
                 actorUserId: ' user-1 ',
                 details: { channelId: 'channel-1' },
                 eventType: ' opened ',
-                ticketId: ' ticket-1 ',
+                ticketId,
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(member.ok).toBe(true);
         expect(event.ok).toBe(true);
         if (!member.ok || !event.ok) return;
-        expect(toTicketMemberRecord(member.value)).toStrictEqual({
+        expect(toTicketMemberRecord({ ...member.value, _id: memberId })).toStrictEqual({
             createdAt: now,
-            id: 'legacy-1',
+            id: memberId,
             role: 'participant',
-            ticketId: 'ticket-1',
+            ticketId,
             userId: 'user-1',
         });
-        expect(toTicketEventRecord(event.value)).toStrictEqual({
+        expect(toTicketEventRecord({ ...event.value, _id: eventId })).toStrictEqual({
             actorUserId: 'user-1',
             createdAt: now,
             details: { channelId: 'channel-1' },
             eventType: 'opened',
-            id: 'legacy-1',
-            ticketId: 'ticket-1',
+            id: eventId,
+            ticketId,
         });
     });
 });

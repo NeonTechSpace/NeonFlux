@@ -9,12 +9,10 @@ export const structureImportRunsTable = defineTable({
     createdAt: timestamp,
     createdByUserId: optionalString,
     guildId: v.string(),
-    legacyId: v.string(),
     plan: jsonValue,
-    sourceSnapshotLegacyId: optionalString,
+    sourceSnapshotId: v.optional(v.id('structureExportSnapshots')),
     status: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
-    .index('by_guild_status', ['guildId', 'status'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_status', ['guildId', 'status']);

@@ -12,7 +12,6 @@ export type GuildMemberFlowEventDocument = {
     guildId: string;
     inviteCode?: string;
     inviterUserId?: string;
-    legacyId: string;
     occurredAt: string;
     userId: string;
 };
@@ -26,7 +25,6 @@ export type GuildInviteSnapshotDocument = {
     guildId: string;
     inviterUserId?: string;
     lastSeenAt: string;
-    legacyId: string;
     maxUses?: number;
     revokedAt?: string;
     temporary: boolean;
@@ -37,7 +35,6 @@ export type GuildMessageActivityDayDocument = {
     activityDate: string;
     channelId: string;
     guildId: string;
-    legacyId: string;
     messageCount: number;
     updatedAt: string;
 };
@@ -46,7 +43,6 @@ export type GuildInviteSnapshotInput = {
     channelId?: string | null;
     code?: string | null;
     expiresAt?: string | null;
-    legacyId?: string | null;
     maxUses?: number | null;
     temporary?: boolean | null;
     uses?: number | null;
@@ -93,12 +89,10 @@ export function buildGuildMemberFlowEventDocument(
         guildId?: string | null;
         inviteCode?: string | null;
         inviterUserId?: string | null;
-        legacyId?: string | null;
         occurredAt?: string | null;
         userId?: string | null;
     },
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): GrowthInputResult<GuildMemberFlowEventDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -126,7 +120,6 @@ export function buildGuildMemberFlowEventDocument(
             guildId: guildId.value,
             ...(inviteCode === undefined ? {} : { inviteCode }),
             ...(inviterUserId === undefined ? {} : { inviterUserId }),
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             occurredAt,
             userId: userId.value,
         },
@@ -137,7 +130,7 @@ export function buildGuildInviteSnapshotDocument(
     guildId: string,
     input: GuildInviteSnapshotInput,
     observedAt: string,
-    existing?: Pick<GuildInviteSnapshotDocument, 'firstSeenAt' | 'legacyId'>
+    existing?: Pick<GuildInviteSnapshotDocument, 'firstSeenAt'>
 ): GrowthInputResult<GuildInviteSnapshotDocument> {
     const code = normalizeRequiredString(input.code, 'code');
     const uses = normalizeNonNegativeInteger(input.uses ?? 0, 'uses');
@@ -169,7 +162,6 @@ export function buildGuildInviteSnapshotDocument(
             guildId,
             ...(inviterUserId === undefined ? {} : { inviterUserId }),
             lastSeenAt: observedAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? crypto.randomUUID(),
             ...(maxUses.value === undefined ? {} : { maxUses: maxUses.value }),
             temporary: input.temporary ?? false,
             uses: uses.value,
@@ -193,11 +185,10 @@ export function buildGuildMessageActivityDayDocument(
     input: {
         channelId?: string | null;
         guildId?: string | null;
-        legacyId?: string | null;
         occurredAt?: string | null;
     },
     now: string,
-    existing?: Pick<GuildMessageActivityDayDocument, 'legacyId' | 'messageCount'>
+    existing?: Pick<GuildMessageActivityDayDocument, 'messageCount'>
 ): GrowthInputResult<GuildMessageActivityDayDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -213,7 +204,6 @@ export function buildGuildMessageActivityDayDocument(
             activityDate: formatUtcDate(occurredAt),
             channelId: channelId.value,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? crypto.randomUUID(),
             messageCount: (existing?.messageCount ?? 0) + 1,
             updatedAt: occurredAt,
         },
@@ -286,29 +276,29 @@ export function normalizeObservedAt(value: string | undefined): GrowthInputResul
 
 export const normalizeRequiredGuildId = (value: string) => normalizeRequiredString(value, 'guildId');
 
-export function toGuildMemberFlowEventRecord(document: GuildMemberFlowEventDocument) {
+export function toGuildMemberFlowEventRecord(document: GuildMemberFlowEventDocument & { _id: string }) {
     return {
         ...document,
-        id: document.legacyId,
+        id: document._id,
         inviteCode: document.inviteCode ?? null,
         inviterUserId: document.inviterUserId ?? null,
     };
 }
 
-export function toGuildInviteSnapshotRecord(document: GuildInviteSnapshotDocument) {
+export function toGuildInviteSnapshotRecord(document: GuildInviteSnapshotDocument & { _id: string }) {
     return {
         ...document,
         channelId: document.channelId ?? null,
         expiresAt: document.expiresAt ?? null,
-        id: document.legacyId,
+        id: document._id,
         inviterUserId: document.inviterUserId ?? null,
         maxUses: document.maxUses ?? null,
         revokedAt: document.revokedAt ?? null,
     };
 }
 
-export function toGuildMessageActivityDayRecord(document: GuildMessageActivityDayDocument) {
-    return { ...document, id: document.legacyId };
+export function toGuildMessageActivityDayRecord(document: GuildMessageActivityDayDocument & { _id: string }) {
+    return { ...document, id: document._id };
 }
 
 function createMessageActivityGraph(

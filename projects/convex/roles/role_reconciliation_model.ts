@@ -1,3 +1,5 @@
+import type { GenericId } from 'convex/values';
+
 import { buildGuildFeatureSettingDocument, type GuildFeatureSettingDocument } from '../core/feature_settings_model.js';
 
 export const ROLE_RECONCILIATION_FEATURE = 'role_reconciliation';
@@ -14,7 +16,6 @@ export type RoleReconciliationSettingsInput = {
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     restoreAutoroleRoles?: boolean | null;
     restoreReactionRoles?: boolean | null;
     restoreVerificationRoles?: boolean | null;
@@ -35,7 +36,6 @@ export type RoleReconciliationSettingsRecord = {
 export type RoleReconciliationRunInput = {
     createdAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     status?: string | null;
     summary?: Record<string, unknown> | null;
     updatedAt?: string | null;
@@ -44,7 +44,6 @@ export type RoleReconciliationRunInput = {
 export type RoleReconciliationRunDocument = {
     createdAt: string;
     guildId: string;
-    legacyId: string;
     status: string;
     summary: Record<string, unknown>;
     updatedAt: string;
@@ -63,7 +62,6 @@ export type RoleReconciliationActionInput = {
     actionType?: string | null;
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
-    legacyId?: string | null;
     roleId?: string | null;
     runId?: string | null;
     status?: string | null;
@@ -74,9 +72,8 @@ export type RoleReconciliationActionDocument = {
     actionType: string;
     createdAt: string;
     details: Record<string, unknown>;
-    legacyId: string;
     roleId?: string;
-    runLegacyId: string;
+    runId: GenericId<'roleReconciliationRuns'>;
     status: string;
     updatedAt: string;
 };
@@ -112,8 +109,7 @@ const runStatusTransitions = new Map<string, readonly string[]>([
 export function buildRoleReconciliationSettingsDocument(
     input: RoleReconciliationSettingsInput,
     now: string,
-    existing?: Pick<GuildFeatureSettingDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<GuildFeatureSettingDocument, 'createdAt'>
 ): RoleReconciliationInputResult<GuildFeatureSettingDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
 
@@ -134,10 +130,9 @@ export function buildRoleReconciliationSettingsDocument(
         feature: ROLE_RECONCILIATION_FEATURE,
         guildId: guildId.value,
         ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
-        ...(input.legacyId === undefined ? {} : { legacyId: input.legacyId }),
         ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
     };
-    const document = buildGuildFeatureSettingDocument(settingInput, now, existing, createLegacyId);
+    const document = buildGuildFeatureSettingDocument(settingInput, now, existing);
 
     if (!document.ok) {
         return {
@@ -187,8 +182,7 @@ export function toRoleReconciliationSettingsRecord(
 
 export function buildRoleReconciliationRunDocument(
     input: RoleReconciliationRunInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): RoleReconciliationInputResult<RoleReconciliationRunDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const status = normalizeRequiredString(input.status ?? 'pending', 'status');
@@ -207,7 +201,6 @@ export function buildRoleReconciliationRunDocument(
         value: {
             createdAt,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             status: status.value,
             summary,
             updatedAt,
@@ -244,8 +237,7 @@ export function buildRoleReconciliationRunStatusPatch(
 
 export function buildRoleReconciliationActionDocument(
     input: RoleReconciliationActionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): RoleReconciliationInputResult<RoleReconciliationActionDocument> {
     const runId = normalizeRequiredString(input.runId, 'runId');
     const actionType = normalizeRequiredString(input.actionType, 'actionType');
@@ -269,9 +261,8 @@ export function buildRoleReconciliationActionDocument(
             actionType: actionType.value,
             createdAt,
             details,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             ...(roleId ? { roleId } : {}),
-            runLegacyId: runId.value,
+            runId: runId.value as GenericId<'roleReconciliationRuns'>,
             status: status.value,
             updatedAt,
         },
@@ -286,11 +277,13 @@ export function normalizeRequiredRunId(value: string): RoleReconciliationInputRe
     return normalizeRequiredString(value, 'runId');
 }
 
-export function toRoleReconciliationRunRecord(document: RoleReconciliationRunDocument): RoleReconciliationRunRecord {
+export function toRoleReconciliationRunRecord(
+    document: RoleReconciliationRunDocument & { _id: string }
+): RoleReconciliationRunRecord {
     return {
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         status: document.status,
         summary: document.summary,
         updatedAt: document.updatedAt,
@@ -298,15 +291,15 @@ export function toRoleReconciliationRunRecord(document: RoleReconciliationRunDoc
 }
 
 export function toRoleReconciliationActionRecord(
-    document: RoleReconciliationActionDocument
+    document: RoleReconciliationActionDocument & { _id: string }
 ): RoleReconciliationActionRecord {
     return {
         actionType: document.actionType,
         createdAt: document.createdAt,
         details: document.details,
-        id: document.legacyId,
+        id: document._id,
         roleId: document.roleId ?? null,
-        runId: document.runLegacyId,
+        runId: document.runId,
         status: document.status,
         updatedAt: document.updatedAt,
     };

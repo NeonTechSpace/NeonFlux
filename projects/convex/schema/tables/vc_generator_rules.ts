@@ -9,12 +9,10 @@ export const vcGeneratorRulesTable = defineTable({
     createdAt: timestamp,
     enabled: v.boolean(),
     guildId: v.string(),
-    legacyId: v.string(),
     nameTemplate: v.string(),
     sourceChannelId: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
     .index('by_guild_enabled_created', ['guildId', 'enabled', 'createdAt'])
-    .index('by_guild_source', ['guildId', 'sourceChannelId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_source', ['guildId', 'sourceChannelId']);

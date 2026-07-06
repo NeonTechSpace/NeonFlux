@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -16,11 +9,9 @@ import {
     type GiveawayDocument,
     type GiveawaySyncStatus,
 } from './giveaways_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type GiveawayMaintenanceQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type GiveawayMaintenanceMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type GiveawayMaintenanceQueryCtx = QueryCtx;
+type GiveawayMaintenanceMutationCtx = MutationCtx;
 type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> };
 
 const allowedGiveawayMaintenanceServices = ['bot', 'web'] as const;
@@ -45,7 +36,7 @@ const giveawayRecordValidator = v.object({
     winnerCount: v.number(),
 });
 
-export const listExpiredActiveGiveaways = queryGeneric({
+export const listExpiredActiveGiveaways = query({
     args: { limit: v.optional(v.number()), now: v.string() },
     returns: v.array(giveawayRecordValidator),
     handler: async (ctx: GiveawayMaintenanceQueryCtx, args) => {
@@ -61,7 +52,7 @@ export const listExpiredActiveGiveaways = queryGeneric({
     },
 });
 
-export const listStaleActiveGiveaways = queryGeneric({
+export const listStaleActiveGiveaways = query({
     args: { limit: v.optional(v.number()) },
     returns: v.array(giveawayRecordValidator),
     handler: async (ctx: GiveawayMaintenanceQueryCtx, args) => {
@@ -82,7 +73,7 @@ export const listStaleActiveGiveaways = queryGeneric({
     },
 });
 
-export const listReactionReconciliationGiveaways = queryGeneric({
+export const listReactionReconciliationGiveaways = query({
     args: { limit: v.optional(v.number()) },
     returns: v.array(giveawayRecordValidator),
     handler: async (ctx: GiveawayMaintenanceQueryCtx, args) => {
@@ -98,7 +89,7 @@ export const listReactionReconciliationGiveaways = queryGeneric({
     },
 });
 
-export const updateGiveawaySyncStatus = mutationGeneric({
+export const updateGiveawaySyncStatus = mutation({
     args: {
         giveawayId: v.string(),
         guildId: v.string(),
@@ -108,8 +99,7 @@ export const updateGiveawaySyncStatus = mutationGeneric({
     handler: async (ctx: GiveawayMaintenanceMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayMaintenanceServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const giveawayId = unwrap(normalizeRequiredGiveawayId(args.giveawayId));
-        const giveaway = await findGiveawayByLegacyId(ctx, giveawayId);
+        const giveaway = await findGiveawayByIdDocument(ctx, parseGiveawayId(args.giveawayId));
 
         if (giveaway?.guildId !== guildId) return null;
 
@@ -124,14 +114,15 @@ export const updateGiveawaySyncStatus = mutationGeneric({
     },
 });
 
-async function findGiveawayByLegacyId(
+async function findGiveawayByIdDocument(
     ctx: GiveawayMaintenanceQueryCtx | GiveawayMaintenanceMutationCtx,
-    giveawayId: string
+    giveawayId: GenericId<'giveaways'>
 ): Promise<StoredGiveawayDocument | null> {
-    return await ctx.db
-        .query('giveaways')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', giveawayId.trim()))
-        .unique();
+    return await ctx.db.get(giveawayId);
+}
+
+function parseGiveawayId(giveawayId: string): GenericId<'giveaways'> {
+    return unwrap(normalizeRequiredGiveawayId(giveawayId)) as GenericId<'giveaways'>;
 }
 
 function normalizeTimestampArg(value: string, field: string): string {

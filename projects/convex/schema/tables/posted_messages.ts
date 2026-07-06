@@ -8,10 +8,9 @@ export const postedMessagesTable = defineTable({
     createdAt: timestamp,
     createdByUserId: optionalString,
     guildId: v.string(),
-    legacyId: v.string(),
     messageId: v.string(),
     purpose: v.string(),
-    templateLegacyId: optionalString,
+    templateId: v.optional(v.id('messageTemplates')),
     updatedAt: timestamp,
 })
     .index('by_guild_channel_message', ['guildId', 'channelId', 'messageId'])

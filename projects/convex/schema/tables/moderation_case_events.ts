@@ -5,12 +5,10 @@ import { jsonValue, optionalString, timestamp } from '../shared.js';
 
 export const moderationCaseEventsTable = defineTable({
     actorUserId: optionalString,
-    caseLegacyId: v.string(),
+    caseId: v.id('moderationCases'),
     createdAt: timestamp,
     details: jsonValue,
     eventType: v.string(),
-    legacyId: v.string(),
 })
-    .index('by_case', ['caseLegacyId'])
-    .index('by_case_created', ['caseLegacyId', 'createdAt'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_case', ['caseId'])
+    .index('by_case_created', ['caseId', 'createdAt']);

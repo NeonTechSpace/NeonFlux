@@ -7,12 +7,10 @@ export const roleReconciliationActionsTable = defineTable({
     actionType: v.string(),
     createdAt: timestamp,
     details: jsonValue,
-    legacyId: v.string(),
     roleId: optionalString,
-    runLegacyId: v.string(),
+    runId: v.id('roleReconciliationRuns'),
     status: v.string(),
     updatedAt: timestamp,
 })
-    .index('by_legacy', ['legacyId'])
-    .index('by_run_created', ['runLegacyId', 'createdAt'])
-    .index('by_run_status', ['runLegacyId', 'status']);
+    .index('by_run_created', ['runId', 'createdAt'])
+    .index('by_run_status', ['runId', 'status']);

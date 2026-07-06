@@ -10,15 +10,13 @@ export const vcGeneratorControlPanelsTable = defineTable({
     createdAt: timestamp,
     guildId: v.string(),
     lastSyncedAt: optionalTimestamp,
-    legacyId: v.string(),
     messageId: optionalString,
-    ruleLegacyId: v.string(),
+    ruleId: v.id('vcGeneratorRules'),
     staleAt: optionalTimestamp,
     status: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
     .index('by_guild_message', ['guildId', 'messageId'])
-    .index('by_guild_rule', ['guildId', 'ruleLegacyId'])
-    .index('by_guild_status', ['guildId', 'status'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_rule', ['guildId', 'ruleId'])
+    .index('by_guild_status', ['guildId', 'status']);

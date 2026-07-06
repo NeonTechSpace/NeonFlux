@@ -3,7 +3,6 @@ export type CommandPermissionRuleTargetType = 'category' | 'command';
 export type CommandPermissionRuleInput = {
     createdAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     roleIds?: readonly string[];
     targetId?: string | null;
     targetType?: string | null;
@@ -14,7 +13,6 @@ export type CommandPermissionRuleInput = {
 export type CommandPermissionRuleDocument = {
     createdAt: string;
     guildId: string;
-    legacyId: string;
     roleIds: string[];
     targetId: string;
     targetType: CommandPermissionRuleTargetType;
@@ -65,8 +63,7 @@ export type AccessPermissionInputResult<Value, ErrorValue extends string> =
 export function buildCommandPermissionRuleDocument(
     input: CommandPermissionRuleInput,
     now: string,
-    existing?: Pick<CommandPermissionRuleDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<CommandPermissionRuleDocument, 'createdAt'>
 ): AccessPermissionInputResult<CommandPermissionRuleDocument, AccessPermissionInputError> {
     const lookup = normalizeCommandPermissionLookupInput(input);
     const createdAt =
@@ -90,7 +87,6 @@ export function buildCommandPermissionRuleDocument(
         value: {
             ...lookup.value,
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             roleIds: normalizeIdList(input.roleIds),
             updatedAt,
             userIds: normalizeIdList(input.userIds),
@@ -176,11 +172,13 @@ export function normalizeGuildIds(values: readonly string[]): string[] {
     return normalizeIdList(values);
 }
 
-export function toCommandPermissionRuleRecord(document: CommandPermissionRuleDocument): CommandPermissionRuleRecord {
+export function toCommandPermissionRuleRecord(
+    document: CommandPermissionRuleDocument & { _id: string }
+): CommandPermissionRuleRecord {
     return {
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         roleIds: normalizeIdList(document.roleIds),
         targetId: document.targetId,
         targetType: document.targetType,

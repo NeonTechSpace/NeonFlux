@@ -7,7 +7,6 @@ export const xpGrantsTable = defineTable({
     grantedAt: timestamp,
     guildId: v.string(),
     idempotencyKey: v.string(),
-    legacyId: v.string(),
     levelAfter: v.number(),
     levelBefore: v.number(),
     metadata: jsonValue,
@@ -17,5 +16,4 @@ export const xpGrantsTable = defineTable({
 })
     .index('by_guild_key', ['guildId', 'idempotencyKey'])
     .index('by_guild_source_granted', ['guildId', 'source', 'grantedAt'])
-    .index('by_guild_user_granted', ['guildId', 'userId', 'grantedAt'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_user_granted', ['guildId', 'userId', 'grantedAt']);

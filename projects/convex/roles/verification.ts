@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -20,11 +13,9 @@ import {
     type VerificationFlowDocument,
     type VerificationRecordDocument,
 } from './verification_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type VerificationQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type VerificationMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type VerificationQueryCtx = QueryCtx;
+type VerificationMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredVerificationFlowDocument = VerificationFlowDocument & { _id: GenericId<'verificationFlows'> };
@@ -51,14 +42,13 @@ const verificationRecordValidator = v.object({
     verifiedAt: v.string(),
 });
 
-export const upsertVerificationFlow = mutationGeneric({
+export const upsertVerificationFlow = mutation({
     args: {
         channelId: v.string(),
         createdAt: v.optional(v.string()),
         emojiKey: v.string(),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.string(),
         updatedAt: v.optional(v.string()),
         verifiedRoleId: v.string(),
@@ -78,8 +68,7 @@ export const upsertVerificationFlow = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingFlow ?? undefined,
-                () => crypto.randomUUID()
+                existingFlow ?? undefined
             )
         );
 
@@ -91,15 +80,15 @@ export const upsertVerificationFlow = mutationGeneric({
                 updatedAt: document.updatedAt,
                 verifiedRoleId: document.verifiedRoleId,
             });
+            return toVerificationFlowRecord({ ...document, _id: existingFlow._id });
         } else {
-            await ctx.db.insert('verificationFlows', document);
+            const id = await ctx.db.insert('verificationFlows', document);
+            return toVerificationFlowRecord({ ...document, _id: id });
         }
-
-        return toVerificationFlowRecord(document);
     },
 });
 
-export const listVerificationFlowsByGuildId = queryGeneric({
+export const listVerificationFlowsByGuildId = query({
     args: { enabled: v.optional(v.boolean()), guildId: v.string() },
     returns: v.array(verificationFlowRecordValidator),
     handler: async (ctx: VerificationQueryCtx, args) => {
@@ -126,7 +115,7 @@ export const listVerificationFlowsByGuildId = queryGeneric({
     },
 });
 
-export const findEnabledVerificationFlowByReaction = queryGeneric({
+export const findEnabledVerificationFlowByReaction = query({
     args: { emojiKey: v.string(), guildId: v.string(), messageId: v.string() },
     returns: v.union(verificationFlowRecordValidator, v.null()),
     handler: async (ctx: VerificationQueryCtx, args) => {
@@ -147,7 +136,7 @@ export const findEnabledVerificationFlowByReaction = queryGeneric({
     },
 });
 
-export const deleteVerificationFlow = mutationGeneric({
+export const deleteVerificationFlow = mutation({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(verificationFlowRecordValidator, v.null()),
     handler: async (ctx: VerificationMutationCtx, args) => {
@@ -164,10 +153,9 @@ export const deleteVerificationFlow = mutationGeneric({
     },
 });
 
-export const upsertVerificationRecord = mutationGeneric({
+export const upsertVerificationRecord = mutation({
     args: {
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         method: v.string(),
         revokedAt: v.optional(v.string()),
         userId: v.string(),
@@ -189,9 +177,7 @@ export const upsertVerificationRecord = mutationGeneric({
                     guildId,
                     userId,
                 },
-                new Date().toISOString(),
-                existingRecord ?? undefined,
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
@@ -201,15 +187,15 @@ export const upsertVerificationRecord = mutationGeneric({
                 revokedAt: undefined,
                 verifiedAt: document.verifiedAt,
             });
+            return toVerificationRecord({ ...document, _id: existingRecord._id });
         } else {
-            await ctx.db.insert('verificationRecords', document);
+            const id = await ctx.db.insert('verificationRecords', document);
+            return toVerificationRecord({ ...document, _id: id });
         }
-
-        return toVerificationRecord(document);
     },
 });
 
-export const revokeVerificationRecord = mutationGeneric({
+export const revokeVerificationRecord = mutation({
     args: { guildId: v.string(), revokedAt: v.optional(v.string()), userId: v.string() },
     returns: v.union(verificationRecordValidator, v.null()),
     handler: async (ctx: VerificationMutationCtx, args) => {
@@ -228,7 +214,7 @@ export const revokeVerificationRecord = mutationGeneric({
     },
 });
 
-export const findActiveVerificationRecord = queryGeneric({
+export const findActiveVerificationRecord = query({
     args: { guildId: v.string(), userId: v.string() },
     returns: v.union(verificationRecordValidator, v.null()),
     handler: async (ctx: VerificationQueryCtx, args) => {

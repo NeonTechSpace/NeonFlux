@@ -9,7 +9,6 @@ export const moderationCasesTable = defineTable({
     caseNumber: v.number(),
     createdAt: timestamp,
     guildId: v.string(),
-    legacyId: v.string(),
     reason: optionalString,
     status: v.string(),
     targetChannelId: optionalString,
@@ -21,5 +20,4 @@ export const moderationCasesTable = defineTable({
     .index('by_guild_channel', ['guildId', 'targetChannelId'])
     .index('by_guild_status', ['guildId', 'status'])
     .index('by_guild_target', ['guildId', 'targetUserId'])
-    .index('by_guild_target_action_created', ['guildId', 'targetUserId', 'action', 'createdAt'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_target_action_created', ['guildId', 'targetUserId', 'action', 'createdAt']);

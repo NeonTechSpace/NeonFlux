@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -26,11 +19,9 @@ import {
     type ReactionRoleMessageDocument,
     type ReactionRoleOptionDocument,
 } from './reaction_roles_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type ReactionRolesQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type ReactionRolesMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type ReactionRolesQueryCtx = QueryCtx;
+type ReactionRolesMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredReactionRoleMessageDocument = ReactionRoleMessageDocument & { _id: GenericId<'reactionRoleMessages'> };
@@ -97,14 +88,13 @@ const optionMatchValidator = v.object({
     option: optionRecordValidator,
 });
 
-export const upsertReactionRoleMessage = mutationGeneric({
+export const upsertReactionRoleMessage = mutation({
     args: {
         channelId: v.string(),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         generateOverview: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageContent: v.optional(v.union(v.string(), v.null())),
         messageEmbeds: v.optional(v.array(v.any())),
         messageId: v.string(),
@@ -128,8 +118,7 @@ export const upsertReactionRoleMessage = mutationGeneric({
                     guildId,
                 },
                 new Date().toISOString(),
-                existingMessage ?? undefined,
-                () => crypto.randomUUID()
+                existingMessage ?? undefined
             )
         );
 
@@ -145,15 +134,15 @@ export const upsertReactionRoleMessage = mutationGeneric({
                 staleAt: document.staleAt,
                 updatedAt: document.updatedAt,
             });
+            return toReactionRoleMessageRecord({ ...existingMessage, ...document });
         } else {
-            await ctx.db.insert('reactionRoleMessages', document);
+            const id = await ctx.db.insert('reactionRoleMessages', document);
+            return toReactionRoleMessageRecord({ ...document, _id: id });
         }
-
-        return toReactionRoleMessageRecord(document);
     },
 });
 
-export const listReactionRoleMessagesByGuildId = queryGeneric({
+export const listReactionRoleMessagesByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(messageWithOptionsValidator),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
@@ -168,13 +157,13 @@ export const listReactionRoleMessagesByGuildId = queryGeneric({
         return await Promise.all(
             messages.map(async (message) => ({
                 ...toReactionRoleMessageRecord(message),
-                options: (await listOptionsByMessageLegacyId(ctx, message.legacyId)).map(toReactionRoleOptionRecord),
+                options: (await listOptionsByMessageId(ctx, message._id)).map(toReactionRoleOptionRecord),
             }))
         );
     },
 });
 
-export const findReactionRoleMessage = queryGeneric({
+export const findReactionRoleMessage = query({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(messageRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
@@ -187,7 +176,7 @@ export const findReactionRoleMessage = queryGeneric({
     },
 });
 
-export const findEnabledReactionRoleOptionByReaction = queryGeneric({
+export const findEnabledReactionRoleOptionByReaction = query({
     args: { emojiKey: v.string(), guildId: v.string(), messageId: v.string() },
     returns: v.union(optionMatchValidator, v.null()),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
@@ -201,7 +190,7 @@ export const findEnabledReactionRoleOptionByReaction = queryGeneric({
 
         const option = await findReactionRoleOptionDocument(ctx, {
             emojiKey,
-            reactionRoleMessageId: message.legacyId,
+            reactionRoleMessageId: message._id,
         });
 
         return option
@@ -213,7 +202,7 @@ export const findEnabledReactionRoleOptionByReaction = queryGeneric({
     },
 });
 
-export const deleteReactionRoleMessage = mutationGeneric({
+export const deleteReactionRoleMessage = mutation({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(messageRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesMutationCtx, args) => {
@@ -224,7 +213,7 @@ export const deleteReactionRoleMessage = mutationGeneric({
 
         if (!message) return null;
 
-        const options = await listOptionsByMessageLegacyId(ctx, message.legacyId);
+        const options = await listOptionsByMessageId(ctx, message._id);
 
         for (const option of options) {
             await ctx.db.delete(option._id);
@@ -236,11 +225,10 @@ export const deleteReactionRoleMessage = mutationGeneric({
     },
 });
 
-export const upsertReactionRoleOption = mutationGeneric({
+export const upsertReactionRoleOption = mutation({
     args: {
         createdAt: v.optional(v.string()),
         emojiKey: v.string(),
-        legacyId: v.optional(v.string()),
         position: v.optional(v.number()),
         reactionRoleMessageId: v.string(),
         roleId: v.string(),
@@ -251,13 +239,14 @@ export const upsertReactionRoleOption = mutationGeneric({
         await requireNeonFluxService(ctx, allowedReactionRoleServices);
         const reactionRoleMessageId = unwrap(normalizeRequiredReactionRoleMessageId(args.reactionRoleMessageId));
 
-        await requireReactionRoleMessageByLegacyId(ctx, reactionRoleMessageId);
+        const messageId = parseReactionRoleMessageId(reactionRoleMessageId);
+        await requireReactionRoleMessage(ctx, messageId);
 
-        return await upsertReactionRoleOptionDocument(ctx, { ...args, reactionRoleMessageId });
+        return await upsertReactionRoleOptionDocument(ctx, { ...args, reactionRoleMessageId: messageId });
     },
 });
 
-export const upsertReactionRoleOptionByMessage = mutationGeneric({
+export const upsertReactionRoleOptionByMessage = mutation({
     args: {
         emojiKey: v.string(),
         guildId: v.string(),
@@ -276,14 +265,14 @@ export const upsertReactionRoleOptionByMessage = mutationGeneric({
 
         return await upsertReactionRoleOptionDocument(ctx, {
             emojiKey: args.emojiKey,
-            reactionRoleMessageId: message.legacyId,
+            reactionRoleMessageId: message._id,
             roleId: args.roleId,
             ...(args.position === undefined ? {} : { position: args.position }),
         });
     },
 });
 
-export const deleteReactionRoleOptionByMessage = mutationGeneric({
+export const deleteReactionRoleOptionByMessage = mutation({
     args: { emojiKey: v.string(), guildId: v.string(), messageId: v.string() },
     returns: v.union(optionRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesMutationCtx, args) => {
@@ -296,12 +285,12 @@ export const deleteReactionRoleOptionByMessage = mutationGeneric({
 
         return await deleteReactionRoleOptionDocument(ctx, {
             emojiKey: args.emojiKey,
-            reactionRoleMessageId: message.legacyId,
+            reactionRoleMessageId: message._id,
         });
     },
 });
 
-export const deleteReactionRoleOption = mutationGeneric({
+export const deleteReactionRoleOption = mutation({
     args: { emojiKey: v.string(), reactionRoleMessageId: v.string() },
     returns: v.union(optionRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesMutationCtx, args) => {
@@ -311,12 +300,14 @@ export const deleteReactionRoleOption = mutationGeneric({
     },
 });
 
-export const findReactionRoleOption = queryGeneric({
+export const findReactionRoleOption = query({
     args: { emojiKey: v.string(), reactionRoleMessageId: v.string() },
     returns: v.union(optionRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedReactionRoleServices);
-        const reactionRoleMessageId = unwrap(normalizeRequiredReactionRoleMessageId(args.reactionRoleMessageId));
+        const reactionRoleMessageId = parseReactionRoleMessageId(
+            unwrap(normalizeRequiredReactionRoleMessageId(args.reactionRoleMessageId))
+        );
         const emojiKey = unwrap(normalizeRequiredEmojiKey(args.emojiKey));
         const option = await findReactionRoleOptionDocument(ctx, { emojiKey, reactionRoleMessageId });
 
@@ -324,12 +315,11 @@ export const findReactionRoleOption = queryGeneric({
     },
 });
 
-export const upsertReactionRoleAssignment = mutationGeneric({
+export const upsertReactionRoleAssignment = mutation({
     args: {
         assignedAt: v.optional(v.string()),
         emojiKey: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.string(),
         removedAt: v.optional(v.union(v.string(), v.null())),
         roleId: v.string(),
@@ -354,9 +344,7 @@ export const upsertReactionRoleAssignment = mutationGeneric({
                     ...args,
                     guildId,
                 },
-                new Date().toISOString(),
-                existingAssignment ?? undefined,
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
@@ -366,15 +354,15 @@ export const upsertReactionRoleAssignment = mutationGeneric({
                 emojiKey: document.emojiKey,
                 removedAt: document.removedAt,
             });
+            return toReactionRoleAssignmentRecord({ ...existingAssignment, ...document });
         } else {
-            await ctx.db.insert('reactionRoleAssignments', document);
+            const id = await ctx.db.insert('reactionRoleAssignments', document);
+            return toReactionRoleAssignmentRecord({ ...document, _id: id });
         }
-
-        return toReactionRoleAssignmentRecord(document);
     },
 });
 
-export const markReactionRoleAssignmentRemoved = mutationGeneric({
+export const markReactionRoleAssignmentRemoved = mutation({
     args: { guildId: v.string(), messageId: v.string(), roleId: v.string(), userId: v.string() },
     returns: v.union(assignmentRecordValidator, v.null()),
     handler: async (ctx: ReactionRolesMutationCtx, args) => {
@@ -392,7 +380,7 @@ export const markReactionRoleAssignmentRemoved = mutationGeneric({
     },
 });
 
-export const listActiveReactionRoleAssignmentsByGuildUser = queryGeneric({
+export const listActiveReactionRoleAssignmentsByGuildUser = query({
     args: { guildId: v.string(), limit: v.optional(v.number()), userId: v.string() },
     returns: v.array(assignmentRecordValidator),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
@@ -409,7 +397,7 @@ export const listActiveReactionRoleAssignmentsByGuildUser = queryGeneric({
     },
 });
 
-export const listActiveReactionRoleAssignmentsByGuildMessageUser = queryGeneric({
+export const listActiveReactionRoleAssignmentsByGuildMessageUser = query({
     args: { guildId: v.string(), limit: v.optional(v.number()), messageId: v.string(), userId: v.string() },
     returns: v.array(assignmentRecordValidator),
     handler: async (ctx: ReactionRolesQueryCtx, args) => {
@@ -429,7 +417,7 @@ export const listActiveReactionRoleAssignmentsByGuildMessageUser = queryGeneric(
     },
 });
 
-export const markReactionRoleAssignmentsRemovedByMessageUser = mutationGeneric({
+export const markReactionRoleAssignmentsRemovedByMessageUser = mutation({
     args: { guildId: v.string(), messageId: v.string(), userId: v.string() },
     returns: v.array(assignmentRecordValidator),
     handler: async (ctx: ReactionRolesMutationCtx, args) => {
@@ -461,18 +449,15 @@ async function upsertReactionRoleOptionDocument(
     input: {
         createdAt?: string;
         emojiKey: string;
-        legacyId?: string;
         position?: number;
-        reactionRoleMessageId: string;
+        reactionRoleMessageId: GenericId<'reactionRoleMessages'>;
         roleId: string;
         updatedAt?: string;
     }
 ) {
     const existingOption = await findReactionRoleOptionDocument(ctx, input);
     const document = unwrap(
-        buildReactionRoleOptionDocument(input, new Date().toISOString(), existingOption ?? undefined, () =>
-            crypto.randomUUID()
-        )
+        buildReactionRoleOptionDocument(input, new Date().toISOString(), existingOption ?? undefined)
     );
 
     if (existingOption) {
@@ -481,18 +466,20 @@ async function upsertReactionRoleOptionDocument(
             roleId: document.roleId,
             updatedAt: document.updatedAt,
         });
+        return toReactionRoleOptionRecord({ ...existingOption, ...document });
     } else {
-        await ctx.db.insert('reactionRoleOptions', document);
+        const id = await ctx.db.insert('reactionRoleOptions', document);
+        return toReactionRoleOptionRecord({ ...document, _id: id });
     }
-
-    return toReactionRoleOptionRecord(document);
 }
 
 async function deleteReactionRoleOptionDocument(
     ctx: ReactionRolesMutationCtx,
     input: { emojiKey: string; reactionRoleMessageId: string }
 ) {
-    const reactionRoleMessageId = unwrap(normalizeRequiredReactionRoleMessageId(input.reactionRoleMessageId));
+    const reactionRoleMessageId = parseReactionRoleMessageId(
+        unwrap(normalizeRequiredReactionRoleMessageId(input.reactionRoleMessageId))
+    );
     const emojiKey = unwrap(normalizeRequiredEmojiKey(input.emojiKey));
     const option = await findReactionRoleOptionDocument(ctx, { emojiKey, reactionRoleMessageId });
 
@@ -515,14 +502,11 @@ async function findReactionRoleMessageDocument(
         .unique();
 }
 
-async function requireReactionRoleMessageByLegacyId(
+async function requireReactionRoleMessage(
     ctx: ReactionRolesMutationCtx,
-    legacyId: string
+    id: GenericId<'reactionRoleMessages'>
 ): Promise<StoredReactionRoleMessageDocument> {
-    const message = await ctx.db
-        .query('reactionRoleMessages')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', legacyId))
-        .unique();
+    const message = await ctx.db.get(id);
 
     if (!message) {
         throw new Error('reaction-role-message-not-found');
@@ -531,25 +515,25 @@ async function requireReactionRoleMessageByLegacyId(
     return message;
 }
 
-async function listOptionsByMessageLegacyId(
+async function listOptionsByMessageId(
     ctx: ReactionRolesQueryCtx | ReactionRolesMutationCtx,
-    reactionRoleMessageId: string
+    reactionRoleMessageId: GenericId<'reactionRoleMessages'>
 ): Promise<StoredReactionRoleOptionDocument[]> {
     return await ctx.db
         .query('reactionRoleOptions')
-        .withIndex('by_message_position', (query) => query.eq('reactionRoleMessageLegacyId', reactionRoleMessageId))
+        .withIndex('by_message_position', (query) => query.eq('reactionRoleMessageId', reactionRoleMessageId))
         .order('asc')
         .take(500);
 }
 
 async function findReactionRoleOptionDocument(
     ctx: ReactionRolesQueryCtx | ReactionRolesMutationCtx,
-    input: { emojiKey: string; reactionRoleMessageId: string }
+    input: { emojiKey: string; reactionRoleMessageId: GenericId<'reactionRoleMessages'> }
 ): Promise<StoredReactionRoleOptionDocument | null> {
     return await ctx.db
         .query('reactionRoleOptions')
         .withIndex('by_message_emoji', (query) =>
-            query.eq('reactionRoleMessageLegacyId', input.reactionRoleMessageId).eq('emojiKey', input.emojiKey.trim())
+            query.eq('reactionRoleMessageId', input.reactionRoleMessageId).eq('emojiKey', input.emojiKey.trim())
         )
         .unique();
 }
@@ -627,4 +611,8 @@ function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok
     }
 
     return result.value;
+}
+
+function parseReactionRoleMessageId(value: string): GenericId<'reactionRoleMessages'> {
+    return value as GenericId<'reactionRoleMessages'>;
 }

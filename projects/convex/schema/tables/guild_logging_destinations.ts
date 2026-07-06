@@ -9,7 +9,6 @@ export const guildLoggingDestinationsTable = defineTable({
     enabled: v.boolean(),
     eventGroup: v.string(),
     guildId: v.string(),
-    legacyId: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_enabled', ['guildId', 'enabled'])

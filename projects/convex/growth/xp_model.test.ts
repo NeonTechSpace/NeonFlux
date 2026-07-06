@@ -64,8 +64,7 @@ describe('xp model', () => {
             },
             0,
             0,
-            now,
-            () => 'grant-1'
+            now
         );
 
         expect(grant).toMatchObject({
@@ -73,7 +72,6 @@ describe('xp model', () => {
             value: {
                 guildId: 'guild-1',
                 idempotencyKey: 'message-1',
-                legacyId: 'grant-1',
                 source: 'message',
                 userId: 'user-1',
                 xp: 25,
@@ -82,10 +80,10 @@ describe('xp model', () => {
 
         if (!grant.ok) throw new Error('Expected normalized grant.');
 
-        const userXp = applyXpGrant(null, grant.value, 0, () => 'xp-1');
+        const userXp = applyXpGrant(null, grant.value, 0);
 
-        expect(toXpGrantRecord(grant.value)).toMatchObject({ id: 'grant-1' });
-        expect(toGuildUserXpRecord(userXp)).toMatchObject({
+        expect(toXpGrantRecord({ ...grant.value, _id: 'grant-1' })).toMatchObject({ id: 'grant-1' });
+        expect(toGuildUserXpRecord({ ...userXp, _id: 'xp-1' })).toMatchObject({
             id: 'xp-1',
             lastMessageXpAt: now,
             messageCount: 1,
@@ -102,15 +100,14 @@ describe('xp model', () => {
             { guildId: 'guild-1', idempotencyKey: 'voice-1', source: 'voice', userId: 'user-1', xp: 15 },
             0,
             0,
-            now,
-            () => 'grant-voice'
+            now
         );
 
         if (!voiceGrant.ok) throw new Error('Expected normalized voice grant.');
 
-        const userXp = applyXpGrant(null, voiceGrant.value, 600, () => 'xp-1');
+        const userXp = applyXpGrant(null, voiceGrant.value, 600);
 
-        expect(toGuildUserXpRecord(userXp)).toMatchObject({
+        expect(toGuildUserXpRecord({ ...userXp, _id: 'xp-1' })).toMatchObject({
             lastVoiceXpAt: now,
             messageCount: 0,
             messageXp: 0,
@@ -121,30 +118,21 @@ describe('xp model', () => {
     });
 
     it('normalizes direct aggregate and role reward inputs', () => {
-        const aggregate = buildGuildUserXpDocument(
-            { guildId: 'guild-1', level: 2, userId: 'user-1', xp: 450 },
-            now,
-            () => 'user-xp-1'
-        );
-        const reward = buildXpRoleRewardDocument(
-            { guildId: 'guild-1', level: 5, roleId: 'role-1' },
-            now,
-            undefined,
-            () => 'reward-1'
-        );
+        const aggregate = buildGuildUserXpDocument({ guildId: 'guild-1', level: 2, userId: 'user-1', xp: 450 }, now);
+        const reward = buildXpRoleRewardDocument({ guildId: 'guild-1', level: 5, roleId: 'role-1' }, now, undefined);
 
         expect(aggregate).toMatchObject({
             ok: true,
-            value: { legacyId: 'user-xp-1', level: 2, messageCount: 1, messageXp: 450, xp: 450 },
+            value: { level: 2, messageCount: 1, messageXp: 450, xp: 450 },
         });
         expect(reward).toMatchObject({
             ok: true,
-            value: { createdAt: now, legacyId: 'reward-1', level: 5, roleId: 'role-1', updatedAt: now },
+            value: { createdAt: now, level: 5, roleId: 'role-1', updatedAt: now },
         });
 
         if (!reward.ok) throw new Error('Expected normalized reward.');
 
-        expect(toXpRoleRewardRecord(reward.value)).toMatchObject({ id: 'reward-1' });
+        expect(toXpRoleRewardRecord({ ...reward.value, _id: 'reward-1' })).toMatchObject({ id: 'reward-1' });
     });
 
     it('normalizes helpers and level math', () => {

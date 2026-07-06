@@ -1,4 +1,10 @@
-import { getFunctionName } from 'convex/server';
+import {
+    getFunctionName,
+    type FunctionArgs,
+    type FunctionReference,
+    type FunctionReturnType,
+    type OptionalRestArgs,
+} from 'convex/server';
 import { convexToJson, jsonToConvex, type JSONValue } from 'convex/values';
 
 export type NeonFluxConvexClientConfig = {
@@ -6,35 +12,41 @@ export type NeonFluxConvexClientConfig = {
     url: string;
 };
 
-export type NeonFluxConvexFunctionReference = Parameters<typeof getFunctionName>[0];
+export type NeonFluxConvexQueryReference = FunctionReference<'query'>;
+export type NeonFluxConvexMutationReference = FunctionReference<'mutation'>;
+export type NeonFluxConvexFunctionReference = NeonFluxConvexMutationReference | NeonFluxConvexQueryReference;
 
 export type NeonFluxConvexHttpClient = {
-    mutation<Result = unknown>(
-        reference: NeonFluxConvexFunctionReference,
-        args: Record<string, unknown>
-    ): Promise<Result>;
-    query<Result = unknown>(reference: NeonFluxConvexFunctionReference, args: Record<string, unknown>): Promise<Result>;
+    mutation<Mutation extends NeonFluxConvexMutationReference>(
+        reference: Mutation,
+        ...args: OptionalRestArgs<Mutation>
+    ): Promise<FunctionReturnType<Mutation>>;
+    query<Query extends NeonFluxConvexQueryReference>(
+        reference: Query,
+        ...args: OptionalRestArgs<Query>
+    ): Promise<FunctionReturnType<Query>>;
 };
 
 export function createNeonFluxConvexHttpClient(config: NeonFluxConvexClientConfig): NeonFluxConvexHttpClient {
     return {
-        mutation: async <Result>(
-            reference: NeonFluxConvexFunctionReference,
-            args: Record<string, unknown>
-        ): Promise<Result> => callConvexFunction(config, 'mutation', reference, args),
-        query: async <Result>(
-            reference: NeonFluxConvexFunctionReference,
-            args: Record<string, unknown>
-        ): Promise<Result> => callConvexFunction(config, 'query', reference, args),
+        mutation: async <Mutation extends NeonFluxConvexMutationReference>(
+            reference: Mutation,
+            ...args: OptionalRestArgs<Mutation>
+        ): Promise<FunctionReturnType<Mutation>> =>
+            callConvexFunction(config, 'mutation', reference, readOptionalArgs(args)),
+        query: async <Query extends NeonFluxConvexQueryReference>(
+            reference: Query,
+            ...args: OptionalRestArgs<Query>
+        ): Promise<FunctionReturnType<Query>> => callConvexFunction(config, 'query', reference, readOptionalArgs(args)),
     };
 }
 
-async function callConvexFunction<Result>(
+async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReference>(
     config: NeonFluxConvexClientConfig,
     operation: 'mutation' | 'query',
-    reference: NeonFluxConvexFunctionReference,
-    args: Record<string, unknown>
-): Promise<Result> {
+    reference: FuncRef,
+    args: FunctionArgs<FuncRef>
+): Promise<FunctionReturnType<FuncRef>> {
     const path = getFunctionName(reference);
     const response = await fetch(new URL(`/api/${operation}`, config.url), {
         body: JSON.stringify({
@@ -58,7 +70,7 @@ async function callConvexFunction<Result>(
     const payload = parseConvexHttpJson(body, operation, path);
 
     if (payload.status === 'success') {
-        return jsonToConvex(payload.value as JSONValue) as Result;
+        return jsonToConvex(payload.value as JSONValue) as FunctionReturnType<FuncRef>;
     }
 
     if (payload.status === 'error') {
@@ -66,6 +78,12 @@ async function callConvexFunction<Result>(
     }
 
     throw new Error(`Convex ${operation} ${path} returned an unexpected payload: ${body}`);
+}
+
+function readOptionalArgs<FuncRef extends NeonFluxConvexFunctionReference>(
+    args: OptionalRestArgs<FuncRef>
+): FunctionArgs<FuncRef> {
+    return (args[0] ?? {}) as FunctionArgs<FuncRef>;
 }
 
 function parseConvexHttpJson(body: string, operation: 'mutation' | 'query', path: string): Record<string, unknown> {

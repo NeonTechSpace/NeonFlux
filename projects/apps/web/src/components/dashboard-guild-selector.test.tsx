@@ -30,7 +30,7 @@ describe('DashboardGuildSelector', () => {
                 guilds={createGuilds()}
                 activeGuildId='guild-1'
                 pathname='/dashboard/guild-1/access/autoroles'
-                botInviteUrl='https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
+                botInviteUrl='https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
             />
         );
 
@@ -40,7 +40,7 @@ describe('DashboardGuildSelector', () => {
 
         expect(inviteLinks.length).toBeGreaterThan(0);
         expect(inviteLinks[0]?.getAttribute('href')).toBe(
-            'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
+            'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
         );
         expect(screen.queryByRole('link', { name: 'Guild One' })).toBeNull();
         expect(screen.getAllByRole('link', { name: 'Guild Two' }).length).toBeGreaterThan(0);

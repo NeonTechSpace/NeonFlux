@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildGuildLoggingDestinationDocument,
@@ -9,6 +10,8 @@ import {
     toGuildLoggingDestinationRecord,
 } from './logging_destinations_model.js';
 
+const destinationId = 'destination-1' as GenericId<'guildLoggingDestinations'>;
+
 describe('logging destination model', () => {
     it('normalizes logging destination input to the app-facing contract', () => {
         const document = buildGuildLoggingDestinationDocument(
@@ -17,9 +20,7 @@ describe('logging destination model', () => {
                 eventGroup: ' messages ',
                 guildId: ' guild-1 ',
             },
-            '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'destination-1'
+            '2026-07-03T08:00:00.000Z'
         );
 
         expect(document).toEqual({
@@ -30,7 +31,6 @@ describe('logging destination model', () => {
                 enabled: true,
                 eventGroup: 'messages',
                 guildId: 'guild-1',
-                legacyId: 'destination-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
@@ -39,18 +39,18 @@ describe('logging destination model', () => {
             throw new Error('Expected normalized logging destination.');
         }
 
-        expect(toGuildLoggingDestinationRecord(document.value)).toEqual({
+        expect(toGuildLoggingDestinationRecord({ ...document.value, _id: destinationId })).toEqual({
             channelId: 'channel-1',
             createdAt: '2026-07-03T08:00:00.000Z',
             enabled: true,
             eventGroup: 'messages',
             guildId: 'guild-1',
-            id: 'destination-1',
+            id: destinationId,
             updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
-    it('preserves legacy identity and created timestamp on update', () => {
+    it('preserves created timestamp on update', () => {
         expect(
             buildGuildLoggingDestinationDocument(
                 {
@@ -62,7 +62,6 @@ describe('logging destination model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-destination',
                 }
             )
         ).toEqual({
@@ -73,13 +72,12 @@ describe('logging destination model', () => {
                 enabled: false,
                 eventGroup: 'members',
                 guildId: 'guild-1',
-                legacyId: 'existing-destination',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
     });
 
-    it('preserves imported timestamps and legacy ids', () => {
+    it('preserves imported timestamps', () => {
         expect(
             buildGuildLoggingDestinationDocument(
                 {
@@ -87,7 +85,6 @@ describe('logging destination model', () => {
                     createdAt: '2026-07-02 09:30:00+02',
                     eventGroup: 'voice',
                     guildId: 'guild-1',
-                    legacyId: 'legacy-destination',
                     updatedAt: '2026-07-03 09:30:00+02',
                 },
                 '2026-07-03T08:00:00.000Z'
@@ -96,7 +93,6 @@ describe('logging destination model', () => {
             ok: true,
             value: {
                 createdAt: '2026-07-02T07:30:00.000Z',
-                legacyId: 'legacy-destination',
                 updatedAt: '2026-07-03T07:30:00.000Z',
             },
         });

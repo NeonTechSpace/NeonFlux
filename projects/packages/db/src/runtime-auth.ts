@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -10,20 +10,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    auth_store: {
-        createWebSession: ConvexMutationReference;
-        findActiveWebSessionById: ConvexQueryReference;
-        findUsableFluxerOAuthTokenSetByUserId: ConvexQueryReference;
-        invalidateFluxerOAuthTokenSet: ConvexMutationReference;
-        revokeWebSession: ConvexMutationReference;
-        upsertFluxerOAuthTokenSet: ConvexMutationReference;
-    };
-};
 
 type WebSessionDb = ConvexDatabase;
 type FluxerOAuthTokenDb = ConvexDatabase;
@@ -61,7 +47,7 @@ export async function createWebSession(
     }
 
     try {
-        const session = await db.client.mutation<ConvexWebSessionRecord>(convexApi.auth_store.createWebSession, {
+        const session = await db.client.mutation(api.auth_store.createWebSession, {
             expiresAt: input.expiresAt.toISOString(),
             fluxerUserId: input.fluxerUserId,
             sessionId: input.sessionId,
@@ -85,13 +71,10 @@ export async function findActiveWebSessionById(
     }
 
     try {
-        const session = await db.client.query<ConvexWebSessionRecord | null>(
-            convexApi.auth_store.findActiveWebSessionById,
-            {
-                ...(input.now ? { now: input.now.toISOString() } : {}),
-                sessionId: input.sessionId,
-            }
-        );
+        const session = await db.client.query(api.auth_store.findActiveWebSessionById, {
+            ...(input.now ? { now: input.now.toISOString() } : {}),
+            sessionId: input.sessionId,
+        });
 
         return session ? ok(toWebSessionRecord(session)) : err('not-found');
     } catch (error) {
@@ -111,7 +94,7 @@ export async function revokeWebSession(
     }
 
     try {
-        const session = await db.client.mutation<ConvexWebSessionRecord | null>(convexApi.auth_store.revokeWebSession, {
+        const session = await db.client.mutation(api.auth_store.revokeWebSession, {
             ...(input.revokedAt ? { revokedAt: input.revokedAt.toISOString() } : {}),
             sessionId: input.sessionId,
         });
@@ -138,8 +121,8 @@ export async function upsertFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = await db.client.mutation<ConvexFluxerOAuthTokenRecord>(
-            convexApi.auth_store.upsertFluxerOAuthTokenSet,
+        const tokenSet = await db.client.mutation(
+            api.auth_store.upsertFluxerOAuthTokenSet,
             {
                 accessToken: input.accessToken,
                 accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
@@ -161,8 +144,8 @@ export async function findUsableFluxerOAuthTokenSetByUserId(
     input: { fluxerUserId: string }
 ): Promise<Result<FluxerOAuthTokenRecord, FluxerOAuthTokenRepositoryError>> {
     try {
-        const tokenSet = await db.client.query<ConvexFluxerOAuthTokenRecord | null>(
-            convexApi.auth_store.findUsableFluxerOAuthTokenSetByUserId,
+        const tokenSet = await db.client.query(
+            api.auth_store.findUsableFluxerOAuthTokenSetByUserId,
             input
         );
 
@@ -184,8 +167,8 @@ export async function invalidateFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = await db.client.mutation<ConvexFluxerOAuthTokenRecord | null>(
-            convexApi.auth_store.invalidateFluxerOAuthTokenSet,
+        const tokenSet = await db.client.mutation(
+            api.auth_store.invalidateFluxerOAuthTokenSet,
             {
                 fluxerUserId: input.fluxerUserId,
                 ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),

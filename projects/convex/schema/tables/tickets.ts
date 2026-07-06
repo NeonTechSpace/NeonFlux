@@ -8,10 +8,9 @@ export const ticketsTable = defineTable({
     claimedByUserId: optionalString,
     closedAt: optionalTimestamp,
     guildId: v.string(),
-    legacyId: v.string(),
     openedAt: timestamp,
     openerUserId: v.string(),
-    panelLegacyId: optionalString,
+    panelId: v.optional(v.id('ticketPanels')),
     status: v.string(),
     ticketNumber: v.number(),
     updatedAt: timestamp,
@@ -20,6 +19,5 @@ export const ticketsTable = defineTable({
     .index('by_guild_opener', ['guildId', 'openerUserId'])
     .index('by_guild_status', ['guildId', 'status'])
     .index('by_guild_ticket_number', ['guildId', 'ticketNumber'])
-    .index('by_legacy', ['legacyId'])
-    .index('by_panel', ['panelLegacyId'])
-    .index('by_panel_opener_status_opened', ['panelLegacyId', 'openerUserId', 'status', 'openedAt']);
+    .index('by_panel', ['panelId'])
+    .index('by_panel_opener_status_opened', ['panelId', 'openerUserId', 'status', 'openedAt']);

@@ -7,7 +7,6 @@ export const autoroleRulesTable = defineTable({
     createdAt: timestamp,
     enabled: v.boolean(),
     guildId: v.string(),
-    legacyId: v.string(),
     name: optionalString,
     roleId: v.string(),
     updatedAt: timestamp,

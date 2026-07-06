@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import type {
     ProfileBuilderRepositoryError,
     ProfileFieldRecord,
@@ -21,29 +21,7 @@ import {
     toProfileFormRecord,
     toProfileSubmissionRecord,
     toProfileSubmissionReviewRecord,
-    type ConvexProfileFieldRecord,
-    type ConvexProfileFormRecord,
-    type ConvexProfileSubmissionRecord,
-    type ConvexProfileSubmissionReviewRecord,
 } from './runtime-profile-builder-records.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    profile_builder: {
-        createProfileSubmission: ConvexMutationReference;
-        deleteProfileField: ConvexMutationReference;
-        findProfileFormByGuildName: ConvexQueryReference;
-        findProfileSubmissionById: ConvexQueryReference;
-        listProfileFieldsByFormId: ConvexQueryReference;
-        listProfileFormsByGuildId: ConvexQueryReference;
-        listProfileSubmissionsByGuildId: ConvexQueryReference;
-        reviewProfileSubmission: ConvexMutationReference;
-        upsertProfileField: ConvexMutationReference;
-        upsertProfileForm: ConvexMutationReference;
-    };
-};
 
 type ProfileBuilderDb = ConvexDatabase;
 
@@ -68,7 +46,7 @@ export async function upsertProfileForm(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const form = await db.client.mutation<ConvexProfileFormRecord>(convexApi.profile_builder.upsertProfileForm, {
+        const form = await db.client.mutation(api.profile_builder.upsertProfileForm, {
             ...normalizedInput.value,
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
         });
@@ -87,14 +65,11 @@ export async function listProfileFormsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const forms = await db.client.query<ConvexProfileFormRecord[]>(
-            convexApi.profile_builder.listProfileFormsByGuildId,
-            {
-                ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
-                guildId: guildId.value,
-                limit: 100,
-            }
-        );
+        const forms = await db.client.query(api.profile_builder.listProfileFormsByGuildId, {
+            ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
+            guildId: guildId.value,
+            limit: 100,
+        });
 
         return ok(forms.map(toProfileFormRecord));
     } catch (error) {
@@ -113,8 +88,8 @@ export async function findProfileFormByGuildName(
     if (name.isErr()) return err(name.error);
 
     try {
-        const form = await db.client.query<ConvexProfileFormRecord | null>(
-            convexApi.profile_builder.findProfileFormByGuildName,
+        const form = await db.client.query(
+            api.profile_builder.findProfileFormByGuildName,
             {
                 ...(input.enabledOnly === undefined ? {} : { enabledOnly: input.enabledOnly }),
                 guildId: guildId.value,
@@ -144,8 +119,8 @@ export async function upsertProfileField(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const field = await db.client.mutation<ConvexProfileFieldRecord>(
-            convexApi.profile_builder.upsertProfileField,
+        const field = await db.client.mutation(
+            api.profile_builder.upsertProfileField,
             normalizedInput.value
         );
 
@@ -163,8 +138,8 @@ export async function listProfileFieldsByFormId(
     if (formId.isErr()) return err(formId.error);
 
     try {
-        const fields = await db.client.query<ConvexProfileFieldRecord[]>(
-            convexApi.profile_builder.listProfileFieldsByFormId,
+        const fields = await db.client.query(
+            api.profile_builder.listProfileFieldsByFormId,
             {
                 formId: formId.value,
                 limit: 100,
@@ -188,8 +163,8 @@ export async function deleteProfileField(
     if (formId.isErr()) return err(formId.error);
 
     try {
-        const field = await db.client.mutation<ConvexProfileFieldRecord | null>(
-            convexApi.profile_builder.deleteProfileField,
+        const field = await db.client.mutation(
+            api.profile_builder.deleteProfileField,
             {
                 fieldKey: fieldKey.value,
                 formId: formId.value,
@@ -210,8 +185,8 @@ export async function createProfileSubmission(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const submission = await db.client.mutation<ConvexProfileSubmissionRecord>(
-            convexApi.profile_builder.createProfileSubmission,
+        const submission = await db.client.mutation(
+            api.profile_builder.createProfileSubmission,
             normalizedInput.value
         );
 
@@ -229,8 +204,8 @@ export async function listProfileSubmissionsByGuildId(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const submissions = await db.client.query<ConvexProfileSubmissionRecord[]>(
-            convexApi.profile_builder.listProfileSubmissionsByGuildId,
+        const submissions = await db.client.query(
+            api.profile_builder.listProfileSubmissionsByGuildId,
             {
                 guildId: guildId.value,
                 limit: normalizeListLimit(input.limit),
@@ -252,8 +227,8 @@ export async function findProfileSubmissionById(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const submission = await db.client.query<ConvexProfileSubmissionRecord | null>(
-            convexApi.profile_builder.findProfileSubmissionById,
+        const submission = await db.client.query(
+            api.profile_builder.findProfileSubmissionById,
             normalizedInput.value
         );
 
@@ -284,8 +259,8 @@ export async function reviewProfileSubmission(
     }
 
     try {
-        const review = await db.client.mutation<ConvexProfileSubmissionReviewRecord>(
-            convexApi.profile_builder.reviewProfileSubmission,
+        const review = await db.client.mutation(
+            api.profile_builder.reviewProfileSubmission,
             normalizedInput.value
         );
 
@@ -301,7 +276,7 @@ function normalizeFormInput(input: {
     guildId: string;
     name: string;
     outputChannelId?: string;
-}): Result<Record<string, unknown>, ProfileBuilderRepositoryError> {
+}) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const name = normalizeRequiredText(input.name, 'name');
     const outputChannelId = normalizeOptionalText(input.outputChannelId);
@@ -326,7 +301,7 @@ function normalizeFieldInput(input: {
     maxLength?: number | null;
     position?: number;
     required?: boolean;
-}): Result<Record<string, unknown>, ProfileBuilderRepositoryError> {
+}) {
     const formId = normalizeRequiredText(input.formId, 'formId');
     const fieldKey = normalizeRequiredText(input.fieldKey, 'fieldKey');
     const label = normalizeRequiredText(input.label, 'label');
@@ -356,7 +331,7 @@ function normalizeSubmissionInput(input: {
     status?: string;
     userId: string;
     values?: Record<string, unknown>;
-}): Result<Record<string, unknown>, ProfileBuilderRepositoryError> {
+}) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const formId = normalizeRequiredText(input.formId, 'formId');
     const userId = normalizeRequiredText(input.userId, 'userId');
@@ -395,7 +370,7 @@ function normalizeReviewInput(input: {
     reason?: string;
     reviewerUserId: string;
     submissionId: string;
-}): Result<Record<string, unknown> & { decision: 'approved' | 'rejected' }, ProfileBuilderRepositoryError> {
+}) {
     const submissionId = normalizeRequiredText(input.submissionId, 'submissionId');
     const reviewerUserId = normalizeRequiredText(input.reviewerUserId, 'reviewerUserId');
     const decision = normalizeReviewDecision(input.decision);

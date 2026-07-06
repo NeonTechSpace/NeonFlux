@@ -1,10 +1,11 @@
+import type { GenericId } from 'convex/values';
+
 export type SuggestionBoardInput = {
     channelId?: string | null;
     config?: Record<string, unknown> | null;
     createdAt?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     name?: string | null;
     updatedAt?: string | null;
 };
@@ -15,7 +16,6 @@ export type SuggestionBoardDocument = {
     createdAt: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     name: string;
     updatedAt: string;
 };
@@ -39,7 +39,6 @@ export type SuggestionInput = {
     content?: string | null;
     createdAt?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     status?: string | null;
     updatedAt?: string | null;
@@ -47,13 +46,12 @@ export type SuggestionInput = {
 
 export type SuggestionDocument = {
     authorUserId: string;
-    boardLegacyId?: string;
+    boardId?: GenericId<'suggestionBoards'>;
     channelId?: string;
     closedAt?: string;
     content: string;
     createdAt: string;
     guildId: string;
-    legacyId: string;
     messageId?: string;
     status: string;
     updatedAt: string;
@@ -75,7 +73,6 @@ export type SuggestionRecord = {
 
 export type SuggestionVoteInput = {
     createdAt?: string | null;
-    legacyId?: string | null;
     suggestionId?: string | null;
     updatedAt?: string | null;
     userId?: string | null;
@@ -84,8 +81,7 @@ export type SuggestionVoteInput = {
 
 export type SuggestionVoteDocument = {
     createdAt: string;
-    legacyId: string;
-    suggestionLegacyId: string;
+    suggestionId: GenericId<'suggestions'>;
     updatedAt: string;
     userId: string;
     vote: 'down' | 'up';
@@ -106,8 +102,7 @@ export type SuggestionsInputResult<Value> = { ok: true; value: Value } | { error
 export function buildSuggestionBoardDocument(
     input: SuggestionBoardInput,
     now: string,
-    existing?: Pick<SuggestionBoardDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<SuggestionBoardDocument, 'createdAt'>
 ): SuggestionsInputResult<SuggestionBoardDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -132,7 +127,6 @@ export function buildSuggestionBoardDocument(
             createdAt,
             enabled: input.enabled ?? true,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             name: name.value,
             updatedAt,
         },
@@ -141,8 +135,7 @@ export function buildSuggestionBoardDocument(
 
 export function buildSuggestionDocument(
     input: SuggestionInput,
-    now: string,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): SuggestionsInputResult<SuggestionDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const authorUserId = normalizeRequiredString(input.authorUserId, 'authorUserId');
@@ -161,7 +154,7 @@ export function buildSuggestionDocument(
         return { error: { field: 'closedAt', type: 'invalid-value' }, ok: false };
     }
 
-    const boardLegacyId = normalizeOptionalString(input.boardId);
+    const boardId = normalizeOptionalString(input.boardId);
     const channelId = normalizeOptionalString(input.channelId);
     const messageId = normalizeOptionalString(input.messageId);
 
@@ -169,13 +162,12 @@ export function buildSuggestionDocument(
         ok: true,
         value: {
             authorUserId: authorUserId.value,
-            ...(boardLegacyId ? { boardLegacyId } : {}),
+            ...(boardId ? { boardId: boardId as GenericId<'suggestionBoards'> } : {}),
             ...(channelId ? { channelId } : {}),
             ...(closedAt ? { closedAt } : {}),
             content: content.value,
             createdAt,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? createLegacyId(),
             ...(messageId ? { messageId } : {}),
             status: normalizeOptionalString(input.status) ?? 'open',
             updatedAt,
@@ -186,8 +178,7 @@ export function buildSuggestionDocument(
 export function buildSuggestionVoteDocument(
     input: SuggestionVoteInput,
     now: string,
-    existing?: Pick<SuggestionVoteDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<SuggestionVoteDocument, 'createdAt'>
 ): SuggestionsInputResult<SuggestionVoteDocument> {
     const suggestionId = normalizeRequiredString(input.suggestionId, 'suggestionId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -206,8 +197,7 @@ export function buildSuggestionVoteDocument(
         ok: true,
         value: {
             createdAt,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
-            suggestionLegacyId: suggestionId.value,
+            suggestionId: suggestionId.value as GenericId<'suggestions'>,
             updatedAt,
             userId: userId.value,
             vote: vote.value,
@@ -241,40 +231,40 @@ export function normalizeSuggestionLimit(limit: number | undefined, fallback = 1
     return Math.min(Math.max(Math.trunc(limit), 1), 500);
 }
 
-export function toSuggestionBoardRecord(document: SuggestionBoardDocument): SuggestionBoardRecord {
+export function toSuggestionBoardRecord(document: SuggestionBoardDocument & { _id: string }): SuggestionBoardRecord {
     return {
         channelId: document.channelId,
         config: document.config,
         createdAt: document.createdAt,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         name: document.name,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toSuggestionRecord(document: SuggestionDocument): SuggestionRecord {
+export function toSuggestionRecord(document: SuggestionDocument & { _id: string }): SuggestionRecord {
     return {
         authorUserId: document.authorUserId,
-        boardId: document.boardLegacyId ?? null,
+        boardId: document.boardId ?? null,
         channelId: document.channelId ?? null,
         closedAt: document.closedAt ?? null,
         content: document.content,
         createdAt: document.createdAt,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
     };
 }
 
-export function toSuggestionVoteRecord(document: SuggestionVoteDocument): SuggestionVoteRecord {
+export function toSuggestionVoteRecord(document: SuggestionVoteDocument & { _id: string }): SuggestionVoteRecord {
     return {
         createdAt: document.createdAt,
-        id: document.legacyId,
-        suggestionId: document.suggestionLegacyId,
+        id: document._id,
+        suggestionId: document.suggestionId,
         updatedAt: document.updatedAt,
         userId: document.userId,
         vote: document.vote,

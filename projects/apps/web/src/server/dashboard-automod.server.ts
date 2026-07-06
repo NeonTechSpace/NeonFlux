@@ -46,7 +46,6 @@ export type DashboardAutomodEvent = {
     status: string;
     matchedTerms: string[];
     matchedTermCount: number;
-    inviteLinkCount: number;
     contentLength?: number;
     createdAt: string;
 };
@@ -170,7 +169,7 @@ export async function updateDashboardAutomodRule(
         actionType: input.actionType ?? 'record',
         enabled: input.enabled ?? true,
         config: {
-            ...(input.triggerType === 'blocked_terms' ? { terms: normalizedTerms } : {}),
+            terms: normalizedTerms,
             ...(input.timeoutDurationSeconds ? { timeoutDurationSeconds: input.timeoutDurationSeconds } : {}),
             ignoredChannelIds: normalizeTerms(input.ignoredChannelIds ?? []),
             ignoredRoleIds: normalizeTerms(input.ignoredRoleIds ?? []),
@@ -294,7 +293,6 @@ function toDashboardAutomodEvent(event: AutomodEventRecord): DashboardAutomodEve
         status: event.status,
         matchedTerms: getStringArray(event.details.matchedTerms),
         matchedTermCount: getNumber(event.details.matchedTermCount),
-        inviteLinkCount: getNumber(event.details.inviteLinkCount),
         ...(typeof event.details.contentLength === 'number' ? { contentLength: event.details.contentLength } : {}),
         createdAt: event.createdAt.toISOString(),
     };

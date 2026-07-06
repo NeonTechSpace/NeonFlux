@@ -12,7 +12,6 @@ export const guildInviteSnapshotsTable = defineTable({
     guildId: v.string(),
     inviterUserId: optionalString,
     lastSeenAt: timestamp,
-    legacyId: v.string(),
     maxUses: optionalNumber,
     revokedAt: optionalTimestamp,
     temporary: v.boolean(),
@@ -20,5 +19,4 @@ export const guildInviteSnapshotsTable = defineTable({
 })
     .index('by_guild_active', ['guildId', 'active'])
     .index('by_guild_code', ['guildId', 'code'])
-    .index('by_guild_inviter', ['guildId', 'inviterUserId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_inviter', ['guildId', 'inviterUserId']);

@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import {
@@ -19,11 +12,9 @@ import {
     type DashboardPermissionRuleDocument,
 } from './access_permissions_model.js';
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type AccessQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type AccessMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type AccessQueryCtx = QueryCtx;
+type AccessMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -65,7 +56,7 @@ const commandPermissionRuleIdentityArgs = {
     targetType: commandTargetTypeValidator,
 };
 
-export const readGuildCommandPermissionRule = queryGeneric({
+export const readGuildCommandPermissionRule = query({
     args: commandPermissionRuleIdentityArgs,
     returns: v.union(commandPermissionRuleRecordValidator, v.null()),
     handler: async (ctx: AccessQueryCtx, args) => {
@@ -77,7 +68,7 @@ export const readGuildCommandPermissionRule = queryGeneric({
     },
 });
 
-export const listGuildCommandPermissionRulesByGuildId = queryGeneric({
+export const listGuildCommandPermissionRulesByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -97,11 +88,10 @@ export const listGuildCommandPermissionRulesByGuildId = queryGeneric({
     },
 });
 
-export const upsertGuildCommandPermissionRule = mutationGeneric({
+export const upsertGuildCommandPermissionRule = mutation({
     args: {
         ...commandPermissionRuleIdentityArgs,
         createdAt: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         roleIds: v.optional(v.array(v.string())),
         updatedAt: v.optional(v.string()),
         userIds: v.optional(v.array(v.string())),
@@ -115,9 +105,7 @@ export const upsertGuildCommandPermissionRule = mutationGeneric({
 
         const existingRule = await findCommandPermissionRuleDocument(ctx, lookup);
         const document = unwrap(
-            buildCommandPermissionRuleDocument(args, new Date().toISOString(), existingRule ?? undefined, () =>
-                crypto.randomUUID()
-            )
+            buildCommandPermissionRuleDocument(args, new Date().toISOString(), existingRule ?? undefined)
         );
 
         if (existingRule) {
@@ -126,15 +114,15 @@ export const upsertGuildCommandPermissionRule = mutationGeneric({
                 updatedAt: document.updatedAt,
                 userIds: document.userIds,
             });
+            return toCommandPermissionRuleRecord({ ...document, _id: existingRule._id });
         } else {
-            await ctx.db.insert('guildCommandPermissionRules', document);
+            const id = await ctx.db.insert('guildCommandPermissionRules', document);
+            return toCommandPermissionRuleRecord({ ...document, _id: id });
         }
-
-        return toCommandPermissionRuleRecord(document);
     },
 });
 
-export const deleteGuildCommandPermissionRule = mutationGeneric({
+export const deleteGuildCommandPermissionRule = mutation({
     args: commandPermissionRuleIdentityArgs,
     returns: v.union(commandPermissionRuleRecordValidator, v.null()),
     handler: async (ctx: AccessMutationCtx, args) => {
@@ -152,7 +140,7 @@ export const deleteGuildCommandPermissionRule = mutationGeneric({
     },
 });
 
-export const readGuildDashboardPermissionRule = queryGeneric({
+export const readGuildDashboardPermissionRule = query({
     args: {
         guildId: v.string(),
     },
@@ -166,7 +154,7 @@ export const readGuildDashboardPermissionRule = queryGeneric({
     },
 });
 
-export const listGuildDashboardPermissionRulesByGuildIds = queryGeneric({
+export const listGuildDashboardPermissionRulesByGuildIds = query({
     args: {
         guildIds: v.array(v.string()),
     },
@@ -185,7 +173,7 @@ export const listGuildDashboardPermissionRulesByGuildIds = queryGeneric({
     },
 });
 
-export const upsertGuildDashboardPermissionRule = mutationGeneric({
+export const upsertGuildDashboardPermissionRule = mutation({
     args: {
         createdAt: v.optional(v.string()),
         guildId: v.string(),

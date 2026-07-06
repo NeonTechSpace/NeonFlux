@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { GuildFeatureRepositoryError } from './contracts.js';
@@ -11,22 +11,11 @@ import type {
 
 import type { ConvexDatabase } from './convex.js';
 
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    xp_voice_sessions: {
-        closeXpVoiceSession: ConvexMutationReference;
-        startXpVoiceSession: ConvexMutationReference;
-        transitionXpVoiceSession: ConvexMutationReference;
-    };
-};
-
 type XpVoiceDb = ConvexDatabase;
 
 type ConvexXpVoiceSessionRecord = Omit<XpVoiceSessionRecord, 'createdAt' | 'endedAt' | 'startedAt' | 'updatedAt'> & {
     createdAt: string;
     endedAt: string | null;
-    legacyId: string;
     startedAt: string;
     updatedAt: string;
 };
@@ -47,8 +36,8 @@ export async function transitionXpVoiceSession(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const transition = await db.client.mutation<ConvexXpVoiceSessionTransition>(
-            convexApi.xp_voice_sessions.transitionXpVoiceSession,
+        const transition = await db.client.mutation(
+            api.xp_voice_sessions.transitionXpVoiceSession,
             normalizedInput.value
         );
 
@@ -67,8 +56,8 @@ export async function startXpVoiceSession(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const session = await db.client.mutation<ConvexXpVoiceSessionRecord>(
-            convexApi.xp_voice_sessions.startXpVoiceSession,
+        const session = await db.client.mutation(
+            api.xp_voice_sessions.startXpVoiceSession,
             normalizedInput.value
         );
 
@@ -91,8 +80,8 @@ export async function closeXpVoiceSession(
     if (endedAt.isErr()) return err(endedAt.error);
 
     try {
-        const closed = await db.client.mutation<ConvexClosedXpVoiceSession | null>(
-            convexApi.xp_voice_sessions.closeXpVoiceSession,
+        const closed = await db.client.mutation(
+            api.xp_voice_sessions.closeXpVoiceSession,
             {
                 ...(endedAt.value === undefined ? {} : { endedAt: endedAt.value }),
                 guildId: guildId.value,

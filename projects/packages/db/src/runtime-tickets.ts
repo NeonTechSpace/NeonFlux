@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import type {
     TicketEventRecord,
     TicketMemberRecord,
@@ -16,26 +16,7 @@ import {
     toTicketEventRecord,
     toTicketMemberRecord,
     toTicketRecord,
-    type ConvexTicketEventRecord,
-    type ConvexTicketMemberRecord,
-    type ConvexTicketRecord,
 } from './runtime-tickets-records.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    tickets: {
-        addTicketMember: ConvexMutationReference;
-        createTicket: ConvexMutationReference;
-        findOpenTicketByPanelAndOpener: ConvexQueryReference;
-        findTicketByChannelId: ConvexQueryReference;
-        listOpenTicketsByPanelAndOpener: ConvexQueryReference;
-        recordTicketEvent: ConvexMutationReference;
-        updateTicketChannelId: ConvexMutationReference;
-        updateTicketStatus: ConvexMutationReference;
-    };
-};
 
 type TicketsDb = ConvexDatabase;
 
@@ -53,10 +34,7 @@ export async function createTicket(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const ticket = await db.client.mutation<ConvexTicketRecord>(
-            convexApi.tickets.createTicket,
-            normalizedInput.value
-        );
+        const ticket = await db.client.mutation(api.tickets.createTicket, normalizedInput.value);
 
         return ok(toTicketRecord(ticket));
     } catch {
@@ -72,8 +50,8 @@ export async function findOpenTicketByPanelAndOpener(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const ticket = await db.client.query<ConvexTicketRecord | null>(
-            convexApi.tickets.findOpenTicketByPanelAndOpener,
+        const ticket = await db.client.query(
+            api.tickets.findOpenTicketByPanelAndOpener,
             normalizedInput.value
         );
 
@@ -94,7 +72,7 @@ export async function listOpenTicketsByPanelAndOpener(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const tickets = await db.client.query<ConvexTicketRecord[]>(convexApi.tickets.listOpenTicketsByPanelAndOpener, {
+        const tickets = await db.client.query(api.tickets.listOpenTicketsByPanelAndOpener, {
             ...normalizedInput.value,
             limit: limit.value,
         });
@@ -116,7 +94,7 @@ export async function findTicketByChannelId(
     if (channelId.isErr()) return err(channelId.error);
 
     try {
-        const ticket = await db.client.query<ConvexTicketRecord | null>(convexApi.tickets.findTicketByChannelId, {
+        const ticket = await db.client.query(api.tickets.findTicketByChannelId, {
             channelId: channelId.value,
             guildId: guildId.value,
         });
@@ -138,7 +116,7 @@ export async function updateTicketChannelId(
     if (channelId.isErr()) return err(channelId.error);
 
     try {
-        const ticket = await db.client.mutation<ConvexTicketRecord | null>(convexApi.tickets.updateTicketChannelId, {
+        const ticket = await db.client.mutation(api.tickets.updateTicketChannelId, {
             channelId: channelId.value,
             ticketId: ticketId.value,
         });
@@ -160,7 +138,7 @@ export async function updateTicketStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const ticket = await db.client.mutation<ConvexTicketRecord | null>(convexApi.tickets.updateTicketStatus, {
+        const ticket = await db.client.mutation(api.tickets.updateTicketStatus, {
             status: status.value,
             ticketId: ticketId.value,
         });
@@ -183,7 +161,7 @@ export async function addTicketMember(
     if (userId.isErr()) return err(userId.error);
 
     try {
-        const member = await db.client.mutation<ConvexTicketMemberRecord>(convexApi.tickets.addTicketMember, {
+        const member = await db.client.mutation(api.tickets.addTicketMember, {
             ...(role ? { role } : {}),
             ticketId: ticketId.value,
             userId: userId.value,
@@ -207,7 +185,7 @@ export async function recordTicketEvent(
     if (eventType.isErr()) return err(eventType.error);
 
     try {
-        const event = await db.client.mutation<ConvexTicketEventRecord>(convexApi.tickets.recordTicketEvent, {
+        const event = await db.client.mutation(api.tickets.recordTicketEvent, {
             ...(actorUserId ? { actorUserId } : {}),
             details: input.details ?? {},
             eventType: eventType.value,
@@ -226,7 +204,7 @@ function normalizeCreateTicketInput(input: {
     openerUserId: string;
     panelId?: string;
     ticketNumber: number;
-}): Result<Record<string, unknown>, TicketsRepositoryError> {
+}) {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const ticketNumber = normalizePositiveInteger(input.ticketNumber, 'ticketNumber');
     const openerUserId = normalizeRequiredText(input.openerUserId, 'openerUserId');

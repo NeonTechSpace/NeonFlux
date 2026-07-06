@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildReactionRoleAssignmentDocument,
@@ -10,10 +11,12 @@ import {
 } from './reaction_roles_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
-const createLegacyId = (): string => 'legacy-1';
+const messageId = 'message-doc-1' as GenericId<'reactionRoleMessages'>;
+const optionId = 'option-doc-1';
+const assignmentId = 'assignment-doc-1';
 
 describe('reaction roles model', () => {
-    it('builds reaction-role messages with defaults and app-facing IDs', () => {
+    it('builds reaction-role messages with defaults', () => {
         const result = buildReactionRoleMessageDocument(
             {
                 channelId: ' channel-1 ',
@@ -21,20 +24,18 @@ describe('reaction roles model', () => {
                 messageContent: ' Pick one ',
                 messageId: ' message-1 ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toReactionRoleMessageRecord(result.value)).toStrictEqual({
+        expect(toReactionRoleMessageRecord({ ...result.value, _id: messageId })).toStrictEqual({
             channelId: 'channel-1',
             createdAt: now,
             enabled: true,
             generateOverview: false,
             guildId: 'guild-1',
-            id: 'legacy-1',
+            id: messageId,
             kind: 'reaction_role',
             messageContent: 'Pick one',
             messageEmbeds: [],
@@ -46,7 +47,7 @@ describe('reaction roles model', () => {
         });
     });
 
-    it('preserves message identity and created timestamp on update', () => {
+    it('preserves message created timestamp on update', () => {
         const result = buildReactionRoleMessageDocument(
             {
                 channelId: 'channel-2',
@@ -61,7 +62,6 @@ describe('reaction roles model', () => {
             now,
             {
                 createdAt: '2026-07-02T08:00:00.000Z',
-                legacyId: 'message-legacy-1',
             }
         );
 
@@ -71,7 +71,6 @@ describe('reaction roles model', () => {
             createdAt: '2026-07-02T08:00:00.000Z',
             enabled: false,
             generateOverview: true,
-            legacyId: 'message-legacy-1',
             messageEmbeds: [{ description: 'Choose' }],
             mode: 'exclusive',
             source: 'dashboard',
@@ -110,27 +109,25 @@ describe('reaction roles model', () => {
         });
     });
 
-    it('builds options keyed by message legacy id and validates position', () => {
+    it('builds options keyed by message id and validates position', () => {
         const result = buildReactionRoleOptionDocument(
             {
                 emojiKey: ' unicode:check ',
                 position: 2,
-                reactionRoleMessageId: ' message-legacy-1 ',
+                reactionRoleMessageId: messageId,
                 roleId: ' role-1 ',
             },
-            now,
-            undefined,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toReactionRoleOptionRecord(result.value)).toStrictEqual({
+        expect(toReactionRoleOptionRecord({ ...result.value, _id: optionId })).toStrictEqual({
             createdAt: now,
             emojiKey: 'unicode:check',
-            id: 'legacy-1',
+            id: optionId,
             position: 2,
-            reactionRoleMessageId: 'message-legacy-1',
+            reactionRoleMessageId: messageId,
             roleId: 'role-1',
             updatedAt: now,
         });
@@ -139,7 +136,7 @@ describe('reaction roles model', () => {
                 {
                     emojiKey: 'unicode:check',
                     position: -1,
-                    reactionRoleMessageId: 'message-legacy-1',
+                    reactionRoleMessageId: messageId,
                     roleId: 'role-1',
                 },
                 now
@@ -150,7 +147,7 @@ describe('reaction roles model', () => {
         });
     });
 
-    it('builds assignments and reactivation patches by preserving assignment identity', () => {
+    it('builds assignments and maps stored identity from Convex id', () => {
         const result = buildReactionRoleAssignmentDocument(
             {
                 emojiKey: ' unicode:check ',
@@ -159,17 +156,16 @@ describe('reaction roles model', () => {
                 roleId: ' role-1 ',
                 userId: ' user-1 ',
             },
-            now,
-            { legacyId: 'assignment-1' }
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(toReactionRoleAssignmentRecord(result.value)).toStrictEqual({
+        expect(toReactionRoleAssignmentRecord({ ...result.value, _id: assignmentId })).toStrictEqual({
             assignedAt: now,
             emojiKey: 'unicode:check',
             guildId: 'guild-1',
-            id: 'assignment-1',
+            id: assignmentId,
             messageId: 'message-1',
             removedAt: null,
             roleId: 'role-1',

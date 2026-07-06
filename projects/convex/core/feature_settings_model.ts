@@ -4,7 +4,6 @@ export type GuildFeatureSettingInput = {
     enabled?: boolean | null;
     feature?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     updatedAt?: string | null;
 };
 
@@ -14,7 +13,6 @@ export type GuildFeatureSettingDocument = {
     enabled: boolean;
     feature: string;
     guildId: string;
-    legacyId: string;
     updatedAt: string;
 };
 
@@ -42,8 +40,7 @@ export type FeatureSettingInputResult<Value, ErrorValue extends string> =
 export function buildGuildFeatureSettingDocument(
     input: GuildFeatureSettingInput,
     now: string,
-    existing?: Pick<GuildFeatureSettingDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<GuildFeatureSettingDocument, 'createdAt'>
 ): FeatureSettingInputResult<GuildFeatureSettingDocument, GuildFeatureSettingInputError> {
     const guildId = normalizeOptionalString(input.guildId);
     const feature = normalizeOptionalString(input.feature);
@@ -80,7 +77,6 @@ export function buildGuildFeatureSettingDocument(
             enabled: input.enabled ?? false,
             feature,
             guildId,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             updatedAt,
         },
     };
@@ -107,14 +103,16 @@ export function normalizeAfterFeature(value: string | undefined): string | undef
     return normalizeOptionalString(value);
 }
 
-export function toGuildFeatureSettingRecord(document: GuildFeatureSettingDocument): GuildFeatureSettingRecord {
+export function toGuildFeatureSettingRecord(
+    document: GuildFeatureSettingDocument & { _id: string }
+): GuildFeatureSettingRecord {
     return {
         config: document.config,
         createdAt: document.createdAt,
         enabled: document.enabled,
         feature: document.feature,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         updatedAt: document.updatedAt,
     };
 }

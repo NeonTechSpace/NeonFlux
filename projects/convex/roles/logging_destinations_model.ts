@@ -8,7 +8,6 @@ export type GuildLoggingDestinationInput = {
     enabled?: boolean | null;
     eventGroup?: string | null;
     guildId?: string | null;
-    legacyId?: string | null;
     updatedAt?: string | null;
 };
 
@@ -18,7 +17,6 @@ export type GuildLoggingDestinationDocument = {
     enabled: boolean;
     eventGroup: ServerLogEventGroup;
     guildId: string;
-    legacyId: string;
     updatedAt: string;
 };
 
@@ -44,8 +42,7 @@ export type LoggingDestinationInputResult<Value, ErrorValue> =
 export function buildGuildLoggingDestinationDocument(
     input: GuildLoggingDestinationInput,
     now: string,
-    existing?: Pick<GuildLoggingDestinationDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<GuildLoggingDestinationDocument, 'createdAt'>
 ): LoggingDestinationInputResult<GuildLoggingDestinationDocument, LoggingDestinationInputError> {
     const lookup = normalizeLoggingDestinationLookupInput(input);
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -76,7 +73,6 @@ export function buildGuildLoggingDestinationDocument(
             channelId: channelId.value,
             createdAt,
             enabled: input.enabled ?? true,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             updatedAt,
         },
     };
@@ -129,7 +125,7 @@ export function normalizeLoggingDestinationLimit(limit: number | undefined): num
 }
 
 export function toGuildLoggingDestinationRecord(
-    document: GuildLoggingDestinationDocument
+    document: GuildLoggingDestinationDocument & { _id: string }
 ): GuildLoggingDestinationRecord {
     return {
         channelId: document.channelId,
@@ -137,7 +133,7 @@ export function toGuildLoggingDestinationRecord(
         enabled: document.enabled,
         eventGroup: document.eventGroup,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         updatedAt: document.updatedAt,
     };
 }

@@ -59,14 +59,14 @@ describe('loadDashboardGuildPageData', () => {
         vi.mocked(loadWebConfig).mockReturnValueOnce(
             createWebConfig({
                 fluxerBotInviteUrl:
-                    'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+                    'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
             })
         );
 
         await expect(loadDashboardGuildPageData(request, 'guild-1')).resolves.toMatchObject({
             type: 'guild',
             botInviteUrl:
-                'https://web.canary.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
+                'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
         });
     });
 

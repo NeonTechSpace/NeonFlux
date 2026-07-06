@@ -1,4 +1,4 @@
-import { api } from '@neonflux/convex/api';
+import { api } from '@neonflux/convex-api';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -14,19 +14,6 @@ import type {
 } from './contracts.js';
 
 import type { ConvexDatabase } from './convex.js';
-
-type ConvexQueryReference = Parameters<ConvexDatabase['client']['query']>[0];
-type ConvexMutationReference = Parameters<ConvexDatabase['client']['mutation']>[0];
-
-const convexApi = api as unknown as {
-    growth_overview: {
-        incrementGuildMessageActivityDay: ConvexMutationReference;
-        listGuildInviteSnapshots: ConvexQueryReference;
-        loadGuildOverviewAggregate: ConvexQueryReference;
-        recordGuildMemberFlowEvent: ConvexMutationReference;
-        syncGuildInviteSnapshots: ConvexMutationReference;
-    };
-};
 
 type GrowthOverviewDb = ConvexDatabase;
 
@@ -87,8 +74,8 @@ export async function recordGuildMemberFlowEvent(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = await db.client.mutation<ConvexGuildMemberFlowEventRecord>(
-            convexApi.growth_overview.recordGuildMemberFlowEvent,
+        const event = await db.client.mutation(
+            api.growth_overview.recordGuildMemberFlowEvent,
             normalizedInput.value
         );
 
@@ -107,8 +94,8 @@ export async function syncGuildInviteSnapshots(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const snapshots = await db.client.mutation<ConvexGuildInviteSnapshotRecord[]>(
-            convexApi.growth_overview.syncGuildInviteSnapshots,
+        const snapshots = await db.client.mutation(
+            api.growth_overview.syncGuildInviteSnapshots,
             normalizedInput.value
         );
 
@@ -127,8 +114,8 @@ export async function listGuildInviteSnapshots(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const snapshots = await db.client.query<ConvexGuildInviteSnapshotRecord[]>(
-            convexApi.growth_overview.listGuildInviteSnapshots,
+        const snapshots = await db.client.query(
+            api.growth_overview.listGuildInviteSnapshots,
             {
                 guildId: guildId.value,
             }
@@ -153,8 +140,8 @@ export async function incrementGuildMessageActivityDay(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const activity = await db.client.mutation<ConvexGuildMessageActivityDayRecord>(
-            convexApi.growth_overview.incrementGuildMessageActivityDay,
+        const activity = await db.client.mutation(
+            api.growth_overview.incrementGuildMessageActivityDay,
             {
                 channelId: channelId.value,
                 guildId: guildId.value,
@@ -181,8 +168,8 @@ export async function loadGuildOverviewAggregate(
     if (now.isErr()) return err(now.error);
 
     try {
-        const aggregate = await db.client.query<ConvexGuildOverviewAggregate>(
-            convexApi.growth_overview.loadGuildOverviewAggregate,
+        const aggregate = await db.client.query(
+            api.growth_overview.loadGuildOverviewAggregate,
             {
                 ...(days.value === undefined ? {} : { days: days.value }),
                 guildId: guildId.value,

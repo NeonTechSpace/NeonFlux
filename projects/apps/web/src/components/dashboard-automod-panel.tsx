@@ -11,12 +11,11 @@ import type { DashboardAutomodEvent, DashboardAutomodRule } from '../server/dash
 import { DashboardEntitySelector } from './dashboard-entity-selector.js';
 import type { DashboardEntityOption } from './dashboard-entity-selector.js';
 
-type AutomodTriggerType = 'blocked_terms' | 'invite_links';
+type AutomodTriggerType = 'blocked_terms';
 type AutomodActionType = 'record' | 'delete_message' | 'timeout' | 'warn';
 
 const triggerLabels: Record<AutomodTriggerType, string> = {
     blocked_terms: 'Blocked terms',
-    invite_links: 'Invite links',
 };
 
 const actionLabels: Record<AutomodActionType, string> = {
@@ -65,9 +64,7 @@ export function DashboardAutomodPanel({ guildId }: { guildId: string }) {
         <article className='dashboard-glass-panel overflow-hidden'>
             <div className='border-b border-[var(--dash-border)] px-5 py-4'>
                 <h3 className='text-xl font-semibold text-[var(--dash-text)]'>Automod</h3>
-                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                    Rules for blocked terms and invite links.
-                </p>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>Rules for blocked terms.</p>
             </div>
             <div className='grid gap-0 divide-y divide-[var(--dash-border)] xl:grid-cols-[minmax(20rem,28rem)_minmax(0,1fr)] xl:divide-x xl:divide-y-0'>
                 <AutomodRuleEditor
@@ -105,7 +102,6 @@ function AutomodRuleEditor({
     const [editingRuleId, setEditingRuleId] = useState('');
     const editingRule = rules.find((rule) => rule.id === editingRuleId);
     const [name, setName] = useState('');
-    const [triggerType, setTriggerType] = useState<AutomodTriggerType>('blocked_terms');
     const [actionType, setActionType] = useState<AutomodActionType>('record');
     const [terms, setTerms] = useState('');
     const [timeoutMinutes, setTimeoutMinutes] = useState('10');
@@ -137,7 +133,6 @@ function AutomodRuleEditor({
     function editRule(rule: DashboardAutomodRule): void {
         setEditingRuleId(rule.id);
         setName(rule.name);
-        setTriggerType(rule.triggerType);
         setActionType(rule.actionType);
         setTerms(rule.terms.join('\n'));
         setTimeoutMinutes(String(Math.max(1, Math.round((rule.timeoutDurationSeconds ?? 600) / 60))));
@@ -151,7 +146,6 @@ function AutomodRuleEditor({
     function resetForm(): void {
         setEditingRuleId('');
         setName('');
-        setTriggerType('blocked_terms');
         setActionType('record');
         setTerms('');
         setTimeoutMinutes('10');
@@ -171,7 +165,7 @@ function AutomodRuleEditor({
                     guildId,
                     ...(editingRule ? { ruleId: editingRule.id } : {}),
                     name,
-                    triggerType,
+                    triggerType: 'blocked_terms',
                     actionType,
                     enabled,
                     terms: parseTerms(terms),
@@ -222,26 +216,14 @@ function AutomodRuleEditor({
                 />
             </label>
             <label className='dashboard-label mt-3 block'>
-                <span>Trigger</span>
-                <select
-                    value={triggerType}
-                    onChange={(event) => setTriggerType(event.currentTarget.value as AutomodTriggerType)}
-                    className='dashboard-field mt-2'>
-                    <option value='blocked_terms'>Blocked terms</option>
-                    <option value='invite_links'>Invite links</option>
-                </select>
+                <span>Terms</span>
+                <textarea
+                    value={terms}
+                    onChange={(event) => setTerms(event.currentTarget.value)}
+                    className='dashboard-field mt-2 min-h-28 py-2 text-sm'
+                    placeholder={'one term per line\nor comma-separated'}
+                />
             </label>
-            {triggerType === 'blocked_terms' ? (
-                <label className='dashboard-label mt-3 block'>
-                    <span>Terms</span>
-                    <textarea
-                        value={terms}
-                        onChange={(event) => setTerms(event.currentTarget.value)}
-                        className='dashboard-field mt-2 min-h-28 py-2 text-sm'
-                        placeholder={'one term per line\nor comma-separated'}
-                    />
-                </label>
-            ) : null}
             <label className='dashboard-label mt-3 block'>
                 <span>Action</span>
                 <select
@@ -395,9 +377,7 @@ function AutomodRuleList({
                                     </span>
                                 </div>
                                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                                    {rule.triggerType === 'blocked_terms'
-                                        ? `${rule.terms.length} blocked terms`
-                                        : 'Records Discord invite links'}
+                                    {rule.terms.length} blocked terms
                                     {rule.actionType === 'timeout' && rule.timeoutDurationSeconds
                                         ? `, ${String(Math.round(rule.timeoutDurationSeconds / 60))} minute timeout`
                                         : ''}
@@ -496,11 +476,7 @@ function formatTimestamp(value: string): string {
 }
 
 function formatEventDetails(event: DashboardAutomodEvent): string {
-    if (event.triggerType === 'blocked_terms') {
-        return `${event.matchedTermCount} matched terms`;
-    }
-
-    return `${event.inviteLinkCount} invite links`;
+    return `${event.matchedTermCount} matched terms`;
 }
 
 function getIgnoreCount(rule: DashboardAutomodRule): number {

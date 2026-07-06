@@ -1,14 +1,6 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
 import {
     buildObservedEventStateDocument,
     buildStructureExportSnapshotDocument,
@@ -26,10 +18,9 @@ import {
     type StructureImportRunDocument,
     type StructureObservedEventStateDocument,
 } from './structure_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type StructureQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type StructureMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type StructureQueryCtx = QueryCtx;
+type StructureMutationCtx = MutationCtx;
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredExportSnapshotDocument = StructureExportSnapshotDocument & { _id: GenericId<'structureExportSnapshots'> };
 type StoredImportRunDocument = StructureImportRunDocument & { _id: GenericId<'structureImportRuns'> };
@@ -93,7 +84,7 @@ const observedStateValidator = v.object({
     updatedAt: v.optional(v.string()),
 });
 
-export const findStructureObservedEventStateByGuildId = queryGeneric({
+export const findStructureObservedEventStateByGuildId = query({
     args: { guildId: v.string() },
     returns: observedStateValidator,
     handler: async (ctx: StructureQueryCtx, args) => {
@@ -105,7 +96,7 @@ export const findStructureObservedEventStateByGuildId = queryGeneric({
     },
 });
 
-export const recordStructureObservedEvent = mutationGeneric({
+export const recordStructureObservedEvent = mutation({
     args: {
         eventType: v.string(),
         guildId: v.string(),
@@ -144,12 +135,11 @@ export const recordStructureObservedEvent = mutationGeneric({
     },
 });
 
-export const createStructureExportSnapshot = mutationGeneric({
+export const createStructureExportSnapshot = mutation({
     args: {
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.union(v.string(), v.null())),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         snapshot: v.any(),
         source: v.optional(v.string()),
     },
@@ -162,13 +152,13 @@ export const createStructureExportSnapshot = mutationGeneric({
 
         const document = unwrap(buildStructureExportSnapshotDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('structureExportSnapshots', document);
+        const id = await ctx.db.insert('structureExportSnapshots', document);
 
-        return toStructureExportSnapshotRecord(document);
+        return toStructureExportSnapshotRecord({ ...document, _id: id });
     },
 });
 
-export const listStructureExportSnapshotsByGuildId = queryGeneric({
+export const listStructureExportSnapshotsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(exportRecordValidator),
     handler: async (ctx: StructureQueryCtx, args) => {
@@ -184,23 +174,22 @@ export const listStructureExportSnapshotsByGuildId = queryGeneric({
     },
 });
 
-export const findStructureExportSnapshotByGuildId = queryGeneric({
+export const findStructureExportSnapshotByGuildId = query({
     args: { guildId: v.string(), snapshotId: v.string() },
     returns: v.union(exportRecordValidator, v.null()),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
-        const snapshot = await findSnapshotByLegacyId(ctx, args.snapshotId);
+        const snapshot = await findSnapshotById(ctx, parseSnapshotId(args.snapshotId));
 
         return snapshot?.guildId === args.guildId ? toStructureExportSnapshotRecord(snapshot) : null;
     },
 });
 
-export const createStructureImportRun = mutationGeneric({
+export const createStructureImportRun = mutation({
     args: {
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.union(v.string(), v.null())),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         plan: v.optional(v.any()),
         sourceSnapshotId: v.optional(v.union(v.string(), v.null())),
     },
@@ -214,13 +203,13 @@ export const createStructureImportRun = mutationGeneric({
 
         const document = unwrap(buildStructureImportRunDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('structureImportRuns', document);
+        const id = await ctx.db.insert('structureImportRuns', document);
 
-        return toStructureImportRunRecord(document);
+        return toStructureImportRunRecord({ ...document, _id: id });
     },
 });
 
-export const listStructureImportRunsByGuildId = queryGeneric({
+export const listStructureImportRunsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(runWithActionsValidator),
     handler: async (ctx: StructureQueryCtx, args) => {
@@ -236,23 +225,23 @@ export const listStructureImportRunsByGuildId = queryGeneric({
     },
 });
 
-export const findStructureImportRunByGuildId = queryGeneric({
+export const findStructureImportRunByGuildId = query({
     args: { guildId: v.string(), runId: v.string() },
     returns: v.union(runWithActionsValidator, v.null()),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
-        const run = await findRunByLegacyId(ctx, args.runId);
+        const run = await findRunById(ctx, parseRunId(args.runId));
 
         return run?.guildId === args.guildId ? await toRunWithActions(ctx, run) : null;
     },
 });
 
-export const updateStructureImportRunStatus = mutationGeneric({
+export const updateStructureImportRunStatus = mutation({
     args: { plan: v.optional(v.any()), runId: v.string(), status: v.string() },
     returns: v.union(runRecordValidator, v.null()),
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
-        const run = await findRunByLegacyId(ctx, args.runId);
+        const run = await findRunById(ctx, parseRunId(args.runId));
 
         if (!run) return null;
 
@@ -264,11 +253,10 @@ export const updateStructureImportRunStatus = mutationGeneric({
     },
 });
 
-export const recordStructureImportAction = mutationGeneric({
+export const recordStructureImportAction = mutation({
     args: {
         actionType: v.string(),
         details: v.optional(v.any()),
-        legacyId: v.optional(v.string()),
         runId: v.string(),
         status: v.optional(v.string()),
         targetId: v.optional(v.union(v.string(), v.null())),
@@ -282,18 +270,18 @@ export const recordStructureImportAction = mutationGeneric({
 
         const document = unwrap(buildStructureImportActionDocument(args, new Date().toISOString()));
 
-        await ctx.db.insert('structureImportActions', document);
+        const id = await ctx.db.insert('structureImportActions', document);
 
-        return toStructureImportActionRecord(document);
+        return toStructureImportActionRecord({ ...document, _id: id });
     },
 });
 
-export const updateStructureImportActionStatus = mutationGeneric({
+export const updateStructureImportActionStatus = mutation({
     args: { actionId: v.string(), details: v.optional(v.any()), status: v.string() },
     returns: v.union(actionRecordValidator, v.null()),
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
-        const action = await findActionByLegacyId(ctx, args.actionId);
+        const action = await findActionById(ctx, parseActionId(args.actionId));
 
         if (!action) return null;
 
@@ -318,46 +306,40 @@ async function findObservedEventDocument(
     return row as StoredObservedEventDocument | null;
 }
 
-async function findSnapshotByLegacyId(
+async function findSnapshotById(
     ctx: StructureQueryCtx | StructureMutationCtx,
-    snapshotId: string
+    snapshotId: GenericId<'structureExportSnapshots'>
 ): Promise<StoredExportSnapshotDocument | null> {
-    return await ctx.db
-        .query('structureExportSnapshots')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(snapshotId, 'snapshotId')))
-        .unique();
+    return await ctx.db.get(snapshotId);
 }
 
-async function findRunByLegacyId(
+async function findRunById(
     ctx: StructureQueryCtx | StructureMutationCtx,
-    runId: string
+    runId: GenericId<'structureImportRuns'>
 ): Promise<StoredImportRunDocument | null> {
-    return await ctx.db
-        .query('structureImportRuns')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(runId, 'runId')))
-        .unique();
+    return await ctx.db.get(runId);
 }
 
-async function findActionByLegacyId(
+async function findActionById(
     ctx: StructureMutationCtx,
-    actionId: string
+    actionId: GenericId<'structureImportActions'>
 ): Promise<StoredImportActionDocument | null> {
-    return await ctx.db
-        .query('structureImportActions')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(actionId, 'actionId')))
-        .unique();
+    return await ctx.db.get(actionId);
 }
 
-async function listActionsByRunId(ctx: StructureQueryCtx, runId: string): Promise<StoredImportActionDocument[]> {
+async function listActionsByRunId(
+    ctx: StructureQueryCtx,
+    runId: GenericId<'structureImportRuns'>
+): Promise<StoredImportActionDocument[]> {
     return await ctx.db
         .query('structureImportActions')
-        .withIndex('by_run_created', (query) => query.eq('runLegacyId', runId))
+        .withIndex('by_run_created', (query) => query.eq('runId', runId))
         .order('asc')
         .take(500);
 }
 
 async function toRunWithActions(ctx: StructureQueryCtx, run: StoredImportRunDocument) {
-    const actions = await listActionsByRunId(ctx, run.legacyId);
+    const actions = await listActionsByRunId(ctx, run._id);
 
     return {
         ...toStructureImportRunRecord(run),
@@ -372,12 +354,12 @@ async function requireSourceSnapshotIfProvided(
     const sourceSnapshotId = normalizeOptionalString(input.sourceSnapshotId);
     if (!sourceSnapshotId) return;
 
-    const snapshot = await findSnapshotByLegacyId(ctx, sourceSnapshotId);
+    const snapshot = await findSnapshotById(ctx, parseSnapshotId(sourceSnapshotId));
     if (snapshot?.guildId !== input.guildId) throw new Error('structure-export-snapshot-not-found');
 }
 
 async function requireRun(ctx: StructureMutationCtx, runId: string): Promise<StoredImportRunDocument> {
-    const run = await findRunByLegacyId(ctx, runId);
+    const run = await findRunById(ctx, parseRunId(runId));
     if (!run) throw new Error('structure-import-run-not-found');
     return run;
 }
@@ -405,6 +387,18 @@ function unwrapRequiredString(value: string, field: string): string {
     const normalizedValue = normalizeOptionalString(value);
     if (!normalizedValue) throw new Error(`${field}-missing-input`);
     return normalizedValue;
+}
+
+function parseSnapshotId(snapshotId: string): GenericId<'structureExportSnapshots'> {
+    return unwrapRequiredString(snapshotId, 'snapshotId') as GenericId<'structureExportSnapshots'>;
+}
+
+function parseRunId(runId: string): GenericId<'structureImportRuns'> {
+    return unwrapRequiredString(runId, 'runId') as GenericId<'structureImportRuns'>;
+}
+
+function parseActionId(actionId: string): GenericId<'structureImportActions'> {
+    return unwrapRequiredString(actionId, 'actionId') as GenericId<'structureImportActions'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

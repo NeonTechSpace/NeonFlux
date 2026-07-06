@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -19,11 +12,9 @@ import {
     type GuildDefconExemptionDocument,
     type GuildSecurityPolicyDocument,
 } from './security_policies_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type SecurityPolicyQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type SecurityPolicyMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type SecurityPolicyQueryCtx = QueryCtx;
+type SecurityPolicyMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -58,7 +49,7 @@ const guildDefconExemptionIdentityArgs = {
     guildId: v.string(),
 };
 
-export const readGuildSecurityPolicy = queryGeneric({
+export const readGuildSecurityPolicy = query({
     args: {
         guildId: v.string(),
     },
@@ -72,7 +63,7 @@ export const readGuildSecurityPolicy = queryGeneric({
     },
 });
 
-export const listGuildSecurityPoliciesByGuildIds = queryGeneric({
+export const listGuildSecurityPoliciesByGuildIds = query({
     args: {
         guildIds: v.array(v.string()),
     },
@@ -91,7 +82,7 @@ export const listGuildSecurityPoliciesByGuildIds = queryGeneric({
     },
 });
 
-export const upsertGuildSecurityPolicy = mutationGeneric({
+export const upsertGuildSecurityPolicy = mutation({
     args: {
         createdAt: v.optional(v.string()),
         defconLevel: defconLevelValidator,
@@ -130,11 +121,10 @@ export const upsertGuildSecurityPolicy = mutationGeneric({
     },
 });
 
-export const upsertGuildDefconExemption = mutationGeneric({
+export const upsertGuildDefconExemption = mutation({
     args: {
         ...guildDefconExemptionIdentityArgs,
         createdAt: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
     },
     returns: guildDefconExemptionRecordValidator,
     handler: async (ctx: SecurityPolicyMutationCtx, args) => {
@@ -155,8 +145,7 @@ export const upsertGuildDefconExemption = mutationGeneric({
                     ...args,
                     ...lookup,
                 },
-                new Date().toISOString(),
-                () => crypto.randomUUID()
+                new Date().toISOString()
             )
         );
 
@@ -166,7 +155,7 @@ export const upsertGuildDefconExemption = mutationGeneric({
     },
 });
 
-export const listGuildDefconExemptionCategories = queryGeneric({
+export const listGuildDefconExemptionCategories = query({
     args: {
         guildId: v.string(),
     },
@@ -184,7 +173,7 @@ export const listGuildDefconExemptionCategories = queryGeneric({
     },
 });
 
-export const deleteGuildDefconExemption = mutationGeneric({
+export const deleteGuildDefconExemption = mutation({
     args: guildDefconExemptionIdentityArgs,
     returns: v.union(guildDefconExemptionRecordValidator, v.null()),
     handler: async (ctx: SecurityPolicyMutationCtx, args) => {

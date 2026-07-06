@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -23,11 +16,9 @@ import {
     type GuildInviteSnapshotDocument,
     type GuildMessageActivityDayDocument,
 } from './growth_overview_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type GrowthQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type GrowthMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type GrowthQueryCtx = QueryCtx;
+type GrowthMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredInviteSnapshotDocument = GuildInviteSnapshotDocument & { _id: GenericId<'guildInviteSnapshots'> };
@@ -51,7 +42,6 @@ const memberFlowEventRecordValidator = v.object({
     id: v.string(),
     inviteCode: nullableString,
     inviterUserId: nullableString,
-    legacyId: v.string(),
     occurredAt: v.string(),
     userId: v.string(),
 });
@@ -65,7 +55,6 @@ const inviteSnapshotRecordValidator = v.object({
     id: v.string(),
     inviterUserId: nullableString,
     lastSeenAt: v.string(),
-    legacyId: v.string(),
     maxUses: v.union(v.number(), v.null()),
     revokedAt: nullableString,
     temporary: v.boolean(),
@@ -76,7 +65,6 @@ const messageActivityDayRecordValidator = v.object({
     channelId: v.string(),
     guildId: v.string(),
     id: v.string(),
-    legacyId: v.string(),
     messageCount: v.number(),
     updatedAt: v.string(),
 });
@@ -112,14 +100,13 @@ const overviewAggregateValidator = v.object({
     trackingStartedAt: v.optional(v.string()),
 });
 
-export const recordGuildMemberFlowEvent = mutationGeneric({
+export const recordGuildMemberFlowEvent = mutation({
     args: {
         attributionStatus: v.optional(attributionStatusValidator),
         eventType: v.union(v.literal('join'), v.literal('leave')),
         guildId: v.string(),
         inviteCode: v.optional(v.string()),
         inviterUserId: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         occurredAt: v.optional(v.string()),
         userId: v.string(),
     },
@@ -130,17 +117,15 @@ export const recordGuildMemberFlowEvent = mutationGeneric({
 
         await requireGuildDocument(ctx, guildId);
 
-        const document = unwrap(
-            buildGuildMemberFlowEventDocument({ ...args, guildId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildGuildMemberFlowEventDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('guildMemberFlowEvents', document);
+        const id = await ctx.db.insert('guildMemberFlowEvents', document);
 
-        return toGuildMemberFlowEventRecord(document);
+        return toGuildMemberFlowEventRecord({ ...document, _id: id });
     },
 });
 
-export const syncGuildInviteSnapshots = mutationGeneric({
+export const syncGuildInviteSnapshots = mutation({
     args: {
         guildId: v.string(),
         invites: v.array(
@@ -148,7 +133,6 @@ export const syncGuildInviteSnapshots = mutationGeneric({
                 channelId: v.optional(v.union(v.string(), v.null())),
                 code: v.string(),
                 expiresAt: v.optional(v.union(v.string(), v.null())),
-                legacyId: v.optional(v.string()),
                 maxUses: v.optional(v.union(v.number(), v.null())),
                 temporary: v.optional(v.boolean()),
                 uses: v.optional(v.number()),
@@ -205,7 +189,7 @@ export const syncGuildInviteSnapshots = mutationGeneric({
     },
 });
 
-export const listGuildInviteSnapshots = queryGeneric({
+export const listGuildInviteSnapshots = query({
     args: { guildId: v.string() },
     returns: v.array(inviteSnapshotRecordValidator),
     handler: async (ctx: GrowthQueryCtx, args) => {
@@ -216,11 +200,10 @@ export const listGuildInviteSnapshots = queryGeneric({
     },
 });
 
-export const incrementGuildMessageActivityDay = mutationGeneric({
+export const incrementGuildMessageActivityDay = mutation({
     args: {
         channelId: v.string(),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         occurredAt: v.optional(v.string()),
     },
     returns: messageActivityDayRecordValidator,
@@ -244,15 +227,15 @@ export const incrementGuildMessageActivityDay = mutationGeneric({
 
         if (existing) {
             await ctx.db.patch(existing._id, { messageCount: document.messageCount, updatedAt: document.updatedAt });
+            return toGuildMessageActivityDayRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('guildMessageActivityDays', document);
+            const id = await ctx.db.insert('guildMessageActivityDays', document);
+            return toGuildMessageActivityDayRecord({ ...document, _id: id });
         }
-
-        return toGuildMessageActivityDayRecord(document);
     },
 });
 
-export const loadGuildOverviewAggregate = queryGeneric({
+export const loadGuildOverviewAggregate = query({
     args: { days: v.optional(v.number()), guildId: v.string(), now: v.optional(v.string()) },
     returns: overviewAggregateValidator,
     handler: async (ctx: GrowthQueryCtx, args) => {

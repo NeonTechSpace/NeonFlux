@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GenericId } from 'convex/values';
 
 import {
     buildCaseStatusPatch,
@@ -14,7 +15,9 @@ import {
 } from './moderation_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
-const createLegacyId = (): string => 'legacy-1';
+const caseId = 'case-1' as GenericId<'moderationCases'>;
+const eventId = 'event-1' as GenericId<'moderationCaseEvents'>;
+const temporaryActionId = 'temporary-action-1' as GenericId<'moderationTemporaryActions'>;
 
 describe('moderation model', () => {
     it('builds user moderation cases with app-facing null optional fields', () => {
@@ -28,8 +31,7 @@ describe('moderation model', () => {
                 targetType: 'user',
                 targetUserId: ' user-1 ',
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
@@ -40,14 +42,13 @@ describe('moderation model', () => {
             actorUserId: 'mod-1',
             caseNumber: 3,
             guildId: 'guild-1',
-            legacyId: 'legacy-1',
             reason: 'spam',
             status: 'open',
             targetType: 'user',
             targetUserId: 'user-1',
         });
-        expect(toModerationCaseRecord(result.value)).toMatchObject({
-            id: 'legacy-1',
+        expect(toModerationCaseRecord({ ...result.value, _id: caseId })).toMatchObject({
+            id: caseId,
             targetChannelId: null,
         });
     });
@@ -79,20 +80,19 @@ describe('moderation model', () => {
                 details: { note: 'Internal note' },
                 eventType: ' note.added ',
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
 
-        expect(toModerationCaseEventRecord(result.value)).toStrictEqual({
+        expect(toModerationCaseEventRecord({ ...result.value, _id: eventId })).toStrictEqual({
             actorUserId: null,
-            caseId: 'case-1',
+            caseId,
             createdAt: now,
             details: { note: 'Internal note' },
             eventType: 'note.added',
-            id: 'legacy-1',
+            id: eventId,
         });
     });
 
@@ -116,16 +116,15 @@ describe('moderation model', () => {
                 guildId: 'guild-1',
                 targetUserId: 'user-1',
             },
-            now,
-            createLegacyId
+            now
         );
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;
 
-        expect(toModerationTemporaryActionRecord(result.value)).toMatchObject({
-            caseId: 'case-1',
-            id: 'legacy-1',
+        expect(toModerationTemporaryActionRecord({ ...result.value, _id: temporaryActionId })).toMatchObject({
+            caseId,
+            id: temporaryActionId,
             status: 'pending',
         });
         expect(buildTemporaryActionStatusPatch('pending', 'completed', now)).toStrictEqual({

@@ -9,12 +9,10 @@ export const ticketPanelsTable = defineTable({
     createdAt: timestamp,
     enabled: v.boolean(),
     guildId: v.string(),
-    legacyId: v.string(),
     messageId: optionalString,
     title: v.string(),
     updatedAt: timestamp,
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
     .index('by_guild_enabled', ['guildId', 'enabled'])
-    .index('by_guild_message', ['guildId', 'messageId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_message', ['guildId', 'messageId']);

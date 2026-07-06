@@ -4,7 +4,6 @@ export type VerificationFlowInput = {
     emojiKey?: string | null;
     enabled?: boolean | null;
     guildId?: string | null;
-    legacyId?: string | null;
     messageId?: string | null;
     updatedAt?: string | null;
     verifiedRoleId?: string | null;
@@ -16,7 +15,6 @@ export type VerificationFlowDocument = {
     emojiKey: string;
     enabled: boolean;
     guildId: string;
-    legacyId: string;
     messageId: string;
     updatedAt: string;
     verifiedRoleId: string;
@@ -36,7 +34,6 @@ export type VerificationFlowRecord = {
 
 export type VerificationRecordInput = {
     guildId?: string | null;
-    legacyId?: string | null;
     method?: string | null;
     revokedAt?: string | null;
     userId?: string | null;
@@ -45,7 +42,6 @@ export type VerificationRecordInput = {
 
 export type VerificationRecordDocument = {
     guildId: string;
-    legacyId: string;
     method: string;
     revokedAt?: string;
     userId: string;
@@ -71,8 +67,7 @@ export type VerificationInputResult<Value> = { ok: true; value: Value } | { erro
 export function buildVerificationFlowDocument(
     input: VerificationFlowInput,
     now: string,
-    existing?: Pick<VerificationFlowDocument, 'createdAt' | 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    existing?: Pick<VerificationFlowDocument, 'createdAt'>
 ): VerificationInputResult<VerificationFlowDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -99,7 +94,6 @@ export function buildVerificationFlowDocument(
             emojiKey: emojiKey.value,
             enabled: input.enabled ?? true,
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             messageId: messageId.value,
             updatedAt,
             verifiedRoleId: verifiedRoleId.value,
@@ -109,9 +103,7 @@ export function buildVerificationFlowDocument(
 
 export function buildVerificationRecordDocument(
     input: VerificationRecordInput,
-    now: string,
-    existing?: Pick<VerificationRecordDocument, 'legacyId'>,
-    createLegacyId: () => string = () => crypto.randomUUID()
+    now: string
 ): VerificationInputResult<VerificationRecordDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const userId = normalizeRequiredString(input.userId, 'userId');
@@ -131,7 +123,6 @@ export function buildVerificationRecordDocument(
         ok: true,
         value: {
             guildId: guildId.value,
-            legacyId: normalizeOptionalString(input.legacyId) ?? existing?.legacyId ?? createLegacyId(),
             method: method.value,
             ...(revokedAt ? { revokedAt } : {}),
             userId: userId.value,
@@ -160,24 +151,24 @@ export function normalizeRequiredUserId(value: string): VerificationInputResult<
     return normalizeRequiredString(value, 'userId');
 }
 
-export function toVerificationFlowRecord(document: VerificationFlowDocument): VerificationFlowRecord {
+export function toVerificationFlowRecord(document: VerificationFlowDocument & { _id: string }): VerificationFlowRecord {
     return {
         channelId: document.channelId,
         createdAt: document.createdAt,
         emojiKey: document.emojiKey,
         enabled: document.enabled,
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         messageId: document.messageId,
         updatedAt: document.updatedAt,
         verifiedRoleId: document.verifiedRoleId,
     };
 }
 
-export function toVerificationRecord(document: VerificationRecordDocument): VerificationRecord {
+export function toVerificationRecord(document: VerificationRecordDocument & { _id: string }): VerificationRecord {
     return {
         guildId: document.guildId,
-        id: document.legacyId,
+        id: document._id,
         method: document.method,
         revokedAt: document.revokedAt ?? null,
         userId: document.userId,

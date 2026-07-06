@@ -10,7 +10,6 @@ export const reactionRoleMessagesTable = defineTable({
     generateOverview: v.boolean(),
     guildId: v.string(),
     kind: v.string(),
-    legacyId: v.string(),
     messageContent: optionalString,
     messageEmbeds: v.array(v.any()),
     messageId: v.string(),
@@ -21,5 +20,4 @@ export const reactionRoleMessagesTable = defineTable({
 })
     .index('by_guild_channel_message', ['guildId', 'channelId', 'messageId'])
     .index('by_guild_enabled', ['guildId', 'enabled'])
-    .index('by_guild_message', ['guildId', 'messageId'])
-    .index('by_legacy', ['legacyId']);
+    .index('by_guild_message', ['guildId', 'messageId']);

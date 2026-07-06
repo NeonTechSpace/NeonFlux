@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -26,11 +19,9 @@ import {
     type GiveawayEntryDocument,
     type GiveawayWinnerDocument,
 } from './giveaways_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type GiveawaysQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type GiveawaysMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type GiveawaysQueryCtx = QueryCtx;
+type GiveawaysMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredGiveawayDocument = GiveawayDocument & { _id: GenericId<'giveaways'> };
@@ -85,7 +76,7 @@ const drawResultValidator = v.object({
     winners: v.array(winnerRecordValidator),
 });
 
-export const createGiveaway = mutationGeneric({
+export const createGiveaway = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
@@ -95,7 +86,6 @@ export const createGiveaway = mutationGeneric({
         endsAt: v.optional(v.string()),
         entryEmoji: v.optional(v.string()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         messageId: v.optional(v.string()),
         prize: v.string(),
         status: v.optional(v.string()),
@@ -110,17 +100,15 @@ export const createGiveaway = mutationGeneric({
 
         await requireGuildDocument(ctx, guildId);
 
-        const document = unwrap(
-            buildGiveawayDocument({ ...args, guildId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildGiveawayDocument({ ...args, guildId }, new Date().toISOString()));
 
-        await ctx.db.insert('giveaways', document);
+        const id = await ctx.db.insert('giveaways', document);
 
-        return toGiveawayRecord(document);
+        return toGiveawayRecord({ ...document, _id: id });
     },
 });
 
-export const listGiveawaysByGuildId = queryGeneric({
+export const listGiveawaysByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(giveawayRecordValidator),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -136,18 +124,18 @@ export const listGiveawaysByGuildId = queryGeneric({
     },
 });
 
-export const findGiveawayById = queryGeneric({
+export const findGiveawayById = query({
     args: { giveawayId: v.string(), guildId: v.string() },
     returns: v.union(giveawayRecordValidator, v.null()),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayServices);
-        const giveaway = await findGiveawayByGuildLegacy(ctx, args);
+        const giveaway = await findGiveawayByGuildId(ctx, args);
 
         return giveaway ? toGiveawayRecord(giveaway) : null;
     },
 });
 
-export const findActiveGiveawayByGuildMessageId = queryGeneric({
+export const findActiveGiveawayByGuildMessageId = query({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(giveawayRecordValidator, v.null()),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -164,12 +152,12 @@ export const findActiveGiveawayByGuildMessageId = queryGeneric({
     },
 });
 
-export const updateGiveawayStatus = mutationGeneric({
+export const updateGiveawayStatus = mutation({
     args: { actorUserId: v.optional(v.string()), giveawayId: v.string(), guildId: v.string(), status: v.string() },
     returns: v.union(giveawayRecordValidator, v.null()),
     handler: async (ctx: GiveawaysMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayServices);
-        const giveaway = await findGiveawayByGuildLegacy(ctx, args);
+        const giveaway = await findGiveawayByGuildId(ctx, args);
 
         if (!giveaway) return null;
 
@@ -181,11 +169,10 @@ export const updateGiveawayStatus = mutationGeneric({
     },
 });
 
-export const upsertGiveawayEntry = mutationGeneric({
+export const upsertGiveawayEntry = mutation({
     args: {
         enteredAt: v.optional(v.string()),
         giveawayId: v.string(),
-        legacyId: v.optional(v.string()),
         userId: v.string(),
     },
     returns: entryRecordValidator,
@@ -193,7 +180,7 @@ export const upsertGiveawayEntry = mutationGeneric({
         await requireNeonFluxService(ctx, allowedGiveawayServices);
         const giveawayId = unwrap(normalizeRequiredGiveawayId(args.giveawayId));
 
-        await requireGiveaway(ctx, giveawayId);
+        await requireGiveaway(ctx, parseGiveawayId(giveawayId));
 
         const existingEntry = await findGiveawayEntryByUser(ctx, { giveawayId, userId: args.userId });
         const document = unwrap(
@@ -202,15 +189,15 @@ export const upsertGiveawayEntry = mutationGeneric({
 
         if (existingEntry) {
             await ctx.db.patch(existingEntry._id, { removedAt: undefined });
+            return toGiveawayEntryRecord({ ...document, _id: existingEntry._id });
         } else {
-            await ctx.db.insert('giveawayEntries', document);
+            const id = await ctx.db.insert('giveawayEntries', document);
+            return toGiveawayEntryRecord({ ...document, _id: id });
         }
-
-        return toGiveawayEntryRecord(document);
     },
 });
 
-export const removeGiveawayEntry = mutationGeneric({
+export const removeGiveawayEntry = mutation({
     args: { giveawayId: v.string(), userId: v.string() },
     returns: v.union(entryRecordValidator, v.null()),
     handler: async (ctx: GiveawaysMutationCtx, args) => {
@@ -228,7 +215,7 @@ export const removeGiveawayEntry = mutationGeneric({
     },
 });
 
-export const listActiveGiveawayEntries = queryGeneric({
+export const listActiveGiveawayEntries = query({
     args: { giveawayId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(entryRecordValidator),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -240,7 +227,7 @@ export const listActiveGiveawayEntries = queryGeneric({
     },
 });
 
-export const listGiveawayWinners = queryGeneric({
+export const listGiveawayWinners = query({
     args: { giveawayId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(winnerRecordValidator),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -252,7 +239,7 @@ export const listGiveawayWinners = queryGeneric({
     },
 });
 
-export const drawGiveawayWinners = mutationGeneric({
+export const drawGiveawayWinners = mutation({
     args: {
         actorUserId: v.optional(v.string()),
         giveawayId: v.string(),
@@ -262,16 +249,14 @@ export const drawGiveawayWinners = mutationGeneric({
     returns: drawResultValidator,
     handler: async (ctx: GiveawaysMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayServices);
-        const giveaway = await findGiveawayByGuildLegacy(ctx, args);
+        const giveaway = await findGiveawayByGuildId(ctx, args);
 
         if (!giveaway) throw new Error('giveaway-not-found');
         if (args.reroll && giveaway.status !== 'closed') {
             throw new Error('invalid-status-transition');
         }
         if (!args.reroll && giveaway.status === 'closed') {
-            const winners = (await listWinnerDocuments(ctx, giveaway.legacyId)).filter(
-                (winner) => winner.drawNumber === 1
-            );
+            const winners = (await listWinnerDocuments(ctx, giveaway._id)).filter((winner) => winner.drawNumber === 1);
 
             return { giveaway: toGiveawayRecord(giveaway), winners: winners.map(toGiveawayWinnerRecord) };
         }
@@ -279,25 +264,21 @@ export const drawGiveawayWinners = mutationGeneric({
             throw new Error('invalid-status-transition');
         }
 
-        const entries = await listActiveEntryDocuments(ctx, giveaway.legacyId, 1000);
-        const existingWinners = await listWinnerDocuments(ctx, giveaway.legacyId);
+        const entries = await listActiveEntryDocuments(ctx, giveaway._id, 1000);
+        const existingWinners = await listWinnerDocuments(ctx, giveaway._id);
         const drawNumber = args.reroll ? getNextDrawNumber(existingWinners) : 1;
         const excludedUserIds = args.reroll
             ? new Set(existingWinners.map((winner) => winner.userId))
             : new Set<string>();
         const winnerUserIds = pickWinnerUserIds(entries, giveaway.winnerCount, excludedUserIds);
         const now = new Date().toISOString();
-        const winners: GiveawayWinnerDocument[] = [];
+        const winners: StoredGiveawayWinnerDocument[] = [];
 
         for (const userId of winnerUserIds) {
-            const winner = unwrap(
-                buildGiveawayWinnerDocument({ drawNumber, giveawayId: giveaway.legacyId, userId }, now, () =>
-                    crypto.randomUUID()
-                )
-            );
+            const winner = unwrap(buildGiveawayWinnerDocument({ drawNumber, giveawayId: giveaway._id, userId }, now));
 
-            await ctx.db.insert('giveawayWinners', winner);
-            winners.push(winner);
+            const id = await ctx.db.insert('giveawayWinners', winner);
+            winners.push({ ...winner, _id: id });
         }
 
         const event = unwrap(
@@ -306,10 +287,9 @@ export const drawGiveawayWinners = mutationGeneric({
                     ...(args.actorUserId ? { actorUserId: args.actorUserId } : {}),
                     details: { drawNumber, winnerCount: winners.length },
                     eventType: args.reroll ? 'rerolled' : 'closed',
-                    giveawayId: giveaway.legacyId,
+                    giveawayId: giveaway._id,
                 },
-                now,
-                () => crypto.randomUUID()
+                now
             )
         );
 
@@ -332,33 +312,30 @@ export const drawGiveawayWinners = mutationGeneric({
     },
 });
 
-export const recordGiveawayEvent = mutationGeneric({
+export const recordGiveawayEvent = mutation({
     args: {
         actorUserId: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         details: v.optional(v.any()),
         eventType: v.string(),
         giveawayId: v.string(),
-        legacyId: v.optional(v.string()),
     },
     returns: eventRecordValidator,
     handler: async (ctx: GiveawaysMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedGiveawayServices);
         const giveawayId = unwrap(normalizeRequiredGiveawayId(args.giveawayId));
 
-        await requireGiveaway(ctx, giveawayId);
+        await requireGiveaway(ctx, parseGiveawayId(giveawayId));
 
-        const document = unwrap(
-            buildGiveawayEventDocument({ ...args, giveawayId }, new Date().toISOString(), () => crypto.randomUUID())
-        );
+        const document = unwrap(buildGiveawayEventDocument({ ...args, giveawayId }, new Date().toISOString()));
 
-        await ctx.db.insert('giveawayEvents', document);
+        const id = await ctx.db.insert('giveawayEvents', document);
 
-        return toGiveawayEventRecord(document);
+        return toGiveawayEventRecord({ ...document, _id: id });
     },
 });
 
-export const readGiveawayEntryCount = queryGeneric({
+export const readGiveawayEntryCount = query({
     args: { giveawayId: v.string() },
     returns: v.number(),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -370,7 +347,7 @@ export const readGiveawayEntryCount = queryGeneric({
     },
 });
 
-export const readLatestGiveawayDrawNumber = queryGeneric({
+export const readLatestGiveawayDrawNumber = query({
     args: { giveawayId: v.string() },
     returns: v.number(),
     handler: async (ctx: GiveawaysQueryCtx, args) => {
@@ -382,25 +359,21 @@ export const readLatestGiveawayDrawNumber = queryGeneric({
     },
 });
 
-async function findGiveawayByGuildLegacy(
+async function findGiveawayByGuildId(
     ctx: GiveawaysQueryCtx | GiveawaysMutationCtx,
     input: { giveawayId: string; guildId: string }
 ): Promise<StoredGiveawayDocument | null> {
     const guildId = unwrap(normalizeRequiredGuildId(input.guildId));
-    const giveawayId = unwrap(normalizeRequiredGiveawayId(input.giveawayId));
-    const giveaway = await findGiveawayByLegacyId(ctx, giveawayId);
+    const giveaway = await findGiveawayByIdDocument(ctx, parseGiveawayId(input.giveawayId));
 
     return giveaway?.guildId === guildId ? giveaway : null;
 }
 
-async function findGiveawayByLegacyId(
+async function findGiveawayByIdDocument(
     ctx: GiveawaysQueryCtx | GiveawaysMutationCtx,
-    giveawayId: string
+    giveawayId: GenericId<'giveaways'>
 ): Promise<StoredGiveawayDocument | null> {
-    return await ctx.db
-        .query('giveaways')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', giveawayId.trim()))
-        .unique();
+    return await ctx.db.get(giveawayId);
 }
 
 async function findGiveawayEntryByUser(
@@ -410,19 +383,19 @@ async function findGiveawayEntryByUser(
     return await ctx.db
         .query('giveawayEntries')
         .withIndex('by_giveaway_user', (query) =>
-            query.eq('giveawayLegacyId', input.giveawayId).eq('userId', input.userId.trim())
+            query.eq('giveawayId', parseGiveawayId(input.giveawayId)).eq('userId', input.userId.trim())
         )
         .unique();
 }
 
 async function listActiveEntryDocuments(
     ctx: GiveawaysQueryCtx | GiveawaysMutationCtx,
-    giveawayId: string,
+    giveawayId: string | GenericId<'giveaways'>,
     limit?: number
 ): Promise<StoredGiveawayEntryDocument[]> {
     return await ctx.db
         .query('giveawayEntries')
-        .withIndex('by_giveaway_removed', (query) => query.eq('giveawayLegacyId', giveawayId))
+        .withIndex('by_giveaway_removed', (query) => query.eq('giveawayId', parseGiveawayId(giveawayId)))
         .filter((query) => query.eq(query.field('removedAt'), undefined))
         .order('asc')
         .take(normalizeGiveawayLimit(limit, 1000, 1000));
@@ -430,12 +403,12 @@ async function listActiveEntryDocuments(
 
 async function listWinnerDocuments(
     ctx: GiveawaysQueryCtx | GiveawaysMutationCtx,
-    giveawayId: string,
+    giveawayId: string | GenericId<'giveaways'>,
     limit?: number
 ): Promise<StoredGiveawayWinnerDocument[]> {
     const winners = await ctx.db
         .query('giveawayWinners')
-        .withIndex('by_giveaway_draw', (query) => query.eq('giveawayLegacyId', giveawayId))
+        .withIndex('by_giveaway_draw', (query) => query.eq('giveawayId', parseGiveawayId(giveawayId)))
         .take(normalizeGiveawayLimit(limit, 500, 1000));
 
     return winners.sort(
@@ -443,12 +416,19 @@ async function listWinnerDocuments(
     );
 }
 
-async function requireGiveaway(ctx: GiveawaysMutationCtx, giveawayId: string): Promise<StoredGiveawayDocument> {
-    const giveaway = await findGiveawayByLegacyId(ctx, giveawayId);
+async function requireGiveaway(
+    ctx: GiveawaysMutationCtx,
+    giveawayId: GenericId<'giveaways'>
+): Promise<StoredGiveawayDocument> {
+    const giveaway = await findGiveawayByIdDocument(ctx, giveawayId);
 
     if (!giveaway) throw new Error('giveaway-not-found');
 
     return giveaway;
+}
+
+function parseGiveawayId(giveawayId: string | GenericId<'giveaways'>): GenericId<'giveaways'> {
+    return unwrap(normalizeRequiredGiveawayId(giveawayId)) as GenericId<'giveaways'>;
 }
 
 async function requireGuildDocument(ctx: GiveawaysMutationCtx, guildId: string): Promise<StoredGuildDocument> {

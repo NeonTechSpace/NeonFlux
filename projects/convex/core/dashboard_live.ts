@@ -1,14 +1,6 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v } from 'convex/values';
 
 import { requireGuildAccess, requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
 import {
     dashboardLiveAreas,
     normalizeDashboardLiveAreas,
@@ -16,10 +8,9 @@ import {
     type DashboardLiveArea,
     type DashboardLiveStateRecord,
 } from './dashboard_live_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type DashboardLiveMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
-type DashboardLiveQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type DashboardLiveMutationCtx = MutationCtx;
+type DashboardLiveQueryCtx = QueryCtx;
 
 const allowedLiveMutationServices = ['bot', 'web'] as const;
 const dashboardLiveAreaValidator = v.union(...dashboardLiveAreas.map((area) => v.literal(area)));
@@ -30,7 +21,7 @@ const dashboardLiveStateValidator = v.object({
     version: v.number(),
 });
 
-export const listDashboardLiveStates = queryGeneric({
+export const listDashboardLiveStates = query({
     args: {
         areas: v.array(dashboardLiveAreaValidator),
         guildId: v.string(),
@@ -65,7 +56,7 @@ export const listDashboardLiveStates = queryGeneric({
     },
 });
 
-export const markDashboardLiveAreasChanged = mutationGeneric({
+export const markDashboardLiveAreasChanged = mutation({
     args: {
         areas: v.array(dashboardLiveAreaValidator),
         guildId: v.string(),

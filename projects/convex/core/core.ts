@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -15,11 +8,9 @@ import {
     type DeploymentConfigDocument,
     type DeploymentConfigRecord,
 } from './core_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type CoreQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type CoreMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type CoreQueryCtx = QueryCtx;
+type CoreMutationCtx = MutationCtx;
 
 type StoredGuildDocument = {
     _id: GenericId<'guilds'>;
@@ -95,7 +86,7 @@ const deploymentConfigRecordValidator = v.union(
     })
 );
 
-export const readDeploymentConfig = queryGeneric({
+export const readDeploymentConfig = query({
     args: {},
     returns: v.union(deploymentConfigRecordValidator, v.null()),
     handler: async (ctx: CoreQueryCtx) => {
@@ -106,7 +97,7 @@ export const readDeploymentConfig = queryGeneric({
     },
 });
 
-export const upsertDeploymentConfig = mutationGeneric({
+export const upsertDeploymentConfig = mutation({
     args: deploymentConfigInputArgs,
     returns: deploymentConfigRecordValidator,
     handler: async (ctx: CoreMutationCtx, args) => {
@@ -131,7 +122,7 @@ export const upsertDeploymentConfig = mutationGeneric({
     },
 });
 
-export const readGuild = queryGeneric({
+export const readGuild = query({
     args: guildIdArgs,
     returns: v.union(guildRecordValidator, v.null()),
     handler: async (ctx: CoreQueryCtx, args) => {
@@ -143,7 +134,7 @@ export const readGuild = queryGeneric({
     },
 });
 
-export const listGuildIdsPage = queryGeneric({
+export const listGuildIdsPage = query({
     args: {
         afterGuildId: v.optional(v.string()),
         limit: v.optional(v.number()),
@@ -157,7 +148,7 @@ export const listGuildIdsPage = queryGeneric({
     },
 });
 
-export const upsertGuild = mutationGeneric({
+export const upsertGuild = mutation({
     args: guildIdArgs,
     returns: guildRecordValidator,
     handler: async (ctx: CoreMutationCtx, args) => {
@@ -168,7 +159,7 @@ export const upsertGuild = mutationGeneric({
     },
 });
 
-export const readBotInstallation = queryGeneric({
+export const readBotInstallation = query({
     args: guildIdArgs,
     returns: v.union(botInstallationRecordValidator, v.null()),
     handler: async (ctx: CoreQueryCtx, args) => {
@@ -180,7 +171,7 @@ export const readBotInstallation = queryGeneric({
     },
 });
 
-export const listBotInstallationGuildIdsPage = queryGeneric({
+export const listBotInstallationGuildIdsPage = query({
     args: {
         afterGuildId: v.optional(v.string()),
         limit: v.optional(v.number()),
@@ -194,7 +185,7 @@ export const listBotInstallationGuildIdsPage = queryGeneric({
     },
 });
 
-export const upsertBotInstallation = mutationGeneric({
+export const upsertBotInstallation = mutation({
     args: guildIdArgs,
     returns: botInstallationRecordValidator,
     handler: async (ctx: CoreMutationCtx, args) => {
@@ -227,7 +218,7 @@ export const upsertBotInstallation = mutationGeneric({
     },
 });
 
-export const deleteBotInstallation = mutationGeneric({
+export const deleteBotInstallation = mutation({
     args: guildIdArgs,
     returns: v.union(botInstallationRecordValidator, v.null()),
     handler: async (ctx: CoreMutationCtx, args) => {

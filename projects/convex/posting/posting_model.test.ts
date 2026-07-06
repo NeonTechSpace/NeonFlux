@@ -22,8 +22,7 @@ describe('posting model', () => {
                 name: ' Release update ',
             },
             '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'template-1'
+            undefined
         );
 
         expect(document).toEqual({
@@ -34,7 +33,6 @@ describe('posting model', () => {
                 createdByUserId: 'user-1',
                 embeds: [{ title: 'Release' }],
                 guildId: 'guild-1',
-                legacyId: 'template-1',
                 name: 'Release update',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
@@ -44,7 +42,7 @@ describe('posting model', () => {
             throw new Error('Expected normalized message template.');
         }
 
-        expect(toMessageTemplateRecord(document.value)).toEqual({
+        expect(toMessageTemplateRecord({ ...document.value, _id: 'template-1' })).toEqual({
             content: 'Ship it',
             createdAt: '2026-07-03T08:00:00.000Z',
             createdByUserId: 'user-1',
@@ -56,7 +54,7 @@ describe('posting model', () => {
         });
     });
 
-    it('preserves template legacy identity, creator, and created timestamp on update', () => {
+    it('preserves template creator and created timestamp on update', () => {
         expect(
             buildMessageTemplateDocument(
                 {
@@ -69,7 +67,6 @@ describe('posting model', () => {
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
                     createdByUserId: 'user-1',
-                    legacyId: 'existing-template',
                 }
             )
         ).toEqual({
@@ -80,7 +77,6 @@ describe('posting model', () => {
                 createdByUserId: 'user-1',
                 embeds: [],
                 guildId: 'guild-1',
-                legacyId: 'existing-template',
                 name: 'Release update',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
@@ -110,14 +106,13 @@ describe('posting model', () => {
         });
     });
 
-    it('preserves imported template timestamps and legacy ids', () => {
+    it('preserves imported template timestamps', () => {
         expect(
             buildMessageTemplateDocument(
                 {
                     content: 'Ship it',
                     createdAt: '2026-07-02 09:30:00+02',
                     guildId: 'guild-1',
-                    legacyId: 'legacy-template',
                     name: 'Release',
                     updatedAt: '2026-07-03 09:30:00+02',
                 },
@@ -127,7 +122,6 @@ describe('posting model', () => {
             ok: true,
             value: {
                 createdAt: '2026-07-02T07:30:00.000Z',
-                legacyId: 'legacy-template',
                 updatedAt: '2026-07-03T07:30:00.000Z',
             },
         });
@@ -140,11 +134,10 @@ describe('posting model', () => {
                 createdByUserId: ' user-1 ',
                 guildId: ' guild-1 ',
                 messageId: ' message-1 ',
-                templateLegacyId: ' template-1 ',
+                templateId: ' template-1 ',
             },
             '2026-07-03T08:00:00.000Z',
-            undefined,
-            () => 'posted-1'
+            undefined
         );
 
         expect(document).toEqual({
@@ -154,10 +147,9 @@ describe('posting model', () => {
                 createdAt: '2026-07-03T08:00:00.000Z',
                 createdByUserId: 'user-1',
                 guildId: 'guild-1',
-                legacyId: 'posted-1',
                 messageId: 'message-1',
                 purpose: 'manual',
-                templateLegacyId: 'template-1',
+                templateId: 'template-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
@@ -166,7 +158,7 @@ describe('posting model', () => {
             throw new Error('Expected normalized posted message.');
         }
 
-        expect(toPostedMessageRecord(document.value)).toEqual({
+        expect(toPostedMessageRecord({ ...document.value, _id: 'posted-1' })).toEqual({
             channelId: 'channel-1',
             createdAt: '2026-07-03T08:00:00.000Z',
             createdByUserId: 'user-1',
@@ -179,7 +171,7 @@ describe('posting model', () => {
         });
     });
 
-    it('preserves posted message legacy identity and created timestamp on update', () => {
+    it('preserves posted message created timestamp on update', () => {
         expect(
             buildPostedMessageDocument(
                 {
@@ -192,7 +184,6 @@ describe('posting model', () => {
                 '2026-07-03T08:00:00.000Z',
                 {
                     createdAt: '2026-07-02T08:00:00.000Z',
-                    legacyId: 'existing-posted',
                 }
             )
         ).toEqual({
@@ -202,7 +193,6 @@ describe('posting model', () => {
                 createdAt: '2026-07-02T08:00:00.000Z',
                 createdByUserId: 'user-2',
                 guildId: 'guild-1',
-                legacyId: 'existing-posted',
                 messageId: 'message-1',
                 purpose: 'dashboard',
                 updatedAt: '2026-07-03T08:00:00.000Z',

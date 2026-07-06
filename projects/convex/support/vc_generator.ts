@@ -1,14 +1,6 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
-import type schema from '../schema.js';
 import {
     buildGeneratedVoiceChannelDocument,
     buildVcGeneratorControlPanelDocument,
@@ -22,10 +14,9 @@ import {
     type VcGeneratorControlPanelDocument,
     type VcGeneratorRuleDocument,
 } from './vc_generator_model.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type VcGeneratorQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type VcGeneratorMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type VcGeneratorQueryCtx = QueryCtx;
+type VcGeneratorMutationCtx = MutationCtx;
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredRuleDocument = VcGeneratorRuleDocument & { _id: GenericId<'vcGeneratorRules'> };
 type StoredGeneratedChannelDocument = GeneratedVoiceChannelDocument & { _id: GenericId<'generatedVoiceChannels'> };
@@ -72,14 +63,13 @@ const controlPanelRecordValidator = v.object({
     updatedAt: v.string(),
 });
 
-export const upsertVcGeneratorRule = mutationGeneric({
+export const upsertVcGeneratorRule = mutation({
     args: {
         categoryId: v.optional(v.union(v.string(), v.null())),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         nameTemplate: v.string(),
         sourceChannelId: v.string(),
         updatedAt: v.optional(v.string()),
@@ -104,15 +94,15 @@ export const upsertVcGeneratorRule = mutationGeneric({
                 nameTemplate: document.nameTemplate,
                 updatedAt: document.updatedAt,
             });
+            return toVcGeneratorRuleRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('vcGeneratorRules', document);
+            const id = await ctx.db.insert('vcGeneratorRules', document);
+            return toVcGeneratorRuleRecord({ ...document, _id: id });
         }
-
-        return toVcGeneratorRuleRecord(document);
     },
 });
 
-export const listVcGeneratorRulesByGuildId = queryGeneric({
+export const listVcGeneratorRulesByGuildId = query({
     args: { enabledOnly: v.optional(v.boolean()), guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(ruleRecordValidator),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -134,7 +124,7 @@ export const listVcGeneratorRulesByGuildId = queryGeneric({
     },
 });
 
-export const findVcGeneratorRuleBySourceChannelId = queryGeneric({
+export const findVcGeneratorRuleBySourceChannelId = query({
     args: { enabledOnly: v.optional(v.boolean()), guildId: v.string(), sourceChannelId: v.string() },
     returns: v.union(ruleRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -147,7 +137,7 @@ export const findVcGeneratorRuleBySourceChannelId = queryGeneric({
     },
 });
 
-export const deleteVcGeneratorRule = mutationGeneric({
+export const deleteVcGeneratorRule = mutation({
     args: { guildId: v.string(), sourceChannelId: v.string() },
     returns: v.union(ruleRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorMutationCtx, args) => {
@@ -158,30 +148,27 @@ export const deleteVcGeneratorRule = mutationGeneric({
 
         const panels = await ctx.db
             .query('vcGeneratorControlPanels')
-            .withIndex('by_guild_rule', (query) => query.eq('guildId', rule.guildId).eq('ruleLegacyId', rule.legacyId))
+            .withIndex('by_guild_rule', (query) => query.eq('guildId', rule.guildId).eq('ruleId', rule._id))
             .take(500);
         const generatedChannels = await ctx.db
             .query('generatedVoiceChannels')
-            .withIndex('by_guild_rule_created', (query) =>
-                query.eq('guildId', rule.guildId).eq('ruleLegacyId', rule.legacyId)
-            )
+            .withIndex('by_guild_rule_created', (query) => query.eq('guildId', rule.guildId).eq('ruleId', rule._id))
             .take(500);
 
         for (const panel of panels) await ctx.db.delete(panel._id);
-        for (const channel of generatedChannels) await ctx.db.patch(channel._id, { ruleLegacyId: undefined });
+        for (const channel of generatedChannels) await ctx.db.patch(channel._id, { ruleId: undefined });
         await ctx.db.delete(rule._id);
 
         return toVcGeneratorRuleRecord(rule);
     },
 });
 
-export const upsertGeneratedVoiceChannel = mutationGeneric({
+export const upsertGeneratedVoiceChannel = mutation({
     args: {
         channelId: v.string(),
         createdAt: v.optional(v.string()),
         guildId: v.string(),
         lastSeenAt: v.optional(v.string()),
-        legacyId: v.optional(v.string()),
         ownerUserId: v.optional(v.union(v.string(), v.null())),
         ruleId: v.optional(v.union(v.string(), v.null())),
         status: v.optional(v.string()),
@@ -204,19 +191,19 @@ export const upsertGeneratedVoiceChannel = mutationGeneric({
             await ctx.db.patch(existing._id, {
                 lastSeenAt: document.lastSeenAt,
                 ownerUserId: document.ownerUserId,
-                ruleLegacyId: document.ruleLegacyId,
+                ruleId: document.ruleId,
                 status: document.status,
                 updatedAt: document.updatedAt,
             });
+            return toGeneratedVoiceChannelRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('generatedVoiceChannels', document);
+            const id = await ctx.db.insert('generatedVoiceChannels', document);
+            return toGeneratedVoiceChannelRecord({ ...document, _id: id });
         }
-
-        return toGeneratedVoiceChannelRecord(document);
     },
 });
 
-export const findGeneratedVoiceChannelByChannelId = queryGeneric({
+export const findGeneratedVoiceChannelByChannelId = query({
     args: { channelId: v.string() },
     returns: v.union(generatedChannelRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -227,7 +214,7 @@ export const findGeneratedVoiceChannelByChannelId = queryGeneric({
     },
 });
 
-export const listGeneratedVoiceChannelsByGuildId = queryGeneric({
+export const listGeneratedVoiceChannelsByGuildId = query({
     args: {
         guildId: v.string(),
         limit: v.optional(v.number()),
@@ -247,7 +234,7 @@ export const listGeneratedVoiceChannelsByGuildId = queryGeneric({
             const rows = await ctx.db
                 .query('generatedVoiceChannels')
                 .withIndex('by_guild_rule_status', (query) =>
-                    query.eq('guildId', guildId).eq('ruleLegacyId', ruleId).eq('status', status)
+                    query.eq('guildId', guildId).eq('ruleId', parseRuleId(ruleId)).eq('status', status)
                 )
                 .take(limit);
 
@@ -256,7 +243,9 @@ export const listGeneratedVoiceChannelsByGuildId = queryGeneric({
         if (ruleId) {
             const rows = await ctx.db
                 .query('generatedVoiceChannels')
-                .withIndex('by_guild_rule_created', (query) => query.eq('guildId', guildId).eq('ruleLegacyId', ruleId))
+                .withIndex('by_guild_rule_created', (query) =>
+                    query.eq('guildId', guildId).eq('ruleId', parseRuleId(ruleId))
+                )
                 .order('asc')
                 .take(limit);
 
@@ -281,7 +270,7 @@ export const listGeneratedVoiceChannelsByGuildId = queryGeneric({
     },
 });
 
-export const updateGeneratedVoiceChannelStatus = mutationGeneric({
+export const updateGeneratedVoiceChannelStatus = mutation({
     args: { channelId: v.string(), guildId: v.string(), status: v.string() },
     returns: v.union(generatedChannelRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorMutationCtx, args) => {
@@ -301,11 +290,11 @@ export const updateGeneratedVoiceChannelStatus = mutationGeneric({
             updatedAt: updated.updatedAt,
         });
 
-        return toGeneratedVoiceChannelRecord(updated);
+        return toGeneratedVoiceChannelRecord({ ...updated, _id: channel._id });
     },
 });
 
-export const upsertVcGeneratorControlPanel = mutationGeneric({
+export const upsertVcGeneratorControlPanel = mutation({
     args: {
         channelId: v.string(),
         config: v.optional(v.any()),
@@ -339,15 +328,15 @@ export const upsertVcGeneratorControlPanel = mutationGeneric({
                 status: document.status,
                 updatedAt: document.updatedAt,
             });
+            return toVcGeneratorControlPanelRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('vcGeneratorControlPanels', document);
+            const id = await ctx.db.insert('vcGeneratorControlPanels', document);
+            return toVcGeneratorControlPanelRecord({ ...document, _id: id });
         }
-
-        return toVcGeneratorControlPanelRecord(document);
     },
 });
 
-export const findVcGeneratorControlPanelByMessageId = queryGeneric({
+export const findVcGeneratorControlPanelByMessageId = query({
     args: { guildId: v.string(), messageId: v.string() },
     returns: v.union(controlPanelRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -361,7 +350,7 @@ export const findVcGeneratorControlPanelByMessageId = queryGeneric({
     },
 });
 
-export const findVcGeneratorControlPanelByRuleId = queryGeneric({
+export const findVcGeneratorControlPanelByRuleId = query({
     args: { guildId: v.string(), ruleId: v.string() },
     returns: v.union(controlPanelRecordValidator, v.null()),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -372,7 +361,7 @@ export const findVcGeneratorControlPanelByRuleId = queryGeneric({
     },
 });
 
-export const listVcGeneratorControlPanelsByGuildId = queryGeneric({
+export const listVcGeneratorControlPanelsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()), status: v.optional(v.string()) },
     returns: v.array(controlPanelRecordValidator),
     handler: async (ctx: VcGeneratorQueryCtx, args) => {
@@ -408,14 +397,11 @@ async function findRuleByGuildSource(
         .unique();
 }
 
-async function findRuleByLegacyId(
+async function findRuleById(
     ctx: VcGeneratorQueryCtx | VcGeneratorMutationCtx,
-    ruleId: string
+    ruleId: GenericId<'vcGeneratorRules'>
 ): Promise<StoredRuleDocument | null> {
-    return await ctx.db
-        .query('vcGeneratorRules')
-        .withIndex('by_legacy', (query) => query.eq('legacyId', unwrapRequiredString(ruleId, 'ruleId')))
-        .unique();
+    return await ctx.db.get(ruleId);
 }
 
 async function findGeneratedByChannelId(
@@ -435,9 +421,7 @@ async function findControlPanelByGuildRule(
     return await ctx.db
         .query('vcGeneratorControlPanels')
         .withIndex('by_guild_rule', (query) =>
-            query
-                .eq('guildId', unwrapRequiredString(input.guildId, 'guildId'))
-                .eq('ruleLegacyId', unwrapRequiredString(input.ruleId, 'ruleId'))
+            query.eq('guildId', unwrapRequiredString(input.guildId, 'guildId')).eq('ruleId', parseRuleId(input.ruleId))
         )
         .unique();
 }
@@ -455,7 +439,7 @@ async function requireRule(
     ctx: VcGeneratorMutationCtx,
     input: { guildId: string; ruleId: string }
 ): Promise<StoredRuleDocument> {
-    const rule = await findRuleByLegacyId(ctx, input.ruleId);
+    const rule = await findRuleById(ctx, parseRuleId(input.ruleId));
     if (rule?.guildId !== input.guildId) throw new Error('vc-generator-rule-not-found');
     return rule;
 }
@@ -483,6 +467,10 @@ function unwrapRequiredString(value: string, field: string): string {
     const normalizedValue = normalizeOptionalString(value);
     if (!normalizedValue) throw new Error(`${field}-missing-input`);
     return normalizedValue;
+}
+
+function parseRuleId(ruleId: string): GenericId<'vcGeneratorRules'> {
+    return unwrapRequiredString(ruleId, 'ruleId') as GenericId<'vcGeneratorRules'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

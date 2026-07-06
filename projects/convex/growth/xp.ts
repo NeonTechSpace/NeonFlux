@@ -1,10 +1,3 @@
-import {
-    mutationGeneric,
-    queryGeneric,
-    type DataModelFromSchemaDefinition,
-    type GenericMutationCtx,
-    type GenericQueryCtx,
-} from 'convex/server';
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
@@ -29,11 +22,9 @@ import {
     type XpRoleRewardDocument,
     type XpSettingsDocument,
 } from './xp_model.js';
-import type schema from '../schema.js';
-
-type NeonFluxDataModel = DataModelFromSchemaDefinition<typeof schema>;
-type XpQueryCtx = GenericQueryCtx<NeonFluxDataModel>;
-type XpMutationCtx = GenericMutationCtx<NeonFluxDataModel>;
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+type XpQueryCtx = QueryCtx;
+type XpMutationCtx = MutationCtx;
 
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredXpSettingsDocument = XpSettingsDocument & { _id: GenericId<'xpSettings'> };
@@ -59,7 +50,6 @@ const userXpRecordValidator = v.object({
     id: v.string(),
     lastMessageXpAt: nullableString,
     lastVoiceXpAt: nullableString,
-    legacyId: v.string(),
     level: v.number(),
     messageCount: v.number(),
     messageXp: v.number(),
@@ -74,7 +64,6 @@ const grantRecordValidator = v.object({
     guildId: v.string(),
     id: v.string(),
     idempotencyKey: v.string(),
-    legacyId: v.string(),
     levelAfter: v.number(),
     levelBefore: v.number(),
     metadata: v.any(),
@@ -86,7 +75,6 @@ const roleRewardRecordValidator = v.object({
     createdAt: v.string(),
     guildId: v.string(),
     id: v.string(),
-    legacyId: v.string(),
     level: v.number(),
     roleId: v.string(),
     updatedAt: v.string(),
@@ -96,7 +84,7 @@ const grantResultValidator = v.union(
     v.object({ status: v.literal('duplicate'), userXp: v.union(userXpRecordValidator, v.null()) })
 );
 
-export const upsertXpSettings = mutationGeneric({
+export const upsertXpSettings = mutation({
     args: {
         config: v.optional(v.any()),
         cooldownSeconds: v.optional(v.number()),
@@ -128,7 +116,7 @@ export const upsertXpSettings = mutationGeneric({
     },
 });
 
-export const findXpSettingsByGuildId = queryGeneric({
+export const findXpSettingsByGuildId = query({
     args: { guildId: v.string() },
     returns: v.union(settingsRecordValidator, v.null()),
     handler: async (ctx: XpQueryCtx, args) => {
@@ -140,10 +128,9 @@ export const findXpSettingsByGuildId = queryGeneric({
     },
 });
 
-export const addGuildUserXp = mutationGeneric({
+export const addGuildUserXp = mutation({
     args: {
         guildId: v.string(),
-        legacyId: v.optional(v.string()),
         level: v.number(),
         userId: v.string(),
         xp: v.number(),
@@ -157,9 +144,7 @@ export const addGuildUserXp = mutationGeneric({
         await requireGuildDocument(ctx, guildId);
 
         const now = new Date().toISOString();
-        const validatedInput = unwrap(
-            buildGuildUserXpDocument({ ...args, guildId, userId }, now, () => crypto.randomUUID())
-        );
+        const validatedInput = unwrap(buildGuildUserXpDocument({ ...args, guildId, userId }, now));
         const existing = await findGuildUserXpDocument(ctx, { guildId, userId });
         const base = existing ?? validatedInput;
         const document = existing
@@ -183,19 +168,18 @@ export const addGuildUserXp = mutationGeneric({
                 updatedAt: document.updatedAt,
                 xp: document.xp,
             });
+            return toGuildUserXpRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('guildUserXp', document);
+            const id = await ctx.db.insert('guildUserXp', document);
+            return toGuildUserXpRecord({ ...document, _id: id });
         }
-
-        return toGuildUserXpRecord(document);
     },
 });
 
-export const grantGuildUserXp = mutationGeneric({
+export const grantGuildUserXp = mutation({
     args: {
         guildId: v.string(),
         idempotencyKey: v.string(),
-        legacyId: v.optional(v.string()),
         metadata: v.optional(v.any()),
         occurredAt: v.optional(v.string()),
         source: v.union(v.literal('message'), v.literal('voice')),
@@ -221,32 +205,30 @@ export const grantGuildUserXp = mutationGeneric({
         const levelBefore = current?.level ?? 0;
         const levelAfter = calculateXpLevel((current?.xp ?? 0) + args.xp);
         const grant = unwrap(
-            buildXpGrantDocument({ ...args, guildId, userId }, levelBefore, levelAfter, new Date().toISOString(), () =>
-                crypto.randomUUID()
-            )
+            buildXpGrantDocument({ ...args, guildId, userId }, levelBefore, levelAfter, new Date().toISOString())
         );
-        const aggregate = applyXpGrant(current, grant, unwrap(normalizeXpVoiceSeconds(args.voiceSeconds)), () =>
-            crypto.randomUUID()
-        );
+        const aggregate = applyXpGrant(current, grant, unwrap(normalizeXpVoiceSeconds(args.voiceSeconds)));
 
-        await ctx.db.insert('xpGrants', grant);
+        const grantId = await ctx.db.insert('xpGrants', grant);
+        let userXpId: GenericId<'guildUserXp'>;
 
         if (current) {
             await ctx.db.patch(current._id, toGuildUserXpPatch(aggregate));
+            userXpId = current._id;
         } else {
-            await ctx.db.insert('guildUserXp', aggregate);
+            userXpId = await ctx.db.insert('guildUserXp', aggregate);
         }
 
         return {
-            grant: toXpGrantRecord(grant),
+            grant: toXpGrantRecord({ ...grant, _id: grantId }),
             status: 'granted' as const,
-            userXp: toGuildUserXpRecord(aggregate),
+            userXp: toGuildUserXpRecord({ ...aggregate, _id: userXpId }),
         };
     },
 });
 
-export const upsertXpRoleReward = mutationGeneric({
-    args: { guildId: v.string(), legacyId: v.optional(v.string()), level: v.number(), roleId: v.string() },
+export const upsertXpRoleReward = mutation({
+    args: { guildId: v.string(), level: v.number(), roleId: v.string() },
     returns: roleRewardRecordValidator,
     handler: async (ctx: XpMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedXpServices);
@@ -262,15 +244,15 @@ export const upsertXpRoleReward = mutationGeneric({
 
         if (existing) {
             await ctx.db.patch(existing._id, { updatedAt: document.updatedAt });
+            return toXpRoleRewardRecord({ ...document, _id: existing._id });
         } else {
-            await ctx.db.insert('xpRoleRewards', document);
+            const id = await ctx.db.insert('xpRoleRewards', document);
+            return toXpRoleRewardRecord({ ...document, _id: id });
         }
-
-        return toXpRoleRewardRecord(document);
     },
 });
 
-export const findGuildUserXp = queryGeneric({
+export const findGuildUserXp = query({
     args: { guildId: v.string(), userId: v.string() },
     returns: v.union(userXpRecordValidator, v.null()),
     handler: async (ctx: XpQueryCtx, args) => {
@@ -283,7 +265,7 @@ export const findGuildUserXp = queryGeneric({
     },
 });
 
-export const findGuildUserXpRank = queryGeneric({
+export const findGuildUserXpRank = query({
     args: { guildId: v.string(), userId: v.string() },
     returns: v.union(v.object({ rank: v.number(), userXp: userXpRecordValidator }), v.null()),
     handler: async (ctx: XpQueryCtx, args) => {
@@ -304,7 +286,7 @@ export const findGuildUserXpRank = queryGeneric({
     },
 });
 
-export const listGuildXpLeaderboard = queryGeneric({
+export const listGuildXpLeaderboard = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
     returns: v.array(userXpRecordValidator),
     handler: async (ctx: XpQueryCtx, args) => {
