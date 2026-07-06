@@ -1,5 +1,10 @@
 import type {
-    StructureExportSnapshotRecord,
+    StructureBackupRecord,
+    StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsRecord,
+    StructureBackupSummaryPageRecord,
+    StructureBackupSummaryRecord,
+    StructureImportActionPageRecord,
     StructureImportActionRecord,
     StructureImportRunRecord,
     StructureImportRunWithActionsRecord,
@@ -8,8 +13,30 @@ import type {
 import type { GuildFeatureRepositoryError } from './contracts.js';
 import { err, ok, type Result } from 'neverthrow';
 
-export type ConvexStructureExportSnapshotRecord = Omit<StructureExportSnapshotRecord, 'createdAt'> & {
+export type ConvexStructureBackupRecord = Omit<StructureBackupRecord, 'completedAt' | 'createdAt'> & {
+    completedAt: string;
     createdAt: string;
+};
+export type ConvexStructureBackupSummaryRecord = Omit<ConvexStructureBackupRecord, 'structure'>;
+export type ConvexStructureBackupSummaryPageRecord = {
+    backups: ConvexStructureBackupSummaryRecord[];
+    nextCursor: string | null;
+};
+export type ConvexStructureBackupSettingsRecord = Omit<
+    StructureBackupSettingsRecord,
+    'createdAt' | 'lastAttemptAt' | 'lastSuccessAt' | 'nextBackupAt' | 'nextRetentionPruneAt' | 'updatedAt'
+> & {
+    createdAt?: string;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    nextBackupAt: string | null;
+    nextRetentionPruneAt: string | null;
+    updatedAt?: string;
+};
+export type ConvexStructureBackupRetentionPruneRecord = {
+    deletedCount: number;
+    hasMore: boolean;
+    nextRetentionPruneAt: string | null;
 };
 export type ConvexStructureImportRunRecord = Omit<
     StructureImportRunRecord,
@@ -24,6 +51,10 @@ export type ConvexStructureImportActionRecord = Omit<StructureImportActionRecord
     createdAt: string;
     updatedAt: string;
 };
+export type ConvexStructureImportActionPageRecord = {
+    actions: ConvexStructureImportActionRecord[];
+    nextCursor: string | null;
+};
 export type ConvexStructureImportRunWithActionsRecord = ConvexStructureImportRunRecord & {
     actions: ConvexStructureImportActionRecord[];
 };
@@ -36,8 +67,58 @@ export type ConvexStructureObservedEventStateRecord = Omit<
     updatedAt?: string;
 };
 
-export function toExportSnapshotRecord(record: ConvexStructureExportSnapshotRecord): StructureExportSnapshotRecord {
-    return { ...record, createdAt: new Date(record.createdAt) };
+export function toBackupRecord(record: ConvexStructureBackupRecord): StructureBackupRecord {
+    return {
+        ...record,
+        completedAt: new Date(record.completedAt),
+        createdAt: new Date(record.createdAt),
+    };
+}
+
+export function toBackupSummaryRecord(record: ConvexStructureBackupSummaryRecord): StructureBackupSummaryRecord {
+    const { structure, ...summary } = record as ConvexStructureBackupRecord;
+    void structure;
+
+    return {
+        ...summary,
+        completedAt: new Date(summary.completedAt),
+        createdAt: new Date(summary.createdAt),
+    };
+}
+
+export function toBackupSummaryPageRecord(
+    record: ConvexStructureBackupSummaryPageRecord
+): StructureBackupSummaryPageRecord {
+    return {
+        backups: record.backups.map(toBackupSummaryRecord),
+        nextCursor: record.nextCursor,
+    };
+}
+
+export function toBackupSettingsRecord(record: ConvexStructureBackupSettingsRecord): StructureBackupSettingsRecord {
+    return {
+        cadenceWeeks: record.cadenceWeeks,
+        enabled: record.enabled,
+        guildId: record.guildId,
+        ...(record.createdAt ? { createdAt: new Date(record.createdAt) } : {}),
+        lastErrorMessage: record.lastErrorMessage,
+        lastAttemptAt: record.lastAttemptAt ? new Date(record.lastAttemptAt) : null,
+        lastSuccessAt: record.lastSuccessAt ? new Date(record.lastSuccessAt) : null,
+        nextBackupAt: record.nextBackupAt ? new Date(record.nextBackupAt) : null,
+        nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
+        retentionDays: record.retentionDays,
+        ...(record.updatedAt ? { updatedAt: new Date(record.updatedAt) } : {}),
+    };
+}
+
+export function toBackupRetentionPruneRecord(
+    record: ConvexStructureBackupRetentionPruneRecord
+): StructureBackupRetentionPruneRecord {
+    return {
+        deletedCount: record.deletedCount,
+        hasMore: record.hasMore,
+        nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
+    };
 }
 
 export function toImportRunRecord(record: ConvexStructureImportRunRecord): StructureImportRunRecord {
@@ -55,6 +136,15 @@ export function toImportActionRecord(record: ConvexStructureImportActionRecord):
         ...record,
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
+    };
+}
+
+export function toImportActionPageRecord(
+    record: ConvexStructureImportActionPageRecord
+): StructureImportActionPageRecord {
+    return {
+        actions: record.actions.map(toImportActionRecord),
+        nextCursor: record.nextCursor,
     };
 }
 
@@ -76,6 +166,7 @@ export function toObservedEventStateRecord(
         ...(record.lastTargetId ? { lastTargetId: record.lastTargetId } : {}),
         ...(record.lastTargetType ? { lastTargetType: record.lastTargetType } : {}),
         observedChangeCount: record.observedChangeCount,
+        targetChangeCounts: record.targetChangeCounts,
         ...(record.createdAt ? { createdAt: new Date(record.createdAt) } : {}),
         ...(record.lastObservedAt ? { lastObservedAt: new Date(record.lastObservedAt) } : {}),
         ...(record.updatedAt ? { updatedAt: new Date(record.updatedAt) } : {}),
@@ -100,4 +191,34 @@ export function normalizeLimit(value: number | undefined, fallback = 20): Result
     return Number.isInteger(limit) && limit > 0
         ? ok(Math.min(limit, 100))
         : err({ field: 'limit', type: 'invalid-value' });
+}
+
+export function normalizeCadenceWeeks(
+    value: number | undefined,
+    fallback = 1
+): Result<number, GuildFeatureRepositoryError> {
+    const cadenceWeeks = value ?? fallback;
+    return Number.isInteger(cadenceWeeks) && cadenceWeeks >= 1
+        ? ok(cadenceWeeks)
+        : err({ field: 'cadenceWeeks', type: 'invalid-value' });
+}
+
+export function normalizeBackupName(
+    value: string | null | undefined,
+    field = 'name'
+): Result<string, GuildFeatureRepositoryError> {
+    const normalizedValue = value?.replace(/\s+/g, ' ').trim();
+    if (!normalizedValue) return err({ field, type: 'missing-input' });
+    if (normalizedValue.length > 120) return err({ field, type: 'invalid-value' });
+    return ok(normalizedValue);
+}
+
+export function normalizeRetentionDays(
+    value: number | undefined,
+    fallback = 180
+): Result<number, GuildFeatureRepositoryError> {
+    const retentionDays = value ?? fallback;
+    return Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 180
+        ? ok(retentionDays)
+        : err({ field: 'retentionDays', type: 'invalid-value' });
 }

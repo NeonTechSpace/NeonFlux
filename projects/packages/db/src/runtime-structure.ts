@@ -1,6 +1,11 @@
 import { api } from '@neonflux/convex-api';
 import type {
-    StructureExportSnapshotRecord,
+    StructureBackupRecord,
+    StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsRecord,
+    StructureBackupSummaryPageRecord,
+    StructureBackupSummaryRecord,
+    StructureImportActionPageRecord,
     StructureImportActionRecord,
     StructureImportExportRepositoryError,
     StructureImportRunRecord,
@@ -12,17 +17,32 @@ import { err, ok, type Result } from 'neverthrow';
 import type { ConvexDatabase } from './convex.js';
 import { compactConvexArgs } from './convex-args.js';
 import {
+    normalizeCadenceWeeks,
+    normalizeBackupName,
     normalizeLimit,
     normalizeOptionalText,
+    normalizeRetentionDays,
     normalizeRequiredText,
-    toExportSnapshotRecord,
+    toBackupRetentionPruneRecord,
+    toBackupRecord,
+    toBackupSettingsRecord,
+    toBackupSummaryPageRecord,
+    toBackupSummaryRecord,
+    toImportActionPageRecord,
     toImportActionRecord,
     toImportRunRecord,
-    toImportRunWithActionsRecord,
     toObservedEventStateRecord,
 } from './runtime-structure-records.js';
 
 type StructureDb = ConvexDatabase;
+type StructureAuditInput = {
+    action: string;
+    actorUserId?: string;
+    metadata?: Record<string, unknown>;
+    targetId?: string;
+};
+
+const importActionPageSize = 100;
 
 export async function findStructureObservedEventStateByGuildId(
     db: StructureDb,
@@ -58,34 +78,55 @@ export async function recordStructureObservedEvent(
     }
 }
 
-export async function createStructureExportSnapshot(
+export async function createStructureBackup(
     db: StructureDb,
-    input: { createdByUserId?: string; guildId: string; snapshot: Record<string, unknown>; source?: string }
-): Promise<Result<StructureExportSnapshotRecord, StructureImportExportRepositoryError>> {
+    input: {
+        categoryCount?: number;
+        channelCount?: number;
+        createdByUserId?: string;
+        errorMessage?: string;
+        guildId: string;
+        name?: string;
+        roleCount?: number;
+        serverName?: string;
+        source?: string;
+        status?: string;
+        structure?: Record<string, unknown>;
+        audit?: StructureAuditInput;
+    }
+): Promise<Result<StructureBackupRecord, StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const snapshot = await db.client.mutation(
-            api.structure.createStructureExportSnapshot,
+        const backup = await db.client.mutation(
+            api.structure.createStructureBackup,
             compactConvexArgs({
+                categoryCount: input.categoryCount,
+                channelCount: input.channelCount,
                 createdByUserId: normalizeOptionalText(input.createdByUserId),
+                errorMessage: normalizeOptionalText(input.errorMessage),
                 guildId: guildId.value,
-                snapshot: input.snapshot,
+                name: normalizeOptionalText(input.name),
+                roleCount: input.roleCount,
+                serverName: normalizeOptionalText(input.serverName),
                 source: normalizeOptionalText(input.source),
+                status: normalizeOptionalText(input.status),
+                structure: input.structure,
+                audit: normalizeStructureAuditInput(input.audit),
             })
         );
 
-        return ok(toExportSnapshotRecord(snapshot));
+        return ok(toBackupRecord(backup));
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function listStructureExportSnapshotsByGuildId(
+export async function listStructureBackupsByGuildId(
     db: StructureDb,
     input: { guildId: string; limit?: number }
-): Promise<Result<StructureExportSnapshotRecord[], StructureImportExportRepositoryError>> {
+): Promise<Result<StructureBackupRecord[], StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const limit = normalizeLimit(input.limit);
 
@@ -93,34 +134,302 @@ export async function listStructureExportSnapshotsByGuildId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const snapshots = await db.client.query(api.structure.listStructureExportSnapshotsByGuildId, {
+        const backups = await db.client.query(api.structure.listStructureBackupsByGuildId, {
             guildId: guildId.value,
             limit: limit.value,
         });
 
-        return ok(snapshots.map(toExportSnapshotRecord));
+        return ok(backups.map(toBackupRecord));
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function findStructureExportSnapshotByGuildId(
+export async function listStructureBackupSummariesByGuildId(
     db: StructureDb,
-    input: { guildId: string; snapshotId: string }
-): Promise<Result<StructureExportSnapshotRecord, StructureImportExportRepositoryError>> {
+    input: { guildId: string; limit?: number }
+): Promise<Result<StructureBackupSummaryRecord[], StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const snapshotId = normalizeRequiredText(input.snapshotId, 'snapshotId');
+    const limit = normalizeLimit(input.limit);
 
     if (guildId.isErr()) return err(guildId.error);
-    if (snapshotId.isErr()) return err(snapshotId.error);
+    if (limit.isErr()) return err(limit.error);
 
     try {
-        const snapshot = await db.client.query(api.structure.findStructureExportSnapshotByGuildId, {
+        const backups = await db.client.query(api.structure.listStructureBackupSummariesByGuildId, {
             guildId: guildId.value,
-            snapshotId: snapshotId.value,
+            limit: limit.value,
         });
 
-        return snapshot ? ok(toExportSnapshotRecord(snapshot)) : err({ type: 'not-found' });
+        return ok(backups.map(toBackupSummaryRecord));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listStructureBackupSummaryPageByGuildId(
+    db: StructureDb,
+    input: { cursor?: string; guildId: string; limit?: number }
+): Promise<Result<StructureBackupSummaryPageRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const limit = normalizeLimit(input.limit);
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const page = await db.client.query(
+            api.structure.listStructureBackupSummaryPageByGuildId,
+            compactConvexArgs({
+                cursor: normalizeOptionalText(input.cursor),
+                guildId: guildId.value,
+                limit: limit.value,
+            })
+        );
+
+        return ok(toBackupSummaryPageRecord(page));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function renameStructureBackup(
+    db: StructureDb,
+    input: { backupId: string; guildId: string; name: string; audit?: StructureAuditInput }
+): Promise<Result<StructureBackupSummaryRecord, StructureImportExportRepositoryError>> {
+    const backupId = normalizeRequiredText(input.backupId, 'backupId');
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const name = normalizeBackupName(input.name);
+
+    if (backupId.isErr()) return err(backupId.error);
+    if (guildId.isErr()) return err(guildId.error);
+    if (name.isErr()) return err(name.error);
+
+    try {
+        const backup = await db.client.mutation(
+            api.structure.renameStructureBackup,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                backupId: backupId.value,
+                guildId: guildId.value,
+                name: name.value,
+            })
+        );
+
+        return backup ? ok(toBackupSummaryRecord(backup)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function deleteStructureBackup(
+    db: StructureDb,
+    input: { backupId: string; guildId: string; audit?: StructureAuditInput }
+): Promise<Result<boolean, StructureImportExportRepositoryError>> {
+    const backupId = normalizeRequiredText(input.backupId, 'backupId');
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+
+    if (backupId.isErr()) return err(backupId.error);
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const deleted = await db.client.mutation(
+            api.structure.deleteStructureBackup,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                backupId: backupId.value,
+                guildId: guildId.value,
+            })
+        );
+
+        return deleted ? ok(true) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function findStructureBackupByGuildId(
+    db: StructureDb,
+    input: { backupId: string; guildId: string }
+): Promise<Result<StructureBackupRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const backupId = normalizeRequiredText(input.backupId, 'backupId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (backupId.isErr()) return err(backupId.error);
+
+    try {
+        const backup = await db.client.query(api.structure.findStructureBackupByGuildId, {
+            backupId: backupId.value,
+            guildId: guildId.value,
+        });
+
+        return backup ? ok(toBackupRecord(backup)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function findStructureBackupSettingsByGuildId(
+    db: StructureDb,
+    input: { guildId: string }
+): Promise<Result<StructureBackupSettingsRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const settings = await db.client.query(api.structure.findStructureBackupSettingsByGuildId, {
+            guildId: guildId.value,
+        });
+
+        return ok(toBackupSettingsRecord(settings));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function upsertStructureBackupSettings(
+    db: StructureDb,
+    input: {
+        cadenceWeeks: number;
+        enabled: boolean;
+        guildId: string;
+        retentionDays?: number;
+        audit?: StructureAuditInput;
+    }
+): Promise<Result<StructureBackupSettingsRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const cadenceWeeks = normalizeCadenceWeeks(input.cadenceWeeks);
+    const retentionDays = normalizeRetentionDays(input.retentionDays);
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (cadenceWeeks.isErr()) return err(cadenceWeeks.error);
+    if (retentionDays.isErr()) return err(retentionDays.error);
+
+    try {
+        const settings = await db.client.mutation(
+            api.structure.upsertStructureBackupSettings,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                cadenceWeeks: cadenceWeeks.value,
+                enabled: input.enabled,
+                guildId: guildId.value,
+                retentionDays: retentionDays.value,
+            })
+        );
+
+        return ok(toBackupSettingsRecord(settings));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listDueStructureBackupRetentionSettings(
+    db: StructureDb,
+    input: { limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsRecord[], StructureImportExportRepositoryError>> {
+    const limit = normalizeLimit(input.limit);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const settings = await db.client.query(api.structure.listDueStructureBackupRetentionSettings, {
+            limit: limit.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(settings.map(toBackupSettingsRecord));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function pruneExpiredStructureBackupsForGuild(
+    db: StructureDb,
+    input: { guildId: string; limit?: number; now: Date }
+): Promise<Result<StructureBackupRetentionPruneRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const limit = normalizeLimit(input.limit, 100);
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const result = await db.client.mutation(api.structure.pruneExpiredStructureBackupsForGuild, {
+            guildId: guildId.value,
+            limit: limit.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(toBackupRetentionPruneRecord(result));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listDueStructureBackupSettings(
+    db: StructureDb,
+    input: { limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsRecord[], StructureImportExportRepositoryError>> {
+    const limit = normalizeLimit(input.limit);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const settings = await db.client.query(api.structure.listDueStructureBackupSettings, {
+            limit: limit.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(settings.map(toBackupSettingsRecord));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function claimDueStructureBackupSetting(
+    db: StructureDb,
+    input: { guildId: string; leaseExpiresAt: Date; leaseId: string; leaseOwner: string; now: Date }
+): Promise<Result<StructureBackupSettingsRecord | null, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const leaseId = normalizeRequiredText(input.leaseId, 'leaseId');
+    const leaseOwner = normalizeRequiredText(input.leaseOwner, 'leaseOwner');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (leaseId.isErr()) return err(leaseId.error);
+    if (leaseOwner.isErr()) return err(leaseOwner.error);
+
+    try {
+        const settings = await db.client.mutation(api.structure.claimDueStructureBackupSetting, {
+            guildId: guildId.value,
+            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
+            leaseId: leaseId.value,
+            leaseOwner: leaseOwner.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(settings ? toBackupSettingsRecord(settings) : null);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function clearStructureBackupSettingLease(
+    db: StructureDb,
+    input: { guildId: string; leaseId: string; now: Date }
+): Promise<Result<boolean, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const leaseId = normalizeRequiredText(input.leaseId, 'leaseId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (leaseId.isErr()) return err(leaseId.error);
+
+    try {
+        const cleared = await db.client.mutation(api.structure.clearStructureBackupSettingLease, {
+            guildId: guildId.value,
+            leaseId: leaseId.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(cleared);
     } catch {
         return err({ type: 'database-error' });
     }
@@ -128,7 +437,7 @@ export async function findStructureExportSnapshotByGuildId(
 
 export async function createStructureImportRun(
     db: StructureDb,
-    input: { createdByUserId?: string; guildId: string; plan?: Record<string, unknown>; sourceSnapshotId?: string }
+    input: { createdByUserId?: string; guildId: string; plan?: Record<string, unknown>; sourceBackupId?: string }
 ): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     if (guildId.isErr()) return err(guildId.error);
@@ -140,7 +449,7 @@ export async function createStructureImportRun(
                 createdByUserId: normalizeOptionalText(input.createdByUserId),
                 guildId: guildId.value,
                 plan: input.plan ?? {},
-                sourceSnapshotId: normalizeOptionalText(input.sourceSnapshotId),
+                sourceBackupId: normalizeOptionalText(input.sourceBackupId),
             })
         );
 
@@ -153,7 +462,7 @@ export async function createStructureImportRun(
 export async function listStructureImportRunsByGuildId(
     db: StructureDb,
     input: { guildId: string; limit?: number }
-): Promise<Result<StructureImportRunWithActionsRecord[], StructureImportExportRepositoryError>> {
+): Promise<Result<StructureImportRunRecord[], StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const limit = normalizeLimit(input.limit);
 
@@ -166,7 +475,7 @@ export async function listStructureImportRunsByGuildId(
             limit: limit.value,
         });
 
-        return ok(runs.map(toImportRunWithActionsRecord));
+        return ok(runs.map(toImportRunRecord));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -175,7 +484,7 @@ export async function listStructureImportRunsByGuildId(
 export async function findStructureImportRunByGuildId(
     db: StructureDb,
     input: { guildId: string; runId: string }
-): Promise<Result<StructureImportRunWithActionsRecord, StructureImportExportRepositoryError>> {
+): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const runId = normalizeRequiredText(input.runId, 'runId');
 
@@ -188,15 +497,77 @@ export async function findStructureImportRunByGuildId(
             runId: runId.value,
         });
 
-        return run ? ok(toImportRunWithActionsRecord(run)) : err({ type: 'not-found' });
+        return run ? ok(toImportRunRecord(run)) : err({ type: 'not-found' });
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
+export async function findStructureImportRunWithActionsByGuildId(
+    db: StructureDb,
+    input: { guildId: string; runId: string }
+): Promise<Result<StructureImportRunWithActionsRecord, StructureImportExportRepositoryError>> {
+    const run = await findStructureImportRunByGuildId(db, input);
+    if (run.isErr()) return err(run.error);
+
+    const actions = await listAllStructureImportActionsByRunId(db, { runId: run.value.id });
+    if (actions.isErr()) return err(actions.error);
+
+    return ok({ ...run.value, actions: actions.value });
+}
+
+export async function listStructureImportActionsByRunIdPage(
+    db: StructureDb,
+    input: { cursor?: string; limit?: number; runId: string }
+): Promise<Result<StructureImportActionPageRecord, StructureImportExportRepositoryError>> {
+    const runId = normalizeRequiredText(input.runId, 'runId');
+    const limit = normalizeLimit(input.limit, importActionPageSize);
+
+    if (runId.isErr()) return err(runId.error);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const page = await db.client.query(
+            api.structure.listStructureImportActionsByRunIdPage,
+            compactConvexArgs({
+                cursor: normalizeOptionalText(input.cursor),
+                limit: limit.value,
+                runId: runId.value,
+            })
+        );
+
+        return ok(toImportActionPageRecord(page));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listAllStructureImportActionsByRunId(
+    db: StructureDb,
+    input: { runId: string }
+): Promise<Result<StructureImportActionRecord[], StructureImportExportRepositoryError>> {
+    const actions: StructureImportActionRecord[] = [];
+    let cursor: string | undefined;
+
+    do {
+        const page = await listStructureImportActionsByRunIdPage(db, {
+            ...(cursor ? { cursor } : {}),
+            limit: importActionPageSize,
+            runId: input.runId,
+        });
+
+        if (page.isErr()) return err(page.error);
+
+        actions.push(...page.value.actions);
+        cursor = page.value.nextCursor ?? undefined;
+    } while (cursor);
+
+    return ok(actions);
+}
+
 export async function updateStructureImportRunStatus(
     db: StructureDb,
-    input: { plan?: Record<string, unknown>; runId: string; status: string }
+    input: { plan?: Record<string, unknown>; runId: string; status: string; audit?: StructureAuditInput }
 ): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
     const runId = normalizeRequiredText(input.runId, 'runId');
     const status = normalizeRequiredText(input.status, 'status');
@@ -205,11 +576,15 @@ export async function updateStructureImportRunStatus(
     if (status.isErr()) return err(status.error);
 
     try {
-        const run = await db.client.mutation(api.structure.updateStructureImportRunStatus, {
-            ...(input.plan ? { plan: input.plan } : {}),
-            runId: runId.value,
-            status: status.value,
-        });
+        const run = await db.client.mutation(
+            api.structure.updateStructureImportRunStatus,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                plan: input.plan,
+                runId: runId.value,
+                status: status.value,
+            })
+        );
 
         return run ? ok(toImportRunRecord(run)) : err({ type: 'not-found' });
     } catch {
@@ -223,6 +598,7 @@ export async function recordStructureImportAction(
         actionType: string;
         details?: Record<string, unknown>;
         runId: string;
+        sequence: number;
         status?: string;
         targetId?: string;
         targetType: string;
@@ -235,6 +611,55 @@ export async function recordStructureImportAction(
         const action = await db.client.mutation(api.structure.recordStructureImportAction, normalizedInput.value);
 
         return ok(toImportActionRecord(action));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function recordStructureImportActionsBatch(
+    db: StructureDb,
+    input: {
+        actions: Array<{
+            actionType: string;
+            details?: Record<string, unknown>;
+            sequence: number;
+            status?: string;
+            targetId?: string;
+            targetType: string;
+        }>;
+        runId: string;
+    }
+): Promise<Result<StructureImportActionRecord[], StructureImportExportRepositoryError>> {
+    const runId = normalizeRequiredText(input.runId, 'runId');
+    if (runId.isErr()) return err(runId.error);
+    if (input.actions.length < 1 || input.actions.length > 100) {
+        return err({ field: 'actions', type: 'invalid-value' });
+    }
+    if (new Set(input.actions.map((action) => action.sequence)).size !== input.actions.length) {
+        return err({ field: 'sequence', type: 'invalid-value' });
+    }
+
+    const actions = [];
+    for (const action of input.actions) {
+        const normalized = normalizeImportActionInput({ ...action, runId: runId.value });
+        if (normalized.isErr()) return err(normalized.error);
+        actions.push({
+            actionType: normalized.value.actionType,
+            details: normalized.value.details,
+            sequence: normalized.value.sequence,
+            ...(normalized.value.status ? { status: normalized.value.status } : {}),
+            ...(normalized.value.targetId ? { targetId: normalized.value.targetId } : {}),
+            targetType: normalized.value.targetType,
+        });
+    }
+
+    try {
+        const records = await db.client.mutation(api.structure.recordStructureImportActionsBatch, {
+            actions,
+            runId: runId.value,
+        });
+
+        return ok(records.map(toImportActionRecord));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -290,6 +715,7 @@ function normalizeImportActionInput(input: {
     actionType: string;
     details?: Record<string, unknown>;
     runId: string;
+    sequence?: number;
     status?: string;
     targetId?: string;
     targetType: string;
@@ -299,17 +725,43 @@ function normalizeImportActionInput(input: {
     const targetType = normalizeRequiredText(input.targetType, 'targetType');
     const status = normalizeOptionalText(input.status);
     const targetId = normalizeOptionalText(input.targetId);
+    const sequence = input.sequence;
 
     if (runId.isErr()) return err(runId.error);
     if (actionType.isErr()) return err(actionType.error);
     if (targetType.isErr()) return err(targetType.error);
+    if (!Number.isInteger(sequence) || typeof sequence !== 'number' || sequence < 0) {
+        return err({ field: 'sequence', type: 'invalid-value' as const });
+    }
 
     return ok({
         actionType: actionType.value,
         details: input.details ?? {},
         runId: runId.value,
+        sequence,
         ...(status ? { status } : {}),
         ...(targetId ? { targetId } : {}),
         targetType: targetType.value,
+    });
+}
+
+function normalizeStructureAuditInput(input: StructureAuditInput | undefined):
+    | {
+          action: string;
+          actorUserId?: string;
+          metadata?: Record<string, unknown>;
+          targetId?: string;
+      }
+    | undefined {
+    if (!input) return undefined;
+
+    const action = normalizeRequiredText(input.action, 'action');
+    if (action.isErr()) return undefined;
+
+    return compactConvexArgs({
+        action: action.value,
+        actorUserId: normalizeOptionalText(input.actorUserId),
+        metadata: input.metadata,
+        targetId: normalizeOptionalText(input.targetId),
     });
 }

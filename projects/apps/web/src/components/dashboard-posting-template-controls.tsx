@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import { getDashboardAuditEventsQueryKey, getDashboardPostingTemplatesQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardAuditEventsBaseQueryKey, getDashboardPostingTemplatesQueryKey } from '../dashboard-query-keys.js';
 import {
     deleteDashboardPostingTemplateRouteData,
     readDashboardPostingTemplatesRouteData,
@@ -248,7 +248,7 @@ async function invalidateTemplateQueries(queryClient: ReturnType<typeof useQuery
             queryKey: getDashboardPostingTemplatesQueryKey(guildId),
         }),
         queryClient.invalidateQueries({
-            queryKey: getDashboardAuditEventsQueryKey(guildId),
+            queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
         }),
     ]);
 }

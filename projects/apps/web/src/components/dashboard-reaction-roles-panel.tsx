@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { getDashboardAuditEventsQueryKey, getDashboardReactionRolesSettingsQueryKey } from '../dashboard-query-keys.js';
+import {
+    getDashboardAuditEventsBaseQueryKey,
+    getDashboardReactionRolesSettingsQueryKey,
+} from '../dashboard-query-keys.js';
 import {
     deleteDashboardReactionRoleMessageRouteData,
     readDashboardReactionRolesSettingsRouteData,
@@ -81,7 +84,7 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
 
     async function invalidateSettings(): Promise<void> {
         await queryClient.invalidateQueries({ queryKey: getDashboardReactionRolesSettingsQueryKey(guildId) });
-        await queryClient.invalidateQueries({ queryKey: getDashboardAuditEventsQueryKey(guildId) });
+        await queryClient.invalidateQueries({ queryKey: getDashboardAuditEventsBaseQueryKey(guildId) });
     }
 
     async function handleSaved(message: PanelMessage): Promise<void> {

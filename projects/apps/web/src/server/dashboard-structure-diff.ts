@@ -54,7 +54,7 @@ export function toDashboardStructureSnapshot(
 
 export function normalizeDashboardStructureSnapshot(value: unknown): DashboardStructureSnapshotValidationResult {
     if (!isObject(value)) {
-        return { type: 'invalid', message: 'Structure JSON must be an object.' };
+        return { type: 'invalid', message: 'Server blueprint JSON must be an object.' };
     }
 
     const roles = normalizeRoles(value.roles);
@@ -64,7 +64,7 @@ export function normalizeDashboardStructureSnapshot(value: unknown): DashboardSt
     if (!roles || !categories || !channels) {
         return {
             type: 'invalid',
-            message: 'Structure JSON must include valid roles, categories, and channels arrays.',
+            message: 'Server blueprint JSON must include valid roles, categories, and channels arrays.',
         };
     }
 

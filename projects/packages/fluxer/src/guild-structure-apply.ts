@@ -28,6 +28,32 @@ export type ApplyFluxerBotGuildStructureActionResult = {
     createdId?: string;
 };
 
+export type ApplyFluxerBotGuildStructureBatchActionInput = Omit<
+    ApplyFluxerBotGuildStructureActionInput,
+    'botToken' | 'guildId' | 'idMap' | 'sourceGuildId'
+> & {
+    id: string;
+};
+
+export type ApplyFluxerBotGuildStructureBatchInput = {
+    botToken: string;
+    guildId: string;
+    actions: ApplyFluxerBotGuildStructureBatchActionInput[];
+    idMap?: Record<string, string>;
+    sourceGuildId?: string;
+};
+
+export type ApplyFluxerBotGuildStructureBatchResult = {
+    actions: Array<{
+        id: string;
+        status: 'applied' | 'failed';
+        createdId?: string;
+        errorCauseType?: string;
+        errorType?: string;
+    }>;
+    idMap: Record<string, string>;
+};
+
 export type ApplyFluxerBotGuildStructureUpdateError =
     | FluxerPlatformError
     | { type: 'missing-input'; field: 'botToken' | 'guildId' | 'targetId' | 'name' | 'after' }
@@ -35,7 +61,14 @@ export type ApplyFluxerBotGuildStructureUpdateError =
     | { type: 'unsupported-action'; reason: string }
     | { type: 'login-failed'; error: unknown };
 
-export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError;
+type PartialCreateError = {
+    type: 'partial-create-failed';
+    createdId: string;
+    causeType: ApplyFluxerBotGuildStructureUpdateError['type'];
+};
+
+export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError | PartialCreateError;
+type ApplyNormalizedActionError = ApplyFluxerBotGuildStructureActionError;
 
 export async function applyFluxerBotGuildStructureUpdate(
     input: ApplyFluxerBotGuildStructureUpdateInput
@@ -45,7 +78,12 @@ export async function applyFluxerBotGuildStructureUpdate(
         actionType: 'update',
     });
 
-    return result.isOk() ? ok(undefined) : err(result.error);
+    if (result.isOk()) return ok(undefined);
+    if (result.error.type === 'partial-create-failed') {
+        return err({ type: 'operation-failed', error: new Error('Unexpected partial create failure during update.') });
+    }
+
+    return err(result.error);
 }
 
 export async function applyFluxerBotGuildStructureAction(
@@ -62,14 +100,75 @@ export async function applyFluxerBotGuildStructureAction(
     try {
         await client.login(normalized.value.botToken);
 
-        switch (normalized.value.actionType) {
-            case 'create':
-                return await applyCreate(client, normalized.value);
-            case 'delete':
-                return await applyDelete(client, normalized.value);
-            case 'update':
-                return await applyUpdate(client, normalized.value);
+        return await applyNormalizedAction(client, normalized.value);
+    } catch (error) {
+        return err({ type: 'login-failed', error });
+    } finally {
+        await client.destroy().catch(() => undefined);
+    }
+}
+
+export async function applyFluxerBotGuildStructureActions(
+    input: ApplyFluxerBotGuildStructureBatchInput
+): Promise<Result<ApplyFluxerBotGuildStructureBatchResult, ApplyFluxerBotGuildStructureActionError>> {
+    const botToken = input.botToken.trim();
+    const guildId = input.guildId.trim();
+
+    if (!botToken) return err({ type: 'missing-input', field: 'botToken' });
+    if (!guildId) return err({ type: 'missing-input', field: 'guildId' });
+
+    const client = new Client({ gatewayDebug: false });
+    const idMap: Record<string, string> = { ...(input.idMap ?? {}) };
+    const actions: ApplyFluxerBotGuildStructureBatchResult['actions'] = [];
+
+    try {
+        await client.login(botToken);
+
+        for (const action of input.actions) {
+            const normalized = normalizeStructureActionInput({
+                ...action,
+                botToken,
+                guildId,
+                idMap,
+                ...(input.sourceGuildId ? { sourceGuildId: input.sourceGuildId } : {}),
+            });
+
+            if (normalized.isErr()) {
+                actions.push({ id: action.id, status: 'failed', errorType: normalized.error.type });
+                continue;
+            }
+
+            const result = await applyNormalizedAction(client, normalized.value);
+
+            if (result.isErr()) {
+                if (action.targetId && result.error.type === 'partial-create-failed') {
+                    idMap[action.targetId] = result.error.createdId;
+                    actions.push({
+                        id: action.id,
+                        status: 'failed',
+                        createdId: result.error.createdId,
+                        errorType: result.error.type,
+                        errorCauseType: result.error.causeType,
+                    });
+                    continue;
+                }
+
+                actions.push({ id: action.id, status: 'failed', errorType: result.error.type });
+                continue;
+            }
+
+            if (action.targetId && result.value.createdId) {
+                idMap[action.targetId] = result.value.createdId;
+            }
+
+            actions.push({
+                id: action.id,
+                status: 'applied',
+                ...(result.value.createdId ? { createdId: result.value.createdId } : {}),
+            });
         }
+
+        return ok({ actions, idMap });
     } catch (error) {
         return err({ type: 'login-failed', error });
     } finally {
@@ -78,6 +177,12 @@ export async function applyFluxerBotGuildStructureAction(
 }
 
 type NormalizedStructureActionInput =
+    | {
+          botToken: string;
+          guildId: string;
+          actionType: 'noop';
+          createdId: string;
+      }
     | {
           botToken: string;
           guildId: string;
@@ -93,7 +198,9 @@ type NormalizedStructureActionInput =
           targetType: 'category' | 'channel';
           targetId: string;
           name?: string;
+          parentId?: string | null;
           permissionOverwrites?: PermissionOverwriteReplacement;
+          position?: number;
       }
     | {
           botToken: string;
@@ -110,6 +217,7 @@ type NormalizedStructureActionInput =
           sourceId: string;
           name: string;
           permissions?: string;
+          position?: number;
           color?: number;
           hoist?: boolean;
           mentionable?: boolean;
@@ -124,6 +232,7 @@ type NormalizedStructureActionInput =
           channelType: 0 | 2 | 4 | 5;
           parentId?: string | null;
           permissionOverwrites: PermissionOverwrite[];
+          position?: number;
       };
 
 type PermissionOverwrite = {
@@ -144,6 +253,7 @@ type RoleUpdateInput = {
     color?: number;
     hoist?: boolean;
     mentionable?: boolean;
+    position?: number;
 };
 
 function normalizeStructureActionInput(
@@ -167,6 +277,22 @@ function normalizeStructureActionInput(
                 type: 'unsupported-action',
                 reason: 'Only create, update, and delete actions are supported.',
             });
+    }
+}
+
+async function applyNormalizedAction(
+    client: Client,
+    input: NormalizedStructureActionInput
+): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyNormalizedActionError>> {
+    switch (input.actionType) {
+        case 'noop':
+            return ok({ createdId: input.createdId });
+        case 'create':
+            return await applyCreate(client, input);
+        case 'delete':
+            return await applyDelete(client, input);
+        case 'update':
+            return await applyUpdate(client, input);
     }
 }
 
@@ -205,22 +331,36 @@ function normalizeStructureUpdateInput(
 
     const changes = input.changes ?? [];
     const nameChanges = changes.filter((change) => change.field === 'name');
+    const parentChanges = changes.filter((change) => change.field === 'parentId');
     const permissionOverwriteChanges = changes.filter((change) => change.field === 'permissionOverwrites');
+    const positionChanges = changes.filter((change) => change.field === 'position');
 
-    if (nameChanges.length + permissionOverwriteChanges.length !== changes.length) {
+    if (
+        nameChanges.length + parentChanges.length + permissionOverwriteChanges.length + positionChanges.length !==
+        changes.length
+    ) {
         return err({
             type: 'unsupported-action',
-            reason: 'Only channel/category name and permission overwrite updates are supported.',
+            reason: 'Only channel/category name, parent, position, and permission overwrite updates are supported.',
         });
     }
 
-    if (nameChanges.length > 1 || permissionOverwriteChanges.length > 1) {
+    if (
+        nameChanges.length > 1 ||
+        parentChanges.length > 1 ||
+        permissionOverwriteChanges.length > 1 ||
+        positionChanges.length > 1
+    ) {
         return err({ type: 'invalid-value', field: 'changes' });
     }
 
     const name = typeof nameChanges[0]?.after === 'string' ? nameChanges[0].after.trim() : undefined;
+    const parentIdResult = normalizeChannelParentUpdate(input.targetType, parentChanges[0], input.idMap ?? {});
+    const positionResult = normalizeChannelPositionUpdate(positionChanges[0]);
 
     if (nameChanges.length === 1 && !name) return err({ type: 'missing-input', field: 'name' });
+    if (parentIdResult.isErr()) return err(parentIdResult.error);
+    if (positionResult.isErr()) return err(positionResult.error);
 
     const permissionOverwriteReplacement = normalizePermissionOverwriteReplacement(
         permissionOverwriteChanges[0],
@@ -231,10 +371,15 @@ function normalizeStructureUpdateInput(
         return err({ type: 'invalid-value', field: 'permissionOverwrites' });
     }
 
-    if (!name && !permissionOverwriteReplacement) {
+    if (
+        !name &&
+        parentIdResult.value === undefined &&
+        !permissionOverwriteReplacement &&
+        positionResult.value === undefined
+    ) {
         return err({
             type: 'unsupported-action',
-            reason: 'Only channel/category name and permission overwrite updates are supported.',
+            reason: 'Only channel/category name, parent, position, and permission overwrite updates are supported.',
         });
     }
 
@@ -245,7 +390,9 @@ function normalizeStructureUpdateInput(
         targetType: input.targetType,
         targetId,
         ...(name ? { name } : {}),
+        ...(parentIdResult.value !== undefined ? { parentId: parentIdResult.value } : {}),
         ...(permissionOverwriteReplacement ? { permissionOverwrites: permissionOverwriteReplacement } : {}),
+        ...(positionResult.value !== undefined ? { position: positionResult.value } : {}),
     });
 }
 
@@ -259,13 +406,13 @@ function normalizeStructureRoleUpdateInput(
     const changes = input.changes ?? [];
     const role: RoleUpdateInput = {};
     const seenFields = new Set<string>();
-    const supportedFields = new Set(['name', 'permissions', 'color', 'hoist', 'mentionable']);
+    const supportedFields = new Set(['name', 'position', 'permissions', 'color', 'hoist', 'mentionable']);
 
     for (const change of changes) {
         if (!supportedFields.has(change.field)) {
             return err({
                 type: 'unsupported-action',
-                reason: 'Only role name, permissions, color, hoist, and mentionable updates are supported.',
+                reason: 'Only role name, position, permissions, color, hoist, and mentionable updates are supported.',
             });
         }
 
@@ -284,6 +431,11 @@ function normalizeStructureRoleUpdateInput(
                     return err({ type: 'missing-input', field: 'permissions' });
                 }
                 role.permissions = change.after.trim();
+                break;
+            case 'position':
+                if (targetId === input.guildId) return err({ type: 'invalid-value', field: 'position' });
+                if (!isValidPosition(change.after)) return err({ type: 'invalid-value', field: 'position' });
+                role.position = change.after;
                 break;
             case 'color':
                 if (
@@ -307,7 +459,7 @@ function normalizeStructureRoleUpdateInput(
     if (Object.keys(role).length === 0) {
         return err({
             type: 'unsupported-action',
-            reason: 'Only role name, permissions, color, hoist, and mentionable updates are supported.',
+            reason: 'Only role name, position, permissions, color, hoist, and mentionable updates are supported.',
         });
     }
 
@@ -323,7 +475,10 @@ function normalizeStructureRoleUpdateInput(
 
 function normalizeStructureCreateInput(
     input: ApplyFluxerBotGuildStructureActionInput & { botToken: string; guildId: string }
-): Result<Extract<NormalizedStructureActionInput, { actionType: 'create' }>, ApplyFluxerBotGuildStructureActionError> {
+): Result<
+    Extract<NormalizedStructureActionInput, { actionType: 'create' | 'noop' | 'update' }>,
+    ApplyFluxerBotGuildStructureActionError
+> {
     const after = input.after;
     const sourceId = input.targetId?.trim() ?? '';
 
@@ -336,8 +491,12 @@ function normalizeStructureCreateInput(
     if (input.targetType === 'role') {
         if (typeof after.permissions !== 'string') return err({ type: 'invalid-value', field: 'permissions' });
         const roleVisuals = normalizeRoleVisuals(after);
+        const position = normalizeRolePosition(after.position);
 
         if (!roleVisuals) return err({ type: 'invalid-value', field: 'role' });
+        if (after.position !== undefined && after.position !== null && position === undefined) {
+            return err({ type: 'invalid-value', field: 'position' });
+        }
 
         return ok({
             botToken: input.botToken,
@@ -347,6 +506,7 @@ function normalizeStructureCreateInput(
             sourceId,
             name,
             permissions: after.permissions,
+            ...(position !== undefined ? { position } : {}),
             ...roleVisuals,
         });
     }
@@ -368,6 +528,36 @@ function normalizeStructureCreateInput(
 
     if (!permissionOverwrites) return err({ type: 'invalid-value', field: 'permissionOverwrites' });
 
+    const position = normalizeChannelPosition(after.position);
+    if (after.position !== undefined && after.position !== null && position === undefined) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
+
+    const mappedCreatedId = input.idMap?.[sourceId];
+
+    if (mappedCreatedId) {
+        if (permissionOverwrites.length === 0) {
+            return ok({
+                botToken: input.botToken,
+                guildId: input.guildId,
+                actionType: 'noop',
+                createdId: mappedCreatedId,
+            });
+        }
+
+        return ok({
+            botToken: input.botToken,
+            guildId: input.guildId,
+            actionType: 'update',
+            targetType: input.targetType,
+            targetId: mappedCreatedId,
+            permissionOverwrites: {
+                before: [],
+                after: permissionOverwrites,
+            },
+        });
+    }
+
     return ok({
         botToken: input.botToken,
         guildId: input.guildId,
@@ -378,6 +568,7 @@ function normalizeStructureCreateInput(
         channelType,
         parentId: mapOptionalId(typeof after.parentId === 'string' ? after.parentId : null, input.idMap ?? {}),
         permissionOverwrites,
+        ...(position !== undefined ? { position } : {}),
     });
 }
 
@@ -397,10 +588,13 @@ async function applyUpdate(
 
     const channelPlatform = createChannelPlatform(client);
 
-    if (input.name) {
+    if (input.name || input.parentId !== undefined || input.position !== undefined) {
         const editResult = await channelPlatform.edit({
             channelId: input.targetId,
-            name: input.name,
+            guildId: input.guildId,
+            ...(input.name ? { name: input.name } : {}),
+            ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+            ...(input.position !== undefined ? { position: input.position } : {}),
         });
 
         if (editResult.isErr()) return err(editResult.error);
@@ -431,6 +625,7 @@ async function applyCreate(
             ...(input.color !== undefined ? { color: input.color } : {}),
             ...(input.hoist !== undefined ? { hoist: input.hoist } : {}),
             ...(input.mentionable !== undefined ? { mentionable: input.mentionable } : {}),
+            ...(input.position !== undefined ? { position: input.position } : {}),
         });
 
         return result.isOk() ? ok({ createdId: result.value.id }) : err(result.error);
@@ -442,6 +637,7 @@ async function applyCreate(
         name: input.name,
         type: input.channelType,
         ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+        ...(input.position !== undefined ? { position: input.position } : {}),
     });
 
     if (result.isErr()) return err(result.error);
@@ -452,7 +648,13 @@ async function applyCreate(
             after: input.permissionOverwrites,
         });
 
-        if (overwriteResult.isErr()) return err(overwriteResult.error);
+        if (overwriteResult.isErr()) {
+            return err({
+                type: 'partial-create-failed',
+                createdId: result.value.id,
+                causeType: overwriteResult.error.type,
+            });
+        }
     }
 
     return ok({ createdId: result.value.id });
@@ -477,6 +679,43 @@ async function applyDelete(
 
 function normalizeChannelType(value: unknown): 0 | 2 | 4 | 5 | undefined {
     return value === 0 || value === 2 || value === 4 || value === 5 ? value : undefined;
+}
+
+function normalizeRolePosition(value: unknown): number | undefined {
+    return isValidPosition(value) ? value : undefined;
+}
+
+function normalizeChannelPosition(value: unknown): number | undefined {
+    return isValidPosition(value) ? value : undefined;
+}
+
+function isValidPosition(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function normalizeChannelPositionUpdate(
+    change: { field: string; before?: unknown; after: unknown } | undefined
+): Result<number | undefined, ApplyFluxerBotGuildStructureActionError> {
+    if (!change) return ok(undefined);
+
+    const position = normalizeChannelPosition(change.after);
+    return position === undefined ? err({ type: 'invalid-value', field: 'position' }) : ok(position);
+}
+
+function normalizeChannelParentUpdate(
+    targetType: string,
+    change: { field: string; before?: unknown; after: unknown } | undefined,
+    idMap: Record<string, string>
+): Result<string | null | undefined, ApplyFluxerBotGuildStructureActionError> {
+    if (!change) return ok(undefined);
+    if (targetType === 'category') {
+        return err({ type: 'invalid-value', field: 'parentId' });
+    }
+
+    if (change.after === null || change.after === undefined) return ok(null);
+    if (typeof change.after !== 'string') return err({ type: 'invalid-value', field: 'parentId' });
+
+    return ok(mapOptionalId(change.after, idMap));
 }
 
 function normalizeRoleVisuals(

@@ -69,6 +69,7 @@ describe('readFluxerGuildStructure', () => {
         expect(guild.fetchChannels).toHaveBeenCalledOnce();
         expect(result._unsafeUnwrap()).toStrictEqual({
             guildId: 'guild-1',
+            guildName: 'guild-1',
             roles: [
                 {
                     id: 'role-1',
@@ -112,6 +113,7 @@ describe('readFluxerGuildStructure', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             guildId: 'guild-1',
+            guildName: 'guild-1',
             roles: [],
             channels: [],
             categories: [],

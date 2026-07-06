@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     applyDashboardStructureImportRunRouteData,
     confirmDashboardStructureImportRunRouteData,
+    downloadDashboardStructureExportRouteData,
+    importDashboardStructureBackupRouteData,
     preflightDashboardStructureImportRunRouteData,
     readDashboardStructureSettingsRouteData,
 } from '../server/dashboard-structure-route-data.js';
@@ -22,6 +24,8 @@ vi.mock('../server/dashboard-structure-route-data.js', async (importActual) => {
         ...actual,
         applyDashboardStructureImportRunRouteData: vi.fn(),
         confirmDashboardStructureImportRunRouteData: vi.fn(),
+        downloadDashboardStructureExportRouteData: vi.fn(),
+        importDashboardStructureBackupRouteData: vi.fn(),
         preflightDashboardStructureImportRunRouteData: vi.fn(),
         readDashboardStructureSettingsRouteData: vi.fn(),
     };
@@ -34,7 +38,76 @@ describe('DashboardStructurePanel', () => {
         for (const renderedPanel of renderedPanels.splice(0)) {
             renderedPanel.unmount();
         }
+        vi.unstubAllGlobals();
         vi.clearAllMocks();
+    });
+
+    it('downloads current server blueprint JSON without creating a backup', async () => {
+        const click = vi.fn();
+        const createObjectUrl = vi.fn(() => 'blob:structure-export');
+        const revokeObjectUrl = vi.fn();
+
+        vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(click);
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: createObjectUrl,
+            revokeObjectURL: revokeObjectUrl,
+        });
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(createSettingsResult());
+        vi.mocked(downloadDashboardStructureExportRouteData).mockResolvedValue({
+            type: 'structure-export-created',
+            fileName: 'neonflux-server-blueprint-guild-1-2026-07-06T10-00-00-000Z.json',
+            structureJson: '{"version":1}',
+        });
+
+        renderStructurePanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Download JSON' }));
+
+        await waitFor(() => expect(downloadDashboardStructureExportRouteData).toHaveBeenCalled());
+        expect(downloadDashboardStructureExportRouteData).toHaveBeenCalledWith({ data: { guildId: 'guild-1' } });
+        expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob));
+        expect(click).toHaveBeenCalledOnce();
+        expect(revokeObjectUrl).toHaveBeenCalledWith('blob:structure-export');
+        expect(await screen.findByText('Current server blueprint downloaded. No backup was created.')).toBeTruthy();
+    });
+
+    it('loads a server blueprint JSON file into the dry-run input', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(createSettingsResult());
+
+        renderStructurePanel();
+
+        expect(await screen.findByText(/channel\/category name and permission-overwrite updates/u)).toBeTruthy();
+        expect(screen.getByText(/Topic, NSFW, slowmode, ordering, parent moves/u)).toBeTruthy();
+        const fileInput = await screen.findByLabelText('Import JSON file');
+        const file = new File(['{"version":1}'], 'server-blueprint.json', { type: 'application/json' });
+
+        fireEvent.change(fileInput, { target: { files: [file] } });
+
+        expect(
+            await screen.findByText('Loaded server-blueprint.json. Create a dry-run to review changes.')
+        ).toBeTruthy();
+        expect(screen.getByDisplayValue('{"version":1}')).toBeTruthy();
+    });
+
+    it('creates a dry-run from a persisted backup', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
+            createSettingsResult({ backups: [createBackupSummary()] })
+        );
+        vi.mocked(importDashboardStructureBackupRouteData).mockResolvedValue({
+            type: 'backup-import-created',
+            importRun: createImportRun({ actionCount: 2 }),
+        });
+
+        renderStructurePanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Create dry-run from backup' }));
+
+        await waitFor(() => expect(importDashboardStructureBackupRouteData).toHaveBeenCalled());
+        expect(importDashboardStructureBackupRouteData).toHaveBeenCalledWith({
+            data: { backupId: 'backup-1', guildId: 'guild-1' },
+        });
+        expect(await screen.findByText('Dry-run created from backup with 2 planned changes.')).toBeTruthy();
     });
 
     it('confirms a reviewed dry-run without applying server changes', async () => {
@@ -75,6 +148,40 @@ describe('DashboardStructurePanel', () => {
 
         expect(await screen.findByText('confirmed')).toBeTruthy();
         expect(screen.queryByLabelText('Type CONFIRM run-1 to confirm review')).toBeNull();
+    });
+
+    it('shows failed action causes in import history', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
+            createSettingsResult({
+                importRuns: [
+                    createImportRun({
+                        status: 'failed',
+                        actions: [
+                            {
+                                id: 'action-1',
+                                sequence: 0,
+                                actionType: 'create',
+                                targetType: 'channel',
+                                targetId: 'source-channel-1',
+                                status: 'failed',
+                                label: 'announcements',
+                                details: {
+                                    sourceId: 'source-channel-1',
+                                    createdId: 'created-channel-1',
+                                    errorType: 'partial-create-failed',
+                                    errorCauseType: 'permission-denied',
+                                },
+                            },
+                        ],
+                    }),
+                ],
+            })
+        );
+
+        renderStructurePanel();
+
+        expect(await screen.findByText('source-channel-1 -> created-channel-1')).toBeTruthy();
+        expect(screen.getByText('partial-create-failed: permission-denied')).toBeTruthy();
     });
 
     it('runs non-mutating preflight for confirmed dry-runs', async () => {
@@ -146,6 +253,9 @@ describe('DashboardStructurePanel', () => {
         const applyInput = await screen.findByLabelText('Type APPLY run-1 to apply ready updates');
         const applyButton = screen.getByRole('button', { name: 'Apply' });
 
+        expect(
+            await screen.findByText(/role name, color, hoist, mentionability, and permission updates/u)
+        ).toBeTruthy();
         expect(applyButton.hasAttribute('disabled')).toBe(true);
 
         fireEvent.change(applyInput, { target: { value: 'APPLY run-1' } });
@@ -201,11 +311,13 @@ describe('DashboardStructurePanel', () => {
         });
     });
 
-    it('shows the latest observed structure change when tracking has data', async () => {
+    it('shows the latest observed server layout change when tracking has data', async () => {
         vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
             createSettingsResult({
                 observedState: {
+                    changedSinceLastBackup: true,
                     observedChangeCount: 2,
+                    targetChangeCounts: { channel: 2 },
                     lastEventType: 'channel.updated',
                     lastObservedAt: '2026-06-26T10:30:00.000Z',
                 },
@@ -214,7 +326,7 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        expect(await screen.findByText(/2 observed structure changes since tracking started/u)).toBeTruthy();
+        expect(await screen.findByText(/2 observed server layout changes/u)).toBeTruthy();
     });
 });
 
@@ -237,17 +349,45 @@ function renderStructurePanel(): void {
 
 function createSettingsResult(
     overrides: {
+        backups?: ReturnType<typeof createBackupSummary>[];
         importRuns?: DashboardStructureImportRun[];
-        observedState?: { observedChangeCount: number; lastEventType?: string; lastObservedAt?: string };
+        observedState?: {
+            changedSinceLastBackup: boolean;
+            observedChangeCount: number;
+            targetChangeCounts: Record<string, number>;
+            lastEventType?: string;
+            lastObservedAt?: string;
+        };
     } = {}
 ) {
     return {
         type: 'settings' as const,
-        exports: [],
+        backups: overrides.backups ?? [],
+        backupSettings: {
+            enabled: false,
+            cadenceWeeks: 1,
+            retentionDays: 180,
+        },
         importRuns: overrides.importRuns ?? [createImportRun()],
         observedState: overrides.observedState ?? {
+            changedSinceLastBackup: false,
             observedChangeCount: 0,
+            targetChangeCounts: {},
         },
+    };
+}
+
+function createBackupSummary() {
+    return {
+        id: 'backup-1',
+        name: 'NeonSpace - 2026-07-06 - 10-00',
+        source: 'manual',
+        status: 'succeeded',
+        createdAt: '2026-07-06T10:00:00.000Z',
+        completedAt: '2026-07-06T10:00:00.000Z',
+        roleCount: 1,
+        categoryCount: 1,
+        channelCount: 1,
     };
 }
 
@@ -266,9 +406,11 @@ function createImportRun(overrides: Partial<DashboardStructureImportRun> = {}): 
             categories: 0,
             channels: 1,
         },
+        actionCount: 1,
         actions: [
             {
                 id: 'action-1',
+                sequence: 0,
                 actionType: 'update',
                 targetType: 'channel',
                 targetId: 'channel-1',
@@ -297,6 +439,7 @@ function createDeleteImportRun(overrides: Partial<DashboardStructureImportRun> =
         actions: [
             {
                 id: 'action-1',
+                sequence: 0,
                 actionType: 'delete',
                 targetType: 'channel',
                 targetId: 'channel-1',

@@ -7,10 +7,19 @@ import { DashboardStructureApplyControls } from './dashboard-structure-apply-con
 
 export type StructureBusyAction =
     | 'export'
+    | 'backup'
+    | 'backup-settings'
+    | `backup-json:${string}`
+    | 'backup-page'
+    | `backup-rename:${string}`
+    | `backup-delete:${string}`
+    | `backup-import:${string}`
     | 'dry-run'
+    | `actions:${string}`
     | `confirm:${string}`
     | `preflight:${string}`
-    | `apply:${string}`;
+    | `apply:${string}`
+    | `retry:${string}`;
 
 export function DashboardStructureImportHistory({
     runs,
@@ -26,6 +35,8 @@ export function DashboardStructureImportHistory({
     onConfirm,
     onPreflight,
     onApply,
+    onLoadActions,
+    onRetry,
 }: {
     runs: DashboardStructureImportRun[];
     latestRun: DashboardStructureImportRun | undefined;
@@ -40,6 +51,8 @@ export function DashboardStructureImportHistory({
     onConfirm: (run: DashboardStructureImportRun) => void;
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
+    onLoadActions: (run: DashboardStructureImportRun) => void;
+    onRetry: (run: DashboardStructureImportRun) => void;
 }) {
     if (runs.length === 0) {
         return <p className='text-sm leading-6 text-neutral-400'>No import dry-runs yet.</p>;
@@ -63,6 +76,8 @@ export function DashboardStructureImportHistory({
                     onConfirm={onConfirm}
                     onPreflight={onPreflight}
                     onApply={onApply}
+                    onLoadActions={onLoadActions}
+                    onRetry={onRetry}
                 />
             ))}
         </div>
@@ -83,6 +98,8 @@ function ImportRunCard({
     onConfirm,
     onPreflight,
     onApply,
+    onLoadActions,
+    onRetry,
 }: {
     run: DashboardStructureImportRun;
     isLatest: boolean;
@@ -97,11 +114,16 @@ function ImportRunCard({
     onConfirm: (run: DashboardStructureImportRun) => void;
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
+    onLoadActions: (run: DashboardStructureImportRun) => void;
+    onRetry: (run: DashboardStructureImportRun) => void;
 }) {
     const expectedText = `CONFIRM ${run.id}`;
     const isConfirmBusy = busyAction === `confirm:${run.id}`;
+    const isActionBusy = busyAction === `actions:${run.id}`;
+    const isRetryBusy = busyAction === `retry:${run.id}`;
     const canConfirm = run.status === 'dry_run_complete';
     const canPreflight = run.status === 'confirmed';
+    const canRetry = run.status === 'failed';
 
     return (
         <div
@@ -113,13 +135,18 @@ function ImportRunCard({
                     <p className='mt-1 text-xs text-neutral-500'>{formatStatus(run.status)}</p>
                 </div>
                 <p className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-300'>
-                    {run.actions.length} changes
+                    {run.actionCount} changes
                 </p>
             </div>
             <p className='mt-3 text-sm text-neutral-300'>
                 {run.summary.creates} create, {run.summary.updates} update, {run.summary.deletes} delete
             </p>
-            <ActionPreview actions={run.actions} />
+            <ActionPreview
+                actions={run.actions}
+                actionCount={run.actionCount}
+                isLoading={isActionBusy}
+                onLoad={() => onLoadActions(run)}
+            />
             {canConfirm ? (
                 <div className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'>
                     <label className='block text-xs font-semibold text-amber-100' htmlFor={`confirm-${run.id}`}>
@@ -158,11 +185,50 @@ function ImportRunCard({
                     onApply={onApply}
                 />
             ) : null}
+            {canRetry ? (
+                <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
+                    <p className='text-xs leading-5 text-neutral-300'>
+                        Retry creates a new dry-run from failed actions only.
+                    </p>
+                    <button
+                        type='button'
+                        onClick={() => onRetry(run)}
+                        disabled={Boolean(busyAction)}
+                        className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                        {isRetryBusy ? 'Creating retry' : 'Retry failed'}
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }
 
-function ActionPreview({ actions }: { actions: DashboardStructureImportAction[] }) {
+function ActionPreview({
+    actions,
+    actionCount,
+    isLoading,
+    onLoad,
+}: {
+    actions: DashboardStructureImportAction[];
+    actionCount: number;
+    isLoading: boolean;
+    onLoad: () => void;
+}) {
+    if (actions.length === 0 && actionCount > 0) {
+        return (
+            <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'>
+                <p className='text-xs text-neutral-400'>Actions are loaded on demand.</p>
+                <button
+                    type='button'
+                    onClick={onLoad}
+                    disabled={isLoading}
+                    className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                    {isLoading ? 'Loading' : 'Load actions'}
+                </button>
+            </div>
+        );
+    }
+
     if (actions.length === 0) {
         return <p className='mt-2 text-xs text-neutral-500'>No structural changes detected.</p>;
     }
@@ -181,11 +247,25 @@ function ActionPreview({ actions }: { actions: DashboardStructureImportAction[] 
                                 {formatActionMapping(action)}
                             </span>
                         ) : null}
+                        {formatActionFailure(action) ? (
+                            <span className='mt-1 block text-xs text-rose-300'>{formatActionFailure(action)}</span>
+                        ) : null}
                     </span>
                     <span className='shrink-0 text-xs text-neutral-500'>{action.status.replaceAll('_', ' ')}</span>
                 </li>
             ))}
-            {actions.length > 6 ? <li className='py-2 text-xs text-neutral-500'>+{actions.length - 6} more</li> : null}
+            {actionCount > actions.length ? (
+                <li className='flex items-center justify-between gap-3 py-2'>
+                    <span className='text-xs text-neutral-500'>+{actionCount - actions.length} more</span>
+                    <button
+                        type='button'
+                        onClick={onLoad}
+                        disabled={isLoading}
+                        className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                        {isLoading ? 'Loading' : 'Load more'}
+                    </button>
+                </li>
+            ) : null}
         </ul>
     );
 }
@@ -195,6 +275,17 @@ function formatActionMapping(action: DashboardStructureImportAction): string | u
     const createdId = typeof action.details.createdId === 'string' ? action.details.createdId : undefined;
 
     return sourceId && createdId ? `${sourceId} -> ${createdId}` : undefined;
+}
+
+function formatActionFailure(action: DashboardStructureImportAction): string | undefined {
+    if (action.status !== 'failed') return undefined;
+
+    const errorType = typeof action.details.errorType === 'string' ? action.details.errorType : undefined;
+    const causeType = typeof action.details.errorCauseType === 'string' ? action.details.errorCauseType : undefined;
+
+    if (!errorType) return 'Failed without a recorded cause.';
+
+    return causeType ? `${formatStatus(errorType)}: ${formatStatus(causeType)}` : formatStatus(errorType);
 }
 
 function formatDate(value: string): string {

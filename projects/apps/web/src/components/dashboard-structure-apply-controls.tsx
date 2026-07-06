@@ -92,8 +92,9 @@ export function DashboardStructureApplyControls({
                         </div>
                     ) : null}
                     <p className='mt-2 text-xs leading-5 text-neutral-400'>
-                        This executes preflight-ready creates, role visual updates, supported channel/category name and
-                        permission overwrite updates, and explicitly approved deletes.
+                        This executes preflight-ready creates, role name, color, hoist, mentionability, and permission
+                        updates, supported channel/category name and permission overwrite updates, and explicitly
+                        approved deletes.
                     </p>
                 </div>
             ) : null}
@@ -105,7 +106,7 @@ function PreflightReport({ report }: { report: DashboardStructurePreflightReport
     const blockers = report.actions.filter((action) => action.status !== 'ready');
 
     return (
-        <div className='mt-3 border-t border-sky-400/20 pt-3'>
+        <div className='mt-3 border-t border-sky-400/20 pt-3' role='status' aria-live='polite'>
             <p className='text-xs text-neutral-300'>
                 {report.summary.ready} ready, {report.summary.stale} stale, {report.summary.mappingRequired} mapping
                 required, {report.summary.destructiveApprovalRequired} destructive approval,{' '}

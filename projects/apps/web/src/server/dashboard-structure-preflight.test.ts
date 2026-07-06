@@ -96,7 +96,34 @@ describe('dashboard structure preflight', () => {
             invalidPlan: 0,
         });
         expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'ready']);
-        expect(report.actions[1]?.message).toContain('Position is tracked');
+        expect(report.actions[1]?.message).toContain('position');
+    });
+
+    it('rejects channel creates with invalid positions before apply', () => {
+        const report = preflightDashboardStructureImportPlan(createSnapshot(), [
+            {
+                id: 'create-channel',
+                actionType: 'create',
+                targetType: 'channel',
+                targetId: 'source-channel-2',
+                details: {
+                    after: {
+                        id: 'source-channel-2',
+                        name: 'planning',
+                        type: 0,
+                        parentId: null,
+                        position: -1,
+                        permissionOverwrites: [],
+                    },
+                },
+            },
+        ]);
+
+        expect(report.summary.invalidPlan).toBe(1);
+        expect(report.actions[0]).toMatchObject({
+            status: 'invalid-plan',
+            message: 'The channel create target has an invalid position.',
+        });
     });
 
     it('marks channel permission overwrite updates ready when targets resolve', () => {
@@ -145,7 +172,7 @@ describe('dashboard structure preflight', () => {
         });
     });
 
-    it('marks role visual updates ready while leaving role position unsupported', () => {
+    it('marks role visual and position updates ready except for @everyone', () => {
         const report = preflightDashboardStructureImportPlan(createSnapshot(), [
             {
                 id: 'role-visuals',
@@ -171,9 +198,44 @@ describe('dashboard structure preflight', () => {
                     changes: [{ field: 'position', before: 1, after: 2 }],
                 },
             },
+            {
+                id: 'everyone-position',
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'guild-1',
+                details: {
+                    changes: [{ field: 'position', before: 0, after: 1 }],
+                },
+            },
         ]);
 
-        expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'unsupported']);
+        expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'ready', 'invalid-plan']);
+        expect(report.actions[2]?.message).toContain('@everyone');
+    });
+
+    it('marks channel parent and position updates ready when the parent category resolves', () => {
+        const report = preflightDashboardStructureImportPlan(createSnapshot(), [
+            {
+                id: 'channel-layout',
+                actionType: 'update',
+                targetType: 'channel',
+                targetId: 'channel-1',
+                details: {
+                    changes: [
+                        { field: 'parentId', before: null, after: 'category-1' },
+                        { field: 'position', before: 1, after: 4 },
+                    ],
+                },
+            },
+        ]);
+
+        expect(report.summary).toMatchObject({
+            ready: 1,
+            mappingRequired: 0,
+            unsupported: 0,
+            invalidPlan: 0,
+        });
+        expect(report.actions[0]?.status).toBe('ready');
     });
 
     it('allows imported everyone overwrites when the source guild id is known', () => {
@@ -288,6 +350,184 @@ describe('dashboard structure preflight', () => {
         });
     });
 
+    it('resolves retry parent categories and role overwrites through the saved source-to-target map', () => {
+        const report = preflightDashboardStructureImportPlan(
+            {
+                ...createSnapshot(),
+                roles: [
+                    ...createSnapshot().roles,
+                    {
+                        id: 'created-role-1',
+                        name: 'Imported Role',
+                        position: 2,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+                categories: [
+                    ...createSnapshot().categories,
+                    {
+                        id: 'created-category-1',
+                        name: 'Imported Category',
+                        type: 4,
+                        parentId: null,
+                        position: 2,
+                        permissionOverwrites: [],
+                    },
+                ],
+            },
+            [
+                {
+                    id: 'retry-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    details: {
+                        after: {
+                            id: 'source-channel-1',
+                            name: 'retry-channel',
+                            type: 0,
+                            parentId: 'source-category-1',
+                            position: 3,
+                            permissionOverwrites: [
+                                {
+                                    id: 'source-role-1',
+                                    type: 0,
+                                    allow: '1024',
+                                    deny: '0',
+                                },
+                            ],
+                        },
+                    },
+                },
+            ],
+            {
+                idMap: {
+                    'source-category-1': 'created-category-1',
+                    'source-role-1': 'created-role-1',
+                },
+            }
+        );
+
+        expect(report.summary).toMatchObject({
+            ready: 1,
+            mappingRequired: 0,
+        });
+        expect(report.actions[0]).toMatchObject({ status: 'ready' });
+    });
+
+    it('marks mapped retry creates ready as permission repair instead of duplicate create', () => {
+        const report = preflightDashboardStructureImportPlan(
+            {
+                ...createSnapshot(),
+                channels: [
+                    ...createSnapshot().channels,
+                    {
+                        id: 'created-channel-1',
+                        name: 'retry-channel',
+                        type: 0,
+                        parentId: null,
+                        position: 2,
+                        permissionOverwrites: [],
+                    },
+                ],
+            },
+            [
+                {
+                    id: 'retry-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    details: {
+                        after: {
+                            id: 'source-channel-1',
+                            name: 'retry-channel',
+                            type: 0,
+                            parentId: null,
+                            position: 3,
+                            permissionOverwrites: [
+                                {
+                                    id: 'role-1',
+                                    type: 0,
+                                    allow: '1024',
+                                    deny: '0',
+                                },
+                            ],
+                        },
+                    },
+                },
+            ],
+            {
+                idMap: {
+                    'source-channel-1': 'created-channel-1',
+                },
+            }
+        );
+
+        expect(report.summary).toMatchObject({
+            ready: 1,
+            stale: 0,
+        });
+        expect(report.actions[0]).toMatchObject({
+            status: 'ready',
+            message:
+                'The previously created item exists. Retry will repair its permission overwrites instead of creating it again.',
+        });
+    });
+
+    it('blocks mapped retry create repair when the created target changed after partial creation', () => {
+        const report = preflightDashboardStructureImportPlan(
+            {
+                ...createSnapshot(),
+                channels: [
+                    ...createSnapshot().channels,
+                    {
+                        id: 'created-channel-1',
+                        name: 'renamed-channel',
+                        type: 0,
+                        parentId: null,
+                        position: 2,
+                        permissionOverwrites: [],
+                    },
+                ],
+            },
+            [
+                {
+                    id: 'retry-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    details: {
+                        after: {
+                            id: 'source-channel-1',
+                            name: 'retry-channel',
+                            type: 0,
+                            parentId: null,
+                            position: 3,
+                            permissionOverwrites: [],
+                        },
+                    },
+                },
+            ],
+            {
+                idMap: {
+                    'source-channel-1': 'created-channel-1',
+                },
+            }
+        );
+
+        expect(report.summary).toMatchObject({
+            ready: 0,
+            stale: 1,
+        });
+        expect(report.actions[0]).toMatchObject({
+            status: 'stale',
+            message: 'The previously created retry target was renamed after creation.',
+        });
+    });
+
     it('blocks duplicate permission overwrites and overwrites for roles deleted by the same plan', () => {
         const report = preflightDashboardStructureImportPlan(createSnapshot(), [
             {
@@ -389,7 +629,7 @@ describe('dashboard structure preflight', () => {
                 targetType: 'channel',
                 targetId: 'channel-1',
                 details: {
-                    changes: [{ field: 'parentId', before: null, after: 'category-1' }],
+                    changes: [{ field: 'type', before: 0, after: 2 }],
                 },
             },
             {

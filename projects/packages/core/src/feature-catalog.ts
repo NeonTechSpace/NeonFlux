@@ -139,7 +139,9 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         id: 'import_export',
         label: 'Import and export',
         kinds: ['dashboard-config', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('import_export.dry_run', 'structure', 'Structure export and dry-run', true)],
+        dashboardConfigs: [
+            dashboardConfig('import_export.dry_run', 'structure', 'Server blueprint import/export', true),
+        ],
         eventHandlers: [
             eventHandler(
                 'import_export.events',

@@ -1,12 +1,19 @@
 import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
-import { findStructureImportRunByGuildId } from '@neonflux/db';
+import {
+    findStructureImportRunWithActionsByGuildId,
+    structureAuditActions,
+    structureImportRunStatuses,
+} from '@neonflux/db';
 import type { StructureImportActionRecord } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
-import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
+import {
+    loadAuthorizedStructureContext,
+    recordStructureAuditBestEffort,
+} from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
@@ -47,14 +54,14 @@ export async function preflightDashboardStructureImportRun(
     }
 
     const database = await getWebDb();
-    const importRunResult = await findStructureImportRunByGuildId(database.db, {
+    const importRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
     });
 
     if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
 
-    if (importRunResult.value.status !== 'confirmed') {
+    if (importRunResult.value.status !== structureImportRunStatuses.confirmed) {
         return { type: 'not-preflightable', status: importRunResult.value.status };
     }
 
@@ -72,9 +79,12 @@ export async function preflightDashboardStructureImportRun(
     const report = preflightDashboardStructureImportPlan(
         toDashboardStructureSnapshot(currentResult.value),
         importRunResult.value.actions.map(toPreflightAction),
-        { sourceGuildId: readRequestedGuildId(importRunResult.value.plan) }
+        {
+            idMap: readApplySourceTargetMap(importRunResult.value.plan),
+            sourceGuildId: readRequestedGuildId(importRunResult.value.plan),
+        }
     );
-    const auditResult = await recordStructureAudit(context, 'structure.import_preflight_checked', importRunId, {
+    await recordStructureAuditBestEffort(context, structureAuditActions.importPreflightChecked, importRunId, {
         actionCount: report.summary.total,
         readyCount: report.summary.ready,
         staleCount: report.summary.stale,
@@ -82,9 +92,7 @@ export async function preflightDashboardStructureImportRun(
         destructiveApprovalRequiredCount: report.summary.destructiveApprovalRequired,
         unsupportedCount: report.summary.unsupported,
         invalidPlanCount: report.summary.invalidPlan,
-    });
-
-    if (auditResult === 'database-error') return { type: 'database-error' };
+    }).catch(() => undefined);
 
     return {
         type: 'preflight',
@@ -119,4 +127,20 @@ function readRequestedGuildId(plan: Record<string, unknown>): string | undefined
     return typeof plan.requestedGuildId === 'string' && plan.requestedGuildId.trim()
         ? plan.requestedGuildId.trim()
         : undefined;
+}
+
+function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string, string> {
+    const directMap = isObject(plan.sourceTargetMap) ? plan.sourceTargetMap : undefined;
+    const applySummary = isObject(plan.applySummary) ? plan.applySummary : undefined;
+    const summaryMap =
+        applySummary && isObject(applySummary.sourceTargetMap) ? applySummary.sourceTargetMap : undefined;
+    const source = directMap ?? summaryMap ?? {};
+
+    return Object.fromEntries(
+        Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    );
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }

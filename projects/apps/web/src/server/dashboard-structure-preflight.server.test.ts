@@ -1,13 +1,17 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { findStructureImportRunByGuildId } from '@neonflux/db';
+import { findStructureImportRunWithActionsByGuildId } from '@neonflux/db';
+import type { StructureImportRunWithActionsRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
+import {
+    loadAuthorizedStructureContext,
+    recordStructureAuditBestEffort,
+} from './dashboard-structure-context.server.js';
 import type * as DashboardStructureContext from './dashboard-structure-context.server.js';
 import { preflightDashboardStructureImportRun } from './dashboard-structure-preflight.server.js';
 
@@ -25,7 +29,7 @@ vi.mock('./dashboard-structure-context.server.js', async (importActual) => {
     return {
         ...actual,
         loadAuthorizedStructureContext: vi.fn(),
-        recordStructureAudit: vi.fn(),
+        recordStructureAuditBestEffort: vi.fn(),
     };
 });
 
@@ -38,7 +42,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
-        findStructureImportRunByGuildId: vi.fn(),
+        findStructureImportRunWithActionsByGuildId: vi.fn(),
     };
 });
 
@@ -67,9 +71,9 @@ describe('preflightDashboardStructureImportRun', () => {
                 },
             },
         });
-        vi.mocked(findStructureImportRunByGuildId).mockResolvedValue(ok(createImportRunRecord()));
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createImportRunRecord()));
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure()));
-        vi.mocked(recordStructureAudit).mockResolvedValue('recorded');
+        vi.mocked(recordStructureAuditBestEffort).mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -92,7 +96,7 @@ describe('preflightDashboardStructureImportRun', () => {
                 },
             },
         });
-        expect(findStructureImportRunByGuildId).toHaveBeenCalledWith(
+        expect(findStructureImportRunWithActionsByGuildId).toHaveBeenCalledWith(
             {},
             {
                 guildId: 'authorized-guild',
@@ -103,7 +107,7 @@ describe('preflightDashboardStructureImportRun', () => {
             botToken: 'bot-token',
             guildId: 'authorized-guild',
         });
-        expect(recordStructureAudit).toHaveBeenCalledWith(
+        expect(recordStructureAuditBestEffort).toHaveBeenCalledWith(
             expect.objectContaining({
                 guild: expect.objectContaining({ id: 'authorized-guild' }),
             }),
@@ -117,8 +121,92 @@ describe('preflightDashboardStructureImportRun', () => {
         );
     });
 
+    it('uses saved source-to-target mappings when preflighting retry runs', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValueOnce(
+            ok(
+                createImportRunRecord({
+                    plan: {
+                        sourceTargetMap: {
+                            'source-role-1': 'created-role-1',
+                        },
+                        summary: {
+                            creates: 1,
+                            updates: 0,
+                            deletes: 0,
+                            roles: 0,
+                            categories: 0,
+                            channels: 1,
+                        },
+                    },
+                    actions: [
+                        {
+                            id: 'retry-channel',
+                            runId: 'run-1',
+                            sequence: 0,
+                            actionType: 'create',
+                            targetType: 'channel',
+                            targetId: 'source-channel-1',
+                            status: 'dry_run',
+                            details: {
+                                label: 'retry-channel',
+                                after: {
+                                    id: 'source-channel-1',
+                                    name: 'retry-channel',
+                                    type: 0,
+                                    parentId: null,
+                                    position: 3,
+                                    permissionOverwrites: [
+                                        {
+                                            id: 'source-role-1',
+                                            type: 0,
+                                            allow: '1024',
+                                            deny: '0',
+                                        },
+                                    ],
+                                },
+                            },
+                            createdAt: new Date('2026-06-26T10:05:00.000Z'),
+                            updatedAt: new Date('2026-06-26T10:05:00.000Z'),
+                        },
+                    ],
+                })
+            )
+        );
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
+            ok({
+                ...createFluxerStructure(),
+                roles: [
+                    {
+                        id: 'created-role-1',
+                        name: 'Imported Role',
+                        position: 2,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+            })
+        );
+
+        const result = await preflightDashboardStructureImportRun(request, {
+            guildId: 'requested-guild',
+            importRunId: 'run-1',
+        });
+
+        expect(result).toMatchObject({
+            type: 'preflight',
+            report: {
+                summary: {
+                    ready: 1,
+                    mappingRequired: 0,
+                },
+            },
+        });
+    });
+
     it('requires a confirmed run before preflight', async () => {
-        vi.mocked(findStructureImportRunByGuildId).mockResolvedValueOnce(
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValueOnce(
             ok(createImportRunRecord({ status: 'dry_run_complete' }))
         );
 
@@ -132,7 +220,7 @@ describe('preflightDashboardStructureImportRun', () => {
             status: 'dry_run_complete',
         });
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
-        expect(recordStructureAudit).not.toHaveBeenCalled();
+        expect(recordStructureAuditBestEffort).not.toHaveBeenCalled();
     });
 
     it('returns bot-token-missing before reading live structure', async () => {
@@ -167,7 +255,7 @@ function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
     };
 }
 
-function createImportRunRecord(overrides: Partial<ReturnType<typeof createImportRunRecordBase>> = {}) {
+function createImportRunRecord(overrides: Partial<StructureImportRunWithActionsRecord> = {}) {
     return {
         ...createImportRunRecordBase(),
         ...overrides,
@@ -180,7 +268,7 @@ function createImportRunRecordBase() {
         guildId: 'authorized-guild',
         createdByUserId: 'actor-1',
         status: 'confirmed',
-        sourceSnapshotId: null,
+        sourceBackupId: null,
         plan: {
             summary: {
                 creates: 0,
@@ -199,6 +287,7 @@ function createImportRunRecordBase() {
             {
                 id: 'action-1',
                 runId: 'run-1',
+                sequence: 0,
                 actionType: 'update',
                 targetType: 'channel',
                 targetId: 'channel-1',
@@ -217,6 +306,7 @@ function createImportRunRecordBase() {
 function createFluxerStructure() {
     return {
         guildId: 'authorized-guild',
+        guildName: 'Authorized Guild',
         roles: [],
         categories: [],
         channels: [

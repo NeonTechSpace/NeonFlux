@@ -1,7 +1,11 @@
 import { Client, type Client as FluxerClient } from '@fluxerjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { applyFluxerBotGuildStructureAction, applyFluxerBotGuildStructureUpdate } from './guild-structure-apply.js';
+import {
+    applyFluxerBotGuildStructureAction,
+    applyFluxerBotGuildStructureActions,
+    applyFluxerBotGuildStructureUpdate,
+} from './guild-structure-apply.js';
 
 describe('applyFluxerBotGuildStructureAction', () => {
     afterEach(() => {
@@ -46,6 +50,118 @@ describe('applyFluxerBotGuildStructureAction', () => {
             parent_id: 'created-category-1',
         });
         expect(destroy).toHaveBeenCalledOnce();
+    });
+
+    it('reuses one client session for a batch of ordered actions', async () => {
+        const edit = vi.fn().mockResolvedValue(undefined);
+        const login = mockClientLogin({
+            channels: {
+                fetch: vi.fn().mockResolvedValue({ edit }),
+            },
+        });
+        const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: ' bot-token ',
+            guildId: ' guild-1 ',
+            actions: [
+                {
+                    id: 'action-1',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    changes: [{ field: 'name', after: 'general' }],
+                },
+                {
+                    id: 'action-2',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-2',
+                    changes: [{ field: 'name', after: 'updates' }],
+                },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(login).toHaveBeenCalledExactlyOnceWith('bot-token');
+        expect(edit).toHaveBeenCalledTimes(2);
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(result._unsafeUnwrap().actions).toStrictEqual([
+            { id: 'action-1', status: 'applied' },
+            { id: 'action-2', status: 'applied' },
+        ]);
+    });
+
+    it('applies channel parent and position updates', async () => {
+        const edit = vi.fn().mockResolvedValue(undefined);
+        const setChannelPositions = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    setChannelPositions,
+                    setRolePositions: vi.fn(),
+                }),
+            },
+            channels: {
+                fetch: vi.fn().mockResolvedValue({ edit }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureAction({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actionType: 'update',
+            targetType: 'channel',
+            targetId: 'channel-1',
+            idMap: {
+                'source-category-1': 'category-1',
+            },
+            changes: [
+                { field: 'parentId', before: null, after: 'source-category-1' },
+                { field: 'position', before: 0, after: 4 },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(edit).not.toHaveBeenCalled();
+        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parent_id: 'category-1', position: 4 }]);
+    });
+
+    it('applies role position updates except for @everyone', async () => {
+        const setRolePositions = vi.fn().mockResolvedValue([]);
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    fetchRole: vi.fn(),
+                    setChannelPositions: vi.fn(),
+                    setRolePositions,
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureAction({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actionType: 'update',
+            targetType: 'role',
+            targetId: 'role-1',
+            changes: [{ field: 'position', before: 1, after: 5 }],
+        });
+        const everyoneResult = await applyFluxerBotGuildStructureAction({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actionType: 'update',
+            targetType: 'role',
+            targetId: 'guild-1',
+            changes: [{ field: 'position', before: 0, after: 1 }],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(setRolePositions).toHaveBeenCalledWith([{ id: 'role-1', position: 5 }]);
+        expect(everyoneResult.isErr()).toBe(true);
+        expect(everyoneResult._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-value', field: 'position' });
     });
 
     it('applies mapped permission overwrites after creating channels', async () => {
@@ -111,6 +227,135 @@ describe('applyFluxerBotGuildStructureAction', () => {
             type: 0,
             allow: '0',
             deny: '2048',
+        });
+    });
+
+    it('records partial channel create failures with the created id and source map', async () => {
+        const createChannel = vi.fn().mockResolvedValue({ id: 'created-channel-1', guildId: 'guild-1' });
+        const editPermission = vi.fn().mockRejectedValue({ status: 403 });
+
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    createChannel,
+                }),
+            },
+            channels: {
+                fetch: vi.fn().mockResolvedValue({
+                    delete: vi.fn(),
+                    editPermission,
+                    deletePermission: vi.fn(),
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'target-guild-1',
+            actions: [
+                {
+                    id: 'action-create-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    after: {
+                        id: 'source-channel-1',
+                        name: 'announcements',
+                        type: 0,
+                        parentId: null,
+                        permissionOverwrites: [
+                            {
+                                id: 'target-guild-1',
+                                type: 0,
+                                allow: '0',
+                                deny: '2048',
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [
+                {
+                    id: 'action-create-channel',
+                    status: 'failed',
+                    createdId: 'created-channel-1',
+                    errorType: 'partial-create-failed',
+                    errorCauseType: 'permission-denied',
+                },
+            ],
+            idMap: {
+                'source-channel-1': 'created-channel-1',
+            },
+        });
+    });
+
+    it('repairs mapped retry creates instead of creating duplicate channels', async () => {
+        const createChannel = vi.fn();
+        const editPermission = vi.fn().mockResolvedValue(undefined);
+
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    createChannel,
+                }),
+            },
+            channels: {
+                fetch: vi.fn().mockResolvedValue({
+                    delete: vi.fn(),
+                    editPermission,
+                    deletePermission: vi.fn(),
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'target-guild-1',
+            idMap: {
+                'source-channel-1': 'created-channel-1',
+            },
+            actions: [
+                {
+                    id: 'retry-create-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    after: {
+                        id: 'source-channel-1',
+                        name: 'announcements',
+                        type: 0,
+                        parentId: null,
+                        permissionOverwrites: [
+                            {
+                                id: 'target-guild-1',
+                                type: 0,
+                                allow: '0',
+                                deny: '2048',
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(createChannel).not.toHaveBeenCalled();
+        expect(editPermission).toHaveBeenCalledWith('target-guild-1', {
+            type: 0,
+            allow: '0',
+            deny: '2048',
+        });
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [{ id: 'retry-create-channel', status: 'applied' }],
+            idMap: {
+                'source-channel-1': 'created-channel-1',
+            },
         });
     });
 

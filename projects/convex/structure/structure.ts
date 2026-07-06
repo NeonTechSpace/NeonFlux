@@ -1,41 +1,108 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
+import { dashboardLiveAreasForBotActionFeature } from '../core/dashboard_live_model.js';
+import { buildBotActionEventDocument } from '../core/events_model.js';
 import {
+    addDays,
+    buildBackupSortCursor,
     buildObservedEventStateDocument,
-    buildStructureExportSnapshotDocument,
+    buildStructureBackupAttemptPatch,
+    buildStructureBackupDocument,
+    buildStructureBackupLeaseClaimPatch,
+    buildStructureBackupLeaseClearPatch,
+    buildStructureBackupSettingsDocument,
+    buildStructureBackupSettingsPatch,
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
     buildStructureImportRunStatusPatch,
+    normalizeBackupName,
+    normalizeBackupRetentionDays,
     normalizeLimit,
     normalizeRequiredGuildId,
-    toStructureExportSnapshotRecord,
+    toStructureBackupRecord,
+    toStructureBackupSettingsRecord,
+    toStructureBackupSummaryRecord,
     toStructureImportActionRecord,
     toStructureImportRunRecord,
     toStructureObservedEventStateRecord,
-    type StructureExportSnapshotDocument,
+    type StructureBackupDocument,
+    type StructureBackupSettingsDocument,
     type StructureImportActionDocument,
     type StructureImportRunDocument,
     type StructureObservedEventStateDocument,
 } from './structure_model.js';
-import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+
 type StructureQueryCtx = QueryCtx;
 type StructureMutationCtx = MutationCtx;
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
-type StoredExportSnapshotDocument = StructureExportSnapshotDocument & { _id: GenericId<'structureExportSnapshots'> };
+type StoredBackupDocument = StructureBackupDocument & { _id: GenericId<'structureBackups'> };
+type StoredBackupSettingsDocument = StructureBackupSettingsDocument & { _id: GenericId<'structureBackupSettings'> };
 type StoredImportRunDocument = StructureImportRunDocument & { _id: GenericId<'structureImportRuns'> };
 type StoredImportActionDocument = StructureImportActionDocument & { _id: GenericId<'structureImportActions'> };
 type StoredObservedEventDocument = StructureObservedEventStateDocument & { _id: GenericId<'guildFeatureSettings'> };
 
 const allowedStructureServices = ['bot', 'web'] as const;
+const structureFeature = 'import_export';
 const nullableString = v.union(v.string(), v.null());
-const exportRecordValidator = v.object({
+const auditInputValidator = v.object({
+    action: v.string(),
+    actorUserId: v.optional(v.union(v.string(), v.null())),
+    metadata: v.optional(v.any()),
+    targetId: v.optional(v.union(v.string(), v.null())),
+});
+const backupRecordValidator = v.object({
+    categoryCount: v.number(),
+    channelCount: v.number(),
+    completedAt: v.string(),
     createdAt: v.string(),
     createdByUserId: nullableString,
+    errorMessage: nullableString,
     guildId: v.string(),
     id: v.string(),
-    snapshot: v.any(),
+    name: v.string(),
+    roleCount: v.number(),
     source: v.string(),
+    status: v.string(),
+    structure: v.union(v.any(), v.null()),
+});
+const backupSummaryRecordValidator = v.object({
+    categoryCount: v.number(),
+    channelCount: v.number(),
+    completedAt: v.string(),
+    createdAt: v.string(),
+    createdByUserId: nullableString,
+    errorMessage: nullableString,
+    guildId: v.string(),
+    id: v.string(),
+    name: v.string(),
+    roleCount: v.number(),
+    source: v.string(),
+    status: v.string(),
+});
+const backupSettingsValidator = v.object({
+    cadenceWeeks: v.number(),
+    createdAt: v.optional(v.string()),
+    enabled: v.boolean(),
+    guildId: v.string(),
+    lastAttemptAt: nullableString,
+    lastErrorMessage: nullableString,
+    lastSuccessAt: nullableString,
+    nextBackupAt: nullableString,
+    nextRetentionPruneAt: nullableString,
+    retentionDays: v.number(),
+    updatedAt: v.optional(v.string()),
+});
+const backupSummaryPageValidator = v.object({
+    backups: v.array(backupSummaryRecordValidator),
+    nextCursor: nullableString,
+});
+const backupRetentionPruneResultValidator = v.object({
+    deletedCount: v.number(),
+    hasMore: v.boolean(),
+    nextRetentionPruneAt: nullableString,
 });
 const actionRecordValidator = v.object({
     actionType: v.string(),
@@ -43,10 +110,15 @@ const actionRecordValidator = v.object({
     details: v.any(),
     id: v.string(),
     runId: v.string(),
+    sequence: v.number(),
     status: v.string(),
     targetId: nullableString,
     targetType: v.string(),
     updatedAt: v.string(),
+});
+const actionPageValidator = v.object({
+    actions: v.array(actionRecordValidator),
+    nextCursor: nullableString,
 });
 const runRecordValidator = v.object({
     appliedAt: nullableString,
@@ -56,22 +128,9 @@ const runRecordValidator = v.object({
     guildId: v.string(),
     id: v.string(),
     plan: v.any(),
-    sourceSnapshotId: nullableString,
+    sourceBackupId: nullableString,
     status: v.string(),
     updatedAt: v.string(),
-});
-const runWithActionsValidator = v.object({
-    appliedAt: nullableString,
-    confirmedAt: nullableString,
-    createdAt: v.string(),
-    createdByUserId: nullableString,
-    guildId: v.string(),
-    id: v.string(),
-    plan: v.any(),
-    sourceSnapshotId: nullableString,
-    status: v.string(),
-    updatedAt: v.string(),
-    actions: v.array(actionRecordValidator),
 });
 const observedStateValidator = v.object({
     createdAt: v.optional(v.string()),
@@ -81,7 +140,16 @@ const observedStateValidator = v.object({
     lastTargetId: v.optional(v.string()),
     lastTargetType: v.optional(v.string()),
     observedChangeCount: v.number(),
+    targetChangeCounts: v.record(v.string(), v.number()),
     updatedAt: v.optional(v.string()),
+});
+const importActionInputValidator = v.object({
+    actionType: v.string(),
+    details: v.optional(v.any()),
+    sequence: v.number(),
+    status: v.optional(v.string()),
+    targetId: v.optional(v.union(v.string(), v.null())),
+    targetType: v.string(),
 });
 
 export const findStructureObservedEventStateByGuildId = query({
@@ -92,7 +160,9 @@ export const findStructureObservedEventStateByGuildId = query({
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
         const state = await findObservedEventDocument(ctx, guildId);
 
-        return state ? toStructureObservedEventStateRecord(state) : { guildId, observedChangeCount: 0 };
+        return state
+            ? toStructureObservedEventStateRecord(state)
+            : { guildId, observedChangeCount: 0, targetChangeCounts: {} };
     },
 });
 
@@ -111,7 +181,9 @@ export const recordStructureObservedEvent = mutation({
         await requireGuildDocument(ctx, guildId);
 
         const existing = await findObservedEventDocument(ctx, guildId);
-        const current = existing ? toStructureObservedEventStateRecord(existing) : { guildId, observedChangeCount: 0 };
+        const current = existing
+            ? toStructureObservedEventStateRecord(existing)
+            : { guildId, observedChangeCount: 0, targetChangeCounts: {} };
         const document = unwrap(
             buildObservedEventStateDocument(
                 { ...args, guildId },
@@ -135,53 +207,342 @@ export const recordStructureObservedEvent = mutation({
     },
 });
 
-export const createStructureExportSnapshot = mutation({
+export const createStructureBackup = mutation({
     args: {
+        categoryCount: v.optional(v.number()),
+        audit: v.optional(auditInputValidator),
+        channelCount: v.optional(v.number()),
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.union(v.string(), v.null())),
+        errorMessage: v.optional(v.union(v.string(), v.null())),
         guildId: v.string(),
-        snapshot: v.any(),
+        name: v.optional(v.union(v.string(), v.null())),
+        roleCount: v.optional(v.number()),
+        serverName: v.optional(v.union(v.string(), v.null())),
         source: v.optional(v.string()),
+        status: v.optional(v.string()),
+        structure: v.optional(v.any()),
     },
-    returns: exportRecordValidator,
+    returns: backupRecordValidator,
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
 
         await requireGuildDocument(ctx, guildId);
 
-        const document = unwrap(buildStructureExportSnapshotDocument({ ...args, guildId }, new Date().toISOString()));
+        const now = new Date().toISOString();
+        const createdAt = normalizeTimestamp(args.createdAt) ?? now;
+        const document = unwrap(
+            buildStructureBackupDocument(
+                {
+                    ...args,
+                    createdAt,
+                    guildId,
+                    sortKey: buildBackupSortCursor({ createdAt, id: crypto.randomUUID() }),
+                },
+                now
+            )
+        );
+        const id = await ctx.db.insert('structureBackups', document);
+        await recordBackupAttempt(ctx, guildId, document.status, document.errorMessage, now);
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, now, id);
 
-        const id = await ctx.db.insert('structureExportSnapshots', document);
-
-        return toStructureExportSnapshotRecord({ ...document, _id: id });
+        return toStructureBackupRecord({ ...document, _id: id });
     },
 });
 
-export const listStructureExportSnapshotsByGuildId = query({
+export const listStructureBackupsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
-    returns: v.array(exportRecordValidator),
+    returns: v.array(backupRecordValidator),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const snapshots = await ctx.db
-            .query('structureExportSnapshots')
-            .withIndex('by_guild_created', (query) => query.eq('guildId', guildId))
+        const backups = await ctx.db
+            .query('structureBackups')
+            .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
             .order('desc')
             .take(normalizeLimit(args.limit));
 
-        return snapshots.map(toStructureExportSnapshotRecord);
+        return backups.map(toStructureBackupRecord);
     },
 });
 
-export const findStructureExportSnapshotByGuildId = query({
-    args: { guildId: v.string(), snapshotId: v.string() },
-    returns: v.union(exportRecordValidator, v.null()),
+export const listStructureBackupSummariesByGuildId = query({
+    args: { guildId: v.string(), limit: v.optional(v.number()) },
+    returns: v.array(backupSummaryRecordValidator),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
-        const snapshot = await findSnapshotById(ctx, parseSnapshotId(args.snapshotId));
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const backups = await ctx.db
+            .query('structureBackups')
+            .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
+            .order('desc')
+            .take(normalizeLimit(args.limit));
 
-        return snapshot?.guildId === args.guildId ? toStructureExportSnapshotRecord(snapshot) : null;
+        return backups.map(toStructureBackupSummaryRecord);
+    },
+});
+
+export const listStructureBackupSummaryPageByGuildId = query({
+    args: {
+        cursor: v.optional(v.union(v.string(), v.null())),
+        guildId: v.string(),
+        limit: v.optional(v.number()),
+    },
+    returns: backupSummaryPageValidator,
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const limit = normalizeLimit(args.limit);
+        const cursor = normalizeBackupSortCursor(args.cursor);
+        const queryWithCursor = cursor
+            ? ctx.db
+                  .query('structureBackups')
+                  .withIndex('by_guild_sort_key', (index) => index.eq('guildId', guildId).lt('sortKey', cursor))
+            : ctx.db.query('structureBackups').withIndex('by_guild_sort_key', (index) => index.eq('guildId', guildId));
+        const backups = await queryWithCursor.order('desc').take(limit + 1);
+        const page = backups.slice(0, limit);
+        const extra = backups.at(limit);
+
+        return {
+            backups: page.map(toStructureBackupSummaryRecord),
+            nextCursor: extra ? (page.at(-1)?.sortKey ?? extra.sortKey) : null,
+        };
+    },
+});
+
+export const renameStructureBackup = mutation({
+    args: { audit: v.optional(auditInputValidator), backupId: v.string(), guildId: v.string(), name: v.string() },
+    returns: v.union(backupSummaryRecordValidator, v.null()),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['web']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const backup = await findBackupById(ctx, parseBackupId(args.backupId));
+        if (backup?.guildId !== guildId) return null;
+
+        const name = normalizeBackupName(args.name, backup.name);
+        await ctx.db.patch(backup._id, { name });
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, new Date().toISOString(), backup._id);
+
+        return toStructureBackupSummaryRecord({ ...backup, name });
+    },
+});
+
+export const deleteStructureBackup = mutation({
+    args: { audit: v.optional(auditInputValidator), backupId: v.string(), guildId: v.string() },
+    returns: v.boolean(),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['web']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const backup = await findBackupById(ctx, parseBackupId(args.backupId));
+        if (backup?.guildId !== guildId) return false;
+
+        await ctx.db.delete(backup._id);
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, new Date().toISOString(), backup._id);
+
+        return true;
+    },
+});
+
+export const findStructureBackupByGuildId = query({
+    args: { backupId: v.string(), guildId: v.string() },
+    returns: v.union(backupRecordValidator, v.null()),
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const backup = await findBackupById(ctx, parseBackupId(args.backupId));
+
+        return backup?.guildId === args.guildId ? toStructureBackupRecord(backup) : null;
+    },
+});
+
+export const findStructureBackupSettingsByGuildId = query({
+    args: { guildId: v.string() },
+    returns: backupSettingsValidator,
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const settings = await findBackupSettingsDocument(ctx, guildId);
+
+        return toStructureBackupSettingsRecord(settings ?? undefined, guildId);
+    },
+});
+
+export const upsertStructureBackupSettings = mutation({
+    args: {
+        audit: v.optional(auditInputValidator),
+        cadenceWeeks: v.optional(v.number()),
+        enabled: v.boolean(),
+        guildId: v.string(),
+        retentionDays: v.optional(v.number()),
+    },
+    returns: backupSettingsValidator,
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        await requireGuildDocument(ctx, guildId);
+
+        const now = new Date().toISOString();
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        const patch = unwrap(buildStructureBackupSettingsPatch(existing ?? undefined, args, now));
+
+        if (existing) {
+            await ctx.db.patch(existing._id, patch);
+            const updated = await findBackupSettingsDocument(ctx, guildId);
+            await recordStructureAuditInMutation(ctx, guildId, args.audit, now, guildId);
+            return toStructureBackupSettingsRecord(updated ?? undefined, guildId);
+        }
+
+        const document = unwrap(buildStructureBackupSettingsDocument({ ...args, guildId }, now));
+        await ctx.db.insert('structureBackupSettings', document);
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, now, guildId);
+
+        return toStructureBackupSettingsRecord(document, guildId);
+    },
+});
+
+export const listDueStructureBackupSettings = query({
+    args: { limit: v.optional(v.number()), now: v.string() },
+    returns: v.array(backupSettingsValidator),
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const now = normalizeTimestamp(args.now);
+        if (!now) return [];
+        const limit = normalizeLimit(args.limit);
+
+        const settings = await ctx.db
+            .query('structureBackupSettings')
+            .withIndex('by_enabled_next_backup', (index) => index.eq('enabled', true).lte('nextBackupAt', now))
+            .take(Math.min(limit * 4, 100));
+
+        return settings
+            .filter((setting) => !hasActiveBackupLease(setting, now))
+            .slice(0, limit)
+            .map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+    },
+});
+
+export const listDueStructureBackupRetentionSettings = query({
+    args: { limit: v.optional(v.number()), now: v.string() },
+    returns: v.array(backupSettingsValidator),
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const now = normalizeTimestamp(args.now);
+        if (!now) return [];
+        const limit = normalizeLimit(args.limit);
+
+        const settings = await ctx.db
+            .query('structureBackupSettings')
+            .withIndex('by_next_retention_prune', (index) => index.lte('nextRetentionPruneAt', now))
+            .take(limit);
+
+        return settings.map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+    },
+});
+
+export const pruneExpiredStructureBackupsForGuild = mutation({
+    args: { guildId: v.string(), limit: v.optional(v.number()), now: v.string() },
+    returns: backupRetentionPruneResultValidator,
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const settings = await findBackupSettingsDocument(ctx, guildId);
+        if (!settings) {
+            return { deletedCount: 0, hasMore: false, nextRetentionPruneAt: null };
+        }
+
+        const limit = normalizeLimit(args.limit, 100);
+        const retentionDays = normalizeBackupRetentionDays(settings.retentionDays);
+        const cutoff = new Date(Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+        const expiredBackups = await ctx.db
+            .query('structureBackups')
+            .withIndex('by_guild_sort_key', (index) =>
+                index.eq('guildId', guildId).lt('sortKey', maxBackupSortKeyForTimestamp(cutoff))
+            )
+            .order('asc')
+            .take(limit + 1);
+        const page = expiredBackups.slice(0, limit);
+        const hasMore = expiredBackups.length > limit;
+
+        for (const backup of page) {
+            await ctx.db.delete(backup._id);
+        }
+
+        const nextRetentionPruneAt = hasMore ? now : addDays(now, 1);
+        await ctx.db.patch(settings._id, {
+            nextRetentionPruneAt,
+            retentionDays,
+            updatedAt: now,
+        });
+
+        return { deletedCount: page.length, hasMore, nextRetentionPruneAt };
+    },
+});
+
+export const claimDueStructureBackupSetting = mutation({
+    args: {
+        guildId: v.string(),
+        leaseExpiresAt: v.string(),
+        leaseId: v.string(),
+        leaseOwner: v.string(),
+        now: v.string(),
+    },
+    returns: v.union(backupSettingsValidator, v.null()),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        await requireGuildDocument(ctx, guildId);
+
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        const patch = unwrap(
+            buildStructureBackupLeaseClaimPatch(
+                existing ?? undefined,
+                {
+                    leaseExpiresAt: args.leaseExpiresAt,
+                    leaseId: args.leaseId,
+                    leaseOwner: args.leaseOwner,
+                },
+                now
+            )
+        );
+
+        if (!existing || !patch) return null;
+
+        await ctx.db.patch(existing._id, patch);
+        const updated = await findBackupSettingsDocument(ctx, guildId);
+
+        return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
+    },
+});
+
+export const clearStructureBackupSettingLease = mutation({
+    args: {
+        guildId: v.string(),
+        leaseId: v.string(),
+        now: v.string(),
+    },
+    returns: v.boolean(),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        const patch = unwrap(
+            buildStructureBackupLeaseClearPatch(existing ?? undefined, { leaseId: args.leaseId }, now)
+        );
+
+        if (!existing || !patch) return false;
+
+        await ctx.db.patch(existing._id, patch);
+
+        return true;
     },
 });
 
@@ -191,7 +552,7 @@ export const createStructureImportRun = mutation({
         createdByUserId: v.optional(v.union(v.string(), v.null())),
         guildId: v.string(),
         plan: v.optional(v.any()),
-        sourceSnapshotId: v.optional(v.union(v.string(), v.null())),
+        sourceBackupId: v.optional(v.union(v.string(), v.null())),
     },
     returns: runRecordValidator,
     handler: async (ctx: StructureMutationCtx, args) => {
@@ -199,10 +560,9 @@ export const createStructureImportRun = mutation({
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
 
         await requireGuildDocument(ctx, guildId);
-        await requireSourceSnapshotIfProvided(ctx, { guildId, sourceSnapshotId: args.sourceSnapshotId });
+        await requireSourceBackupIfProvided(ctx, { guildId, sourceBackupId: args.sourceBackupId });
 
         const document = unwrap(buildStructureImportRunDocument({ ...args, guildId }, new Date().toISOString()));
-
         const id = await ctx.db.insert('structureImportRuns', document);
 
         return toStructureImportRunRecord({ ...document, _id: id });
@@ -211,43 +571,42 @@ export const createStructureImportRun = mutation({
 
 export const listStructureImportRunsByGuildId = query({
     args: { guildId: v.string(), limit: v.optional(v.number()) },
-    returns: v.array(runWithActionsValidator),
+    returns: v.array(runRecordValidator),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
         const runs = await ctx.db
             .query('structureImportRuns')
-            .withIndex('by_guild_created', (query) => query.eq('guildId', guildId))
+            .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
             .order('desc')
             .take(normalizeLimit(args.limit));
 
-        return await Promise.all(runs.map((run) => toRunWithActions(ctx, run)));
+        return runs.map(toStructureImportRunRecord);
     },
 });
 
 export const findStructureImportRunByGuildId = query({
     args: { guildId: v.string(), runId: v.string() },
-    returns: v.union(runWithActionsValidator, v.null()),
+    returns: v.union(runRecordValidator, v.null()),
     handler: async (ctx: StructureQueryCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const run = await findRunById(ctx, parseRunId(args.runId));
 
-        return run?.guildId === args.guildId ? await toRunWithActions(ctx, run) : null;
+        return run?.guildId === args.guildId ? toStructureImportRunRecord(run) : null;
     },
 });
 
 export const updateStructureImportRunStatus = mutation({
-    args: { plan: v.optional(v.any()), runId: v.string(), status: v.string() },
+    args: { audit: v.optional(auditInputValidator), plan: v.optional(v.any()), runId: v.string(), status: v.string() },
     returns: v.union(runRecordValidator, v.null()),
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const run = await findRunById(ctx, parseRunId(args.runId));
-
         if (!run) return null;
 
         const patch = unwrap(buildStructureImportRunStatusPatch(run, args, new Date().toISOString()));
-
         await ctx.db.patch(run._id, patch);
+        await recordStructureAuditInMutation(ctx, run.guildId, args.audit, patch.updatedAt, run._id);
 
         return toStructureImportRunRecord({ ...run, ...patch });
     },
@@ -258,6 +617,7 @@ export const recordStructureImportAction = mutation({
         actionType: v.string(),
         details: v.optional(v.any()),
         runId: v.string(),
+        sequence: v.number(),
         status: v.optional(v.string()),
         targetId: v.optional(v.union(v.string(), v.null())),
         targetType: v.string(),
@@ -265,14 +625,66 @@ export const recordStructureImportAction = mutation({
     returns: actionRecordValidator,
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
+        const run = await requireRun(ctx, args.runId);
 
-        await requireRun(ctx, args.runId);
+        await assertAvailableImportActionSequence(ctx, run._id, args.sequence);
 
         const document = unwrap(buildStructureImportActionDocument(args, new Date().toISOString()));
-
         const id = await ctx.db.insert('structureImportActions', document);
 
         return toStructureImportActionRecord({ ...document, _id: id });
+    },
+});
+
+export const recordStructureImportActionsBatch = mutation({
+    args: { actions: v.array(importActionInputValidator), runId: v.string() },
+    returns: v.array(actionRecordValidator),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        if (args.actions.length < 1 || args.actions.length > 100) {
+            throw new Error('structure-import-action-batch-size-invalid');
+        }
+
+        const run = await requireRun(ctx, args.runId);
+        assertUniqueActionSequences(args.actions.map((action) => action.sequence));
+
+        const now = new Date().toISOString();
+        const records = [];
+        for (const action of args.actions) {
+            await assertAvailableImportActionSequence(ctx, run._id, action.sequence);
+            const document = unwrap(buildStructureImportActionDocument({ ...action, runId: args.runId }, now));
+            const id = await ctx.db.insert('structureImportActions', document);
+            records.push(toStructureImportActionRecord({ ...document, _id: id }));
+        }
+
+        return records;
+    },
+});
+
+export const listStructureImportActionsByRunIdPage = query({
+    args: { cursor: v.optional(v.union(v.string(), v.null())), limit: v.optional(v.number()), runId: v.string() },
+    returns: actionPageValidator,
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const runId = parseRunId(args.runId);
+        const limit = normalizeLimit(args.limit);
+        const cursor = normalizeCursor(args.cursor);
+        const queryWithCursor =
+            cursor === undefined
+                ? ctx.db
+                      .query('structureImportActions')
+                      .withIndex('by_run_sequence', (index) => index.eq('runId', runId))
+                : ctx.db
+                      .query('structureImportActions')
+                      .withIndex('by_run_sequence', (index) => index.eq('runId', runId).gt('sequence', cursor));
+        const actions = await queryWithCursor.order('asc').take(limit + 1);
+        const page = actions.slice(0, limit);
+        const extra = actions.at(limit);
+
+        return {
+            actions: page.map(toStructureImportActionRecord),
+            nextCursor: extra ? String(page.at(-1)?.sequence ?? extra.sequence) : null,
+        };
     },
 });
 
@@ -282,7 +694,6 @@ export const updateStructureImportActionStatus = mutation({
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const action = await findActionById(ctx, parseActionId(args.actionId));
-
         if (!action) return null;
 
         const details = isObjectRecord(args.details) ? args.details : action.details;
@@ -294,23 +705,75 @@ export const updateStructureImportActionStatus = mutation({
     },
 });
 
+async function recordBackupAttempt(
+    ctx: StructureMutationCtx,
+    guildId: string,
+    status: string,
+    errorMessage: string | undefined,
+    now: string
+): Promise<void> {
+    const existing = await findBackupSettingsDocument(ctx, guildId);
+    const patch = buildStructureBackupAttemptPatch(
+        existing ?? undefined,
+        { ...(errorMessage ? { errorMessage } : {}), status },
+        now
+    );
+
+    if (existing) {
+        await ctx.db.patch(existing._id, patch);
+        return;
+    }
+
+    const document = unwrap(buildStructureBackupSettingsDocument({ enabled: false, guildId }, now));
+    const backupSettingsDocument: StructureBackupSettingsDocument = {
+        ...document,
+        cadenceWeeks: patch.cadenceWeeks ?? document.cadenceWeeks,
+        enabled: patch.enabled ?? document.enabled,
+        ...(patch.lastAttemptAt ? { lastAttemptAt: patch.lastAttemptAt } : {}),
+        ...(patch.lastErrorMessage ? { lastErrorMessage: patch.lastErrorMessage } : {}),
+        ...(patch.lastSuccessAt ? { lastSuccessAt: patch.lastSuccessAt } : {}),
+        ...(patch.nextBackupAt ? { nextBackupAt: patch.nextBackupAt } : {}),
+        ...(patch.nextRetentionPruneAt ? { nextRetentionPruneAt: patch.nextRetentionPruneAt } : {}),
+        retentionDays: patch.retentionDays ?? document.retentionDays,
+        updatedAt: patch.updatedAt,
+    };
+    await ctx.db.insert('structureBackupSettings', backupSettingsDocument);
+}
+
 async function findObservedEventDocument(
     ctx: StructureQueryCtx | StructureMutationCtx,
     guildId: string
 ): Promise<StoredObservedEventDocument | null> {
     const row = await ctx.db
         .query('guildFeatureSettings')
-        .withIndex('by_guild_feature', (query) => query.eq('guildId', guildId).eq('feature', 'import_export'))
+        .withIndex('by_guild_feature', (index) => index.eq('guildId', guildId).eq('feature', 'import_export'))
         .unique();
 
     return row as StoredObservedEventDocument | null;
 }
 
-async function findSnapshotById(
+async function findBackupById(
     ctx: StructureQueryCtx | StructureMutationCtx,
-    snapshotId: GenericId<'structureExportSnapshots'>
-): Promise<StoredExportSnapshotDocument | null> {
-    return await ctx.db.get(snapshotId);
+    backupId: GenericId<'structureBackups'>
+): Promise<StoredBackupDocument | null> {
+    return await ctx.db.get(backupId);
+}
+
+async function findBackupSettingsDocument(
+    ctx: StructureQueryCtx | StructureMutationCtx,
+    guildId: string
+): Promise<StoredBackupSettingsDocument | null> {
+    return await ctx.db
+        .query('structureBackupSettings')
+        .withIndex('by_guild', (index) => index.eq('guildId', guildId))
+        .unique();
+}
+
+function hasActiveBackupLease(setting: StructureBackupSettingsDocument, now: string): boolean {
+    const leaseExpiresAt = Date.parse(setting.backupLeaseExpiresAt ?? '');
+    const parsedNow = Date.parse(now);
+
+    return Number.isFinite(leaseExpiresAt) && Number.isFinite(parsedNow) && leaseExpiresAt > parsedNow;
 }
 
 async function findRunById(
@@ -327,35 +790,15 @@ async function findActionById(
     return await ctx.db.get(actionId);
 }
 
-async function listActionsByRunId(
-    ctx: StructureQueryCtx,
-    runId: GenericId<'structureImportRuns'>
-): Promise<StoredImportActionDocument[]> {
-    return await ctx.db
-        .query('structureImportActions')
-        .withIndex('by_run_created', (query) => query.eq('runId', runId))
-        .order('asc')
-        .take(500);
-}
-
-async function toRunWithActions(ctx: StructureQueryCtx, run: StoredImportRunDocument) {
-    const actions = await listActionsByRunId(ctx, run._id);
-
-    return {
-        ...toStructureImportRunRecord(run),
-        actions: actions.map(toStructureImportActionRecord),
-    };
-}
-
-async function requireSourceSnapshotIfProvided(
+async function requireSourceBackupIfProvided(
     ctx: StructureMutationCtx,
-    input: { guildId: string; sourceSnapshotId?: string | null | undefined }
+    input: { guildId: string; sourceBackupId?: string | null | undefined }
 ): Promise<void> {
-    const sourceSnapshotId = normalizeOptionalString(input.sourceSnapshotId);
-    if (!sourceSnapshotId) return;
+    const sourceBackupId = normalizeOptionalString(input.sourceBackupId);
+    if (!sourceBackupId) return;
 
-    const snapshot = await findSnapshotById(ctx, parseSnapshotId(sourceSnapshotId));
-    if (snapshot?.guildId !== input.guildId) throw new Error('structure-export-snapshot-not-found');
+    const backup = await findBackupById(ctx, parseBackupId(sourceBackupId));
+    if (backup?.guildId !== input.guildId) throw new Error('structure-backup-not-found');
 }
 
 async function requireRun(ctx: StructureMutationCtx, runId: string): Promise<StoredImportRunDocument> {
@@ -364,14 +807,91 @@ async function requireRun(ctx: StructureMutationCtx, runId: string): Promise<Sto
     return run;
 }
 
+async function assertAvailableImportActionSequence(
+    ctx: StructureMutationCtx,
+    runId: GenericId<'structureImportRuns'>,
+    sequence: number
+): Promise<void> {
+    const existing = await ctx.db
+        .query('structureImportActions')
+        .withIndex('by_run_sequence', (index) => index.eq('runId', runId).eq('sequence', sequence))
+        .first();
+
+    if (existing) {
+        throw new Error('structure-import-action-sequence-duplicate');
+    }
+}
+
+async function recordStructureAuditInMutation(
+    ctx: StructureMutationCtx,
+    guildId: string,
+    audit: { action: string; actorUserId?: string | null; metadata?: unknown; targetId?: string | null } | undefined,
+    now: string,
+    defaultTargetId: string
+): Promise<void> {
+    if (!audit) return;
+
+    const document = unwrap(
+        buildBotActionEventDocument(
+            {
+                action: audit.action,
+                feature: structureFeature,
+                guildId,
+                metadata: audit.metadata,
+                targetId: audit.targetId ?? defaultTargetId,
+                ...(audit.actorUserId ? { actorUserId: audit.actorUserId } : {}),
+            },
+            now
+        )
+    );
+
+    await ctx.db.insert('botActionEvents', document);
+    await markDashboardLiveAreasChangedInMutation(ctx, {
+        areas: dashboardLiveAreasForBotActionFeature(document.feature),
+        guildId,
+        now: document.createdAt,
+    });
+}
+
+function assertUniqueActionSequences(sequences: number[]): void {
+    const uniqueSequences = new Set(sequences);
+
+    if (uniqueSequences.size !== sequences.length) {
+        throw new Error('structure-import-action-sequence-duplicate');
+    }
+}
+
 async function requireGuildDocument(ctx: StructureMutationCtx, guildId: string): Promise<StoredGuildDocument> {
     const guild = await ctx.db
         .query('guilds')
-        .withIndex('by_guild_id', (query) => query.eq('guildId', guildId))
+        .withIndex('by_guild_id', (index) => index.eq('guildId', guildId))
         .unique();
 
     if (!guild) throw new Error('guild-not-found');
     return guild;
+}
+
+function normalizeCursor(value: string | null | undefined): number | undefined {
+    if (!value) return undefined;
+    const cursor = Number(value);
+    return Number.isInteger(cursor) && cursor >= 0 ? cursor : undefined;
+}
+
+function normalizeBackupSortCursor(value: string | null | undefined): string | undefined {
+    const normalized = normalizeOptionalString(value);
+    if (!normalized) return undefined;
+
+    const [timestamp, id] = normalized.split('|', 2);
+    return normalizeTimestamp(timestamp) && id ? normalized : undefined;
+}
+
+function maxBackupSortKeyForTimestamp(timestamp: string): string {
+    return `${timestamp}|\uffff`;
+}
+
+function normalizeTimestamp(value: string | null | undefined): string | undefined {
+    const parsed = Date.parse(value ?? '');
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
@@ -389,8 +909,8 @@ function unwrapRequiredString(value: string, field: string): string {
     return normalizedValue;
 }
 
-function parseSnapshotId(snapshotId: string): GenericId<'structureExportSnapshots'> {
-    return unwrapRequiredString(snapshotId, 'snapshotId') as GenericId<'structureExportSnapshots'>;
+function parseBackupId(backupId: string): GenericId<'structureBackups'> {
+    return unwrapRequiredString(backupId, 'backupId') as GenericId<'structureBackups'>;
 }
 
 function parseRunId(runId: string): GenericId<'structureImportRuns'> {

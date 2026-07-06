@@ -8,10 +8,11 @@ export const structureImportActionsTable = defineTable({
     createdAt: timestamp,
     details: jsonValue,
     runId: v.id('structureImportRuns'),
+    sequence: v.number(),
     status: v.string(),
     targetId: optionalString,
     targetType: v.string(),
     updatedAt: timestamp,
 })
-    .index('by_run_created', ['runId', 'createdAt'])
+    .index('by_run_sequence', ['runId', 'sequence'])
     .index('by_run_status', ['runId', 'status']);

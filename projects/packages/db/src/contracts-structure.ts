@@ -1,12 +1,91 @@
 import type { GuildFeatureRepositoryError } from './contracts.js';
 
-export type StructureExportSnapshotRecord = {
+export const STRUCTURE_IMPORT_EXPORT_FEATURE = 'import_export';
+
+export const structureBackupSources = {
+    manual: 'manual',
+    scheduled: 'scheduled',
+} as const;
+
+export const structureBackupStatuses = {
+    failed: 'failed',
+    succeeded: 'succeeded',
+} as const;
+
+export const structureImportRunStatuses = {
+    applied: 'applied',
+    applying: 'applying',
+    cancelled: 'cancelled',
+    confirmed: 'confirmed',
+    draft: 'draft',
+    dryRunComplete: 'dry_run_complete',
+    failed: 'failed',
+} as const;
+
+export const structureImportActionStatuses = {
+    applied: 'applied',
+    dryRun: 'dry_run',
+    failed: 'failed',
+    pending: 'pending',
+} as const;
+
+export const structureAuditActions = {
+    backupCreated: 'structure.backup_created',
+    backupDeleted: 'structure.backup_deleted',
+    backupFailed: 'structure.backup_failed',
+    backupImportCreated: 'structure.backup_import_created',
+    backupRenamed: 'structure.backup_renamed',
+    backupRetentionPruned: 'structure.backup_retention_pruned',
+    backupSettingsUpdated: 'structure.backup_settings_updated',
+    importApplied: 'structure.import_applied',
+    importConfirmed: 'structure.import_confirmed',
+    importDryRunCreated: 'structure.import_dry_run_created',
+    importFailed: 'structure.import_failed',
+    importPreflightChecked: 'structure.import_preflight_checked',
+    importRetryCreated: 'structure.import_retry_created',
+} as const;
+
+export type StructureBackupRecord = {
     id: string;
     guildId: string;
+    name: string;
     createdByUserId: string | null;
     source: string;
-    snapshot: Record<string, unknown>;
+    status: string;
+    errorMessage: string | null;
+    structure: Record<string, unknown> | null;
+    roleCount: number;
+    categoryCount: number;
+    channelCount: number;
     createdAt: Date;
+    completedAt: Date;
+};
+
+export type StructureBackupSummaryRecord = Omit<StructureBackupRecord, 'structure'>;
+
+export type StructureBackupSummaryPageRecord = {
+    backups: StructureBackupSummaryRecord[];
+    nextCursor: string | null;
+};
+
+export type StructureBackupSettingsRecord = {
+    guildId: string;
+    enabled: boolean;
+    cadenceWeeks: number;
+    lastAttemptAt: Date | null;
+    lastSuccessAt: Date | null;
+    lastErrorMessage: string | null;
+    nextBackupAt: Date | null;
+    nextRetentionPruneAt: Date | null;
+    retentionDays: number;
+    createdAt?: Date;
+    updatedAt?: Date;
+};
+
+export type StructureBackupRetentionPruneRecord = {
+    deletedCount: number;
+    hasMore: boolean;
+    nextRetentionPruneAt: Date | null;
 };
 
 export type StructureImportRunRecord = {
@@ -14,7 +93,7 @@ export type StructureImportRunRecord = {
     guildId: string;
     createdByUserId: string | null;
     status: string;
-    sourceSnapshotId: string | null;
+    sourceBackupId: string | null;
     plan: Record<string, unknown>;
     createdAt: Date;
     updatedAt: Date;
@@ -25,6 +104,7 @@ export type StructureImportRunRecord = {
 export type StructureImportActionRecord = {
     id: string;
     runId: string;
+    sequence: number;
     actionType: string;
     targetType: string;
     targetId: string | null;
@@ -32,6 +112,11 @@ export type StructureImportActionRecord = {
     details: Record<string, unknown>;
     createdAt: Date;
     updatedAt: Date;
+};
+
+export type StructureImportActionPageRecord = {
+    actions: StructureImportActionRecord[];
+    nextCursor: string | null;
 };
 
 export type StructureImportExportRepositoryError = GuildFeatureRepositoryError;
@@ -43,6 +128,7 @@ export type StructureImportRunWithActionsRecord = StructureImportRunRecord & {
 export type StructureObservedEventStateRecord = {
     guildId: string;
     observedChangeCount: number;
+    targetChangeCounts: Record<string, number>;
     lastEventType?: string;
     lastTargetType?: string;
     lastTargetId?: string;
@@ -50,5 +136,3 @@ export type StructureObservedEventStateRecord = {
     createdAt?: Date;
     updatedAt?: Date;
 };
-
-export const STRUCTURE_IMPORT_EXPORT_FEATURE = 'import_export';

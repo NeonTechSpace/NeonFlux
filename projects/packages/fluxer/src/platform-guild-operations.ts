@@ -13,6 +13,14 @@ type EditableGuildChannel = {
     edit(options: { name?: string; user_limit?: number | null }): Promise<unknown>;
 };
 
+type ChannelPositionableGuild = {
+    setChannelPositions(updates: Array<{ id: string; parent_id?: string | null; position?: number }>): Promise<unknown>;
+};
+
+type RolePositionableGuild = {
+    setRolePositions(updates: Array<{ id: string; position?: number }>): Promise<unknown>;
+};
+
 type EditableGuildMember = {
     edit(options: { communication_disabled_until?: string | null; timeout_reason?: string | null }): Promise<unknown>;
 };
@@ -22,11 +30,15 @@ type CreateChannelInput = {
     type: 0 | 2 | 4 | 5;
     name: string;
     parentId?: string | null;
+    position?: number;
 };
 
 type EditChannelInput = {
     channelId: string;
+    guildId?: string;
     name?: string;
+    parentId?: string | null;
+    position?: number;
     userLimit?: number | null;
 };
 
@@ -48,12 +60,14 @@ type RoleVisualInput = {
 type CreateRoleInput = RoleVisualInput & {
     guildId: string;
     name: string;
+    position?: number;
 };
 
 type EditRoleInput = RoleVisualInput & {
     guildId: string;
     roleId: string;
     name?: string;
+    position?: number;
 };
 
 type EditableGuildRole = {
@@ -352,6 +366,9 @@ async function createChannel(
     if (inputResult.isErr()) {
         return err(inputResult.error);
     }
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
 
     const parentId = input.parentId?.trim();
     const normalizedParentId = parentId !== undefined && parentId.length > 0 ? parentId : null;
@@ -361,6 +378,7 @@ async function createChannel(
             type: input.type,
             name: input.name.trim(),
             ...(input.parentId !== undefined ? { parent_id: normalizedParentId } : {}),
+            ...(input.position !== undefined ? { position: input.position } : {}),
         });
 
         return {
@@ -417,9 +435,15 @@ async function editChannel(
     ) {
         return err({ type: 'invalid-value', field: 'userLimit' });
     }
-    if (!name && input.userLimit === undefined) {
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
+    if (!name && input.userLimit === undefined && input.parentId === undefined && input.position === undefined) {
         return err({ type: 'missing-input', field: 'channel' });
     }
+
+    const parentId = input.parentId?.trim();
+    const normalizedParentId = parentId !== undefined && parentId.length > 0 ? parentId : null;
 
     try {
         const channel = await client.channels.fetch(input.channelId.trim());
@@ -428,10 +452,28 @@ async function editChannel(
             return err({ type: 'not-found' });
         }
 
-        await channel.edit({
-            ...(name ? { name } : {}),
-            ...(input.userLimit !== undefined ? { user_limit: input.userLimit } : {}),
-        });
+        if (name || input.userLimit !== undefined) {
+            await channel.edit({
+                ...(name ? { name } : {}),
+                ...(input.userLimit !== undefined ? { user_limit: input.userLimit } : {}),
+            });
+        }
+
+        if (input.parentId !== undefined || input.position !== undefined) {
+            const guildId = input.guildId?.trim();
+            if (!guildId) return err({ type: 'missing-input', field: 'guildId' });
+
+            const guild = await client.guilds.fetch(guildId);
+            if (!isChannelPositionableGuild(guild)) return err({ type: 'not-found' });
+
+            await guild.setChannelPositions([
+                {
+                    id: input.channelId.trim(),
+                    ...(input.parentId !== undefined ? { parent_id: normalizedParentId } : {}),
+                    ...(input.position !== undefined ? { position: input.position } : {}),
+                },
+            ]);
+        }
 
         return ok(undefined);
     } catch (error) {
@@ -506,11 +548,15 @@ async function createRole(
     const visualResult = normalizeRoleVisualInput(input);
 
     if (visualResult.isErr()) return err(visualResult.error);
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
 
     return runGuildAction(client, input.guildId, async (guild) => {
         const role = await guild.createRole({
             name: input.name.trim(),
             ...visualResult.value,
+            ...(input.position !== undefined ? { position: input.position } : {}),
         });
 
         return {
@@ -534,13 +580,21 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
     const visualResult = normalizeRoleVisualInput(input);
 
     if (visualResult.isErr()) return err(visualResult.error);
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
+    if (input.position !== undefined && input.roleId.trim() === input.guildId.trim()) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
 
     const options = {
         ...(name ? { name } : {}),
         ...visualResult.value,
     };
 
-    if (Object.keys(options).length === 0) return err({ type: 'missing-input', field: 'role' });
+    if (Object.keys(options).length === 0 && input.position === undefined) {
+        return err({ type: 'missing-input', field: 'role' });
+    }
 
     try {
         const guild = await client.guilds.fetch(input.guildId.trim());
@@ -549,13 +603,21 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
             return err({ type: 'not-found' });
         }
 
-        const role = await guild.fetchRole(input.roleId.trim());
+        if (Object.keys(options).length > 0) {
+            const role = await guild.fetchRole(input.roleId.trim());
 
-        if (!isEditableGuildRole(role)) {
-            return err({ type: 'not-found' });
+            if (!isEditableGuildRole(role)) {
+                return err({ type: 'not-found' });
+            }
+
+            await role.edit(options);
         }
 
-        await role.edit(options);
+        if (input.position !== undefined) {
+            if (!isRolePositionableGuild(guild)) return err({ type: 'not-found' });
+
+            await guild.setRolePositions([{ id: input.roleId.trim(), position: input.position }]);
+        }
 
         return ok(undefined);
     } catch (error) {
@@ -614,6 +676,26 @@ function isMutableGuildChannel(channel: unknown): channel is MutableGuildChannel
         typeof possibleChannel.editPermission === 'function' &&
         typeof possibleChannel.deletePermission === 'function'
     );
+}
+
+function isChannelPositionableGuild(guild: unknown): guild is ChannelPositionableGuild {
+    if (typeof guild !== 'object' || guild === null) {
+        return false;
+    }
+
+    const possibleGuild = guild as { setChannelPositions?: unknown };
+
+    return typeof possibleGuild.setChannelPositions === 'function';
+}
+
+function isRolePositionableGuild(guild: unknown): guild is RolePositionableGuild {
+    if (typeof guild !== 'object' || guild === null) {
+        return false;
+    }
+
+    const possibleGuild = guild as { setRolePositions?: unknown };
+
+    return typeof possibleGuild.setRolePositions === 'function';
 }
 
 function normalizeRoleVisualInput(

@@ -1,19 +1,92 @@
 import type { GenericId } from 'convex/values';
 
-export type StructureExportSnapshotInput = {
+export const STRUCTURE_BACKUP_SOURCE = {
+    manual: 'manual',
+    scheduled: 'scheduled',
+} as const;
+
+export const STRUCTURE_BACKUP_STATUS = {
+    failed: 'failed',
+    succeeded: 'succeeded',
+} as const;
+
+export const STRUCTURE_BACKUP_NAME_MAX_LENGTH = 120;
+export const STRUCTURE_BACKUP_RETENTION_DAYS_DEFAULT = 180;
+export const STRUCTURE_BACKUP_RETENTION_DAYS_MAX = 180;
+
+export const STRUCTURE_IMPORT_RUN_STATUS = {
+    applied: 'applied',
+    applying: 'applying',
+    cancelled: 'cancelled',
+    confirmed: 'confirmed',
+    draft: 'draft',
+    dryRunComplete: 'dry_run_complete',
+    failed: 'failed',
+} as const;
+
+export const STRUCTURE_IMPORT_ACTION_STATUS = {
+    applied: 'applied',
+    dryRun: 'dry_run',
+    failed: 'failed',
+    pending: 'pending',
+} as const;
+
+export type StructureBackupInput = {
+    categoryCount?: number | null;
+    channelCount?: number | null;
+    completedAt?: string | null;
     createdAt?: string | null;
     createdByUserId?: string | null;
+    errorMessage?: string | null;
     guildId?: string | null;
-    snapshot?: Record<string, unknown> | null;
+    name?: string | null;
+    roleCount?: number | null;
+    serverName?: string | null;
+    sortKey?: string | null;
     source?: string | null;
+    status?: string | null;
+    structure?: Record<string, unknown> | null;
 };
 
-export type StructureExportSnapshotDocument = {
+export type StructureBackupDocument = {
+    categoryCount: number;
+    channelCount: number;
+    completedAt: string;
     createdAt: string;
     createdByUserId?: string;
+    errorMessage?: string;
     guildId: string;
-    snapshot: Record<string, unknown>;
+    name: string;
+    roleCount: number;
+    sortKey: string;
     source: string;
+    status: string;
+    structure?: Record<string, unknown>;
+};
+
+export type StructureBackupSettingsInput = {
+    cadenceWeeks?: number | null;
+    enabled?: boolean | null;
+    guildId?: string | null;
+    retentionDays?: number | null;
+};
+
+export type StructureBackupSettingsDocument = {
+    backupLeaseExpiresAt?: string;
+    backupLeaseId?: string;
+    backupLeaseOwner?: string;
+    backupLeaseStartedAt?: string;
+    cadenceWeeks: number;
+    createdAt: string;
+    enabled: boolean;
+    guildId: string;
+    lastAttemptAt?: string;
+    lastErrorMessage?: string;
+    lastSuccessAt?: string;
+    nextBackupAt?: string;
+    nextRetentionPruneAt?: string;
+    retentionDays: number;
+    updatedAt: string;
 };
 
 export type StructureImportRunInput = {
@@ -23,7 +96,7 @@ export type StructureImportRunInput = {
     createdByUserId?: string | null;
     guildId?: string | null;
     plan?: Record<string, unknown> | null;
-    sourceSnapshotId?: string | null;
+    sourceBackupId?: string | null;
     status?: string | null;
     updatedAt?: string | null;
 };
@@ -35,7 +108,7 @@ export type StructureImportRunDocument = {
     createdByUserId?: string;
     guildId: string;
     plan: Record<string, unknown>;
-    sourceSnapshotId?: GenericId<'structureExportSnapshots'>;
+    sourceBackupId?: GenericId<'structureBackups'>;
     status: string;
     updatedAt: string;
 };
@@ -45,6 +118,7 @@ export type StructureImportActionInput = {
     createdAt?: string | null;
     details?: Record<string, unknown> | null;
     runId?: string | null;
+    sequence?: number | null;
     status?: string | null;
     targetId?: string | null;
     targetType?: string | null;
@@ -56,6 +130,7 @@ export type StructureImportActionDocument = {
     createdAt: string;
     details: Record<string, unknown>;
     runId: GenericId<'structureImportRuns'>;
+    sequence: number;
     status: string;
     targetId?: string;
     targetType: string;
@@ -71,13 +146,36 @@ export type StructureObservedEventStateDocument = {
     updatedAt: string;
 };
 
-export type StructureExportSnapshotRecord = {
+export type StructureBackupRecord = {
+    categoryCount: number;
+    channelCount: number;
+    completedAt: string;
     createdAt: string;
     createdByUserId: string | null;
+    errorMessage: string | null;
     guildId: string;
     id: string;
-    snapshot: Record<string, unknown>;
+    name: string;
+    roleCount: number;
     source: string;
+    status: string;
+    structure: Record<string, unknown> | null;
+};
+
+export type StructureBackupSummaryRecord = Omit<StructureBackupRecord, 'structure'>;
+
+export type StructureBackupSettingsRecord = {
+    cadenceWeeks: number;
+    createdAt?: string;
+    enabled: boolean;
+    guildId: string;
+    lastAttemptAt: string | null;
+    lastErrorMessage: string | null;
+    lastSuccessAt: string | null;
+    nextBackupAt: string | null;
+    nextRetentionPruneAt: string | null;
+    retentionDays: number;
+    updatedAt?: string;
 };
 
 export type StructureImportRunRecord = {
@@ -88,7 +186,7 @@ export type StructureImportRunRecord = {
     guildId: string;
     id: string;
     plan: Record<string, unknown>;
-    sourceSnapshotId: string | null;
+    sourceBackupId: string | null;
     status: string;
     updatedAt: string;
 };
@@ -99,10 +197,16 @@ export type StructureImportActionRecord = {
     details: Record<string, unknown>;
     id: string;
     runId: string;
+    sequence: number;
     status: string;
     targetId: string | null;
     targetType: string;
     updatedAt: string;
+};
+
+export type StructureImportActionPageRecord = {
+    actions: StructureImportActionRecord[];
+    nextCursor: string | null;
 };
 
 export type StructureImportRunWithActionsRecord = StructureImportRunRecord & {
@@ -117,6 +221,7 @@ export type StructureObservedEventStateRecord = {
     lastTargetId?: string;
     lastTargetType?: string;
     observedChangeCount: number;
+    targetChangeCounts: Record<string, number>;
     updatedAt?: string;
 };
 
@@ -124,6 +229,21 @@ export type StructureInputError =
     | { field: string; type: 'invalid-value' | 'missing-input' }
     | { from: string; to: string; type: 'invalid-status-transition' };
 export type StructureInputResult<Value> = { ok: true; value: Value } | { error: StructureInputError; ok: false };
+export type StructureBackupSettingsPatch = {
+    backupLeaseExpiresAt?: string | undefined;
+    backupLeaseId?: string | undefined;
+    backupLeaseOwner?: string | undefined;
+    backupLeaseStartedAt?: string | undefined;
+    cadenceWeeks?: number;
+    enabled?: boolean;
+    lastAttemptAt?: string | undefined;
+    lastErrorMessage?: string | undefined;
+    lastSuccessAt?: string | undefined;
+    nextBackupAt?: string | undefined;
+    nextRetentionPruneAt?: string | undefined;
+    retentionDays?: number;
+    updatedAt: string;
+};
 export type StructureImportRunStatusPatch = {
     appliedAt?: string;
     confirmedAt?: string;
@@ -133,38 +253,208 @@ export type StructureImportRunStatusPatch = {
 };
 
 const importRunStatusTransitions = new Map<string, readonly string[]>([
-    ['draft', ['dry_run_complete', 'cancelled']],
-    ['dry_run_complete', ['confirmed', 'cancelled']],
-    ['confirmed', ['applying', 'cancelled']],
-    ['applying', ['applied', 'failed']],
-    ['applied', []],
-    ['cancelled', []],
-    ['failed', []],
+    [
+        STRUCTURE_IMPORT_RUN_STATUS.draft,
+        [STRUCTURE_IMPORT_RUN_STATUS.dryRunComplete, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
+    ],
+    [
+        STRUCTURE_IMPORT_RUN_STATUS.dryRunComplete,
+        [STRUCTURE_IMPORT_RUN_STATUS.confirmed, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
+    ],
+    [
+        STRUCTURE_IMPORT_RUN_STATUS.confirmed,
+        [STRUCTURE_IMPORT_RUN_STATUS.applying, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
+    ],
+    [STRUCTURE_IMPORT_RUN_STATUS.applying, [STRUCTURE_IMPORT_RUN_STATUS.applied, STRUCTURE_IMPORT_RUN_STATUS.failed]],
+    [STRUCTURE_IMPORT_RUN_STATUS.applied, []],
+    [STRUCTURE_IMPORT_RUN_STATUS.cancelled, []],
+    [STRUCTURE_IMPORT_RUN_STATUS.failed, []],
 ]);
 
-export function buildStructureExportSnapshotDocument(
-    input: StructureExportSnapshotInput,
+export function buildStructureBackupDocument(
+    input: StructureBackupInput,
     now: string
-): StructureInputResult<StructureExportSnapshotDocument> {
+): StructureInputResult<StructureBackupDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
-    const snapshot = normalizeRecord(input.snapshot);
     const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
+    const completedAt = input.completedAt === undefined ? now : normalizeTimestamp(input.completedAt);
+    const source = normalizeBackupSource(input.source);
+    const status = normalizeBackupStatus(input.status);
+    const structure = normalizeRecord(input.structure);
 
     if (!guildId.ok) return guildId;
-    if (!snapshot) return { error: { field: 'snapshot', type: 'invalid-value' }, ok: false };
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
+    if (!completedAt) return { error: { field: 'completedAt', type: 'invalid-value' }, ok: false };
+    if (!source) return { error: { field: 'source', type: 'invalid-value' }, ok: false };
+    if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
+    if (status === STRUCTURE_BACKUP_STATUS.succeeded && !structure) {
+        return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
+    }
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
+    const errorMessage = normalizeOptionalString(input.errorMessage);
+    const name = normalizeBackupName(
+        input.name,
+        buildDefaultBackupName({
+            completedAt,
+            fallbackName: guildId.value,
+            serverName: input.serverName,
+        })
+    );
 
     return {
         ok: true,
         value: {
+            categoryCount: normalizeNonNegativeInteger(input.categoryCount),
+            channelCount: normalizeNonNegativeInteger(input.channelCount),
+            completedAt,
             createdAt,
             ...(createdByUserId ? { createdByUserId } : {}),
+            ...(errorMessage ? { errorMessage } : {}),
             guildId: guildId.value,
-            snapshot,
-            source: normalizeOptionalString(input.source) ?? 'bot',
+            name,
+            roleCount: normalizeNonNegativeInteger(input.roleCount),
+            sortKey: normalizeBackupSortKey(input.sortKey, createdAt),
+            source,
+            status,
+            ...(structure ? { structure } : {}),
         },
+    };
+}
+
+export function buildStructureBackupSettingsDocument(
+    input: StructureBackupSettingsInput,
+    now: string
+): StructureInputResult<StructureBackupSettingsDocument> {
+    const guildId = normalizeRequiredString(input.guildId, 'guildId');
+    if (!guildId.ok) return guildId;
+
+    const cadenceWeeks = normalizeCadenceWeeks(input.cadenceWeeks);
+    const retentionDays = normalizeBackupRetentionDays(input.retentionDays);
+
+    return {
+        ok: true,
+        value: {
+            cadenceWeeks,
+            createdAt: now,
+            enabled: input.enabled === true,
+            guildId: guildId.value,
+            ...(input.enabled === true ? { nextBackupAt: addWeeks(now, cadenceWeeks) } : {}),
+            nextRetentionPruneAt: now,
+            retentionDays,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureBackupSettingsPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: StructureBackupSettingsInput,
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch> {
+    const cadenceWeeks = normalizeCadenceWeeks(input.cadenceWeeks ?? existing?.cadenceWeeks ?? 1);
+    const enabled = input.enabled ?? existing?.enabled ?? false;
+    const retentionDays = normalizeBackupRetentionDays(input.retentionDays ?? existing?.retentionDays);
+    const cadenceChanged = input.cadenceWeeks !== undefined && input.cadenceWeeks !== existing?.cadenceWeeks;
+    const enabledChanged = input.enabled !== undefined && input.enabled !== existing?.enabled;
+
+    return {
+        ok: true,
+        value: {
+            cadenceWeeks,
+            enabled,
+            nextBackupAt:
+                enabled && (cadenceChanged || enabledChanged || !existing?.nextBackupAt)
+                    ? addWeeks(now, cadenceWeeks)
+                    : enabled
+                      ? existing?.nextBackupAt
+                      : undefined,
+            nextRetentionPruneAt: existing?.nextRetentionPruneAt ?? now,
+            retentionDays,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureBackupLeaseClaimPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: {
+        leaseExpiresAt?: string | null;
+        leaseId?: string | null;
+        leaseOwner?: string | null;
+    },
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch | null> {
+    const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+    const leaseOwner = normalizeRequiredString(input.leaseOwner, 'leaseOwner');
+    const leaseExpiresAt = normalizeTimestamp(input.leaseExpiresAt);
+    const parsedNow = Date.parse(now);
+    const parsedLeaseExpiresAt = Date.parse(leaseExpiresAt ?? '');
+
+    if (!leaseId.ok) return leaseId;
+    if (!leaseOwner.ok) return leaseOwner;
+    if (!Number.isFinite(parsedNow)) return { error: { field: 'now', type: 'invalid-value' }, ok: false };
+    if (!leaseExpiresAt || !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow) {
+        return { error: { field: 'leaseExpiresAt', type: 'invalid-value' }, ok: false };
+    }
+    if (!isBackupDueAndClaimable(existing, now)) return { ok: true, value: null };
+
+    return {
+        ok: true,
+        value: {
+            backupLeaseExpiresAt: leaseExpiresAt,
+            backupLeaseId: leaseId.value,
+            backupLeaseOwner: leaseOwner.value,
+            backupLeaseStartedAt: now,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureBackupLeaseClearPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: { leaseId?: string | null },
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch | null> {
+    const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+    const parsedNow = Date.parse(now);
+
+    if (!leaseId.ok) return leaseId;
+    if (!Number.isFinite(parsedNow)) return { error: { field: 'now', type: 'invalid-value' }, ok: false };
+    if (existing?.backupLeaseId !== leaseId.value) return { ok: true, value: null };
+
+    return {
+        ok: true,
+        value: {
+            backupLeaseExpiresAt: undefined,
+            backupLeaseId: undefined,
+            backupLeaseOwner: undefined,
+            backupLeaseStartedAt: undefined,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureBackupAttemptPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: { errorMessage?: string | null; status: string },
+    now: string
+): StructureBackupSettingsPatch {
+    const cadenceWeeks = normalizeCadenceWeeks(existing?.cadenceWeeks ?? 1);
+    const succeeded = input.status === STRUCTURE_BACKUP_STATUS.succeeded;
+    const nextBackupAt = existing?.enabled ? addWeeks(now, cadenceWeeks) : undefined;
+    const errorMessage = succeeded ? undefined : (normalizeOptionalString(input.errorMessage) ?? 'Backup failed.');
+
+    return {
+        cadenceWeeks,
+        enabled: existing?.enabled ?? false,
+        lastAttemptAt: now,
+        lastErrorMessage: errorMessage,
+        ...(succeeded ? { lastSuccessAt: now } : {}),
+        nextBackupAt,
+        nextRetentionPruneAt: existing?.nextRetentionPruneAt ?? now,
+        retentionDays: normalizeBackupRetentionDays(existing?.retentionDays),
+        updatedAt: now,
     };
 }
 
@@ -191,7 +481,7 @@ export function buildStructureImportRunDocument(
     }
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
-    const sourceSnapshotId = normalizeOptionalString(input.sourceSnapshotId);
+    const sourceBackupId = normalizeOptionalString(input.sourceBackupId);
 
     return {
         ok: true,
@@ -202,10 +492,8 @@ export function buildStructureImportRunDocument(
             ...(createdByUserId ? { createdByUserId } : {}),
             guildId: guildId.value,
             plan,
-            ...(sourceSnapshotId
-                ? { sourceSnapshotId: sourceSnapshotId as GenericId<'structureExportSnapshots'> }
-                : {}),
-            status: normalizeOptionalString(input.status) ?? 'draft',
+            ...(sourceBackupId ? { sourceBackupId: sourceBackupId as GenericId<'structureBackups'> } : {}),
+            status: normalizeOptionalString(input.status) ?? STRUCTURE_IMPORT_RUN_STATUS.draft,
             updatedAt,
         },
     };
@@ -225,8 +513,8 @@ export function buildStructureImportRunStatusPatch(
     const transition = assertAllowedStatusTransition(existing.status, status.value);
     if (!transition.ok) return transition;
 
-    const appliedAt = status.value === 'applied' ? now : existing.appliedAt;
-    const confirmedAt = status.value === 'confirmed' ? now : existing.confirmedAt;
+    const appliedAt = status.value === STRUCTURE_IMPORT_RUN_STATUS.applied ? now : existing.appliedAt;
+    const confirmedAt = status.value === STRUCTURE_IMPORT_RUN_STATUS.confirmed ? now : existing.confirmedAt;
 
     return {
         ok: true,
@@ -258,7 +546,10 @@ export function buildStructureImportActionDocument(
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
     if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
 
+    const sequence = normalizeRequiredNonNegativeInteger(input.sequence);
     const targetId = normalizeOptionalString(input.targetId);
+
+    if (sequence === undefined) return { error: { field: 'sequence', type: 'invalid-value' }, ok: false };
 
     return {
         ok: true,
@@ -267,7 +558,8 @@ export function buildStructureImportActionDocument(
             createdAt,
             details,
             runId: runId.value as GenericId<'structureImportRuns'>,
-            status: normalizeOptionalString(input.status) ?? 'pending',
+            sequence,
+            status: normalizeOptionalString(input.status) ?? STRUCTURE_IMPORT_ACTION_STATUS.pending,
             ...(targetId ? { targetId } : {}),
             targetType: targetType.value,
             updatedAt,
@@ -290,12 +582,17 @@ export function buildObservedEventStateDocument(
     if (!targetType.ok) return targetType;
 
     const targetId = normalizeOptionalString(input.targetId);
+    const targetChangeCounts = {
+        ...existing.targetChangeCounts,
+        [targetType.value]: (existing.targetChangeCounts[targetType.value] ?? 0) + 1,
+    };
     const config = {
         lastEventType: eventType.value,
         lastObservedAt: now,
         ...(targetId ? { lastTargetId: targetId } : {}),
         lastTargetType: targetType.value,
         observedChangeCount: existing.observedChangeCount + 1,
+        targetChangeCounts,
     };
 
     return {
@@ -311,16 +608,75 @@ export function buildObservedEventStateDocument(
     };
 }
 
-export function toStructureExportSnapshotRecord(
-    document: StructureExportSnapshotDocument & { _id: string }
-): StructureExportSnapshotRecord {
+export function toStructureBackupRecord(document: StructureBackupDocument & { _id: string }): StructureBackupRecord {
+    const name = normalizeBackupName(
+        (document as StructureBackupDocument & { name?: string }).name,
+        buildDefaultBackupName({
+            completedAt: document.completedAt,
+            fallbackName: document.guildId,
+        })
+    );
+
     return {
+        categoryCount: document.categoryCount,
+        channelCount: document.channelCount,
+        completedAt: document.completedAt,
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
+        errorMessage: document.errorMessage ?? null,
         guildId: document.guildId,
         id: document._id,
-        snapshot: document.snapshot,
+        name,
+        roleCount: document.roleCount,
         source: document.source,
+        status: document.status,
+        structure: document.structure ?? null,
+    };
+}
+
+export function toStructureBackupSummaryRecord(
+    document: StructureBackupDocument & { _id: string }
+): StructureBackupSummaryRecord {
+    const name = normalizeBackupName(
+        (document as StructureBackupDocument & { name?: string }).name,
+        buildDefaultBackupName({
+            completedAt: document.completedAt,
+            fallbackName: document.guildId,
+        })
+    );
+
+    return {
+        categoryCount: document.categoryCount,
+        channelCount: document.channelCount,
+        completedAt: document.completedAt,
+        createdAt: document.createdAt,
+        createdByUserId: document.createdByUserId ?? null,
+        errorMessage: document.errorMessage ?? null,
+        guildId: document.guildId,
+        id: document._id,
+        name,
+        roleCount: document.roleCount,
+        source: document.source,
+        status: document.status,
+    };
+}
+
+export function toStructureBackupSettingsRecord(
+    document: StructureBackupSettingsDocument | undefined,
+    guildId: string
+): StructureBackupSettingsRecord {
+    return {
+        cadenceWeeks: normalizeCadenceWeeks(document?.cadenceWeeks ?? 1),
+        ...(document?.createdAt ? { createdAt: document.createdAt } : {}),
+        enabled: document?.enabled ?? false,
+        guildId,
+        lastAttemptAt: document?.lastAttemptAt ?? null,
+        lastErrorMessage: document?.lastErrorMessage ?? null,
+        lastSuccessAt: document?.lastSuccessAt ?? null,
+        nextBackupAt: document?.nextBackupAt ?? null,
+        nextRetentionPruneAt: document?.nextRetentionPruneAt ?? null,
+        retentionDays: normalizeBackupRetentionDays(document?.retentionDays),
+        ...(document?.updatedAt ? { updatedAt: document.updatedAt } : {}),
     };
 }
 
@@ -335,7 +691,7 @@ export function toStructureImportRunRecord(
         guildId: document.guildId,
         id: document._id,
         plan: document.plan,
-        sourceSnapshotId: document.sourceSnapshotId ?? null,
+        sourceBackupId: document.sourceBackupId ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
     };
@@ -350,6 +706,7 @@ export function toStructureImportActionRecord(
         details: document.details,
         id: document._id,
         runId: document.runId,
+        sequence: document.sequence,
         status: document.status,
         targetId: document.targetId ?? null,
         targetType: document.targetType,
@@ -377,6 +734,7 @@ export function toStructureObservedEventStateRecord(input: {
         ...(lastTargetId ? { lastTargetId } : {}),
         ...(lastTargetType ? { lastTargetType } : {}),
         observedChangeCount: readNonNegativeInteger(config.observedChangeCount),
+        targetChangeCounts: readTargetChangeCounts(config.targetChangeCounts),
         ...(input.updatedAt ? { updatedAt: input.updatedAt } : {}),
     };
 }
@@ -390,9 +748,90 @@ export function normalizeLimit(limit: number | undefined, fallback = 20): number
     return Math.min(Math.max(Math.trunc(limit), 1), 100);
 }
 
+export function normalizeCadenceWeeks(value: number | null | undefined): number {
+    if (value === undefined || value === null || !Number.isFinite(value)) return 1;
+    return Math.max(1, Math.trunc(value));
+}
+
+export function normalizeBackupRetentionDays(value: number | null | undefined): number {
+    if (value === undefined || value === null || !Number.isFinite(value))
+        return STRUCTURE_BACKUP_RETENTION_DAYS_DEFAULT;
+    return Math.min(Math.max(Math.trunc(value), 1), STRUCTURE_BACKUP_RETENTION_DAYS_MAX);
+}
+
+export function normalizeBackupName(value: string | null | undefined, fallback: string): string {
+    const normalizedValue = normalizeDisplayText(value);
+    const normalizedFallback = normalizeDisplayText(fallback) ?? 'Server backup';
+    return (normalizedValue ?? normalizedFallback).slice(0, STRUCTURE_BACKUP_NAME_MAX_LENGTH);
+}
+
+export function buildDefaultBackupName(input: {
+    completedAt: string;
+    fallbackName: string;
+    serverName?: string | null | undefined;
+}): string {
+    const parsed = Date.parse(input.completedAt);
+    const timestamp = Number.isFinite(parsed) ? new Date(parsed) : new Date();
+    const iso = timestamp.toISOString();
+    const date = iso.slice(0, 10);
+    const time = iso.slice(11, 16).replace(':', '-');
+    const displayName = normalizeDisplayText(input.serverName) ?? normalizeDisplayText(input.fallbackName) ?? 'Server';
+
+    return normalizeBackupName(`${displayName} - ${date} - ${time}`, 'Server backup');
+}
+
+export function buildBackupSortCursor(input: { createdAt: string; id: string }): string {
+    return `${input.createdAt}|${input.id}`;
+}
+
+export function addWeeks(value: string, weeks: number): string {
+    const parsed = Date.parse(value);
+    const start = Number.isFinite(parsed) ? parsed : Date.now();
+    return new Date(start + normalizeCadenceWeeks(weeks) * 7 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+export function addDays(value: string, days: number): string {
+    const parsed = Date.parse(value);
+    const start = Number.isFinite(parsed) ? parsed : Date.now();
+    return new Date(start + Math.max(1, Math.trunc(days)) * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isBackupDueAndClaimable(existing: StructureBackupSettingsDocument | undefined, now: string): boolean {
+    if (!existing?.enabled || !existing.nextBackupAt) return false;
+
+    const parsedNow = Date.parse(now);
+    const parsedNextBackupAt = Date.parse(existing.nextBackupAt);
+    const parsedLeaseExpiresAt = Date.parse(existing.backupLeaseExpiresAt ?? '');
+
+    if (!Number.isFinite(parsedNow) || !Number.isFinite(parsedNextBackupAt) || parsedNextBackupAt > parsedNow) {
+        return false;
+    }
+
+    return !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow;
+}
+
 function assertAllowedStatusTransition(from: string, to: string): StructureInputResult<undefined> {
     if (from === to || importRunStatusTransitions.get(from)?.includes(to)) return { ok: true, value: undefined };
     return { error: { from, to, type: 'invalid-status-transition' }, ok: false };
+}
+
+function normalizeBackupSource(value: string | null | undefined): string | undefined {
+    const source = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_SOURCE.manual;
+    return source === STRUCTURE_BACKUP_SOURCE.manual || source === STRUCTURE_BACKUP_SOURCE.scheduled
+        ? source
+        : undefined;
+}
+
+function normalizeBackupSortKey(value: string | null | undefined, createdAt: string): string {
+    const normalized = normalizeDisplayText(value);
+    return normalized ?? buildBackupSortCursor({ createdAt, id: '00000000-0000-4000-8000-000000000000' });
+}
+
+function normalizeBackupStatus(value: string | null | undefined): string | undefined {
+    const status = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_STATUS.succeeded;
+    return status === STRUCTURE_BACKUP_STATUS.succeeded || status === STRUCTURE_BACKUP_STATUS.failed
+        ? status
+        : undefined;
 }
 
 function normalizeRequiredString(value: string | null | undefined, field: string): StructureInputResult<string> {
@@ -407,6 +846,11 @@ function normalizeOptionalString(value: string | null | undefined): string | und
     return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
 }
 
+function normalizeDisplayText(value: string | null | undefined): string | undefined {
+    const normalizedValue = value?.replace(/\s+/g, ' ').trim();
+    return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
+}
+
 function normalizeTimestamp(value: string | null | undefined): string | undefined {
     const parsed = Date.parse(value ?? '');
     return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
@@ -416,6 +860,14 @@ function normalizeRecord(value: unknown): Record<string, unknown> | undefined {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : undefined;
+}
+
+function normalizeNonNegativeInteger(value: number | null | undefined): number {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
+}
+
+function normalizeRequiredNonNegativeInteger(value: number | null | undefined): number | undefined {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : undefined;
 }
 
 function readNonNegativeInteger(value: unknown): number {
@@ -430,4 +882,15 @@ function readStringField(config: Record<string, unknown>, field: string): string
 function readTimestampField(config: Record<string, unknown>, field: string): string | undefined {
     const value = config[field];
     return typeof value === 'string' ? normalizeTimestamp(value) : undefined;
+}
+
+function readTargetChangeCounts(value: unknown): Record<string, number> {
+    const record = normalizeRecord(value);
+    if (!record) return {};
+
+    return Object.fromEntries(
+        Object.entries(record)
+            .map(([key, count]) => [key, readNonNegativeInteger(count)] as const)
+            .filter(([, count]) => count > 0)
+    );
 }

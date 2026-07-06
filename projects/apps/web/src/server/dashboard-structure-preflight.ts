@@ -46,6 +46,7 @@ export type DashboardStructurePreflightReport = {
 
 export type DashboardStructurePreflightOptions = {
     allowDestructiveDeletes?: boolean;
+    idMap?: Record<string, string>;
     sourceGuildId?: string;
 };
 
@@ -53,9 +54,9 @@ type StructureItem = FluxerGuildRole | FluxerGuildChannel;
 type TargetType = 'role' | 'category' | 'channel';
 
 const supportedUpdateFields = new Map<TargetType, ReadonlySet<string>>([
-    ['role', new Set(['name', 'permissions', 'color', 'hoist', 'mentionable'])],
-    ['category', new Set(['name', 'permissionOverwrites'])],
-    ['channel', new Set(['name', 'permissionOverwrites'])],
+    ['role', new Set(['name', 'position', 'permissions', 'color', 'hoist', 'mentionable'])],
+    ['category', new Set(['name', 'position', 'permissionOverwrites'])],
+    ['channel', new Set(['name', 'parentId', 'position', 'permissionOverwrites'])],
 ]);
 
 export function preflightDashboardStructureImportPlan(
@@ -117,7 +118,13 @@ function preflightCreateAction(
     }
 
     if (findCurrentItem(current, targetType, action.targetId)) {
-        return toPreflightAction(action, 'stale', 'The create target already exists in the current server structure.');
+        return toPreflightAction(action, 'stale', 'The create target already exists in the current server layout.');
+    }
+
+    const mappedTargetId = action.targetId ? options.idMap?.[action.targetId] : undefined;
+
+    if (mappedTargetId) {
+        return preflightMappedCreateRepairAction(current, action, targetType, actions, after, mappedTargetId, options);
     }
 
     if (targetType === 'role') {
@@ -125,6 +132,87 @@ function preflightCreateAction(
     }
 
     return preflightChannelCreateAction(current, action, targetType, actions, after, options);
+}
+
+function preflightMappedCreateRepairAction(
+    current: DashboardStructureSnapshot,
+    action: DashboardStructurePreflightInputAction,
+    targetType: TargetType,
+    actions: DashboardStructurePreflightInputAction[],
+    after: Record<string, unknown>,
+    mappedTargetId: string,
+    options: DashboardStructurePreflightOptions
+): DashboardStructurePreflightAction {
+    const mappedItem = findCurrentItem(current, targetType, mappedTargetId);
+
+    if (!mappedItem) {
+        return toPreflightAction(
+            action,
+            'stale',
+            'The previously created retry target no longer exists in the current server layout.'
+        );
+    }
+
+    if (targetType === 'role') {
+        return toPreflightAction(action, 'stale', 'The mapped role already exists and cannot be created again.');
+    }
+    const mappedChannel = mappedItem as FluxerGuildChannel;
+
+    if (typeof after.name !== 'string' || !after.name.trim() || typeof after.type !== 'number') {
+        return toPreflightAction(action, 'invalid-plan', 'The mapped create repair target is missing required fields.');
+    }
+    if (targetType === 'category' && after.type !== 4) {
+        return toPreflightAction(
+            action,
+            'invalid-plan',
+            'Mapped category create repair targets must use category type 4.'
+        );
+    }
+    if (targetType === 'channel' && after.type === 4) {
+        return toPreflightAction(
+            action,
+            'invalid-plan',
+            'Mapped channel create repair targets cannot use category type 4.'
+        );
+    }
+    if (!isSupportedChannelType(after.type)) {
+        return toPreflightAction(action, 'unsupported', `Channel type ${after.type} is not supported for repair.`);
+    }
+
+    const expectedParentId = typeof after.parentId === 'string' && after.parentId.trim() ? after.parentId.trim() : null;
+    const mappedParentId = expectedParentId ? (options.idMap?.[expectedParentId] ?? expectedParentId) : null;
+
+    if (mappedChannel.name !== after.name.trim()) {
+        return toPreflightAction(action, 'stale', 'The previously created retry target was renamed after creation.');
+    }
+    if (mappedChannel.type !== after.type) {
+        return toPreflightAction(action, 'stale', 'The previously created retry target changed type after creation.');
+    }
+    if (mappedChannel.parentId !== mappedParentId) {
+        return toPreflightAction(action, 'stale', 'The previously created retry target moved after creation.');
+    }
+
+    const permissionOverwrites = normalizePermissionOverwrites(after.permissionOverwrites);
+
+    if (!permissionOverwrites) {
+        return toPreflightAction(
+            action,
+            'invalid-plan',
+            'The mapped create repair target has invalid permission overwrites.'
+        );
+    }
+
+    const overwriteValidation = validatePermissionOverwriteTargets(current, actions, permissionOverwrites, options);
+
+    if (overwriteValidation) {
+        return toPreflightAction(action, overwriteValidation.status, overwriteValidation.message);
+    }
+
+    return toPreflightAction(
+        action,
+        'ready',
+        'The previously created item exists. Retry will repair its permission overwrites instead of creating it again.'
+    );
 }
 
 function preflightRoleCreateAction(
@@ -146,10 +234,14 @@ function preflightRoleCreateAction(
         return toPreflightAction(action, 'invalid-plan', 'The role create target has an invalid color.');
     }
 
+    if (!isValidPosition(after.position)) {
+        return toPreflightAction(action, 'invalid-plan', 'The role create target has an invalid position.');
+    }
+
     return toPreflightAction(
         action,
         'ready',
-        'The role can be created with name, permissions, color, hoist, and mentionable settings. Role position is not applied yet.'
+        'The role can be created with name, position, permissions, color, hoist, and mentionable settings.'
     );
 }
 
@@ -186,6 +278,9 @@ function preflightChannelCreateAction(
             'The channel create target has invalid permission overwrites.'
         );
     }
+    if (after.position !== undefined && after.position !== null && !isValidPosition(after.position)) {
+        return toPreflightAction(action, 'invalid-plan', 'The channel create target has an invalid position.');
+    }
 
     const overwriteValidation = validatePermissionOverwriteTargets(current, actions, permissionOverwrites, options);
 
@@ -196,10 +291,10 @@ function preflightChannelCreateAction(
     const parentId = typeof after.parentId === 'string' && after.parentId.trim() ? after.parentId.trim() : null;
 
     if (targetType === 'category' && parentId) {
-        return toPreflightAction(action, 'unsupported', 'Nested categories are not supported.');
+        return toPreflightAction(action, 'invalid-plan', 'Categories cannot have parent categories.');
     }
 
-    if (parentId && !isResolvableCategoryId(current, actions, parentId)) {
+    if (parentId && !isResolvableCategoryId(current, actions, parentId, options)) {
         return toPreflightAction(
             action,
             'mapping-required',
@@ -210,7 +305,7 @@ function preflightChannelCreateAction(
     return toPreflightAction(
         action,
         'ready',
-        'The item can be created. Position is tracked in the dry-run but not applied yet.'
+        'The item can be created with name, parent, optional position, and permission overwrites.'
     );
 }
 
@@ -223,7 +318,7 @@ function preflightDeleteAction(
     const currentItem = findCurrentItem(current, targetType, action.targetId);
 
     if (!currentItem) {
-        return toPreflightAction(action, 'stale', 'The target no longer exists in the current server structure.');
+        return toPreflightAction(action, 'stale', 'The target no longer exists in the current server layout.');
     }
 
     if (stableValueKey(currentItem) !== stableValueKey(action.details.before)) {
@@ -244,14 +339,29 @@ function preflightUpdateAction(
     actions: DashboardStructurePreflightInputAction[],
     options: DashboardStructurePreflightOptions
 ): DashboardStructurePreflightAction {
-    const currentItem = findCurrentItem(current, targetType, action.targetId);
+    const targetId = action.targetId;
+
+    if (!targetId) {
+        return toPreflightAction(action, 'invalid-plan', 'The update action is missing a target.');
+    }
+
     const changes = normalizeChanges(action.details.changes);
 
-    if (!currentItem) {
-        return toPreflightAction(action, 'stale', 'The target no longer exists in the current server structure.');
-    }
     if (!changes) {
         return toPreflightAction(action, 'invalid-plan', 'The update action does not contain valid field changes.');
+    }
+    if (
+        targetType === 'role' &&
+        targetId === current.guildId &&
+        changes.some((change) => change.field === 'position')
+    ) {
+        return toPreflightAction(action, 'invalid-plan', 'The @everyone role cannot be moved.');
+    }
+
+    const currentItem = findCurrentItem(current, targetType, targetId);
+
+    if (!currentItem) {
+        return toPreflightAction(action, 'stale', 'The target no longer exists in the current server layout.');
     }
 
     const staleField = changes.find(
@@ -277,6 +387,12 @@ function preflightUpdateAction(
 
     if (overwriteValidation) {
         return toPreflightAction(action, overwriteValidation.status, overwriteValidation.message);
+    }
+
+    const layoutValidation = validateLayoutChanges(current, actions, targetType, targetId, changes, options);
+
+    if (layoutValidation) {
+        return toPreflightAction(action, layoutValidation.status, layoutValidation.message);
     }
 
     return toPreflightAction(action, 'ready', 'The target still matches the dry-run baseline.');
@@ -324,10 +440,12 @@ function normalizeCreateTarget(value: unknown): Record<string, unknown> | undefi
 function isResolvableCategoryId(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
-    parentId: string
+    parentId: string,
+    options: DashboardStructurePreflightOptions
 ): boolean {
     return (
         current.categories.some((category) => category.id === parentId) ||
+        current.categories.some((category) => category.id === options.idMap?.[parentId]) ||
         actions.some(
             (action) =>
                 action.actionType === 'create' && action.targetType === 'category' && action.targetId === parentId
@@ -415,6 +533,42 @@ function validatePermissionOverwriteTargets(
     return undefined;
 }
 
+function validateLayoutChanges(
+    current: DashboardStructureSnapshot,
+    actions: DashboardStructurePreflightInputAction[],
+    targetType: TargetType,
+    targetId: string,
+    changes: Array<{ field: string; before: unknown; after: unknown }>,
+    options: DashboardStructurePreflightOptions
+): { status: 'mapping-required' | 'unsupported' | 'invalid-plan'; message: string } | undefined {
+    for (const change of changes) {
+        if (change.field === 'position' && !isValidPosition(change.after)) {
+            return { status: 'invalid-plan', message: 'The position update must be a non-negative integer.' };
+        }
+        if (targetType === 'role' && change.field === 'position' && current.guildId === targetId) {
+            return { status: 'invalid-plan', message: 'The @everyone role cannot be moved.' };
+        }
+
+        if (change.field !== 'parentId') continue;
+
+        if (targetType === 'category') {
+            return { status: 'invalid-plan', message: 'Categories cannot have parent categories.' };
+        }
+        if (change.after === null || change.after === undefined) continue;
+        if (typeof change.after !== 'string' || !change.after.trim()) {
+            return { status: 'invalid-plan', message: 'The channel parent update is invalid.' };
+        }
+        if (!isResolvableCategoryId(current, actions, change.after, options)) {
+            return {
+                status: 'mapping-required',
+                message: 'The channel parent category must exist or be created earlier in this import plan.',
+            };
+        }
+    }
+
+    return undefined;
+}
+
 function isResolvableRoleOverwriteId(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
@@ -424,6 +578,7 @@ function isResolvableRoleOverwriteId(
     return (
         current.guildId === roleId ||
         options.sourceGuildId === roleId ||
+        current.roles.some((role) => role.id === options.idMap?.[roleId]) ||
         current.roles.some((role) => role.id === roleId) ||
         actions.some(
             (action) => action.actionType === 'create' && action.targetType === 'role' && action.targetId === roleId
@@ -470,6 +625,10 @@ function findDuplicateOverwriteKey(overwrites: readonly PermissionOverwrite[]): 
     }
 
     return undefined;
+}
+
+function isValidPosition(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function normalizeTargetType(targetType: string): TargetType | undefined {

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { getDashboardAuditEventsQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardAuditEventsBaseQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
 import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
@@ -81,7 +81,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     setEmbedJson('');
                     setFormMessage({ type: 'success', text: `Message sent to ${payload.channelLabel}.` });
                     await queryClient.invalidateQueries({
-                        queryKey: getDashboardAuditEventsQueryKey(guildId),
+                        queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
                     });
                     return;
 
@@ -91,7 +91,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         text: 'Message sent, but NeonFlux could not record the posting audit trail.',
                     });
                     await queryClient.invalidateQueries({
-                        queryKey: getDashboardAuditEventsQueryKey(guildId),
+                        queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
                     });
                     return;
 

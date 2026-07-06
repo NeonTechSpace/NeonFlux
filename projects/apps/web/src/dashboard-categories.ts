@@ -183,10 +183,10 @@ export const dashboardCategories = [
     },
     {
         id: 'structure',
-        label: 'Structure',
+        label: 'Server Blueprint',
         path: 'structure',
         to: '/dashboard/$guildId/structure',
-        description: 'Import, export, dry-run, and apply server structure changes.',
+        description: 'Import, export, dry-run, and apply supported server layout changes.',
         icon: GitBranch,
         status: 'active',
     },
@@ -390,7 +390,7 @@ const dashboardSubNavigation = {
         implemented(
             'import-export',
             'Import / Export',
-            'Import, export, dry-run, and apply server structure.',
+            'Import, export, dry-run, and apply server layout.',
             '/dashboard/$guildId/structure/import-export',
             GitBranch
         ),

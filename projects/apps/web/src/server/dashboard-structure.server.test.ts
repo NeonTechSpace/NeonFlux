@@ -1,30 +1,36 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
 import {
-    createStructureExportSnapshot,
+    createStructureBackup,
     createStructureImportRun,
-    findStructureImportRunByGuildId,
+    findStructureBackupByGuildId,
+    findStructureBackupSettingsByGuildId,
+    findStructureImportRunWithActionsByGuildId,
     findStructureObservedEventStateByGuildId,
-    listStructureExportSnapshotsByGuildId,
+    listStructureBackupSummaryPageByGuildId,
     listStructureImportRunsByGuildId,
-    recordBotActionEvent,
-    recordStructureImportAction,
+    recordStructureImportActionsBatch,
     updateStructureImportRunStatus,
 } from '@neonflux/db';
+import type { StructureImportActionRecord, StructureImportRunWithActionsRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
     confirmDashboardStructureImportRun,
     createDashboardStructureImportDryRun,
+    downloadDashboardStructureExport,
     exportDashboardStructure,
     loadDashboardStructureSettings,
+    readDashboardStructureBackupJson,
+    retryDashboardStructureImportRun,
+    toDashboardImportRun,
 } from './dashboard-structure.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
@@ -66,14 +72,15 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
-        createStructureExportSnapshot: vi.fn(),
+        createStructureBackup: vi.fn(),
         createStructureImportRun: vi.fn(),
-        findStructureImportRunByGuildId: vi.fn(),
+        findStructureBackupByGuildId: vi.fn(),
+        findStructureBackupSettingsByGuildId: vi.fn(),
+        findStructureImportRunWithActionsByGuildId: vi.fn(),
         findStructureObservedEventStateByGuildId: vi.fn(),
-        listStructureExportSnapshotsByGuildId: vi.fn(),
+        listStructureBackupSummaryPageByGuildId: vi.fn(),
         listStructureImportRunsByGuildId: vi.fn(),
-        recordBotActionEvent: vi.fn(),
-        recordStructureImportAction: vi.fn(),
+        recordStructureImportActionsBatch: vi.fn(),
         updateStructureImportRunStatus: vi.fn(),
     };
 });
@@ -118,12 +125,16 @@ describe('dashboard structure import/export', () => {
             })
         );
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure()));
-        vi.mocked(listStructureExportSnapshotsByGuildId).mockResolvedValue(ok([createExportRecord()]));
+        vi.mocked(listStructureBackupSummaryPageByGuildId).mockResolvedValue(
+            ok({ backups: [createExportRecord()], nextCursor: null })
+        );
+        vi.mocked(findStructureBackupSettingsByGuildId).mockResolvedValue(ok(createBackupSettingsRecord()));
         vi.mocked(listStructureImportRunsByGuildId).mockResolvedValue(ok([createImportRunRecord()]));
         vi.mocked(findStructureObservedEventStateByGuildId).mockResolvedValue(
             ok({
                 guildId: 'authorized-guild',
                 observedChangeCount: 2,
+                targetChangeCounts: { channel: 2 },
                 lastEventType: 'channel.updated',
                 lastTargetType: 'channel',
                 lastTargetId: 'channel-1',
@@ -132,65 +143,77 @@ describe('dashboard structure import/export', () => {
                 updatedAt: new Date('2026-06-26T10:30:00.000Z'),
             })
         );
-        vi.mocked(createStructureExportSnapshot).mockResolvedValue(ok(createExportRecord()));
+        vi.mocked(createStructureBackup).mockResolvedValue(ok(createExportRecord()));
+        vi.mocked(findStructureBackupByGuildId).mockResolvedValue(ok(createExportRecord()));
         vi.mocked(createStructureImportRun).mockResolvedValue(ok(createImportRunRecord({ status: 'draft' })));
-        vi.mocked(findStructureImportRunByGuildId).mockResolvedValue(ok(createImportRunRecord()));
-        vi.mocked(recordStructureImportAction).mockResolvedValue(ok(createImportActionRecord()));
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createImportRunRecord()));
+        vi.mocked(recordStructureImportActionsBatch).mockResolvedValue(ok([createImportActionRecord()]));
         vi.mocked(updateStructureImportRunStatus).mockResolvedValue(
             ok(createImportRunRecord({ status: 'dry_run_complete' }))
         );
-        vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createAuditEventRecord()));
     });
 
     afterEach(() => {
         vi.clearAllMocks();
     });
 
-    it('loads persisted structure history through the authorized guild scope', async () => {
+    it('loads persisted server blueprint history through the authorized guild scope', async () => {
         const result = await loadDashboardStructureSettings(request, 'requested-guild');
 
         expect(result).toStrictEqual({
             type: 'settings',
-            exports: [
+            backups: [
                 {
                     id: 'export-1',
-                    source: 'dashboard',
+                    name: 'Authorized Guild - 2026-06-26 - 10-00',
+                    source: 'manual',
+                    status: 'succeeded',
                     createdByUserId: 'actor-1',
                     createdAt: '2026-06-26T10:00:00.000Z',
+                    completedAt: '2026-06-26T10:00:00.000Z',
                     roleCount: 1,
                     categoryCount: 1,
                     channelCount: 1,
                 },
             ],
+            backupSettings: {
+                enabled: false,
+                cadenceWeeks: 1,
+                retentionDays: 180,
+                lastAttemptAt: '2026-06-26T10:00:00.000Z',
+                lastSuccessAt: '2026-06-26T10:00:00.000Z',
+            },
             importRuns: [
                 expect.objectContaining({
                     id: 'run-1',
                     status: 'dry_run_complete',
-                    actions: [expect.objectContaining({ actionType: 'update' })],
+                    actionCount: 1,
                 }),
             ],
             observedState: {
                 observedChangeCount: 2,
+                targetChangeCounts: { channel: 2 },
+                changedSinceLastBackup: true,
                 lastEventType: 'channel.updated',
                 lastTargetType: 'channel',
                 lastTargetId: 'channel-1',
                 lastObservedAt: '2026-06-26T10:30:00.000Z',
             },
         });
-        expect(listStructureExportSnapshotsByGuildId).toHaveBeenCalledWith(
+        expect(listStructureBackupSummaryPageByGuildId).toHaveBeenCalledWith(
             {},
-            { guildId: 'authorized-guild', limit: 20 }
+            { guildId: 'authorized-guild', limit: 50 }
         );
         expect(listStructureImportRunsByGuildId).toHaveBeenCalledWith({}, { guildId: 'authorized-guild', limit: 20 });
         expect(findStructureObservedEventStateByGuildId).toHaveBeenCalledWith({}, { guildId: 'authorized-guild' });
     });
 
-    it('exports current Fluxer structure and records a dashboard audit event', async () => {
+    it('creates a manual backup from current Fluxer structure and records a dashboard audit event', async () => {
         const result = await exportDashboardStructure(request, 'requested-guild');
 
         expect(result).toMatchObject({
-            type: 'exported',
-            exportSnapshot: {
+            type: 'backup-created',
+            backup: {
                 id: 'export-1',
                 roleCount: 1,
                 categoryCount: 1,
@@ -201,38 +224,80 @@ describe('dashboard structure import/export', () => {
             botToken: 'bot-token',
             guildId: 'authorized-guild',
         });
-        expect(createStructureExportSnapshot).toHaveBeenCalledWith(
+        expect(createStructureBackup).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
                 guildId: 'authorized-guild',
                 createdByUserId: 'actor-1',
-                source: 'dashboard',
-                snapshot: expect.objectContaining({
+                source: 'manual',
+                status: 'succeeded',
+                structure: expect.objectContaining({
                     version: 1,
                     roles: expect.any(Array),
                     categories: expect.any(Array),
                     channels: expect.any(Array),
                 }),
-            })
-        );
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                guildId: 'authorized-guild',
-                feature: 'import_export',
-                action: 'structure.exported',
-                actorUserId: 'actor-1',
-                targetId: 'export-1',
-                metadata: expect.objectContaining({
-                    actorUsername: 'neonsy',
-                    roleCount: 1,
+                audit: expect.objectContaining({
+                    action: 'structure.backup_created',
+                    actorUserId: 'actor-1',
+                    metadata: expect.objectContaining({
+                        actorUsername: 'neonsy',
+                        roleCount: 1,
+                    }),
                 }),
             })
         );
     });
 
-    it('creates a persisted import dry-run without applying structure changes', async () => {
-        const snapshotJson = JSON.stringify({
+    it('downloads current Fluxer server layout without creating a backup record', async () => {
+        const result = await downloadDashboardStructureExport(request, 'requested-guild');
+
+        expect(result).toMatchObject({
+            type: 'structure-export-created',
+            fileName: expect.stringMatching(/^Authorized-Guild-.+\.json$/u),
+            structureJson: expect.any(String),
+        });
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledWith({
+            botToken: 'bot-token',
+            guildId: 'authorized-guild',
+        });
+        expect(JSON.parse(result.type === 'structure-export-created' ? result.structureJson : '{}')).toMatchObject({
+            version: 1,
+            guildId: 'authorized-guild',
+            roles: expect.any(Array),
+            categories: expect.any(Array),
+            channels: expect.any(Array),
+        });
+        expect(createStructureBackup).not.toHaveBeenCalled();
+    });
+
+    it('reads persisted backup JSON through the authorized guild scope', async () => {
+        const result = await readDashboardStructureBackupJson(request, {
+            backupId: 'backup-1',
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toMatchObject({
+            type: 'backup-json',
+            backupId: 'export-1',
+            fileName: 'Authorized-Guild-2026-06-26-10-00.json',
+            backupJson: expect.any(String),
+        });
+        expect(findStructureBackupByGuildId).toHaveBeenCalledWith(
+            {},
+            {
+                backupId: 'backup-1',
+                guildId: 'authorized-guild',
+            }
+        );
+        expect(JSON.parse(result.type === 'backup-json' ? result.backupJson : '{}')).toMatchObject({
+            version: 1,
+            guildId: 'authorized-guild',
+        });
+    });
+
+    it('creates a persisted import dry-run without applying server layout changes', async () => {
+        const backupJson = JSON.stringify({
             version: 1,
             roles: createFluxerStructure().roles,
             categories: createFluxerStructure().categories,
@@ -246,7 +311,7 @@ describe('dashboard structure import/export', () => {
 
         const result = await createDashboardStructureImportDryRun(request, {
             guildId: 'requested-guild',
-            snapshotJson,
+            backupJson,
         });
 
         expect(result).toMatchObject({
@@ -269,23 +334,97 @@ describe('dashboard structure import/export', () => {
                 }),
             })
         );
-        expect(recordStructureImportAction).toHaveBeenCalledWith(
+        expect(recordStructureImportActionsBatch).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
                 runId: 'run-1',
-                actionType: 'update',
-                targetType: 'channel',
-                targetId: 'channel-1',
-                status: 'dry_run',
+                actions: [
+                    expect.objectContaining({
+                        actionType: 'update',
+                        targetType: 'channel',
+                        targetId: 'channel-1',
+                        status: 'dry_run',
+                    }),
+                ],
             })
         );
-        expect(updateStructureImportRunStatus).toHaveBeenCalledWith({}, { runId: 'run-1', status: 'dry_run_complete' });
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
+        expect(updateStructureImportRunStatus).toHaveBeenCalledWith(
+            {},
+            {
+                audit: expect.objectContaining({
+                    action: 'structure.import_dry_run_created',
+                    actorUserId: 'actor-1',
+                    targetId: 'run-1',
+                    metadata: expect.objectContaining({
+                        actionCount: 1,
+                        updateCount: 1,
+                    }),
+                }),
+                runId: 'run-1',
+                status: 'dry_run_complete',
+            }
+        );
+    });
+
+    it('does not inline partial large import action lists into dashboard run responses', () => {
+        const actions = Array.from({ length: 100 }, (_, index) =>
+            createImportActionRecord({ id: `action-${String(index)}`, sequence: index })
+        );
+        const run = createImportRunRecord({
+            actions,
+            plan: {
+                summary: {
+                    creates: 0,
+                    updates: 101,
+                    deletes: 0,
+                    roles: 0,
+                    categories: 0,
+                    channels: 101,
+                },
+            },
+        });
+
+        expect(toDashboardImportRun(run)).toMatchObject({
+            actionCount: 101,
+            actions: [],
+        });
+    });
+
+    it('cancels a dry-run when a later action batch write fails', async () => {
+        vi.mocked(recordStructureImportActionsBatch)
+            .mockResolvedValueOnce(ok([createImportActionRecord()]))
+            .mockResolvedValueOnce(err({ type: 'database-error' }));
+
+        const current = createFluxerStructure();
+        const backupJson = JSON.stringify({
+            version: 1,
+            roles: current.roles,
+            categories: current.categories,
+            channels: [
+                ...current.channels,
+                ...Array.from({ length: 101 }, (_, index) => ({
+                    ...current.channels[0],
+                    id: `new-channel-${String(index)}`,
+                    name: `new-channel-${String(index)}`,
+                })),
+            ],
+        });
+
+        const result = await createDashboardStructureImportDryRun(request, {
+            guildId: 'requested-guild',
+            backupJson,
+        });
+
+        expect(result).toStrictEqual({ type: 'database-error' });
+        expect(recordStructureImportActionsBatch).toHaveBeenCalledTimes(2);
+        expect(updateStructureImportRunStatus).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
-                feature: 'import_export',
-                action: 'structure.import_dry_run_created',
-                targetId: 'run-1',
+                runId: 'run-1',
+                status: 'cancelled',
+                plan: expect.objectContaining({
+                    errorType: 'action-write-failed',
+                }),
             })
         );
     });
@@ -293,12 +432,12 @@ describe('dashboard structure import/export', () => {
     it('rejects invalid import JSON before reading Fluxer structure', async () => {
         const result = await createDashboardStructureImportDryRun(request, {
             guildId: 'guild-1',
-            snapshotJson: '{',
+            backupJson: '{',
         });
 
         expect(result).toStrictEqual({
             type: 'invalid-input',
-            message: 'Structure JSON could not be parsed.',
+            message: 'Server blueprint JSON could not be parsed.',
         });
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
         expect(createStructureImportRun).not.toHaveBeenCalled();
@@ -322,7 +461,7 @@ describe('dashboard structure import/export', () => {
                 status: 'confirmed',
             },
         });
-        expect(findStructureImportRunByGuildId).toHaveBeenCalledWith(
+        expect(findStructureImportRunWithActionsByGuildId).toHaveBeenCalledWith(
             {},
             {
                 guildId: 'authorized-guild',
@@ -332,20 +471,17 @@ describe('dashboard structure import/export', () => {
         expect(updateStructureImportRunStatus).toHaveBeenCalledWith(
             {},
             {
+                audit: expect.objectContaining({
+                    action: 'structure.import_confirmed',
+                    actorUserId: 'actor-1',
+                    targetId: 'run-1',
+                    metadata: expect.objectContaining({
+                        actionCount: 1,
+                    }),
+                }),
                 runId: 'run-1',
                 status: 'confirmed',
             }
-        );
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                feature: 'import_export',
-                action: 'structure.import_confirmed',
-                targetId: 'run-1',
-                metadata: expect.objectContaining({
-                    actionCount: 1,
-                }),
-            })
         );
     });
 
@@ -360,12 +496,12 @@ describe('dashboard structure import/export', () => {
             type: 'confirmation-mismatch',
             expectedText: 'CONFIRM run-1',
         });
-        expect(findStructureImportRunByGuildId).not.toHaveBeenCalled();
+        expect(findStructureImportRunWithActionsByGuildId).not.toHaveBeenCalled();
         expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
     });
 
     it('does not confirm runs that are not dry-run complete', async () => {
-        vi.mocked(findStructureImportRunByGuildId).mockResolvedValueOnce(
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValueOnce(
             ok(createImportRunRecord({ status: 'confirmed' }))
         );
 
@@ -382,6 +518,121 @@ describe('dashboard structure import/export', () => {
         expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
     });
 
+    it('creates retry dry-runs from failed partial-create actions with the saved source map', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValueOnce(
+            ok(
+                createImportRunRecord({
+                    id: 'failed-run-1',
+                    status: 'failed',
+                    plan: {
+                        applySummary: {
+                            sourceTargetMap: {
+                                'source-channel-1': 'created-channel-1',
+                            },
+                        },
+                        summary: {
+                            creates: 1,
+                            updates: 0,
+                            deletes: 0,
+                            roles: 0,
+                            categories: 0,
+                            channels: 1,
+                        },
+                    },
+                    actions: [
+                        createImportActionRecord({
+                            id: 'failed-action-1',
+                            actionType: 'create',
+                            targetType: 'channel',
+                            targetId: 'source-channel-1',
+                            status: 'failed',
+                            details: {
+                                label: 'announcements',
+                                sourceId: 'source-channel-1',
+                                createdId: 'created-channel-1',
+                                errorType: 'partial-create-failed',
+                                after: {
+                                    id: 'source-channel-1',
+                                    name: 'announcements',
+                                    type: 0,
+                                    parentId: null,
+                                    position: 1,
+                                    permissionOverwrites: [],
+                                },
+                            },
+                        }),
+                    ],
+                })
+            )
+        );
+        vi.mocked(createStructureImportRun).mockResolvedValueOnce(
+            ok(createImportRunRecord({ id: 'retry-run-1', status: 'draft', actions: [] }))
+        );
+        vi.mocked(recordStructureImportActionsBatch).mockResolvedValueOnce(
+            ok([
+                createImportActionRecord({
+                    id: 'retry-action-1',
+                    runId: 'retry-run-1',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'source-channel-1',
+                    status: 'dry_run',
+                    details: {
+                        retryOfActionId: 'failed-action-1',
+                    },
+                }),
+            ])
+        );
+        vi.mocked(updateStructureImportRunStatus).mockResolvedValueOnce(
+            ok(createImportRunRecord({ id: 'retry-run-1', status: 'dry_run_complete' }))
+        );
+
+        const result = await retryDashboardStructureImportRun(request, {
+            guildId: 'requested-guild',
+            importRunId: 'failed-run-1',
+        });
+
+        expect(result).toMatchObject({
+            type: 'retry-created',
+            importRun: {
+                id: 'retry-run-1',
+                status: 'dry_run_complete',
+            },
+        });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                guildId: 'authorized-guild',
+                plan: expect.objectContaining({
+                    retryOfRunId: 'failed-run-1',
+                    sourceTargetMap: {
+                        'source-channel-1': 'created-channel-1',
+                    },
+                    summary: expect.objectContaining({
+                        creates: 1,
+                        channels: 1,
+                    }),
+                }),
+            })
+        );
+        expect(recordStructureImportActionsBatch).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                runId: 'retry-run-1',
+                actions: [
+                    expect.objectContaining({
+                        actionType: 'create',
+                        targetId: 'source-channel-1',
+                        details: expect.objectContaining({
+                            retryOfActionId: 'failed-action-1',
+                            createdId: 'created-channel-1',
+                        }),
+                    }),
+                ],
+            })
+        );
+    });
+
     it('does not export when the web service has no bot token', async () => {
         const config = createWebConfig();
 
@@ -392,7 +643,55 @@ describe('dashboard structure import/export', () => {
 
         expect(result).toStrictEqual({ type: 'bot-token-missing' });
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
-        expect(createStructureExportSnapshot).not.toHaveBeenCalled();
+        expect(createStructureBackup).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                guildId: 'authorized-guild',
+                createdByUserId: 'actor-1',
+                source: 'manual',
+                status: 'failed',
+                errorMessage: 'The web service needs FLUXER_BOT_TOKEN to read server layout.',
+                audit: expect.objectContaining({
+                    action: 'structure.backup_failed',
+                    actorUserId: 'actor-1',
+                    metadata: expect.objectContaining({
+                        errorMessage: 'The web service needs FLUXER_BOT_TOKEN to read server layout.',
+                        source: 'manual',
+                    }),
+                }),
+            })
+        );
+    });
+
+    it('persists and audits failed manual backup reads', async () => {
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
+            err({ type: 'login-failed', error: new Error('rate limited') })
+        );
+
+        const result = await exportDashboardStructure(request, 'guild-1');
+
+        expect(result).toStrictEqual({ type: 'structure-read-failed' });
+        expect(createStructureBackup).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                guildId: 'authorized-guild',
+                createdByUserId: 'actor-1',
+                source: 'manual',
+                status: 'failed',
+                errorMessage: 'Could not read server layout: login-failed.',
+                roleCount: 0,
+                categoryCount: 0,
+                channelCount: 0,
+                audit: expect.objectContaining({
+                    action: 'structure.backup_failed',
+                    actorUserId: 'actor-1',
+                    metadata: expect.objectContaining({
+                        errorMessage: 'Could not read server layout: login-failed.',
+                        source: 'manual',
+                    }),
+                }),
+            })
+        );
     });
 });
 
@@ -415,6 +714,7 @@ function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
 function createFluxerStructure() {
     return {
         guildId: 'authorized-guild',
+        guildName: 'Authorized Guild',
         roles: [
             {
                 id: 'role-1',
@@ -453,32 +753,56 @@ function createExportRecord() {
     return {
         id: 'export-1',
         guildId: 'authorized-guild',
+        name: 'Authorized Guild - 2026-06-26 - 10-00',
         createdByUserId: 'actor-1',
-        source: 'dashboard',
-        snapshot: {
+        source: 'manual',
+        status: 'succeeded',
+        errorMessage: null,
+        structure: {
             version: 1,
+            guildId: 'authorized-guild',
             roles: createFluxerStructure().roles,
             categories: createFluxerStructure().categories,
             channels: createFluxerStructure().channels,
         },
+        roleCount: 1,
+        categoryCount: 1,
+        channelCount: 1,
         createdAt: new Date('2026-06-26T10:00:00.000Z'),
+        completedAt: new Date('2026-06-26T10:00:00.000Z'),
     };
 }
 
-function createImportRunRecord(overrides: Partial<ReturnType<typeof createImportRunRecordBase>> = {}) {
+function createBackupSettingsRecord() {
+    return {
+        guildId: 'authorized-guild',
+        enabled: false,
+        cadenceWeeks: 1,
+        lastAttemptAt: new Date('2026-06-26T10:00:00.000Z'),
+        lastSuccessAt: new Date('2026-06-26T10:00:00.000Z'),
+        lastErrorMessage: null,
+        nextBackupAt: null,
+        nextRetentionPruneAt: null,
+        retentionDays: 180,
+    };
+}
+
+function createImportRunRecord(
+    overrides: Partial<StructureImportRunWithActionsRecord> = {}
+): StructureImportRunWithActionsRecord {
     return {
         ...createImportRunRecordBase(),
         ...overrides,
     };
 }
 
-function createImportRunRecordBase() {
+function createImportRunRecordBase(): StructureImportRunWithActionsRecord {
     return {
         id: 'run-1',
         guildId: 'authorized-guild',
         createdByUserId: 'actor-1',
         status: 'dry_run_complete',
-        sourceSnapshotId: null,
+        sourceBackupId: null,
         plan: {
             summary: {
                 creates: 0,
@@ -497,10 +821,18 @@ function createImportRunRecordBase() {
     };
 }
 
-function createImportActionRecord() {
+function createImportActionRecord(overrides: Partial<StructureImportActionRecord> = {}): StructureImportActionRecord {
+    return {
+        ...createImportActionRecordBase(),
+        ...overrides,
+    };
+}
+
+function createImportActionRecordBase(): StructureImportActionRecord {
     return {
         id: 'action-1',
         runId: 'run-1',
+        sequence: 0,
         actionType: 'update',
         targetType: 'channel',
         targetId: 'channel-1',
@@ -511,18 +843,5 @@ function createImportActionRecord() {
         },
         createdAt: new Date('2026-06-26T10:05:00.000Z'),
         updatedAt: new Date('2026-06-26T10:05:00.000Z'),
-    };
-}
-
-function createAuditEventRecord() {
-    return {
-        id: 'audit-1',
-        guildId: 'authorized-guild',
-        feature: 'import_export',
-        action: 'structure.exported',
-        actorUserId: 'actor-1',
-        targetId: 'export-1',
-        metadata: {},
-        createdAt: new Date('2026-06-26T10:00:00.000Z'),
     };
 }

@@ -128,6 +128,7 @@ describe('dashboard reaction roles', () => {
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
             ok({
                 guildId: 'guild-1',
+                guildName: 'Guild 1',
                 roles: [
                     createFluxerRole({ id: 'role-1', name: 'Member', position: 10 }),
                     createFluxerRole({ id: 'everyone', name: '@everyone', position: 0 }),

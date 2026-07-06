@@ -31,6 +31,7 @@ export type FluxerGuildChannel = {
 
 export type FluxerGuildStructure = {
     guildId: string;
+    guildName: string;
     roles: FluxerGuildRole[];
     channels: FluxerGuildChannel[];
     categories: FluxerGuildChannel[];
@@ -115,6 +116,7 @@ export async function readFluxerGuildStructure(
 
     return ok({
         guildId,
+        guildName: normalizeGuildName(guildResult.value, guildId),
         roles: normalizedRoles,
         channels: normalizedChannelResult.channels,
         categories: normalizedChannelResult.categories,
@@ -197,6 +199,11 @@ function normalizeRole(role: unknown): FluxerGuildRole | undefined {
         hoist: role.hoist,
         mentionable: role.mentionable,
     };
+}
+
+function normalizeGuildName(guild: Guild, fallback: string): string {
+    const guildName = typeof guild.name === 'string' ? guild.name.replace(/\s+/g, ' ').trim() : '';
+    return guildName.length > 0 ? guildName : fallback;
 }
 
 function getPermissionBitfield(permissions: unknown): string | undefined {

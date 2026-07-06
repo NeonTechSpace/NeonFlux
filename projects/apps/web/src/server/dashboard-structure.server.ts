@@ -2,25 +2,41 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import {
-    createStructureExportSnapshot,
+    createStructureBackup,
     createStructureImportRun,
+    deleteStructureBackup,
+    findStructureBackupByGuildId,
+    findStructureBackupSettingsByGuildId,
     findStructureImportRunByGuildId,
+    findStructureImportRunWithActionsByGuildId,
     findStructureObservedEventStateByGuildId,
-    listStructureExportSnapshotsByGuildId,
+    listStructureBackupSummaryPageByGuildId,
+    listStructureImportActionsByRunIdPage,
     listStructureImportRunsByGuildId,
-    recordStructureImportAction,
+    recordStructureImportActionsBatch,
+    renameStructureBackup,
+    structureAuditActions,
+    structureBackupSources,
+    structureBackupStatuses,
+    structureImportActionStatuses,
+    structureImportRunStatuses,
     updateStructureImportRunStatus,
+    upsertStructureBackupSettings,
 } from '@neonflux/db';
 import type {
-    StructureExportSnapshotRecord,
+    StructureBackupRecord,
+    StructureBackupSettingsRecord,
+    StructureBackupSummaryPageRecord,
+    StructureBackupSummaryRecord,
     StructureImportActionRecord,
+    StructureImportRunRecord,
     StructureImportRunWithActionsRecord,
     StructureObservedEventStateRecord,
 } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
-import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
+import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type {
     AuthorizedStructureContext,
     DashboardStructureErrorResult,
@@ -32,14 +48,32 @@ import {
 } from './dashboard-structure-diff.js';
 import type { DashboardStructurePlan, DashboardStructureSnapshot } from './dashboard-structure-diff.js';
 
-export type DashboardStructureExportSummary = {
+const dashboardImportActionInlineLimit = 100;
+const dashboardBackupPageSize = 50;
+
+export type DashboardStructureBackupSummary = {
     id: string;
+    name: string;
     source: string;
+    status: string;
+    errorMessage?: string;
     createdByUserId?: string;
     createdAt: string;
+    completedAt: string;
     roleCount: number;
     categoryCount: number;
     channelCount: number;
+};
+
+export type DashboardStructureBackupSettings = {
+    enabled: boolean;
+    cadenceWeeks: number;
+    retentionDays: number;
+    lastAttemptAt?: string;
+    lastSuccessAt?: string;
+    lastErrorMessage?: string;
+    nextBackupAt?: string;
+    nextRetentionPruneAt?: string;
 };
 
 type DashboardStructureJsonValue =
@@ -54,8 +88,16 @@ type DashboardStructureJsonRecord = {
     [key: string]: DashboardStructureJsonValue;
 };
 
+type StructureAuditPayload = {
+    action: string;
+    actorUserId: string;
+    metadata: Record<string, unknown>;
+    targetId?: string;
+};
+
 export type DashboardStructureImportAction = {
     id: string;
+    sequence: number;
     actionType: string;
     targetType: string;
     targetId?: string;
@@ -71,11 +113,19 @@ export type DashboardStructureImportRun = {
     createdAt: string;
     updatedAt: string;
     summary: DashboardStructurePlan['summary'];
+    actionCount: number;
     actions: DashboardStructureImportAction[];
+};
+
+export type DashboardStructureImportActionPage = {
+    actions: DashboardStructureImportAction[];
+    nextCursor?: string;
 };
 
 type DashboardStructureObservedState = {
     observedChangeCount: number;
+    targetChangeCounts: Record<string, number>;
+    changedSinceLastBackup: boolean;
     lastEventType?: string;
     lastTargetType?: string;
     lastTargetId?: string;
@@ -85,20 +135,118 @@ type DashboardStructureObservedState = {
 export type DashboardStructureSettingsResult =
     | {
           type: 'settings';
-          exports: DashboardStructureExportSummary[];
+          backups: DashboardStructureBackupSummary[];
+          backupNextCursor?: string;
+          backupSettings: DashboardStructureBackupSettings;
           importRuns: DashboardStructureImportRun[];
           observedState: DashboardStructureObservedState;
       }
     | DashboardStructureErrorResult;
 
-export type DashboardStructureExportResult =
+export type DashboardStructureBackupResult =
     | {
-          type: 'exported';
-          exportSnapshot: DashboardStructureExportSummary;
-          snapshotJson: string;
+          type: 'backup-created';
+          backup: DashboardStructureBackupSummary;
+          backupJson: string;
       }
     | { type: 'bot-token-missing' }
     | { type: 'structure-read-failed' }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureCurrentExportResult =
+    | {
+          type: 'structure-export-created';
+          fileName: string;
+          structureJson: string;
+      }
+    | { type: 'bot-token-missing' }
+    | { type: 'structure-read-failed' }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupJsonResult =
+    | {
+          type: 'backup-json';
+          backupId: string;
+          fileName: string;
+          backupJson: string;
+      }
+    | { type: 'backup-json-unavailable' }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupPageInput = {
+    cursor?: string;
+    guildId: string;
+    limit?: number;
+};
+
+export type DashboardStructureBackupPageResult =
+    | {
+          type: 'backup-page';
+          page: DashboardStructureBackupPage;
+      }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupPage = {
+    backups: DashboardStructureBackupSummary[];
+    nextCursor?: string;
+};
+
+export type DashboardStructureBackupRenameInput = {
+    backupId: string;
+    guildId: string;
+    name: string;
+};
+
+export type DashboardStructureBackupRenameResult =
+    | {
+          type: 'backup-renamed';
+          backup: DashboardStructureBackupSummary;
+      }
+    | { type: 'invalid-input'; message: string }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupDeleteInput = {
+    backupId: string;
+    guildId: string;
+};
+
+export type DashboardStructureBackupDeleteResult =
+    | {
+          type: 'backup-deleted';
+          backupId: string;
+      }
+    | { type: 'invalid-input'; message: string }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupImportInput = {
+    backupId: string;
+    guildId: string;
+};
+
+export type DashboardStructureBackupImportResult =
+    | {
+          type: 'backup-import-created';
+          importRun: DashboardStructureImportRun;
+      }
+    | { type: 'backup-json-unavailable' }
+    | { type: 'bot-token-missing' }
+    | { type: 'invalid-input'; message: string }
+    | { type: 'structure-read-failed' }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupSettingsInput = {
+    cadenceWeeks: number;
+    enabled: boolean;
+    guildId: string;
+    retentionDays: number;
+};
+
+export type DashboardStructureBackupSettingsResult =
+    | {
+          type: 'backup-settings-saved';
+          backupSettings: DashboardStructureBackupSettings;
+      }
+    | { type: 'invalid-input'; message: string }
     | DashboardStructureErrorResult;
 
 export type DashboardStructureDryRunResult =
@@ -113,7 +261,7 @@ export type DashboardStructureDryRunResult =
 
 export type DashboardStructureDryRunInput = {
     guildId: string;
-    snapshotJson: string;
+    backupJson: string;
 };
 
 export type DashboardStructureConfirmInput = {
@@ -132,6 +280,35 @@ export type DashboardStructureConfirmResult =
     | { type: 'not-confirmable'; status: string }
     | DashboardStructureErrorResult;
 
+export type DashboardStructureRetryInput = {
+    guildId: string;
+    importRunId: string;
+};
+
+export type DashboardStructureRetryResult =
+    | {
+          type: 'retry-created';
+          importRun: DashboardStructureImportRun;
+      }
+    | { type: 'invalid-input'; message: string }
+    | { type: 'not-retryable'; status: string }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureActionPageInput = {
+    cursor?: string;
+    guildId: string;
+    importRunId: string;
+    limit?: number;
+};
+
+export type DashboardStructureActionPageResult =
+    | {
+          type: 'action-page';
+          page: DashboardStructureImportActionPage;
+      }
+    | { type: 'invalid-input'; message: string }
+    | DashboardStructureErrorResult;
+
 export async function loadDashboardStructureSettings(
     request: Request,
     guildId: string
@@ -141,9 +318,12 @@ export async function loadDashboardStructureSettings(
     if (context.type !== 'authorized') return context;
 
     const database = await getWebDb();
-    const snapshotsResult = await listStructureExportSnapshotsByGuildId(database.db, {
+    const backupsResult = await listStructureBackupSummaryPageByGuildId(database.db, {
         guildId: context.guild.id,
-        limit: 20,
+        limit: dashboardBackupPageSize,
+    });
+    const backupSettingsResult = await findStructureBackupSettingsByGuildId(database.db, {
+        guildId: context.guild.id,
     });
     const runsResult = await listStructureImportRunsByGuildId(database.db, {
         guildId: context.guild.id,
@@ -153,20 +333,58 @@ export async function loadDashboardStructureSettings(
         guildId: context.guild.id,
     });
 
-    if (snapshotsResult.isErr() || runsResult.isErr() || observedStateResult.isErr()) return { type: 'database-error' };
+    if (backupsResult.isErr() || backupSettingsResult.isErr() || runsResult.isErr() || observedStateResult.isErr()) {
+        return { type: 'database-error' };
+    }
 
     return {
         type: 'settings',
-        exports: snapshotsResult.value.map(toDashboardExportSummary),
+        backups: backupsResult.value.backups.map(toDashboardBackupSummary),
+        ...(backupsResult.value.nextCursor ? { backupNextCursor: backupsResult.value.nextCursor } : {}),
+        backupSettings: toDashboardBackupSettings(backupSettingsResult.value),
         importRuns: runsResult.value.map(toDashboardImportRun),
-        observedState: toDashboardObservedState(observedStateResult.value),
+        observedState: toDashboardObservedState(observedStateResult.value, backupSettingsResult.value),
+    };
+}
+
+export async function readDashboardStructureBackupPage(
+    request: Request,
+    input: DashboardStructureBackupPageInput
+): Promise<DashboardStructureBackupPageResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const database = await getWebDb();
+    const pageResult = await listStructureBackupSummaryPageByGuildId(database.db, {
+        cursor: input.cursor,
+        guildId: context.guild.id,
+        limit: input.limit ?? dashboardBackupPageSize,
+    });
+
+    if (pageResult.isErr()) return mapRepositoryError(pageResult.error);
+
+    return {
+        type: 'backup-page',
+        page: toDashboardBackupPage(pageResult.value),
     };
 }
 
 export async function exportDashboardStructure(
     request: Request,
     guildId: string
-): Promise<DashboardStructureExportResult> {
+): Promise<DashboardStructureBackupResult> {
+    const context = await loadAuthorizedStructureContext(request, guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    return createDashboardStructureBackup(context, structureBackupSources.manual);
+}
+
+export async function downloadDashboardStructureExport(
+    request: Request,
+    guildId: string
+): Promise<DashboardStructureCurrentExportResult> {
     const context = await loadAuthorizedStructureContext(request, guildId);
 
     if (context.type !== 'authorized') return context;
@@ -183,28 +401,185 @@ export async function exportDashboardStructure(
     if (structureResult.isErr()) return { type: 'structure-read-failed' };
 
     const snapshot = toDashboardStructureSnapshot(structureResult.value);
-    const database = await getWebDb();
-    const snapshotResult = await createStructureExportSnapshot(database.db, {
-        guildId: context.guild.id,
-        createdByUserId: context.actor.actorUserId,
-        source: 'dashboard',
-        snapshot: toJsonRecord(snapshot),
-    });
-
-    if (snapshotResult.isErr()) return { type: 'database-error' };
-
-    const auditResult = await recordStructureAudit(context, 'structure.exported', snapshotResult.value.id, {
-        roleCount: snapshot.roles.length,
-        categoryCount: snapshot.categories.length,
-        channelCount: snapshot.channels.length,
-    });
-
-    if (auditResult === 'database-error') return { type: 'database-error' };
 
     return {
-        type: 'exported',
-        exportSnapshot: toDashboardExportSummary(snapshotResult.value),
-        snapshotJson: JSON.stringify(snapshot, null, 2),
+        type: 'structure-export-created',
+        fileName: createStructureExportFileName(context.guild.name, snapshot.exportedAt),
+        structureJson: JSON.stringify(snapshot, null, 2),
+    };
+}
+
+export async function readDashboardStructureBackupJson(
+    request: Request,
+    input: { backupId: string; guildId: string }
+): Promise<DashboardStructureBackupJsonResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const backupId = input.backupId.trim();
+    if (!backupId) return { type: 'not-found' };
+
+    const database = await getWebDb();
+    const backupResult = await findStructureBackupByGuildId(database.db, {
+        backupId,
+        guildId: context.guild.id,
+    });
+
+    if (backupResult.isErr()) return mapRepositoryError(backupResult.error);
+    if (!backupResult.value.structure) return { type: 'backup-json-unavailable' };
+
+    return {
+        type: 'backup-json',
+        backupId: backupResult.value.id,
+        fileName: createBackupDownloadFileName(backupResult.value.name),
+        backupJson: JSON.stringify(backupResult.value.structure, null, 2),
+    };
+}
+
+export async function renameDashboardStructureBackup(
+    request: Request,
+    input: DashboardStructureBackupRenameInput
+): Promise<DashboardStructureBackupRenameResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const backupId = input.backupId.trim();
+    const name = normalizeBackupDisplayName(input.name);
+    if (!backupId) return { type: 'invalid-input', message: 'Choose a backup to rename.' };
+    if (!name) return { type: 'invalid-input', message: 'Backup name is required.' };
+    if (name.length > 120) return { type: 'invalid-input', message: 'Backup name must be 120 characters or fewer.' };
+
+    const database = await getWebDb();
+    const result = await renameStructureBackup(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupRenamed, backupId, {
+            name,
+        }),
+        backupId,
+        guildId: context.guild.id,
+        name,
+    });
+
+    if (result.isErr()) return mapRepositoryError(result.error);
+
+    return {
+        type: 'backup-renamed',
+        backup: toDashboardBackupSummary(result.value),
+    };
+}
+
+export async function deleteDashboardStructureBackup(
+    request: Request,
+    input: DashboardStructureBackupDeleteInput
+): Promise<DashboardStructureBackupDeleteResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const backupId = input.backupId.trim();
+    if (!backupId) return { type: 'invalid-input', message: 'Choose a backup to delete.' };
+
+    const database = await getWebDb();
+    const result = await deleteStructureBackup(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupDeleted, backupId, {}),
+        backupId,
+        guildId: context.guild.id,
+    });
+
+    if (result.isErr()) return mapRepositoryError(result.error);
+
+    return {
+        type: 'backup-deleted',
+        backupId,
+    };
+}
+
+export async function importDashboardStructureBackup(
+    request: Request,
+    input: DashboardStructureBackupImportInput
+): Promise<DashboardStructureBackupImportResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const backupId = input.backupId.trim();
+    if (!backupId) return { type: 'invalid-input', message: 'Choose a backup to import.' };
+
+    const database = await getWebDb();
+    const backupResult = await findStructureBackupByGuildId(database.db, {
+        backupId,
+        guildId: context.guild.id,
+    });
+
+    if (backupResult.isErr()) return mapRepositoryError(backupResult.error);
+    if (!backupResult.value.structure) return { type: 'backup-json-unavailable' };
+
+    const requestedResult = normalizeDashboardStructurePayload(backupResult.value.structure);
+    if (requestedResult.type === 'invalid-input') return requestedResult;
+
+    const botToken = loadWebConfig().fluxerBotToken;
+    if (!botToken) return { type: 'bot-token-missing' };
+
+    const currentResult = await readFluxerBotGuildStructure({
+        botToken,
+        guildId: context.guild.id,
+    });
+
+    if (currentResult.isErr()) return { type: 'structure-read-failed' };
+
+    const current = toDashboardStructureSnapshot(currentResult.value);
+    const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot);
+    const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
+        audit: (importRunId) =>
+            createStructureAuditPayload(context, structureAuditActions.backupImportCreated, backupResult.value.id, {
+                actionCount: plan.actions.length,
+                importRunId,
+            }),
+        source: 'backup',
+        sourceBackupId: backupResult.value.id,
+    });
+
+    if (runResult.type !== 'dry-run-created') return runResult;
+
+    return {
+        type: 'backup-import-created',
+        importRun: runResult.importRun,
+    };
+}
+
+export async function saveDashboardStructureBackupSettings(
+    request: Request,
+    input: DashboardStructureBackupSettingsInput
+): Promise<DashboardStructureBackupSettingsResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+    if (!Number.isInteger(input.cadenceWeeks) || input.cadenceWeeks < 1) {
+        return { type: 'invalid-input', message: 'Automatic backups use a minimum cadence of 1 week.' };
+    }
+    if (!Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 180) {
+        return { type: 'invalid-input', message: 'Backup retention must be between 1 and 180 days.' };
+    }
+
+    const database = await getWebDb();
+    const result = await upsertStructureBackupSettings(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupSettingsUpdated, context.guild.id, {
+            cadenceWeeks: input.cadenceWeeks,
+            enabled: input.enabled,
+            retentionDays: input.retentionDays,
+        }),
+        cadenceWeeks: input.cadenceWeeks,
+        enabled: input.enabled,
+        guildId: context.guild.id,
+        retentionDays: input.retentionDays,
+    });
+
+    if (result.isErr()) return mapRepositoryError(result.error);
+
+    return {
+        type: 'backup-settings-saved',
+        backupSettings: toDashboardBackupSettings(result.value),
     };
 }
 
@@ -216,7 +591,7 @@ export async function createDashboardStructureImportDryRun(
 
     if (context.type !== 'authorized') return context;
 
-    const requestedResult = parseDashboardStructureSnapshot(input.snapshotJson);
+    const requestedResult = parseDashboardStructureSnapshot(input.backupJson);
 
     if (requestedResult.type === 'invalid-input') return requestedResult;
 
@@ -233,23 +608,17 @@ export async function createDashboardStructureImportDryRun(
 
     const current = toDashboardStructureSnapshot(currentResult.value);
     const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot);
-    const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot);
+    const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
+        audit: (importRunId) =>
+            createStructureAuditPayload(context, structureAuditActions.importDryRunCreated, importRunId, {
+                actionCount: plan.actions.length,
+                createCount: plan.summary.creates,
+                updateCount: plan.summary.updates,
+                deleteCount: plan.summary.deletes,
+            }),
+    });
 
     if (runResult.type !== 'dry-run-created') return runResult;
-
-    const auditResult = await recordStructureAudit(
-        context,
-        'structure.import_dry_run_created',
-        runResult.importRun.id,
-        {
-            actionCount: runResult.importRun.actions.length,
-            createCount: runResult.importRun.summary.creates,
-            updateCount: runResult.importRun.summary.updates,
-            deleteCount: runResult.importRun.summary.deletes,
-        }
-    );
-
-    if (auditResult === 'database-error') return { type: 'database-error' };
 
     return runResult;
 }
@@ -275,20 +644,27 @@ export async function confirmDashboardStructureImportRun(
     }
 
     const database = await getWebDb();
-    const importRunResult = await findStructureImportRunByGuildId(database.db, {
+    const importRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
     });
 
     if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
 
-    if (importRunResult.value.status !== 'dry_run_complete') {
+    if (importRunResult.value.status !== structureImportRunStatuses.dryRunComplete) {
         return { type: 'not-confirmable', status: importRunResult.value.status };
     }
 
+    const summary = summarizeActions(importRunResult.value.actions);
     const confirmedResult = await updateStructureImportRunStatus(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.importConfirmed, importRunId, {
+            actionCount: importRunResult.value.actions.length,
+            createCount: summary.creates,
+            updateCount: summary.updates,
+            deleteCount: summary.deletes,
+        }),
         runId: importRunId,
-        status: 'confirmed',
+        status: structureImportRunStatuses.confirmed,
     });
 
     if (confirmedResult.isErr()) {
@@ -303,14 +679,6 @@ export async function confirmDashboardStructureImportRun(
         ...confirmedResult.value,
         actions: importRunResult.value.actions,
     });
-    const auditResult = await recordStructureAudit(context, 'structure.import_confirmed', importRunId, {
-        actionCount: confirmedRun.actions.length,
-        createCount: confirmedRun.summary.creates,
-        updateCount: confirmedRun.summary.updates,
-        deleteCount: confirmedRun.summary.deletes,
-    });
-
-    if (auditResult === 'database-error') return { type: 'database-error' };
 
     return {
         type: 'confirmed',
@@ -318,10 +686,210 @@ export async function confirmDashboardStructureImportRun(
     };
 }
 
+export async function retryDashboardStructureImportRun(
+    request: Request,
+    input: DashboardStructureRetryInput
+): Promise<DashboardStructureRetryResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const importRunId = input.importRunId.trim();
+    if (!importRunId) return { type: 'invalid-input', message: 'Choose a failed import run to retry.' };
+
+    const database = await getWebDb();
+    const importRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
+        guildId: context.guild.id,
+        runId: importRunId,
+    });
+
+    if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
+    if (importRunResult.value.status !== structureImportRunStatuses.failed) {
+        return { type: 'not-retryable', status: importRunResult.value.status };
+    }
+
+    const failedActions = importRunResult.value.actions.filter(
+        (action) => action.status === structureImportActionStatuses.failed
+    );
+    if (failedActions.length === 0) return { type: 'invalid-input', message: 'This run has no failed actions.' };
+
+    const retryPlan = {
+        ...importRunResult.value.plan,
+        retryOfRunId: importRunResult.value.id,
+        sourceTargetMap: readApplySourceTargetMap(importRunResult.value.plan),
+        summary: summarizeActions(failedActions),
+    };
+    const retryRunResult = await createStructureImportRun(database.db, {
+        createdByUserId: context.actor.actorUserId,
+        guildId: context.guild.id,
+        plan: toJsonRecord(retryPlan),
+    });
+
+    if (retryRunResult.isErr()) return { type: 'database-error' };
+
+    const retryActions = await recordActionBatches(
+        retryRunResult.value.id,
+        failedActions.map((action, index) => ({
+            actionType: action.actionType,
+            details: toJsonRecord({
+                ...action.details,
+                retryOfActionId: action.id,
+            }),
+            sequence: index,
+            status: structureImportActionStatuses.dryRun,
+            targetId: action.targetId ?? undefined,
+            targetType: action.targetType,
+        }))
+    );
+
+    if (retryActions === 'database-error') {
+        await markStructureImportRunActionWriteFailed(retryRunResult.value.id, retryRunResult.value.plan);
+        return { type: 'database-error' };
+    }
+
+    const updatedRunResult = await updateStructureImportRunStatus(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.importRetryCreated, retryRunResult.value.id, {
+            actionCount: failedActions.length,
+            retryOfRunId: importRunId,
+        }),
+        runId: retryRunResult.value.id,
+        status: structureImportRunStatuses.dryRunComplete,
+    });
+
+    if (updatedRunResult.isErr()) return { type: 'database-error' };
+
+    const importRun = toDashboardImportRun({ ...updatedRunResult.value, actions: retryActions });
+
+    return { type: 'retry-created', importRun };
+}
+
+export async function readDashboardStructureImportActionPage(
+    request: Request,
+    input: DashboardStructureActionPageInput
+): Promise<DashboardStructureActionPageResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const importRunId = input.importRunId.trim();
+    if (!importRunId) return { type: 'invalid-input', message: 'Choose an import run.' };
+
+    const database = await getWebDb();
+    const importRunResult = await findStructureImportRunByGuildId(database.db, {
+        guildId: context.guild.id,
+        runId: importRunId,
+    });
+    if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
+
+    const pageResult = await listStructureImportActionsByRunIdPage(database.db, {
+        cursor: input.cursor,
+        limit: input.limit,
+        runId: importRunId,
+    });
+
+    if (pageResult.isErr()) return mapRepositoryError(pageResult.error);
+
+    return {
+        type: 'action-page',
+        page: {
+            actions: pageResult.value.actions.map(toDashboardImportAction),
+            ...(pageResult.value.nextCursor ? { nextCursor: pageResult.value.nextCursor } : {}),
+        },
+    };
+}
+
+async function createDashboardStructureBackup(
+    context: AuthorizedStructureContext,
+    source: string
+): Promise<DashboardStructureBackupResult> {
+    const botToken = loadWebConfig().fluxerBotToken;
+
+    if (!botToken) {
+        const failedBackup = await recordFailedDashboardStructureBackup(
+            context,
+            source,
+            'The web service needs FLUXER_BOT_TOKEN to read server layout.'
+        );
+
+        if (failedBackup === 'database-error') return { type: 'database-error' };
+        return { type: 'bot-token-missing' };
+    }
+
+    const structureResult = await readFluxerBotGuildStructure({
+        botToken,
+        guildId: context.guild.id,
+    });
+
+    if (structureResult.isErr()) {
+        const failedBackup = await recordFailedDashboardStructureBackup(
+            context,
+            source,
+            `Could not read server layout: ${structureResult.error.type}.`
+        );
+
+        if (failedBackup === 'database-error') return { type: 'database-error' };
+        return { type: 'structure-read-failed' };
+    }
+
+    const snapshot = toDashboardStructureSnapshot(structureResult.value);
+    const database = await getWebDb();
+    const backupResult = await createStructureBackup(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupCreated, undefined, {
+            roleCount: snapshot.roles.length,
+            categoryCount: snapshot.categories.length,
+            channelCount: snapshot.channels.length,
+            source,
+        }),
+        guildId: context.guild.id,
+        createdByUserId: context.actor.actorUserId,
+        serverName: context.guild.name,
+        source,
+        status: structureBackupStatuses.succeeded,
+        structure: toJsonRecord(snapshot),
+        roleCount: snapshot.roles.length,
+        categoryCount: snapshot.categories.length,
+        channelCount: snapshot.channels.length,
+    });
+
+    if (backupResult.isErr()) return { type: 'database-error' };
+
+    return {
+        type: 'backup-created',
+        backup: toDashboardBackupSummary(backupResult.value),
+        backupJson: JSON.stringify(snapshot, null, 2),
+    };
+}
+
+async function recordFailedDashboardStructureBackup(
+    context: AuthorizedStructureContext,
+    source: string,
+    errorMessage: string
+): Promise<'database-error' | void> {
+    const database = await getWebDb();
+    const backupResult = await createStructureBackup(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupFailed, undefined, {
+            errorMessage,
+            source,
+        }),
+        guildId: context.guild.id,
+        createdByUserId: context.actor.actorUserId,
+        serverName: context.guild.name,
+        source,
+        status: structureBackupStatuses.failed,
+        errorMessage,
+        roleCount: 0,
+        categoryCount: 0,
+        channelCount: 0,
+    });
+
+    if (backupResult.isErr()) return 'database-error';
+}
+
 async function persistStructureImportDryRun(
     context: AuthorizedStructureContext,
     plan: DashboardStructurePlan,
-    requestedSnapshot: DashboardStructureSnapshot
+    requestedSnapshot: DashboardStructureSnapshot,
+    options: { audit?: (importRunId: string) => StructureAuditPayload; source?: string; sourceBackupId?: string } = {}
 ): Promise<DashboardStructureDryRunResult> {
     const database = await getWebDb();
     const runResult = await createStructureImportRun(database.db, {
@@ -331,32 +899,34 @@ async function persistStructureImportDryRun(
             summary: plan.summary,
             requestedGuildId: requestedSnapshot.guildId ?? null,
             requestedExportedAt: requestedSnapshot.exportedAt ?? null,
-            source: 'dashboard-json',
+            source: options.source ?? 'dashboard-json',
         }),
+        ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
     });
 
     if (runResult.isErr()) return { type: 'database-error' };
 
-    const actionRecords: StructureImportActionRecord[] = [];
-
-    for (const action of plan.actions) {
-        const actionResult = await recordStructureImportAction(database.db, {
-            runId: runResult.value.id,
+    const actionRecords = await recordActionBatches(
+        runResult.value.id,
+        plan.actions.map((action, index) => ({
             actionType: action.actionType,
             targetType: action.targetType,
             ...(action.targetId ? { targetId: action.targetId } : {}),
-            status: 'dry_run',
+            sequence: index,
+            status: structureImportActionStatuses.dryRun,
             details: toJsonRecord(action.details),
-        });
+        }))
+    );
 
-        if (actionResult.isErr()) return { type: 'database-error' };
-
-        actionRecords.push(actionResult.value);
+    if (actionRecords === 'database-error') {
+        await markStructureImportRunActionWriteFailed(runResult.value.id, runResult.value.plan);
+        return { type: 'database-error' };
     }
 
     const updatedRunResult = await updateStructureImportRunStatus(database.db, {
+        audit: options.audit?.(runResult.value.id),
         runId: runResult.value.id,
-        status: 'dry_run_complete',
+        status: structureImportRunStatuses.dryRunComplete,
     });
 
     if (updatedRunResult.isErr()) return { type: 'database-error' };
@@ -370,12 +940,57 @@ async function persistStructureImportDryRun(
     };
 }
 
-function parseDashboardStructureSnapshot(
-    snapshotJson: string
-): { type: 'valid'; snapshot: DashboardStructureSnapshot } | { type: 'invalid-input'; message: string } {
-    const trimmedJson = snapshotJson.trim();
+async function recordActionBatches(
+    runId: string,
+    actions: Array<{
+        actionType: string;
+        details?: Record<string, unknown>;
+        sequence: number;
+        status?: string;
+        targetId?: string;
+        targetType: string;
+    }>
+): Promise<StructureImportActionRecord[] | 'database-error'> {
+    if (actions.length === 0) return [];
 
-    if (!trimmedJson) return { type: 'invalid-input', message: 'Paste exported structure JSON first.' };
+    const database = await getWebDb();
+    const records: StructureImportActionRecord[] = [];
+
+    for (let index = 0; index < actions.length; index += 100) {
+        const result = await recordStructureImportActionsBatch(database.db, {
+            runId,
+            actions: actions.slice(index, index + 100),
+        });
+
+        if (result.isErr()) return 'database-error';
+
+        if (records.length <= dashboardImportActionInlineLimit) {
+            records.push(...result.value.slice(0, dashboardImportActionInlineLimit - records.length));
+        }
+    }
+
+    return records;
+}
+
+async function markStructureImportRunActionWriteFailed(runId: string, plan: Record<string, unknown>): Promise<void> {
+    const database = await getWebDb();
+
+    await updateStructureImportRunStatus(database.db, {
+        runId,
+        status: structureImportRunStatuses.cancelled,
+        plan: {
+            ...plan,
+            errorType: 'action-write-failed',
+        },
+    });
+}
+
+function parseDashboardStructureSnapshot(
+    backupJson: string
+): { type: 'valid'; snapshot: DashboardStructureSnapshot } | { type: 'invalid-input'; message: string } {
+    const trimmedJson = backupJson.trim();
+
+    if (!trimmedJson) return { type: 'invalid-input', message: 'Paste exported server blueprint JSON first.' };
 
     try {
         const parsed = JSON.parse(trimmedJson) as unknown;
@@ -387,34 +1002,109 @@ function parseDashboardStructureSnapshot(
 
         return { type: 'valid', snapshot: normalized.snapshot };
     } catch {
-        return { type: 'invalid-input', message: 'Structure JSON could not be parsed.' };
+        return { type: 'invalid-input', message: 'Server blueprint JSON could not be parsed.' };
     }
 }
 
-function toDashboardExportSummary(record: StructureExportSnapshotRecord): DashboardStructureExportSummary {
-    const counts = countSnapshotItems(record.snapshot);
+function normalizeDashboardStructurePayload(
+    payload: unknown
+): { type: 'valid'; snapshot: DashboardStructureSnapshot } | { type: 'invalid-input'; message: string } {
+    const normalized = normalizeDashboardStructureSnapshot(payload);
 
+    if (normalized.type === 'invalid') {
+        return { type: 'invalid-input', message: normalized.message };
+    }
+
+    return { type: 'valid', snapshot: normalized.snapshot };
+}
+
+function createStructureAuditPayload(
+    context: AuthorizedStructureContext,
+    action: string,
+    targetId: string | undefined,
+    metadata: Record<string, unknown>
+): StructureAuditPayload {
     return {
-        id: record.id,
-        source: record.source,
-        ...(record.createdByUserId ? { createdByUserId: record.createdByUserId } : {}),
-        createdAt: record.createdAt.toISOString(),
-        roleCount: counts.roles,
-        categoryCount: counts.categories,
-        channelCount: counts.channels,
+        action,
+        actorUserId: context.actor.actorUserId,
+        metadata: {
+            source: 'dashboard',
+            ...metadata,
+            ...context.actor.metadata,
+        },
+        ...(targetId ? { targetId } : {}),
     };
 }
 
-export function toDashboardImportRun(record: StructureImportRunWithActionsRecord): DashboardStructureImportRun {
+function toDashboardBackupPage(record: StructureBackupSummaryPageRecord): DashboardStructureBackupPage {
+    return {
+        backups: record.backups.map(toDashboardBackupSummary),
+        ...(record.nextCursor ? { nextCursor: record.nextCursor } : {}),
+    };
+}
+
+function toDashboardBackupSummary(
+    record: StructureBackupRecord | StructureBackupSummaryRecord
+): DashboardStructureBackupSummary {
+    return {
+        id: record.id,
+        name: record.name,
+        source: record.source,
+        status: record.status,
+        ...(record.errorMessage ? { errorMessage: record.errorMessage } : {}),
+        ...(record.createdByUserId ? { createdByUserId: record.createdByUserId } : {}),
+        createdAt: record.createdAt.toISOString(),
+        completedAt: record.completedAt.toISOString(),
+        roleCount: record.roleCount,
+        categoryCount: record.categoryCount,
+        channelCount: record.channelCount,
+    };
+}
+
+function toDashboardBackupSettings(record: StructureBackupSettingsRecord): DashboardStructureBackupSettings {
+    return {
+        enabled: record.enabled,
+        cadenceWeeks: record.cadenceWeeks,
+        retentionDays: record.retentionDays,
+        ...(record.lastAttemptAt ? { lastAttemptAt: record.lastAttemptAt.toISOString() } : {}),
+        ...(record.lastSuccessAt ? { lastSuccessAt: record.lastSuccessAt.toISOString() } : {}),
+        ...(record.lastErrorMessage ? { lastErrorMessage: record.lastErrorMessage } : {}),
+        ...(record.nextBackupAt ? { nextBackupAt: record.nextBackupAt.toISOString() } : {}),
+        ...(record.nextRetentionPruneAt ? { nextRetentionPruneAt: record.nextRetentionPruneAt.toISOString() } : {}),
+    };
+}
+
+export function toDashboardImportRun(
+    record: StructureImportRunRecord | StructureImportRunWithActionsRecord
+): DashboardStructureImportRun {
+    const actions = 'actions' in record ? record.actions : [];
+    const summary = readPlanSummary(record.plan);
+
     return {
         id: record.id,
         status: record.status,
         ...(record.createdByUserId ? { createdByUserId: record.createdByUserId } : {}),
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
-        summary: readPlanSummary(record.plan),
-        actions: record.actions.map(toDashboardImportAction),
+        summary,
+        actionCount: readActionCount(summary, actions),
+        actions: shouldInlineImportActions(summary, actions) ? actions.map(toDashboardImportAction) : [],
     };
+}
+
+function readActionCount(summary: DashboardStructurePlan['summary'], actions: StructureImportActionRecord[]): number {
+    const summarizedCount = summary.creates + summary.updates + summary.deletes;
+
+    return summarizedCount > 0 ? summarizedCount : actions.length;
+}
+
+function shouldInlineImportActions(
+    summary: DashboardStructurePlan['summary'],
+    actions: StructureImportActionRecord[]
+): boolean {
+    const actionCount = readActionCount(summary, actions);
+
+    return actions.length > 0 && actions.length === actionCount && actions.length <= dashboardImportActionInlineLimit;
 }
 
 function toDashboardImportAction(record: StructureImportActionRecord): DashboardStructureImportAction {
@@ -423,6 +1113,7 @@ function toDashboardImportAction(record: StructureImportActionRecord): Dashboard
 
     return {
         id: record.id,
+        sequence: record.sequence,
         actionType: record.actionType,
         targetType: record.targetType,
         ...(record.targetId ? { targetId: record.targetId } : {}),
@@ -432,9 +1123,17 @@ function toDashboardImportAction(record: StructureImportActionRecord): Dashboard
     };
 }
 
-function toDashboardObservedState(record: StructureObservedEventStateRecord): DashboardStructureObservedState {
+function toDashboardObservedState(
+    record: StructureObservedEventStateRecord,
+    settings: StructureBackupSettingsRecord
+): DashboardStructureObservedState {
+    const lastObservedAt = record.lastObservedAt?.getTime() ?? 0;
+    const lastBackupAt = settings.lastSuccessAt?.getTime() ?? 0;
+
     return {
         observedChangeCount: record.observedChangeCount,
+        targetChangeCounts: record.targetChangeCounts,
+        changedSinceLastBackup: lastObservedAt > lastBackupAt,
         ...(record.lastEventType ? { lastEventType: record.lastEventType } : {}),
         ...(record.lastTargetType ? { lastTargetType: record.lastTargetType } : {}),
         ...(record.lastTargetId ? { lastTargetId: record.lastTargetId } : {}),
@@ -455,12 +1154,43 @@ function readPlanSummary(plan: Record<string, unknown>): DashboardStructurePlan[
     };
 }
 
-function countSnapshotItems(snapshot: Record<string, unknown>) {
+function summarizeActions(actions: StructureImportActionRecord[]): DashboardStructurePlan['summary'] {
     return {
-        roles: Array.isArray(snapshot.roles) ? snapshot.roles.length : 0,
-        categories: Array.isArray(snapshot.categories) ? snapshot.categories.length : 0,
-        channels: Array.isArray(snapshot.channels) ? snapshot.channels.length : 0,
+        creates: actions.filter((action) => action.actionType === 'create').length,
+        updates: actions.filter((action) => action.actionType === 'update').length,
+        deletes: actions.filter((action) => action.actionType === 'delete').length,
+        roles: actions.filter((action) => action.targetType === 'role').length,
+        categories: actions.filter((action) => action.targetType === 'category').length,
+        channels: actions.filter((action) => action.targetType === 'channel').length,
     };
+}
+
+function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string, unknown> {
+    const applySummary = isObject(plan.applySummary) ? plan.applySummary : {};
+    return isObject(applySummary.sourceTargetMap) ? applySummary.sourceTargetMap : {};
+}
+
+function createStructureExportFileName(guildName: string, exportedAt: string | undefined): string {
+    const stamp = (exportedAt ?? new Date().toISOString()).replaceAll(/[:.]/g, '-');
+    return `${sanitizeDownloadName(guildName)}-${stamp}.json`;
+}
+
+function createBackupDownloadFileName(name: string): string {
+    return `${sanitizeDownloadName(name)}.json`;
+}
+
+function normalizeBackupDisplayName(value: string): string {
+    return value.replace(/\s+/g, ' ').trim();
+}
+
+function sanitizeDownloadName(value: string): string {
+    const normalized = normalizeBackupDisplayName(value)
+        .replace(/[^a-zA-Z0-9._ -]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^[.-]+|[.-]+$/g, '');
+
+    return normalized || 'server-blueprint';
 }
 
 function mapRepositoryError(error: { type: string }): DashboardStructureErrorResult {

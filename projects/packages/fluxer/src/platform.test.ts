@@ -479,14 +479,16 @@ describe('createFluxerPlatform', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('edits role name and visual fields through the normalized roles port', async () => {
+    it('edits role name, position, and visual fields through the normalized roles port', async () => {
         const edit = vi.fn().mockResolvedValue(undefined);
         const fetchRole = vi.fn().mockResolvedValue({ edit });
+        const setRolePositions = vi.fn().mockResolvedValue([]);
         const platform = createFluxerPlatform(
             createClient({
                 guilds: {
                     fetch: vi.fn().mockResolvedValue({
                         fetchRole,
+                        setRolePositions,
                     }),
                 },
             })
@@ -497,6 +499,7 @@ describe('createFluxerPlatform', () => {
             roleId: ' role-1 ',
             name: ' Member ',
             permissions: ' 2048 ',
+            position: 5,
             color: 255,
             hoist: true,
             mentionable: false,
@@ -511,6 +514,31 @@ describe('createFluxerPlatform', () => {
             hoist: true,
             mentionable: false,
         });
+        expect(setRolePositions).toHaveBeenCalledWith([{ id: 'role-1', position: 5 }]);
+    });
+
+    it('rejects @everyone role moves before fetching the guild', async () => {
+        const fetch = vi.fn();
+        const platform = createFluxerPlatform(
+            createClient({
+                guilds: {
+                    fetch,
+                },
+            })
+        );
+
+        const result = await platform.roles.edit({
+            guildId: 'guild-1',
+            roleId: 'guild-1',
+            position: 1,
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'invalid-value',
+            field: 'position',
+        } satisfies FluxerPlatformError);
+        expect(fetch).not.toHaveBeenCalled();
     });
 
     it('rejects invalid role colors before fetching the guild', async () => {
@@ -537,10 +565,16 @@ describe('createFluxerPlatform', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('edits channel name and voice user limit through the normalized channels port', async () => {
+    it('edits channel name, parent, position, and voice user limit through the normalized channels port', async () => {
         const edit = vi.fn().mockResolvedValue(undefined);
+        const setChannelPositions = vi.fn().mockResolvedValue(undefined);
         const platform = createFluxerPlatform(
             createClient({
+                guilds: {
+                    fetch: vi.fn().mockResolvedValue({
+                        setChannelPositions,
+                    }),
+                },
                 channels: {
                     fetch: vi.fn().mockResolvedValue({ edit }),
                 },
@@ -549,7 +583,10 @@ describe('createFluxerPlatform', () => {
 
         const result = await platform.channels.edit({
             channelId: ' channel-1 ',
+            guildId: ' guild-1 ',
             name: ' New Room ',
+            parentId: ' category-1 ',
+            position: 3,
             userLimit: 4,
         });
 
@@ -558,6 +595,7 @@ describe('createFluxerPlatform', () => {
             name: 'New Room',
             user_limit: 4,
         });
+        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parent_id: 'category-1', position: 3 }]);
     });
 
     it('rejects invalid channel edit payloads before fetching the channel', async () => {

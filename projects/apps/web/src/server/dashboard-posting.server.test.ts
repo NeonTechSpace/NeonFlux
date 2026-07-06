@@ -128,6 +128,7 @@ describe('dashboard posting', () => {
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
             ok({
                 guildId: 'guild-1',
+                guildName: 'Guild 1',
                 roles: [],
                 channels: [
                     {

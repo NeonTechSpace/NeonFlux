@@ -10,7 +10,7 @@ export const structureImportRunsTable = defineTable({
     createdByUserId: optionalString,
     guildId: v.string(),
     plan: jsonValue,
-    sourceSnapshotId: v.optional(v.id('structureExportSnapshots')),
+    sourceBackupId: v.optional(v.id('structureBackups')),
     status: v.string(),
     updatedAt: timestamp,
 })

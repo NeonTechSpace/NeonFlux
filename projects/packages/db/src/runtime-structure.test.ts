@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import type { ConvexDatabase } from './convex.js';
 import {
-    createStructureExportSnapshot,
+    claimDueStructureBackupSetting,
+    clearStructureBackupSettingLease,
+    createStructureBackup,
     createStructureImportRun,
-    findStructureExportSnapshotByGuildId,
+    findStructureBackupByGuildId,
     findStructureImportRunByGuildId,
     findStructureObservedEventStateByGuildId,
-    listStructureExportSnapshotsByGuildId,
+    listStructureBackupSummariesByGuildId,
+    listStructureBackupsByGuildId,
     listStructureImportRunsByGuildId,
     recordStructureImportAction,
+    recordStructureImportActionsBatch,
     recordStructureObservedEvent,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
@@ -23,15 +27,22 @@ const observedState = {
     lastTargetId: 'channel-1',
     lastTargetType: 'channel',
     observedChangeCount: 3,
+    targetChangeCounts: { channel: 3 },
     updatedAt: '2026-07-03T09:00:00.000Z',
 };
-const snapshot = {
+const backup = {
+    categoryCount: 0,
+    channelCount: 0,
+    completedAt: '2026-07-03T08:05:00.000Z',
     createdAt: '2026-07-03T08:05:00.000Z',
     createdByUserId: 'user-1',
+    errorMessage: null,
     guildId: 'guild-1',
-    id: 'snapshot-1',
-    snapshot: { channels: [] },
-    source: 'dashboard',
+    id: 'backup-1',
+    roleCount: 0,
+    source: 'manual',
+    status: 'succeeded',
+    structure: { channels: [] },
 };
 const action = {
     actionType: 'create',
@@ -39,6 +50,7 @@ const action = {
     details: { name: 'general' },
     id: 'action-1',
     runId: 'run-1',
+    sequence: 0,
     status: 'pending',
     targetId: 'channel-1',
     targetType: 'channel',
@@ -53,7 +65,7 @@ const importRun = {
     guildId: 'guild-1',
     id: 'run-1',
     plan: { changes: 1 },
-    sourceSnapshotId: 'snapshot-1',
+    sourceBackupId: 'backup-1',
     status: 'draft',
     updatedAt: '2026-07-03T08:10:00.000Z',
 };
@@ -63,7 +75,7 @@ type TestStructureRunRecord = Omit<ReturnType<typeof withoutActions>, 'appliedAt
 };
 
 describe('Convex structure database functions', () => {
-    it('routes observed structure state through Convex with Date conversion', async () => {
+    it('routes observed server layout state through Convex with Date conversion', async () => {
         const db = createConvexDb({
             mutationResults: [observedState],
             queryResults: [observedState],
@@ -87,7 +99,7 @@ describe('Convex structure database functions', () => {
         });
     });
 
-    it('routes export snapshots and import runs through Convex', async () => {
+    it('routes backups and import runs through Convex', async () => {
         const confirmedRun = {
             ...importRun,
             confirmedAt: '2026-07-03T08:30:00.000Z',
@@ -100,26 +112,27 @@ describe('Convex structure database functions', () => {
             updatedAt: '2026-07-03T08:35:00.000Z',
         };
         const db = createConvexDb({
-            mutationResults: [snapshot, withoutActions(importRun), confirmedRun, action, completedAction],
-            queryResults: [[snapshot], snapshot, [importRun], importRun],
+            mutationResults: [backup, withoutActions(importRun), confirmedRun, action, completedAction],
+            queryResults: [[backup], [backup], backup, [withoutActions(importRun)], withoutActions(importRun)],
         });
 
-        const createdSnapshot = await createStructureExportSnapshot(db, {
+        const createdBackup = await createStructureBackup(db, {
             createdByUserId: ' user-1 ',
             guildId: ' guild-1 ',
-            snapshot: snapshot.snapshot,
-            source: ' dashboard ',
+            structure: backup.structure,
+            source: ' manual ',
         });
-        const snapshots = await listStructureExportSnapshotsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
-        const foundSnapshot = await findStructureExportSnapshotByGuildId(db, {
+        const backups = await listStructureBackupsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
+        const backupSummaries = await listStructureBackupSummariesByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
+        const foundBackup = await findStructureBackupByGuildId(db, {
             guildId: ' guild-1 ',
-            snapshotId: ' snapshot-1 ',
+            backupId: ' backup-1 ',
         });
         const createdRun = await createStructureImportRun(db, {
             createdByUserId: ' user-1 ',
             guildId: ' guild-1 ',
             plan: importRun.plan,
-            sourceSnapshotId: ' snapshot-1 ',
+            sourceBackupId: ' backup-1 ',
         });
         const runs = await listStructureImportRunsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
         const foundRun = await findStructureImportRunByGuildId(db, { guildId: ' guild-1 ', runId: ' run-1 ' });
@@ -132,6 +145,7 @@ describe('Convex structure database functions', () => {
             actionType: ' create ',
             details: action.details,
             runId: ' run-1 ',
+            sequence: 0,
             status: ' pending ',
             targetId: ' channel-1 ',
             targetType: ' channel ',
@@ -142,21 +156,106 @@ describe('Convex structure database functions', () => {
             status: ' completed ',
         });
 
-        expect(createdSnapshot._unsafeUnwrap()).toStrictEqual(toSnapshotRecord(snapshot));
-        expect(snapshots._unsafeUnwrap()).toStrictEqual([toSnapshotRecord(snapshot)]);
-        expect(foundSnapshot._unsafeUnwrap()).toStrictEqual(toSnapshotRecord(snapshot));
+        expect(createdBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
+        expect(backups._unsafeUnwrap()).toStrictEqual([toBackupRecord(backup)]);
+        expect(backupSummaries._unsafeUnwrap()).toStrictEqual([toBackupSummaryRecord(backup)]);
+        expect(foundBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
         expect(createdRun._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutActions(importRun)));
-        expect(runs._unsafeUnwrap()).toStrictEqual([toRunWithActionsRecord(importRun)]);
-        expect(foundRun._unsafeUnwrap()).toStrictEqual(toRunWithActionsRecord(importRun));
+        expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(withoutActions(importRun))]);
+        expect(foundRun._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutActions(importRun)));
         expect(updatedRun._unsafeUnwrap()).toStrictEqual(toRunRecord(confirmedRun));
         expect(recordedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(action));
         expect(updatedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(completedAction));
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             createdByUserId: 'user-1',
             guildId: 'guild-1',
-            snapshot: snapshot.snapshot,
-            source: 'dashboard',
+            source: 'manual',
+            structure: backup.structure,
         });
+    });
+
+    it('routes scheduled backup lease claims and clears through Convex', async () => {
+        const settings = {
+            cadenceWeeks: 1,
+            createdAt: '2026-07-03T08:00:00.000Z',
+            enabled: true,
+            guildId: 'guild-1',
+            lastAttemptAt: null,
+            lastErrorMessage: null,
+            lastSuccessAt: null,
+            nextBackupAt: '2026-07-10T08:00:00.000Z',
+            nextRetentionPruneAt: null,
+            retentionDays: 180,
+            updatedAt: '2026-07-03T08:00:00.000Z',
+        };
+        const db = createConvexDb({
+            mutationResults: [settings, true],
+        });
+
+        const claimed = await claimDueStructureBackupSetting(db, {
+            guildId: ' guild-1 ',
+            leaseExpiresAt: new Date('2026-07-03T08:30:00.000Z'),
+            leaseId: ' lease-1 ',
+            leaseOwner: ' bot-1 ',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        const cleared = await clearStructureBackupSettingLease(db, {
+            guildId: ' guild-1 ',
+            leaseId: ' lease-1 ',
+            now: new Date('2026-07-03T08:10:00.000Z'),
+        });
+
+        expect(claimed._unsafeUnwrap()).toStrictEqual({
+            cadenceWeeks: 1,
+            createdAt: new Date('2026-07-03T08:00:00.000Z'),
+            enabled: true,
+            guildId: 'guild-1',
+            lastAttemptAt: null,
+            lastErrorMessage: null,
+            lastSuccessAt: null,
+            nextBackupAt: new Date('2026-07-10T08:00:00.000Z'),
+            nextRetentionPruneAt: null,
+            retentionDays: 180,
+            updatedAt: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        expect(cleared._unsafeUnwrap()).toBe(true);
+        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
+            guildId: 'guild-1',
+            leaseExpiresAt: '2026-07-03T08:30:00.000Z',
+            leaseId: 'lease-1',
+            leaseOwner: 'bot-1',
+            now: '2026-07-03T08:00:00.000Z',
+        });
+        expect(db.client.mutationCalls[1]?.args).toStrictEqual({
+            guildId: 'guild-1',
+            leaseId: 'lease-1',
+            now: '2026-07-03T08:10:00.000Z',
+        });
+    });
+
+    it('rejects duplicate import action sequences before batch writes', async () => {
+        const db = createConvexDb({});
+
+        const result = await recordStructureImportActionsBatch(db, {
+            runId: 'run-1',
+            actions: [
+                {
+                    actionType: 'create',
+                    details: action.details,
+                    sequence: 0,
+                    targetType: 'channel',
+                },
+                {
+                    actionType: 'update',
+                    details: action.details,
+                    sequence: 0,
+                    targetType: 'channel',
+                },
+            ],
+        });
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ field: 'sequence', type: 'invalid-value' });
+        expect(db.client.mutationCalls).toStrictEqual([]);
     });
 
     it('maps validation failures and missing Convex records to existing repository errors', async () => {
@@ -165,9 +264,9 @@ describe('Convex structure database functions', () => {
             queryResults: [null],
         });
 
-        const missingGuild = await createStructureExportSnapshot(db, {
+        const missingGuild = await createStructureBackup(db, {
             guildId: ' ',
-            snapshot: {},
+            structure: {},
         });
         const missingEventType = await recordStructureObservedEvent(db, {
             eventType: ' ',
@@ -178,20 +277,27 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             limit: 0,
         });
-        const missingSnapshot = await findStructureExportSnapshotByGuildId(db, {
+        const missingSnapshot = await findStructureBackupByGuildId(db, {
             guildId: 'guild-1',
-            snapshotId: 'snapshot-1',
+            backupId: 'backup-1',
         });
         const missingRunUpdate = await updateStructureImportRunStatus(db, {
             runId: 'run-1',
             status: 'confirmed',
         });
+        const missingActionSequence = await recordStructureImportAction(db, {
+            actionType: 'create',
+            details: {},
+            runId: 'run-1',
+            targetType: 'channel',
+        } as Parameters<typeof recordStructureImportAction>[1]);
 
         expect(missingGuild._unsafeUnwrapErr()).toStrictEqual({ field: 'guildId', type: 'missing-input' });
         expect(missingEventType._unsafeUnwrapErr()).toStrictEqual({ field: 'eventType', type: 'missing-input' });
         expect(invalidLimit._unsafeUnwrapErr()).toStrictEqual({ field: 'limit', type: 'invalid-value' });
         expect(missingSnapshot._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
         expect(missingRunUpdate._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
+        expect(missingActionSequence._unsafeUnwrapErr()).toStrictEqual({ field: 'sequence', type: 'invalid-value' });
     });
 });
 
@@ -210,8 +316,14 @@ function toObservedStateRecord(record: typeof observedState) {
     };
 }
 
-function toSnapshotRecord(record: typeof snapshot) {
-    return { ...record, createdAt: new Date(record.createdAt) };
+function toBackupRecord(record: typeof backup) {
+    return { ...record, completedAt: new Date(record.completedAt), createdAt: new Date(record.createdAt) };
+}
+
+function toBackupSummaryRecord(record: typeof backup) {
+    const { structure, ...summary } = toBackupRecord(record);
+    void structure;
+    return summary;
 }
 
 function toRunRecord(record: TestStructureRunRecord) {
@@ -221,13 +333,6 @@ function toRunRecord(record: TestStructureRunRecord) {
         confirmedAt: record.confirmedAt ? new Date(record.confirmedAt) : null,
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
-    };
-}
-
-function toRunWithActionsRecord(record: typeof importRun) {
-    return {
-        ...toRunRecord(record),
-        actions: record.actions.map(toActionRecord),
     };
 }
 

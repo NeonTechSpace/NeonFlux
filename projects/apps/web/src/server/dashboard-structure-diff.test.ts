@@ -74,14 +74,15 @@ describe('dashboard structure diff', () => {
             })
         ).toStrictEqual({
             type: 'invalid',
-            message: 'Structure JSON must include valid roles, categories, and channels arrays.',
+            message: 'Server blueprint JSON must include valid roles, categories, and channels arrays.',
         });
     });
 
-    it('plans creates, updates, and deletes against the current structure', () => {
+    it('plans creates, updates, and deletes against the current server layout', () => {
         const current = toDashboardStructureSnapshot(
             {
                 guildId: 'guild-1',
+                guildName: 'Guild 1',
                 roles: [
                     {
                         id: 'role-1',

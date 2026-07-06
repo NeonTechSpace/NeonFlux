@@ -2,15 +2,21 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import {
-    findStructureImportRunByGuildId,
+    findStructureImportRunWithActionsByGuildId,
+    structureAuditActions,
+    structureImportActionStatuses,
+    structureImportRunStatuses,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
 } from '@neonflux/db';
 import type { StructureImportActionRecord } from '@neonflux/db';
-import { applyFluxerBotGuildStructureAction, readFluxerBotGuildStructure } from '@neonflux/fluxer';
+import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
-import { loadAuthorizedStructureContext, recordStructureAudit } from './dashboard-structure-context.server.js';
+import {
+    loadAuthorizedStructureContext,
+    recordStructureAuditBestEffort,
+} from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
@@ -68,13 +74,13 @@ export async function applyDashboardStructureImportRun(
     }
 
     const database = await getWebDb();
-    const importRunResult = await findStructureImportRunByGuildId(database.db, {
+    const importRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
     });
 
     if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
-    if (importRunResult.value.status !== 'confirmed') {
+    if (importRunResult.value.status !== structureImportRunStatuses.confirmed) {
         return { type: 'not-applicable', status: importRunResult.value.status };
     }
 
@@ -94,6 +100,7 @@ export async function applyDashboardStructureImportRun(
 
     const preflightResult = await runApplyPreflight(botToken, context.guild.id, importRunResult.value.actions, {
         allowDestructiveDeletes: deleteActionCount > 0,
+        idMap: readApplySourceTargetMap(importRunResult.value.plan),
         sourceGuildId: readRequestedGuildId(importRunResult.value.plan),
     });
 
@@ -101,7 +108,7 @@ export async function applyDashboardStructureImportRun(
 
     const applyingResult = await updateStructureImportRunStatus(database.db, {
         runId: importRunId,
-        status: 'applying',
+        status: structureImportRunStatuses.applying,
     });
 
     if (applyingResult.isErr()) return mapRunStatusError(applyingResult.error);
@@ -110,17 +117,22 @@ export async function applyDashboardStructureImportRun(
         botToken,
         context.guild.id,
         importRunResult.value.actions,
-        readRequestedGuildId(importRunResult.value.plan)
+        readRequestedGuildId(importRunResult.value.plan),
+        readApplySourceTargetMap(importRunResult.value.plan)
     );
-    const finalStatus = applyResult.actions.every((result) => result.status === 'applied') ? 'applied' : 'failed';
+    const finalStatus = applyResult.actions.every((result) => result.status === structureImportActionStatuses.applied)
+        ? structureImportRunStatuses.applied
+        : structureImportRunStatuses.failed;
     const finalRunResult = await updateStructureImportRunStatus(database.db, {
         runId: importRunId,
         status: finalStatus,
         plan: {
             ...applyingResult.value.plan,
             applySummary: {
-                applied: applyResult.actions.filter((result) => result.status === 'applied').length,
-                failed: applyResult.actions.filter((result) => result.status === 'failed').length,
+                applied: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.applied)
+                    .length,
+                failed: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.failed)
+                    .length,
                 sourceTargetMap: applyResult.idMap,
             },
         },
@@ -128,7 +140,7 @@ export async function applyDashboardStructureImportRun(
 
     if (finalRunResult.isErr()) return mapRunStatusError(finalRunResult.error);
 
-    const refreshedRunResult = await findStructureImportRunByGuildId(database.db, {
+    const refreshedRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
         guildId: context.guild.id,
         runId: importRunId,
     });
@@ -136,22 +148,27 @@ export async function applyDashboardStructureImportRun(
     if (refreshedRunResult.isErr()) return mapRepositoryError(refreshedRunResult.error);
 
     const importRun = toDashboardImportRun(refreshedRunResult.value);
-    const auditResult = await recordStructureAudit(
+    await recordStructureAuditBestEffort(
         context,
-        finalStatus === 'applied' ? 'structure.import_applied' : 'structure.import_failed',
+        finalStatus === structureImportRunStatuses.applied
+            ? structureAuditActions.importApplied
+            : structureAuditActions.importFailed,
         importRunId,
         {
-            actionCount: importRun.actions.length,
-            appliedCount: applyResult.actions.filter((result) => result.status === 'applied').length,
-            failedCount: applyResult.actions.filter((result) => result.status === 'failed').length,
+            actionCount: importRun.actionCount,
+            appliedCount: applyResult.actions.filter(
+                (result) => result.status === structureImportActionStatuses.applied
+            ).length,
+            failedCount: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.failed)
+                .length,
             mappedSourceCount: Object.keys(applyResult.idMap).length,
             deleteCount: deleteActionCount,
         }
-    );
+    ).catch(() => undefined);
 
-    if (auditResult === 'database-error') return { type: 'database-error' };
-
-    return finalStatus === 'applied' ? { type: 'applied', importRun } : { type: 'failed', importRun };
+    return finalStatus === structureImportRunStatuses.applied
+        ? { type: 'applied', importRun }
+        : { type: 'failed', importRun };
 }
 
 export function getStructureImportApplyText(importRunId: string): string {
@@ -166,7 +183,7 @@ async function runApplyPreflight(
     botToken: string,
     guildId: string,
     actions: StructureImportActionRecord[],
-    options: { allowDestructiveDeletes?: boolean; sourceGuildId?: string } = {}
+    options: { allowDestructiveDeletes?: boolean; idMap?: Record<string, string>; sourceGuildId?: string } = {}
 ): Promise<
     | { type: 'ready' }
     | { type: 'structure-read-failed' }
@@ -193,41 +210,71 @@ async function applyReadyActions(
     botToken: string,
     guildId: string,
     actions: StructureImportActionRecord[],
-    sourceGuildId: string | undefined
+    sourceGuildId: string | undefined,
+    initialIdMap: Record<string, string>
 ) {
     const database = await getWebDb();
-    const results: Array<{ actionId: string; status: 'applied' | 'failed' }> = [];
-    const idMap: Record<string, string> = {};
+    const results: Array<{ actionId: string; status: string }> = [];
+    const applyResult = await applyFluxerBotGuildStructureActions({
+        botToken,
+        guildId,
+        actions: orderStructureActions(actions).map((action) => {
+            const details = toJsonRecord(action.details);
 
-    for (const action of orderStructureActions(actions)) {
+            return {
+                id: action.id,
+                actionType: action.actionType,
+                targetType: action.targetType,
+                targetId: action.targetId ?? '',
+                changes: readChanges(details),
+                after: details.after,
+            };
+        }),
+        ...(sourceGuildId ? { sourceGuildId } : {}),
+        ...(Object.keys(initialIdMap).length > 0 ? { idMap: initialIdMap } : {}),
+    });
+
+    if (applyResult.isErr()) {
+        for (const action of actions) {
+            await updateStructureImportActionStatus(database.db, {
+                actionId: action.id,
+                status: structureImportActionStatuses.failed,
+                details: {
+                    ...toJsonRecord(action.details),
+                    appliedAt: new Date().toISOString(),
+                    errorType: applyResult.error.type,
+                },
+            });
+        }
+
+        return {
+            actions: actions.map((action) => ({ actionId: action.id, status: structureImportActionStatuses.failed })),
+            idMap: initialIdMap,
+        };
+    }
+
+    const resultActionIds = new Set<string>();
+
+    for (const result of applyResult.value.actions) {
+        const action = actions.find((candidate) => candidate.id === result.id);
+        if (!action) continue;
+        resultActionIds.add(action.id);
+
         const details = toJsonRecord(action.details);
-        const applyResult = await applyFluxerBotGuildStructureAction({
-            botToken,
-            guildId,
-            actionType: action.actionType,
-            targetType: action.targetType,
-            targetId: action.targetId ?? '',
-            changes: readChanges(details),
-            after: details.after,
-            idMap: { ...idMap },
-            ...(sourceGuildId ? { sourceGuildId } : {}),
-        });
-        const status = applyResult.isOk() ? 'applied' : 'failed';
+        const status =
+            result.status === 'applied' ? structureImportActionStatuses.applied : structureImportActionStatuses.failed;
         const updatedDetails = {
             ...details,
             appliedAt: new Date().toISOString(),
-            ...(action.targetId && applyResult.isOk() && applyResult.value.createdId
+            ...(action.targetId && result.createdId
                 ? {
                       sourceId: action.targetId,
-                      createdId: applyResult.value.createdId,
+                      createdId: result.createdId,
                   }
                 : {}),
-            ...(applyResult.isErr() ? { errorType: applyResult.error.type } : {}),
+            ...(result.errorType ? { errorType: result.errorType } : {}),
+            ...(result.errorCauseType ? { errorCauseType: result.errorCauseType } : {}),
         };
-
-        if (action.targetId && applyResult.isOk() && applyResult.value.createdId) {
-            idMap[action.targetId] = applyResult.value.createdId;
-        }
 
         const statusResult = await updateStructureImportActionStatus(database.db, {
             actionId: action.id,
@@ -236,14 +283,33 @@ async function applyReadyActions(
         });
 
         if (statusResult.isErr()) {
-            results.push({ actionId: action.id, status: 'failed' });
+            results.push({ actionId: action.id, status: structureImportActionStatuses.failed });
             continue;
         }
 
         results.push({ actionId: action.id, status });
     }
 
-    return { actions: results, idMap };
+    for (const action of actions) {
+        if (resultActionIds.has(action.id)) continue;
+
+        await updateStructureImportActionStatus(database.db, {
+            actionId: action.id,
+            status: structureImportActionStatuses.failed,
+            details: {
+                ...toJsonRecord(action.details),
+                appliedAt: new Date().toISOString(),
+                errorType: 'apply-result-missing',
+            },
+        });
+
+        results.push({
+            actionId: action.id,
+            status: structureImportActionStatuses.failed,
+        });
+    }
+
+    return { actions: results, idMap: applyResult.value.idMap };
 }
 
 function orderStructureActions(actions: StructureImportActionRecord[]): StructureImportActionRecord[] {
@@ -323,6 +389,18 @@ function readRequestedGuildId(plan: Record<string, unknown>): string | undefined
     return typeof plan.requestedGuildId === 'string' && plan.requestedGuildId.trim()
         ? plan.requestedGuildId.trim()
         : undefined;
+}
+
+function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string, string> {
+    const directMap = isObject(plan.sourceTargetMap) ? plan.sourceTargetMap : undefined;
+    const applySummary = isObject(plan.applySummary) ? plan.applySummary : undefined;
+    const summaryMap =
+        applySummary && isObject(applySummary.sourceTargetMap) ? applySummary.sourceTargetMap : undefined;
+    const source = directMap ?? summaryMap ?? {};
+
+    return Object.fromEntries(
+        Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    );
 }
 
 function mapRunStatusError(error: { type: string; from?: string }): DashboardStructureApplyResult {

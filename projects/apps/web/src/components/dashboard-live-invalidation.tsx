@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
 import {
-    getDashboardAuditEventsQueryKey,
+    getDashboardAuditEventsBaseQueryKey,
     getDashboardCommandSettingsQueryKey,
     getDashboardOverviewQueryKey,
     getDashboardPostingTemplatesQueryKey,
@@ -204,7 +204,7 @@ function invalidateDashboardLiveArea(
 
         case 'audit':
             void queryClient.invalidateQueries({
-                queryKey: getDashboardAuditEventsQueryKey(guildId),
+                queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
             });
             return;
     }

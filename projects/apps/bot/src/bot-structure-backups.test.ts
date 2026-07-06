@@ -1,0 +1,262 @@
+import {
+    claimDueStructureBackupSetting,
+    clearStructureBackupSettingLease,
+    createStructureBackup,
+    listDueStructureBackupRetentionSettings,
+    listDueStructureBackupSettings,
+    pruneExpiredStructureBackupsForGuild,
+    type RuntimeDbClient,
+    structureBackupSources,
+    structureBackupStatuses,
+} from '@neonflux/db';
+import type * as NeonFluxDb from '@neonflux/db';
+import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
+import type * as Fluxer from '@neonflux/fluxer';
+import { err, ok } from 'neverthrow';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { runDueStructureBackups, startStructureBackupScheduler } from './bot-structure-backups.js';
+
+vi.mock('@neonflux/db', async (importActual) => {
+    const actual = await importActual<typeof NeonFluxDb>();
+
+    return {
+        ...actual,
+        claimDueStructureBackupSetting: vi.fn(),
+        clearStructureBackupSettingLease: vi.fn(),
+        createStructureBackup: vi.fn(),
+        listDueStructureBackupRetentionSettings: vi.fn(),
+        listDueStructureBackupSettings: vi.fn(),
+        pruneExpiredStructureBackupsForGuild: vi.fn(),
+    };
+});
+
+vi.mock('@neonflux/fluxer', async (importActual) => {
+    const actual = await importActual<typeof Fluxer>();
+
+    return {
+        ...actual,
+        readFluxerBotGuildStructure: vi.fn(),
+    };
+});
+
+describe('runDueStructureBackups', () => {
+    beforeEach(() => {
+        vi.mocked(claimDueStructureBackupSetting).mockImplementation((_db, input) =>
+            Promise.resolve(ok(createBackupSettings(input.guildId)))
+        );
+        vi.mocked(clearStructureBackupSettingLease).mockResolvedValue(ok(true));
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValue(ok([]));
+        vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValue(
+            ok({ deletedCount: 0, hasMore: false, nextRetentionPruneAt: new Date('2026-07-07T00:00:00.000Z') })
+        );
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    it('records scheduled backup successes and read failures', async () => {
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValue(
+            ok([createBackupSettings('guild-success'), createBackupSettings('guild-failed')])
+        );
+        vi.mocked(readFluxerBotGuildStructure)
+            .mockResolvedValueOnce(ok(createFluxerStructure('guild-success')))
+            .mockResolvedValueOnce(err({ type: 'login-failed', error: new Error('No guild.') }));
+        vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(createStructureBackup).toHaveBeenNthCalledWith(
+            1,
+            {},
+            expect.objectContaining({
+                guildId: 'guild-success',
+                source: structureBackupSources.scheduled,
+                status: structureBackupStatuses.succeeded,
+                roleCount: 1,
+                channelCount: 1,
+            })
+        );
+        expect(claimDueStructureBackupSetting).toHaveBeenCalledTimes(2);
+        expect(clearStructureBackupSettingLease).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(clearStructureBackupSettingLease).mock.calls[0]?.[1]?.guildId).toBe('guild-success');
+        expect(typeof vi.mocked(clearStructureBackupSettingLease).mock.calls[0]?.[1]?.leaseId).toBe('string');
+        expect(createStructureBackup).toHaveBeenNthCalledWith(
+            2,
+            {},
+            expect.objectContaining({
+                guildId: 'guild-failed',
+                source: structureBackupSources.scheduled,
+                status: structureBackupStatuses.failed,
+                errorMessage: 'Structure read failed: login-failed',
+            })
+        );
+    });
+
+    it('drains due backup settings in batches during one run', async () => {
+        vi.mocked(listDueStructureBackupSettings)
+            .mockResolvedValueOnce(
+                ok(Array.from({ length: 25 }, (_, index) => createBackupSettings(`guild-${String(index)}`)))
+            )
+            .mockResolvedValueOnce(ok([createBackupSettings('guild-25')]));
+        vi.mocked(readFluxerBotGuildStructure).mockImplementation(({ guildId }) =>
+            Promise.resolve(ok(createFluxerStructure(guildId)))
+        );
+        vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(listDueStructureBackupSettings).toHaveBeenCalledTimes(2);
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledTimes(26);
+        expect(createStructureBackup).toHaveBeenCalledTimes(26);
+        expect(clearStructureBackupSettingLease).toHaveBeenCalledTimes(26);
+    });
+
+    it('skips due settings that another process already claimed', async () => {
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValue(ok([createBackupSettings('guild-claimed')]));
+        vi.mocked(claimDueStructureBackupSetting).mockResolvedValueOnce(ok(null));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        const claimInput = vi.mocked(claimDueStructureBackupSetting).mock.calls[0]?.[1];
+
+        expect(claimInput).toMatchObject({
+            guildId: 'guild-claimed',
+            leaseExpiresAt: new Date('2026-07-06T00:30:00.000Z'),
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+        expect(typeof claimInput?.leaseId).toBe('string');
+        expect(typeof claimInput?.leaseOwner).toBe('string');
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+        expect(createStructureBackup).not.toHaveBeenCalled();
+        expect(clearStructureBackupSettingLease).not.toHaveBeenCalled();
+    });
+
+    it('runs bounded retention cleanup before scheduled backup reads', async () => {
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
+            ok({ deletedCount: 100, hasMore: true, nextRetentionPruneAt: new Date('2026-07-06T00:00:00.000Z') })
+        );
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(pruneExpiredStructureBackupsForGuild).toHaveBeenCalledWith(
+            {},
+            {
+                guildId: 'guild-1',
+                limit: 100,
+                now: new Date('2026-07-06T00:00:00.000Z'),
+            }
+        );
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('does not overlap scheduled backup runs', async () => {
+        vi.useFakeTimers();
+        let finishLookup: (() => void) | undefined;
+        vi.mocked(listDueStructureBackupSettings).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishLookup = () => resolve(ok([]));
+                })
+        );
+
+        const scheduler = startStructureBackupScheduler({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+
+        expect(listDueStructureBackupSettings).toHaveBeenCalledOnce();
+
+        finishLookup?.();
+        scheduler.stop();
+    });
+});
+
+function createBackupSettings(guildId: string) {
+    return {
+        guildId,
+        enabled: true,
+        cadenceWeeks: 1,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastErrorMessage: null,
+        nextBackupAt: new Date('2026-07-06T00:00:00.000Z'),
+        nextRetentionPruneAt: new Date('2026-07-06T00:00:00.000Z'),
+        retentionDays: 180,
+    };
+}
+
+function createFluxerStructure(guildId: string) {
+    return {
+        guildId,
+        guildName: guildId,
+        roles: [
+            {
+                id: 'role-1',
+                name: 'Member',
+                position: 1,
+                color: 0,
+                permissions: '0',
+                hoist: false,
+                mentionable: false,
+            },
+        ],
+        categories: [],
+        channels: [
+            {
+                id: 'channel-1',
+                name: 'general',
+                type: 0,
+                parentId: null,
+                position: 1,
+                permissionOverwrites: [],
+            },
+        ],
+    };
+}
+
+function createBackupRecord() {
+    return {
+        id: 'backup-1',
+        guildId: 'guild-success',
+        name: 'guild-success - 2026-07-06 - 00-00',
+        createdByUserId: null,
+        source: structureBackupSources.scheduled,
+        status: structureBackupStatuses.succeeded,
+        errorMessage: null,
+        structure: {},
+        roleCount: 1,
+        categoryCount: 0,
+        channelCount: 1,
+        createdAt: new Date('2026-07-06T00:00:00.000Z'),
+        completedAt: new Date('2026-07-06T00:00:00.000Z'),
+    };
+}

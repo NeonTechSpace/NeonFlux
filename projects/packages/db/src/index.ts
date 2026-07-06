@@ -1,7 +1,14 @@
 // Runtime database boundary. App code imports Convex-backed operations and
 // app-facing type contracts from here.
 export { reactionRoleMessageModes, reactionRoleMessageSources } from './contracts-reaction-roles.js';
-export { STRUCTURE_IMPORT_EXPORT_FEATURE } from './contracts-structure.js';
+export {
+    STRUCTURE_IMPORT_EXPORT_FEATURE,
+    structureAuditActions,
+    structureBackupSources,
+    structureBackupStatuses,
+    structureImportActionStatuses,
+    structureImportRunStatuses,
+} from './contracts-structure.js';
 export type {
     BotActionEventCursor,
     BotActionEventPage,
@@ -50,7 +57,12 @@ export type {
     ReactionRolesRepositoryError,
 } from './contracts-reaction-roles.js';
 export type {
-    StructureExportSnapshotRecord,
+    StructureBackupRecord,
+    StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsRecord,
+    StructureBackupSummaryPageRecord,
+    StructureBackupSummaryRecord,
+    StructureImportActionPageRecord,
     StructureImportActionRecord,
     StructureImportExportRepositoryError,
     StructureImportRunRecord,
@@ -126,15 +138,30 @@ export {
     upsertReactionRoleOptionByMessage,
 } from './runtime-reaction-roles.js';
 export {
-    createStructureExportSnapshot,
+    claimDueStructureBackupSetting,
+    clearStructureBackupSettingLease,
+    createStructureBackup,
     createStructureImportRun,
-    findStructureExportSnapshotByGuildId,
+    deleteStructureBackup,
+    findStructureBackupByGuildId,
     findStructureImportRunByGuildId,
+    findStructureImportRunWithActionsByGuildId,
     findStructureObservedEventStateByGuildId,
-    listStructureExportSnapshotsByGuildId,
+    findStructureBackupSettingsByGuildId,
+    listAllStructureImportActionsByRunId,
+    listDueStructureBackupSettings,
+    listDueStructureBackupRetentionSettings,
+    listStructureBackupSummaryPageByGuildId,
+    listStructureBackupSummariesByGuildId,
+    listStructureBackupsByGuildId,
+    listStructureImportActionsByRunIdPage,
     listStructureImportRunsByGuildId,
     recordStructureImportAction,
+    recordStructureImportActionsBatch,
     recordStructureObservedEvent,
+    pruneExpiredStructureBackupsForGuild,
+    renameStructureBackup,
+    upsertStructureBackupSettings,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
 } from './runtime-structure.js';

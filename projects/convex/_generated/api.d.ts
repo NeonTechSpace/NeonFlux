@@ -63,7 +63,8 @@ import type * as schema_tables_posted_messages from "../schema/tables/posted_mes
 import type * as schema_tables_reaction_role_assignments from "../schema/tables/reaction_role_assignments.js";
 import type * as schema_tables_reaction_role_messages from "../schema/tables/reaction_role_messages.js";
 import type * as schema_tables_reaction_role_options from "../schema/tables/reaction_role_options.js";
-import type * as schema_tables_structure_export_snapshots from "../schema/tables/structure_export_snapshots.js";
+import type * as schema_tables_structure_backup_settings from "../schema/tables/structure_backup_settings.js";
+import type * as schema_tables_structure_backups from "../schema/tables/structure_backups.js";
 import type * as schema_tables_structure_import_actions from "../schema/tables/structure_import_actions.js";
 import type * as schema_tables_structure_import_runs from "../schema/tables/structure_import_runs.js";
 import type * as schema_tables_web_sessions from "../schema/tables/web_sessions.js";
@@ -134,7 +135,8 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/reaction_role_assignments": typeof schema_tables_reaction_role_assignments;
   "schema/tables/reaction_role_messages": typeof schema_tables_reaction_role_messages;
   "schema/tables/reaction_role_options": typeof schema_tables_reaction_role_options;
-  "schema/tables/structure_export_snapshots": typeof schema_tables_structure_export_snapshots;
+  "schema/tables/structure_backup_settings": typeof schema_tables_structure_backup_settings;
+  "schema/tables/structure_backups": typeof schema_tables_structure_backups;
   "schema/tables/structure_import_actions": typeof schema_tables_structure_import_actions;
   "schema/tables/structure_import_runs": typeof schema_tables_structure_import_runs;
   "schema/tables/web_sessions": typeof schema_tables_web_sessions;

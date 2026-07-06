@@ -72,6 +72,19 @@ export async function recordStructureAudit(
     return result.isOk() ? 'recorded' : 'database-error';
 }
 
+export async function recordStructureAuditBestEffort(
+    context: AuthorizedStructureContext,
+    action: string,
+    targetId: string,
+    metadata: Record<string, unknown>
+): Promise<void> {
+    try {
+        await recordStructureAudit(context, action, targetId, metadata);
+    } catch {
+        // Audit is observational. It must not redefine the outcome of a durable structure operation.
+    }
+}
+
 async function resolveStructureActor(request: Request): Promise<StructureActor> {
     const authContextResult = await readAuthenticatedFluxerContext(request);
 
