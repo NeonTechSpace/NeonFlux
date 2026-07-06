@@ -1,13 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildGeneralCategory } from '../../../components/dashboard-guild-page.js';
+import { DashboardWorkbench } from '../../../components/dashboard-workbench.js';
+import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/general');
 
 export const Route = createRoute({
-    component: DashboardGuildGeneralRoute,
+    component: DashboardGeneralRoute,
 });
 
-function DashboardGuildGeneralRoute() {
-    return <DashboardGuildGeneralCategory />;
+function DashboardGeneralRoute() {
+    const params = Route.useParams();
+
+    return <DashboardWorkbench categoryId='general' guildId={getGuildIdParam(params)} />;
 }

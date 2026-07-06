@@ -114,38 +114,11 @@ export type BotFeatureRouteIgnoredReason =
 export type BotFeatureRouteHandledAction =
     | 'bot_mention.contextless_reply'
     | 'command.help'
-    | `command.moderation.${string}`
     | 'command.ping'
-    | 'command.suggestions.suggest'
-    | `command.xp.${string}`
     | 'commands.prefix_change'
-    | `event.automod.${string}`
-    | 'event.autorole.member_joined'
-    | `event.logging.${string}`
-    | 'event.giveaways.entry_added'
-    | 'event.giveaways.entry_removed'
-    | 'event.moderation.ban_added'
-    | 'event.moderation.ban_removed'
     | 'event.reaction_roles.assigned'
     | 'event.reaction_roles.removed'
-    | 'event.role_reconciliation.member_repaired'
-    | 'event.role_reconciliation.structure_cleaned'
-    | 'event.import_export.structure_observed'
-    | 'event.suggestions.vote_removed'
-    | 'event.suggestions.vote_updated'
-    | 'event.tickets.channel_deleted'
-    | 'event.tickets.open_existing'
-    | 'event.tickets.opened'
-    | 'event.verification.member_joined'
-    | 'event.verification.verified'
-    | 'event.vc_generator.control_applied'
-    | 'event.vc_generator.control_failed'
-    | 'event.vc_generator.control_requested'
-    | 'event.vc_generator.created'
-    | 'event.vc_generator.cleaned_up'
-    | 'event.vc_generator.deleted'
-    | 'event.xp.message_awarded'
-    | 'event.xp.voice_awarded';
+    | 'event.import_export.structure_observed';
 
 export type BotFeatureRouteResult =
     | {

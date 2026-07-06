@@ -1,13 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildMessagingCategory } from '../../../components/dashboard-guild-page.js';
+import { DashboardWorkbench } from '../../../components/dashboard-workbench.js';
+import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/messaging');
 
 export const Route = createRoute({
-    component: DashboardGuildMessagingRoute,
+    component: DashboardMessagingRoute,
 });
 
-function DashboardGuildMessagingRoute() {
-    return <DashboardGuildMessagingCategory />;
+function DashboardMessagingRoute() {
+    const params = Route.useParams();
+
+    return <DashboardWorkbench categoryId='messaging' guildId={getGuildIdParam(params)} />;
 }

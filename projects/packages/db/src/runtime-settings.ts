@@ -6,18 +6,14 @@ import type {
     GuildCommandSettingsRecord,
     GuildCommandSettingsRepositoryError,
     GuildDefconExemptionRecord,
-    GuildModerationPolicyRecord,
-    GuildModerationPolicyRepositoryError,
     GuildSecurityPolicyRecord,
     GuildSecurityPolicyRepositoryError,
 } from './contracts.js';
 import type { ConvexDatabase } from './convex.js';
 
 const GUILD_COMMAND_SETTINGS_FEATURE = 'commands';
-const GUILD_MODERATION_POLICY_FEATURE = 'moderation';
 
 type CommandSettingsDb = ConvexDatabase;
-type ModerationPolicyDb = ConvexDatabase;
 type SecurityPolicyDb = ConvexDatabase;
 
 type ConvexGuildFeatureSettingRecord = {
@@ -91,67 +87,16 @@ export async function upsertGuildCommandPrefix(
     }
 
     try {
-        const setting = await db.client.mutation(
-            api.feature_settings.upsertGuildFeatureSetting,
-            {
-                config: { prefix: prefix.value },
-                enabled: true,
-                feature: GUILD_COMMAND_SETTINGS_FEATURE,
-                guildId: input.guildId,
-            }
-        );
+        const setting = await db.client.mutation(api.feature_settings.upsertGuildFeatureSetting, {
+            config: { prefix: prefix.value },
+            enabled: true,
+            feature: GUILD_COMMAND_SETTINGS_FEATURE,
+            guildId: input.guildId,
+        });
 
         return toGuildCommandSettingsRecord(setting);
     } catch (error) {
         return err(mapFeatureSettingErrorToCommandSettingsError(mapFeatureSettingError(error)));
-    }
-}
-
-export async function findGuildModerationPolicyByGuildId(
-    db: ModerationPolicyDb,
-    input: { guildId: string }
-): Promise<Result<GuildModerationPolicyRecord, GuildModerationPolicyRepositoryError>> {
-    const setting = await readFeatureSetting(db, {
-        feature: GUILD_MODERATION_POLICY_FEATURE,
-        guildId: input.guildId,
-    });
-
-    if (setting.isErr()) {
-        return err(mapFeatureSettingErrorToFeatureRepositoryError(setting.error));
-    }
-
-    if (!setting.value) {
-        return err({ type: 'not-found' });
-    }
-
-    return toGuildModerationPolicyRecord(setting.value);
-}
-
-export async function upsertGuildModerationPolicy(
-    db: ModerationPolicyDb,
-    input: {
-        guildId: string;
-        protectedRoleIds?: readonly string[];
-        protectedUserIds?: readonly string[];
-    }
-): Promise<Result<GuildModerationPolicyRecord, GuildModerationPolicyRepositoryError>> {
-    try {
-        const setting = await db.client.mutation(
-            api.feature_settings.upsertGuildFeatureSetting,
-            {
-                config: {
-                    protectedRoleIds: normalizeIdList(input.protectedRoleIds),
-                    protectedUserIds: normalizeIdList(input.protectedUserIds),
-                },
-                enabled: true,
-                feature: GUILD_MODERATION_POLICY_FEATURE,
-                guildId: input.guildId,
-            }
-        );
-
-        return toGuildModerationPolicyRecord(setting);
-    } catch (error) {
-        return err(mapFeatureSettingErrorToFeatureRepositoryError(mapFeatureSettingError(error)));
     }
 }
 
@@ -160,10 +105,7 @@ export async function findGuildSecurityPolicyByGuildId(
     input: { guildId: string }
 ): Promise<Result<GuildSecurityPolicyRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const policy = await db.client.query(
-            api.security_policies.readGuildSecurityPolicy,
-            input
-        );
+        const policy = await db.client.query(api.security_policies.readGuildSecurityPolicy, input);
 
         return policy ? ok(toGuildSecurityPolicyRecord(policy)) : err('not-found');
     } catch (error) {
@@ -182,13 +124,10 @@ export async function upsertGuildSecurityPolicy(
     }
 
     try {
-        const policy = await db.client.mutation(
-            api.security_policies.upsertGuildSecurityPolicy,
-            {
-                defconLevel,
-                guildId: input.guildId,
-            }
-        );
+        const policy = await db.client.mutation(api.security_policies.upsertGuildSecurityPolicy, {
+            defconLevel,
+            guildId: input.guildId,
+        });
 
         return ok(toGuildSecurityPolicyRecord(policy));
     } catch (error) {
@@ -201,10 +140,7 @@ export async function upsertGuildDefconExemption(
     input: { category: string; guildId: string }
 ): Promise<Result<GuildDefconExemptionRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const exemption = await db.client.mutation(
-            api.security_policies.upsertGuildDefconExemption,
-            input
-        );
+        const exemption = await db.client.mutation(api.security_policies.upsertGuildDefconExemption, input);
 
         return ok(toGuildDefconExemptionRecord(exemption));
     } catch (error) {
@@ -217,10 +153,7 @@ export async function listGuildDefconExemptionCategories(
     input: { guildId: string }
 ): Promise<Result<string[], GuildSecurityPolicyRepositoryError>> {
     try {
-        const categories = await db.client.query(
-            api.security_policies.listGuildDefconExemptionCategories,
-            input
-        );
+        const categories = await db.client.query(api.security_policies.listGuildDefconExemptionCategories, input);
 
         return ok(categories);
     } catch (error) {
@@ -233,10 +166,7 @@ export async function deleteGuildDefconExemption(
     input: { category: string; guildId: string }
 ): Promise<Result<GuildDefconExemptionRecord, GuildSecurityPolicyRepositoryError>> {
     try {
-        const exemption = await db.client.mutation(
-            api.security_policies.deleteGuildDefconExemption,
-            input
-        );
+        const exemption = await db.client.mutation(api.security_policies.deleteGuildDefconExemption, input);
 
         return exemption ? ok(toGuildDefconExemptionRecord(exemption)) : err('not-found');
     } catch (error) {
@@ -249,10 +179,7 @@ async function readFeatureSetting(
     input: { feature: string; guildId: string }
 ): Promise<Result<ConvexGuildFeatureSettingRecord | null, FeatureSettingWrapperError>> {
     try {
-        const setting = await db.client.query(
-            api.feature_settings.readGuildFeatureSetting,
-            input
-        );
+        const setting = await db.client.query(api.feature_settings.readGuildFeatureSetting, input);
 
         return ok(setting);
     } catch (error) {
@@ -279,25 +206,6 @@ function toGuildCommandSettingsRecord(
         createdAt: new Date(setting.createdAt),
         guildId: setting.guildId,
         prefix: normalizedPrefix.value,
-        updatedAt: new Date(setting.updatedAt),
-    });
-}
-
-function toGuildModerationPolicyRecord(
-    setting: ConvexGuildFeatureSettingRecord
-): Result<GuildModerationPolicyRecord, GuildModerationPolicyRepositoryError> {
-    const protectedUserIds = readConfigIdList(setting.config.protectedUserIds);
-    const protectedRoleIds = readConfigIdList(setting.config.protectedRoleIds);
-
-    if (!protectedUserIds || !protectedRoleIds) {
-        return err({ type: 'invalid-config' });
-    }
-
-    return ok({
-        createdAt: new Date(setting.createdAt),
-        guildId: setting.guildId,
-        protectedRoleIds,
-        protectedUserIds,
         updatedAt: new Date(setting.updatedAt),
     });
 }
@@ -338,12 +246,6 @@ function mapFeatureSettingErrorToCommandSettingsError(
     return error === 'missing-guild-id' ? 'missing-guild-id' : 'database-error';
 }
 
-function mapFeatureSettingErrorToFeatureRepositoryError(
-    error: FeatureSettingWrapperError
-): GuildModerationPolicyRepositoryError {
-    return error === 'missing-guild-id' ? { field: 'guildId', type: 'missing-input' } : { type: 'database-error' };
-}
-
 function mapSecurityPolicyError(error: unknown): GuildSecurityPolicyRepositoryError {
     if (!(error instanceof Error)) {
         return 'database-error';
@@ -358,22 +260,4 @@ function mapSecurityPolicyError(error: unknown): GuildSecurityPolicyRepositoryEr
 
 function normalizeDefconLevel(value: number): 1 | 2 | 3 | undefined {
     return value === 1 || value === 2 || value === 3 ? value : undefined;
-}
-
-function readConfigIdList(value: unknown): string[] | undefined {
-    if (value === undefined) {
-        return [];
-    }
-
-    if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-        return undefined;
-    }
-
-    return normalizeIdList(value);
-}
-
-function normalizeIdList(values: readonly string[] | undefined): string[] {
-    const normalizedIds = values?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
-
-    return [...new Set(normalizedIds)];
 }

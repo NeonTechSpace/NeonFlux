@@ -1,16 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardReactionRolesPanel } from '../../../../components/dashboard-reaction-roles-panel.js';
-import { getGuildIdParam } from '../../../../server/dashboard-guild-route-data.js';
+import { DashboardGuildReactionRolesCategory } from '../../../../components/dashboard-guild-page.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/access/reaction-roles');
 
 export const Route = createRoute({
-    component: DashboardReactionRolesRoute,
+    component: DashboardGuildReactionRolesCategory,
 });
-
-function DashboardReactionRolesRoute() {
-    const params = Route.useParams();
-
-    return <DashboardReactionRolesPanel guildId={getGuildIdParam(params)} />;
-}

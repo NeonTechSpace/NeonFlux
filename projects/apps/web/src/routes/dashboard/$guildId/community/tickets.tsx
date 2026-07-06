@@ -1,13 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildCommunityTicketsCategory } from '../../../../components/dashboard-guild-page.js';
+import { DashboardPlaceholderRoute } from '../../../../components/dashboard-placeholder-route.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/community/tickets');
 
 export const Route = createRoute({
-    component: DashboardCommunityTicketsRoute,
+    component: () => <DashboardPlaceholderRoute categoryId='community' itemId='tickets' />,
 });
-
-function DashboardCommunityTicketsRoute() {
-    return <DashboardGuildCommunityTicketsCategory />;
-}

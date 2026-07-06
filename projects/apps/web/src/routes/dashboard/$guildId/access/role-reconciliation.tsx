@@ -1,16 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardRoleReconciliationPanel } from '../../../../components/dashboard-role-reconciliation-panel.js';
-import { getGuildIdParam } from '../../../../server/dashboard-guild-route-data.js';
+import { DashboardPlaceholderRoute } from '../../../../components/dashboard-placeholder-route.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/access/role-reconciliation');
 
 export const Route = createRoute({
-    component: DashboardRoleReconciliationRoute,
+    component: () => <DashboardPlaceholderRoute categoryId='access' itemId='role-reconciliation' />,
 });
-
-function DashboardRoleReconciliationRoute() {
-    const params = Route.useParams();
-
-    return <DashboardRoleReconciliationPanel guildId={getGuildIdParam(params)} />;
-}

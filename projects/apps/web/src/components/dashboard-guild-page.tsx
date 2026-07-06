@@ -8,55 +8,26 @@ import { getDashboardCategory } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
 import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
-import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
-import { DashboardAutorolePanel } from './dashboard-autorole-panel.js';
-import { DashboardAutomodPanel } from './dashboard-automod-panel.js';
-import { DashboardCommandAccessPanel } from './dashboard-command-access-panel.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
+import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
 import { DashboardDisplayControls } from './dashboard-display-controls.js';
+import { DashboardFeaturePlaceholder } from './dashboard-feature-placeholder.js';
 import { DashboardGuildSelector } from './dashboard-guild-selector.js';
-import { DashboardInviteTrackingLoading, DashboardInviteTrackingPanel } from './dashboard-invite-tracking-panel.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
-import { DashboardLoggingDestinationsPanel } from './dashboard-logging-destinations-panel.js';
-import { DashboardGiveawaysPanel } from './dashboard-giveaways-panel.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
-import { DashboardModerationCasesPanel } from './dashboard-moderation-cases-panel.js';
-import { DashboardModerationPolicyPanel } from './dashboard-moderation-policy-panel.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
-import { DashboardProfileBuilderPanel } from './dashboard-profile-builder-panel.js';
 import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
-import { DashboardRoleReconciliationPanel } from './dashboard-role-reconciliation-panel.js';
 import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
 import { DashboardStructurePanel } from './dashboard-structure-panel.js';
-import { DashboardSuggestionsPanel } from './dashboard-suggestions-panel.js';
-import { DashboardTicketsPanel } from './dashboard-tickets-panel.js';
-import { DashboardVerificationPanel } from './dashboard-verification-panel.js';
-import { DashboardVcGeneratorPanel } from './dashboard-vc-generator-panel.js';
-import { DashboardXpSettingsPanel } from './dashboard-xp-settings-panel.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
-const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
 const commandLiveArea = ['commands'] as const satisfies readonly DashboardLiveArea[];
 const overviewLiveArea = ['overview'] as const satisfies readonly DashboardLiveArea[];
-const invitesLiveArea = ['invites'] as const satisfies readonly DashboardLiveArea[];
-const loggingLiveArea = ['logging'] as const satisfies readonly DashboardLiveArea[];
 const messagingLiveArea = ['posting'] as const satisfies readonly DashboardLiveArea[];
-const moderationLiveArea = ['moderation'] as const satisfies readonly DashboardLiveArea[];
+const reactionRolesLiveArea = ['reaction_roles'] as const satisfies readonly DashboardLiveArea[];
 const structureLiveArea = ['import_export', 'structure'] as const satisfies readonly DashboardLiveArea[];
-const accessLiveArea = [
-    'access',
-    'autorole',
-    'reaction_roles',
-    'role_reconciliation',
-    'verification',
-] as const satisfies readonly DashboardLiveArea[];
-const communityXpLiveArea = ['xp'] as const satisfies readonly DashboardLiveArea[];
-const communityVcGeneratorLiveArea = ['vc_generator'] as const satisfies readonly DashboardLiveArea[];
-const communityTicketsLiveArea = ['tickets'] as const satisfies readonly DashboardLiveArea[];
-const communitySuggestionsLiveArea = ['suggestions'] as const satisfies readonly DashboardLiveArea[];
-const communityProfileBuilderLiveArea = ['profile_builder'] as const satisfies readonly DashboardLiveArea[];
-const communityGiveawaysLiveArea = ['giveaways'] as const satisfies readonly DashboardLiveArea[];
+const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
 
 type AuthorizedDashboardGuildRouteData = Extract<DashboardGuildRouteData, { type: 'guild' }>;
 
@@ -154,7 +125,7 @@ export function DashboardGuildOverviewCategory() {
     );
 }
 
-export function DashboardGuildGeneralCategory() {
+export function DashboardGuildCommandPrefixCategory() {
     const data = useDashboardGuildData();
 
     useDashboardLiveInvalidation({
@@ -162,14 +133,10 @@ export function DashboardGuildGeneralCategory() {
         areas: commandLiveArea,
     });
 
-    return (
-        <DashboardCategorySection categoryId='general'>
-            <DashboardCommandPrefixSettingsPanel guildId={data.guild.id} commandSettings={data.commandSettings} />
-        </DashboardCategorySection>
-    );
+    return <DashboardCommandPrefixSettingsPanel guildId={data.guild.id} commandSettings={data.commandSettings} />;
 }
 
-export function DashboardGuildMessagingCategory() {
+export function DashboardGuildMessageBuilderCategory() {
     const data = useDashboardGuildData();
 
     useDashboardLiveInvalidation({
@@ -177,151 +144,18 @@ export function DashboardGuildMessagingCategory() {
         areas: messagingLiveArea,
     });
 
-    return (
-        <DashboardCategorySection categoryId='messaging'>
-            <DashboardPostingPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
+    return <DashboardPostingPanel guildId={data.guild.id} />;
 }
 
-export function DashboardGuildInviteTrackingCategory() {
+export function DashboardGuildReactionRolesCategory() {
     const data = useDashboardGuildData();
 
     useDashboardLiveInvalidation({
         guildId: data.guild.id,
-        areas: invitesLiveArea,
+        areas: reactionRolesLiveArea,
     });
 
-    return (
-        <DashboardCategorySection categoryId='invites'>
-            <DashboardInviteTrackingPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
-}
-
-export function DashboardGuildAccessCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: accessLiveArea,
-    });
-
-    return (
-        <DashboardCategorySection categoryId='access'>
-            <DashboardAutorolePanel guildId={data.guild.id} />
-            <DashboardReactionRolesPanel guildId={data.guild.id} />
-            <DashboardVerificationPanel guildId={data.guild.id} />
-            <DashboardRoleReconciliationPanel guildId={data.guild.id} />
-            <DashboardCommandAccessPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
-}
-
-export function DashboardGuildCommunityCategory() {
-    return (
-        <DashboardCategorySection categoryId='community'>
-            <DashboardGuildCommunityXpCategory />
-        </DashboardCategorySection>
-    );
-}
-
-export function DashboardGuildCommunityXpCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityXpLiveArea,
-    });
-
-    return <DashboardXpSettingsPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunityGiveawaysCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityGiveawaysLiveArea,
-    });
-
-    return <DashboardGiveawaysPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunityProfileBuilderCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityProfileBuilderLiveArea,
-    });
-
-    return <DashboardProfileBuilderPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunityVcGeneratorCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityVcGeneratorLiveArea,
-    });
-
-    return <DashboardVcGeneratorPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunityTicketsCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communityTicketsLiveArea,
-    });
-
-    return <DashboardTicketsPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildCommunitySuggestionsCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: communitySuggestionsLiveArea,
-    });
-
-    return <DashboardSuggestionsPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildModerationCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: moderationLiveArea,
-    });
-
-    return (
-        <DashboardCategorySection categoryId='moderation'>
-            <DashboardAutomodPanel guildId={data.guild.id} />
-            <DashboardModerationPolicyPanel guildId={data.guild.id} />
-            <DashboardModerationCasesPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
-}
-
-export function DashboardGuildLoggingCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: loggingLiveArea,
-    });
-
-    return (
-        <DashboardCategorySection categoryId='logging'>
-            <DashboardLoggingDestinationsPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
+    return <DashboardReactionRolesPanel guildId={data.guild.id} />;
 }
 
 export function DashboardGuildStructureCategory() {
@@ -332,14 +166,10 @@ export function DashboardGuildStructureCategory() {
         areas: structureLiveArea,
     });
 
-    return (
-        <DashboardCategorySection categoryId='structure'>
-            <DashboardStructurePanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
+    return <DashboardStructurePanel guildId={data.guild.id} />;
 }
 
-export function DashboardGuildAuditCategory() {
+export function DashboardGuildAuditEventsCategory() {
     const data = useDashboardGuildData();
 
     useDashboardLiveInvalidation({
@@ -347,11 +177,11 @@ export function DashboardGuildAuditCategory() {
         areas: auditLiveArea,
     });
 
-    return (
-        <DashboardCategorySection categoryId='audit'>
-            <DashboardAuditEventsPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
-    );
+    return <DashboardAuditEventsPanel guildId={data.guild.id} />;
+}
+
+export function DashboardGuildPlaceholderCategory({ featureName }: { featureName: string }) {
+    return <DashboardFeaturePlaceholder featureName={featureName} />;
 }
 
 function DashboardGuildView({
@@ -461,14 +291,6 @@ function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: Dash
         );
     }
 
-    if (activeCategoryId === 'invites') {
-        return (
-            <DashboardCategorySection categoryId='invites'>
-                <DashboardInviteTrackingLoading />
-            </DashboardCategorySection>
-        );
-    }
-
     return (
         <DashboardCategorySection categoryId={activeCategoryId}>
             <DashboardCategoryLoading categoryId={activeCategoryId} />
@@ -477,7 +299,7 @@ function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: Dash
 }
 
 function DashboardCategoryLoading({ categoryId }: { categoryId: DashboardCategoryId }) {
-    const compact = categoryId === 'general' || categoryId === 'structure' || categoryId === 'audit';
+    const compact = categoryId === 'general' || categoryId === 'structure' || categoryId === 'events';
 
     return (
         <div className={compact ? 'space-y-4' : 'grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]'}>

@@ -1,16 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardAutorolePanel } from '../../../../components/dashboard-autorole-panel.js';
-import { getGuildIdParam } from '../../../../server/dashboard-guild-route-data.js';
+import { DashboardPlaceholderRoute } from '../../../../components/dashboard-placeholder-route.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/access/autoroles');
 
 export const Route = createRoute({
-    component: DashboardAutorolesRoute,
+    component: () => <DashboardPlaceholderRoute categoryId='access' itemId='autoroles' />,
 });
-
-function DashboardAutorolesRoute() {
-    const params = Route.useParams();
-
-    return <DashboardAutorolePanel guildId={getGuildIdParam(params)} />;
-}

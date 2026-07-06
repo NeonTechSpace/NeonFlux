@@ -1,16 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardAccessWorkbench } from '../../../components/dashboard-access-workbench.js';
+import { DashboardWorkbench } from '../../../components/dashboard-workbench.js';
 import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/access');
 
 export const Route = createRoute({
-    component: DashboardGuildAccessRoute,
+    component: DashboardAccessRoute,
 });
 
-function DashboardGuildAccessRoute() {
+function DashboardAccessRoute() {
     const params = Route.useParams();
 
-    return <DashboardAccessWorkbench guildId={getGuildIdParam(params)} />;
+    return <DashboardWorkbench categoryId='access' guildId={getGuildIdParam(params)} />;
 }

@@ -4,4 +4,3 @@ export * from './defcon.js';
 export * from './feature-catalog.js';
 export * from './mode.js';
 export * from './public-url.js';
-export * from './server-event-logging.js';

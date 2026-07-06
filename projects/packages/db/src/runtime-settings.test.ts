@@ -4,12 +4,10 @@ import type { ConvexDatabase } from './convex.js';
 import {
     deleteGuildDefconExemption,
     findGuildCommandSettingsByGuildId,
-    findGuildModerationPolicyByGuildId,
     findGuildSecurityPolicyByGuildId,
     listGuildDefconExemptionCategories,
     upsertGuildCommandPrefix,
     upsertGuildDefconExemption,
-    upsertGuildModerationPolicy,
     upsertGuildSecurityPolicy,
 } from './runtime-settings.js';
 
@@ -20,18 +18,6 @@ const commandSetting = {
     feature: 'commands',
     guildId: 'guild-1',
     id: 'setting-1',
-    updatedAt: '2026-07-03T09:00:00.000Z',
-};
-const moderationSetting = {
-    config: {
-        protectedRoleIds: ['role-1', 'role-2'],
-        protectedUserIds: ['user-1'],
-    },
-    createdAt: '2026-07-03T08:00:00.000Z',
-    enabled: true,
-    feature: 'moderation',
-    guildId: 'guild-1',
-    id: 'setting-2',
     updatedAt: '2026-07-03T09:00:00.000Z',
 };
 type SecurityPolicyFixture = {
@@ -93,50 +79,6 @@ describe('Convex settings and security database functions', () => {
         expect(invalidPrefix._unsafeUnwrapErr()).toBe('invalid-prefix');
     });
 
-    it('reads and upserts moderation policy through Convex', async () => {
-        const db = createConvexDb({
-            mutationResults: [moderationSetting],
-            queryResults: [moderationSetting],
-        });
-
-        const found = await findGuildModerationPolicyByGuildId(db, { guildId: 'guild-1' });
-        const upserted = await upsertGuildModerationPolicy(db, {
-            guildId: 'guild-1',
-            protectedRoleIds: [' role-1 ', 'role-1', 'role-2'],
-            protectedUserIds: ['user-1', ' '],
-        });
-
-        expect(found._unsafeUnwrap()).toStrictEqual(toModerationRecord(moderationSetting));
-        expect(upserted._unsafeUnwrap()).toStrictEqual(toModerationRecord(moderationSetting));
-        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
-            config: {
-                protectedRoleIds: ['role-1', 'role-2'],
-                protectedUserIds: ['user-1'],
-            },
-            enabled: true,
-            feature: 'moderation',
-            guildId: 'guild-1',
-        });
-    });
-
-    it('maps moderation policy missing and invalid config states', async () => {
-        const db = createConvexDb({
-            mutationErrors: [new Error('missing-guild-id')],
-            queryResults: [null, { ...moderationSetting, config: { protectedRoleIds: 'role-1' } }],
-        });
-
-        const missing = await findGuildModerationPolicyByGuildId(db, { guildId: 'guild-1' });
-        const invalidConfig = await findGuildModerationPolicyByGuildId(db, { guildId: 'guild-1' });
-        const missingGuild = await upsertGuildModerationPolicy(db, { guildId: ' ' });
-
-        expect(missing._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
-        expect(invalidConfig._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-config' });
-        expect(missingGuild._unsafeUnwrapErr()).toStrictEqual({
-            field: 'guildId',
-            type: 'missing-input',
-        });
-    });
-
     it('reads and mutates security policies and DEFCON exemptions through Convex', async () => {
         const db = createConvexDb({
             mutationResults: [{ ...securityPolicy, defconLevel: 3 }, exemption, null],
@@ -183,16 +125,6 @@ function toCommandRecord(record: typeof commandSetting) {
         createdAt: new Date(record.createdAt),
         guildId: record.guildId,
         prefix: record.config.prefix,
-        updatedAt: new Date(record.updatedAt),
-    };
-}
-
-function toModerationRecord(record: typeof moderationSetting) {
-    return {
-        createdAt: new Date(record.createdAt),
-        guildId: record.guildId,
-        protectedRoleIds: record.config.protectedRoleIds,
-        protectedUserIds: record.config.protectedUserIds,
         updatedAt: new Date(record.updatedAt),
     };
 }

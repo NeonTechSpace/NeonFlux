@@ -6,25 +6,11 @@ import { useEffect, useRef } from 'react';
 import type { DashboardLiveArea } from '../dashboard-live.js';
 import {
     getDashboardAuditEventsQueryKey,
-    getDashboardAutomodSettingsQueryKey,
-    getDashboardAutoroleSettingsQueryKey,
-    getDashboardCommandAccessQueryKey,
     getDashboardCommandSettingsQueryKey,
-    getDashboardGiveawaysSettingsQueryKey,
-    getDashboardLoggingSettingsQueryKey,
-    getDashboardModerationCasesQueryKey,
-    getDashboardModerationPolicyQueryKey,
     getDashboardOverviewQueryKey,
     getDashboardPostingTemplatesQueryKey,
-    getDashboardProfileBuilderSettingsQueryKey,
     getDashboardReactionRolesSettingsQueryKey,
-    getDashboardRoleReconciliationSettingsQueryKey,
     getDashboardStructureSettingsQueryKey,
-    getDashboardSuggestionsSettingsQueryKey,
-    getDashboardTicketsSettingsQueryKey,
-    getDashboardVcGeneratorSettingsQueryKey,
-    getDashboardVerificationSettingsQueryKey,
-    getDashboardXpSettingsQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
 
@@ -186,7 +172,6 @@ function invalidateDashboardLiveArea(
 ): void {
     switch (area) {
         case 'overview':
-        case 'invites':
             void queryClient.invalidateQueries({
                 queryKey: getDashboardOverviewQueryKey(guildId),
             });
@@ -198,93 +183,15 @@ function invalidateDashboardLiveArea(
             });
             return;
 
-        case 'access':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardCommandAccessQueryKey(guildId),
-            });
-            return;
-
-        case 'autorole':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardAutoroleSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'moderation':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardModerationPolicyQueryKey(guildId),
-            });
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardModerationCasesQueryKey(guildId),
-            });
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardAutomodSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'logging':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardLoggingSettingsQueryKey(guildId),
-            });
-            return;
-
         case 'reaction_roles':
             void queryClient.invalidateQueries({
                 queryKey: getDashboardReactionRolesSettingsQueryKey(guildId),
             });
             return;
 
-        case 'role_reconciliation':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardRoleReconciliationSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'verification':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardVerificationSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'xp':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardXpSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'vc_generator':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardVcGeneratorSettingsQueryKey(guildId),
-            });
-            return;
-
         case 'posting':
             void queryClient.invalidateQueries({
                 queryKey: getDashboardPostingTemplatesQueryKey(guildId),
-            });
-            return;
-
-        case 'tickets':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardTicketsSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'suggestions':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardSuggestionsSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'profile_builder':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardProfileBuilderSettingsQueryKey(guildId),
-            });
-            return;
-
-        case 'giveaways':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardGiveawaysSettingsQueryKey(guildId),
             });
             return;
 

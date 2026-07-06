@@ -74,10 +74,7 @@ export async function recordGuildMemberFlowEvent(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = await db.client.mutation(
-            api.growth_overview.recordGuildMemberFlowEvent,
-            normalizedInput.value
-        );
+        const event = await db.client.mutation(api.growth_overview.recordGuildMemberFlowEvent, normalizedInput.value);
 
         return ok(toGuildMemberFlowEventRecord(event));
     } catch {
@@ -94,10 +91,7 @@ export async function syncGuildInviteSnapshots(
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const snapshots = await db.client.mutation(
-            api.growth_overview.syncGuildInviteSnapshots,
-            normalizedInput.value
-        );
+        const snapshots = await db.client.mutation(api.growth_overview.syncGuildInviteSnapshots, normalizedInput.value);
 
         return ok(snapshots.map(toGuildInviteSnapshotRecord));
     } catch {
@@ -114,12 +108,9 @@ export async function listGuildInviteSnapshots(
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const snapshots = await db.client.query(
-            api.growth_overview.listGuildInviteSnapshots,
-            {
-                guildId: guildId.value,
-            }
-        );
+        const snapshots = await db.client.query(api.growth_overview.listGuildInviteSnapshots, {
+            guildId: guildId.value,
+        });
 
         return ok(snapshots.map(toGuildInviteSnapshotRecord));
     } catch {
@@ -140,14 +131,11 @@ export async function incrementGuildMessageActivityDay(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const activity = await db.client.mutation(
-            api.growth_overview.incrementGuildMessageActivityDay,
-            {
-                channelId: channelId.value,
-                guildId: guildId.value,
-                ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
-            }
-        );
+        const activity = await db.client.mutation(api.growth_overview.incrementGuildMessageActivityDay, {
+            channelId: channelId.value,
+            guildId: guildId.value,
+            ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
+        });
 
         return ok(toGuildMessageActivityDayRecord(activity));
     } catch {
@@ -168,14 +156,11 @@ export async function loadGuildOverviewAggregate(
     if (now.isErr()) return err(now.error);
 
     try {
-        const aggregate = await db.client.query(
-            api.growth_overview.loadGuildOverviewAggregate,
-            {
-                ...(days.value === undefined ? {} : { days: days.value }),
-                guildId: guildId.value,
-                ...(now.value === undefined ? {} : { now: now.value }),
-            }
-        );
+        const aggregate = await db.client.query(api.growth_overview.loadGuildOverviewAggregate, {
+            ...(days.value === undefined ? {} : { days: days.value }),
+            guildId: guildId.value,
+            ...(now.value === undefined ? {} : { now: now.value }),
+        });
 
         return ok(toGuildOverviewAggregate(aggregate));
     } catch {

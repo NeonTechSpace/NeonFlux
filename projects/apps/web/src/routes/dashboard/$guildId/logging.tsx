@@ -1,13 +1,16 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
-import { DashboardGuildLoggingCategory } from '../../../components/dashboard-guild-page.js';
+import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
 
 const createRoute = createFileRoute('/dashboard/$guildId/logging');
 
 export const Route = createRoute({
-    component: DashboardGuildLoggingRoute,
+    beforeLoad: ({ params }) => {
+        throw redirect({
+            to: '/dashboard/$guildId/events/logging-destinations',
+            params: {
+                guildId: getGuildIdParam(params),
+            },
+        });
+    },
 });
-
-function DashboardGuildLoggingRoute() {
-    return <DashboardGuildLoggingCategory />;
-}

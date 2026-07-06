@@ -1,8 +1,10 @@
 {
     "$schema": "https://unpkg.com/knip@6/schema.json",
+    "ignore": ["convex/_generated/**"],
     "ignoreBinaries": ["taskkill", "where.exe", "powershell.exe"],
     "ignoreDependencies": ["tslib"],
     "ignoreIssues": {
-        "apps/web/source.config.ts": ["exports"]
+        "apps/web/source.config.ts": ["exports"],
+        "convex/auth.config.ts": ["exports"]
     }
 }

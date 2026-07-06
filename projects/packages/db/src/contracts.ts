@@ -1,5 +1,3 @@
-import type { ServerLogEventGroup } from '@neonflux/core/server-event-logging';
-
 export type DeploymentConfigRecord =
     | {
           instanceMode: 'single';
@@ -35,7 +33,7 @@ export type BotInstallationRecord = {
 
 export type BotInstallationRepositoryError = 'missing-guild-id' | 'not-found' | 'database-error';
 
-export type GuildDefconLevel = 1 | 2 | 3;
+type GuildDefconLevel = 1 | 2 | 3;
 
 export type GuildSecurityPolicyRecord = {
     createdAt: Date;
@@ -65,142 +63,6 @@ export type GuildFeatureRepositoryError =
     | { type: 'database-error' };
 
 export type LoggingRepositoryError = GuildFeatureRepositoryError;
-
-export const automodTriggerTypes = ['blocked_terms'] as const;
-export type AutomodTriggerType = (typeof automodTriggerTypes)[number];
-
-export const automodActionTypes = ['record', 'delete_message', 'timeout', 'warn'] as const;
-export type AutomodActionType = (typeof automodActionTypes)[number];
-
-export type AutomodRuleConfig = {
-    terms?: string[];
-    timeoutDurationSeconds?: number;
-    ignoredChannelIds?: string[];
-    ignoredRoleIds?: string[];
-    ignoredUserIds?: string[];
-};
-
-export type AutomodRuleRecord = {
-    actionType: AutomodActionType;
-    config: AutomodRuleConfig;
-    createdAt: Date;
-    enabled: boolean;
-    guildId: string;
-    id: string;
-    name: string;
-    triggerType: AutomodTriggerType;
-    updatedAt: Date;
-};
-
-export type AutomodEventRecord = {
-    actionType: AutomodActionType;
-    authorUserId: string;
-    channelId: string;
-    createdAt: Date;
-    details: Record<string, unknown>;
-    guildId: string;
-    id: string;
-    messageId: string;
-    ruleId: string | null;
-    status: string;
-    triggerType: AutomodTriggerType;
-};
-
-export type SaveAutomodRuleInput = {
-    guildId: string;
-    ruleId?: string;
-    name: string;
-    triggerType: string;
-    actionType?: string;
-    enabled?: boolean;
-    config?: Record<string, unknown>;
-};
-
-export type RecordAutomodEventInput = {
-    guildId: string;
-    ruleId?: string | null;
-    messageId: string;
-    channelId: string;
-    authorUserId: string;
-    triggerType: string;
-    actionType?: string;
-    status?: string;
-    details?: Record<string, unknown>;
-};
-
-export type UpdateAutomodEventStatusInput = {
-    eventId: string;
-    status: string;
-    details?: Record<string, unknown>;
-};
-
-export type AutomodRepositoryError = GuildFeatureRepositoryError | { type: 'invalid-config' };
-
-export type RoleReconciliationRunRecord = {
-    createdAt: Date;
-    guildId: string;
-    id: string;
-    status: string;
-    summary: Record<string, unknown>;
-    updatedAt: Date;
-};
-
-export type RoleReconciliationActionRecord = {
-    actionType: string;
-    createdAt: Date;
-    details: Record<string, unknown>;
-    id: string;
-    roleId: string | null;
-    runId: string;
-    status: string;
-    updatedAt: Date;
-};
-
-export type RoleReconciliationSettingsRecord = {
-    cleanupDeletedRoleReferences: boolean;
-    createdAt?: Date;
-    enabled: boolean;
-    guildId: string;
-    restoreAutoroleRoles: boolean;
-    restoreReactionRoles: boolean;
-    restoreVerificationRoles: boolean;
-    updatedAt?: Date;
-};
-
-export type RoleReconciliationSettingsInput = {
-    cleanupDeletedRoleReferences?: boolean;
-    enabled?: boolean;
-    guildId: string;
-    restoreAutoroleRoles?: boolean;
-    restoreReactionRoles?: boolean;
-    restoreVerificationRoles?: boolean;
-};
-
-export type RoleReconciliationRepositoryError = GuildFeatureRepositoryError;
-
-export type DeletedGuildRoleReferenceCleanupSummary = {
-    autoroleRulesDisabled: number;
-    commandPermissionRulesUpdated: number;
-    dashboardPermissionRulesUpdated: number;
-    moderationPoliciesUpdated: number;
-    reactionRoleAssignmentsRemoved: number;
-    reactionRoleOptionsDeleted: number;
-    ticketPanelsDisabled: number;
-    ticketPanelsUpdated: number;
-    verificationFlowsDisabled: number;
-    xpRoleRewardsDeleted: number;
-};
-
-export type DeletedGuildRoleReferenceCleanupResult =
-    | {
-          runId: string;
-          status: 'cleaned';
-          summary: DeletedGuildRoleReferenceCleanupSummary;
-      }
-    | {
-          status: 'unchanged';
-          summary: DeletedGuildRoleReferenceCleanupSummary;
-      };
 
 export type GuildMemberFlowEventType = 'join' | 'leave';
 
@@ -318,32 +180,6 @@ export type GuildCommandSettingsRepositoryError =
     | 'not-found'
     | 'database-error';
 
-export type GuildModerationPolicyRecord = {
-    createdAt: Date;
-    guildId: string;
-    protectedRoleIds: string[];
-    protectedUserIds: string[];
-    updatedAt: Date;
-};
-
-export type GuildModerationPolicyRepositoryError = GuildFeatureRepositoryError | { type: 'invalid-config' };
-
-export type ModerationTemporaryActionStatus = 'cancelled' | 'completed' | 'failed' | 'pending';
-
-export type ModerationTemporaryActionRecord = {
-    action: string;
-    caseId: string | null;
-    createdAt: Date;
-    expiresAt: Date;
-    guildId: string;
-    id: string;
-    status: string;
-    targetUserId: string;
-    updatedAt: Date;
-};
-
-export type ModerationTemporaryActionRepositoryError = GuildFeatureRepositoryError;
-
 export type MessageTemplateRecord = {
     content: string | null;
     createdAt: Date;
@@ -368,89 +204,6 @@ export type PostedMessageRecord = {
 };
 
 export type PostingRepositoryError = GuildFeatureRepositoryError;
-
-export type VerificationFlowRecord = {
-    channelId: string;
-    createdAt: Date;
-    emojiKey: string;
-    enabled: boolean;
-    guildId: string;
-    id: string;
-    messageId: string;
-    updatedAt: Date;
-    verifiedRoleId: string;
-};
-
-export type VerificationRecord = {
-    guildId: string;
-    id: string;
-    method: string;
-    revokedAt: Date | null;
-    userId: string;
-    verifiedAt: Date;
-};
-
-export type VerificationRepositoryError = GuildFeatureRepositoryError;
-
-export type AutoroleRuleRecord = {
-    createdAt: Date;
-    enabled: boolean;
-    guildId: string;
-    id: string;
-    name: string | null;
-    roleId: string;
-    updatedAt: Date;
-};
-
-export type AutoroleRepositoryError = GuildFeatureRepositoryError;
-
-export type GuildLoggingDestinationRecord = {
-    channelId: string;
-    createdAt: Date;
-    enabled: boolean;
-    eventGroup: ServerLogEventGroup;
-    guildId: string;
-    id: string;
-    updatedAt: Date;
-};
-
-export type GuildLoggingDestinationRepositoryError = GuildFeatureRepositoryError;
-
-export type SuggestionBoardRecord = {
-    channelId: string;
-    config: Record<string, unknown>;
-    createdAt: Date;
-    enabled: boolean;
-    guildId: string;
-    id: string;
-    name: string;
-    updatedAt: Date;
-};
-
-export type SuggestionRecord = {
-    authorUserId: string;
-    boardId: string | null;
-    channelId: string | null;
-    closedAt: Date | null;
-    content: string;
-    createdAt: Date;
-    guildId: string;
-    id: string;
-    messageId: string | null;
-    status: string;
-    updatedAt: Date;
-};
-
-export type SuggestionVoteRecord = {
-    createdAt: Date;
-    id: string;
-    suggestionId: string;
-    updatedAt: Date;
-    userId: string;
-    vote: 'down' | 'up';
-};
-
-export type SuggestionsRepositoryError = GuildFeatureRepositoryError;
 
 export type GuildCommandPermissionRuleTargetType = 'category' | 'command';
 

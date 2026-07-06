@@ -19,7 +19,7 @@ export const DEFCON_FEATURE_CATEGORY = {
     roleReconciliation: 'role_reconciliation',
     suggestions: 'suggestions',
     tickets: 'tickets',
-    vcGenerator: 'vc_generator',
+    voiceRooms: 'voice_rooms',
     verification: 'verification',
     xp: 'xp',
 } as const satisfies Record<string, DefconFeatureCategory>;

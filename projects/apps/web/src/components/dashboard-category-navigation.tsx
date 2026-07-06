@@ -1,51 +1,14 @@
 import { Link, useLocation } from '@tanstack/react-router';
-import {
-    BarChart3,
-    BellDot,
-    Bot,
-    ChevronRight,
-    GitBranch,
-    History,
-    Menu,
-    MessageSquareText,
-    Settings2,
-    ShieldCheck,
-    TicketCheck,
-    UsersRound,
-    X,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { ChevronRight, Menu, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 
-import { dashboardCategories } from '../dashboard-categories.js';
-import type { DashboardCategoryId } from '../dashboard-categories.js';
-import { dashboardAccessTools } from './dashboard-access-workbench.js';
-import { dashboardCommunityTools } from './dashboard-community-workbench.js';
-
-type DashboardSubNavigationTo =
-    | (typeof dashboardAccessTools)[number]['to']
-    | (typeof dashboardCommunityTools)[number]['to'];
-
-type DashboardSubNavigationItem = {
-    id: string;
-    label: string;
-    to: DashboardSubNavigationTo;
-    icon: LucideIcon;
-};
-
-const dashboardCategoryIcons = {
-    overview: BarChart3,
-    general: Settings2,
-    messaging: MessageSquareText,
-    invites: TicketCheck,
-    access: ShieldCheck,
-    moderation: Bot,
-    logging: BellDot,
-    community: UsersRound,
-    structure: GitBranch,
-    audit: History,
-} satisfies Record<DashboardCategoryId, LucideIcon>;
+import {
+    dashboardCategories,
+    getDashboardCategorySubNavigation,
+    getDefaultDashboardSubNavigationTo,
+} from '../dashboard-categories.js';
+import type { DashboardCategoryId, DashboardSubNavigationTo } from '../dashboard-categories.js';
 
 export function DashboardCategoryNavigation({
     guildId,
@@ -159,44 +122,55 @@ function DashboardCategoryNavigationList({
     return (
         <ul className={variant === 'desktop' ? 'space-y-1' : 'space-y-1'}>
             {dashboardCategories.map((category) => {
-                const Icon = dashboardCategoryIcons[category.id];
+                const Icon = category.icon;
                 const active = activeCategoryId === category.id;
                 const subNavigation = getDashboardCategorySubNavigation(category.id);
                 const hasSubNavigation = subNavigation.length > 0;
                 const open = openOverrides[category.id] ?? active;
+                const defaultSubNavigationTo = getDefaultDashboardSubNavigationTo(category.id);
 
                 return (
                     <li key={category.id}>
-                        {hasSubNavigation ? (
-                            <button
-                                type='button'
-                                aria-label={open ? `Collapse ${category.label}` : `Expand ${category.label}`}
-                                aria-expanded={open}
-                                onClick={() => onToggleCategory(category.id)}
-                                className={getCategoryButtonClassName(active || open)}>
-                                {active ? (
-                                    <motion.span
-                                        layoutId={`dashboard-category-disclosure-active-${variant}`}
-                                        className='absolute left-0 h-5 w-px rounded-full bg-[var(--dash-primary)] shadow-[0_0_18px_rgba(56,189,248,0.55)]'
-                                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                        {hasSubNavigation && defaultSubNavigationTo ? (
+                            <div className='flex items-center gap-1'>
+                                <Link
+                                    to={defaultSubNavigationTo}
+                                    params={{ guildId }}
+                                    activeOptions={{ exact: false }}
+                                    aria-current={active ? 'page' : undefined}
+                                    onClick={onNavigate}
+                                    className={`${getCategoryLinkClassName(active)} min-w-0 flex-1`}>
+                                    {active ? (
+                                        <motion.span
+                                            layoutId={`dashboard-category-active-${variant}`}
+                                            className='absolute inset-0 rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-selected)]'
+                                            transition={{ duration: 0.16, ease: 'easeOut' }}
+                                        />
+                                    ) : null}
+                                    <Icon
+                                        className={
+                                            active
+                                                ? 'relative size-4 shrink-0 text-[var(--dash-primary)]'
+                                                : 'relative size-4 shrink-0 text-[var(--dash-text-muted)]'
+                                        }
+                                        aria-hidden='true'
                                     />
-                                ) : null}
-                                <Icon
-                                    className={
-                                        active
-                                            ? 'size-4 shrink-0 text-[var(--dash-primary)]'
-                                            : 'size-4 shrink-0 text-[var(--dash-text-muted)] group-hover:text-[var(--dash-text)]'
-                                    }
-                                    aria-hidden='true'
-                                />
-                                <span className='min-w-0 flex-1 truncate'>{category.label}</span>
-                                <motion.span
-                                    animate={{ rotate: open ? 90 : 0 }}
-                                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                                    className='grid size-6 shrink-0 place-items-center text-[var(--dash-text-muted)] group-hover:text-[var(--dash-text)]'>
-                                    <ChevronRight className='size-4' aria-hidden='true' />
-                                </motion.span>
-                            </button>
+                                    <span className='relative min-w-0 flex-1 truncate'>{category.label}</span>
+                                </Link>
+                                <button
+                                    type='button'
+                                    aria-label={open ? `Collapse ${category.label}` : `Expand ${category.label}`}
+                                    aria-expanded={open}
+                                    onClick={() => onToggleCategory(category.id)}
+                                    className={getCategoryDisclosureButtonClassName(active || open)}>
+                                    <motion.span
+                                        animate={{ rotate: open ? 90 : 0 }}
+                                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                                        className='grid size-6 place-items-center'>
+                                        <ChevronRight className='size-4' aria-hidden='true' />
+                                    </motion.span>
+                                </button>
+                            </div>
                         ) : (
                             <Link
                                 to={category.to}
@@ -221,13 +195,6 @@ function DashboardCategoryNavigationList({
                                     aria-hidden='true'
                                 />
                                 <span className='relative min-w-0 flex-1 truncate'>{category.label}</span>
-                                {isPlannedDashboardCategory(category) ? (
-                                    <span
-                                        className='relative rounded-full border border-[var(--dash-border)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--dash-text-subtle)]'
-                                        aria-hidden='true'>
-                                        Soon
-                                    </span>
-                                ) : null}
                             </Link>
                         )}
                         {hasSubNavigation ? (
@@ -285,13 +252,13 @@ function DashboardCategoryNavigationList({
     );
 }
 
-function getCategoryButtonClassName(active: boolean): string {
+function getCategoryDisclosureButtonClassName(active: boolean): string {
     const base =
-        'group relative flex min-h-11 w-full items-center gap-3 rounded-[var(--dash-radius-control)] border px-3 py-2 text-left text-[0.98rem] font-semibold transition outline-none';
+        'grid min-h-11 w-10 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border text-[var(--dash-text-muted)] outline-none transition';
 
     return active
-        ? `${base} border-[rgba(56,189,248,0.38)] bg-[rgba(16,32,51,0.72)] text-[var(--dash-text)] shadow-[var(--dash-shadow-focus)] hover:bg-[rgba(19,38,61,0.78)] focus-visible:border-[var(--dash-primary)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[rgba(107,125,152,0.52)] hover:bg-[rgba(19,24,35,0.68)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} border-[rgba(56,189,248,0.34)] bg-[rgba(16,32,51,0.58)] text-[var(--dash-primary)] hover:bg-[rgba(19,38,61,0.72)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} border-transparent hover:border-[rgba(107,125,152,0.52)] hover:bg-[rgba(19,24,35,0.68)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getCategoryLinkClassName(active: boolean): string {
@@ -310,32 +277,6 @@ function getSubNavigationLinkClassName(active: boolean): string {
     return active
         ? `${base} border-[rgba(56,189,248,0.28)] text-[var(--dash-text)]`
         : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[rgba(107,125,152,0.42)] hover:bg-[rgba(19,24,35,0.64)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
-}
-
-function isPlannedDashboardCategory(category: { status: 'active' | 'planned' }): boolean {
-    return category.status === 'planned';
-}
-
-function getDashboardCategorySubNavigation(categoryId: DashboardCategoryId): readonly DashboardSubNavigationItem[] {
-    if (categoryId === 'access') {
-        return dashboardAccessTools.map((tool) => ({
-            id: tool.id,
-            label: tool.label,
-            to: tool.to,
-            icon: tool.icon,
-        }));
-    }
-
-    if (categoryId === 'community') {
-        return dashboardCommunityTools.map((tool) => ({
-            id: tool.id,
-            label: tool.label,
-            to: tool.to,
-            icon: tool.icon,
-        }));
-    }
-
-    return [];
 }
 
 function getDashboardSubNavigationPath(to: DashboardSubNavigationTo, guildId: string): string {

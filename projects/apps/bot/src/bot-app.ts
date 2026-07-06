@@ -16,11 +16,6 @@ import {
     type BotFeatureRouteError,
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
-import { createGiveawayMaintenanceScheduler, type GiveawayMaintenanceScheduler } from './bot-giveaway-maintenance.js';
-import {
-    createVcGeneratorMaintenanceScheduler,
-    type VcGeneratorMaintenanceScheduler,
-} from './bot-vc-generator-maintenance.js';
 import { reconcileBotInstallations } from './bot-installation-sync.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
@@ -37,8 +32,6 @@ export type CreateBotAppInput = {
 
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
     let bot: FluxerBot | undefined;
-    let giveawayMaintenance: GiveawayMaintenanceScheduler | undefined;
-    let vcGeneratorMaintenance: VcGeneratorMaintenanceScheduler | undefined;
     let databaseClosed = false;
 
     async function closeDatabaseOnce(): Promise<void> {
@@ -277,15 +270,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     },
                 }
             );
-            giveawayMaintenance = createGiveawayMaintenanceScheduler({
-                createContext: createFeatureHandlerContext,
-                logger,
-            });
-            vcGeneratorMaintenance = createVcGeneratorMaintenanceScheduler({
-                createContext: createFeatureHandlerContext,
-                logger,
-            });
-
             const started = await bot.start();
 
             if (!started) {
@@ -293,14 +277,9 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 return false;
             }
 
-            giveawayMaintenance.start();
-            vcGeneratorMaintenance.start();
-
             return true;
         },
         async stop() {
-            vcGeneratorMaintenance?.stop();
-            giveawayMaintenance?.stop();
             await bot?.stop();
             await closeDatabaseOnce();
         },

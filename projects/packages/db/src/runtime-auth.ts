@@ -121,17 +121,14 @@ export async function upsertFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = await db.client.mutation(
-            api.auth_store.upsertFluxerOAuthTokenSet,
-            {
-                accessToken: input.accessToken,
-                accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
-                fluxerUserId: input.fluxerUserId,
-                ...(input.refreshToken ? { refreshToken: input.refreshToken } : {}),
-                scopes: [...input.scopes],
-                tokenType: input.tokenType,
-            }
-        );
+        const tokenSet = await db.client.mutation(api.auth_store.upsertFluxerOAuthTokenSet, {
+            accessToken: input.accessToken,
+            accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
+            fluxerUserId: input.fluxerUserId,
+            ...(input.refreshToken ? { refreshToken: input.refreshToken } : {}),
+            scopes: [...input.scopes],
+            tokenType: input.tokenType,
+        });
 
         return ok(toFluxerOAuthTokenRecord(tokenSet));
     } catch (error) {
@@ -144,10 +141,7 @@ export async function findUsableFluxerOAuthTokenSetByUserId(
     input: { fluxerUserId: string }
 ): Promise<Result<FluxerOAuthTokenRecord, FluxerOAuthTokenRepositoryError>> {
     try {
-        const tokenSet = await db.client.query(
-            api.auth_store.findUsableFluxerOAuthTokenSetByUserId,
-            input
-        );
+        const tokenSet = await db.client.query(api.auth_store.findUsableFluxerOAuthTokenSetByUserId, input);
 
         return tokenSet ? ok(toFluxerOAuthTokenRecord(tokenSet)) : err('not-found');
     } catch (error) {
@@ -167,13 +161,10 @@ export async function invalidateFluxerOAuthTokenSet(
     }
 
     try {
-        const tokenSet = await db.client.mutation(
-            api.auth_store.invalidateFluxerOAuthTokenSet,
-            {
-                fluxerUserId: input.fluxerUserId,
-                ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),
-            }
-        );
+        const tokenSet = await db.client.mutation(api.auth_store.invalidateFluxerOAuthTokenSet, {
+            fluxerUserId: input.fluxerUserId,
+            ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),
+        });
 
         return tokenSet ? ok(toFluxerOAuthTokenRecord(tokenSet)) : err('not-found');
     } catch (error) {

@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ProfileBuilderRouteImport } from './routes/profile-builder'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -22,23 +21,52 @@ import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
 import { Route as DashboardGuildIdIndexRouteImport } from './routes/dashboard/$guildId/index'
 import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
 import { Route as DocsApiSearchRouteImport } from './routes/docs/api/search'
+import { Route as DashboardGuildIdSystemRouteImport } from './routes/dashboard/$guildId/system'
 import { Route as DashboardGuildIdStructureRouteImport } from './routes/dashboard/$guildId/structure'
 import { Route as DashboardGuildIdModerationRouteImport } from './routes/dashboard/$guildId/moderation'
 import { Route as DashboardGuildIdMessagingRouteImport } from './routes/dashboard/$guildId/messaging'
 import { Route as DashboardGuildIdLoggingRouteImport } from './routes/dashboard/$guildId/logging'
 import { Route as DashboardGuildIdInvitesRouteImport } from './routes/dashboard/$guildId/invites'
+import { Route as DashboardGuildIdInsightsRouteImport } from './routes/dashboard/$guildId/insights'
 import { Route as DashboardGuildIdGeneralRouteImport } from './routes/dashboard/$guildId/general'
-import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard.$guildId.events'
+import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard/$guildId/events'
 import { Route as DashboardGuildIdCommunityRouteImport } from './routes/dashboard/$guildId/community'
 import { Route as DashboardGuildIdAuditRouteImport } from './routes/dashboard/$guildId/audit'
 import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$guildId/access'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 import { Route as AuthConvexTokenRouteImport } from './routes/auth/convex/token'
+import { Route as DashboardGuildIdSystemIndexRouteImport } from './routes/dashboard/$guildId/system/index'
+import { Route as DashboardGuildIdStructureIndexRouteImport } from './routes/dashboard/$guildId/structure/index'
+import { Route as DashboardGuildIdModerationIndexRouteImport } from './routes/dashboard/$guildId/moderation/index'
+import { Route as DashboardGuildIdMessagingIndexRouteImport } from './routes/dashboard/$guildId/messaging/index'
+import { Route as DashboardGuildIdInsightsIndexRouteImport } from './routes/dashboard/$guildId/insights/index'
+import { Route as DashboardGuildIdGeneralIndexRouteImport } from './routes/dashboard/$guildId/general/index'
+import { Route as DashboardGuildIdEventsIndexRouteImport } from './routes/dashboard/$guildId/events/index'
 import { Route as DashboardGuildIdCommunityIndexRouteImport } from './routes/dashboard/$guildId/community/index'
 import { Route as DashboardGuildIdAccessIndexRouteImport } from './routes/dashboard/$guildId/access/index'
+import { Route as DashboardGuildIdSystemPublicWebLinksRouteImport } from './routes/dashboard/$guildId/system/public-web-links'
+import { Route as DashboardGuildIdSystemOauthSessionsRouteImport } from './routes/dashboard/$guildId/system/oauth-sessions'
+import { Route as DashboardGuildIdSystemDocumentationRouteImport } from './routes/dashboard/$guildId/system/documentation'
+import { Route as DashboardGuildIdSystemDeploymentRouteImport } from './routes/dashboard/$guildId/system/deployment'
+import { Route as DashboardGuildIdSystemConvexDashboardDataRouteImport } from './routes/dashboard/$guildId/system/convex-dashboard-data'
+import { Route as DashboardGuildIdSystemBotInstallationSyncRouteImport } from './routes/dashboard/$guildId/system/bot-installation-sync'
+import { Route as DashboardGuildIdStructureImportExportRouteImport } from './routes/dashboard/$guildId/structure/import-export'
+import { Route as DashboardGuildIdModerationPolicyRouteImport } from './routes/dashboard/$guildId/moderation/policy'
+import { Route as DashboardGuildIdModerationCasesRouteImport } from './routes/dashboard/$guildId/moderation/cases'
+import { Route as DashboardGuildIdModerationAutomodRouteImport } from './routes/dashboard/$guildId/moderation/automod'
+import { Route as DashboardGuildIdMessagingMessageBuilderRouteImport } from './routes/dashboard/$guildId/messaging/message-builder'
+import { Route as DashboardGuildIdMessagingFreeGameAlertsRouteImport } from './routes/dashboard/$guildId/messaging/free-game-alerts'
+import { Route as DashboardGuildIdMessagingBlueskyRouteImport } from './routes/dashboard/$guildId/messaging/bluesky'
+import { Route as DashboardGuildIdInsightsInviteTrackerRouteImport } from './routes/dashboard/$guildId/insights/invite-tracker'
+import { Route as DashboardGuildIdInsightsGrowthTrackingRouteImport } from './routes/dashboard/$guildId/insights/growth-tracking'
+import { Route as DashboardGuildIdGeneralCommandPrefixRouteImport } from './routes/dashboard/$guildId/general/command-prefix'
+import { Route as DashboardGuildIdGeneralCommandHelpRouteImport } from './routes/dashboard/$guildId/general/command-help'
+import { Route as DashboardGuildIdGeneralBotPresenceRouteImport } from './routes/dashboard/$guildId/general/bot-presence'
+import { Route as DashboardGuildIdEventsLoggingDestinationsRouteImport } from './routes/dashboard/$guildId/events/logging-destinations'
+import { Route as DashboardGuildIdEventsAuditEventsRouteImport } from './routes/dashboard/$guildId/events/audit-events'
 import { Route as DashboardGuildIdCommunityXpRouteImport } from './routes/dashboard/$guildId/community/xp'
-import { Route as DashboardGuildIdCommunityVcGeneratorRouteImport } from './routes/dashboard/$guildId/community/vc-generator'
+import { Route as DashboardGuildIdCommunityVoiceRoomsRouteImport } from './routes/dashboard/$guildId/community/voice-rooms'
 import { Route as DashboardGuildIdCommunityTicketsRouteImport } from './routes/dashboard/$guildId/community/tickets'
 import { Route as DashboardGuildIdCommunitySuggestionsRouteImport } from './routes/dashboard/$guildId/community/suggestions'
 import { Route as DashboardGuildIdCommunityProfileBuilderRouteImport } from './routes/dashboard/$guildId/community/profile-builder'
@@ -46,14 +74,10 @@ import { Route as DashboardGuildIdCommunityGiveawaysRouteImport } from './routes
 import { Route as DashboardGuildIdAccessVerificationRouteImport } from './routes/dashboard/$guildId/access/verification'
 import { Route as DashboardGuildIdAccessRoleReconciliationRouteImport } from './routes/dashboard/$guildId/access/role-reconciliation'
 import { Route as DashboardGuildIdAccessReactionRolesRouteImport } from './routes/dashboard/$guildId/access/reaction-roles'
+import { Route as DashboardGuildIdAccessDashboardAccessRouteImport } from './routes/dashboard/$guildId/access/dashboard-access'
 import { Route as DashboardGuildIdAccessCommandAccessRouteImport } from './routes/dashboard/$guildId/access/command-access'
 import { Route as DashboardGuildIdAccessAutorolesRouteImport } from './routes/dashboard/$guildId/access/autoroles'
 
-const ProfileBuilderRoute = ProfileBuilderRouteImport.update({
-  id: '/profile-builder',
-  path: '/profile-builder',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -114,6 +138,11 @@ const DocsApiSearchRoute = DocsApiSearchRouteImport.update({
   path: '/api/search',
   getParentRoute: () => DocsRoute,
 } as any)
+const DashboardGuildIdSystemRoute = DashboardGuildIdSystemRouteImport.update({
+  id: '/system',
+  path: '/system',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
 const DashboardGuildIdStructureRoute =
   DashboardGuildIdStructureRouteImport.update({
     id: '/structure',
@@ -142,6 +171,12 @@ const DashboardGuildIdInvitesRoute = DashboardGuildIdInvitesRouteImport.update({
   path: '/invites',
   getParentRoute: () => DashboardGuildIdRoute,
 } as any)
+const DashboardGuildIdInsightsRoute =
+  DashboardGuildIdInsightsRouteImport.update({
+    id: '/insights',
+    path: '/insights',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
 const DashboardGuildIdGeneralRoute = DashboardGuildIdGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -183,6 +218,48 @@ const AuthConvexTokenRoute = AuthConvexTokenRouteImport.update({
   path: '/auth/convex/token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardGuildIdSystemIndexRoute =
+  DashboardGuildIdSystemIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdStructureIndexRoute =
+  DashboardGuildIdStructureIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdModerationIndexRoute =
+  DashboardGuildIdModerationIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdModerationRoute,
+  } as any)
+const DashboardGuildIdMessagingIndexRoute =
+  DashboardGuildIdMessagingIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdMessagingRoute,
+  } as any)
+const DashboardGuildIdInsightsIndexRoute =
+  DashboardGuildIdInsightsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdInsightsRoute,
+  } as any)
+const DashboardGuildIdGeneralIndexRoute =
+  DashboardGuildIdGeneralIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdGeneralRoute,
+  } as any)
+const DashboardGuildIdEventsIndexRoute =
+  DashboardGuildIdEventsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdEventsRoute,
+  } as any)
 const DashboardGuildIdCommunityIndexRoute =
   DashboardGuildIdCommunityIndexRouteImport.update({
     id: '/',
@@ -195,16 +272,136 @@ const DashboardGuildIdAccessIndexRoute =
     path: '/',
     getParentRoute: () => DashboardGuildIdAccessRoute,
   } as any)
+const DashboardGuildIdSystemPublicWebLinksRoute =
+  DashboardGuildIdSystemPublicWebLinksRouteImport.update({
+    id: '/public-web-links',
+    path: '/public-web-links',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdSystemOauthSessionsRoute =
+  DashboardGuildIdSystemOauthSessionsRouteImport.update({
+    id: '/oauth-sessions',
+    path: '/oauth-sessions',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdSystemDocumentationRoute =
+  DashboardGuildIdSystemDocumentationRouteImport.update({
+    id: '/documentation',
+    path: '/documentation',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdSystemDeploymentRoute =
+  DashboardGuildIdSystemDeploymentRouteImport.update({
+    id: '/deployment',
+    path: '/deployment',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdSystemConvexDashboardDataRoute =
+  DashboardGuildIdSystemConvexDashboardDataRouteImport.update({
+    id: '/convex-dashboard-data',
+    path: '/convex-dashboard-data',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdSystemBotInstallationSyncRoute =
+  DashboardGuildIdSystemBotInstallationSyncRouteImport.update({
+    id: '/bot-installation-sync',
+    path: '/bot-installation-sync',
+    getParentRoute: () => DashboardGuildIdSystemRoute,
+  } as any)
+const DashboardGuildIdStructureImportExportRoute =
+  DashboardGuildIdStructureImportExportRouteImport.update({
+    id: '/import-export',
+    path: '/import-export',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdModerationPolicyRoute =
+  DashboardGuildIdModerationPolicyRouteImport.update({
+    id: '/policy',
+    path: '/policy',
+    getParentRoute: () => DashboardGuildIdModerationRoute,
+  } as any)
+const DashboardGuildIdModerationCasesRoute =
+  DashboardGuildIdModerationCasesRouteImport.update({
+    id: '/cases',
+    path: '/cases',
+    getParentRoute: () => DashboardGuildIdModerationRoute,
+  } as any)
+const DashboardGuildIdModerationAutomodRoute =
+  DashboardGuildIdModerationAutomodRouteImport.update({
+    id: '/automod',
+    path: '/automod',
+    getParentRoute: () => DashboardGuildIdModerationRoute,
+  } as any)
+const DashboardGuildIdMessagingMessageBuilderRoute =
+  DashboardGuildIdMessagingMessageBuilderRouteImport.update({
+    id: '/message-builder',
+    path: '/message-builder',
+    getParentRoute: () => DashboardGuildIdMessagingRoute,
+  } as any)
+const DashboardGuildIdMessagingFreeGameAlertsRoute =
+  DashboardGuildIdMessagingFreeGameAlertsRouteImport.update({
+    id: '/free-game-alerts',
+    path: '/free-game-alerts',
+    getParentRoute: () => DashboardGuildIdMessagingRoute,
+  } as any)
+const DashboardGuildIdMessagingBlueskyRoute =
+  DashboardGuildIdMessagingBlueskyRouteImport.update({
+    id: '/bluesky',
+    path: '/bluesky',
+    getParentRoute: () => DashboardGuildIdMessagingRoute,
+  } as any)
+const DashboardGuildIdInsightsInviteTrackerRoute =
+  DashboardGuildIdInsightsInviteTrackerRouteImport.update({
+    id: '/invite-tracker',
+    path: '/invite-tracker',
+    getParentRoute: () => DashboardGuildIdInsightsRoute,
+  } as any)
+const DashboardGuildIdInsightsGrowthTrackingRoute =
+  DashboardGuildIdInsightsGrowthTrackingRouteImport.update({
+    id: '/growth-tracking',
+    path: '/growth-tracking',
+    getParentRoute: () => DashboardGuildIdInsightsRoute,
+  } as any)
+const DashboardGuildIdGeneralCommandPrefixRoute =
+  DashboardGuildIdGeneralCommandPrefixRouteImport.update({
+    id: '/command-prefix',
+    path: '/command-prefix',
+    getParentRoute: () => DashboardGuildIdGeneralRoute,
+  } as any)
+const DashboardGuildIdGeneralCommandHelpRoute =
+  DashboardGuildIdGeneralCommandHelpRouteImport.update({
+    id: '/command-help',
+    path: '/command-help',
+    getParentRoute: () => DashboardGuildIdGeneralRoute,
+  } as any)
+const DashboardGuildIdGeneralBotPresenceRoute =
+  DashboardGuildIdGeneralBotPresenceRouteImport.update({
+    id: '/bot-presence',
+    path: '/bot-presence',
+    getParentRoute: () => DashboardGuildIdGeneralRoute,
+  } as any)
+const DashboardGuildIdEventsLoggingDestinationsRoute =
+  DashboardGuildIdEventsLoggingDestinationsRouteImport.update({
+    id: '/logging-destinations',
+    path: '/logging-destinations',
+    getParentRoute: () => DashboardGuildIdEventsRoute,
+  } as any)
+const DashboardGuildIdEventsAuditEventsRoute =
+  DashboardGuildIdEventsAuditEventsRouteImport.update({
+    id: '/audit-events',
+    path: '/audit-events',
+    getParentRoute: () => DashboardGuildIdEventsRoute,
+  } as any)
 const DashboardGuildIdCommunityXpRoute =
   DashboardGuildIdCommunityXpRouteImport.update({
     id: '/xp',
     path: '/xp',
     getParentRoute: () => DashboardGuildIdCommunityRoute,
   } as any)
-const DashboardGuildIdCommunityVcGeneratorRoute =
-  DashboardGuildIdCommunityVcGeneratorRouteImport.update({
-    id: '/vc-generator',
-    path: '/vc-generator',
+const DashboardGuildIdCommunityVoiceRoomsRoute =
+  DashboardGuildIdCommunityVoiceRoomsRouteImport.update({
+    id: '/voice-rooms',
+    path: '/voice-rooms',
     getParentRoute: () => DashboardGuildIdCommunityRoute,
   } as any)
 const DashboardGuildIdCommunityTicketsRoute =
@@ -249,6 +446,12 @@ const DashboardGuildIdAccessReactionRolesRoute =
     path: '/reaction-roles',
     getParentRoute: () => DashboardGuildIdAccessRoute,
   } as any)
+const DashboardGuildIdAccessDashboardAccessRoute =
+  DashboardGuildIdAccessDashboardAccessRouteImport.update({
+    id: '/dashboard-access',
+    path: '/dashboard-access',
+    getParentRoute: () => DashboardGuildIdAccessRoute,
+  } as any)
 const DashboardGuildIdAccessCommandAccessRoute =
   DashboardGuildIdAccessCommandAccessRouteImport.update({
     id: '/command-access',
@@ -266,7 +469,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
-  '/profile-builder': typeof ProfileBuilderRoute
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
@@ -278,19 +480,22 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRouteWithChildren
-  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
-  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRouteWithChildren
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRouteWithChildren
+  '/dashboard/$guildId/insights': typeof DashboardGuildIdInsightsRouteWithChildren
   '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
-  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
-  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRouteWithChildren
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRouteWithChildren
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRouteWithChildren
+  '/dashboard/$guildId/system': typeof DashboardGuildIdSystemRouteWithChildren
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
   '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
@@ -298,14 +503,40 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/community/profile-builder': typeof DashboardGuildIdCommunityProfileBuilderRoute
   '/dashboard/$guildId/community/suggestions': typeof DashboardGuildIdCommunitySuggestionsRoute
   '/dashboard/$guildId/community/tickets': typeof DashboardGuildIdCommunityTicketsRoute
-  '/dashboard/$guildId/community/vc-generator': typeof DashboardGuildIdCommunityVcGeneratorRoute
+  '/dashboard/$guildId/community/voice-rooms': typeof DashboardGuildIdCommunityVoiceRoomsRoute
   '/dashboard/$guildId/community/xp': typeof DashboardGuildIdCommunityXpRoute
+  '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
+  '/dashboard/$guildId/events/logging-destinations': typeof DashboardGuildIdEventsLoggingDestinationsRoute
+  '/dashboard/$guildId/general/bot-presence': typeof DashboardGuildIdGeneralBotPresenceRoute
+  '/dashboard/$guildId/general/command-help': typeof DashboardGuildIdGeneralCommandHelpRoute
+  '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
+  '/dashboard/$guildId/insights/growth-tracking': typeof DashboardGuildIdInsightsGrowthTrackingRoute
+  '/dashboard/$guildId/insights/invite-tracker': typeof DashboardGuildIdInsightsInviteTrackerRoute
+  '/dashboard/$guildId/messaging/bluesky': typeof DashboardGuildIdMessagingBlueskyRoute
+  '/dashboard/$guildId/messaging/free-game-alerts': typeof DashboardGuildIdMessagingFreeGameAlertsRoute
+  '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/moderation/automod': typeof DashboardGuildIdModerationAutomodRoute
+  '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
+  '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
+  '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
+  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
+  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
+  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
+  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
+  '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community/': typeof DashboardGuildIdCommunityIndexRoute
+  '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
+  '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
+  '/dashboard/$guildId/insights/': typeof DashboardGuildIdInsightsIndexRoute
+  '/dashboard/$guildId/messaging/': typeof DashboardGuildIdMessagingIndexRoute
+  '/dashboard/$guildId/moderation/': typeof DashboardGuildIdModerationIndexRoute
+  '/dashboard/$guildId/structure/': typeof DashboardGuildIdStructureIndexRoute
+  '/dashboard/$guildId/system/': typeof DashboardGuildIdSystemIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/profile-builder': typeof ProfileBuilderRoute
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
@@ -313,19 +544,15 @@ export interface FileRoutesByTo {
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
-  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
-  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
   '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
-  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
-  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId': typeof DashboardGuildIdIndexRoute
   '/docs/topic': typeof DocsTopicIndexRoute
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
   '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
@@ -333,17 +560,43 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/community/profile-builder': typeof DashboardGuildIdCommunityProfileBuilderRoute
   '/dashboard/$guildId/community/suggestions': typeof DashboardGuildIdCommunitySuggestionsRoute
   '/dashboard/$guildId/community/tickets': typeof DashboardGuildIdCommunityTicketsRoute
-  '/dashboard/$guildId/community/vc-generator': typeof DashboardGuildIdCommunityVcGeneratorRoute
+  '/dashboard/$guildId/community/voice-rooms': typeof DashboardGuildIdCommunityVoiceRoomsRoute
   '/dashboard/$guildId/community/xp': typeof DashboardGuildIdCommunityXpRoute
+  '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
+  '/dashboard/$guildId/events/logging-destinations': typeof DashboardGuildIdEventsLoggingDestinationsRoute
+  '/dashboard/$guildId/general/bot-presence': typeof DashboardGuildIdGeneralBotPresenceRoute
+  '/dashboard/$guildId/general/command-help': typeof DashboardGuildIdGeneralCommandHelpRoute
+  '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
+  '/dashboard/$guildId/insights/growth-tracking': typeof DashboardGuildIdInsightsGrowthTrackingRoute
+  '/dashboard/$guildId/insights/invite-tracker': typeof DashboardGuildIdInsightsInviteTrackerRoute
+  '/dashboard/$guildId/messaging/bluesky': typeof DashboardGuildIdMessagingBlueskyRoute
+  '/dashboard/$guildId/messaging/free-game-alerts': typeof DashboardGuildIdMessagingFreeGameAlertsRoute
+  '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/moderation/automod': typeof DashboardGuildIdModerationAutomodRoute
+  '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
+  '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
+  '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
+  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
+  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
+  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
+  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
+  '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityIndexRoute
+  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsIndexRoute
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralIndexRoute
+  '/dashboard/$guildId/insights': typeof DashboardGuildIdInsightsIndexRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingIndexRoute
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationIndexRoute
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureIndexRoute
+  '/dashboard/$guildId/system': typeof DashboardGuildIdSystemIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
-  '/profile-builder': typeof ProfileBuilderRoute
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
@@ -355,19 +608,22 @@ export interface FileRoutesById {
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRouteWithChildren
-  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRoute
-  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRoute
+  '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRouteWithChildren
+  '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRouteWithChildren
+  '/dashboard/$guildId/insights': typeof DashboardGuildIdInsightsRouteWithChildren
   '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
-  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRoute
-  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRoute
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRoute
+  '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRouteWithChildren
+  '/dashboard/$guildId/moderation': typeof DashboardGuildIdModerationRouteWithChildren
+  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRouteWithChildren
+  '/dashboard/$guildId/system': typeof DashboardGuildIdSystemRouteWithChildren
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
+  '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
   '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
@@ -375,10 +631,37 @@ export interface FileRoutesById {
   '/dashboard/$guildId/community/profile-builder': typeof DashboardGuildIdCommunityProfileBuilderRoute
   '/dashboard/$guildId/community/suggestions': typeof DashboardGuildIdCommunitySuggestionsRoute
   '/dashboard/$guildId/community/tickets': typeof DashboardGuildIdCommunityTicketsRoute
-  '/dashboard/$guildId/community/vc-generator': typeof DashboardGuildIdCommunityVcGeneratorRoute
+  '/dashboard/$guildId/community/voice-rooms': typeof DashboardGuildIdCommunityVoiceRoomsRoute
   '/dashboard/$guildId/community/xp': typeof DashboardGuildIdCommunityXpRoute
+  '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
+  '/dashboard/$guildId/events/logging-destinations': typeof DashboardGuildIdEventsLoggingDestinationsRoute
+  '/dashboard/$guildId/general/bot-presence': typeof DashboardGuildIdGeneralBotPresenceRoute
+  '/dashboard/$guildId/general/command-help': typeof DashboardGuildIdGeneralCommandHelpRoute
+  '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
+  '/dashboard/$guildId/insights/growth-tracking': typeof DashboardGuildIdInsightsGrowthTrackingRoute
+  '/dashboard/$guildId/insights/invite-tracker': typeof DashboardGuildIdInsightsInviteTrackerRoute
+  '/dashboard/$guildId/messaging/bluesky': typeof DashboardGuildIdMessagingBlueskyRoute
+  '/dashboard/$guildId/messaging/free-game-alerts': typeof DashboardGuildIdMessagingFreeGameAlertsRoute
+  '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/moderation/automod': typeof DashboardGuildIdModerationAutomodRoute
+  '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
+  '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
+  '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
+  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
+  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
+  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
+  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
+  '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community/': typeof DashboardGuildIdCommunityIndexRoute
+  '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
+  '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
+  '/dashboard/$guildId/insights/': typeof DashboardGuildIdInsightsIndexRoute
+  '/dashboard/$guildId/messaging/': typeof DashboardGuildIdMessagingIndexRoute
+  '/dashboard/$guildId/moderation/': typeof DashboardGuildIdModerationIndexRoute
+  '/dashboard/$guildId/structure/': typeof DashboardGuildIdStructureIndexRoute
+  '/dashboard/$guildId/system/': typeof DashboardGuildIdSystemIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -386,7 +669,6 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/docs'
-    | '/profile-builder'
     | '/.well-known/jwks.json'
     | '/dashboard/$guildId'
     | '/docs/topic'
@@ -400,17 +682,20 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/insights'
     | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/moderation'
     | '/dashboard/$guildId/structure'
+    | '/dashboard/$guildId/system'
     | '/docs/api/search'
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/dashboard-access'
     | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
@@ -418,14 +703,40 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community/profile-builder'
     | '/dashboard/$guildId/community/suggestions'
     | '/dashboard/$guildId/community/tickets'
-    | '/dashboard/$guildId/community/vc-generator'
+    | '/dashboard/$guildId/community/voice-rooms'
     | '/dashboard/$guildId/community/xp'
+    | '/dashboard/$guildId/events/audit-events'
+    | '/dashboard/$guildId/events/logging-destinations'
+    | '/dashboard/$guildId/general/bot-presence'
+    | '/dashboard/$guildId/general/command-help'
+    | '/dashboard/$guildId/general/command-prefix'
+    | '/dashboard/$guildId/insights/growth-tracking'
+    | '/dashboard/$guildId/insights/invite-tracker'
+    | '/dashboard/$guildId/messaging/bluesky'
+    | '/dashboard/$guildId/messaging/free-game-alerts'
+    | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/moderation/automod'
+    | '/dashboard/$guildId/moderation/cases'
+    | '/dashboard/$guildId/moderation/policy'
+    | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/system/bot-installation-sync'
+    | '/dashboard/$guildId/system/convex-dashboard-data'
+    | '/dashboard/$guildId/system/deployment'
+    | '/dashboard/$guildId/system/documentation'
+    | '/dashboard/$guildId/system/oauth-sessions'
+    | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access/'
     | '/dashboard/$guildId/community/'
+    | '/dashboard/$guildId/events/'
+    | '/dashboard/$guildId/general/'
+    | '/dashboard/$guildId/insights/'
+    | '/dashboard/$guildId/messaging/'
+    | '/dashboard/$guildId/moderation/'
+    | '/dashboard/$guildId/structure/'
+    | '/dashboard/$guildId/system/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/profile-builder'
     | '/.well-known/jwks.json'
     | '/dashboard'
     | '/docs'
@@ -433,19 +744,15 @@ export interface FileRouteTypes {
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/audit'
-    | '/dashboard/$guildId/events'
-    | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
-    | '/dashboard/$guildId/messaging'
-    | '/dashboard/$guildId/moderation'
-    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/dashboard-access'
     | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
@@ -453,16 +760,42 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community/profile-builder'
     | '/dashboard/$guildId/community/suggestions'
     | '/dashboard/$guildId/community/tickets'
-    | '/dashboard/$guildId/community/vc-generator'
+    | '/dashboard/$guildId/community/voice-rooms'
     | '/dashboard/$guildId/community/xp'
+    | '/dashboard/$guildId/events/audit-events'
+    | '/dashboard/$guildId/events/logging-destinations'
+    | '/dashboard/$guildId/general/bot-presence'
+    | '/dashboard/$guildId/general/command-help'
+    | '/dashboard/$guildId/general/command-prefix'
+    | '/dashboard/$guildId/insights/growth-tracking'
+    | '/dashboard/$guildId/insights/invite-tracker'
+    | '/dashboard/$guildId/messaging/bluesky'
+    | '/dashboard/$guildId/messaging/free-game-alerts'
+    | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/moderation/automod'
+    | '/dashboard/$guildId/moderation/cases'
+    | '/dashboard/$guildId/moderation/policy'
+    | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/system/bot-installation-sync'
+    | '/dashboard/$guildId/system/convex-dashboard-data'
+    | '/dashboard/$guildId/system/deployment'
+    | '/dashboard/$guildId/system/documentation'
+    | '/dashboard/$guildId/system/oauth-sessions'
+    | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/community'
+    | '/dashboard/$guildId/events'
+    | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/insights'
+    | '/dashboard/$guildId/messaging'
+    | '/dashboard/$guildId/moderation'
+    | '/dashboard/$guildId/structure'
+    | '/dashboard/$guildId/system'
   id:
     | '__root__'
     | '/'
     | '/dashboard'
     | '/docs'
-    | '/profile-builder'
     | '/.well-known/jwks.json'
     | '/dashboard/$guildId'
     | '/docs/topic'
@@ -476,17 +809,20 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
+    | '/dashboard/$guildId/insights'
     | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/moderation'
     | '/dashboard/$guildId/structure'
+    | '/dashboard/$guildId/system'
     | '/docs/api/search'
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
+    | '/dashboard/$guildId/access/dashboard-access'
     | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
@@ -494,17 +830,43 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/community/profile-builder'
     | '/dashboard/$guildId/community/suggestions'
     | '/dashboard/$guildId/community/tickets'
-    | '/dashboard/$guildId/community/vc-generator'
+    | '/dashboard/$guildId/community/voice-rooms'
     | '/dashboard/$guildId/community/xp'
+    | '/dashboard/$guildId/events/audit-events'
+    | '/dashboard/$guildId/events/logging-destinations'
+    | '/dashboard/$guildId/general/bot-presence'
+    | '/dashboard/$guildId/general/command-help'
+    | '/dashboard/$guildId/general/command-prefix'
+    | '/dashboard/$guildId/insights/growth-tracking'
+    | '/dashboard/$guildId/insights/invite-tracker'
+    | '/dashboard/$guildId/messaging/bluesky'
+    | '/dashboard/$guildId/messaging/free-game-alerts'
+    | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/moderation/automod'
+    | '/dashboard/$guildId/moderation/cases'
+    | '/dashboard/$guildId/moderation/policy'
+    | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/system/bot-installation-sync'
+    | '/dashboard/$guildId/system/convex-dashboard-data'
+    | '/dashboard/$guildId/system/deployment'
+    | '/dashboard/$guildId/system/documentation'
+    | '/dashboard/$guildId/system/oauth-sessions'
+    | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access/'
     | '/dashboard/$guildId/community/'
+    | '/dashboard/$guildId/events/'
+    | '/dashboard/$guildId/general/'
+    | '/dashboard/$guildId/insights/'
+    | '/dashboard/$guildId/messaging/'
+    | '/dashboard/$guildId/moderation/'
+    | '/dashboard/$guildId/structure/'
+    | '/dashboard/$guildId/system/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   DocsRoute: typeof DocsRouteWithChildren
-  ProfileBuilderRoute: typeof ProfileBuilderRoute
   DotwellKnownJwksDotjsonRoute: typeof DotwellKnownJwksDotjsonRoute
   AuthConvexTokenRoute: typeof AuthConvexTokenRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
@@ -513,13 +875,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/profile-builder': {
-      id: '/profile-builder'
-      path: '/profile-builder'
-      fullPath: '/profile-builder'
-      preLoaderRoute: typeof ProfileBuilderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/docs': {
       id: '/docs'
       path: '/docs'
@@ -604,6 +959,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsApiSearchRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/dashboard/$guildId/system': {
+      id: '/dashboard/$guildId/system'
+      path: '/system'
+      fullPath: '/dashboard/$guildId/system'
+      preLoaderRoute: typeof DashboardGuildIdSystemRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
     '/dashboard/$guildId/structure': {
       id: '/dashboard/$guildId/structure'
       path: '/structure'
@@ -637,6 +999,13 @@ declare module '@tanstack/react-router' {
       path: '/invites'
       fullPath: '/dashboard/$guildId/invites'
       preLoaderRoute: typeof DashboardGuildIdInvitesRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/insights': {
+      id: '/dashboard/$guildId/insights'
+      path: '/insights'
+      fullPath: '/dashboard/$guildId/insights'
+      preLoaderRoute: typeof DashboardGuildIdInsightsRouteImport
       parentRoute: typeof DashboardGuildIdRoute
     }
     '/dashboard/$guildId/general': {
@@ -695,6 +1064,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthConvexTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/$guildId/system/': {
+      id: '/dashboard/$guildId/system/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/system/'
+      preLoaderRoute: typeof DashboardGuildIdSystemIndexRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/structure/': {
+      id: '/dashboard/$guildId/structure/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/structure/'
+      preLoaderRoute: typeof DashboardGuildIdStructureIndexRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/moderation/': {
+      id: '/dashboard/$guildId/moderation/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/moderation/'
+      preLoaderRoute: typeof DashboardGuildIdModerationIndexRouteImport
+      parentRoute: typeof DashboardGuildIdModerationRoute
+    }
+    '/dashboard/$guildId/messaging/': {
+      id: '/dashboard/$guildId/messaging/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/messaging/'
+      preLoaderRoute: typeof DashboardGuildIdMessagingIndexRouteImport
+      parentRoute: typeof DashboardGuildIdMessagingRoute
+    }
+    '/dashboard/$guildId/insights/': {
+      id: '/dashboard/$guildId/insights/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/insights/'
+      preLoaderRoute: typeof DashboardGuildIdInsightsIndexRouteImport
+      parentRoute: typeof DashboardGuildIdInsightsRoute
+    }
+    '/dashboard/$guildId/general/': {
+      id: '/dashboard/$guildId/general/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/general/'
+      preLoaderRoute: typeof DashboardGuildIdGeneralIndexRouteImport
+      parentRoute: typeof DashboardGuildIdGeneralRoute
+    }
+    '/dashboard/$guildId/events/': {
+      id: '/dashboard/$guildId/events/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/events/'
+      preLoaderRoute: typeof DashboardGuildIdEventsIndexRouteImport
+      parentRoute: typeof DashboardGuildIdEventsRoute
+    }
     '/dashboard/$guildId/community/': {
       id: '/dashboard/$guildId/community/'
       path: '/'
@@ -709,6 +1127,146 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdAccessIndexRouteImport
       parentRoute: typeof DashboardGuildIdAccessRoute
     }
+    '/dashboard/$guildId/system/public-web-links': {
+      id: '/dashboard/$guildId/system/public-web-links'
+      path: '/public-web-links'
+      fullPath: '/dashboard/$guildId/system/public-web-links'
+      preLoaderRoute: typeof DashboardGuildIdSystemPublicWebLinksRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/system/oauth-sessions': {
+      id: '/dashboard/$guildId/system/oauth-sessions'
+      path: '/oauth-sessions'
+      fullPath: '/dashboard/$guildId/system/oauth-sessions'
+      preLoaderRoute: typeof DashboardGuildIdSystemOauthSessionsRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/system/documentation': {
+      id: '/dashboard/$guildId/system/documentation'
+      path: '/documentation'
+      fullPath: '/dashboard/$guildId/system/documentation'
+      preLoaderRoute: typeof DashboardGuildIdSystemDocumentationRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/system/deployment': {
+      id: '/dashboard/$guildId/system/deployment'
+      path: '/deployment'
+      fullPath: '/dashboard/$guildId/system/deployment'
+      preLoaderRoute: typeof DashboardGuildIdSystemDeploymentRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/system/convex-dashboard-data': {
+      id: '/dashboard/$guildId/system/convex-dashboard-data'
+      path: '/convex-dashboard-data'
+      fullPath: '/dashboard/$guildId/system/convex-dashboard-data'
+      preLoaderRoute: typeof DashboardGuildIdSystemConvexDashboardDataRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/system/bot-installation-sync': {
+      id: '/dashboard/$guildId/system/bot-installation-sync'
+      path: '/bot-installation-sync'
+      fullPath: '/dashboard/$guildId/system/bot-installation-sync'
+      preLoaderRoute: typeof DashboardGuildIdSystemBotInstallationSyncRouteImport
+      parentRoute: typeof DashboardGuildIdSystemRoute
+    }
+    '/dashboard/$guildId/structure/import-export': {
+      id: '/dashboard/$guildId/structure/import-export'
+      path: '/import-export'
+      fullPath: '/dashboard/$guildId/structure/import-export'
+      preLoaderRoute: typeof DashboardGuildIdStructureImportExportRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/moderation/policy': {
+      id: '/dashboard/$guildId/moderation/policy'
+      path: '/policy'
+      fullPath: '/dashboard/$guildId/moderation/policy'
+      preLoaderRoute: typeof DashboardGuildIdModerationPolicyRouteImport
+      parentRoute: typeof DashboardGuildIdModerationRoute
+    }
+    '/dashboard/$guildId/moderation/cases': {
+      id: '/dashboard/$guildId/moderation/cases'
+      path: '/cases'
+      fullPath: '/dashboard/$guildId/moderation/cases'
+      preLoaderRoute: typeof DashboardGuildIdModerationCasesRouteImport
+      parentRoute: typeof DashboardGuildIdModerationRoute
+    }
+    '/dashboard/$guildId/moderation/automod': {
+      id: '/dashboard/$guildId/moderation/automod'
+      path: '/automod'
+      fullPath: '/dashboard/$guildId/moderation/automod'
+      preLoaderRoute: typeof DashboardGuildIdModerationAutomodRouteImport
+      parentRoute: typeof DashboardGuildIdModerationRoute
+    }
+    '/dashboard/$guildId/messaging/message-builder': {
+      id: '/dashboard/$guildId/messaging/message-builder'
+      path: '/message-builder'
+      fullPath: '/dashboard/$guildId/messaging/message-builder'
+      preLoaderRoute: typeof DashboardGuildIdMessagingMessageBuilderRouteImport
+      parentRoute: typeof DashboardGuildIdMessagingRoute
+    }
+    '/dashboard/$guildId/messaging/free-game-alerts': {
+      id: '/dashboard/$guildId/messaging/free-game-alerts'
+      path: '/free-game-alerts'
+      fullPath: '/dashboard/$guildId/messaging/free-game-alerts'
+      preLoaderRoute: typeof DashboardGuildIdMessagingFreeGameAlertsRouteImport
+      parentRoute: typeof DashboardGuildIdMessagingRoute
+    }
+    '/dashboard/$guildId/messaging/bluesky': {
+      id: '/dashboard/$guildId/messaging/bluesky'
+      path: '/bluesky'
+      fullPath: '/dashboard/$guildId/messaging/bluesky'
+      preLoaderRoute: typeof DashboardGuildIdMessagingBlueskyRouteImport
+      parentRoute: typeof DashboardGuildIdMessagingRoute
+    }
+    '/dashboard/$guildId/insights/invite-tracker': {
+      id: '/dashboard/$guildId/insights/invite-tracker'
+      path: '/invite-tracker'
+      fullPath: '/dashboard/$guildId/insights/invite-tracker'
+      preLoaderRoute: typeof DashboardGuildIdInsightsInviteTrackerRouteImport
+      parentRoute: typeof DashboardGuildIdInsightsRoute
+    }
+    '/dashboard/$guildId/insights/growth-tracking': {
+      id: '/dashboard/$guildId/insights/growth-tracking'
+      path: '/growth-tracking'
+      fullPath: '/dashboard/$guildId/insights/growth-tracking'
+      preLoaderRoute: typeof DashboardGuildIdInsightsGrowthTrackingRouteImport
+      parentRoute: typeof DashboardGuildIdInsightsRoute
+    }
+    '/dashboard/$guildId/general/command-prefix': {
+      id: '/dashboard/$guildId/general/command-prefix'
+      path: '/command-prefix'
+      fullPath: '/dashboard/$guildId/general/command-prefix'
+      preLoaderRoute: typeof DashboardGuildIdGeneralCommandPrefixRouteImport
+      parentRoute: typeof DashboardGuildIdGeneralRoute
+    }
+    '/dashboard/$guildId/general/command-help': {
+      id: '/dashboard/$guildId/general/command-help'
+      path: '/command-help'
+      fullPath: '/dashboard/$guildId/general/command-help'
+      preLoaderRoute: typeof DashboardGuildIdGeneralCommandHelpRouteImport
+      parentRoute: typeof DashboardGuildIdGeneralRoute
+    }
+    '/dashboard/$guildId/general/bot-presence': {
+      id: '/dashboard/$guildId/general/bot-presence'
+      path: '/bot-presence'
+      fullPath: '/dashboard/$guildId/general/bot-presence'
+      preLoaderRoute: typeof DashboardGuildIdGeneralBotPresenceRouteImport
+      parentRoute: typeof DashboardGuildIdGeneralRoute
+    }
+    '/dashboard/$guildId/events/logging-destinations': {
+      id: '/dashboard/$guildId/events/logging-destinations'
+      path: '/logging-destinations'
+      fullPath: '/dashboard/$guildId/events/logging-destinations'
+      preLoaderRoute: typeof DashboardGuildIdEventsLoggingDestinationsRouteImport
+      parentRoute: typeof DashboardGuildIdEventsRoute
+    }
+    '/dashboard/$guildId/events/audit-events': {
+      id: '/dashboard/$guildId/events/audit-events'
+      path: '/audit-events'
+      fullPath: '/dashboard/$guildId/events/audit-events'
+      preLoaderRoute: typeof DashboardGuildIdEventsAuditEventsRouteImport
+      parentRoute: typeof DashboardGuildIdEventsRoute
+    }
     '/dashboard/$guildId/community/xp': {
       id: '/dashboard/$guildId/community/xp'
       path: '/xp'
@@ -716,11 +1274,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdCommunityXpRouteImport
       parentRoute: typeof DashboardGuildIdCommunityRoute
     }
-    '/dashboard/$guildId/community/vc-generator': {
-      id: '/dashboard/$guildId/community/vc-generator'
-      path: '/vc-generator'
-      fullPath: '/dashboard/$guildId/community/vc-generator'
-      preLoaderRoute: typeof DashboardGuildIdCommunityVcGeneratorRouteImport
+    '/dashboard/$guildId/community/voice-rooms': {
+      id: '/dashboard/$guildId/community/voice-rooms'
+      path: '/voice-rooms'
+      fullPath: '/dashboard/$guildId/community/voice-rooms'
+      preLoaderRoute: typeof DashboardGuildIdCommunityVoiceRoomsRouteImport
       parentRoute: typeof DashboardGuildIdCommunityRoute
     }
     '/dashboard/$guildId/community/tickets': {
@@ -772,6 +1330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdAccessReactionRolesRouteImport
       parentRoute: typeof DashboardGuildIdAccessRoute
     }
+    '/dashboard/$guildId/access/dashboard-access': {
+      id: '/dashboard/$guildId/access/dashboard-access'
+      path: '/dashboard-access'
+      fullPath: '/dashboard/$guildId/access/dashboard-access'
+      preLoaderRoute: typeof DashboardGuildIdAccessDashboardAccessRouteImport
+      parentRoute: typeof DashboardGuildIdAccessRoute
+    }
     '/dashboard/$guildId/access/command-access': {
       id: '/dashboard/$guildId/access/command-access'
       path: '/command-access'
@@ -792,6 +1357,7 @@ declare module '@tanstack/react-router' {
 interface DashboardGuildIdAccessRouteChildren {
   DashboardGuildIdAccessAutorolesRoute: typeof DashboardGuildIdAccessAutorolesRoute
   DashboardGuildIdAccessCommandAccessRoute: typeof DashboardGuildIdAccessCommandAccessRoute
+  DashboardGuildIdAccessDashboardAccessRoute: typeof DashboardGuildIdAccessDashboardAccessRoute
   DashboardGuildIdAccessReactionRolesRoute: typeof DashboardGuildIdAccessReactionRolesRoute
   DashboardGuildIdAccessRoleReconciliationRoute: typeof DashboardGuildIdAccessRoleReconciliationRoute
   DashboardGuildIdAccessVerificationRoute: typeof DashboardGuildIdAccessVerificationRoute
@@ -803,6 +1369,8 @@ const DashboardGuildIdAccessRouteChildren: DashboardGuildIdAccessRouteChildren =
     DashboardGuildIdAccessAutorolesRoute: DashboardGuildIdAccessAutorolesRoute,
     DashboardGuildIdAccessCommandAccessRoute:
       DashboardGuildIdAccessCommandAccessRoute,
+    DashboardGuildIdAccessDashboardAccessRoute:
+      DashboardGuildIdAccessDashboardAccessRoute,
     DashboardGuildIdAccessReactionRolesRoute:
       DashboardGuildIdAccessReactionRolesRoute,
     DashboardGuildIdAccessRoleReconciliationRoute:
@@ -822,7 +1390,7 @@ interface DashboardGuildIdCommunityRouteChildren {
   DashboardGuildIdCommunityProfileBuilderRoute: typeof DashboardGuildIdCommunityProfileBuilderRoute
   DashboardGuildIdCommunitySuggestionsRoute: typeof DashboardGuildIdCommunitySuggestionsRoute
   DashboardGuildIdCommunityTicketsRoute: typeof DashboardGuildIdCommunityTicketsRoute
-  DashboardGuildIdCommunityVcGeneratorRoute: typeof DashboardGuildIdCommunityVcGeneratorRoute
+  DashboardGuildIdCommunityVoiceRoomsRoute: typeof DashboardGuildIdCommunityVoiceRoomsRoute
   DashboardGuildIdCommunityXpRoute: typeof DashboardGuildIdCommunityXpRoute
   DashboardGuildIdCommunityIndexRoute: typeof DashboardGuildIdCommunityIndexRoute
 }
@@ -837,8 +1405,8 @@ const DashboardGuildIdCommunityRouteChildren: DashboardGuildIdCommunityRouteChil
       DashboardGuildIdCommunitySuggestionsRoute,
     DashboardGuildIdCommunityTicketsRoute:
       DashboardGuildIdCommunityTicketsRoute,
-    DashboardGuildIdCommunityVcGeneratorRoute:
-      DashboardGuildIdCommunityVcGeneratorRoute,
+    DashboardGuildIdCommunityVoiceRoomsRoute:
+      DashboardGuildIdCommunityVoiceRoomsRoute,
     DashboardGuildIdCommunityXpRoute: DashboardGuildIdCommunityXpRoute,
     DashboardGuildIdCommunityIndexRoute: DashboardGuildIdCommunityIndexRoute,
   }
@@ -848,17 +1416,176 @@ const DashboardGuildIdCommunityRouteWithChildren =
     DashboardGuildIdCommunityRouteChildren,
   )
 
+interface DashboardGuildIdEventsRouteChildren {
+  DashboardGuildIdEventsAuditEventsRoute: typeof DashboardGuildIdEventsAuditEventsRoute
+  DashboardGuildIdEventsLoggingDestinationsRoute: typeof DashboardGuildIdEventsLoggingDestinationsRoute
+  DashboardGuildIdEventsIndexRoute: typeof DashboardGuildIdEventsIndexRoute
+}
+
+const DashboardGuildIdEventsRouteChildren: DashboardGuildIdEventsRouteChildren =
+  {
+    DashboardGuildIdEventsAuditEventsRoute:
+      DashboardGuildIdEventsAuditEventsRoute,
+    DashboardGuildIdEventsLoggingDestinationsRoute:
+      DashboardGuildIdEventsLoggingDestinationsRoute,
+    DashboardGuildIdEventsIndexRoute: DashboardGuildIdEventsIndexRoute,
+  }
+
+const DashboardGuildIdEventsRouteWithChildren =
+  DashboardGuildIdEventsRoute._addFileChildren(
+    DashboardGuildIdEventsRouteChildren,
+  )
+
+interface DashboardGuildIdGeneralRouteChildren {
+  DashboardGuildIdGeneralBotPresenceRoute: typeof DashboardGuildIdGeneralBotPresenceRoute
+  DashboardGuildIdGeneralCommandHelpRoute: typeof DashboardGuildIdGeneralCommandHelpRoute
+  DashboardGuildIdGeneralCommandPrefixRoute: typeof DashboardGuildIdGeneralCommandPrefixRoute
+  DashboardGuildIdGeneralIndexRoute: typeof DashboardGuildIdGeneralIndexRoute
+}
+
+const DashboardGuildIdGeneralRouteChildren: DashboardGuildIdGeneralRouteChildren =
+  {
+    DashboardGuildIdGeneralBotPresenceRoute:
+      DashboardGuildIdGeneralBotPresenceRoute,
+    DashboardGuildIdGeneralCommandHelpRoute:
+      DashboardGuildIdGeneralCommandHelpRoute,
+    DashboardGuildIdGeneralCommandPrefixRoute:
+      DashboardGuildIdGeneralCommandPrefixRoute,
+    DashboardGuildIdGeneralIndexRoute: DashboardGuildIdGeneralIndexRoute,
+  }
+
+const DashboardGuildIdGeneralRouteWithChildren =
+  DashboardGuildIdGeneralRoute._addFileChildren(
+    DashboardGuildIdGeneralRouteChildren,
+  )
+
+interface DashboardGuildIdInsightsRouteChildren {
+  DashboardGuildIdInsightsGrowthTrackingRoute: typeof DashboardGuildIdInsightsGrowthTrackingRoute
+  DashboardGuildIdInsightsInviteTrackerRoute: typeof DashboardGuildIdInsightsInviteTrackerRoute
+  DashboardGuildIdInsightsIndexRoute: typeof DashboardGuildIdInsightsIndexRoute
+}
+
+const DashboardGuildIdInsightsRouteChildren: DashboardGuildIdInsightsRouteChildren =
+  {
+    DashboardGuildIdInsightsGrowthTrackingRoute:
+      DashboardGuildIdInsightsGrowthTrackingRoute,
+    DashboardGuildIdInsightsInviteTrackerRoute:
+      DashboardGuildIdInsightsInviteTrackerRoute,
+    DashboardGuildIdInsightsIndexRoute: DashboardGuildIdInsightsIndexRoute,
+  }
+
+const DashboardGuildIdInsightsRouteWithChildren =
+  DashboardGuildIdInsightsRoute._addFileChildren(
+    DashboardGuildIdInsightsRouteChildren,
+  )
+
+interface DashboardGuildIdMessagingRouteChildren {
+  DashboardGuildIdMessagingBlueskyRoute: typeof DashboardGuildIdMessagingBlueskyRoute
+  DashboardGuildIdMessagingFreeGameAlertsRoute: typeof DashboardGuildIdMessagingFreeGameAlertsRoute
+  DashboardGuildIdMessagingMessageBuilderRoute: typeof DashboardGuildIdMessagingMessageBuilderRoute
+  DashboardGuildIdMessagingIndexRoute: typeof DashboardGuildIdMessagingIndexRoute
+}
+
+const DashboardGuildIdMessagingRouteChildren: DashboardGuildIdMessagingRouteChildren =
+  {
+    DashboardGuildIdMessagingBlueskyRoute:
+      DashboardGuildIdMessagingBlueskyRoute,
+    DashboardGuildIdMessagingFreeGameAlertsRoute:
+      DashboardGuildIdMessagingFreeGameAlertsRoute,
+    DashboardGuildIdMessagingMessageBuilderRoute:
+      DashboardGuildIdMessagingMessageBuilderRoute,
+    DashboardGuildIdMessagingIndexRoute: DashboardGuildIdMessagingIndexRoute,
+  }
+
+const DashboardGuildIdMessagingRouteWithChildren =
+  DashboardGuildIdMessagingRoute._addFileChildren(
+    DashboardGuildIdMessagingRouteChildren,
+  )
+
+interface DashboardGuildIdModerationRouteChildren {
+  DashboardGuildIdModerationAutomodRoute: typeof DashboardGuildIdModerationAutomodRoute
+  DashboardGuildIdModerationCasesRoute: typeof DashboardGuildIdModerationCasesRoute
+  DashboardGuildIdModerationPolicyRoute: typeof DashboardGuildIdModerationPolicyRoute
+  DashboardGuildIdModerationIndexRoute: typeof DashboardGuildIdModerationIndexRoute
+}
+
+const DashboardGuildIdModerationRouteChildren: DashboardGuildIdModerationRouteChildren =
+  {
+    DashboardGuildIdModerationAutomodRoute:
+      DashboardGuildIdModerationAutomodRoute,
+    DashboardGuildIdModerationCasesRoute: DashboardGuildIdModerationCasesRoute,
+    DashboardGuildIdModerationPolicyRoute:
+      DashboardGuildIdModerationPolicyRoute,
+    DashboardGuildIdModerationIndexRoute: DashboardGuildIdModerationIndexRoute,
+  }
+
+const DashboardGuildIdModerationRouteWithChildren =
+  DashboardGuildIdModerationRoute._addFileChildren(
+    DashboardGuildIdModerationRouteChildren,
+  )
+
+interface DashboardGuildIdStructureRouteChildren {
+  DashboardGuildIdStructureImportExportRoute: typeof DashboardGuildIdStructureImportExportRoute
+  DashboardGuildIdStructureIndexRoute: typeof DashboardGuildIdStructureIndexRoute
+}
+
+const DashboardGuildIdStructureRouteChildren: DashboardGuildIdStructureRouteChildren =
+  {
+    DashboardGuildIdStructureImportExportRoute:
+      DashboardGuildIdStructureImportExportRoute,
+    DashboardGuildIdStructureIndexRoute: DashboardGuildIdStructureIndexRoute,
+  }
+
+const DashboardGuildIdStructureRouteWithChildren =
+  DashboardGuildIdStructureRoute._addFileChildren(
+    DashboardGuildIdStructureRouteChildren,
+  )
+
+interface DashboardGuildIdSystemRouteChildren {
+  DashboardGuildIdSystemBotInstallationSyncRoute: typeof DashboardGuildIdSystemBotInstallationSyncRoute
+  DashboardGuildIdSystemConvexDashboardDataRoute: typeof DashboardGuildIdSystemConvexDashboardDataRoute
+  DashboardGuildIdSystemDeploymentRoute: typeof DashboardGuildIdSystemDeploymentRoute
+  DashboardGuildIdSystemDocumentationRoute: typeof DashboardGuildIdSystemDocumentationRoute
+  DashboardGuildIdSystemOauthSessionsRoute: typeof DashboardGuildIdSystemOauthSessionsRoute
+  DashboardGuildIdSystemPublicWebLinksRoute: typeof DashboardGuildIdSystemPublicWebLinksRoute
+  DashboardGuildIdSystemIndexRoute: typeof DashboardGuildIdSystemIndexRoute
+}
+
+const DashboardGuildIdSystemRouteChildren: DashboardGuildIdSystemRouteChildren =
+  {
+    DashboardGuildIdSystemBotInstallationSyncRoute:
+      DashboardGuildIdSystemBotInstallationSyncRoute,
+    DashboardGuildIdSystemConvexDashboardDataRoute:
+      DashboardGuildIdSystemConvexDashboardDataRoute,
+    DashboardGuildIdSystemDeploymentRoute:
+      DashboardGuildIdSystemDeploymentRoute,
+    DashboardGuildIdSystemDocumentationRoute:
+      DashboardGuildIdSystemDocumentationRoute,
+    DashboardGuildIdSystemOauthSessionsRoute:
+      DashboardGuildIdSystemOauthSessionsRoute,
+    DashboardGuildIdSystemPublicWebLinksRoute:
+      DashboardGuildIdSystemPublicWebLinksRoute,
+    DashboardGuildIdSystemIndexRoute: DashboardGuildIdSystemIndexRoute,
+  }
+
+const DashboardGuildIdSystemRouteWithChildren =
+  DashboardGuildIdSystemRoute._addFileChildren(
+    DashboardGuildIdSystemRouteChildren,
+  )
+
 interface DashboardGuildIdRouteChildren {
   DashboardGuildIdAccessRoute: typeof DashboardGuildIdAccessRouteWithChildren
   DashboardGuildIdAuditRoute: typeof DashboardGuildIdAuditRoute
   DashboardGuildIdCommunityRoute: typeof DashboardGuildIdCommunityRouteWithChildren
-  DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRoute
-  DashboardGuildIdGeneralRoute: typeof DashboardGuildIdGeneralRoute
+  DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRouteWithChildren
+  DashboardGuildIdGeneralRoute: typeof DashboardGuildIdGeneralRouteWithChildren
+  DashboardGuildIdInsightsRoute: typeof DashboardGuildIdInsightsRouteWithChildren
   DashboardGuildIdInvitesRoute: typeof DashboardGuildIdInvitesRoute
   DashboardGuildIdLoggingRoute: typeof DashboardGuildIdLoggingRoute
-  DashboardGuildIdMessagingRoute: typeof DashboardGuildIdMessagingRoute
-  DashboardGuildIdModerationRoute: typeof DashboardGuildIdModerationRoute
-  DashboardGuildIdStructureRoute: typeof DashboardGuildIdStructureRoute
+  DashboardGuildIdMessagingRoute: typeof DashboardGuildIdMessagingRouteWithChildren
+  DashboardGuildIdModerationRoute: typeof DashboardGuildIdModerationRouteWithChildren
+  DashboardGuildIdStructureRoute: typeof DashboardGuildIdStructureRouteWithChildren
+  DashboardGuildIdSystemRoute: typeof DashboardGuildIdSystemRouteWithChildren
   DashboardGuildIdIndexRoute: typeof DashboardGuildIdIndexRoute
 }
 
@@ -866,13 +1593,15 @@ const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
   DashboardGuildIdAccessRoute: DashboardGuildIdAccessRouteWithChildren,
   DashboardGuildIdAuditRoute: DashboardGuildIdAuditRoute,
   DashboardGuildIdCommunityRoute: DashboardGuildIdCommunityRouteWithChildren,
-  DashboardGuildIdEventsRoute: DashboardGuildIdEventsRoute,
-  DashboardGuildIdGeneralRoute: DashboardGuildIdGeneralRoute,
+  DashboardGuildIdEventsRoute: DashboardGuildIdEventsRouteWithChildren,
+  DashboardGuildIdGeneralRoute: DashboardGuildIdGeneralRouteWithChildren,
+  DashboardGuildIdInsightsRoute: DashboardGuildIdInsightsRouteWithChildren,
   DashboardGuildIdInvitesRoute: DashboardGuildIdInvitesRoute,
   DashboardGuildIdLoggingRoute: DashboardGuildIdLoggingRoute,
-  DashboardGuildIdMessagingRoute: DashboardGuildIdMessagingRoute,
-  DashboardGuildIdModerationRoute: DashboardGuildIdModerationRoute,
-  DashboardGuildIdStructureRoute: DashboardGuildIdStructureRoute,
+  DashboardGuildIdMessagingRoute: DashboardGuildIdMessagingRouteWithChildren,
+  DashboardGuildIdModerationRoute: DashboardGuildIdModerationRouteWithChildren,
+  DashboardGuildIdStructureRoute: DashboardGuildIdStructureRouteWithChildren,
+  DashboardGuildIdSystemRoute: DashboardGuildIdSystemRouteWithChildren,
   DashboardGuildIdIndexRoute: DashboardGuildIdIndexRoute,
 }
 
@@ -925,7 +1654,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRouteWithChildren,
   DocsRoute: DocsRouteWithChildren,
-  ProfileBuilderRoute: ProfileBuilderRoute,
   DotwellKnownJwksDotjsonRoute: DotwellKnownJwksDotjsonRoute,
   AuthConvexTokenRoute: AuthConvexTokenRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
