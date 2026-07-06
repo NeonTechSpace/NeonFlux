@@ -87,19 +87,96 @@ The main workspace is in `projects`.
 - `packages/core`: shared bot/web rules
 - `packages/fluxer`: Fluxer API and permission helpers
 
-Use `pnpm` from the `projects` folder.
+## Environment Setup
 
-Environment values live in `projects/.env`. The tracked template is `projects/.env.example`.
+Use `pnpm` from the `projects` folder. Environment values live in `projects/.env`. The tracked template is `projects/.env.example`.
 
-Generate a strong session secret from the `projects` folder:
+Start a local env file:
+
+```bash
+cd projects
+cp .env.example .env
+```
+
+On Windows PowerShell, use `Copy-Item .env.example .env`.
+
+Generate separate secrets for every environment. Do not reuse dev values in production.
 
 ```bash
 pnpm generate:session-secret
+pnpm generate:token-encryption-key
+pnpm generate:convex-private-key
 ```
 
-Put the output in `SESSION_SECRET`.
+Put those outputs in `SESSION_SECRET`, `FLUXER_TOKEN_ENCRYPTION_KEY`, and `NEONFLUX_AUTH_JWT_PRIVATE_KEY`.
+
+After `NEONFLUX_AUTH_JWT_PRIVATE_KEY` and the intended `NEONFLUX_AUTH_JWT_ISSUER` are set, generate the public JWKS value:
+
+```bash
+pnpm --silent generate:convex-jwks
+```
+
+Put the output in `NEONFLUX_AUTH_JWT_JWKS`. Convex receives issuer, audience, and this public JWKS value only. Do not send `NEONFLUX_AUTH_JWT_PRIVATE_KEY`, `SESSION_SECRET`, Fluxer secrets, or token encryption keys to Convex.
+
+### Development
+
+For local development, keep the app issuer local and point OAuth back to localhost:
+
+```dotenv
+APP_ENV=development
+NODE_ENV=development
+PUBLIC_WEB_URL=
+FLUXER_OAUTH_REDIRECT_URL=http://localhost:3000/auth/fluxer/callback
+NEONFLUX_AUTH_JWT_ISSUER=http://localhost:3000/auth
+NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
+CONVEX_DEPLOYMENT=<dev Convex deployment>
+CONVEX_URL=<dev Convex URL>
+VITE_CONVEX_URL=<dev Convex URL>
+```
+
+Then validate the selected Convex target and run the processes you need:
+
+```bash
+pnpm convex:check-auth-env
+pnpm dev:web
+pnpm dev:bot
+```
 
 Local development does not require app Postgres. Convex is the durable store target.
+
+### Production
+
+Production uses the same variable names with production values:
+
+```dotenv
+APP_ENV=production
+NODE_ENV=production
+PUBLIC_WEB_URL=https://<your NeonFlux web host>
+FLUXER_OAUTH_REDIRECT_URL=https://<your NeonFlux web host>/auth/fluxer/callback
+NEONFLUX_AUTH_JWT_ISSUER=https://<your NeonFlux web host>/auth
+NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
+CONVEX_DEPLOYMENT=<production Convex deployment>
+CONVEX_URL=<production Convex URL>
+VITE_CONVEX_URL=<production Convex URL>
+```
+
+`NEONFLUX_AUTH_JWT_ISSUER` is a NeonFlux issuer, not the Fluxer OAuth host. Use protected environment variables or a secret store for production secrets. Keep `CONVEX_DEPLOY_KEY` protected for deploy automation.
+
+Dry-run the public Convex auth update before applying it:
+
+```bash
+pnpm convex:configure-auth-env -- --issuer https://<your NeonFlux web host>/auth --deployment <production Convex deployment>
+```
+
+Apply only after the dry-run targets the intended deployment:
+
+```bash
+pnpm convex:configure-auth-env -- --issuer https://<your NeonFlux web host>/auth --deployment <production Convex deployment> --apply --confirm-apply-target <production Convex deployment>
+pnpm convex:check-auth-env -- --compare-deploy-env
+pnpm convex:deploy
+```
+
+See [docs/Convex.md](docs/Convex.md) for the full Convex auth and deploy workflow.
 
 ## Convex
 

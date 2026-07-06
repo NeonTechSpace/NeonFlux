@@ -55,7 +55,13 @@ NEONFLUX_AUTH_JWT_JWKS=
 
 Prefer `NEONFLUX_AUTH_JWT_JWKS=data:application/json,...` with the public JWKS for local dev and deployment. Convex deploy/codegen environments should receive issuer, audience, and public JWKS only. `NEONFLUX_AUTH_JWT_PRIVATE_KEY` stays server-only for web, bot, and service signing.
 
-Generate the public JWKS data URI from the current server-only signing key:
+Generate a new server-only signing key if this environment does not already have one:
+
+```sh
+pnpm generate:convex-private-key
+```
+
+Store the output in `NEONFLUX_AUTH_JWT_PRIVATE_KEY`. Then generate the public JWKS data URI from the current server-only signing key:
 
 ```sh
 pnpm --silent generate:convex-jwks

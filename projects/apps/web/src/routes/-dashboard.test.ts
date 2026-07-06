@@ -6,9 +6,10 @@ import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRe
 import { render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { DashboardPageContent } from '../components/dashboard-index-page.js';
+import { useDashboardDisplayPreferences } from '../components/dashboard-display-preferences-store.js';
 import { resolveDashboardRouteResult, toDashboardRouteResult } from '../server/dashboard-route-data.js';
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 
@@ -17,6 +18,16 @@ const fluxerUserId = '1517169145576165376';
 const accessToken = 'fresh-access-token';
 
 describe('/dashboard', () => {
+    afterEach(() => {
+        window.localStorage.clear();
+        useDashboardDisplayPreferences.setState({
+            desktopGuildSelectorOpen: false,
+            guildSelectorSortByName: false,
+            particlesEnabled: true,
+            particleBlurEnabled: true,
+        });
+    });
+
     it('keeps the server selector on an index route so guild pages render through the dashboard layout', () => {
         const routeTree = readFileSync(findRouteTreePath(), 'utf8');
 
@@ -70,6 +81,8 @@ describe('/dashboard', () => {
         expect(dashboardIndexPage).toContain("preload='intent'");
         expect(dashboardIndexPage).toContain('withDashboardGuildPreview(preview)');
         expect(dashboardIndexPage).toContain('createDashboardGuildPreview');
+        expect(dashboardIndexPage).toContain("className='min-h-0 flex-1 overflow-y-auto pb-8'");
+        expect(dashboardIndexPage).toContain("className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'");
         expect(dashboardLayout).toContain("case '/dashboard':");
         expect(dashboardLayout).toContain("<Link to='/dashboard'");
         expect(dashboardLayout).toContain('<a href={actionTo}');
@@ -168,8 +181,14 @@ describe('/dashboard', () => {
         renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
         expect(screen.getByRole('heading', { name: 'Choose server' })).toBeTruthy();
-        expect(screen.getByRole('heading', { name: 'Manageable servers' })).toBeTruthy();
-        expect(screen.getByRole('link', { name: /Guild One/ }).getAttribute('href')).toBe('/dashboard/guild-1');
+        expect(screen.queryByRole('heading', { name: 'Manageable servers' })).toBeNull();
+        expect(document.body.textContent).not.toContain('Servers where you can manage this bot.');
+        expect(screen.getByRole('button', { name: 'Disable particles' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Disable particle blur' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Open Guild One dashboard' }).getAttribute('href')).toBe(
+            '/dashboard/guild-1'
+        );
+        expect(document.body.textContent).not.toContain('Open dashboard');
         expect(document.body.textContent).not.toContain('Community');
     });
 
@@ -203,7 +222,7 @@ describe('/dashboard', () => {
             })
         );
 
-        expect(screen.getByRole('heading', { name: 'No manageable servers' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'No servers available' })).toBeTruthy();
         expect(
             screen.getByText('Use an account with Manage Server, or invite the bot to a server you own.')
         ).toBeTruthy();

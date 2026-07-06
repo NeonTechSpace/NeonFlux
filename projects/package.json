@@ -52,6 +52,7 @@
         "convex:typecheck": "tsc -p convex/tsconfig.json --noEmit",
         "convex:check": "pnpm convex:typecheck",
         "generate:convex-jwks": "tsx scripts/generate-convex-jwks.ts",
+        "generate:convex-private-key": "tsx scripts/generate-convex-private-key.ts",
         "generate:session-secret": "tsx scripts/generate-session-secret.ts",
         "generate:token-encryption-key": "tsx scripts/generate-token-encryption-key.ts"
     },

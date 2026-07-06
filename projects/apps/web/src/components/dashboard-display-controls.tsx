@@ -2,29 +2,45 @@ import { Blend, Sparkles } from 'lucide-react';
 
 import { useDashboardDisplayPreferences } from './dashboard-display-preferences-store.js';
 
-export function DashboardDisplayControls() {
+type DashboardDisplayControlsProps = {
+    variant?: 'floating' | 'inline';
+};
+
+export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisplayControlsProps) {
     const particlesEnabled = useDashboardDisplayPreferences((state) => state.particlesEnabled);
     const particleBlurEnabled = useDashboardDisplayPreferences((state) => state.particleBlurEnabled);
     const setParticlesEnabled = useDashboardDisplayPreferences((state) => state.setParticlesEnabled);
     const setParticleBlurEnabled = useDashboardDisplayPreferences((state) => state.setParticleBlurEnabled);
+    const particlesLabel = particlesEnabled ? 'Disable particles' : 'Enable particles';
+    const blurLabel = !particlesEnabled
+        ? 'Particle blur unavailable while particles are disabled'
+        : particleBlurEnabled
+          ? 'Disable particle blur'
+          : 'Enable particle blur';
 
     return (
         <div
-            className='fixed top-7 right-[max(1rem,calc((100vw-1540px)/2))] z-30 hidden shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(10,13,18,0.72)] p-1 shadow-[var(--dash-shadow-surface)] backdrop-blur lg:flex'
+            className={
+                variant === 'floating'
+                    ? 'fixed top-7 right-[max(1rem,calc((100vw-1540px)/2))] z-30 hidden shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(10,13,18,0.72)] p-1 shadow-[var(--dash-shadow-surface)] backdrop-blur lg:flex'
+                    : 'inline-flex h-10 shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(10,13,18,0.72)] p-1 shadow-[var(--dash-shadow-surface)] backdrop-blur'
+            }
             aria-label='Display controls'>
             <button
                 type='button'
-                aria-label={particlesEnabled ? 'Disable particles' : 'Enable particles'}
+                aria-label={particlesLabel}
                 aria-pressed={particlesEnabled}
+                title={particlesLabel}
                 onClick={() => setParticlesEnabled(!particlesEnabled)}
                 className={getDisplayControlClassName(particlesEnabled)}>
                 <Sparkles className='size-4' aria-hidden='true' />
             </button>
             <button
                 type='button'
-                aria-label={particleBlurEnabled ? 'Disable particle blur' : 'Enable particle blur'}
+                aria-label={blurLabel}
                 aria-pressed={particleBlurEnabled}
                 disabled={!particlesEnabled}
+                title={blurLabel}
                 onClick={() => setParticleBlurEnabled(!particleBlurEnabled)}
                 className={getDisplayControlClassName(particleBlurEnabled && particlesEnabled)}>
                 <Blend className='size-4' aria-hidden='true' />
