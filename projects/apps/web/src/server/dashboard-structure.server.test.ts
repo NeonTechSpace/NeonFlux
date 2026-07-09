@@ -3,6 +3,7 @@ import type { WebConfig } from '@neonflux/config';
 import {
     createStructureBackup,
     createStructureImportRun,
+    findLatestStructureDriftBaselineBackupByGuildId,
     findStructureBackupByGuildId,
     findStructureBackupSettingsByGuildId,
     findStructureImportRunWithActionsByGuildId,
@@ -12,7 +13,11 @@ import {
     recordStructureImportActionsBatch,
     updateStructureImportRunStatus,
 } from '@neonflux/db';
-import type { StructureImportActionRecord, StructureImportRunWithActionsRecord } from '@neonflux/db';
+import type {
+    StructureBackupSettingsRecord,
+    StructureImportActionRecord,
+    StructureImportRunWithActionsRecord,
+} from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
@@ -27,8 +32,10 @@ import {
     createDashboardStructureImportDryRun,
     downloadDashboardStructureExport,
     exportDashboardStructure,
+    importDashboardStructureBackup,
     loadDashboardStructureSettings,
     readDashboardStructureBackupJson,
+    readDashboardStructureDrift,
     retryDashboardStructureImportRun,
     toDashboardImportRun,
 } from './dashboard-structure.server.js';
@@ -74,6 +81,7 @@ vi.mock('@neonflux/db', async (importActual) => {
         ...actual,
         createStructureBackup: vi.fn(),
         createStructureImportRun: vi.fn(),
+        findLatestStructureDriftBaselineBackupByGuildId: vi.fn(),
         findStructureBackupByGuildId: vi.fn(),
         findStructureBackupSettingsByGuildId: vi.fn(),
         findStructureImportRunWithActionsByGuildId: vi.fn(),
@@ -144,6 +152,7 @@ describe('dashboard structure import/export', () => {
             })
         );
         vi.mocked(createStructureBackup).mockResolvedValue(ok(createExportRecord()));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValue(ok(createExportRecord()));
         vi.mocked(findStructureBackupByGuildId).mockResolvedValue(ok(createExportRecord()));
         vi.mocked(createStructureImportRun).mockResolvedValue(ok(createImportRunRecord({ status: 'draft' })));
         vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createImportRunRecord()));
@@ -208,6 +217,53 @@ describe('dashboard structure import/export', () => {
         expect(findStructureObservedEventStateByGuildId).toHaveBeenCalledWith({}, { guildId: 'authorized-guild' });
     });
 
+    it('exposes compact scheduled drift status from backup settings', async () => {
+        vi.mocked(findStructureBackupSettingsByGuildId).mockResolvedValueOnce(
+            ok(
+                createBackupSettingsRecord({
+                    enabled: true,
+                    lastDriftBaselineBackupId: 'backup-1',
+                    lastDriftBaselineName: 'Baseline backup',
+                    lastDriftChangeCount: 2,
+                    lastDriftCheckedAt: new Date('2026-06-26T11:00:00.000Z'),
+                    lastDriftFieldSummary: {
+                        names: 1,
+                        permissions: 0,
+                        positions: 0,
+                        parentMoves: 0,
+                        typeChanges: 0,
+                        roleVisuals: 0,
+                    },
+                    lastDriftHasMorePreview: true,
+                    lastDriftLiveCounts: { roles: 1, categories: 1, channels: 1 },
+                    lastDriftStatus: 'changed',
+                    lastDriftSummary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
+                    nextDriftCheckAt: new Date('2026-06-27T11:00:00.000Z'),
+                })
+            )
+        );
+
+        const result = await loadDashboardStructureSettings(request, 'requested-guild');
+
+        expect(result).toMatchObject({
+            type: 'settings',
+            backupSettings: {
+                enabled: true,
+                nextDriftCheckAt: '2026-06-27T11:00:00.000Z',
+                scheduledDrift: {
+                    baselineBackupId: 'backup-1',
+                    baselineName: 'Baseline backup',
+                    changeCount: 2,
+                    checkedAt: '2026-06-26T11:00:00.000Z',
+                    hasMorePreview: true,
+                    nextCheckAt: '2026-06-27T11:00:00.000Z',
+                    status: 'changed',
+                    summary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
+                },
+            },
+        });
+    });
+
     it('creates a manual backup from current Fluxer structure and records a dashboard audit event', async () => {
         const result = await exportDashboardStructure(request, 'requested-guild');
 
@@ -233,6 +289,7 @@ describe('dashboard structure import/export', () => {
                 status: 'succeeded',
                 structure: expect.objectContaining({
                     version: 1,
+                    guildName: 'Authorized Guild',
                     roles: expect.any(Array),
                     categories: expect.any(Array),
                     channels: expect.any(Array),
@@ -264,6 +321,7 @@ describe('dashboard structure import/export', () => {
         expect(JSON.parse(result.type === 'structure-export-created' ? result.structureJson : '{}')).toMatchObject({
             version: 1,
             guildId: 'authorized-guild',
+            guildName: 'Authorized Guild',
             roles: expect.any(Array),
             categories: expect.any(Array),
             channels: expect.any(Array),
@@ -290,10 +348,203 @@ describe('dashboard structure import/export', () => {
                 guildId: 'authorized-guild',
             }
         );
-        expect(JSON.parse(result.type === 'backup-json' ? result.backupJson : '{}')).toMatchObject({
+        const backupJson = JSON.parse(result.type === 'backup-json' ? result.backupJson : '{}');
+        expect(backupJson).toMatchObject({
             version: 1,
             guildId: 'authorized-guild',
         });
+        expect(backupJson).not.toHaveProperty('guildName');
+    });
+
+    it('checks drift against the latest successful regular baseline backup', async () => {
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
+            ok(createDriftBaselineRecord())
+        );
+
+        const result = await readDashboardStructureDrift(request, {
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toMatchObject({
+            type: 'structure-drift',
+            baseline: {
+                id: 'export-1',
+                source: 'manual',
+                status: 'succeeded',
+            },
+            summary: {
+                creates: 0,
+                updates: 3,
+                deletes: 0,
+                roles: 1,
+                categories: 1,
+                channels: 1,
+            },
+            fieldSummary: {
+                names: 2,
+                parentMoves: 1,
+                permissions: 3,
+                positions: 3,
+                roleVisuals: 3,
+                typeChanges: 1,
+            },
+            hasMorePreview: false,
+        });
+        expect(findLatestStructureDriftBaselineBackupByGuildId).toHaveBeenCalledWith(
+            {},
+            { guildId: 'authorized-guild' }
+        );
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledWith({
+            botToken: 'bot-token',
+            guildId: 'authorized-guild',
+        });
+        expect(result.type === 'structure-drift' ? result.previewActions.map((action) => action.fields) : []).toEqual([
+            ['name', 'position', 'color', 'permissions', 'hoist', 'mentionable'],
+            ['position', 'permissionOverwrites'],
+            ['name', 'type', 'parentId', 'position', 'permissionOverwrites'],
+        ]);
+    });
+
+    it('checks drift against a selected restore-point baseline backup', async () => {
+        vi.mocked(findStructureBackupByGuildId).mockResolvedValueOnce(
+            ok({
+                ...createDriftBaselineRecord(),
+                id: 'restore-1',
+                name: 'Authorized Guild - restore point - 2026-06-26 - 10-00',
+                source: 'restore_point',
+            })
+        );
+
+        const result = await readDashboardStructureDrift(request, {
+            baselineBackupId: 'restore-1',
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toMatchObject({
+            type: 'structure-drift',
+            baseline: {
+                id: 'restore-1',
+                source: 'restore_point',
+            },
+        });
+        expect(findStructureBackupByGuildId).toHaveBeenCalledWith(
+            {},
+            {
+                backupId: 'restore-1',
+                guildId: 'authorized-guild',
+            }
+        );
+        expect(findLatestStructureDriftBaselineBackupByGuildId).not.toHaveBeenCalled();
+    });
+
+    it('returns no-baseline when no default drift baseline exists', async () => {
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(err({ type: 'not-found' }));
+
+        const result = await readDashboardStructureDrift(request, {
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toStrictEqual({ type: 'no-baseline' });
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('does not read Fluxer when drift checking has no bot token', async () => {
+        vi.mocked(loadWebConfig).mockReturnValueOnce(createWebConfig({ fluxerBotToken: '' }));
+
+        const result = await readDashboardStructureDrift(request, {
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toStrictEqual({ type: 'bot-token-missing' });
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('caps drift preview actions for large comparisons', async () => {
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
+            ok(createLargeDriftBaselineRecord(105))
+        );
+
+        const result = await readDashboardStructureDrift(request, {
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toMatchObject({
+            type: 'structure-drift',
+            hasMorePreview: true,
+            summary: {
+                creates: 105,
+            },
+        });
+        expect(result.type === 'structure-drift' ? result.previewActions : []).toHaveLength(100);
+    });
+
+    it('rejects selected drift baselines without usable JSON', async () => {
+        vi.mocked(findStructureBackupByGuildId).mockResolvedValueOnce(
+            ok({
+                ...createExportRecord(),
+                structure: null,
+            })
+        );
+
+        const result = await readDashboardStructureDrift(request, {
+            baselineBackupId: 'backup-1',
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toStrictEqual({ type: 'backup-json-unavailable' });
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('imports a restore-point backup as a normal persisted dry-run', async () => {
+        vi.mocked(findStructureBackupByGuildId).mockResolvedValueOnce(
+            ok({
+                ...createExportRecord(),
+                id: 'backup-restore-1',
+                name: 'Authorized Guild - restore point - 2026-06-26 - 10-00',
+                source: 'restore_point',
+            })
+        );
+
+        const result = await importDashboardStructureBackup(request, {
+            backupId: 'backup-restore-1',
+            guildId: 'requested-guild',
+        });
+
+        expect(result).toMatchObject({
+            type: 'backup-import-created',
+            importRun: {
+                id: 'run-1',
+                status: 'dry_run_complete',
+            },
+        });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                guildId: 'authorized-guild',
+                createdByUserId: 'actor-1',
+                sourceBackupId: 'backup-restore-1',
+                plan: expect.objectContaining({
+                    requestedSnapshot: expect.objectContaining({
+                        channels: expect.any(Array),
+                        version: 1,
+                    }),
+                    requestedSnapshotStoredAt: expect.any(String),
+                    requestedSnapshotVersion: 1,
+                    source: 'backup',
+                }),
+            })
+        );
+        expect(updateStructureImportRunStatus).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                audit: expect.objectContaining({
+                    action: 'structure.backup_import_created',
+                    targetId: 'backup-restore-1',
+                }),
+                runId: 'run-1',
+                status: 'dry_run_complete',
+            })
+        );
     });
 
     it('creates a persisted import dry-run without applying server layout changes', async () => {
@@ -327,6 +578,12 @@ describe('dashboard structure import/export', () => {
                 guildId: 'authorized-guild',
                 createdByUserId: 'actor-1',
                 plan: expect.objectContaining({
+                    requestedSnapshot: expect.objectContaining({
+                        channels: expect.arrayContaining([expect.objectContaining({ name: 'announcements' })]),
+                        version: 1,
+                    }),
+                    requestedSnapshotStoredAt: expect.any(String),
+                    requestedSnapshotVersion: 1,
                     summary: expect.objectContaining({
                         updates: 1,
                     }),
@@ -388,6 +645,7 @@ describe('dashboard structure import/export', () => {
             actionCount: 101,
             actions: [],
         });
+        expect(toDashboardImportRun(run)).not.toHaveProperty('requestedSnapshot');
     });
 
     it('cancels a dry-run when a later action batch write fails', async () => {
@@ -615,6 +873,7 @@ describe('dashboard structure import/export', () => {
                 }),
             })
         );
+        expect(vi.mocked(createStructureImportRun).mock.calls[0]?.[1].plan).not.toHaveProperty('requestedSnapshot');
         expect(recordStructureImportActionsBatch).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
@@ -773,7 +1032,79 @@ function createExportRecord() {
     };
 }
 
-function createBackupSettingsRecord() {
+function createDriftBaselineRecord() {
+    const structure = createFluxerStructure();
+
+    return {
+        ...createExportRecord(),
+        structure: {
+            version: 1,
+            guildId: 'authorized-guild',
+            roles: [
+                {
+                    ...structure.roles[0],
+                    name: 'Members',
+                    position: 2,
+                    color: 123,
+                    permissions: '8',
+                    hoist: true,
+                    mentionable: true,
+                },
+            ],
+            categories: [
+                {
+                    ...structure.categories[0],
+                    position: 2,
+                    permissionOverwrites: [{ id: 'role-1', type: 0, allow: '1', deny: '0' }],
+                },
+            ],
+            channels: [
+                {
+                    ...structure.channels[0],
+                    name: 'chat',
+                    type: 2,
+                    parentId: null,
+                    position: 2,
+                    permissionOverwrites: [{ id: 'role-1', type: 0, allow: '1', deny: '0' }],
+                },
+            ],
+        },
+    };
+}
+
+function createLargeDriftBaselineRecord(createCount: number) {
+    const structure = createFluxerStructure();
+
+    return {
+        ...createExportRecord(),
+        structure: {
+            version: 1,
+            guildId: 'authorized-guild',
+            roles: structure.roles,
+            categories: structure.categories,
+            channels: [
+                ...structure.channels,
+                ...Array.from({ length: createCount }, (_, index) => ({
+                    id: `new-channel-${index}`,
+                    name: `new-channel-${index}`,
+                    type: 0,
+                    parentId: null,
+                    position: index + 2,
+                    permissionOverwrites: [],
+                })),
+            ],
+        },
+    };
+}
+
+function createBackupSettingsRecord(overrides: Partial<StructureBackupSettingsRecord> = {}) {
+    return {
+        ...createBackupSettingsRecordBase(),
+        ...overrides,
+    };
+}
+
+function createBackupSettingsRecordBase() {
     return {
         guildId: 'authorized-guild',
         enabled: false,
@@ -782,7 +1113,18 @@ function createBackupSettingsRecord() {
         lastSuccessAt: new Date('2026-06-26T10:00:00.000Z'),
         lastErrorMessage: null,
         nextBackupAt: null,
+        nextDriftCheckAt: null,
         nextRetentionPruneAt: null,
+        lastDriftCheckedAt: null,
+        lastDriftStatus: null,
+        lastDriftErrorMessage: null,
+        lastDriftChangeCount: null,
+        lastDriftBaselineBackupId: null,
+        lastDriftBaselineName: null,
+        lastDriftSummary: null,
+        lastDriftFieldSummary: null,
+        lastDriftLiveCounts: null,
+        lastDriftHasMorePreview: false,
         retentionDays: 180,
     };
 }

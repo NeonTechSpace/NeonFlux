@@ -1,13 +1,20 @@
 import {
     claimDueStructureBackupSetting,
+    claimDueStructureDriftSetting,
     clearStructureBackupSettingLease,
+    clearStructureDriftSettingLease,
     createStructureBackup,
+    findLatestStructureDriftBaselineBackupByGuildId,
     listDueStructureBackupRetentionSettings,
     listDueStructureBackupSettings,
+    listDueStructureDriftSettings,
     pruneExpiredStructureBackupsForGuild,
+    recordStructureScheduledDriftResult,
+    structureAuditActions,
     type RuntimeDbClient,
     structureBackupSources,
     structureBackupStatuses,
+    structureScheduledDriftStatuses,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
@@ -23,11 +30,16 @@ vi.mock('@neonflux/db', async (importActual) => {
     return {
         ...actual,
         claimDueStructureBackupSetting: vi.fn(),
+        claimDueStructureDriftSetting: vi.fn(),
         clearStructureBackupSettingLease: vi.fn(),
+        clearStructureDriftSettingLease: vi.fn(),
         createStructureBackup: vi.fn(),
+        findLatestStructureDriftBaselineBackupByGuildId: vi.fn(),
         listDueStructureBackupRetentionSettings: vi.fn(),
         listDueStructureBackupSettings: vi.fn(),
+        listDueStructureDriftSettings: vi.fn(),
         pruneExpiredStructureBackupsForGuild: vi.fn(),
+        recordStructureScheduledDriftResult: vi.fn(),
     };
 });
 
@@ -46,6 +58,13 @@ describe('runDueStructureBackups', () => {
             Promise.resolve(ok(createBackupSettings(input.guildId)))
         );
         vi.mocked(clearStructureBackupSettingLease).mockResolvedValue(ok(true));
+        vi.mocked(claimDueStructureDriftSetting).mockImplementation((_db, input) =>
+            Promise.resolve(ok(createBackupSettings(input.guildId)))
+        );
+        vi.mocked(clearStructureDriftSettingLease).mockResolvedValue(ok(true));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValue(ok([]));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValue(ok(createBaselineBackup()));
+        vi.mocked(recordStructureScheduledDriftResult).mockResolvedValue(ok(createBackupSettings('guild-1')));
         vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValue(ok([]));
         vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValue(
             ok({ deletedCount: 0, hasMore: false, nextRetentionPruneAt: new Date('2026-07-07T00:00:00.000Z') })
@@ -66,10 +85,12 @@ describe('runDueStructureBackups', () => {
             .mockResolvedValueOnce(err({ type: 'login-failed', error: new Error('No guild.') }));
         vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
 
+        const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+
         await runDueStructureBackups({
             botToken: 'bot-token',
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
-            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
         });
 
@@ -150,6 +171,7 @@ describe('runDueStructureBackups', () => {
     });
 
     it('runs bounded retention cleanup before scheduled backup reads', async () => {
+        const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
         vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
         vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
         vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
@@ -159,19 +181,191 @@ describe('runDueStructureBackups', () => {
         await runDueStructureBackups({
             botToken: 'bot-token',
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
-            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
         });
 
         expect(pruneExpiredStructureBackupsForGuild).toHaveBeenCalledWith(
             {},
             {
+                audit: {
+                    action: structureAuditActions.backupRetentionPruned,
+                    metadata: {
+                        source: 'scheduled_retention',
+                    },
+                    targetId: 'guild-1',
+                },
                 guildId: 'guild-1',
                 limit: 100,
                 now: new Date('2026-07-06T00:00:00.000Z'),
             }
         );
+        expect(logger.info).toHaveBeenCalledWith('structure.backup_retention_pruned', {
+            deletedCount: 100,
+            guildId: 'guild-1',
+            hasMore: true,
+        });
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('passes retention audit context but does not log no-op prune passes', async () => {
+        const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
+            ok({ deletedCount: 0, hasMore: false, nextRetentionPruneAt: new Date('2026-07-07T00:00:00.000Z') })
+        );
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger,
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(pruneExpiredStructureBackupsForGuild).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                audit: {
+                    action: structureAuditActions.backupRetentionPruned,
+                    metadata: {
+                        source: 'scheduled_retention',
+                    },
+                    targetId: 'guild-1',
+                },
+                guildId: 'guild-1',
+            })
+        );
+        expect(logger.info).not.toHaveBeenCalledWith('structure.backup_retention_pruned', expect.anything());
+    });
+
+    it('runs scheduled drift after retention and before scheduled backup reads', async () => {
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(vi.mocked(pruneExpiredStructureBackupsForGuild).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(listDueStructureDriftSettings).mock.invocationCallOrder[0] ?? 0
+        );
+        expect(vi.mocked(listDueStructureDriftSettings).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(listDueStructureBackupSettings).mock.invocationCallOrder[0] ?? 0
+        );
+    });
+
+    it('records changed scheduled drift with audit metadata and clears the drift lease', async () => {
+        const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-drift')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
+            ok(createBaselineBackup({ guildId: 'guild-drift', roleName: 'Old Member' }))
+        );
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-drift')));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger,
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        expect(recordStructureScheduledDriftResult).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                audit: {
+                    action: structureAuditActions.scheduledDriftDetected,
+                    metadata: expect.objectContaining({
+                        baselineBackupId: 'baseline-1',
+                        changeCount: 1,
+                        source: 'scheduled_drift',
+                    }),
+                    targetId: 'guild-drift',
+                },
+                baselineBackupId: 'baseline-1',
+                changeCount: 1,
+                guildId: 'guild-drift',
+                status: structureScheduledDriftStatuses.changed,
+            })
+        );
+        expect(clearStructureDriftSettingLease).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ guildId: 'guild-drift' })
+        );
+        expect(logger.info).toHaveBeenCalledWith('structure.scheduled_drift_detected', {
+            baselineBackupId: 'baseline-1',
+            changeCount: 1,
+            guildId: 'guild-drift',
+        });
+    });
+
+    it('records clean scheduled drift without audit noise', async () => {
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-clean')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
+            ok(createBaselineBackup({ guildId: 'guild-clean' }))
+        );
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-clean')));
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        const recordInput = vi.mocked(recordStructureScheduledDriftResult).mock.calls[0]?.[1];
+
+        expect(recordInput).toMatchObject({
+            changeCount: 0,
+            guildId: 'guild-clean',
+            status: structureScheduledDriftStatuses.clean,
+        });
+        expect(recordInput).not.toHaveProperty('audit');
+    });
+
+    it('records scheduled drift no-baseline and live-read failures without stopping later guilds', async () => {
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(
+            ok([createBackupSettings('guild-missing'), createBackupSettings('guild-failed')])
+        );
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId)
+            .mockResolvedValueOnce(err({ type: 'not-found' }))
+            .mockResolvedValueOnce(ok(createBaselineBackup({ guildId: 'guild-failed' })));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
+            err({ type: 'login-failed', error: new Error('No guild.') })
+        );
+
+        await runDueStructureBackups({
+            botToken: 'bot-token',
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+            now: new Date('2026-07-06T00:00:00.000Z'),
+        });
+
+        const noBaselineInput = vi.mocked(recordStructureScheduledDriftResult).mock.calls[0]?.[1];
+
+        expect(noBaselineInput).toMatchObject({
+            guildId: 'guild-missing',
+            status: structureScheduledDriftStatuses.noBaseline,
+        });
+        expect(noBaselineInput).not.toHaveProperty('audit');
+        expect(recordStructureScheduledDriftResult).toHaveBeenNthCalledWith(
+            2,
+            {},
+            expect.objectContaining({
+                audit: expect.objectContaining({ action: structureAuditActions.scheduledDriftFailed }),
+                errorMessage: 'Structure read failed: login-failed',
+                guildId: 'guild-failed',
+                status: structureScheduledDriftStatuses.failed,
+            })
+        );
+        expect(clearStructureDriftSettingLease).toHaveBeenCalledTimes(2);
     });
 
     it('does not overlap scheduled backup runs', async () => {
@@ -209,7 +403,18 @@ function createBackupSettings(guildId: string) {
         lastSuccessAt: null,
         lastErrorMessage: null,
         nextBackupAt: new Date('2026-07-06T00:00:00.000Z'),
+        nextDriftCheckAt: new Date('2026-07-06T00:00:00.000Z'),
         nextRetentionPruneAt: new Date('2026-07-06T00:00:00.000Z'),
+        lastDriftCheckedAt: null,
+        lastDriftStatus: null,
+        lastDriftErrorMessage: null,
+        lastDriftChangeCount: null,
+        lastDriftBaselineBackupId: null,
+        lastDriftBaselineName: null,
+        lastDriftSummary: null,
+        lastDriftFieldSummary: null,
+        lastDriftLiveCounts: null,
+        lastDriftHasMorePreview: false,
         retentionDays: 180,
     };
 }
@@ -258,5 +463,52 @@ function createBackupRecord() {
         channelCount: 1,
         createdAt: new Date('2026-07-06T00:00:00.000Z'),
         completedAt: new Date('2026-07-06T00:00:00.000Z'),
+    };
+}
+
+function createBaselineBackup(input: { guildId?: string; roleName?: string } = {}) {
+    const guildId = input.guildId ?? 'guild-1';
+
+    return {
+        id: 'baseline-1',
+        guildId,
+        name: 'Baseline backup',
+        createdByUserId: null,
+        source: structureBackupSources.scheduled,
+        status: structureBackupStatuses.succeeded,
+        errorMessage: null,
+        structure: {
+            version: 1,
+            guildId,
+            guildName: guildId,
+            exportedAt: '2026-07-05T00:00:00.000Z',
+            roles: [
+                {
+                    id: 'role-1',
+                    name: input.roleName ?? 'Member',
+                    position: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+            categories: [],
+            channels: [
+                {
+                    id: 'channel-1',
+                    name: 'general',
+                    type: 0,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [],
+                },
+            ],
+        },
+        roleCount: 1,
+        categoryCount: 0,
+        channelCount: 1,
+        createdAt: new Date('2026-07-05T00:00:00.000Z'),
+        completedAt: new Date('2026-07-05T00:00:00.000Z'),
     };
 }

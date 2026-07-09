@@ -5,6 +5,7 @@ import {
     createStructureBackup,
     createStructureImportRun,
     deleteStructureBackup,
+    findLatestStructureDriftBaselineBackupByGuildId,
     findStructureBackupByGuildId,
     findStructureBackupSettingsByGuildId,
     findStructureImportRunByGuildId,
@@ -73,7 +74,23 @@ export type DashboardStructureBackupSettings = {
     lastSuccessAt?: string;
     lastErrorMessage?: string;
     nextBackupAt?: string;
+    nextDriftCheckAt?: string;
     nextRetentionPruneAt?: string;
+    scheduledDrift?: DashboardStructureScheduledDriftStatus;
+};
+
+export type DashboardStructureScheduledDriftStatus = {
+    status: string;
+    checkedAt?: string;
+    nextCheckAt?: string;
+    errorMessage?: string;
+    changeCount?: number;
+    baselineBackupId?: string;
+    baselineName?: string;
+    summary?: DashboardStructurePlan['summary'];
+    fieldSummary?: DashboardStructureDriftFieldSummary;
+    liveCounts?: { categories: number; channels: number; roles: number };
+    hasMorePreview: boolean;
 };
 
 type DashboardStructureJsonValue =
@@ -115,12 +132,56 @@ export type DashboardStructureImportRun = {
     summary: DashboardStructurePlan['summary'];
     actionCount: number;
     actions: DashboardStructureImportAction[];
+    requestedSnapshot?: DashboardStructureSnapshot;
+    requestedSnapshotStoredAt?: string;
 };
 
 export type DashboardStructureImportActionPage = {
     actions: DashboardStructureImportAction[];
     nextCursor?: string;
 };
+
+export type DashboardStructureDriftInput = {
+    baselineBackupId?: string;
+    guildId: string;
+};
+
+export type DashboardStructureDriftPreviewAction = {
+    id: string;
+    sequence: number;
+    actionType: string;
+    targetType: string;
+    targetId?: string;
+    label?: string;
+    fields: string[];
+    details: DashboardStructureJsonRecord;
+};
+
+export type DashboardStructureDriftFieldSummary = {
+    names: number;
+    parentMoves: number;
+    permissions: number;
+    positions: number;
+    roleVisuals: number;
+    typeChanges: number;
+};
+
+export type DashboardStructureDriftResult =
+    | {
+          type: 'structure-drift';
+          baseline: DashboardStructureBackupSummary;
+          checkedAt: string;
+          fieldSummary: DashboardStructureDriftFieldSummary;
+          hasMorePreview: boolean;
+          liveCounts: { categories: number; channels: number; roles: number };
+          previewActions: DashboardStructureDriftPreviewAction[];
+          summary: DashboardStructurePlan['summary'];
+      }
+    | { type: 'no-baseline' }
+    | { type: 'backup-json-unavailable' }
+    | { type: 'bot-token-missing' }
+    | { type: 'structure-read-failed' }
+    | DashboardStructureErrorResult;
 
 type DashboardStructureObservedState = {
     observedChangeCount: number;
@@ -434,6 +495,66 @@ export async function readDashboardStructureBackupJson(
         backupId: backupResult.value.id,
         fileName: createBackupDownloadFileName(backupResult.value.name),
         backupJson: JSON.stringify(backupResult.value.structure, null, 2),
+    };
+}
+
+export async function readDashboardStructureDrift(
+    request: Request,
+    input: DashboardStructureDriftInput
+): Promise<DashboardStructureDriftResult> {
+    const context = await loadAuthorizedStructureContext(request, input.guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const database = await getWebDb();
+    const backupResult = input.baselineBackupId?.trim()
+        ? await findStructureBackupByGuildId(database.db, {
+              backupId: input.baselineBackupId,
+              guildId: context.guild.id,
+          })
+        : await findLatestStructureDriftBaselineBackupByGuildId(database.db, {
+              guildId: context.guild.id,
+          });
+
+    if (backupResult.isErr()) {
+        return backupResult.error.type === 'not-found'
+            ? { type: 'no-baseline' }
+            : mapRepositoryError(backupResult.error);
+    }
+
+    if (backupResult.value.status !== structureBackupStatuses.succeeded || !backupResult.value.structure) {
+        return input.baselineBackupId?.trim() ? { type: 'backup-json-unavailable' } : { type: 'no-baseline' };
+    }
+
+    const requestedResult = normalizeDashboardStructurePayload(backupResult.value.structure);
+    if (requestedResult.type === 'invalid-input') return { type: 'backup-json-unavailable' };
+
+    const botToken = loadWebConfig().fluxerBotToken;
+    if (!botToken) return { type: 'bot-token-missing' };
+
+    const currentResult = await readFluxerBotGuildStructure({
+        botToken,
+        guildId: context.guild.id,
+    });
+
+    if (currentResult.isErr()) return { type: 'structure-read-failed' };
+
+    const current = toDashboardStructureSnapshot(currentResult.value);
+    const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot);
+
+    return {
+        type: 'structure-drift',
+        baseline: toDashboardBackupSummary(backupResult.value),
+        checkedAt: new Date().toISOString(),
+        fieldSummary: summarizeDriftFields(plan),
+        hasMorePreview: plan.actions.length > dashboardImportActionInlineLimit,
+        liveCounts: {
+            categories: current.categories.length,
+            channels: current.channels.length,
+            roles: current.roles.length,
+        },
+        previewActions: plan.actions.slice(0, dashboardImportActionInlineLimit).map(toDashboardDriftPreviewAction),
+        summary: plan.summary,
     };
 }
 
@@ -892,6 +1013,7 @@ async function persistStructureImportDryRun(
     options: { audit?: (importRunId: string) => StructureAuditPayload; source?: string; sourceBackupId?: string } = {}
 ): Promise<DashboardStructureDryRunResult> {
     const database = await getWebDb();
+    const requestedSnapshotStoredAt = new Date().toISOString();
     const runResult = await createStructureImportRun(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,
@@ -899,6 +1021,9 @@ async function persistStructureImportDryRun(
             summary: plan.summary,
             requestedGuildId: requestedSnapshot.guildId ?? null,
             requestedExportedAt: requestedSnapshot.exportedAt ?? null,
+            requestedSnapshot,
+            requestedSnapshotStoredAt,
+            requestedSnapshotVersion: 1,
             source: options.source ?? 'dashboard-json',
         }),
         ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
@@ -1061,7 +1186,60 @@ function toDashboardBackupSummary(
     };
 }
 
+function summarizeDriftFields(plan: DashboardStructurePlan): DashboardStructureDriftFieldSummary {
+    const fieldSummary: DashboardStructureDriftFieldSummary = {
+        names: 0,
+        parentMoves: 0,
+        permissions: 0,
+        positions: 0,
+        roleVisuals: 0,
+        typeChanges: 0,
+    };
+
+    for (const action of plan.actions) {
+        for (const field of readChangedFields(action.details)) {
+            if (field === 'name') fieldSummary.names += 1;
+            if (field === 'parentId') fieldSummary.parentMoves += 1;
+            if (field === 'position') fieldSummary.positions += 1;
+            if (field === 'type') fieldSummary.typeChanges += 1;
+            if (field === 'permissions' || field === 'permissionOverwrites') fieldSummary.permissions += 1;
+            if (field === 'color' || field === 'hoist' || field === 'mentionable') fieldSummary.roleVisuals += 1;
+        }
+    }
+
+    return fieldSummary;
+}
+
+function toDashboardDriftPreviewAction(
+    action: DashboardStructurePlan['actions'][number],
+    index: number
+): DashboardStructureDriftPreviewAction {
+    return {
+        id: `drift-${index + 1}`,
+        sequence: index + 1,
+        actionType: action.actionType,
+        targetType: action.targetType,
+        ...(action.targetId ? { targetId: action.targetId } : {}),
+        ...(action.label ? { label: action.label } : {}),
+        fields: readChangedFields(action.details),
+        details: action.details as DashboardStructureJsonRecord,
+    };
+}
+
+function readChangedFields(details: Record<string, unknown>): string[] {
+    const changes = details.changes;
+    if (!Array.isArray(changes)) return [];
+
+    return changes.flatMap((change) =>
+        change && typeof change === 'object' && typeof (change as Record<string, unknown>).field === 'string'
+            ? [(change as { field: string }).field]
+            : []
+    );
+}
+
 function toDashboardBackupSettings(record: StructureBackupSettingsRecord): DashboardStructureBackupSettings {
+    const scheduledDrift = toDashboardScheduledDriftStatus(record);
+
     return {
         enabled: record.enabled,
         cadenceWeeks: record.cadenceWeeks,
@@ -1070,8 +1248,80 @@ function toDashboardBackupSettings(record: StructureBackupSettingsRecord): Dashb
         ...(record.lastSuccessAt ? { lastSuccessAt: record.lastSuccessAt.toISOString() } : {}),
         ...(record.lastErrorMessage ? { lastErrorMessage: record.lastErrorMessage } : {}),
         ...(record.nextBackupAt ? { nextBackupAt: record.nextBackupAt.toISOString() } : {}),
+        ...(record.nextDriftCheckAt ? { nextDriftCheckAt: record.nextDriftCheckAt.toISOString() } : {}),
         ...(record.nextRetentionPruneAt ? { nextRetentionPruneAt: record.nextRetentionPruneAt.toISOString() } : {}),
+        ...(scheduledDrift ? { scheduledDrift } : {}),
     };
+}
+
+function toDashboardScheduledDriftStatus(
+    record: StructureBackupSettingsRecord
+): DashboardStructureScheduledDriftStatus | undefined {
+    if (!record.lastDriftStatus && !record.nextDriftCheckAt) return undefined;
+
+    return {
+        status: record.lastDriftStatus ?? 'pending',
+        ...(record.lastDriftCheckedAt ? { checkedAt: record.lastDriftCheckedAt.toISOString() } : {}),
+        ...(record.nextDriftCheckAt ? { nextCheckAt: record.nextDriftCheckAt.toISOString() } : {}),
+        ...(record.lastDriftErrorMessage ? { errorMessage: record.lastDriftErrorMessage } : {}),
+        ...(record.lastDriftChangeCount !== null ? { changeCount: record.lastDriftChangeCount } : {}),
+        ...(record.lastDriftBaselineBackupId ? { baselineBackupId: record.lastDriftBaselineBackupId } : {}),
+        ...(record.lastDriftBaselineName ? { baselineName: record.lastDriftBaselineName } : {}),
+        ...(readPlanSummaryRecord(record.lastDriftSummary)
+            ? { summary: readPlanSummaryRecord(record.lastDriftSummary) }
+            : {}),
+        ...(readFieldSummaryRecord(record.lastDriftFieldSummary)
+            ? { fieldSummary: readFieldSummaryRecord(record.lastDriftFieldSummary) }
+            : {}),
+        ...(readLiveCountsRecord(record.lastDriftLiveCounts)
+            ? { liveCounts: readLiveCountsRecord(record.lastDriftLiveCounts) }
+            : {}),
+        hasMorePreview: record.lastDriftHasMorePreview,
+    };
+}
+
+function readPlanSummaryRecord(value: Record<string, unknown> | null): DashboardStructurePlan['summary'] | undefined {
+    if (!value) return undefined;
+
+    return {
+        creates: readNonNegativeNumber(value.creates),
+        updates: readNonNegativeNumber(value.updates),
+        deletes: readNonNegativeNumber(value.deletes),
+        roles: readNonNegativeNumber(value.roles),
+        categories: readNonNegativeNumber(value.categories),
+        channels: readNonNegativeNumber(value.channels),
+    };
+}
+
+function readFieldSummaryRecord(
+    value: Record<string, unknown> | null
+): DashboardStructureDriftFieldSummary | undefined {
+    if (!value) return undefined;
+
+    return {
+        names: readNonNegativeNumber(value.names),
+        parentMoves: readNonNegativeNumber(value.parentMoves),
+        permissions: readNonNegativeNumber(value.permissions),
+        positions: readNonNegativeNumber(value.positions),
+        roleVisuals: readNonNegativeNumber(value.roleVisuals),
+        typeChanges: readNonNegativeNumber(value.typeChanges),
+    };
+}
+
+function readLiveCountsRecord(
+    value: Record<string, unknown> | null
+): { categories: number; channels: number; roles: number } | undefined {
+    if (!value) return undefined;
+
+    return {
+        categories: readNonNegativeNumber(value.categories),
+        channels: readNonNegativeNumber(value.channels),
+        roles: readNonNegativeNumber(value.roles),
+    };
+}
+
+function readNonNegativeNumber(value: unknown): number {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
 
 export function toDashboardImportRun(
@@ -1079,6 +1329,8 @@ export function toDashboardImportRun(
 ): DashboardStructureImportRun {
     const actions = 'actions' in record ? record.actions : [];
     const summary = readPlanSummary(record.plan);
+    const requestedSnapshot = readRequestedSnapshot(record.plan);
+    const requestedSnapshotStoredAt = readRequestedSnapshotStoredAt(record.plan);
 
     return {
         id: record.id,
@@ -1089,6 +1341,8 @@ export function toDashboardImportRun(
         summary,
         actionCount: readActionCount(summary, actions),
         actions: shouldInlineImportActions(summary, actions) ? actions.map(toDashboardImportAction) : [],
+        ...(requestedSnapshot ? { requestedSnapshot } : {}),
+        ...(requestedSnapshot && requestedSnapshotStoredAt ? { requestedSnapshotStoredAt } : {}),
     };
 }
 
@@ -1152,6 +1406,19 @@ function readPlanSummary(plan: Record<string, unknown>): DashboardStructurePlan[
         categories: readNumber(summary.categories),
         channels: readNumber(summary.channels),
     };
+}
+
+function readRequestedSnapshot(plan: Record<string, unknown>): DashboardStructureSnapshot | undefined {
+    if (plan.requestedSnapshotVersion !== 1) return undefined;
+
+    const result = normalizeDashboardStructureSnapshot(plan.requestedSnapshot);
+    return result.type === 'valid' ? result.snapshot : undefined;
+}
+
+function readRequestedSnapshotStoredAt(plan: Record<string, unknown>): string | undefined {
+    return typeof plan.requestedSnapshotStoredAt === 'string' && plan.requestedSnapshotStoredAt.trim()
+        ? plan.requestedSnapshotStoredAt.trim()
+        : undefined;
 }
 
 function summarizeActions(actions: StructureImportActionRecord[]): DashboardStructurePlan['summary'] {

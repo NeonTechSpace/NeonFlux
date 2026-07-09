@@ -4,12 +4,20 @@ export const STRUCTURE_IMPORT_EXPORT_FEATURE = 'import_export';
 
 export const structureBackupSources = {
     manual: 'manual',
+    restorePoint: 'restore_point',
     scheduled: 'scheduled',
 } as const;
 
 export const structureBackupStatuses = {
     failed: 'failed',
     succeeded: 'succeeded',
+} as const;
+
+export const structureScheduledDriftStatuses = {
+    changed: 'changed',
+    clean: 'clean',
+    failed: 'failed',
+    noBaseline: 'no_baseline',
 } as const;
 
 export const structureImportRunStatuses = {
@@ -35,6 +43,7 @@ export const structureAuditActions = {
     backupFailed: 'structure.backup_failed',
     backupImportCreated: 'structure.backup_import_created',
     backupRenamed: 'structure.backup_renamed',
+    backupRestorePointCreated: 'structure.backup_restore_point_created',
     backupRetentionPruned: 'structure.backup_retention_pruned',
     backupSettingsUpdated: 'structure.backup_settings_updated',
     importApplied: 'structure.import_applied',
@@ -43,7 +52,33 @@ export const structureAuditActions = {
     importFailed: 'structure.import_failed',
     importPreflightChecked: 'structure.import_preflight_checked',
     importRetryCreated: 'structure.import_retry_created',
+    scheduledDriftDetected: 'structure.scheduled_drift_detected',
+    scheduledDriftFailed: 'structure.scheduled_drift_failed',
 } as const;
+
+export type StructureScheduledDriftSummaryRecord = {
+    creates: number;
+    updates: number;
+    deletes: number;
+    roles: number;
+    categories: number;
+    channels: number;
+};
+
+export type StructureScheduledDriftFieldSummaryRecord = {
+    names: number;
+    permissions: number;
+    positions: number;
+    parentMoves: number;
+    typeChanges: number;
+    roleVisuals: number;
+};
+
+export type StructureScheduledDriftLiveCountsRecord = {
+    roles: number;
+    categories: number;
+    channels: number;
+};
 
 export type StructureBackupRecord = {
     id: string;
@@ -77,6 +112,17 @@ export type StructureBackupSettingsRecord = {
     lastErrorMessage: string | null;
     nextBackupAt: Date | null;
     nextRetentionPruneAt: Date | null;
+    nextDriftCheckAt: Date | null;
+    lastDriftCheckedAt: Date | null;
+    lastDriftStatus: string | null;
+    lastDriftErrorMessage: string | null;
+    lastDriftChangeCount: number | null;
+    lastDriftBaselineBackupId: string | null;
+    lastDriftBaselineName: string | null;
+    lastDriftSummary: StructureScheduledDriftSummaryRecord | null;
+    lastDriftFieldSummary: StructureScheduledDriftFieldSummaryRecord | null;
+    lastDriftLiveCounts: StructureScheduledDriftLiveCountsRecord | null;
+    lastDriftHasMorePreview: boolean;
     retentionDays: number;
     createdAt?: Date;
     updatedAt?: Date;

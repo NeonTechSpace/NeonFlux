@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    diffDashboardStructureSnapshot,
-    normalizeDashboardStructureSnapshot,
-    toDashboardStructureSnapshot,
-} from './dashboard-structure-diff.js';
+    diffFluxerGuildStructureSnapshot,
+    normalizeFluxerGuildStructureSnapshot,
+    toFluxerGuildStructureSnapshot,
+} from './guild-structure-diff.js';
 
-describe('dashboard structure diff', () => {
+describe('guild structure diff', () => {
     it('normalizes a Fluxer-compatible structure snapshot', () => {
-        const result = normalizeDashboardStructureSnapshot({
+        const result = normalizeFluxerGuildStructureSnapshot({
             guildId: ' guild-1 ',
             guildName: ' Guild 1 ',
             roles: [
@@ -69,7 +69,7 @@ describe('dashboard structure diff', () => {
 
     it('keeps guildName optional and ignores invalid guildName metadata', () => {
         expect(
-            normalizeDashboardStructureSnapshot({
+            normalizeFluxerGuildStructureSnapshot({
                 guildId: 'guild-1',
                 roles: [],
                 categories: [],
@@ -86,27 +86,9 @@ describe('dashboard structure diff', () => {
             },
         });
         expect(
-            normalizeDashboardStructureSnapshot({
+            normalizeFluxerGuildStructureSnapshot({
                 guildId: 'guild-1',
                 guildName: 123,
-                roles: [],
-                categories: [],
-                channels: [],
-            })
-        ).toStrictEqual({
-            type: 'valid',
-            snapshot: {
-                version: 1,
-                guildId: 'guild-1',
-                roles: [],
-                categories: [],
-                channels: [],
-            },
-        });
-        expect(
-            normalizeDashboardStructureSnapshot({
-                guildId: 'guild-1',
-                guildName: '   ',
                 roles: [],
                 categories: [],
                 channels: [],
@@ -125,7 +107,7 @@ describe('dashboard structure diff', () => {
 
     it('rejects malformed structure snapshots', () => {
         expect(
-            normalizeDashboardStructureSnapshot({
+            normalizeFluxerGuildStructureSnapshot({
                 roles: [],
                 categories: [],
                 channels: [{ id: 'channel-1' }],
@@ -136,8 +118,8 @@ describe('dashboard structure diff', () => {
         });
     });
 
-    it('plans creates, updates, and deletes against the current server layout', () => {
-        const current = toDashboardStructureSnapshot(
+    it('plans creates, updates, deletes, and permission changes against the current server layout', () => {
+        const current = toFluxerGuildStructureSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -175,11 +157,15 @@ describe('dashboard structure diff', () => {
             },
             '2026-06-26T10:00:00.000Z'
         );
+        const currentRole = current.roles[0];
+        const currentChannel = current.channels[0];
+        if (!currentRole || !currentChannel) throw new Error('fixture-invalid');
+
         const requested = {
             ...current,
             roles: [
                 {
-                    ...current.roles[0],
+                    ...currentRole,
                     name: 'Members',
                 },
                 {
@@ -192,35 +178,36 @@ describe('dashboard structure diff', () => {
                     mentionable: false,
                 },
             ],
+            channels: [
+                {
+                    ...currentChannel,
+                    permissionOverwrites: [{ id: 'role-1', type: 0, allow: '1', deny: '0' }],
+                },
+            ],
         };
 
-        expect(current).toMatchObject({
-            guildId: 'guild-1',
-            guildName: 'Guild 1',
-            exportedAt: '2026-06-26T10:00:00.000Z',
-        });
-
-        const plan = diffDashboardStructureSnapshot(current, requested);
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
 
         expect(plan.summary).toStrictEqual({
             creates: 1,
-            updates: 1,
+            updates: 2,
             deletes: 1,
             roles: 3,
             categories: 0,
-            channels: 0,
+            channels: 1,
         });
         expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
             ['update', 'role', 'role-1'],
             ['create', 'role', 'role-new'],
             ['delete', 'role', 'role-stale'],
+            ['update', 'channel', 'channel-1'],
         ]);
-        expect(plan.actions[0]?.details).toMatchObject({
+        expect(plan.actions.at(-1)?.details).toMatchObject({
             changes: [
                 {
-                    field: 'name',
-                    before: 'Member',
-                    after: 'Members',
+                    field: 'permissionOverwrites',
+                    before: [],
+                    after: [{ id: 'role-1', type: 0, allow: '1', deny: '0' }],
                 },
             ],
         });

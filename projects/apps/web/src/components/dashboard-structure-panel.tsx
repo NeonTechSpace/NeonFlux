@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Check, Download, Pencil, RotateCcw, Trash2, Upload, X } from 'lucide-react';
+import { Check, Download, Eye, GitCompareArrows, Pencil, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo, useRef, useState } from 'react';
 
@@ -16,6 +16,7 @@ import {
     importDashboardStructureBackupRouteData,
     readDashboardStructureBackupPageRouteData,
     readDashboardStructureBackupJsonRouteData,
+    readDashboardStructureDriftRouteData,
     readDashboardStructureImportActionPageRouteData,
     readDashboardStructureSettingsRouteData,
     renameDashboardStructureBackupRouteData,
@@ -26,9 +27,27 @@ import type { DashboardStructurePreflightReport } from '../server/dashboard-stru
 import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
+    DashboardStructureDriftResult,
     DashboardStructureImportAction,
     DashboardStructureImportRun,
 } from '../server/dashboard-structure.server.js';
+import {
+    buildDashboardStructureBackupRowId,
+    deriveDashboardStructureBackupHealth,
+} from './dashboard-structure-backup-health.js';
+import {
+    DashboardStructureExplorer,
+    type DashboardStructureExplorerComparisonTarget,
+    readDashboardStructureExplorerActionEntityKey,
+    type DashboardStructureExplorerOverlayMode,
+    type DashboardStructureExplorerSource,
+} from './dashboard-structure-explorer.js';
+import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
+import {
+    parseDashboardStructureExplorerSnapshot,
+    readDashboardStructureExplorerEntityKey,
+    type DashboardStructureExplorerEntityKey,
+} from './dashboard-structure-explorer-model.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 
@@ -47,6 +66,21 @@ type BackupPageState = {
     nextCursor?: string;
 };
 
+type DriftState = Extract<DashboardStructureDriftResult, { type: 'structure-drift' }>;
+
+const emptyExplorerComparisonTarget: DashboardStructureExplorerComparisonTarget = {
+    label: 'No comparison',
+    type: 'none',
+};
+const emptyPlanSummary = {
+    creates: 0,
+    updates: 0,
+    deletes: 0,
+    roles: 0,
+    categories: 0,
+    channels: 0,
+};
+
 export function DashboardStructurePanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
@@ -58,6 +92,17 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
     const [backupCadenceWeeks, setBackupCadenceWeeks] = useState<number | undefined>();
     const [backupRetentionDays, setBackupRetentionDays] = useState<number | undefined>();
     const [backupPageState, setBackupPageState] = useState<BackupPageState | undefined>();
+    const [driftState, setDriftState] = useState<DriftState | undefined>();
+    const [explorerSource, setExplorerSource] = useState<DashboardStructureExplorerSource>({
+        label: 'No snapshot',
+        type: 'none',
+    });
+    const [explorerComparisonTarget, setExplorerComparisonTarget] =
+        useState<DashboardStructureExplorerComparisonTarget>(emptyExplorerComparisonTarget);
+    const [explorerOverlayMode, setExplorerOverlayMode] = useState<DashboardStructureExplorerOverlayMode>('none');
+    const [selectedExplorerEntityKey, setSelectedExplorerEntityKey] = useState<
+        DashboardStructureExplorerEntityKey | undefined
+    >();
     const [editingBackupId, setEditingBackupId] = useState<string | undefined>();
     const [editingBackupName, setEditingBackupName] = useState('');
     const [deleteConfirmBackupId, setDeleteConfirmBackupId] = useState<string | undefined>();
@@ -66,6 +111,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
     const [applyConfirmationByRunId, setApplyConfirmationByRunId] = useState<Record<string, string>>({});
     const [deleteConfirmationByRunId, setDeleteConfirmationByRunId] = useState<Record<string, string>>({});
     const [preflightByRunId, setPreflightByRunId] = useState<Record<string, DashboardStructurePreflightReport>>({});
+    const [restoreShortcutBackupId, setRestoreShortcutBackupId] = useState<string | undefined>();
     const settingsQuery = useQuery({
         queryKey,
         queryFn: async () => {
@@ -83,6 +129,11 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
 
     async function refreshAuditEvents(): Promise<void> {
         await queryClient.invalidateQueries({ queryKey: getDashboardAuditEventsBaseQueryKey(guildId) });
+    }
+
+    function setExplorerSourceAndResetComparison(source: DashboardStructureExplorerSource): void {
+        setExplorerSource(source);
+        setExplorerComparisonTarget(emptyExplorerComparisonTarget);
     }
 
     async function createBackup(): Promise<void> {
@@ -123,6 +174,58 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
         } finally {
             setBusyAction(undefined);
         }
+    }
+
+    async function loadLiveExplorerSnapshot(): Promise<void> {
+        setStatus(undefined);
+        setBusyAction('explorer-live');
+
+        try {
+            const result = await downloadDashboardStructureExportRouteData({ data: { guildId } });
+
+            if (result.type !== 'structure-export-created') {
+                setStatus(toErrorStatus(result.type));
+                return;
+            }
+
+            const snapshot = parseDashboardStructureExplorerSnapshot(result.structureJson);
+            if (!snapshot) {
+                setStatus({ tone: 'error', message: 'Live server blueprint could not be parsed for the explorer.' });
+                return;
+            }
+
+            setExplorerSourceAndResetComparison({
+                canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+                label: 'Live server layout',
+                snapshot,
+                type: 'live',
+                ...(snapshot.exportedAt ? { detail: `Read ${formatDate(snapshot.exportedAt)}` } : {}),
+            });
+            setSelectedExplorerEntityKey(undefined);
+            setStatus({ tone: 'success', message: 'Live server blueprint loaded in explorer.' });
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    function inspectImportJson(): void {
+        setStatus(undefined);
+
+        const snapshot = parseDashboardStructureExplorerSnapshot(importJson);
+        if (!snapshot) {
+            setStatus({ tone: 'error', message: 'Import JSON could not be parsed as a server blueprint.' });
+            return;
+        }
+
+        setExplorerSourceAndResetComparison({
+            canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+            label: 'Import JSON',
+            snapshot,
+            type: 'import-json',
+            ...(snapshot.exportedAt ? { detail: `Exported ${formatDate(snapshot.exportedAt)}` } : {}),
+        });
+        setSelectedExplorerEntityKey(undefined);
+        setStatus({ tone: 'neutral', message: 'Import JSON loaded in explorer.' });
     }
 
     async function importStructureFile(file: File | undefined): Promise<void> {
@@ -275,13 +378,19 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
         }
     }
 
-    async function importBackup(backup: DashboardStructureBackupSummary): Promise<void> {
+    async function createDryRunFromBackupId({
+        backupId,
+        intent = 'backup',
+    }: {
+        backupId: string;
+        intent?: 'backup' | 'restore';
+    }): Promise<void> {
         setStatus(undefined);
-        setBusyAction(`backup-import:${backup.id}`);
+        setBusyAction(`backup-import:${backupId}`);
 
         try {
             const result = await importDashboardStructureBackupRouteData({
-                data: { backupId: backup.id, guildId },
+                data: { backupId, guildId },
             });
 
             if (result.type !== 'backup-import-created') {
@@ -301,7 +410,10 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
             }));
             setStatus({
                 tone: 'success',
-                message: `Dry-run created from backup with ${result.importRun.actionCount} planned changes.`,
+                message:
+                    intent === 'restore'
+                        ? `Restore dry-run created with ${result.importRun.actionCount} planned changes. Review it before applying.`
+                        : `Dry-run created from backup with ${result.importRun.actionCount} planned changes.`,
             });
             await refreshSettings();
             await refreshAuditEvents();
@@ -310,7 +422,17 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
         }
     }
 
-    async function loadBackupJson(backup: DashboardStructureBackupSummary, mode: 'download' | 'use'): Promise<void> {
+    async function importBackup(backup: DashboardStructureBackupSummary): Promise<void> {
+        await createDryRunFromBackupId({
+            backupId: backup.id,
+            intent: backup.source === 'restore_point' ? 'restore' : 'backup',
+        });
+    }
+
+    async function loadBackupJson(
+        backup: DashboardStructureBackupSummary,
+        mode: 'download' | 'inspect' | 'use'
+    ): Promise<void> {
         setStatus(undefined);
         setBusyAction(`backup-json:${backup.id}`);
 
@@ -334,11 +456,230 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                 return;
             }
 
+            if (mode === 'inspect') {
+                const snapshot = parseDashboardStructureExplorerSnapshot(result.backupJson);
+                if (!snapshot) {
+                    setStatus({ tone: 'error', message: 'Backup JSON could not be parsed for the explorer.' });
+                    return;
+                }
+
+                setExplorerSourceAndResetComparison({
+                    canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+                    detail: `${formatBackupSource(backup.source)} · ${formatDate(backup.completedAt)}`,
+                    label: backup.name,
+                    snapshot,
+                    type: 'backup',
+                });
+                setSelectedExplorerEntityKey(undefined);
+                setStatus({ tone: 'neutral', message: 'Backup loaded in explorer.' });
+                return;
+            }
+
             setImportJson(result.backupJson);
             setStatus({ tone: 'neutral', message: 'Backup JSON loaded. Create a dry-run to review changes.' });
         } finally {
             setBusyAction(undefined);
         }
+    }
+
+    async function runDriftCheck(input: { baselineBackupId?: string; busyAction: StructureBusyAction }): Promise<void> {
+        setStatus(undefined);
+        setBusyAction(input.busyAction);
+
+        try {
+            const result = await readDashboardStructureDriftRouteData({
+                data: {
+                    guildId,
+                    ...(input.baselineBackupId ? { baselineBackupId: input.baselineBackupId } : {}),
+                },
+            });
+
+            if (result.type !== 'structure-drift') {
+                setDriftState(undefined);
+                setStatus(toDriftErrorStatus(result.type));
+                return;
+            }
+
+            setDriftState(result);
+            const count = countPlanChanges(result.summary);
+            setStatus(
+                count === 0
+                    ? { tone: 'success', message: `Live server matches ${result.baseline.name}.` }
+                    : {
+                          tone: 'neutral',
+                          message: `Drift check found ${count} server layout change${
+                              count === 1 ? '' : 's'
+                          } against ${result.baseline.name}.`,
+                      }
+            );
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    async function checkDrift(backup?: DashboardStructureBackupSummary): Promise<void> {
+        await runDriftCheck({
+            ...(backup ? { baselineBackupId: backup.id } : {}),
+            busyAction: backup ? `backup-drift:${backup.id}` : 'drift',
+        });
+    }
+
+    async function reviewScheduledDrift(baselineBackupId: string): Promise<void> {
+        await runDriftCheck({
+            baselineBackupId,
+            busyAction: 'drift',
+        });
+    }
+
+    function compareExplorerImportJson(): void {
+        setStatus(undefined);
+
+        const snapshot = parseDashboardStructureExplorerSnapshot(importJson);
+        if (!snapshot) {
+            setStatus({ tone: 'error', message: 'Import JSON could not be parsed as a server blueprint.' });
+            return;
+        }
+
+        setExplorerComparisonTarget({
+            canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+            label: 'Import JSON',
+            snapshot,
+            type: 'import-json',
+            ...(snapshot.exportedAt ? { detail: `Exported ${formatDate(snapshot.exportedAt)}` } : {}),
+        });
+        setStatus({ tone: 'neutral', message: 'Import JSON comparison loaded.' });
+    }
+
+    async function compareExplorerLive(): Promise<void> {
+        setStatus(undefined);
+        setBusyAction('explorer-compare-live');
+
+        try {
+            const result = await downloadDashboardStructureExportRouteData({ data: { guildId } });
+
+            if (result.type !== 'structure-export-created') {
+                setStatus(toErrorStatus(result.type));
+                return;
+            }
+
+            const snapshot = parseDashboardStructureExplorerSnapshot(result.structureJson);
+            if (!snapshot) {
+                setStatus({ tone: 'error', message: 'Live server blueprint could not be parsed for the explorer.' });
+                return;
+            }
+
+            setExplorerComparisonTarget({
+                canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+                label: 'Live server layout',
+                snapshot,
+                type: 'live',
+                ...(snapshot.exportedAt ? { detail: `Read ${formatDate(snapshot.exportedAt)}` } : {}),
+            });
+            setStatus({ tone: 'neutral', message: 'Live server blueprint comparison loaded.' });
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    async function compareExplorerDriftBaseline(): Promise<void> {
+        const baseline = driftState?.baseline;
+        if (!baseline || baseline.status !== 'succeeded') return;
+
+        setStatus(undefined);
+        setBusyAction('explorer-compare-baseline');
+
+        try {
+            const result = await readDashboardStructureBackupJsonRouteData({
+                data: { backupId: baseline.id, guildId },
+            });
+
+            if (result.type !== 'backup-json') {
+                setStatus(
+                    result.type === 'backup-json-unavailable'
+                        ? { tone: 'error', message: 'This backup does not have server blueprint JSON.' }
+                        : toErrorStatus(result.type)
+                );
+                return;
+            }
+
+            const snapshot = parseDashboardStructureExplorerSnapshot(result.backupJson);
+            if (!snapshot) {
+                setStatus({ tone: 'error', message: 'Backup JSON could not be parsed for the explorer.' });
+                return;
+            }
+
+            setExplorerComparisonTarget({
+                canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+                detail: `${formatBackupSource(baseline.source)} · ${formatDate(baseline.completedAt)}`,
+                label: baseline.name,
+                snapshot,
+                type: 'backup',
+            });
+            setStatus({ tone: 'neutral', message: 'Drift baseline comparison loaded.' });
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    function inspectRequestedFinalState(run: DashboardStructureImportRun): void {
+        setStatus(undefined);
+
+        const snapshot = readRequestedFinalStateExplorerSnapshot(run);
+        if (!snapshot) {
+            setStatus({
+                tone: 'error',
+                message: 'This dry-run does not include a requested final-state snapshot.',
+            });
+            return;
+        }
+
+        setExplorerSourceAndResetComparison({
+            canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+            detail: `Dry-run ${formatDate(run.createdAt)}`,
+            label: 'Requested final state',
+            snapshot,
+            type: 'requested-final-state',
+        });
+        setSelectedExplorerEntityKey(undefined);
+        setStatus({
+            tone: 'neutral',
+            message: 'Requested final state loaded. This is the dry-run target, not the current server state.',
+        });
+    }
+
+    function compareExplorerRequestedFinalState(run: DashboardStructureImportRun): void {
+        setStatus(undefined);
+
+        const snapshot = readRequestedFinalStateExplorerSnapshot(run);
+        if (!snapshot) {
+            setStatus({
+                tone: 'error',
+                message: 'This dry-run does not include a requested final-state snapshot.',
+            });
+            return;
+        }
+
+        setExplorerComparisonTarget({
+            canonicalJson: formatDashboardStructureExplorerSnapshotJson(snapshot),
+            detail: `Dry-run ${formatDate(run.createdAt)}`,
+            label: 'Requested final state',
+            snapshot,
+            type: 'requested-final-state',
+        });
+        setStatus({
+            tone: 'neutral',
+            message: 'Requested final-state comparison loaded. This is the dry-run target, not applied state.',
+        });
+    }
+
+    function selectDriftAction(action: DriftState['previewActions'][number]): void {
+        setExplorerOverlayMode('drift');
+        setSelectedExplorerEntityKey(readDashboardStructureExplorerEntityKey(action));
+    }
+
+    function selectImportAction(run: DashboardStructureImportRun, action: DashboardStructureImportAction): void {
+        setExplorerOverlayMode(`run:${run.id}`);
+        setSelectedExplorerEntityKey(readDashboardStructureExplorerActionEntityKey(action));
     }
 
     async function confirmImportRun(run: DashboardStructureImportRun): Promise<void> {
@@ -411,6 +752,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
 
     async function applyImportRun(run: DashboardStructureImportRun): Promise<void> {
         setStatus(undefined);
+        setRestoreShortcutBackupId(undefined);
         setBusyAction(`apply:${run.id}`);
 
         try {
@@ -430,6 +772,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                 return;
             }
 
+            setRestoreShortcutBackupId(result.restorePointBackupId);
             setApplyConfirmationByRunId((current) => ({ ...current, [run.id]: '' }));
             setDeleteConfirmationByRunId((current) => ({ ...current, [run.id]: '' }));
             setActionPagesByRunId((current) => ({
@@ -679,9 +1022,19 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                         </div>
                     </div>
 
-                    <label className='block space-y-2 text-sm font-medium text-neutral-200'>
-                        <span>Import JSON dry-run</span>
+                    <div className='block space-y-2 text-sm font-medium text-neutral-200'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                            <label htmlFor='server-blueprint-import-json'>Import JSON dry-run</label>
+                            <button
+                                type='button'
+                                onClick={inspectImportJson}
+                                disabled={Boolean(busyAction)}
+                                className='min-h-8 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                Inspect import JSON
+                            </button>
+                        </div>
                         <textarea
+                            id='server-blueprint-import-json'
                             value={importJson}
                             onChange={(event) => setImportJson(event.currentTarget.value)}
                             rows={12}
@@ -689,7 +1042,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                             className='w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-xs text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
                             placeholder='Paste server blueprint JSON from a backup or current-state download.'
                         />
-                    </label>
+                    </div>
                     <label className='block space-y-2 text-sm font-medium text-neutral-200'>
                         <span>Import JSON file</span>
                         <input
@@ -710,10 +1063,20 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                         {busyAction === 'dry-run' ? 'Creating dry-run' : 'Create dry-run'}
                     </button>
                     {status ? <StatusMessage status={status} /> : null}
+                    {restoreShortcutBackupId ? (
+                        <RestorePointShortcutNotice
+                            backupId={restoreShortcutBackupId}
+                            busy={busyAction === `backup-import:${restoreShortcutBackupId}`}
+                            disabled={Boolean(busyAction)}
+                            onCreateRestoreDryRun={(backupId) =>
+                                void createDryRunFromBackupId({ backupId, intent: 'restore' })
+                            }
+                        />
+                    ) : null}
                     <p className='text-xs leading-5 text-neutral-500'>
-                        Applies supported creates, deletes, role name/color/hoist/mentionability/permission updates, and
-                        channel/category name and permission-overwrite updates. Topic, NSFW, slowmode, ordering, parent
-                        moves, and type conversions are not applied yet.
+                        Applies supported creates, deletes, role name/color/hoist/mentionability/permission/position
+                        updates, channel/category name, position, parent, and permission-overwrite updates. Topic, NSFW,
+                        slowmode, type changes, and moving @everyone are blocked.
                     </p>
                 </section>
 
@@ -731,10 +1094,42 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                         observedState={settingsQuery.data.observedState}
                         settings={backupSettings}
                     />
+                    <DriftPanel
+                        drift={driftState}
+                        settings={backupSettings}
+                        busyAction={busyAction}
+                        onCheckLatest={() => void checkDrift()}
+                        onCreateBackup={() => void createBackup()}
+                        onCreateDryRun={(backup) => void importBackup(backup)}
+                        onReviewScheduledDrift={(baselineBackupId) => void reviewScheduledDrift(baselineBackupId)}
+                        onSelectAction={selectDriftAction}
+                    />
+                    <DashboardStructureExplorer
+                        busyAction={busyAction}
+                        drift={driftState}
+                        overlayMode={explorerOverlayMode}
+                        preflightByRunId={preflightByRunId}
+                        runs={importRuns}
+                        selectedEntityKey={selectedExplorerEntityKey}
+                        comparisonTarget={explorerComparisonTarget}
+                        source={explorerSource}
+                        onCompareDriftBaseline={() => void compareExplorerDriftBaseline()}
+                        onCompareImportJson={compareExplorerImportJson}
+                        onCompareLive={() => void compareExplorerLive()}
+                        onCompareRequestedFinalState={compareExplorerRequestedFinalState}
+                        onInspectImportJson={inspectImportJson}
+                        onInspectRequestedFinalState={inspectRequestedFinalState}
+                        onLoadActions={(run) => void loadRunActions(run)}
+                        onLoadLive={() => void loadLiveExplorerSnapshot()}
+                        onOverlayModeChange={setExplorerOverlayMode}
+                        onSelectedEntityKeyChange={setSelectedExplorerEntityKey}
+                    />
                     <BackupHistory
                         page={backupPage}
                         busyAction={busyAction}
                         onDownload={(backup) => void loadBackupJson(backup, 'download')}
+                        onCheckDrift={(backup) => void checkDrift(backup)}
+                        onInspect={(backup) => void loadBackupJson(backup, 'inspect')}
                         onImport={(backup) => void importBackup(backup)}
                         onLoadMore={() => void loadMoreBackups()}
                         onRename={(backup) => void renameBackup(backup)}
@@ -775,6 +1170,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                         onPreflight={(run) => void preflightImportRun(run)}
                         onApply={(run) => void applyImportRun(run)}
                         onLoadActions={(run) => void loadRunActions(run)}
+                        onInspectAction={selectImportAction}
                         onRetry={(run) => void retryImportRun(run)}
                     />
                 </section>
@@ -805,7 +1201,9 @@ function BackupSettings({
     onSave: () => void;
 }) {
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'>
+        <div
+            id='server-blueprint-backup-settings'
+            className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
                     <p className='text-sm font-semibold text-white'>Automatic backups</p>
@@ -888,6 +1286,11 @@ function BackupStatus({
 }) {
     const latestBackup = backups.at(0);
     const latestSuccessfulBackup = backups.find((backup) => backup.status === 'succeeded');
+    const healthIssues = deriveDashboardStructureBackupHealth({
+        backups,
+        formatDate,
+        settings,
+    });
     const backupState = settings.lastErrorMessage
         ? settings.lastErrorMessage
         : latestBackup?.status === 'failed'
@@ -905,18 +1308,313 @@ function BackupStatus({
               : 'success';
 
     return (
-        <div className='grid gap-3 md:grid-cols-3'>
-            <StatusTile
-                label='Last attempt'
-                value={settings.lastAttemptAt ? formatDate(settings.lastAttemptAt) : 'Never'}
-            />
-            <StatusTile
-                label='Last success'
-                value={settings.lastSuccessAt ? formatDate(settings.lastSuccessAt) : 'Never'}
-            />
-            <StatusTile label='Backup state' value={backupState} tone={backupTone} />
+        <div className='space-y-3'>
+            <div className='grid gap-3 md:grid-cols-3'>
+                <StatusTile
+                    label='Last attempt'
+                    value={settings.lastAttemptAt ? formatDate(settings.lastAttemptAt) : 'Never'}
+                />
+                <StatusTile
+                    label='Last success'
+                    value={settings.lastSuccessAt ? formatDate(settings.lastSuccessAt) : 'Never'}
+                />
+                <StatusTile label='Backup state' value={backupState} tone={backupTone} />
+            </div>
+            {healthIssues.length > 0 ? (
+                <div
+                    aria-label='Backup health'
+                    className='space-y-2 rounded-md border border-amber-400/20 bg-amber-400/5 p-3'>
+                    {healthIssues.map((issue) => (
+                        <div
+                            key={issue.type}
+                            className={`flex flex-wrap items-start justify-between gap-3 rounded-md border px-3 py-2 ${
+                                issue.tone === 'error'
+                                    ? 'border-rose-400/25 bg-rose-400/10'
+                                    : 'border-amber-400/25 bg-amber-400/10'
+                            }`}>
+                            <div className='min-w-0'>
+                                <p
+                                    className={`text-sm font-semibold ${
+                                        issue.tone === 'error' ? 'text-rose-100' : 'text-amber-100'
+                                    }`}>
+                                    {issue.title}
+                                </p>
+                                <p className='mt-1 text-xs leading-5 text-neutral-300'>{issue.detail}</p>
+                            </div>
+                            <a
+                                href={issue.href}
+                                className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200'>
+                                Review
+                            </a>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
         </div>
     );
+}
+
+function DriftPanel({
+    drift,
+    settings,
+    busyAction,
+    onCheckLatest,
+    onCreateBackup,
+    onCreateDryRun,
+    onReviewScheduledDrift,
+    onSelectAction,
+}: {
+    drift: DriftState | undefined;
+    settings: DashboardStructureBackupSettings;
+    busyAction: StructureBusyAction | undefined;
+    onCheckLatest: () => void;
+    onCreateBackup: () => void;
+    onCreateDryRun: (backup: DashboardStructureBackupSummary) => void;
+    onReviewScheduledDrift: (baselineBackupId: string) => void;
+    onSelectAction: (action: DriftState['previewActions'][number]) => void;
+}) {
+    const driftCount = drift ? countPlanChanges(drift.summary) : 0;
+    const isChecking = busyAction === 'drift';
+    const busy = Boolean(busyAction);
+    const scheduledDrift = settings.scheduledDrift;
+
+    return (
+        <div className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div>
+                    <p className='text-sm font-semibold text-white'>Drift check</p>
+                    <p className='mt-1 text-xs leading-5 text-neutral-400'>
+                        Manual live comparison against the latest regular backup or a selected backup row.
+                    </p>
+                </div>
+                <button
+                    type='button'
+                    onClick={onCheckLatest}
+                    disabled={busy}
+                    className='min-h-10 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                    {isChecking ? 'Checking' : 'Check latest'}
+                </button>
+            </div>
+
+            {scheduledDrift ? (
+                <ScheduledDriftStatus
+                    busy={busy}
+                    isReviewing={isChecking}
+                    scheduledDrift={scheduledDrift}
+                    onReviewScheduledDrift={onReviewScheduledDrift}
+                />
+            ) : settings.enabled ? (
+                <p className='mt-3 rounded-md border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-xs leading-5 text-neutral-500'>
+                    Scheduled drift monitoring is queued with automatic backups.
+                    {settings.nextDriftCheckAt ? ` Next check: ${formatDate(settings.nextDriftCheckAt)}.` : ''}
+                </p>
+            ) : null}
+
+            {drift ? (
+                <div className='mt-4 space-y-4'>
+                    <div className='flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 pt-3'>
+                        <div>
+                            <p className='text-sm font-semibold text-white'>
+                                {driftCount === 0
+                                    ? `Live server matches ${drift.baseline.name}.`
+                                    : `${driftCount} drift changes found`}
+                            </p>
+                            <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                                Baseline: {drift.baseline.name} · {formatBackupSource(drift.baseline.source)} ·{' '}
+                                {formatDate(drift.baseline.completedAt)}
+                            </p>
+                        </div>
+                        <div className='flex flex-wrap gap-2'>
+                            <button
+                                type='button'
+                                onClick={onCreateBackup}
+                                disabled={busy}
+                                className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                Create backup now
+                            </button>
+                            <button
+                                type='button'
+                                onClick={() => onCreateDryRun(drift.baseline)}
+                                disabled={busy || drift.baseline.status !== 'succeeded'}
+                                className='min-h-9 rounded-md bg-sky-400 px-3 text-xs font-semibold text-neutral-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                                Create dry-run from baseline
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className='grid grid-cols-3 gap-2 text-center md:grid-cols-6'>
+                        <MiniCount label='Creates' value={drift.summary.creates} />
+                        <MiniCount label='Updates' value={drift.summary.updates} />
+                        <MiniCount label='Deletes' value={drift.summary.deletes} />
+                        <MiniCount label='Roles' value={drift.summary.roles} />
+                        <MiniCount label='Categories' value={drift.summary.categories} />
+                        <MiniCount label='Channels' value={drift.summary.channels} />
+                    </div>
+
+                    <div className='grid grid-cols-2 gap-2 text-center md:grid-cols-3'>
+                        <MiniCount label='Names' value={drift.fieldSummary.names} />
+                        <MiniCount label='Permissions' value={drift.fieldSummary.permissions} />
+                        <MiniCount label='Positions' value={drift.fieldSummary.positions} />
+                        <MiniCount label='Parents' value={drift.fieldSummary.parentMoves} />
+                        <MiniCount label='Types' value={drift.fieldSummary.typeChanges} />
+                        <MiniCount label='Role visuals' value={drift.fieldSummary.roleVisuals} />
+                    </div>
+
+                    {drift.previewActions.length > 0 ? (
+                        <div className='max-h-56 overflow-y-auto rounded-md border border-neutral-800'>
+                            {drift.previewActions.map((action) => (
+                                <button
+                                    type='button'
+                                    key={action.id}
+                                    onClick={() => onSelectAction(action)}
+                                    className='grid gap-2 border-b border-neutral-800 px-3 py-2 text-left last:border-b-0 md:grid-cols-[5rem_7rem_minmax(0,1fr)_minmax(8rem,0.7fr)]'>
+                                    <span className='text-xs font-semibold text-neutral-300'>
+                                        {formatStatus(action.actionType)}
+                                    </span>
+                                    <span className='text-xs text-neutral-500'>{formatStatus(action.targetType)}</span>
+                                    <span className='truncate text-xs text-neutral-200'>
+                                        {action.label ?? action.targetId ?? 'Unknown target'}
+                                    </span>
+                                    <span className='truncate text-xs text-neutral-500'>
+                                        {action.fields.length > 0 ? action.fields.map(formatStatus).join(', ') : 'item'}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+
+                    {drift.hasMorePreview ? (
+                        <p className='text-xs leading-5 text-neutral-500'>
+                            Preview is capped. Create a dry-run from the baseline to review every action.
+                        </p>
+                    ) : null}
+                    <p className='text-xs leading-5 text-neutral-500'>
+                        Checked {formatDate(drift.checkedAt)}. Live counts: {drift.liveCounts.roles} roles,{' '}
+                        {drift.liveCounts.categories} categories, {drift.liveCounts.channels} channels.
+                    </p>
+                </div>
+            ) : (
+                <p className='mt-3 border-t border-neutral-800 pt-3 text-xs leading-5 text-neutral-500'>
+                    No drift check has been run in this view.
+                </p>
+            )}
+        </div>
+    );
+}
+
+function ScheduledDriftStatus({
+    busy,
+    isReviewing,
+    scheduledDrift,
+    onReviewScheduledDrift,
+}: {
+    busy: boolean;
+    isReviewing: boolean;
+    scheduledDrift: NonNullable<DashboardStructureBackupSettings['scheduledDrift']>;
+    onReviewScheduledDrift: (baselineBackupId: string) => void;
+}) {
+    const status = readScheduledDriftCopy(scheduledDrift);
+    const canReview = scheduledDrift.status === 'changed' && Boolean(scheduledDrift.baselineBackupId);
+
+    return (
+        <div
+            className={`mt-3 rounded-md border px-3 py-2 ${
+                status.tone === 'error'
+                    ? 'border-rose-400/25 bg-rose-400/10'
+                    : status.tone === 'warning'
+                      ? 'border-amber-400/25 bg-amber-400/10'
+                      : 'border-neutral-800 bg-neutral-950/70'
+            }`}>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div className='min-w-0'>
+                    <p
+                        className={`text-sm font-semibold ${
+                            status.tone === 'error'
+                                ? 'text-rose-100'
+                                : status.tone === 'warning'
+                                  ? 'text-amber-100'
+                                  : 'text-neutral-100'
+                        }`}>
+                        {status.title}
+                    </p>
+                    <p className='mt-1 text-xs leading-5 text-neutral-400'>{status.detail}</p>
+                    <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                        {scheduledDrift.checkedAt
+                            ? `Checked ${formatDate(scheduledDrift.checkedAt)}.`
+                            : 'Not checked yet.'}
+                        {scheduledDrift.nextCheckAt ? ` Next: ${formatDate(scheduledDrift.nextCheckAt)}.` : ''}
+                    </p>
+                </div>
+                {canReview ? (
+                    <button
+                        type='button'
+                        onClick={() => onReviewScheduledDrift(scheduledDrift.baselineBackupId ?? '')}
+                        disabled={busy}
+                        className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                        {isReviewing ? 'Reviewing' : 'Review drift'}
+                    </button>
+                ) : null}
+            </div>
+            {scheduledDrift.summary ? (
+                <div className='mt-3 grid grid-cols-3 gap-2 text-center md:grid-cols-6'>
+                    <MiniCount label='Creates' value={scheduledDrift.summary.creates} />
+                    <MiniCount label='Updates' value={scheduledDrift.summary.updates} />
+                    <MiniCount label='Deletes' value={scheduledDrift.summary.deletes} />
+                    <MiniCount label='Roles' value={scheduledDrift.summary.roles} />
+                    <MiniCount label='Categories' value={scheduledDrift.summary.categories} />
+                    <MiniCount label='Channels' value={scheduledDrift.summary.channels} />
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function readScheduledDriftCopy(scheduledDrift: NonNullable<DashboardStructureBackupSettings['scheduledDrift']>): {
+    detail: string;
+    title: string;
+    tone: 'error' | 'neutral' | 'warning';
+} {
+    if (scheduledDrift.status === 'changed') {
+        const count = scheduledDrift.changeCount ?? countPlanChanges(scheduledDrift.summary ?? emptyPlanSummary);
+
+        return {
+            detail: `Baseline: ${scheduledDrift.baselineName ?? scheduledDrift.baselineBackupId ?? 'latest backup'}.`,
+            title: `Scheduled drift found ${count} change${count === 1 ? '' : 's'}.`,
+            tone: 'warning',
+        };
+    }
+
+    if (scheduledDrift.status === 'failed') {
+        return {
+            detail: scheduledDrift.errorMessage ?? 'The scheduled drift check failed.',
+            title: 'Scheduled drift check failed.',
+            tone: 'error',
+        };
+    }
+
+    if (scheduledDrift.status === 'no_baseline') {
+        return {
+            detail: 'Create or wait for a successful regular backup before scheduled drift can compare layouts.',
+            title: 'Scheduled drift needs a baseline.',
+            tone: 'warning',
+        };
+    }
+
+    if (scheduledDrift.status === 'clean') {
+        return {
+            detail: scheduledDrift.baselineName
+                ? `Live server matched ${scheduledDrift.baselineName}.`
+                : 'Live server matched the latest regular backup.',
+            title: 'No scheduled drift found.',
+            tone: 'neutral',
+        };
+    }
+
+    return {
+        detail: 'Scheduled drift monitoring is queued with automatic backups.',
+        title: 'Scheduled drift pending.',
+        tone: 'neutral',
+    };
 }
 
 function StatusTile({
@@ -943,6 +1641,8 @@ function BackupHistory({
     page,
     busyAction,
     onDownload,
+    onCheckDrift,
+    onInspect,
     onImport,
     onLoadMore,
     onRename,
@@ -958,6 +1658,8 @@ function BackupHistory({
     page: BackupPageState;
     busyAction: StructureBusyAction | undefined;
     onDownload: (backup: DashboardStructureBackupSummary) => void;
+    onCheckDrift: (backup: DashboardStructureBackupSummary) => void;
+    onInspect: (backup: DashboardStructureBackupSummary) => void;
     onImport: (backup: DashboardStructureBackupSummary) => void;
     onLoadMore: () => void;
     onRename: (backup: DashboardStructureBackupSummary) => void;
@@ -1049,6 +1751,8 @@ function BackupHistory({
                                             onCancelRename={onCancelRename}
                                             onRenameNameChange={onRenameNameChange}
                                             onRename={onRename}
+                                            onCheckDrift={onCheckDrift}
+                                            onInspect={onInspect}
                                             onImport={onImport}
                                             onDownload={onDownload}
                                             onDelete={onDelete}
@@ -1083,6 +1787,8 @@ function BackupLibraryRow({
     onCancelRename,
     onRenameNameChange,
     onRename,
+    onCheckDrift,
+    onInspect,
     onImport,
     onDownload,
     onDelete,
@@ -1097,20 +1803,28 @@ function BackupLibraryRow({
     onCancelRename: () => void;
     onRenameNameChange: (name: string) => void;
     onRename: (backup: DashboardStructureBackupSummary) => void;
+    onCheckDrift: (backup: DashboardStructureBackupSummary) => void;
+    onInspect: (backup: DashboardStructureBackupSummary) => void;
     onImport: (backup: DashboardStructureBackupSummary) => void;
     onDownload: (backup: DashboardStructureBackupSummary) => void;
     onDelete: (backup: DashboardStructureBackupSummary) => void;
     onCancelDelete: () => void;
 }) {
     const isSucceeded = backup.status === 'succeeded';
+    const backupRowId = buildDashboardStructureBackupRowId(backup.id);
     const busy = Boolean(busyAction);
+    const isDriftBusy = busyAction === `backup-drift:${backup.id}`;
+    const isInspectBusy = busyAction === `backup-json:${backup.id}`;
     const isRenameBusy = busyAction === `backup-rename:${backup.id}`;
     const isImportBusy = busyAction === `backup-import:${backup.id}`;
     const isDownloadBusy = busyAction === `backup-json:${backup.id}`;
     const isDeleteBusy = busyAction === `backup-delete:${backup.id}`;
+    const isRestorePoint = backup.source === 'restore_point';
 
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3 shadow-sm'>
+        <div
+            id={backupRowId}
+            className='scroll-mt-24 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3 shadow-sm'>
             <div className='grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.75fr)_auto] lg:items-center'>
                 <div className='min-w-0'>
                     {isEditing ? (
@@ -1146,7 +1860,7 @@ function BackupLibraryRow({
                     )}
                     <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500'>
                         <span>{formatDate(backup.completedAt)}</span>
-                        <span>{backup.source}</span>
+                        <span>{formatBackupSource(backup.source)}</span>
                         <span className={backup.status === 'failed' ? 'text-rose-300' : 'text-emerald-300'}>
                             {backup.status === 'failed' ? (backup.errorMessage ?? 'Failed') : 'Succeeded'}
                         </span>
@@ -1159,11 +1873,25 @@ function BackupLibraryRow({
                 </div>
                 <div className='flex justify-start gap-2 lg:justify-end'>
                     <IconButton
-                        label='Create dry-run from backup'
+                        label='Check drift against this backup'
+                        disabled={busy || !isSucceeded}
+                        busy={isDriftBusy}
+                        onClick={() => onCheckDrift(backup)}>
+                        <GitCompareArrows className='size-4' />
+                    </IconButton>
+                    <IconButton
+                        label='Inspect backup'
+                        disabled={busy || !isSucceeded}
+                        busy={isInspectBusy}
+                        onClick={() => onInspect(backup)}>
+                        <Eye className='size-4' />
+                    </IconButton>
+                    <IconButton
+                        label={isRestorePoint ? 'Create restore dry-run' : 'Create dry-run from backup'}
                         disabled={busy || !isSucceeded}
                         busy={isImportBusy}
                         onClick={() => onImport(backup)}>
-                        <Upload className='size-4' />
+                        {isRestorePoint ? <RotateCcw className='size-4' /> : <Upload className='size-4' />}
                     </IconButton>
                     <IconButton
                         label='Download backup JSON'
@@ -1257,6 +1985,32 @@ function StatusMessage({ status }: { status: PanelStatus }) {
     );
 }
 
+function RestorePointShortcutNotice({
+    backupId,
+    busy,
+    disabled,
+    onCreateRestoreDryRun,
+}: {
+    backupId: string;
+    busy: boolean;
+    disabled: boolean;
+    onCreateRestoreDryRun: (backupId: string) => void;
+}) {
+    return (
+        <div className='flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm'>
+            <p className='text-amber-100'>Restore point saved before apply.</p>
+            <button
+                type='button'
+                onClick={() => onCreateRestoreDryRun(backupId)}
+                disabled={disabled}
+                className='inline-flex min-h-8 items-center gap-2 rounded-md border border-amber-300/50 px-3 text-xs font-semibold text-amber-100 transition hover:border-amber-200 hover:text-white disabled:cursor-not-allowed disabled:border-neutral-800 disabled:text-neutral-500'>
+                <RotateCcw className='size-3.5' />
+                {busy ? 'Creating restore dry-run' : 'Create restore dry-run'}
+            </button>
+        </div>
+    );
+}
+
 function downloadJsonFile(fileName: string, content: string): void {
     if (typeof document === 'undefined') return;
 
@@ -1328,10 +2082,21 @@ function toApplyErrorStatus(result: {
     return toErrorStatus(result.type);
 }
 
+function toDriftErrorStatus(type: string): PanelStatus {
+    if (type === 'no-baseline') {
+        return { tone: 'error', message: 'Create a successful server blueprint backup before checking drift.' };
+    }
+    if (type === 'backup-json-unavailable') {
+        return { tone: 'error', message: 'This backup does not have usable server blueprint JSON.' };
+    }
+    return toErrorStatus(type);
+}
+
 function toErrorStatus(type: string): PanelStatus {
     const messages: Record<string, string> = {
         'auth-required': 'Sign in again before changing server blueprint data.',
         'bot-token-missing': 'The web service needs FLUXER_BOT_TOKEN to read server layout.',
+        'restore-point-failed': 'Apply was not started because NeonFlux could not save a restore point.',
         'structure-read-failed': 'NeonFlux could not read this server layout.',
         'database-error': 'The dashboard database could not save the server blueprint data.',
         'guild-lookup-failed': 'This server could not be loaded from Fluxer.',
@@ -1343,6 +2108,18 @@ function toErrorStatus(type: string): PanelStatus {
         tone: 'error',
         message: messages[type] ?? 'Server blueprint operation failed.',
     };
+}
+
+function countPlanChanges(summary: { creates: number; deletes: number; updates: number }): number {
+    return summary.creates + summary.updates + summary.deletes;
+}
+
+function readRequestedFinalStateExplorerSnapshot(
+    run: DashboardStructureImportRun
+): DashboardStructureExplorerSource['snapshot'] {
+    return run.requestedSnapshot
+        ? parseDashboardStructureExplorerSnapshot(JSON.stringify(run.requestedSnapshot))
+        : undefined;
 }
 
 function formatCounts(value: Pick<DashboardStructureBackupSummary, 'roleCount' | 'categoryCount' | 'channelCount'>) {
@@ -1358,6 +2135,16 @@ function formatDate(value: string): string {
 
 function formatStatus(status: string): string {
     return status.replaceAll('_', ' ');
+}
+
+function formatBackupSource(source: string): string {
+    const labels: Record<string, string> = {
+        manual: 'Manual',
+        restore_point: 'Restore point',
+        scheduled: 'Scheduled',
+    };
+
+    return labels[source] ?? formatStatus(source);
 }
 
 function formatObservedState(state: {

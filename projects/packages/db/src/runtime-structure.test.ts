@@ -3,18 +3,24 @@ import { describe, expect, it } from 'vitest';
 import type { ConvexDatabase } from './convex.js';
 import {
     claimDueStructureBackupSetting,
+    claimDueStructureDriftSetting,
     clearStructureBackupSettingLease,
+    clearStructureDriftSettingLease,
     createStructureBackup,
     createStructureImportRun,
+    findLatestStructureDriftBaselineBackupByGuildId,
     findStructureBackupByGuildId,
     findStructureImportRunByGuildId,
     findStructureObservedEventStateByGuildId,
     listStructureBackupSummariesByGuildId,
     listStructureBackupsByGuildId,
     listStructureImportRunsByGuildId,
+    pruneExpiredStructureBackupsForGuild,
+    listDueStructureDriftSettings,
     recordStructureImportAction,
     recordStructureImportActionsBatch,
     recordStructureObservedEvent,
+    recordStructureScheduledDriftResult,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
 } from './runtime-structure.js';
@@ -111,8 +117,9 @@ describe('Convex structure database functions', () => {
             status: 'completed',
             updatedAt: '2026-07-03T08:35:00.000Z',
         };
+        const restorePointBackup = { ...backup, source: 'restore_point' };
         const db = createConvexDb({
-            mutationResults: [backup, withoutActions(importRun), confirmedRun, action, completedAction],
+            mutationResults: [restorePointBackup, withoutActions(importRun), confirmedRun, action, completedAction],
             queryResults: [[backup], [backup], backup, [withoutActions(importRun)], withoutActions(importRun)],
         });
 
@@ -120,7 +127,7 @@ describe('Convex structure database functions', () => {
             createdByUserId: ' user-1 ',
             guildId: ' guild-1 ',
             structure: backup.structure,
-            source: ' manual ',
+            source: ' restore_point ',
         });
         const backups = await listStructureBackupsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
         const backupSummaries = await listStructureBackupSummariesByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
@@ -156,7 +163,11 @@ describe('Convex structure database functions', () => {
             status: ' completed ',
         });
 
-        expect(createdBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
+        expect(createdBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(restorePointBackup));
+        expect(db.client.mutationCalls[0]?.args).toMatchObject({
+            guildId: 'guild-1',
+            source: 'restore_point',
+        });
         expect(backups._unsafeUnwrap()).toStrictEqual([toBackupRecord(backup)]);
         expect(backupSummaries._unsafeUnwrap()).toStrictEqual([toBackupSummaryRecord(backup)]);
         expect(foundBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
@@ -169,25 +180,27 @@ describe('Convex structure database functions', () => {
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             createdByUserId: 'user-1',
             guildId: 'guild-1',
-            source: 'manual',
+            source: 'restore_point',
             structure: backup.structure,
         });
     });
 
+    it('routes latest drift baseline lookup through Convex', async () => {
+        const db = createConvexDb({
+            queryResults: [backup, null],
+        });
+
+        const found = await findLatestStructureDriftBaselineBackupByGuildId(db, { guildId: ' guild-1 ' });
+        const missing = await findLatestStructureDriftBaselineBackupByGuildId(db, { guildId: ' guild-1 ' });
+
+        expect(found._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
+        expect(missing._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
+        expect(db.client.queryCalls).toHaveLength(2);
+        expect(db.client.queryCalls[0]?.args).toStrictEqual({ guildId: 'guild-1' });
+    });
+
     it('routes scheduled backup lease claims and clears through Convex', async () => {
-        const settings = {
-            cadenceWeeks: 1,
-            createdAt: '2026-07-03T08:00:00.000Z',
-            enabled: true,
-            guildId: 'guild-1',
-            lastAttemptAt: null,
-            lastErrorMessage: null,
-            lastSuccessAt: null,
-            nextBackupAt: '2026-07-10T08:00:00.000Z',
-            nextRetentionPruneAt: null,
-            retentionDays: 180,
-            updatedAt: '2026-07-03T08:00:00.000Z',
-        };
+        const settings = createSettingsRecord();
         const db = createConvexDb({
             mutationResults: [settings, true],
         });
@@ -214,7 +227,18 @@ describe('Convex structure database functions', () => {
             lastErrorMessage: null,
             lastSuccessAt: null,
             nextBackupAt: new Date('2026-07-10T08:00:00.000Z'),
+            nextDriftCheckAt: new Date('2026-07-03T08:00:00.000Z'),
             nextRetentionPruneAt: null,
+            lastDriftCheckedAt: null,
+            lastDriftStatus: null,
+            lastDriftErrorMessage: null,
+            lastDriftChangeCount: null,
+            lastDriftBaselineBackupId: null,
+            lastDriftBaselineName: null,
+            lastDriftSummary: null,
+            lastDriftFieldSummary: null,
+            lastDriftLiveCounts: null,
+            lastDriftHasMorePreview: false,
             retentionDays: 180,
             updatedAt: new Date('2026-07-03T08:00:00.000Z'),
         });
@@ -230,6 +254,137 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             leaseId: 'lease-1',
             now: '2026-07-03T08:10:00.000Z',
+        });
+    });
+
+    it('routes scheduled drift lookup, lease, and result records through Convex', async () => {
+        const settings = createSettingsRecord({
+            lastDriftBaselineBackupId: 'backup-1',
+            lastDriftBaselineName: 'Baseline',
+            lastDriftChangeCount: 2,
+            lastDriftCheckedAt: '2026-07-03T08:05:00.000Z',
+            lastDriftFieldSummary: { names: 1 },
+            lastDriftHasMorePreview: true,
+            lastDriftLiveCounts: { roles: 1, categories: 0, channels: 1 },
+            lastDriftStatus: 'changed',
+            lastDriftSummary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
+            nextDriftCheckAt: '2026-07-04T08:05:00.000Z',
+        });
+        const db = createConvexDb({
+            mutationResults: [settings, true, settings],
+            queryResults: [[settings]],
+        });
+
+        const due = await listDueStructureDriftSettings(db, {
+            limit: 5,
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        const claimed = await claimDueStructureDriftSetting(db, {
+            guildId: ' guild-1 ',
+            leaseExpiresAt: new Date('2026-07-03T08:30:00.000Z'),
+            leaseId: ' lease-1 ',
+            leaseOwner: ' bot-1 ',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        const cleared = await clearStructureDriftSettingLease(db, {
+            guildId: ' guild-1 ',
+            leaseId: ' lease-1 ',
+            now: new Date('2026-07-03T08:10:00.000Z'),
+        });
+        const recorded = await recordStructureScheduledDriftResult(db, {
+            audit: {
+                action: ' structure.scheduled_drift_detected ',
+                metadata: { source: 'scheduled_drift' },
+                targetId: ' guild-1 ',
+            },
+            baselineBackupId: ' backup-1 ',
+            baselineName: ' Baseline ',
+            changeCount: 2,
+            fieldSummary: { names: 1 },
+            guildId: ' guild-1 ',
+            hasMorePreview: true,
+            liveCounts: { roles: 1, categories: 0, channels: 1 },
+            now: new Date('2026-07-03T08:05:00.000Z'),
+            status: ' changed ',
+            summary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
+        });
+
+        expect(due._unsafeUnwrap()).toStrictEqual([toSettingsRecord(settings)]);
+        expect(claimed._unsafeUnwrap()).toStrictEqual(toSettingsRecord(settings));
+        expect(cleared._unsafeUnwrap()).toBe(true);
+        expect(recorded._unsafeUnwrap()).toStrictEqual(toSettingsRecord(settings));
+        expect(db.client.queryCalls[0]?.args).toStrictEqual({
+            limit: 5,
+            now: '2026-07-03T08:00:00.000Z',
+        });
+        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
+            guildId: 'guild-1',
+            leaseExpiresAt: '2026-07-03T08:30:00.000Z',
+            leaseId: 'lease-1',
+            leaseOwner: 'bot-1',
+            now: '2026-07-03T08:00:00.000Z',
+        });
+        expect(db.client.mutationCalls[2]?.args).toStrictEqual({
+            audit: {
+                action: 'structure.scheduled_drift_detected',
+                metadata: { source: 'scheduled_drift' },
+                targetId: 'guild-1',
+            },
+            baselineBackupId: 'backup-1',
+            baselineName: 'Baseline',
+            changeCount: 2,
+            fieldSummary: { names: 1 },
+            guildId: 'guild-1',
+            hasMorePreview: true,
+            liveCounts: { roles: 1, categories: 0, channels: 1 },
+            now: '2026-07-03T08:05:00.000Z',
+            status: 'changed',
+            summary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
+        });
+    });
+
+    it('routes retention pruning through Convex with audit metadata', async () => {
+        const db = createConvexDb({
+            mutationResults: [
+                {
+                    deletedCount: 2,
+                    hasMore: true,
+                    nextRetentionPruneAt: '2026-07-03T08:00:00.000Z',
+                },
+            ],
+        });
+
+        const pruned = await pruneExpiredStructureBackupsForGuild(db, {
+            audit: {
+                action: ' structure.backup_retention_pruned ',
+                actorUserId: ' ',
+                metadata: { source: 'scheduled_retention' },
+                targetId: ' guild-1 ',
+            },
+            guildId: ' guild-1 ',
+            limit: 5,
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        const missingGuild = await pruneExpiredStructureBackupsForGuild(db, {
+            guildId: ' ',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+
+        expect(pruned._unsafeUnwrap()).toStrictEqual({
+            deletedCount: 2,
+            hasMore: true,
+            nextRetentionPruneAt: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        expect(missingGuild._unsafeUnwrapErr()).toStrictEqual({ field: 'guildId', type: 'missing-input' });
+        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
+            audit: {
+                action: 'structure.backup_retention_pruned',
+                metadata: { source: 'scheduled_retention' },
+                targetId: 'guild-1',
+            },
+            guildId: 'guild-1',
+            limit: 5,
+            now: '2026-07-03T08:00:00.000Z',
         });
     });
 
@@ -342,6 +497,79 @@ function toActionRecord(record: typeof action) {
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
     };
+}
+
+function createSettingsRecord(overrides: Record<string, unknown> = {}) {
+    return {
+        cadenceWeeks: 1,
+        createdAt: '2026-07-03T08:00:00.000Z',
+        enabled: true,
+        guildId: 'guild-1',
+        lastAttemptAt: null,
+        lastDriftBaselineBackupId: null,
+        lastDriftBaselineName: null,
+        lastDriftChangeCount: null,
+        lastDriftCheckedAt: null,
+        lastDriftErrorMessage: null,
+        lastDriftFieldSummary: null,
+        lastDriftHasMorePreview: false,
+        lastDriftLiveCounts: null,
+        lastDriftStatus: null,
+        lastDriftSummary: null,
+        lastErrorMessage: null,
+        lastSuccessAt: null,
+        nextBackupAt: '2026-07-10T08:00:00.000Z',
+        nextDriftCheckAt: '2026-07-03T08:00:00.000Z',
+        nextRetentionPruneAt: null,
+        retentionDays: 180,
+        updatedAt: '2026-07-03T08:00:00.000Z',
+        ...overrides,
+    };
+}
+
+function toSettingsRecord(record: Record<string, any>) {
+    return {
+        ...record,
+        createdAt: record.createdAt ? new Date(record.createdAt) : undefined,
+        lastAttemptAt: record.lastAttemptAt ? new Date(record.lastAttemptAt) : null,
+        lastDriftCheckedAt: record.lastDriftCheckedAt ? new Date(record.lastDriftCheckedAt) : null,
+        lastDriftFieldSummary: record.lastDriftFieldSummary
+            ? {
+                  names: readNumber(record.lastDriftFieldSummary.names),
+                  permissions: readNumber(record.lastDriftFieldSummary.permissions),
+                  positions: readNumber(record.lastDriftFieldSummary.positions),
+                  parentMoves: readNumber(record.lastDriftFieldSummary.parentMoves),
+                  typeChanges: readNumber(record.lastDriftFieldSummary.typeChanges),
+                  roleVisuals: readNumber(record.lastDriftFieldSummary.roleVisuals),
+              }
+            : null,
+        lastDriftLiveCounts: record.lastDriftLiveCounts
+            ? {
+                  roles: readNumber(record.lastDriftLiveCounts.roles),
+                  categories: readNumber(record.lastDriftLiveCounts.categories),
+                  channels: readNumber(record.lastDriftLiveCounts.channels),
+              }
+            : null,
+        lastDriftSummary: record.lastDriftSummary
+            ? {
+                  creates: readNumber(record.lastDriftSummary.creates),
+                  updates: readNumber(record.lastDriftSummary.updates),
+                  deletes: readNumber(record.lastDriftSummary.deletes),
+                  roles: readNumber(record.lastDriftSummary.roles),
+                  categories: readNumber(record.lastDriftSummary.categories),
+                  channels: readNumber(record.lastDriftSummary.channels),
+              }
+            : null,
+        lastSuccessAt: record.lastSuccessAt ? new Date(record.lastSuccessAt) : null,
+        nextBackupAt: record.nextBackupAt ? new Date(record.nextBackupAt) : null,
+        nextDriftCheckAt: record.nextDriftCheckAt ? new Date(record.nextDriftCheckAt) : null,
+        nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
+        updatedAt: record.updatedAt ? new Date(record.updatedAt) : undefined,
+    };
+}
+
+function readNumber(value: unknown): number {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
 
 function createConvexDb(input: {

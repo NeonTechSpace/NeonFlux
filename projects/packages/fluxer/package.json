@@ -14,6 +14,10 @@
             "types": "./src/guild-structure.ts",
             "import": "./dist/guild-structure.js"
         },
+        "./guild-structure-diff": {
+            "types": "./src/guild-structure-diff.ts",
+            "import": "./dist/guild-structure-diff.js"
+        },
         "./guild-emojis": {
             "types": "./src/guild-emojis.ts",
             "import": "./dist/guild-emojis.js"

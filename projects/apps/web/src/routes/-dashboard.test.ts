@@ -53,6 +53,9 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging/message-builder'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/moderation'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/moderation/automod'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/import-export'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/import-export'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/system'");

@@ -2,6 +2,7 @@ export * from './client.js';
 export * from './guild-emojis.js';
 export * from './guild-structure.js';
 export * from './guild-structure-apply.js';
+export * from './guild-structure-diff.js';
 export * from './guilds.js';
 export * from './invites.js';
 export * from './messages.js';

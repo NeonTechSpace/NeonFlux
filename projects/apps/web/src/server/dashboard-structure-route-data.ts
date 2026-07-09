@@ -18,6 +18,8 @@ import type {
     DashboardStructureConfirmInput,
     DashboardStructureConfirmResult,
     DashboardStructureCurrentExportResult,
+    DashboardStructureDriftInput,
+    DashboardStructureDriftResult,
     DashboardStructureDryRunInput,
     DashboardStructureDryRunResult,
     DashboardStructureRetryInput,
@@ -90,6 +92,17 @@ export const readDashboardStructureBackupPageRouteData = createServerFn({ method
         setResponseHeader('Cache-Control', 'no-store');
 
         return readDashboardStructureBackupPage(getRequest(), data);
+    });
+
+export const readDashboardStructureDriftRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardStructureDriftInput)
+    .handler(async ({ data }): Promise<DashboardStructureDriftResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { readDashboardStructureDrift } = await import('./dashboard-structure.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return readDashboardStructureDrift(getRequest(), data);
     });
 
 export const renameDashboardStructureBackupRouteData = createServerFn({ method: 'POST' })
@@ -242,6 +255,17 @@ function validateDashboardStructureBackupPageInput(input: unknown): DashboardStr
         cursor: readString(payload.cursor) || undefined,
         guildId: readString(payload.guildId),
         limit: typeof limit === 'number' ? limit : undefined,
+    };
+}
+
+function validateDashboardStructureDriftInput(input: unknown): DashboardStructureDriftInput {
+    if (!input || typeof input !== 'object') return { guildId: '' };
+
+    const payload = input as Record<string, unknown>;
+
+    return {
+        baselineBackupId: readString(payload.baselineBackupId) || undefined,
+        guildId: readString(payload.guildId),
     };
 }
 

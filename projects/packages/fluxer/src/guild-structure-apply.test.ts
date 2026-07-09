@@ -12,7 +12,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         vi.restoreAllMocks();
     });
 
-    it('creates channels with mapped parent ids and returns the created id', async () => {
+    it('creates channels with mapped parent ids and positions', async () => {
         const createChannel = vi.fn().mockResolvedValue({ id: 'created-channel-1', guildId: 'guild-1' });
         const login = mockClientLogin({
             guilds: {
@@ -37,6 +37,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
                 name: ' announcements ',
                 type: 0,
                 parentId: 'source-category-1',
+                position: 2,
                 permissionOverwrites: [],
             },
         });
@@ -48,6 +49,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
             type: 0,
             name: 'announcements',
             parent_id: 'created-category-1',
+            position: 2,
         });
         expect(destroy).toHaveBeenCalledOnce();
     });
@@ -359,7 +361,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
     });
 
-    it('creates roles with name and permissions', async () => {
+    it('creates roles with name, permissions, and position', async () => {
         const createRole = vi.fn().mockResolvedValue({ id: 'created-role-1', guildId: 'guild-1' });
 
         mockClientLogin({
@@ -381,6 +383,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
                 id: 'source-role-1',
                 name: 'Member',
                 permissions: '1024',
+                position: 3,
                 color: 65280,
                 hoist: true,
                 mentionable: false,
@@ -392,6 +395,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(createRole).toHaveBeenCalledWith({
             name: 'Member',
             permissions: '1024',
+            position: 3,
             color: 65280,
             hoist: true,
             mentionable: false,

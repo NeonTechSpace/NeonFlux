@@ -2,6 +2,7 @@ import type { GenericId } from 'convex/values';
 
 export const STRUCTURE_BACKUP_SOURCE = {
     manual: 'manual',
+    restorePoint: 'restore_point',
     scheduled: 'scheduled',
 } as const;
 
@@ -13,6 +14,14 @@ export const STRUCTURE_BACKUP_STATUS = {
 export const STRUCTURE_BACKUP_NAME_MAX_LENGTH = 120;
 export const STRUCTURE_BACKUP_RETENTION_DAYS_DEFAULT = 180;
 export const STRUCTURE_BACKUP_RETENTION_DAYS_MAX = 180;
+export const STRUCTURE_DRIFT_CHECK_INTERVAL_DAYS = 1;
+
+export const STRUCTURE_SCHEDULED_DRIFT_STATUS = {
+    changed: 'changed',
+    clean: 'clean',
+    failed: 'failed',
+    noBaseline: 'no_baseline',
+} as const;
 
 export const STRUCTURE_IMPORT_RUN_STATUS = {
     applied: 'applied',
@@ -78,15 +87,42 @@ export type StructureBackupSettingsDocument = {
     backupLeaseStartedAt?: string;
     cadenceWeeks: number;
     createdAt: string;
+    driftLeaseExpiresAt?: string;
+    driftLeaseId?: string;
+    driftLeaseOwner?: string;
+    driftLeaseStartedAt?: string;
     enabled: boolean;
     guildId: string;
+    lastDriftBaselineBackupId?: string;
+    lastDriftBaselineName?: string;
+    lastDriftChangeCount?: number;
+    lastDriftCheckedAt?: string;
+    lastDriftErrorMessage?: string;
+    lastDriftFieldSummary?: Record<string, unknown>;
+    lastDriftHasMorePreview?: boolean;
+    lastDriftLiveCounts?: Record<string, unknown>;
+    lastDriftStatus?: string;
+    lastDriftSummary?: Record<string, unknown>;
     lastAttemptAt?: string;
     lastErrorMessage?: string;
     lastSuccessAt?: string;
     nextBackupAt?: string;
+    nextDriftCheckAt?: string;
     nextRetentionPruneAt?: string;
     retentionDays: number;
     updatedAt: string;
+};
+
+export type StructureScheduledDriftResultInput = {
+    baselineBackupId?: string | null;
+    baselineName?: string | null;
+    changeCount?: number | null;
+    errorMessage?: string | null;
+    fieldSummary?: Record<string, unknown> | null;
+    hasMorePreview?: boolean | null;
+    liveCounts?: Record<string, unknown> | null;
+    status?: string | null;
+    summary?: Record<string, unknown> | null;
 };
 
 export type StructureImportRunInput = {
@@ -169,10 +205,21 @@ export type StructureBackupSettingsRecord = {
     createdAt?: string;
     enabled: boolean;
     guildId: string;
+    lastDriftBaselineBackupId: string | null;
+    lastDriftBaselineName: string | null;
+    lastDriftChangeCount: number | null;
+    lastDriftCheckedAt: string | null;
+    lastDriftErrorMessage: string | null;
+    lastDriftFieldSummary: Record<string, unknown> | null;
+    lastDriftHasMorePreview: boolean;
+    lastDriftLiveCounts: Record<string, unknown> | null;
+    lastDriftStatus: string | null;
+    lastDriftSummary: Record<string, unknown> | null;
     lastAttemptAt: string | null;
     lastErrorMessage: string | null;
     lastSuccessAt: string | null;
     nextBackupAt: string | null;
+    nextDriftCheckAt: string | null;
     nextRetentionPruneAt: string | null;
     retentionDays: number;
     updatedAt?: string;
@@ -235,11 +282,26 @@ export type StructureBackupSettingsPatch = {
     backupLeaseOwner?: string | undefined;
     backupLeaseStartedAt?: string | undefined;
     cadenceWeeks?: number;
+    driftLeaseExpiresAt?: string | undefined;
+    driftLeaseId?: string | undefined;
+    driftLeaseOwner?: string | undefined;
+    driftLeaseStartedAt?: string | undefined;
     enabled?: boolean;
+    lastDriftBaselineBackupId?: string | undefined;
+    lastDriftBaselineName?: string | undefined;
+    lastDriftChangeCount?: number | undefined;
+    lastDriftCheckedAt?: string | undefined;
+    lastDriftErrorMessage?: string | undefined;
+    lastDriftFieldSummary?: Record<string, unknown> | undefined;
+    lastDriftHasMorePreview?: boolean | undefined;
+    lastDriftLiveCounts?: Record<string, unknown> | undefined;
+    lastDriftStatus?: string | undefined;
+    lastDriftSummary?: Record<string, unknown> | undefined;
     lastAttemptAt?: string | undefined;
     lastErrorMessage?: string | undefined;
     lastSuccessAt?: string | undefined;
     nextBackupAt?: string | undefined;
+    nextDriftCheckAt?: string | undefined;
     nextRetentionPruneAt?: string | undefined;
     retentionDays?: number;
     updatedAt: string;
@@ -299,6 +361,7 @@ export function buildStructureBackupDocument(
             completedAt,
             fallbackName: guildId.value,
             serverName: input.serverName,
+            source,
         })
     );
 
@@ -340,6 +403,7 @@ export function buildStructureBackupSettingsDocument(
             enabled: input.enabled === true,
             guildId: guildId.value,
             ...(input.enabled === true ? { nextBackupAt: addWeeks(now, cadenceWeeks) } : {}),
+            ...(input.enabled === true ? { nextDriftCheckAt: now } : {}),
             nextRetentionPruneAt: now,
             retentionDays,
             updatedAt: now,
@@ -369,8 +433,22 @@ export function buildStructureBackupSettingsPatch(
                     : enabled
                       ? existing?.nextBackupAt
                       : undefined,
+            nextDriftCheckAt:
+                enabled && (enabledChanged || !existing?.nextDriftCheckAt)
+                    ? now
+                    : enabled
+                      ? existing?.nextDriftCheckAt
+                      : undefined,
             nextRetentionPruneAt: existing?.nextRetentionPruneAt ?? now,
             retentionDays,
+            ...(enabled
+                ? {}
+                : {
+                      driftLeaseExpiresAt: undefined,
+                      driftLeaseId: undefined,
+                      driftLeaseOwner: undefined,
+                      driftLeaseStartedAt: undefined,
+                  }),
             updatedAt: now,
         },
     };
@@ -430,6 +508,114 @@ export function buildStructureBackupLeaseClearPatch(
             backupLeaseId: undefined,
             backupLeaseOwner: undefined,
             backupLeaseStartedAt: undefined,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureDriftLeaseClaimPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: {
+        leaseExpiresAt?: string | null;
+        leaseId?: string | null;
+        leaseOwner?: string | null;
+    },
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch | null> {
+    const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+    const leaseOwner = normalizeRequiredString(input.leaseOwner, 'leaseOwner');
+    const leaseExpiresAt = normalizeTimestamp(input.leaseExpiresAt);
+    const parsedNow = Date.parse(now);
+    const parsedLeaseExpiresAt = Date.parse(leaseExpiresAt ?? '');
+
+    if (!leaseId.ok) return leaseId;
+    if (!leaseOwner.ok) return leaseOwner;
+    if (!Number.isFinite(parsedNow)) return { error: { field: 'now', type: 'invalid-value' }, ok: false };
+    if (!leaseExpiresAt || !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow) {
+        return { error: { field: 'leaseExpiresAt', type: 'invalid-value' }, ok: false };
+    }
+    if (!isDriftDueAndClaimable(existing, now)) return { ok: true, value: null };
+
+    return {
+        ok: true,
+        value: {
+            driftLeaseExpiresAt: leaseExpiresAt,
+            driftLeaseId: leaseId.value,
+            driftLeaseOwner: leaseOwner.value,
+            driftLeaseStartedAt: now,
+            nextDriftCheckAt: existing?.nextDriftCheckAt ?? now,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureDriftLeaseClearPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: { leaseId?: string | null },
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch | null> {
+    const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+    const parsedNow = Date.parse(now);
+
+    if (!leaseId.ok) return leaseId;
+    if (!Number.isFinite(parsedNow)) return { error: { field: 'now', type: 'invalid-value' }, ok: false };
+    if (existing?.driftLeaseId !== leaseId.value) return { ok: true, value: null };
+
+    return {
+        ok: true,
+        value: {
+            driftLeaseExpiresAt: undefined,
+            driftLeaseId: undefined,
+            driftLeaseOwner: undefined,
+            driftLeaseStartedAt: undefined,
+            updatedAt: now,
+        },
+    };
+}
+
+export function buildStructureScheduledDriftResultPatch(
+    existing: StructureBackupSettingsDocument | undefined,
+    input: StructureScheduledDriftResultInput,
+    now: string
+): StructureInputResult<StructureBackupSettingsPatch> {
+    const status = normalizeScheduledDriftStatus(input.status);
+    const parsedNow = Date.parse(now);
+
+    if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
+    if (!Number.isFinite(parsedNow)) return { error: { field: 'now', type: 'invalid-value' }, ok: false };
+
+    const summary = normalizeRecord(input.summary);
+    const fieldSummary = normalizeRecord(input.fieldSummary);
+    const liveCounts = normalizeRecord(input.liveCounts);
+    const baselineBackupId = normalizeOptionalString(input.baselineBackupId);
+    const baselineName = normalizeDisplayText(input.baselineName);
+    const errorMessage =
+        status === STRUCTURE_SCHEDULED_DRIFT_STATUS.failed
+            ? (normalizeOptionalString(input.errorMessage) ?? 'Scheduled drift check failed.')
+            : status === STRUCTURE_SCHEDULED_DRIFT_STATUS.noBaseline
+              ? (normalizeOptionalString(input.errorMessage) ?? 'No successful regular backup is available.')
+              : undefined;
+
+    return {
+        ok: true,
+        value: {
+            driftLeaseExpiresAt: undefined,
+            driftLeaseId: undefined,
+            driftLeaseOwner: undefined,
+            driftLeaseStartedAt: undefined,
+            ...(baselineBackupId
+                ? { lastDriftBaselineBackupId: baselineBackupId }
+                : { lastDriftBaselineBackupId: undefined }),
+            ...(baselineName ? { lastDriftBaselineName: baselineName } : { lastDriftBaselineName: undefined }),
+            lastDriftChangeCount: normalizeNonNegativeInteger(input.changeCount),
+            lastDriftCheckedAt: now,
+            lastDriftErrorMessage: errorMessage,
+            lastDriftFieldSummary: fieldSummary,
+            lastDriftHasMorePreview: input.hasMorePreview === true,
+            lastDriftLiveCounts: liveCounts,
+            lastDriftStatus: status,
+            lastDriftSummary: summary,
+            nextDriftCheckAt: existing?.enabled ? addDays(now, STRUCTURE_DRIFT_CHECK_INTERVAL_DAYS) : undefined,
             updatedAt: now,
         },
     };
@@ -614,6 +800,7 @@ export function toStructureBackupRecord(document: StructureBackupDocument & { _i
         buildDefaultBackupName({
             completedAt: document.completedAt,
             fallbackName: document.guildId,
+            source: document.source,
         })
     );
 
@@ -642,6 +829,7 @@ export function toStructureBackupSummaryRecord(
         buildDefaultBackupName({
             completedAt: document.completedAt,
             fallbackName: document.guildId,
+            source: document.source,
         })
     );
 
@@ -670,10 +858,21 @@ export function toStructureBackupSettingsRecord(
         ...(document?.createdAt ? { createdAt: document.createdAt } : {}),
         enabled: document?.enabled ?? false,
         guildId,
+        lastDriftBaselineBackupId: document?.lastDriftBaselineBackupId ?? null,
+        lastDriftBaselineName: document?.lastDriftBaselineName ?? null,
+        lastDriftChangeCount: readNonNegativeIntegerOrNull(document?.lastDriftChangeCount),
+        lastDriftCheckedAt: document?.lastDriftCheckedAt ?? null,
+        lastDriftErrorMessage: document?.lastDriftErrorMessage ?? null,
+        lastDriftFieldSummary: normalizeRecord(document?.lastDriftFieldSummary) ?? null,
+        lastDriftHasMorePreview: document?.lastDriftHasMorePreview === true,
+        lastDriftLiveCounts: normalizeRecord(document?.lastDriftLiveCounts) ?? null,
+        lastDriftStatus: document?.lastDriftStatus ?? null,
+        lastDriftSummary: normalizeRecord(document?.lastDriftSummary) ?? null,
         lastAttemptAt: document?.lastAttemptAt ?? null,
         lastErrorMessage: document?.lastErrorMessage ?? null,
         lastSuccessAt: document?.lastSuccessAt ?? null,
         nextBackupAt: document?.nextBackupAt ?? null,
+        nextDriftCheckAt: document?.nextDriftCheckAt ?? null,
         nextRetentionPruneAt: document?.nextRetentionPruneAt ?? null,
         retentionDays: normalizeBackupRetentionDays(document?.retentionDays),
         ...(document?.updatedAt ? { updatedAt: document.updatedAt } : {}),
@@ -769,6 +968,7 @@ export function buildDefaultBackupName(input: {
     completedAt: string;
     fallbackName: string;
     serverName?: string | null | undefined;
+    source?: string | null | undefined;
 }): string {
     const parsed = Date.parse(input.completedAt);
     const timestamp = Number.isFinite(parsed) ? new Date(parsed) : new Date();
@@ -777,11 +977,28 @@ export function buildDefaultBackupName(input: {
     const time = iso.slice(11, 16).replace(':', '-');
     const displayName = normalizeDisplayText(input.serverName) ?? normalizeDisplayText(input.fallbackName) ?? 'Server';
 
-    return normalizeBackupName(`${displayName} - ${date} - ${time}`, 'Server backup');
+    const sourceLabel = input.source === STRUCTURE_BACKUP_SOURCE.restorePoint ? ' - restore point' : '';
+
+    return normalizeBackupName(`${displayName}${sourceLabel} - ${date} - ${time}`, 'Server backup');
 }
 
 export function buildBackupSortCursor(input: { createdAt: string; id: string }): string {
     return `${input.createdAt}|${input.id}`;
+}
+
+export function chooseLatestStructureDriftBaselineBackup<TBackup extends StructureBackupDocument>(
+    backups: readonly TBackup[]
+): TBackup | undefined {
+    return [...backups]
+        .filter(
+            (backup) =>
+                Boolean(backup.structure) &&
+                backup.status === STRUCTURE_BACKUP_STATUS.succeeded &&
+                (backup.source === STRUCTURE_BACKUP_SOURCE.manual ||
+                    backup.source === STRUCTURE_BACKUP_SOURCE.scheduled)
+        )
+        .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+        .at(0);
 }
 
 export function addWeeks(value: string, weeks: number): string {
@@ -810,6 +1027,20 @@ function isBackupDueAndClaimable(existing: StructureBackupSettingsDocument | und
     return !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow;
 }
 
+function isDriftDueAndClaimable(existing: StructureBackupSettingsDocument | undefined, now: string): boolean {
+    if (!existing?.enabled) return false;
+
+    const parsedNow = Date.parse(now);
+    const parsedNextDriftCheckAt = Date.parse(existing.nextDriftCheckAt ?? now);
+    const parsedLeaseExpiresAt = Date.parse(existing.driftLeaseExpiresAt ?? '');
+
+    if (!Number.isFinite(parsedNow) || !Number.isFinite(parsedNextDriftCheckAt) || parsedNextDriftCheckAt > parsedNow) {
+        return false;
+    }
+
+    return !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow;
+}
+
 function assertAllowedStatusTransition(from: string, to: string): StructureInputResult<undefined> {
     if (from === to || importRunStatusTransitions.get(from)?.includes(to)) return { ok: true, value: undefined };
     return { error: { from, to, type: 'invalid-status-transition' }, ok: false };
@@ -817,7 +1048,9 @@ function assertAllowedStatusTransition(from: string, to: string): StructureInput
 
 function normalizeBackupSource(value: string | null | undefined): string | undefined {
     const source = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_SOURCE.manual;
-    return source === STRUCTURE_BACKUP_SOURCE.manual || source === STRUCTURE_BACKUP_SOURCE.scheduled
+    return source === STRUCTURE_BACKUP_SOURCE.manual ||
+        source === STRUCTURE_BACKUP_SOURCE.scheduled ||
+        source === STRUCTURE_BACKUP_SOURCE.restorePoint
         ? source
         : undefined;
 }
@@ -830,6 +1063,16 @@ function normalizeBackupSortKey(value: string | null | undefined, createdAt: str
 function normalizeBackupStatus(value: string | null | undefined): string | undefined {
     const status = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_STATUS.succeeded;
     return status === STRUCTURE_BACKUP_STATUS.succeeded || status === STRUCTURE_BACKUP_STATUS.failed
+        ? status
+        : undefined;
+}
+
+function normalizeScheduledDriftStatus(value: string | null | undefined): string | undefined {
+    const status = normalizeOptionalString(value);
+    return status === STRUCTURE_SCHEDULED_DRIFT_STATUS.clean ||
+        status === STRUCTURE_SCHEDULED_DRIFT_STATUS.changed ||
+        status === STRUCTURE_SCHEDULED_DRIFT_STATUS.failed ||
+        status === STRUCTURE_SCHEDULED_DRIFT_STATUS.noBaseline
         ? status
         : undefined;
 }
@@ -872,6 +1115,10 @@ function normalizeRequiredNonNegativeInteger(value: number | null | undefined): 
 
 function readNonNegativeInteger(value: unknown): number {
     return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
+}
+
+function readNonNegativeIntegerOrNull(value: unknown): number | null {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : null;
 }
 
 function readStringField(config: Record<string, unknown>, field: string): string | undefined {

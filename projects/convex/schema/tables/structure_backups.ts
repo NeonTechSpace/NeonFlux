@@ -19,4 +19,5 @@ export const structureBackupsTable = defineTable({
     structure: v.optional(jsonValue),
 })
     .index('by_guild_created', ['guildId', 'createdAt'])
+    .index('by_guild_source_status_sort_key', ['guildId', 'source', 'status', 'sortKey'])
     .index('by_guild_sort_key', ['guildId', 'sortKey']);

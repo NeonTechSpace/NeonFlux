@@ -1,15 +1,20 @@
 import { loadWebConfig } from '@neonflux/config';
 import type * as NeonFluxConfig from '@neonflux/config';
 import {
+    createStructureBackup,
     findStructureImportRunWithActionsByGuildId,
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
 } from '@neonflux/db';
-import type { StructureImportRunRecord, StructureImportRunWithActionsRecord } from '@neonflux/db';
+import type {
+    StructureBackupRecord,
+    StructureImportRunRecord,
+    StructureImportRunWithActionsRecord,
+} from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -38,6 +43,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
+        createStructureBackup: vi.fn(),
         findStructureImportRunWithActionsByGuildId: vi.fn(),
         updateStructureImportActionStatus: vi.fn(),
         updateStructureImportRunStatus: vi.fn(),
@@ -98,6 +104,7 @@ describe('dashboard structure apply', () => {
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(
             ok({ actions: [{ id: 'action-1', status: 'applied' }], idMap: {} })
         );
+        vi.mocked(createStructureBackup).mockResolvedValue(ok(createRestorePointBackupRecord()));
         vi.mocked(recordStructureAuditBestEffort).mockResolvedValue(undefined);
     });
 
@@ -150,6 +157,7 @@ describe('dashboard structure apply', () => {
                 status: 'applied',
             })
         );
+        expect(createStructureBackup).not.toHaveBeenCalled();
         expect(recordStructureAuditBestEffort).toHaveBeenCalledWith(
             expect.anything(),
             'structure.import_applied',
@@ -201,6 +209,7 @@ describe('dashboard structure apply', () => {
             },
         });
         expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
+        expect(createStructureBackup).not.toHaveBeenCalled();
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
     });
 
@@ -227,6 +236,7 @@ describe('dashboard structure apply', () => {
         });
 
         expect(result).toMatchObject({ type: 'applied' });
+        expect(createStructureBackup).not.toHaveBeenCalled();
         expect(applyFluxerBotGuildStructureActions).toHaveBeenCalledWith(
             expect.objectContaining({
                 actions: [
@@ -472,11 +482,12 @@ describe('dashboard structure apply', () => {
             expectedText: getStructureImportDeleteApprovalText('run-1', 1),
         });
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+        expect(createStructureBackup).not.toHaveBeenCalled();
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
         expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
     });
 
-    it('applies destructive delete actions only after destructive approval', async () => {
+    it('creates a restore-point backup before applying destructive delete actions', async () => {
         vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createDeleteImportRun()));
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
             ok({ actions: [{ id: 'action-delete-channel', status: 'applied' }], idMap: {} })
@@ -490,6 +501,53 @@ describe('dashboard structure apply', () => {
         });
 
         expect(result).toMatchObject({ type: 'applied' });
+        expect(result).toMatchObject({ restorePointBackupId: 'backup-restore-1' });
+        expect(createStructureBackup).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                guildId: 'guild-1',
+                createdByUserId: 'actor-1',
+                serverName: 'Guild One',
+                source: 'restore_point',
+                status: 'succeeded',
+                structure: expect.objectContaining({
+                    version: 1,
+                    guildId: 'guild-1',
+                    guildName: 'Guild 1',
+                    roles: expect.any(Array),
+                    categories: expect.any(Array),
+                    channels: expect.any(Array),
+                }),
+                roleCount: 0,
+                categoryCount: 1,
+                channelCount: 1,
+                audit: expect.objectContaining({
+                    action: 'structure.backup_restore_point_created',
+                    actorUserId: 'actor-1',
+                    targetId: 'run-1',
+                    metadata: expect.objectContaining({
+                        deleteCount: 1,
+                        permissionRiskCount: 0,
+                        riskyActionCount: 1,
+                        source: 'restore_point',
+                    }),
+                }),
+            })
+        );
+        expect(updateStructureImportRunStatus).toHaveBeenNthCalledWith(
+            1,
+            {},
+            expect.objectContaining({
+                runId: 'run-1',
+                status: 'applying',
+            })
+        );
+        expect(vi.mocked(createStructureBackup).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(updateStructureImportRunStatus).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+        );
+        expect(vi.mocked(createStructureBackup).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(applyFluxerBotGuildStructureActions).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+        );
         expect(applyFluxerBotGuildStructureActions).toHaveBeenCalledWith({
             botToken: 'bot-token',
             guildId: 'guild-1',
@@ -517,6 +575,137 @@ describe('dashboard structure apply', () => {
             'run-1',
             expect.objectContaining({
                 deleteCount: 1,
+                restorePointBackupId: 'backup-restore-1',
+            })
+        );
+        expect(updateStructureImportRunStatus).toHaveBeenLastCalledWith(
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    applySummary: expect.objectContaining({
+                        restorePointBackupId: 'backup-restore-1',
+                    }),
+                }),
+            })
+        );
+    });
+
+    it('creates a restore-point backup before applying permission-risk updates', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createPermissionImportRun()));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({ actions: [{ id: 'action-permission-channel', status: 'applied' }], idMap: {} })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+        });
+
+        expect(result).toMatchObject({ type: 'applied', restorePointBackupId: 'backup-restore-1' });
+        expect(createStructureBackup).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                source: 'restore_point',
+                audit: expect.objectContaining({
+                    metadata: expect.objectContaining({
+                        deleteCount: 0,
+                        permissionRiskCount: 1,
+                        riskyActionCount: 1,
+                    }),
+                }),
+            })
+        );
+        expect(applyFluxerBotGuildStructureActions).toHaveBeenCalled();
+    });
+
+    it('creates a restore-point backup before applying role permission updates', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createRolePermissionImportRun()));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
+            ok({
+                ...createFluxerStructure(),
+                roles: [
+                    {
+                        id: 'role-1',
+                        name: 'Member',
+                        position: 1,
+                        permissions: '1024',
+                        color: 0,
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+            })
+        );
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({ actions: [{ id: 'action-permission-role', status: 'applied' }], idMap: {} })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+        });
+
+        expect(result).toMatchObject({ type: 'applied', restorePointBackupId: 'backup-restore-1' });
+        expect(createStructureBackup).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                source: 'restore_point',
+                audit: expect.objectContaining({
+                    metadata: expect.objectContaining({
+                        deleteCount: 0,
+                        permissionRiskCount: 1,
+                        riskyActionCount: 1,
+                    }),
+                }),
+            })
+        );
+    });
+
+    it('blocks risky apply before Fluxer mutation when restore-point persistence returns an error', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createDeleteImportRun()));
+        vi.mocked(createStructureBackup).mockResolvedValueOnce(err({ type: 'database-error' }));
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+            destructiveConfirmationText: getStructureImportDeleteApprovalText('run-1', 1),
+        });
+
+        expect(result).toStrictEqual({ type: 'restore-point-failed' });
+        expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
+        expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
+    });
+
+    it('keeps the restore point when Fluxer apply fails after backup creation', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createDeleteImportRun()));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({
+                actions: [{ id: 'action-delete-channel', status: 'failed', errorType: 'permission-denied' }],
+                idMap: {},
+            })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+            destructiveConfirmationText: getStructureImportDeleteApprovalText('run-1', 1),
+        });
+
+        expect(result).toMatchObject({ type: 'failed', restorePointBackupId: 'backup-restore-1' });
+        expect(createStructureBackup).toHaveBeenCalledOnce();
+        expect(updateStructureImportRunStatus).toHaveBeenLastCalledWith(
+            {},
+            expect.objectContaining({
+                status: 'failed',
+                plan: expect.objectContaining({
+                    applySummary: expect.objectContaining({
+                        restorePointBackupId: 'backup-restore-1',
+                    }),
+                }),
             })
         );
     });
@@ -678,6 +867,117 @@ function createDeleteImportRun(): StructureImportRunWithActionsRecord {
                 updatedAt: timestamp,
             },
         ],
+    };
+}
+
+function createPermissionImportRun(): StructureImportRunWithActionsRecord {
+    const timestamp = new Date('2026-06-28T00:00:00.000Z');
+
+    return {
+        ...createImportRun({
+            plan: {
+                summary: {
+                    creates: 0,
+                    updates: 1,
+                    deletes: 0,
+                    roles: 0,
+                    categories: 0,
+                    channels: 1,
+                },
+            },
+        }),
+        actions: [
+            {
+                id: 'action-permission-channel',
+                runId: 'run-1',
+                sequence: 0,
+                actionType: 'update',
+                targetType: 'channel',
+                targetId: 'channel-1',
+                status: 'dry_run',
+                details: {
+                    label: 'old-name',
+                    changes: [
+                        {
+                            field: 'permissionOverwrites',
+                            before: [],
+                            after: [
+                                {
+                                    id: 'guild-1',
+                                    type: 0,
+                                    allow: '1024',
+                                    deny: '0',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+        ],
+    };
+}
+
+function createRolePermissionImportRun(): StructureImportRunWithActionsRecord {
+    const timestamp = new Date('2026-06-28T00:00:00.000Z');
+
+    return {
+        ...createImportRun({
+            plan: {
+                summary: {
+                    creates: 0,
+                    updates: 1,
+                    deletes: 0,
+                    roles: 1,
+                    categories: 0,
+                    channels: 0,
+                },
+            },
+        }),
+        actions: [
+            {
+                id: 'action-permission-role',
+                runId: 'run-1',
+                sequence: 0,
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'role-1',
+                status: 'dry_run',
+                details: {
+                    label: 'Member',
+                    changes: [{ field: 'permissions', before: '1024', after: '2048' }],
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+        ],
+    };
+}
+
+function createRestorePointBackupRecord(): StructureBackupRecord {
+    const timestamp = new Date('2026-06-28T00:00:00.000Z');
+
+    return {
+        id: 'backup-restore-1',
+        guildId: 'guild-1',
+        name: 'Guild One - restore point - 2026-06-28 - 00-00',
+        createdByUserId: 'actor-1',
+        source: 'restore_point',
+        status: 'succeeded',
+        errorMessage: null,
+        structure: {
+            version: 1,
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [],
+        },
+        roleCount: 0,
+        categoryCount: 1,
+        channelCount: 1,
+        createdAt: timestamp,
+        completedAt: timestamp,
     };
 }
 

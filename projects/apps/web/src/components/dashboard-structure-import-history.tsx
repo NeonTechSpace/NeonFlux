@@ -9,8 +9,13 @@ export type StructureBusyAction =
     | 'export'
     | 'backup'
     | 'backup-settings'
+    | 'drift'
+    | 'explorer-live'
+    | 'explorer-compare-live'
+    | 'explorer-compare-baseline'
     | `backup-json:${string}`
     | 'backup-page'
+    | `backup-drift:${string}`
     | `backup-rename:${string}`
     | `backup-delete:${string}`
     | `backup-import:${string}`
@@ -36,6 +41,7 @@ export function DashboardStructureImportHistory({
     onPreflight,
     onApply,
     onLoadActions,
+    onInspectAction,
     onRetry,
 }: {
     runs: DashboardStructureImportRun[];
@@ -52,6 +58,7 @@ export function DashboardStructureImportHistory({
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
     onLoadActions: (run: DashboardStructureImportRun) => void;
+    onInspectAction?: (run: DashboardStructureImportRun, action: DashboardStructureImportAction) => void;
     onRetry: (run: DashboardStructureImportRun) => void;
 }) {
     if (runs.length === 0) {
@@ -77,6 +84,7 @@ export function DashboardStructureImportHistory({
                     onPreflight={onPreflight}
                     onApply={onApply}
                     onLoadActions={onLoadActions}
+                    onInspectAction={onInspectAction}
                     onRetry={onRetry}
                 />
             ))}
@@ -99,6 +107,7 @@ function ImportRunCard({
     onPreflight,
     onApply,
     onLoadActions,
+    onInspectAction,
     onRetry,
 }: {
     run: DashboardStructureImportRun;
@@ -115,6 +124,7 @@ function ImportRunCard({
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
     onLoadActions: (run: DashboardStructureImportRun) => void;
+    onInspectAction?: (run: DashboardStructureImportRun, action: DashboardStructureImportAction) => void;
     onRetry: (run: DashboardStructureImportRun) => void;
 }) {
     const expectedText = `CONFIRM ${run.id}`;
@@ -146,6 +156,7 @@ function ImportRunCard({
                 actionCount={run.actionCount}
                 isLoading={isActionBusy}
                 onLoad={() => onLoadActions(run)}
+                onInspectAction={onInspectAction ? (action) => onInspectAction(run, action) : undefined}
             />
             {canConfirm ? (
                 <div className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'>
@@ -208,11 +219,13 @@ function ActionPreview({
     actionCount,
     isLoading,
     onLoad,
+    onInspectAction,
 }: {
     actions: DashboardStructureImportAction[];
     actionCount: number;
     isLoading: boolean;
     onLoad: () => void;
+    onInspectAction?: (action: DashboardStructureImportAction) => void;
 }) {
     if (actions.length === 0 && actionCount > 0) {
         return (
@@ -251,7 +264,17 @@ function ActionPreview({
                             <span className='mt-1 block text-xs text-rose-300'>{formatActionFailure(action)}</span>
                         ) : null}
                     </span>
-                    <span className='shrink-0 text-xs text-neutral-500'>{action.status.replaceAll('_', ' ')}</span>
+                    <span className='flex shrink-0 items-center gap-2 text-xs text-neutral-500'>
+                        {action.status.replaceAll('_', ' ')}
+                        {onInspectAction ? (
+                            <button
+                                type='button'
+                                onClick={() => onInspectAction(action)}
+                                className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200'>
+                                Inspect
+                            </button>
+                        ) : null}
+                    </span>
                 </li>
             ))}
             {actionCount > actions.length ? (

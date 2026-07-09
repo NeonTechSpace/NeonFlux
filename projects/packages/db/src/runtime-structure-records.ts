@@ -24,12 +24,27 @@ export type ConvexStructureBackupSummaryPageRecord = {
 };
 export type ConvexStructureBackupSettingsRecord = Omit<
     StructureBackupSettingsRecord,
-    'createdAt' | 'lastAttemptAt' | 'lastSuccessAt' | 'nextBackupAt' | 'nextRetentionPruneAt' | 'updatedAt'
+    | 'createdAt'
+    | 'lastAttemptAt'
+    | 'lastDriftFieldSummary'
+    | 'lastDriftLiveCounts'
+    | 'lastDriftSummary'
+    | 'lastDriftCheckedAt'
+    | 'lastSuccessAt'
+    | 'nextBackupAt'
+    | 'nextDriftCheckAt'
+    | 'nextRetentionPruneAt'
+    | 'updatedAt'
 > & {
     createdAt?: string;
     lastAttemptAt: string | null;
+    lastDriftCheckedAt: string | null;
+    lastDriftFieldSummary: Record<string, unknown> | null;
+    lastDriftLiveCounts: Record<string, unknown> | null;
+    lastDriftSummary: Record<string, unknown> | null;
     lastSuccessAt: string | null;
     nextBackupAt: string | null;
+    nextDriftCheckAt: string | null;
     nextRetentionPruneAt: string | null;
     updatedAt?: string;
 };
@@ -103,12 +118,63 @@ export function toBackupSettingsRecord(record: ConvexStructureBackupSettingsReco
         ...(record.createdAt ? { createdAt: new Date(record.createdAt) } : {}),
         lastErrorMessage: record.lastErrorMessage,
         lastAttemptAt: record.lastAttemptAt ? new Date(record.lastAttemptAt) : null,
+        lastDriftBaselineBackupId: record.lastDriftBaselineBackupId ?? null,
+        lastDriftBaselineName: record.lastDriftBaselineName ?? null,
+        lastDriftChangeCount: record.lastDriftChangeCount ?? null,
+        lastDriftCheckedAt: record.lastDriftCheckedAt ? new Date(record.lastDriftCheckedAt) : null,
+        lastDriftErrorMessage: record.lastDriftErrorMessage ?? null,
+        lastDriftFieldSummary: toDriftFieldSummaryRecord(record.lastDriftFieldSummary),
+        lastDriftHasMorePreview: record.lastDriftHasMorePreview === true,
+        lastDriftLiveCounts: toDriftLiveCountsRecord(record.lastDriftLiveCounts),
+        lastDriftStatus: record.lastDriftStatus ?? null,
+        lastDriftSummary: toDriftSummaryRecord(record.lastDriftSummary),
         lastSuccessAt: record.lastSuccessAt ? new Date(record.lastSuccessAt) : null,
         nextBackupAt: record.nextBackupAt ? new Date(record.nextBackupAt) : null,
+        nextDriftCheckAt: record.nextDriftCheckAt ? new Date(record.nextDriftCheckAt) : null,
         nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
         retentionDays: record.retentionDays,
         ...(record.updatedAt ? { updatedAt: new Date(record.updatedAt) } : {}),
     };
+}
+
+function toDriftSummaryRecord(record: Record<string, unknown> | null) {
+    if (!record) return null;
+
+    return {
+        creates: readNonNegativeInteger(record.creates),
+        updates: readNonNegativeInteger(record.updates),
+        deletes: readNonNegativeInteger(record.deletes),
+        roles: readNonNegativeInteger(record.roles),
+        categories: readNonNegativeInteger(record.categories),
+        channels: readNonNegativeInteger(record.channels),
+    };
+}
+
+function toDriftFieldSummaryRecord(record: Record<string, unknown> | null) {
+    if (!record) return null;
+
+    return {
+        names: readNonNegativeInteger(record.names),
+        permissions: readNonNegativeInteger(record.permissions),
+        positions: readNonNegativeInteger(record.positions),
+        parentMoves: readNonNegativeInteger(record.parentMoves),
+        typeChanges: readNonNegativeInteger(record.typeChanges),
+        roleVisuals: readNonNegativeInteger(record.roleVisuals),
+    };
+}
+
+function toDriftLiveCountsRecord(record: Record<string, unknown> | null) {
+    if (!record) return null;
+
+    return {
+        roles: readNonNegativeInteger(record.roles),
+        categories: readNonNegativeInteger(record.categories),
+        channels: readNonNegativeInteger(record.channels),
+    };
+}
+
+function readNonNegativeInteger(value: unknown): number {
+    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
 
 export function toBackupRetentionPruneRecord(

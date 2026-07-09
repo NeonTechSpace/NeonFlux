@@ -2,8 +2,11 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import {
+    createStructureBackup,
     findStructureImportRunWithActionsByGuildId,
     structureAuditActions,
+    structureBackupSources,
+    structureBackupStatuses,
     structureImportActionStatuses,
     structureImportRunStatuses,
     updateStructureImportActionStatus,
@@ -17,8 +20,12 @@ import {
     loadAuthorizedStructureContext,
     recordStructureAuditBestEffort,
 } from './dashboard-structure-context.server.js';
-import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
+import type {
+    AuthorizedStructureContext,
+    DashboardStructureErrorResult,
+} from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
 import type {
     DashboardStructurePreflightInputAction,
@@ -38,10 +45,12 @@ export type DashboardStructureApplyResult =
     | {
           type: 'applied';
           importRun: DashboardStructureImportRun;
+          restorePointBackupId?: string;
       }
     | {
           type: 'failed';
           importRun: DashboardStructureImportRun;
+          restorePointBackupId?: string;
       }
     | {
           type: 'preflight-blocked';
@@ -52,6 +61,7 @@ export type DashboardStructureApplyResult =
     | { type: 'destructive-confirmation-mismatch'; expectedText: string }
     | { type: 'not-applicable'; status: string }
     | { type: 'bot-token-missing' }
+    | { type: 'restore-point-failed' }
     | { type: 'structure-read-failed' }
     | DashboardStructureErrorResult;
 
@@ -106,6 +116,14 @@ export async function applyDashboardStructureImportRun(
 
     if (preflightResult.type !== 'ready') return preflightResult;
 
+    const riskSummary = summarizeRestorePointRisk(importRunResult.value.actions);
+    const restorePointResult =
+        riskSummary.riskyActionCount > 0
+            ? await createRestorePointBackup(context, preflightResult.snapshot, importRunId, riskSummary)
+            : undefined;
+
+    if (restorePointResult === 'database-error') return { type: 'restore-point-failed' };
+
     const applyingResult = await updateStructureImportRunStatus(database.db, {
         runId: importRunId,
         status: structureImportRunStatuses.applying,
@@ -134,6 +152,7 @@ export async function applyDashboardStructureImportRun(
                 failed: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.failed)
                     .length,
                 sourceTargetMap: applyResult.idMap,
+                ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}),
             },
         },
     });
@@ -163,12 +182,13 @@ export async function applyDashboardStructureImportRun(
                 .length,
             mappedSourceCount: Object.keys(applyResult.idMap).length,
             deleteCount: deleteActionCount,
+            ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}),
         }
     ).catch(() => undefined);
 
     return finalStatus === structureImportRunStatuses.applied
-        ? { type: 'applied', importRun }
-        : { type: 'failed', importRun };
+        ? { type: 'applied', importRun, ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}) }
+        : { type: 'failed', importRun, ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}) };
 }
 
 export function getStructureImportApplyText(importRunId: string): string {
@@ -185,7 +205,7 @@ async function runApplyPreflight(
     actions: StructureImportActionRecord[],
     options: { allowDestructiveDeletes?: boolean; idMap?: Record<string, string>; sourceGuildId?: string } = {}
 ): Promise<
-    | { type: 'ready' }
+    | { type: 'ready'; snapshot: DashboardStructureSnapshot }
     | { type: 'structure-read-failed' }
     | { type: 'preflight-blocked'; report: DashboardStructurePreflightReport }
 > {
@@ -193,17 +213,80 @@ async function runApplyPreflight(
 
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
 
-    const report = preflightDashboardStructureImportPlan(
-        toDashboardStructureSnapshot(currentResult.value),
-        actions.map(toPreflightAction),
-        options
-    );
+    const snapshot = toDashboardStructureSnapshot(currentResult.value);
+    const report = preflightDashboardStructureImportPlan(snapshot, actions.map(toPreflightAction), options);
 
     if (report.summary.ready !== report.summary.total) {
         return { type: 'preflight-blocked', report };
     }
 
-    return { type: 'ready' };
+    return { type: 'ready', snapshot };
+}
+
+type RestorePointRiskSummary = {
+    deleteCount: number;
+    permissionRiskCount: number;
+    riskyActionCount: number;
+};
+
+async function createRestorePointBackup(
+    context: AuthorizedStructureContext,
+    snapshot: DashboardStructureSnapshot,
+    importRunId: string,
+    riskSummary: RestorePointRiskSummary
+): Promise<{ id: string } | 'database-error'> {
+    const database = await getWebDb();
+    const result = await createStructureBackup(database.db, {
+        audit: createStructureAuditPayload(context, structureAuditActions.backupRestorePointCreated, importRunId, {
+            categoryCount: snapshot.categories.length,
+            channelCount: snapshot.channels.length,
+            deleteCount: riskSummary.deleteCount,
+            permissionRiskCount: riskSummary.permissionRiskCount,
+            riskyActionCount: riskSummary.riskyActionCount,
+            roleCount: snapshot.roles.length,
+            source: structureBackupSources.restorePoint,
+        }),
+        guildId: context.guild.id,
+        createdByUserId: context.actor.actorUserId,
+        serverName: context.guild.name,
+        source: structureBackupSources.restorePoint,
+        status: structureBackupStatuses.succeeded,
+        structure: toJsonRecord(snapshot),
+        roleCount: snapshot.roles.length,
+        categoryCount: snapshot.categories.length,
+        channelCount: snapshot.channels.length,
+    }).catch(() => undefined);
+
+    if (!result || result.isErr()) return 'database-error';
+
+    return { id: result.value.id };
+}
+
+function summarizeRestorePointRisk(actions: StructureImportActionRecord[]): RestorePointRiskSummary {
+    const deleteCount = countDeleteActions(actions);
+    const permissionRiskCount = actions.filter(isPermissionRiskAction).length;
+
+    return {
+        deleteCount,
+        permissionRiskCount,
+        riskyActionCount: deleteCount + permissionRiskCount,
+    };
+}
+
+function isPermissionRiskAction(action: StructureImportActionRecord): boolean {
+    if (action.actionType !== 'update') return false;
+
+    const details = toJsonRecord(action.details);
+    const changes = readChanges(details);
+
+    return changes.some((change) => {
+        if (action.targetType === 'role') return change.field === 'permissions';
+        if (action.targetType === 'category' || action.targetType === 'channel') {
+            return change.field === 'permissionOverwrites';
+        }
+
+        return false;
+    });
 }
 
 async function applyReadyActions(
@@ -413,6 +496,24 @@ function mapRunStatusError(error: { type: string; from?: string }): DashboardStr
 
 function mapRepositoryError(error: { type: string }): DashboardStructureErrorResult {
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
+}
+
+function createStructureAuditPayload(
+    context: AuthorizedStructureContext,
+    action: string,
+    targetId: string | undefined,
+    metadata: Record<string, unknown>
+) {
+    return {
+        action,
+        actorUserId: context.actor.actorUserId,
+        metadata: {
+            source: 'dashboard',
+            ...metadata,
+            ...context.actor.metadata,
+        },
+        ...(targetId ? { targetId } : {}),
+    };
 }
 
 function countDeleteActions(actions: StructureImportActionRecord[]): number {

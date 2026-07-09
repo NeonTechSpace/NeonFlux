@@ -270,6 +270,25 @@ export async function findStructureBackupByGuildId(
     }
 }
 
+export async function findLatestStructureDriftBaselineBackupByGuildId(
+    db: StructureDb,
+    input: { guildId: string }
+): Promise<Result<StructureBackupRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+
+    if (guildId.isErr()) return err(guildId.error);
+
+    try {
+        const backup = await db.client.query(api.structure.findLatestStructureDriftBaselineBackupByGuildId, {
+            guildId: guildId.value,
+        });
+
+        return backup ? ok(toBackupRecord(backup)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function findStructureBackupSettingsByGuildId(
     db: StructureDb,
     input: { guildId: string }
@@ -345,7 +364,7 @@ export async function listDueStructureBackupRetentionSettings(
 
 export async function pruneExpiredStructureBackupsForGuild(
     db: StructureDb,
-    input: { guildId: string; limit?: number; now: Date }
+    input: { audit?: StructureAuditInput; guildId: string; limit?: number; now: Date }
 ): Promise<Result<StructureBackupRetentionPruneRecord, StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const limit = normalizeLimit(input.limit, 100);
@@ -354,11 +373,15 @@ export async function pruneExpiredStructureBackupsForGuild(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const result = await db.client.mutation(api.structure.pruneExpiredStructureBackupsForGuild, {
-            guildId: guildId.value,
-            limit: limit.value,
-            now: input.now.toISOString(),
-        });
+        const result = await db.client.mutation(
+            api.structure.pruneExpiredStructureBackupsForGuild,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                guildId: guildId.value,
+                limit: limit.value,
+                now: input.now.toISOString(),
+            })
+        );
 
         return ok(toBackupRetentionPruneRecord(result));
     } catch {
@@ -375,6 +398,25 @@ export async function listDueStructureBackupSettings(
 
     try {
         const settings = await db.client.query(api.structure.listDueStructureBackupSettings, {
+            limit: limit.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(settings.map(toBackupSettingsRecord));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function listDueStructureDriftSettings(
+    db: StructureDb,
+    input: { limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsRecord[], StructureImportExportRepositoryError>> {
+    const limit = normalizeLimit(input.limit);
+    if (limit.isErr()) return err(limit.error);
+
+    try {
+        const settings = await db.client.query(api.structure.listDueStructureDriftSettings, {
             limit: limit.value,
             now: input.now.toISOString(),
         });
@@ -412,6 +454,33 @@ export async function claimDueStructureBackupSetting(
     }
 }
 
+export async function claimDueStructureDriftSetting(
+    db: StructureDb,
+    input: { guildId: string; leaseExpiresAt: Date; leaseId: string; leaseOwner: string; now: Date }
+): Promise<Result<StructureBackupSettingsRecord | null, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const leaseId = normalizeRequiredText(input.leaseId, 'leaseId');
+    const leaseOwner = normalizeRequiredText(input.leaseOwner, 'leaseOwner');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (leaseId.isErr()) return err(leaseId.error);
+    if (leaseOwner.isErr()) return err(leaseOwner.error);
+
+    try {
+        const settings = await db.client.mutation(api.structure.claimDueStructureDriftSetting, {
+            guildId: guildId.value,
+            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
+            leaseId: leaseId.value,
+            leaseOwner: leaseOwner.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(settings ? toBackupSettingsRecord(settings) : null);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function clearStructureBackupSettingLease(
     db: StructureDb,
     input: { guildId: string; leaseId: string; now: Date }
@@ -430,6 +499,77 @@ export async function clearStructureBackupSettingLease(
         });
 
         return ok(cleared);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function clearStructureDriftSettingLease(
+    db: StructureDb,
+    input: { guildId: string; leaseId: string; now: Date }
+): Promise<Result<boolean, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const leaseId = normalizeRequiredText(input.leaseId, 'leaseId');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (leaseId.isErr()) return err(leaseId.error);
+
+    try {
+        const cleared = await db.client.mutation(api.structure.clearStructureDriftSettingLease, {
+            guildId: guildId.value,
+            leaseId: leaseId.value,
+            now: input.now.toISOString(),
+        });
+
+        return ok(cleared);
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function recordStructureScheduledDriftResult(
+    db: StructureDb,
+    input: {
+        audit?: StructureAuditInput;
+        baselineBackupId?: string;
+        baselineName?: string;
+        changeCount?: number;
+        errorMessage?: string;
+        fieldSummary?: Record<string, unknown>;
+        guildId: string;
+        hasMorePreview?: boolean;
+        liveCounts?: Record<string, unknown>;
+        now: Date;
+        status: string;
+        summary?: Record<string, unknown>;
+    }
+): Promise<Result<StructureBackupSettingsRecord, StructureImportExportRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const status = normalizeRequiredText(input.status, 'status');
+
+    if (guildId.isErr()) return err(guildId.error);
+    if (status.isErr()) return err(status.error);
+
+    try {
+        const settings = await db.client.mutation(
+            api.structure.recordStructureScheduledDriftResult,
+            compactConvexArgs({
+                audit: normalizeStructureAuditInput(input.audit),
+                baselineBackupId: normalizeOptionalText(input.baselineBackupId),
+                baselineName: normalizeOptionalText(input.baselineName),
+                changeCount: input.changeCount,
+                errorMessage: normalizeOptionalText(input.errorMessage),
+                fieldSummary: input.fieldSummary,
+                guildId: guildId.value,
+                hasMorePreview: input.hasMorePreview,
+                liveCounts: input.liveCounts,
+                now: input.now.toISOString(),
+                status: status.value,
+                summary: input.summary,
+            })
+        );
+
+        return ok(toBackupSettingsRecord(settings));
     } catch {
         return err({ type: 'database-error' });
     }

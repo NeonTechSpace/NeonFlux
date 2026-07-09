@@ -15,6 +15,10 @@ import {
     buildStructureBackupLeaseClearPatch,
     buildStructureBackupSettingsDocument,
     buildStructureBackupSettingsPatch,
+    buildStructureDriftLeaseClaimPatch,
+    buildStructureDriftLeaseClearPatch,
+    buildStructureScheduledDriftResultPatch,
+    chooseLatestStructureDriftBaselineBackup,
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
     buildStructureImportRunStatusPatch,
@@ -22,6 +26,8 @@ import {
     normalizeBackupRetentionDays,
     normalizeLimit,
     normalizeRequiredGuildId,
+    STRUCTURE_BACKUP_SOURCE,
+    STRUCTURE_BACKUP_STATUS,
     toStructureBackupRecord,
     toStructureBackupSettingsRecord,
     toStructureBackupSummaryRecord,
@@ -87,10 +93,21 @@ const backupSettingsValidator = v.object({
     createdAt: v.optional(v.string()),
     enabled: v.boolean(),
     guildId: v.string(),
+    lastDriftBaselineBackupId: nullableString,
+    lastDriftBaselineName: nullableString,
+    lastDriftChangeCount: v.union(v.number(), v.null()),
+    lastDriftCheckedAt: nullableString,
+    lastDriftErrorMessage: nullableString,
+    lastDriftFieldSummary: v.union(v.any(), v.null()),
+    lastDriftHasMorePreview: v.boolean(),
+    lastDriftLiveCounts: v.union(v.any(), v.null()),
+    lastDriftStatus: nullableString,
+    lastDriftSummary: v.union(v.any(), v.null()),
     lastAttemptAt: nullableString,
     lastErrorMessage: nullableString,
     lastSuccessAt: nullableString,
     nextBackupAt: nullableString,
+    nextDriftCheckAt: nullableString,
     nextRetentionPruneAt: nullableString,
     retentionDays: v.number(),
     updatedAt: v.optional(v.string()),
@@ -244,7 +261,9 @@ export const createStructureBackup = mutation({
             )
         );
         const id = await ctx.db.insert('structureBackups', document);
-        await recordBackupAttempt(ctx, guildId, document.status, document.errorMessage, now);
+        if (document.source !== STRUCTURE_BACKUP_SOURCE.restorePoint) {
+            await recordBackupAttempt(ctx, guildId, document.status, document.errorMessage, now);
+        }
         await recordStructureAuditInMutation(ctx, guildId, args.audit, now, id);
 
         return toStructureBackupRecord({ ...document, _id: id });
@@ -355,6 +374,34 @@ export const findStructureBackupByGuildId = query({
     },
 });
 
+export const findLatestStructureDriftBaselineBackupByGuildId = query({
+    args: { guildId: v.string() },
+    returns: v.union(backupRecordValidator, v.null()),
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, allowedStructureServices);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const candidates = await Promise.all([
+            findLatestBackupBySourceAndStatus(
+                ctx,
+                guildId,
+                STRUCTURE_BACKUP_SOURCE.manual,
+                STRUCTURE_BACKUP_STATUS.succeeded
+            ),
+            findLatestBackupBySourceAndStatus(
+                ctx,
+                guildId,
+                STRUCTURE_BACKUP_SOURCE.scheduled,
+                STRUCTURE_BACKUP_STATUS.succeeded
+            ),
+        ]);
+        const latest = chooseLatestStructureDriftBaselineBackup(
+            candidates.filter((backup): backup is StoredBackupDocument => Boolean(backup))
+        );
+
+        return latest ? toStructureBackupRecord(latest) : null;
+    },
+});
+
 export const findStructureBackupSettingsByGuildId = query({
     args: { guildId: v.string() },
     returns: backupSettingsValidator,
@@ -421,6 +468,27 @@ export const listDueStructureBackupSettings = query({
     },
 });
 
+export const listDueStructureDriftSettings = query({
+    args: { limit: v.optional(v.number()), now: v.string() },
+    returns: v.array(backupSettingsValidator),
+    handler: async (ctx: StructureQueryCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const now = normalizeTimestamp(args.now);
+        if (!now) return [];
+        const limit = normalizeLimit(args.limit);
+
+        const settings = await ctx.db
+            .query('structureBackupSettings')
+            .withIndex('by_enabled_next_drift_check', (index) => index.eq('enabled', true))
+            .take(Math.min(limit * 4, 100));
+
+        return settings
+            .filter((setting) => isDriftDue(setting, now) && !hasActiveDriftLease(setting, now))
+            .slice(0, limit)
+            .map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+    },
+});
+
 export const listDueStructureBackupRetentionSettings = query({
     args: { limit: v.optional(v.number()), now: v.string() },
     returns: v.array(backupSettingsValidator),
@@ -440,7 +508,12 @@ export const listDueStructureBackupRetentionSettings = query({
 });
 
 export const pruneExpiredStructureBackupsForGuild = mutation({
-    args: { guildId: v.string(), limit: v.optional(v.number()), now: v.string() },
+    args: {
+        audit: v.optional(auditInputValidator),
+        guildId: v.string(),
+        limit: v.optional(v.number()),
+        now: v.string(),
+    },
     returns: backupRetentionPruneResultValidator,
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
@@ -476,6 +549,26 @@ export const pruneExpiredStructureBackupsForGuild = mutation({
             retentionDays,
             updatedAt: now,
         });
+        if (page.length > 0) {
+            await recordStructureAuditInMutation(
+                ctx,
+                guildId,
+                args.audit
+                    ? {
+                          ...args.audit,
+                          metadata: {
+                              ...(isObjectRecord(args.audit.metadata) ? args.audit.metadata : {}),
+                              deletedCount: page.length,
+                              hasMore,
+                              nextRetentionPruneAt,
+                              retentionDays,
+                          },
+                      }
+                    : undefined,
+                now,
+                guildId
+            );
+        }
 
         return { deletedCount: page.length, hasMore, nextRetentionPruneAt };
     },
@@ -543,6 +636,104 @@ export const clearStructureBackupSettingLease = mutation({
         await ctx.db.patch(existing._id, patch);
 
         return true;
+    },
+});
+
+export const claimDueStructureDriftSetting = mutation({
+    args: {
+        guildId: v.string(),
+        leaseExpiresAt: v.string(),
+        leaseId: v.string(),
+        leaseOwner: v.string(),
+        now: v.string(),
+    },
+    returns: v.union(backupSettingsValidator, v.null()),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        await requireGuildDocument(ctx, guildId);
+
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        const patch = unwrap(
+            buildStructureDriftLeaseClaimPatch(
+                existing ?? undefined,
+                {
+                    leaseExpiresAt: args.leaseExpiresAt,
+                    leaseId: args.leaseId,
+                    leaseOwner: args.leaseOwner,
+                },
+                now
+            )
+        );
+
+        if (!existing || !patch) return null;
+
+        await ctx.db.patch(existing._id, patch);
+        const updated = await findBackupSettingsDocument(ctx, guildId);
+
+        return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
+    },
+});
+
+export const clearStructureDriftSettingLease = mutation({
+    args: {
+        guildId: v.string(),
+        leaseId: v.string(),
+        now: v.string(),
+    },
+    returns: v.boolean(),
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        const patch = unwrap(buildStructureDriftLeaseClearPatch(existing ?? undefined, { leaseId: args.leaseId }, now));
+
+        if (!existing || !patch) return false;
+
+        await ctx.db.patch(existing._id, patch);
+
+        return true;
+    },
+});
+
+export const recordStructureScheduledDriftResult = mutation({
+    args: {
+        audit: v.optional(auditInputValidator),
+        baselineBackupId: v.optional(v.union(v.string(), v.null())),
+        baselineName: v.optional(v.union(v.string(), v.null())),
+        changeCount: v.optional(v.number()),
+        errorMessage: v.optional(v.union(v.string(), v.null())),
+        fieldSummary: v.optional(v.any()),
+        guildId: v.string(),
+        hasMorePreview: v.optional(v.boolean()),
+        liveCounts: v.optional(v.any()),
+        now: v.string(),
+        status: v.string(),
+        summary: v.optional(v.any()),
+    },
+    returns: backupSettingsValidator,
+    handler: async (ctx: StructureMutationCtx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
+        const now = normalizeTimestamp(args.now);
+        if (!now) throw new Error('now-invalid-value');
+
+        const existing = await findBackupSettingsDocument(ctx, guildId);
+        if (!existing) throw new Error('settings-not-found');
+
+        const patch = unwrap(buildStructureScheduledDriftResultPatch(existing, args, now));
+        await ctx.db.patch(existing._id, patch);
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, now, guildId);
+        const updated = await findBackupSettingsDocument(ctx, guildId);
+        if (!updated) throw new Error('settings-not-found');
+
+        return toStructureBackupSettingsRecord(updated, guildId);
     },
 });
 
@@ -759,6 +950,21 @@ async function findBackupById(
     return await ctx.db.get(backupId);
 }
 
+async function findLatestBackupBySourceAndStatus(
+    ctx: StructureQueryCtx,
+    guildId: string,
+    source: string,
+    status: string
+): Promise<StoredBackupDocument | null> {
+    return (await ctx.db
+        .query('structureBackups')
+        .withIndex('by_guild_source_status_sort_key', (index) =>
+            index.eq('guildId', guildId).eq('source', source).eq('status', status)
+        )
+        .order('desc')
+        .first()) as StoredBackupDocument | null;
+}
+
 async function findBackupSettingsDocument(
     ctx: StructureQueryCtx | StructureMutationCtx,
     guildId: string
@@ -774,6 +980,22 @@ function hasActiveBackupLease(setting: StructureBackupSettingsDocument, now: str
     const parsedNow = Date.parse(now);
 
     return Number.isFinite(leaseExpiresAt) && Number.isFinite(parsedNow) && leaseExpiresAt > parsedNow;
+}
+
+function hasActiveDriftLease(setting: StructureBackupSettingsDocument, now: string): boolean {
+    const leaseExpiresAt = Date.parse(setting.driftLeaseExpiresAt ?? '');
+    const parsedNow = Date.parse(now);
+
+    return Number.isFinite(leaseExpiresAt) && Number.isFinite(parsedNow) && leaseExpiresAt > parsedNow;
+}
+
+function isDriftDue(setting: StructureBackupSettingsDocument, now: string): boolean {
+    if (!setting.enabled) return false;
+
+    const parsedNow = Date.parse(now);
+    const parsedNextDriftCheckAt = Date.parse(setting.nextDriftCheckAt ?? now);
+
+    return Number.isFinite(parsedNow) && Number.isFinite(parsedNextDriftCheckAt) && parsedNextDriftCheckAt <= parsedNow;
 }
 
 async function findRunById(

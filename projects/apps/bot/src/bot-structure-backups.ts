@@ -1,16 +1,32 @@
 import type { AppLogger } from '@neonflux/core/logging';
 import {
     claimDueStructureBackupSetting,
+    claimDueStructureDriftSetting,
     clearStructureBackupSettingLease,
+    clearStructureDriftSettingLease,
     createStructureBackup,
+    findLatestStructureDriftBaselineBackupByGuildId,
     listDueStructureBackupRetentionSettings,
     listDueStructureBackupSettings,
+    listDueStructureDriftSettings,
     pruneExpiredStructureBackupsForGuild,
+    recordStructureScheduledDriftResult,
+    structureAuditActions,
     structureBackupSources,
     structureBackupStatuses,
+    structureScheduledDriftStatuses,
     type RuntimeDbClient,
+    type StructureBackupRecord,
 } from '@neonflux/db';
-import { readFluxerBotGuildStructure, type FluxerGuildStructure } from '@neonflux/fluxer';
+import {
+    countFluxerGuildStructurePlanChanges,
+    diffFluxerGuildStructureSnapshot,
+    normalizeFluxerGuildStructureSnapshot,
+    readFluxerBotGuildStructure,
+    summarizeFluxerGuildStructurePlanFields,
+    toFluxerGuildStructureSnapshot,
+    type FluxerGuildStructure,
+} from '@neonflux/fluxer';
 import { randomUUID } from 'node:crypto';
 
 type StructureBackupScheduler = {
@@ -31,6 +47,8 @@ const structureBackupLeaseTtlMs = 30 * 60 * 1000;
 const structureBackupMaxBatchesPerRun = 20;
 const structureBackupRetentionBatchLimit = 25;
 const structureBackupRetentionDeleteLimit = 100;
+const structureDriftBatchLimit = 25;
+const structureDriftPreviewLimit = 100;
 
 export function startStructureBackupScheduler(input: RunDueStructureBackupsInput): StructureBackupScheduler {
     let running = false;
@@ -66,6 +84,7 @@ export async function runDueStructureBackups({
     now = new Date(),
 }: RunDueStructureBackupsInput): Promise<void> {
     await runDueStructureBackupRetention({ database, logger, now });
+    await runDueStructureDriftMonitoring({ botToken, database, leaseOwner, logger, now });
 
     const processedGuildIds = new Set<string>();
 
@@ -168,6 +187,231 @@ export async function runDueStructureBackups({
     });
 }
 
+async function runDueStructureDriftMonitoring({
+    botToken,
+    database,
+    leaseOwner,
+    logger,
+    now,
+}: Required<
+    Pick<RunDueStructureBackupsInput, 'botToken' | 'database' | 'leaseOwner' | 'logger' | 'now'>
+>): Promise<void> {
+    const processedGuildIds = new Set<string>();
+
+    for (let batchIndex = 0; batchIndex < structureBackupMaxBatchesPerRun; batchIndex += 1) {
+        const settingsResult = await listDueStructureDriftSettings(database.db, {
+            limit: structureDriftBatchLimit,
+            now,
+        });
+
+        if (settingsResult.isErr()) {
+            logger.error('structure.scheduled_drift_due_lookup_failed', { error: settingsResult.error });
+            return;
+        }
+
+        const dueSettings = settingsResult.value.filter((settings) => !processedGuildIds.has(settings.guildId));
+        if (dueSettings.length === 0) return;
+
+        for (const settings of dueSettings) {
+            processedGuildIds.add(settings.guildId);
+            const leaseId = randomUUID();
+            const claimResult = await claimDueStructureDriftSetting(database.db, {
+                guildId: settings.guildId,
+                leaseExpiresAt: new Date(now.getTime() + structureBackupLeaseTtlMs),
+                leaseId,
+                leaseOwner,
+                now,
+            });
+
+            if (claimResult.isErr()) {
+                logger.error('structure.scheduled_drift_claim_failed', {
+                    error: claimResult.error,
+                    guildId: settings.guildId,
+                });
+                continue;
+            }
+            if (!claimResult.value) continue;
+
+            try {
+                await checkScheduledStructureDrift({ botToken, database, guildId: settings.guildId, logger, now });
+            } finally {
+                const clearResult = await clearStructureDriftSettingLease(database.db, {
+                    guildId: settings.guildId,
+                    leaseId,
+                    now,
+                });
+
+                if (clearResult.isErr()) {
+                    logger.error('structure.scheduled_drift_lease_clear_failed', {
+                        error: clearResult.error,
+                        guildId: settings.guildId,
+                    });
+                }
+            }
+        }
+
+        if (settingsResult.value.length < structureDriftBatchLimit) return;
+    }
+
+    logger.warn('structure.scheduled_drift_due_batch_limit_reached', {
+        batchLimit: structureDriftBatchLimit,
+        maxBatches: structureBackupMaxBatchesPerRun,
+        processedCount: processedGuildIds.size,
+    });
+}
+
+async function checkScheduledStructureDrift(input: {
+    botToken: string;
+    database: RuntimeDbClient;
+    guildId: string;
+    logger: AppLogger;
+    now: Date;
+}): Promise<void> {
+    const baselineResult = await findLatestStructureDriftBaselineBackupByGuildId(input.database.db, {
+        guildId: input.guildId,
+    });
+
+    if (baselineResult.isErr()) {
+        await recordScheduledDrift(input, {
+            errorMessage: 'No successful regular backup is available.',
+            status: structureScheduledDriftStatuses.noBaseline,
+        });
+        return;
+    }
+
+    const baselineSnapshot = normalizeFluxerGuildStructureSnapshot(baselineResult.value.structure);
+    if (baselineSnapshot.type !== 'valid') {
+        await recordScheduledDrift(input, {
+            baseline: baselineResult.value,
+            errorMessage: baselineSnapshot.message,
+            status: structureScheduledDriftStatuses.failed,
+        });
+        return;
+    }
+
+    const structureResult = await readFluxerBotGuildStructure({
+        botToken: input.botToken,
+        guildId: input.guildId,
+    });
+
+    if (structureResult.isErr()) {
+        await recordScheduledDrift(input, {
+            baseline: baselineResult.value,
+            errorMessage: `Structure read failed: ${structureResult.error.type}`,
+            status: structureScheduledDriftStatuses.failed,
+        });
+        return;
+    }
+
+    const liveSnapshot = toFluxerGuildStructureSnapshot(structureResult.value, input.now.toISOString());
+    const plan = diffFluxerGuildStructureSnapshot(liveSnapshot, baselineSnapshot.snapshot);
+    const changeCount = countFluxerGuildStructurePlanChanges(plan.summary);
+    const status = changeCount > 0 ? structureScheduledDriftStatuses.changed : structureScheduledDriftStatuses.clean;
+
+    await recordScheduledDrift(input, {
+        baseline: baselineResult.value,
+        changeCount,
+        fieldSummary: summarizeFluxerGuildStructurePlanFields(plan),
+        hasMorePreview: plan.actions.length > structureDriftPreviewLimit,
+        liveCounts: {
+            categories: liveSnapshot.categories.length,
+            channels: liveSnapshot.channels.length,
+            roles: liveSnapshot.roles.length,
+        },
+        status,
+        summary: plan.summary,
+    });
+
+    if (changeCount > 0) {
+        input.logger.info('structure.scheduled_drift_detected', {
+            changeCount,
+            guildId: input.guildId,
+            baselineBackupId: baselineResult.value.id,
+        });
+    }
+}
+
+async function recordScheduledDrift(
+    input: {
+        database: RuntimeDbClient;
+        guildId: string;
+        logger: AppLogger;
+        now: Date;
+    },
+    result: {
+        baseline?: StructureBackupRecord;
+        changeCount?: number;
+        errorMessage?: string;
+        fieldSummary?: Record<string, unknown>;
+        hasMorePreview?: boolean;
+        liveCounts?: Record<string, unknown>;
+        status: string;
+        summary?: Record<string, unknown>;
+    }
+): Promise<void> {
+    const audit = toScheduledDriftAudit(input.guildId, result);
+    const recordResult = await recordStructureScheduledDriftResult(input.database.db, {
+        ...(audit ? { audit } : {}),
+        ...(result.baseline?.id ? { baselineBackupId: result.baseline.id } : {}),
+        ...(result.baseline?.name ? { baselineName: result.baseline.name } : {}),
+        ...(result.changeCount !== undefined ? { changeCount: result.changeCount } : {}),
+        ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+        ...(result.fieldSummary ? { fieldSummary: result.fieldSummary } : {}),
+        guildId: input.guildId,
+        ...(result.hasMorePreview !== undefined ? { hasMorePreview: result.hasMorePreview } : {}),
+        ...(result.liveCounts ? { liveCounts: result.liveCounts } : {}),
+        now: input.now,
+        status: result.status,
+        ...(result.summary ? { summary: result.summary } : {}),
+    });
+
+    if (recordResult.isErr()) {
+        input.logger.error('structure.scheduled_drift_record_failed', {
+            error: recordResult.error,
+            guildId: input.guildId,
+            status: result.status,
+        });
+    }
+}
+
+function toScheduledDriftAudit(
+    guildId: string,
+    result: {
+        baseline?: StructureBackupRecord;
+        changeCount?: number;
+        errorMessage?: string;
+        status: string;
+    }
+) {
+    if (result.status === structureScheduledDriftStatuses.changed) {
+        return {
+            action: structureAuditActions.scheduledDriftDetected,
+            metadata: {
+                baselineBackupId: result.baseline?.id,
+                baselineName: result.baseline?.name,
+                changeCount: result.changeCount ?? 0,
+                source: 'scheduled_drift',
+            },
+            targetId: guildId,
+        };
+    }
+
+    if (result.status === structureScheduledDriftStatuses.failed) {
+        return {
+            action: structureAuditActions.scheduledDriftFailed,
+            metadata: {
+                baselineBackupId: result.baseline?.id,
+                baselineName: result.baseline?.name,
+                errorMessage: result.errorMessage,
+                source: 'scheduled_drift',
+            },
+            targetId: guildId,
+        };
+    }
+
+    return undefined;
+}
+
 async function runDueStructureBackupRetention(input: {
     database: RuntimeDbClient;
     logger: AppLogger;
@@ -185,6 +429,13 @@ async function runDueStructureBackupRetention(input: {
 
     for (const settings of settingsResult.value) {
         const pruneResult = await pruneExpiredStructureBackupsForGuild(input.database.db, {
+            audit: {
+                action: structureAuditActions.backupRetentionPruned,
+                metadata: {
+                    source: 'scheduled_retention',
+                },
+                targetId: settings.guildId,
+            },
             guildId: settings.guildId,
             limit: structureBackupRetentionDeleteLimit,
             now: input.now,
@@ -216,13 +467,5 @@ function toStructureBackupPayload(
     channels: unknown[];
     roles: unknown[];
 } {
-    return {
-        version: 1,
-        guildId: structure.guildId,
-        guildName: structure.guildName,
-        exportedAt,
-        roles: structure.roles,
-        categories: structure.categories,
-        channels: structure.channels,
-    };
+    return toFluxerGuildStructureSnapshot(structure, exportedAt);
 }
