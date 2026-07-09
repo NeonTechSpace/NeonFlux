@@ -377,10 +377,7 @@ describe('dashboard posting', () => {
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValueOnce(
             ok({
                 records: [createBotActionEventRecord()],
-                nextCursor: {
-                    createdAt: new Date('2026-06-25T00:00:00.000Z'),
-                    id: 'event-cursor',
-                },
+                nextCursor: 'opaque-next-cursor',
             })
         );
 
@@ -414,16 +411,13 @@ describe('dashboard posting', () => {
                     createdAt: '2026-06-26T00:00:00.000Z',
                 },
             ],
-            nextCursor: '2026-06-25T00:00:00.000Z|event-cursor',
+            nextCursor: 'opaque-next-cursor',
         });
         expect(listBotActionEventPageByGuildId).toHaveBeenCalledWith(
             {},
             {
                 guildId: 'guild-1',
-                cursor: {
-                    createdAt: new Date('2026-06-26T00:00:00.000Z'),
-                    id: 'event-1',
-                },
+                cursor: '2026-06-26T00:00:00.000Z|event-1',
                 limit: 25,
                 search: 'channel-1',
                 searchScope: 'channel',

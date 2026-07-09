@@ -2,7 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
-import type { BotActionEventCursor, BotActionEventSearchScope } from '@neonflux/db';
+import type { BotActionEventSearchScope } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
@@ -245,7 +245,7 @@ export async function loadDashboardGuildAuditEventsPage(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const cursor = decodeDashboardAuditCursor(input.cursor);
+    const cursor = normalizeDashboardAuditCursor(input.cursor);
 
     if (cursor === 'invalid') {
         return { type: 'database-error' };
@@ -269,9 +269,7 @@ export async function loadDashboardGuildAuditEventsPage(
     return {
         type: 'events',
         auditEvents: eventsResult.value.records.map((record) => toDashboardAuditEvent(record, currentActorProfile)),
-        ...(eventsResult.value.nextCursor
-            ? { nextCursor: encodeDashboardAuditCursor(eventsResult.value.nextCursor) }
-            : {}),
+        ...(eventsResult.value.nextCursor ? { nextCursor: eventsResult.value.nextCursor } : {}),
     };
 }
 
@@ -524,29 +522,12 @@ function getMetadataString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function encodeDashboardAuditCursor(cursor: BotActionEventCursor): string {
-    return `${cursor.createdAt.toISOString()}|${cursor.id}`;
-}
-
-function decodeDashboardAuditCursor(cursor: string | undefined): BotActionEventCursor | undefined | 'invalid' {
+function normalizeDashboardAuditCursor(cursor: string | undefined): string | undefined | 'invalid' {
     if (!cursor) {
         return undefined;
     }
 
-    const [createdAtValue, id, ...extraParts] = cursor.split('|');
+    const normalizedCursor = cursor.trim();
 
-    if (!createdAtValue || !id || extraParts.length > 0) {
-        return 'invalid';
-    }
-
-    const createdAt = new Date(createdAtValue);
-
-    if (Number.isNaN(createdAt.getTime())) {
-        return 'invalid';
-    }
-
-    return {
-        createdAt,
-        id,
-    };
+    return normalizedCursor ? normalizedCursor : 'invalid';
 }

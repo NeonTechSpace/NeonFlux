@@ -189,7 +189,7 @@ export async function listBotActionEventPageByGuildId(
         const page = await db.client.query(
             api.events.listBotActionEventPageByGuildId,
             compactConvexArgs({
-                cursor: input.cursor ? toConvexBotActionEventCursor(input.cursor) : undefined,
+                cursor: input.cursor,
                 feature: input.feature,
                 guildId: input.guildId,
                 limit: input.limit,
@@ -200,7 +200,7 @@ export async function listBotActionEventPageByGuildId(
         );
 
         return ok({
-            ...(page.nextCursor ? { nextCursor: toBotActionEventCursor(page.nextCursor) } : {}),
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
             records: page.records.map(toBotActionEventRecord),
         });
     } catch {
@@ -235,20 +235,6 @@ function toBotActionEventRecord(record: ConvexBotActionEventRecord): BotActionEv
         id: record.id,
         metadata: record.metadata,
         targetId: record.targetId,
-    };
-}
-
-function toConvexBotActionEventCursor(cursor: BotActionEventCursor): { createdAt: string; id: string } {
-    return {
-        createdAt: cursor.createdAt.toISOString(),
-        id: cursor.id,
-    };
-}
-
-function toBotActionEventCursor(cursor: { createdAt: string; id: string }): BotActionEventCursor {
-    return {
-        createdAt: new Date(cursor.createdAt),
-        id: cursor.id,
     };
 }
 

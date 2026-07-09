@@ -1,7 +1,4 @@
-export type BotActionEventCursor = {
-    createdAt: string;
-    id: string;
-};
+export type BotActionEventCursor = string;
 
 export type BotActionEventSearchScope = 'actor' | 'all' | 'channel' | 'event' | 'message' | 'metadata' | 'time';
 
@@ -28,6 +25,7 @@ export type BotActionEventDocument = {
     feature: string;
     guildId?: string;
     metadata: Record<string, unknown>;
+    sortKey?: string;
     targetId?: string;
 };
 
@@ -49,6 +47,16 @@ export type BotActionEventInputError =
     | 'missing-action'
     | 'missing-feature'
     | 'missing-guild-id';
+
+type BotActionEventLegacyCursor = {
+    createdAt: string;
+    id: string;
+};
+
+type BotActionEventOpaqueCursorPayload = {
+    k: string;
+    v: 1;
+};
 
 export type EventInputResult<Value, ErrorValue extends string> =
     | { ok: true; value: Value }
@@ -112,19 +120,15 @@ export function normalizeBotActionEventCursor(
         return { ok: true, value: undefined };
     }
 
-    const createdAt = normalizeTimestamp(cursor.createdAt);
-    const id = normalizeOptionalString(cursor.id);
+    const normalizedCursor = normalizeOptionalString(cursor);
 
-    if (!createdAt || !id) {
+    if (!normalizedCursor) {
         return { error: 'invalid-cursor', ok: false };
     }
 
     return {
         ok: true,
-        value: {
-            createdAt,
-            id,
-        },
+        value: normalizedCursor,
     };
 }
 
@@ -183,17 +187,113 @@ export function toBotActionEventRecord(document: BotActionEventDocument & { _id:
     };
 }
 
-export function toBotActionEventCursor(record: BotActionEventRecord): BotActionEventCursor {
-    return {
-        createdAt: record.createdAt,
-        id: record.id,
-    };
+export function buildBotActionEventSortKey(input: { createdAt: string; id: string }): string {
+    return `${input.createdAt}|${input.id}`;
+}
+
+export function encodeBotActionEventCursor(sortKey: string): BotActionEventCursor {
+    return encodeBase64Url(JSON.stringify({ k: sortKey, v: 1 } satisfies BotActionEventOpaqueCursorPayload));
+}
+
+export function decodeBotActionEventCursor(
+    cursor: BotActionEventCursor
+): EventInputResult<
+    { legacy?: BotActionEventLegacyCursor; sortKey?: string },
+    Extract<BotActionEventInputError, 'invalid-cursor'>
+> {
+    const normalizedCursor = normalizeOptionalString(cursor);
+
+    if (!normalizedCursor) {
+        return { error: 'invalid-cursor', ok: false };
+    }
+
+    const opaqueCursor = decodeOpaqueBotActionEventCursor(normalizedCursor);
+    if (opaqueCursor.ok) {
+        return opaqueCursor;
+    }
+
+    const legacyCursor = decodeLegacyBotActionEventCursor(normalizedCursor);
+    if (legacyCursor.ok) {
+        return legacyCursor;
+    }
+
+    return { error: 'invalid-cursor', ok: false };
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
     const normalizedValue = value?.trim();
 
     return normalizedValue && normalizedValue.length > 0 ? normalizedValue : undefined;
+}
+
+function decodeOpaqueBotActionEventCursor(
+    cursor: string
+): EventInputResult<{ sortKey: string }, Extract<BotActionEventInputError, 'invalid-cursor'>> {
+    let payload: unknown;
+
+    try {
+        payload = JSON.parse(decodeBase64Url(cursor)) as unknown;
+    } catch {
+        return { error: 'invalid-cursor', ok: false };
+    }
+
+    if (!isPlainRecord(payload) || payload.v !== 1) {
+        return { error: 'invalid-cursor', ok: false };
+    }
+
+    const sortKey = normalizeOptionalString(payload.k as string | undefined);
+
+    return sortKey ? { ok: true, value: { sortKey } } : { error: 'invalid-cursor', ok: false };
+}
+
+function decodeLegacyBotActionEventCursor(
+    cursor: string
+): EventInputResult<{ legacy: BotActionEventLegacyCursor }, Extract<BotActionEventInputError, 'invalid-cursor'>> {
+    const [createdAtValue, id, ...extraParts] = cursor.split('|');
+    const createdAt = normalizeTimestamp(createdAtValue);
+    const normalizedId = normalizeOptionalString(id);
+
+    if (!createdAt || !normalizedId || extraParts.length > 0) {
+        return { error: 'invalid-cursor', ok: false };
+    }
+
+    return {
+        ok: true,
+        value: {
+            legacy: {
+                createdAt,
+                id: normalizedId,
+            },
+        },
+    };
+}
+
+function encodeBase64Url(value: string): string {
+    const bytes = new TextEncoder().encode(value);
+    let binary = '';
+
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+}
+
+function decodeBase64Url(value: string): string {
+    if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
+        throw new Error('invalid-base64url');
+    }
+
+    const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+    const paddedBase64 = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const binary = atob(paddedBase64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new TextDecoder().decode(bytes);
 }
 
 function normalizeTimestamp(value: string | null | undefined): string | undefined {

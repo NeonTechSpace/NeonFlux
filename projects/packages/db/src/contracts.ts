@@ -245,10 +245,7 @@ export type BotActionEventRecord = {
     targetId: string | null;
 };
 
-export type BotActionEventCursor = {
-    createdAt: Date;
-    id: string;
-};
+export type BotActionEventCursor = string;
 
 export type BotActionEventPage = {
     records: BotActionEventRecord[];

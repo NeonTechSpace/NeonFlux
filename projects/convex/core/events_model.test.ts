@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
     botActionEventMatchesSearch,
+    buildBotActionEventSortKey,
     buildBotActionEventDocument,
+    decodeBotActionEventCursor,
+    encodeBotActionEventCursor,
     normalizeBotActionEventCursor,
     normalizeBotActionEventLimit,
     normalizeBotActionEventSearch,
@@ -94,19 +97,11 @@ describe('bot action event model', () => {
     it('normalizes guild id, cursor, limits, and search input', () => {
         expect(normalizeRequiredGuildId(' guild-1 ')).toEqual({ ok: true, value: 'guild-1' });
         expect(normalizeRequiredGuildId(' ')).toEqual({ error: 'missing-guild-id', ok: false });
-        expect(
-            normalizeBotActionEventCursor({
-                createdAt: '2026-07-03 09:30:00+02',
-                id: ' event-1 ',
-            })
-        ).toEqual({
+        expect(normalizeBotActionEventCursor(' opaque-cursor ')).toEqual({
             ok: true,
-            value: {
-                createdAt: '2026-07-03T07:30:00.000Z',
-                id: 'event-1',
-            },
+            value: 'opaque-cursor',
         });
-        expect(normalizeBotActionEventCursor({ createdAt: 'nope', id: 'event-1' })).toEqual({
+        expect(normalizeBotActionEventCursor(' ')).toEqual({
             error: 'invalid-cursor',
             ok: false,
         });
@@ -127,6 +122,33 @@ describe('bot action event model', () => {
             offsetMinutes: 1440,
             scope: 'channel',
             tokens: ['channel1', 'actor1', 'ignored', 'ignored2', 'ignored3', 'ignored4', 'ignored5', 'ignored6'],
+        });
+    });
+
+    it('builds and parses opaque audit cursors while accepting old cursor ingress', () => {
+        const sortKey = buildBotActionEventSortKey({
+            createdAt: '2026-07-03T07:30:00.000Z',
+            id: 'event-1',
+        });
+        const cursor = encodeBotActionEventCursor(sortKey);
+
+        expect(cursor).not.toContain('2026-07-03T07:30:00.000Z');
+        expect(decodeBotActionEventCursor(cursor)).toEqual({
+            ok: true,
+            value: { sortKey: '2026-07-03T07:30:00.000Z|event-1' },
+        });
+        expect(decodeBotActionEventCursor('2026-07-03T07:30:00.000Z|event-1')).toEqual({
+            ok: true,
+            value: {
+                legacy: {
+                    createdAt: '2026-07-03T07:30:00.000Z',
+                    id: 'event-1',
+                },
+            },
+        });
+        expect(decodeBotActionEventCursor('not-a-cursor')).toEqual({
+            error: 'invalid-cursor',
+            ok: false,
         });
     });
 

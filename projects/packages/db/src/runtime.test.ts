@@ -152,10 +152,7 @@ describe('Convex database runtime wrappers', () => {
             ],
             queryResults: [
                 {
-                    nextCursor: {
-                        createdAt: '2026-07-03T07:00:00.000Z',
-                        id: 'event-0',
-                    },
+                    nextCursor: 'opaque-next-cursor',
                     records: [
                         {
                             action: 'message.sent',
@@ -181,10 +178,7 @@ describe('Convex database runtime wrappers', () => {
             targetId: 'message-1',
         });
         const page = await listBotActionEventPageByGuildId(db, {
-            cursor: {
-                createdAt: new Date('2026-07-03T08:00:00.000Z'),
-                id: 'event-1',
-            },
+            cursor: 'opaque-cursor',
             guildId: 'guild-1',
             search: 'channel-1',
             searchScope: 'channel',
@@ -201,10 +195,7 @@ describe('Convex database runtime wrappers', () => {
             targetId: 'message-1',
         });
         expect(page._unsafeUnwrap()).toStrictEqual({
-            nextCursor: {
-                createdAt: new Date('2026-07-03T07:00:00.000Z'),
-                id: 'event-0',
-            },
+            nextCursor: 'opaque-next-cursor',
             records: [
                 {
                     action: 'message.sent',
@@ -219,10 +210,7 @@ describe('Convex database runtime wrappers', () => {
             ],
         });
         expect(db.client.queryCalls.at(-1)?.args).toMatchObject({
-            cursor: {
-                createdAt: '2026-07-03T08:00:00.000Z',
-                id: 'event-1',
-            },
+            cursor: 'opaque-cursor',
             guildId: 'guild-1',
             search: 'channel-1',
             searchScope: 'channel',
