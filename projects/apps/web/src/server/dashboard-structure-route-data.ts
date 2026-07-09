@@ -231,6 +231,7 @@ function validateDashboardStructureDryRunInput(input: unknown): DashboardStructu
     return {
         guildId: readString(payload.guildId),
         backupJson: readString(payload.backupJson),
+        importMode: payload.importMode === 'replace' ? 'replace' : 'merge',
     };
 }
 

@@ -18,6 +18,7 @@ import type { ActionPageState, PanelStatus } from './dashboard-structure-panel-t
 
 export function useDashboardStructureImportState({
     guildId,
+    importMode,
     importJson,
     refreshAuditEvents,
     refreshSettings,
@@ -25,6 +26,7 @@ export function useDashboardStructureImportState({
     setStatus,
 }: {
     guildId: string;
+    importMode: 'merge' | 'replace';
     importJson: string;
     refreshAuditEvents: () => Promise<void>;
     refreshSettings: (options?: { resetBackups?: boolean }) => Promise<void>;
@@ -189,7 +191,9 @@ export function useDashboardStructureImportState({
         setBusyAction('dry-run');
 
         try {
-            const result = await createDashboardStructureDryRunRouteData({ data: { guildId, backupJson: importJson } });
+            const result = await createDashboardStructureDryRunRouteData({
+                data: { guildId, backupJson: importJson, importMode },
+            });
 
             if (result.type !== 'dry-run-created') {
                 setStatus(
@@ -206,7 +210,10 @@ export function useDashboardStructureImportState({
             }));
             setStatus({
                 tone: 'success',
-                message: `Dry-run created with ${result.importRun.actionCount} planned changes.`,
+                message:
+                    importMode === 'replace'
+                        ? `Replace dry-run created with ${result.importRun.actionCount} planned changes. Review deletes before applying.`
+                        : `Merge dry-run created with ${result.importRun.actionCount} planned changes.`,
             });
             await refreshSettings();
             await refreshAuditEvents();

@@ -50,6 +50,10 @@ export type FluxerGuildStructureSnapshotValidationResult =
     | { type: 'valid'; snapshot: FluxerGuildStructureSnapshot }
     | { type: 'invalid'; message: string };
 
+export type FluxerGuildStructureDiffOptions = {
+    includeDeletes?: boolean;
+};
+
 const roleFields = ['name', 'position', 'color', 'permissions', 'hoist', 'mentionable'] as const;
 const channelFields = ['name', 'type', 'parentId', 'position', 'permissionOverwrites'] as const;
 
@@ -106,12 +110,17 @@ export function normalizeFluxerGuildStructureSnapshot(value: unknown): FluxerGui
 
 export function diffFluxerGuildStructureSnapshot(
     current: FluxerGuildStructureSnapshot,
-    requested: FluxerGuildStructureSnapshot
+    requested: FluxerGuildStructureSnapshot,
+    options: FluxerGuildStructureDiffOptions = {}
 ): FluxerGuildStructurePlan {
+    const includeDeletes = options.includeDeletes ?? true;
+    const roleIdentity = buildRoleIdentity(current.roles, requested.roles, current.guildId, requested.guildId);
     const categoryIdentity = buildCategoryIdentity(current.categories, requested.categories);
     const channelIdentity = buildChannelIdentity(current.channels, requested.channels, categoryIdentity);
     const actions = [
         ...diffCollection('role', current.roles, requested.roles, roleFields, {
+            identity: roleIdentity,
+            includeDeletes,
             shouldSkipCurrentDelete: (role) => isProtectedSnapshotRole(role, current.guildId),
             shouldSkipRequested: (role) => isProtectedSnapshotRole(role, requested.guildId),
             shouldSkipUpdate: (currentRole, requestedRole) =>
@@ -119,9 +128,11 @@ export function diffFluxerGuildStructureSnapshot(
                 isProtectedSnapshotRole(requestedRole, requested.guildId),
         }),
         ...diffCollection('category', current.categories, requested.categories, channelFields, {
+            includeDeletes,
             identity: categoryIdentity,
         }),
         ...diffCollection('channel', current.channels, requested.channels, channelFields, {
+            includeDeletes,
             identity: channelIdentity,
             mapRequestedItem: (channel) => mapRequestedChannel(channel, categoryIdentity),
         }),
@@ -192,6 +203,7 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
     requestedItems: readonly TItem[],
     fields: ReadonlyArray<keyof TItem>,
     options: {
+        includeDeletes?: boolean;
         identity?: CollectionIdentity;
         mapRequestedItem?: (item: TItem) => TItem;
         shouldSkipCurrentDelete?: (item: TItem) => boolean;
@@ -225,11 +237,13 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
         }
     }
 
-    for (const current of currentItems) {
-        if (options.shouldSkipCurrentDelete?.(current)) continue;
+    if (options.includeDeletes ?? true) {
+        for (const current of currentItems) {
+            if (options.shouldSkipCurrentDelete?.(current)) continue;
 
-        if (!requestedCurrentIds.has(current.id)) {
-            actions.push(toAction('delete', targetType, current, { before: current }));
+            if (!requestedCurrentIds.has(current.id)) {
+                actions.push(toAction('delete', targetType, current, { before: current }));
+            }
         }
     }
 
@@ -240,6 +254,37 @@ type CollectionIdentity = {
     requestedToCurrentId: Map<string, string>;
     usedCurrentIds: Set<string>;
 };
+
+function buildRoleIdentity(
+    currentRoles: readonly FluxerGuildRole[],
+    requestedRoles: readonly FluxerGuildRole[],
+    currentGuildId: string | undefined,
+    requestedGuildId: string | undefined
+): CollectionIdentity {
+    return buildCollectionIdentity(currentRoles, requestedRoles, (requested, current, usedCurrentIds) => {
+        if (isProtectedSnapshotRole(requested, requestedGuildId)) return undefined;
+
+        const sameNameCandidates = current.filter(
+            (candidate) =>
+                !usedCurrentIds.has(candidate.id) &&
+                !isProtectedSnapshotRole(candidate, currentGuildId) &&
+                sameStructureName(candidate, requested)
+        );
+        const exactShapeCandidates = sameNameCandidates.filter((candidate) =>
+            sameRoleImportShape(candidate, requested)
+        );
+
+        if (exactShapeCandidates.length === 1) {
+            return exactShapeCandidates[0];
+        }
+
+        return sameNameCandidates.length === 1 ? sameNameCandidates[0] : undefined;
+    });
+}
+
+function sameRoleImportShape(left: FluxerGuildRole, right: FluxerGuildRole): boolean {
+    return roleFields.every((field) => stableValueKey(left[field]) === stableValueKey(right[field]));
+}
 
 function buildCategoryIdentity(
     currentCategories: readonly FluxerGuildChannel[],

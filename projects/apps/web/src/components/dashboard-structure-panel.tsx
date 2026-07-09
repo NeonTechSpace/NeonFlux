@@ -31,6 +31,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
+    const [replaceImportMode, setReplaceImportMode] = useState(false);
     const [backupJson, setBackupJson] = useState('');
     const [status, setStatus] = useState<PanelStatus | undefined>();
     const [busyAction, setBusyAction] = useState<StructureBusyAction | undefined>();
@@ -61,6 +62,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
     });
     const imports = useDashboardStructureImportState({
         guildId,
+        importMode: replaceImportMode ? 'replace' : 'merge',
         importJson,
         refreshAuditEvents,
         refreshSettings,
@@ -430,6 +432,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
             editingBackupName={editingBackupName}
             enabledDraft={enabledDraft}
             explorer={explorer}
+            replaceImportMode={replaceImportMode}
             importJson={importJson}
             importRuns={importRuns}
             latestRun={latestRun}
@@ -473,6 +476,7 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
             onDownloadCurrentStructure={() => void downloadCurrentStructure()}
             onDriftCreateDryRun={(backup) => void importBackup(backup)}
             onImportJsonChange={setImportJson}
+            onReplaceImportModeChange={setReplaceImportMode}
             onImportStructureFile={importStructureFile}
             onLoadMoreBackups={() => void loadMoreBackups()}
             onLoadRunActions={(run) => void imports.loadRunActions(run)}

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     applyDashboardStructureImportRunRouteData,
     confirmDashboardStructureImportRunRouteData,
+    createDashboardStructureDryRunRouteData,
     downloadDashboardStructureExportRouteData,
     importDashboardStructureBackupRouteData,
     preflightDashboardStructureImportRunRouteData,
@@ -33,6 +34,7 @@ vi.mock('../server/dashboard-structure-route-data.js', async (importActual) => {
         ...actual,
         applyDashboardStructureImportRunRouteData: vi.fn(),
         confirmDashboardStructureImportRunRouteData: vi.fn(),
+        createDashboardStructureDryRunRouteData: vi.fn(),
         downloadDashboardStructureExportRouteData: vi.fn(),
         importDashboardStructureBackupRouteData: vi.fn(),
         preflightDashboardStructureImportRunRouteData: vi.fn(),
@@ -158,6 +160,51 @@ describe('DashboardStructurePanel', () => {
             await screen.findByText('Loaded server-blueprint.json. Create a dry-run to review changes.')
         ).toBeTruthy();
         expect(screen.getByDisplayValue('{"version":1}')).toBeTruthy();
+    });
+
+    it('creates JSON dry-runs in merge mode by default', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(createSettingsResult());
+        vi.mocked(createDashboardStructureDryRunRouteData).mockResolvedValue({
+            type: 'dry-run-created',
+            importRun: createImportRun({ actionCount: 1 }),
+        });
+
+        renderStructurePanel();
+
+        fireEvent.change(await screen.findByLabelText('Import JSON dry-run'), {
+            target: { value: createStructureJson() },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Create dry-run' }));
+
+        await waitFor(() => expect(createDashboardStructureDryRunRouteData).toHaveBeenCalled());
+        expect(createDashboardStructureDryRunRouteData).toHaveBeenCalledWith({
+            data: { guildId: 'guild-1', backupJson: createStructureJson(), importMode: 'merge' },
+        });
+        expect(await screen.findByText('Merge dry-run created with 1 planned changes.')).toBeTruthy();
+    });
+
+    it('creates replace-mode JSON dry-runs when the replace checkbox is checked', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(createSettingsResult());
+        vi.mocked(createDashboardStructureDryRunRouteData).mockResolvedValue({
+            type: 'dry-run-created',
+            importRun: createImportRun({ actionCount: 4 }),
+        });
+
+        renderStructurePanel();
+
+        fireEvent.change(await screen.findByLabelText('Import JSON dry-run'), {
+            target: { value: createStructureJson() },
+        });
+        fireEvent.click(screen.getByRole('checkbox', { name: /Replace server layout/u }));
+        fireEvent.click(screen.getByRole('button', { name: 'Create dry-run' }));
+
+        await waitFor(() => expect(createDashboardStructureDryRunRouteData).toHaveBeenCalled());
+        expect(createDashboardStructureDryRunRouteData).toHaveBeenCalledWith({
+            data: { guildId: 'guild-1', backupJson: createStructureJson(), importMode: 'replace' },
+        });
+        expect(
+            await screen.findByText('Replace dry-run created with 4 planned changes. Review deletes before applying.')
+        ).toBeTruthy();
     });
 
     it('creates a restore dry-run from a persisted restore-point backup', async () => {

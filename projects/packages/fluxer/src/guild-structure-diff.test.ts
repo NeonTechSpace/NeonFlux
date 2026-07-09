@@ -308,6 +308,180 @@ describe('guild structure diff', () => {
         ]);
     });
 
+    it('matches unique same-name roles instead of planning duplicate create and delete actions', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'target-guild',
+                guildName: 'Target Guild',
+                roles: [
+                    {
+                        id: 'target-member',
+                        name: 'Member',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+                categories: [],
+                channels: [],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            guildId: 'source-guild',
+            roles: [
+                {
+                    id: 'source-member',
+                    name: 'Member',
+                    position: 5,
+                    color: 255,
+                    permissions: '8',
+                    hoist: true,
+                    mentionable: true,
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
+
+        expect(plan.summary).toStrictEqual({
+            creates: 0,
+            updates: 1,
+            deletes: 0,
+            roles: 1,
+            categories: 0,
+            channels: 0,
+        });
+        expect(plan.actions).toStrictEqual([
+            {
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'target-member',
+                label: 'Member',
+                details: {
+                    label: 'Member',
+                    changes: [
+                        { field: 'position', before: 1, after: 5 },
+                        { field: 'color', before: 0, after: 255 },
+                        { field: 'permissions', before: '0', after: '8' },
+                        { field: 'hoist', before: false, after: true },
+                        { field: 'mentionable', before: false, after: true },
+                    ],
+                },
+            },
+        ]);
+    });
+
+    it('uses a unique exact same-name role match when duplicate roles already exist', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'target-guild',
+                guildName: 'Target Guild',
+                roles: [
+                    {
+                        id: 'target-member-duplicate',
+                        name: 'Member',
+                        position: 2,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                    {
+                        id: 'target-member-kept',
+                        name: 'Member',
+                        position: 5,
+                        color: 255,
+                        permissions: '8',
+                        hoist: true,
+                        mentionable: true,
+                    },
+                ],
+                categories: [],
+                channels: [],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            guildId: 'source-guild',
+            roles: [
+                {
+                    id: 'source-member',
+                    name: 'Member',
+                    position: 5,
+                    color: 255,
+                    permissions: '8',
+                    hoist: true,
+                    mentionable: true,
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
+
+        expect(plan.summary).toStrictEqual({
+            creates: 0,
+            updates: 0,
+            deletes: 1,
+            roles: 1,
+            categories: 0,
+            channels: 0,
+        });
+        expect(plan.actions).toStrictEqual([
+            {
+                actionType: 'delete',
+                targetType: 'role',
+                targetId: 'target-member-duplicate',
+                label: 'Member',
+                details: {
+                    label: 'Member',
+                    before: {
+                        id: 'target-member-duplicate',
+                        name: 'Member',
+                        position: 2,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+            },
+        ]);
+    });
+
+    it('can omit deletes for merge-mode import previews', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'guild-1',
+                guildName: 'Guild 1',
+                roles: [
+                    {
+                        id: 'role-extra',
+                        name: 'Extra',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+                categories: [],
+                channels: [],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = { ...current, roles: [] };
+
+        expect(diffFluxerGuildStructureSnapshot(current, requested).summary.deletes).toBe(1);
+        expect(diffFluxerGuildStructureSnapshot(current, requested, { includeDeletes: false }).actions).toStrictEqual(
+            []
+        );
+    });
+
     it('matches same-name same-type channels through matched category names without planning create and delete', () => {
         const current = toFluxerGuildStructureSnapshot(
             {

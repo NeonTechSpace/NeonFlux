@@ -323,6 +323,7 @@ export type DashboardStructureDryRunResult =
 export type DashboardStructureDryRunInput = {
     guildId: string;
     backupJson: string;
+    importMode?: 'merge' | 'replace';
 };
 
 export type DashboardStructureConfirmInput = {
@@ -728,7 +729,10 @@ export async function createDashboardStructureImportDryRun(
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
 
     const current = toDashboardStructureSnapshot(currentResult.value);
-    const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot);
+    const importMode = input.importMode === 'replace' ? 'replace' : 'merge';
+    const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot, {
+        includeDeletes: importMode === 'replace',
+    });
     const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
         audit: (importRunId) =>
             createStructureAuditPayload(context, structureAuditActions.importDryRunCreated, importRunId, {
@@ -736,7 +740,9 @@ export async function createDashboardStructureImportDryRun(
                 createCount: plan.summary.creates,
                 updateCount: plan.summary.updates,
                 deleteCount: plan.summary.deletes,
+                importMode,
             }),
+        importMode,
     });
 
     if (runResult.type !== 'dry-run-created') return runResult;
@@ -1010,7 +1016,12 @@ async function persistStructureImportDryRun(
     context: AuthorizedStructureContext,
     plan: DashboardStructurePlan,
     requestedSnapshot: DashboardStructureSnapshot,
-    options: { audit?: (importRunId: string) => StructureAuditPayload; source?: string; sourceBackupId?: string } = {}
+    options: {
+        audit?: (importRunId: string) => StructureAuditPayload;
+        importMode?: 'merge' | 'replace';
+        source?: string;
+        sourceBackupId?: string;
+    } = {}
 ): Promise<DashboardStructureDryRunResult> {
     const database = await getWebDb();
     const requestedSnapshotStoredAt = new Date().toISOString();
@@ -1025,6 +1036,7 @@ async function persistStructureImportDryRun(
             requestedSnapshotStoredAt,
             requestedSnapshotVersion: 1,
             source: options.source ?? 'dashboard-json',
+            ...(options.importMode ? { importMode: options.importMode } : {}),
         }),
         ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
     });

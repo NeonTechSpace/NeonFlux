@@ -37,6 +37,7 @@ export function DashboardStructurePanelView({
     latestRun,
     observedState,
     preflightByRunId,
+    replaceImportMode,
     restoreShortcutBackupId,
     retentionDraft,
     status,
@@ -66,6 +67,7 @@ export function DashboardStructurePanelView({
     onLoadRunActions,
     onPreflightRun,
     onConfirmationChange,
+    onReplaceImportModeChange,
     onRetryRun,
     onSaveBackupSettings,
     onSetBackupJsonAsImportJson,
@@ -192,6 +194,26 @@ export function DashboardStructurePanelView({
                             className='block w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-xs text-neutral-300 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-800 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-neutral-100 hover:file:bg-neutral-700'
                         />
                     </label>
+                    <div className='flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-neutral-200'>
+                        <input
+                            id='server-blueprint-replace-import-mode'
+                            type='checkbox'
+                            checked={replaceImportMode}
+                            onChange={(event) => onReplaceImportModeChange(event.currentTarget.checked)}
+                            className='mt-1 h-4 w-4 rounded border-neutral-600 bg-neutral-950 text-amber-400 focus:ring-amber-400/40'
+                        />
+                        <span>
+                            <label
+                                htmlFor='server-blueprint-replace-import-mode'
+                                className='block font-semibold text-amber-100'>
+                                Replace server layout
+                            </label>
+                            <span className='mt-1 block text-xs leading-5 text-amber-100/80'>
+                                Include deletes for roles, categories, and channels not in this blueprint. Protected and
+                                default roles are still skipped, and deletes still require review and approval.
+                            </span>
+                        </span>
+                    </div>
                     <button
                         type='button'
                         onClick={onCreateDryRun}
@@ -326,6 +348,7 @@ type DashboardStructurePanelViewProps = {
         changedSinceLastBackup: boolean;
     };
     preflightByRunId: Record<string, DashboardStructurePreflightReport>;
+    replaceImportMode: boolean;
     restoreShortcutBackupId: string | undefined;
     retentionDraft: number;
     status: PanelStatus | undefined;
@@ -358,6 +381,7 @@ type DashboardStructurePanelViewProps = {
     onLoadRunActions: (run: DashboardStructureImportRun) => void;
     onPreflightRun: (run: DashboardStructureImportRun) => void;
     onConfirmationChange: (runId: string, confirmation: string) => void;
+    onReplaceImportModeChange: Dispatch<SetStateAction<boolean>>;
     onRetryRun: (run: DashboardStructureImportRun) => void;
     onSaveBackupSettings: () => void;
     onSetBackupJsonAsImportJson: () => void;

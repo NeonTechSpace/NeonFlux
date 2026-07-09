@@ -623,6 +623,76 @@ describe('dashboard structure import/export', () => {
         );
     });
 
+    it('defaults JSON dry-runs to merge mode without deleting unmatched current roles', async () => {
+        const current = createFluxerStructure();
+        const backupJson = JSON.stringify({
+            version: 1,
+            roles: [],
+            categories: current.categories,
+            channels: current.channels,
+        });
+
+        const result = await createDashboardStructureImportDryRun(request, {
+            guildId: 'requested-guild',
+            backupJson,
+        });
+
+        expect(result).toMatchObject({ type: 'dry-run-created' });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    importMode: 'merge',
+                    summary: expect.objectContaining({
+                        deletes: 0,
+                    }),
+                }),
+            })
+        );
+        expect(recordStructureImportActionsBatch).not.toHaveBeenCalled();
+    });
+
+    it('creates replace-mode JSON dry-runs with explicit delete actions for unmatched current roles', async () => {
+        const current = createFluxerStructure();
+        const backupJson = JSON.stringify({
+            version: 1,
+            roles: [],
+            categories: current.categories,
+            channels: current.channels,
+        });
+
+        const result = await createDashboardStructureImportDryRun(request, {
+            guildId: 'requested-guild',
+            backupJson,
+            importMode: 'replace',
+        });
+
+        expect(result).toMatchObject({ type: 'dry-run-created' });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    importMode: 'replace',
+                    summary: expect.objectContaining({
+                        deletes: 1,
+                    }),
+                }),
+            })
+        );
+        expect(recordStructureImportActionsBatch).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                actions: [
+                    expect.objectContaining({
+                        actionType: 'delete',
+                        targetType: 'role',
+                        targetId: 'role-1',
+                    }),
+                ],
+            })
+        );
+    });
+
     it('does not inline partial large import action lists into dashboard run responses', () => {
         const actions = Array.from({ length: 100 }, (_, index) =>
             createImportActionRecord({ id: `action-${String(index)}`, sequence: index })
