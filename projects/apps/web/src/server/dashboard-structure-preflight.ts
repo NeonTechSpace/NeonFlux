@@ -341,6 +341,17 @@ function preflightDeleteAction(
         );
     }
 
+    if (
+        targetType === 'role' &&
+        isRoleBlockedByBotHierarchy(currentItem, current.botHighestRolePosition, current.botHighestRoleHierarchyRank)
+    ) {
+        return toPreflightAction(
+            action,
+            'unsupported',
+            'The bot role must be above this role before it can be deleted.'
+        );
+    }
+
     if (stableValueKey(currentItem) !== stableValueKey(action.details.before)) {
         return toPreflightAction(action, 'stale', 'The target changed after the dry-run was created.');
     }
@@ -389,6 +400,17 @@ function preflightUpdateAction(
             action,
             'unsupported',
             'Protected bot, integration, and default roles cannot be updated.'
+        );
+    }
+
+    if (
+        targetType === 'role' &&
+        isRoleBlockedByBotHierarchy(currentItem, current.botHighestRolePosition, current.botHighestRoleHierarchyRank)
+    ) {
+        return toPreflightAction(
+            action,
+            'unsupported',
+            'The bot role must be above this role before it can be updated.'
         );
     }
 
@@ -479,6 +501,52 @@ function isProtectedRoleTarget(
 
 function isRoleProtectionReason(value: unknown): boolean {
     return value === 'everyone' || value === 'bot' || value === 'integration' || value === 'managed';
+}
+
+function isRoleBlockedByBotHierarchy(
+    role: { position?: unknown; hierarchyRank?: unknown; name?: unknown },
+    botHighestRolePosition: number | undefined,
+    botHighestRoleHierarchyRank: number | undefined
+): boolean {
+    return (
+        role.name !== '@everyone' &&
+        isRolePositionBlockedByBotHierarchy(
+            role.position,
+            role.hierarchyRank,
+            botHighestRolePosition,
+            botHighestRoleHierarchyRank
+        )
+    );
+}
+
+function isRolePositionBlockedByBotHierarchy(
+    position: unknown,
+    hierarchyRank: unknown,
+    botHighestRolePosition: number | undefined,
+    botHighestRoleHierarchyRank: number | undefined
+): boolean {
+    if (
+        typeof position !== 'number' ||
+        typeof botHighestRolePosition !== 'number' ||
+        !Number.isFinite(position) ||
+        !Number.isFinite(botHighestRolePosition)
+    ) {
+        return false;
+    }
+
+    if (position > botHighestRolePosition) return true;
+    if (position < botHighestRolePosition) return false;
+
+    if (
+        typeof hierarchyRank === 'number' &&
+        typeof botHighestRoleHierarchyRank === 'number' &&
+        Number.isFinite(hierarchyRank) &&
+        Number.isFinite(botHighestRoleHierarchyRank)
+    ) {
+        return hierarchyRank <= botHighestRoleHierarchyRank;
+    }
+
+    return true;
 }
 
 function isResolvableCategoryId(

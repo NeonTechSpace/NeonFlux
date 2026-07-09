@@ -212,7 +212,7 @@ export function useDashboardStructureImportState({
                 tone: 'success',
                 message:
                     importMode === 'replace'
-                        ? `Replace dry-run created with ${result.importRun.actionCount} planned changes. Review deletes before applying.`
+                        ? `Reset-first dry-run created with ${result.importRun.actionCount} planned changes. Review deletes before applying.`
                         : `Merge dry-run created with ${result.importRun.actionCount} planned changes.`,
             });
             await refreshSettings();

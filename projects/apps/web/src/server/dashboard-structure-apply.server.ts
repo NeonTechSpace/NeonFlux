@@ -16,6 +16,7 @@ import type { StructureImportActionRecord } from '@neonflux/db';
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
+import { orderDashboardStructureImportActions } from './dashboard-structure-action-order.js';
 import {
     loadAuthorizedStructureContext,
     recordStructureAuditBestEffort,
@@ -24,7 +25,7 @@ import type {
     AuthorizedStructureContext,
     DashboardStructureErrorResult,
 } from './dashboard-structure-context.server.js';
-import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import { normalizeDashboardStructureSnapshot, toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
 import type {
@@ -136,11 +137,15 @@ export async function applyDashboardStructureImportRun(
         context.guild.id,
         importRunResult.value.actions,
         readRequestedGuildId(importRunResult.value.plan),
-        readApplySourceTargetMap(importRunResult.value.plan)
+        readApplySourceTargetMap(importRunResult.value.plan),
+        readImportMode(importRunResult.value.plan),
+        readRequestedSnapshot(importRunResult.value.plan)
     );
-    const finalStatus = applyResult.actions.every((result) => result.status === structureImportActionStatuses.applied)
-        ? structureImportRunStatuses.applied
-        : structureImportRunStatuses.failed;
+    const finalStatus =
+        applyResult.actions.every((result) => result.status === structureImportActionStatuses.applied) &&
+        applyResult.roleOrderStatus !== 'failed'
+            ? structureImportRunStatuses.applied
+            : structureImportRunStatuses.failed;
     const finalRunResult = await updateStructureImportRunStatus(database.db, {
         runId: importRunId,
         status: finalStatus,
@@ -152,6 +157,8 @@ export async function applyDashboardStructureImportRun(
                 failed: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.failed)
                     .length,
                 sourceTargetMap: applyResult.idMap,
+                ...(applyResult.roleOrderStatus ? { roleOrderStatus: applyResult.roleOrderStatus } : {}),
+                ...(applyResult.roleOrderErrorType ? { roleOrderErrorType: applyResult.roleOrderErrorType } : {}),
                 ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}),
             },
         },
@@ -294,14 +301,21 @@ async function applyReadyActions(
     guildId: string,
     actions: StructureImportActionRecord[],
     sourceGuildId: string | undefined,
-    initialIdMap: Record<string, string>
+    initialIdMap: Record<string, string>,
+    importMode: 'merge' | 'replace',
+    requestedSnapshot: DashboardStructureSnapshot | undefined
 ) {
     const database = await getWebDb();
     const results: Array<{ actionId: string; status: string }> = [];
+    const orderedActions = orderDashboardStructureImportActions(actions, importMode);
+    const sourceTargetMap = {
+        ...initialIdMap,
+        ...readMatchedRoleSourceTargetMap(actions),
+    };
     const applyResult = await applyFluxerBotGuildStructureActions({
         botToken,
         guildId,
-        actions: orderStructureActions(actions).map((action) => {
+        actions: orderedActions.map((action) => {
             const details = toJsonRecord(action.details);
 
             return {
@@ -314,7 +328,9 @@ async function applyReadyActions(
             };
         }),
         ...(sourceGuildId ? { sourceGuildId } : {}),
-        ...(Object.keys(initialIdMap).length > 0 ? { idMap: initialIdMap } : {}),
+        ...(Object.keys(sourceTargetMap).length > 0 ? { idMap: sourceTargetMap } : {}),
+        ...(requestedSnapshot ? { roleOrder: toRequestedRoleOrder(requestedSnapshot) } : {}),
+        stopAfterDeleteFailures: importMode === 'replace',
     });
 
     if (applyResult.isErr()) {
@@ -332,7 +348,7 @@ async function applyReadyActions(
 
         return {
             actions: actions.map((action) => ({ actionId: action.id, status: structureImportActionStatuses.failed })),
-            idMap: initialIdMap,
+            idMap: sourceTargetMap,
         };
     }
 
@@ -392,49 +408,18 @@ async function applyReadyActions(
         });
     }
 
-    return { actions: results, idMap: applyResult.value.idMap };
-}
-
-function orderStructureActions(actions: StructureImportActionRecord[]): StructureImportActionRecord[] {
-    const actionTypeOrder = new Map([
-        ['create', 0],
-        ['update', 1],
-        ['delete', 2],
-    ]);
-    const createTargetOrder = new Map([
-        ['role', 0],
-        ['category', 1],
-        ['channel', 2],
-    ]);
-    const defaultTargetOrder = new Map([
-        ['category', 0],
-        ['channel', 1],
-        ['role', 2],
-    ]);
-    const deleteTargetOrder = new Map([
-        ['channel', 0],
-        ['category', 1],
-        ['role', 2],
-    ]);
-
-    return [...actions].sort(
-        (left, right) =>
-            (actionTypeOrder.get(left.actionType) ?? 99) - (actionTypeOrder.get(right.actionType) ?? 99) ||
-            readTargetOrder(left, createTargetOrder, defaultTargetOrder, deleteTargetOrder) -
-                readTargetOrder(right, createTargetOrder, defaultTargetOrder, deleteTargetOrder)
-    );
-}
-
-function readTargetOrder(
-    action: StructureImportActionRecord,
-    createTargetOrder: ReadonlyMap<string, number>,
-    defaultTargetOrder: ReadonlyMap<string, number>,
-    deleteTargetOrder: ReadonlyMap<string, number>
-): number {
-    if (action.actionType === 'create') return createTargetOrder.get(action.targetType) ?? 99;
-    if (action.actionType === 'delete') return deleteTargetOrder.get(action.targetType) ?? 99;
-
-    return defaultTargetOrder.get(action.targetType) ?? 99;
+    return {
+        actions: results,
+        idMap: applyResult.value.idMap,
+        ...(applyResult.value.roleOrder
+            ? {
+                  roleOrderStatus: applyResult.value.roleOrder.status,
+                  ...(applyResult.value.roleOrder.errorType
+                      ? { roleOrderErrorType: applyResult.value.roleOrder.errorType }
+                      : {}),
+              }
+            : {}),
+    };
 }
 
 function toPreflightAction(action: StructureImportActionRecord): DashboardStructurePreflightInputAction {
@@ -484,6 +469,43 @@ function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string,
     return Object.fromEntries(
         Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     );
+}
+
+function readImportMode(plan: Record<string, unknown>): 'merge' | 'replace' {
+    return plan.importMode === 'replace' ? 'replace' : 'merge';
+}
+
+function readRequestedSnapshot(plan: Record<string, unknown>): DashboardStructureSnapshot | undefined {
+    const normalized = normalizeDashboardStructureSnapshot(plan.requestedSnapshot);
+
+    return normalized.type === 'valid' ? normalized.snapshot : undefined;
+}
+
+function readMatchedRoleSourceTargetMap(actions: StructureImportActionRecord[]): Record<string, string> {
+    return Object.fromEntries(
+        actions.flatMap((action): Array<[string, string]> => {
+            if (action.actionType !== 'update' || action.targetType !== 'role' || !action.targetId) return [];
+
+            const details = toJsonRecord(action.details);
+            const sourceId = typeof details.sourceId === 'string' ? details.sourceId.trim() : '';
+
+            return sourceId ? [[sourceId, action.targetId]] : [];
+        })
+    );
+}
+
+function toRequestedRoleOrder(snapshot: DashboardStructureSnapshot) {
+    return snapshot.roles.flatMap((role) => {
+        if (role.protected || role.protectionReason || role.name === '@everyone' || role.position <= 0) return [];
+
+        return [
+            {
+                sourceId: role.id,
+                position: role.position,
+                ...(role.hierarchyRank !== undefined ? { hierarchyRank: role.hierarchyRank } : {}),
+            },
+        ];
+    });
 }
 
 function mapRunStatusError(error: { type: string; from?: string }): DashboardStructureApplyResult {

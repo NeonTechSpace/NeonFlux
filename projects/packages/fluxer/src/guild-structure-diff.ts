@@ -9,6 +9,8 @@ export type FluxerGuildStructureSnapshot = {
     version: 1;
     guildId?: string;
     guildName?: string;
+    botHighestRolePosition?: number;
+    botHighestRoleHierarchyRank?: number;
     exportedAt?: string;
     roles: FluxerGuildRole[];
     categories: FluxerGuildChannel[];
@@ -52,6 +54,7 @@ export type FluxerGuildStructureSnapshotValidationResult =
 
 export type FluxerGuildStructureDiffOptions = {
     includeDeletes?: boolean;
+    resetBeforeCreate?: boolean;
 };
 
 const roleFields = ['name', 'position', 'color', 'permissions', 'hoist', 'mentionable'] as const;
@@ -66,6 +69,13 @@ export function toFluxerGuildStructureSnapshot(
         guildId: structure.guildId,
         ...(typeof structure.guildName === 'string' && structure.guildName.trim()
             ? { guildName: structure.guildName.trim() }
+            : {}),
+        ...(typeof structure.botHighestRolePosition === 'number' && Number.isFinite(structure.botHighestRolePosition)
+            ? { botHighestRolePosition: structure.botHighestRolePosition }
+            : {}),
+        ...(typeof structure.botHighestRoleHierarchyRank === 'number' &&
+        Number.isFinite(structure.botHighestRoleHierarchyRank)
+            ? { botHighestRoleHierarchyRank: structure.botHighestRoleHierarchyRank }
             : {}),
         exportedAt,
         roles: structure.roles,
@@ -98,6 +108,16 @@ export function normalizeFluxerGuildStructureSnapshot(value: unknown): FluxerGui
             ...(typeof value.guildName === 'string' && value.guildName.trim()
                 ? { guildName: value.guildName.trim() }
                 : {}),
+            ...(typeof value.botHighestRolePosition === 'number' &&
+            Number.isFinite(value.botHighestRolePosition) &&
+            value.botHighestRolePosition >= 0
+                ? { botHighestRolePosition: value.botHighestRolePosition }
+                : {}),
+            ...(typeof value.botHighestRoleHierarchyRank === 'number' &&
+            Number.isFinite(value.botHighestRoleHierarchyRank) &&
+            value.botHighestRoleHierarchyRank >= 0
+                ? { botHighestRoleHierarchyRank: value.botHighestRoleHierarchyRank }
+                : {}),
             ...(typeof value.exportedAt === 'string' && value.exportedAt.trim()
                 ? { exportedAt: value.exportedAt.trim() }
                 : {}),
@@ -114,6 +134,10 @@ export function diffFluxerGuildStructureSnapshot(
     options: FluxerGuildStructureDiffOptions = {}
 ): FluxerGuildStructurePlan {
     const includeDeletes = options.includeDeletes ?? true;
+    if (options.resetBeforeCreate) {
+        return createResetBeforeCreatePlan(current, requested, includeDeletes);
+    }
+
     const roleIdentity = buildRoleIdentity(current.roles, requested.roles, current.guildId, requested.guildId);
     const categoryIdentity = buildCategoryIdentity(current.categories, requested.categories);
     const channelIdentity = buildChannelIdentity(current.channels, requested.channels, categoryIdentity);
@@ -136,6 +160,43 @@ export function diffFluxerGuildStructureSnapshot(
             identity: channelIdentity,
             mapRequestedItem: (channel) => mapRequestedChannel(channel, categoryIdentity),
         }),
+    ];
+
+    return {
+        summary: {
+            creates: actions.filter((action) => action.actionType === 'create').length,
+            updates: actions.filter((action) => action.actionType === 'update').length,
+            deletes: actions.filter((action) => action.actionType === 'delete').length,
+            roles: actions.filter((action) => action.targetType === 'role').length,
+            categories: actions.filter((action) => action.targetType === 'category').length,
+            channels: actions.filter((action) => action.targetType === 'channel').length,
+        },
+        actions,
+    };
+}
+
+function createResetBeforeCreatePlan(
+    current: FluxerGuildStructureSnapshot,
+    requested: FluxerGuildStructureSnapshot,
+    includeDeletes: boolean
+): FluxerGuildStructurePlan {
+    const actions = [
+        ...(includeDeletes
+            ? [
+                  ...current.roles
+                      .filter((role) => !isProtectedSnapshotRole(role, current.guildId))
+                      .map((role) => toAction('delete', 'role', role, { before: role })),
+                  ...current.categories.map((category) =>
+                      toAction('delete', 'category', category, { before: category })
+                  ),
+                  ...current.channels.map((channel) => toAction('delete', 'channel', channel, { before: channel })),
+              ]
+            : []),
+        ...requested.roles
+            .filter((role) => !isProtectedSnapshotRole(role, requested.guildId))
+            .map((role) => toAction('create', 'role', role, { after: role })),
+        ...requested.categories.map((category) => toAction('create', 'category', category, { after: category })),
+        ...requested.channels.map((channel) => toAction('create', 'channel', channel, { after: channel })),
     ];
 
     return {
@@ -233,7 +294,17 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
         const changes = diffFields(current, requestedForAction, fields);
 
         if (changes.length > 0) {
-            actions.push(toAction('update', targetType, { ...requestedForAction, id: current.id }, { changes }));
+            actions.push(
+                toAction(
+                    'update',
+                    targetType,
+                    { ...requestedForAction, id: current.id },
+                    {
+                        changes,
+                        ...(targetType === 'role' ? { sourceId: requested.id } : {}),
+                    }
+                )
+            );
         }
     }
 
@@ -435,6 +506,9 @@ function normalizeRoles(value: unknown): FluxerGuildRole[] | undefined {
             id: role.id,
             name: role.name,
             position: role.position,
+            ...(typeof role.hierarchyRank === 'number' && Number.isFinite(role.hierarchyRank)
+                ? { hierarchyRank: role.hierarchyRank }
+                : {}),
             color: role.color,
             permissions: role.permissions,
             hoist: role.hoist,

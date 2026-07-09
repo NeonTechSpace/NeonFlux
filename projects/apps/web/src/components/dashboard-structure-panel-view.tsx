@@ -206,11 +206,12 @@ export function DashboardStructurePanelView({
                             <label
                                 htmlFor='server-blueprint-replace-import-mode'
                                 className='block font-semibold text-amber-100'>
-                                Replace server layout
+                                Reset existing layout before import
                             </label>
                             <span className='mt-1 block text-xs leading-5 text-amber-100/80'>
-                                Include deletes for roles, categories, and channels not in this blueprint. Protected and
-                                default roles are still skipped, and deletes still require review and approval.
+                                Deletes eligible existing channels, categories, and roles before creating this
+                                blueprint. Protected and default roles are still skipped, and deletes still require
+                                review and approval.
                             </span>
                         </span>
                     </div>

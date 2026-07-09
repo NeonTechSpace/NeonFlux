@@ -11,6 +11,7 @@ describe('guild structure diff', () => {
         const result = normalizeFluxerGuildStructureSnapshot({
             guildId: ' guild-1 ',
             guildName: ' Guild 1 ',
+            botHighestRolePosition: 6,
             roles: [
                 {
                     id: 'role-1',
@@ -42,6 +43,7 @@ describe('guild structure diff', () => {
                 version: 1,
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
+                botHighestRolePosition: 6,
                 roles: [
                     {
                         id: 'role-1',
@@ -302,6 +304,7 @@ describe('guild structure diff', () => {
                 label: 'Members',
                 details: {
                     label: 'Members',
+                    sourceId: 'role-1',
                     changes: [{ field: 'name', before: 'Member', after: 'Members' }],
                 },
             },
@@ -363,6 +366,7 @@ describe('guild structure diff', () => {
                 label: 'Member',
                 details: {
                     label: 'Member',
+                    sourceId: 'source-member',
                     changes: [
                         { field: 'position', before: 1, after: 5 },
                         { field: 'color', before: 0, after: 255 },
@@ -372,6 +376,80 @@ describe('guild structure diff', () => {
                     ],
                 },
             },
+        ]);
+    });
+
+    it('reset-before-create mode deletes eligible current roles and recreates same-name requested roles', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'target-guild',
+                guildName: 'Target Guild',
+                roles: [
+                    {
+                        id: 'target-guild',
+                        name: '@everyone',
+                        position: 0,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                    {
+                        id: 'target-member',
+                        name: 'Member',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+                categories: [],
+                channels: [],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            guildId: 'source-guild',
+            roles: [
+                {
+                    id: 'source-guild',
+                    name: '@everyone',
+                    position: 0,
+                    color: 0,
+                    permissions: '8',
+                    hoist: false,
+                    mentionable: false,
+                },
+                {
+                    id: 'source-member',
+                    name: 'Member',
+                    position: 5,
+                    color: 255,
+                    permissions: '8',
+                    hoist: true,
+                    mentionable: true,
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested, {
+            includeDeletes: true,
+            resetBeforeCreate: true,
+        });
+
+        expect(plan.summary).toStrictEqual({
+            creates: 1,
+            updates: 0,
+            deletes: 1,
+            roles: 2,
+            categories: 0,
+            channels: 0,
+        });
+        expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
+            ['delete', 'role', 'target-member'],
+            ['create', 'role', 'source-member'],
         ]);
     });
 

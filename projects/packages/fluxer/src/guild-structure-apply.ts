@@ -7,6 +7,7 @@ import type { FluxerPlatformError } from './platform-shared.js';
 // Fluxer reads URL link channels as 998, while guild.createChannel creates links with type 5.
 const LINK_CHANNEL_CREATE_TYPE = 5;
 const LINK_CHANNEL_SNAPSHOT_TYPE = 998;
+export const DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS = 750;
 
 export type ApplyFluxerBotGuildStructureUpdateInput = {
     botToken: string;
@@ -39,12 +40,21 @@ export type ApplyFluxerBotGuildStructureBatchActionInput = Omit<
     id: string;
 };
 
+export type ApplyFluxerBotGuildStructureRoleOrderInput = {
+    sourceId: string;
+    position: number;
+    hierarchyRank?: number;
+};
+
 export type ApplyFluxerBotGuildStructureBatchInput = {
     botToken: string;
     guildId: string;
     actions: ApplyFluxerBotGuildStructureBatchActionInput[];
     idMap?: Record<string, string>;
+    operationDelayMs?: number;
+    roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
     sourceGuildId?: string;
+    stopAfterDeleteFailures?: boolean;
 };
 
 export type ApplyFluxerBotGuildStructureBatchResult = {
@@ -56,6 +66,10 @@ export type ApplyFluxerBotGuildStructureBatchResult = {
         errorType?: string;
     }>;
     idMap: Record<string, string>;
+    roleOrder?: {
+        status: 'applied' | 'failed';
+        errorType?: string;
+    };
 };
 
 export type ApplyFluxerBotGuildStructureUpdateError =
@@ -73,6 +87,9 @@ type PartialCreateError = {
 
 export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError | PartialCreateError;
 type ApplyNormalizedActionError = ApplyFluxerBotGuildStructureActionError;
+type StructureApplyRateLimiter = {
+    waitBeforeMutation: () => Promise<void>;
+};
 
 export async function applyFluxerBotGuildStructureUpdate(
     input: ApplyFluxerBotGuildStructureUpdateInput
@@ -104,7 +121,7 @@ export async function applyFluxerBotGuildStructureAction(
     try {
         await client.login(normalized.value.botToken);
 
-        return await applyNormalizedAction(client, normalized.value);
+        return await applyNormalizedAction(client, normalized.value, createStructureApplyRateLimiter(0));
     } catch (error) {
         return err({ type: 'login-failed', error });
     } finally {
@@ -124,11 +141,23 @@ export async function applyFluxerBotGuildStructureActions(
     const client = new Client({ gatewayDebug: false });
     const idMap: Record<string, string> = { ...(input.idMap ?? {}) };
     const actions: ApplyFluxerBotGuildStructureBatchResult['actions'] = [];
+    const rateLimiter = createStructureApplyRateLimiter(input.operationDelayMs);
 
     try {
         await client.login(botToken);
 
+        let deleteFailed = false;
+
         for (const action of input.actions) {
+            if (input.stopAfterDeleteFailures === true && deleteFailed && action.actionType !== 'delete') {
+                actions.push({
+                    id: action.id,
+                    status: 'failed',
+                    errorType: 'reset-delete-failed',
+                });
+                continue;
+            }
+
             const normalized = normalizeStructureActionInput({
                 ...action,
                 botToken,
@@ -139,12 +168,15 @@ export async function applyFluxerBotGuildStructureActions(
 
             if (normalized.isErr()) {
                 actions.push({ id: action.id, status: 'failed', errorType: normalized.error.type });
+                if (action.actionType === 'delete') deleteFailed = true;
                 continue;
             }
 
-            const result = await applyNormalizedAction(client, normalized.value);
+            const result = await applyNormalizedAction(client, normalized.value, rateLimiter);
 
             if (result.isErr()) {
+                if (action.actionType === 'delete') deleteFailed = true;
+
                 if (action.targetId && result.error.type === 'partial-create-failed') {
                     idMap[action.targetId] = result.error.createdId;
                     actions.push({
@@ -172,12 +204,87 @@ export async function applyFluxerBotGuildStructureActions(
             });
         }
 
+        const roleOrder = await applyRequestedRoleOrder(client, {
+            guildId,
+            idMap,
+            rateLimiter,
+            ...(input.roleOrder ? { roleOrder: input.roleOrder } : {}),
+            shouldApply: actions.every((action) => action.status === 'applied'),
+        });
+
+        if (roleOrder) {
+            return ok({ actions, idMap, roleOrder });
+        }
+
         return ok({ actions, idMap });
     } catch (error) {
         return err({ type: 'login-failed', error });
     } finally {
         await client.destroy().catch(() => undefined);
     }
+}
+
+async function applyRequestedRoleOrder(
+    client: Client,
+    input: {
+        guildId: string;
+        idMap: Record<string, string>;
+        rateLimiter: StructureApplyRateLimiter;
+        roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
+        shouldApply: boolean;
+    }
+): Promise<ApplyFluxerBotGuildStructureBatchResult['roleOrder'] | undefined> {
+    if (!input.shouldApply || !input.roleOrder || input.roleOrder.length === 0) return undefined;
+
+    const positions = normalizeRequestedRolePositions(input.roleOrder, input.idMap);
+
+    if (positions.length === 0) return undefined;
+
+    await input.rateLimiter.waitBeforeMutation();
+    const result = await createRolePlatform(client).setPositions({
+        guildId: input.guildId,
+        positions,
+    });
+
+    return result.isOk() ? { status: 'applied' } : { status: 'failed', errorType: result.error.type };
+}
+
+function normalizeRequestedRolePositions(
+    roleOrder: ApplyFluxerBotGuildStructureRoleOrderInput[],
+    idMap: Record<string, string>
+): Array<{ roleId: string; position: number }> {
+    const seenTargetIds = new Set<string>();
+
+    return [...roleOrder]
+        .filter(
+            (role): role is ApplyFluxerBotGuildStructureRoleOrderInput =>
+                typeof role.sourceId === 'string' &&
+                role.sourceId.trim().length > 0 &&
+                Number.isInteger(role.position) &&
+                role.position > 0
+        )
+        .sort(compareRequestedRoleOrder)
+        .flatMap((role) => {
+            const targetId = idMap[role.sourceId.trim()] ?? role.sourceId.trim();
+
+            if (!targetId || seenTargetIds.has(targetId)) return [];
+            seenTargetIds.add(targetId);
+
+            return [{ roleId: targetId, position: role.position }];
+        });
+}
+
+function compareRequestedRoleOrder(
+    left: ApplyFluxerBotGuildStructureRoleOrderInput,
+    right: ApplyFluxerBotGuildStructureRoleOrderInput
+): number {
+    if (left.hierarchyRank !== undefined && right.hierarchyRank !== undefined) {
+        return left.hierarchyRank - right.hierarchyRank;
+    }
+    if (left.hierarchyRank !== undefined) return -1;
+    if (right.hierarchyRank !== undefined) return 1;
+
+    return right.position - left.position || left.sourceId.localeCompare(right.sourceId);
 }
 
 type NormalizedStructureActionInput =
@@ -221,7 +328,6 @@ type NormalizedStructureActionInput =
           sourceId: string;
           name: string;
           permissions?: string;
-          position?: number;
           color?: number;
           hoist?: boolean;
           mentionable?: boolean;
@@ -287,17 +393,18 @@ function normalizeStructureActionInput(
 
 async function applyNormalizedAction(
     client: Client,
-    input: NormalizedStructureActionInput
+    input: NormalizedStructureActionInput,
+    rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyNormalizedActionError>> {
     switch (input.actionType) {
         case 'noop':
             return ok({ createdId: input.createdId });
         case 'create':
-            return await applyCreate(client, input);
+            return await applyCreate(client, input, rateLimiter);
         case 'delete':
-            return await applyDelete(client, input);
+            return await applyDelete(client, input, rateLimiter);
         case 'update':
-            return await applyUpdate(client, input);
+            return await applyUpdate(client, input, rateLimiter);
     }
 }
 
@@ -509,10 +616,13 @@ function normalizeStructureCreateInput(
 
         if (typeof after.permissions !== 'string') return err({ type: 'invalid-value', field: 'permissions' });
         const roleVisuals = normalizeRoleVisuals(after);
-        const position = normalizeRolePosition(after.position);
 
         if (!roleVisuals) return err({ type: 'invalid-value', field: 'role' });
-        if (after.position !== undefined && after.position !== null && position === undefined) {
+        if (
+            after.position !== undefined &&
+            after.position !== null &&
+            normalizeRolePosition(after.position) === undefined
+        ) {
             return err({ type: 'invalid-value', field: 'position' });
         }
 
@@ -524,7 +634,6 @@ function normalizeStructureCreateInput(
             sourceId,
             name,
             permissions: after.permissions,
-            ...(position !== undefined ? { position } : {}),
             ...roleVisuals,
         });
     }
@@ -609,9 +718,11 @@ function isRoleProtectionReason(value: unknown): boolean {
 
 async function applyUpdate(
     client: Client,
-    input: Extract<NormalizedStructureActionInput, { actionType: 'update' }>
+    input: Extract<NormalizedStructureActionInput, { actionType: 'update' }>,
+    rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
     if (input.targetType === 'role') {
+        await rateLimiter.waitBeforeMutation();
         const result = await createRolePlatform(client).edit({
             guildId: input.guildId,
             roleId: input.targetId,
@@ -624,6 +735,7 @@ async function applyUpdate(
     const channelPlatform = createChannelPlatform(client);
 
     if (input.name || input.parentId !== undefined || input.position !== undefined) {
+        await rateLimiter.waitBeforeMutation();
         const editResult = await channelPlatform.edit({
             channelId: input.targetId,
             guildId: input.guildId,
@@ -639,7 +751,8 @@ async function applyUpdate(
         const overwriteResult = await applyPermissionOverwrites(
             channelPlatform,
             input.targetId,
-            input.permissionOverwrites
+            input.permissionOverwrites,
+            rateLimiter
         );
 
         if (overwriteResult.isErr()) return err(overwriteResult.error);
@@ -650,9 +763,11 @@ async function applyUpdate(
 
 async function applyCreate(
     client: Client,
-    input: Extract<NormalizedStructureActionInput, { actionType: 'create' }>
+    input: Extract<NormalizedStructureActionInput, { actionType: 'create' }>,
+    rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
     if (input.targetType === 'role') {
+        await rateLimiter.waitBeforeMutation();
         const result = await createRolePlatform(client).create({
             guildId: input.guildId,
             name: input.name,
@@ -660,13 +775,13 @@ async function applyCreate(
             ...(input.color !== undefined ? { color: input.color } : {}),
             ...(input.hoist !== undefined ? { hoist: input.hoist } : {}),
             ...(input.mentionable !== undefined ? { mentionable: input.mentionable } : {}),
-            ...(input.position !== undefined ? { position: input.position } : {}),
         });
 
         return result.isOk() ? ok({ createdId: result.value.id }) : err(result.error);
     }
 
     const channelPlatform = createChannelPlatform(client);
+    await rateLimiter.waitBeforeMutation();
     const result = await channelPlatform.create({
         guildId: input.guildId,
         name: input.name,
@@ -679,10 +794,15 @@ async function applyCreate(
     if (result.isErr()) return err(result.error);
 
     if (input.permissionOverwrites.length > 0) {
-        const overwriteResult = await applyPermissionOverwrites(channelPlatform, result.value.id, {
-            before: [],
-            after: input.permissionOverwrites,
-        });
+        const overwriteResult = await applyPermissionOverwrites(
+            channelPlatform,
+            result.value.id,
+            {
+                before: [],
+                after: input.permissionOverwrites,
+            },
+            rateLimiter
+        );
 
         if (overwriteResult.isErr()) {
             return err({
@@ -698,8 +818,10 @@ async function applyCreate(
 
 async function applyDelete(
     client: Client,
-    input: Extract<NormalizedStructureActionInput, { actionType: 'delete' }>
+    input: Extract<NormalizedStructureActionInput, { actionType: 'delete' }>,
+    rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
+    await rateLimiter.waitBeforeMutation();
     const result =
         input.targetType === 'role'
             ? await createRolePlatform(client).delete({
@@ -846,7 +968,8 @@ function normalizePermissionOverwrites(
 async function applyPermissionOverwrites(
     channelPlatform: ReturnType<typeof createChannelPlatform>,
     channelId: string,
-    replacement: PermissionOverwriteReplacement
+    replacement: PermissionOverwriteReplacement,
+    rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<void, FluxerPlatformError>> {
     const beforeByKey = new Map(replacement.before.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
     const afterByKey = new Map(replacement.after.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
@@ -854,6 +977,7 @@ async function applyPermissionOverwrites(
     for (const before of replacement.before) {
         if (afterByKey.has(permissionOverwriteKey(before))) continue;
 
+        await rateLimiter.waitBeforeMutation();
         const deleteResult = await channelPlatform.deletePermission({
             channelId,
             overwriteId: before.id,
@@ -867,6 +991,7 @@ async function applyPermissionOverwrites(
 
         if (before && stablePermissionOverwriteKey(before) === stablePermissionOverwriteKey(after)) continue;
 
+        await rateLimiter.waitBeforeMutation();
         const editResult = await channelPlatform.editPermission({
             channelId,
             overwriteId: after.id,
@@ -904,6 +1029,28 @@ function mapOptionalId(value: string | null, idMap: Record<string, string>): str
     if (!value) return null;
 
     return idMap[value] ?? value;
+}
+
+function createStructureApplyRateLimiter(
+    delayMs = DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS
+): StructureApplyRateLimiter {
+    const normalizedDelayMs = Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
+    let mutationStarted = false;
+
+    return {
+        waitBeforeMutation: async () => {
+            if (!mutationStarted) {
+                mutationStarted = true;
+                return;
+            }
+
+            if (normalizedDelayMs === 0) return;
+
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve, normalizedDelayMs);
+            });
+        },
+    };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

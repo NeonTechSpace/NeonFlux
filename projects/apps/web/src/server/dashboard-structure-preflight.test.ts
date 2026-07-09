@@ -319,6 +319,156 @@ describe('dashboard structure preflight', () => {
         ]);
     });
 
+    it('blocks existing role updates and deletes above the bot role position without blocking creates', () => {
+        const snapshot: DashboardStructureSnapshot = {
+            ...createSnapshot(),
+            botHighestRolePosition: 5,
+            roles: [
+                {
+                    id: 'high-role',
+                    name: 'High Role',
+                    position: 7,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+                {
+                    id: 'low-role',
+                    name: 'Low Role',
+                    position: 2,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+        };
+
+        const report = preflightDashboardStructureImportPlan(
+            snapshot,
+            [
+                {
+                    id: 'create-high-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-high-role',
+                    details: {
+                        after: {
+                            id: 'source-high-role',
+                            name: 'Imported High',
+                            position: 6,
+                            color: 0,
+                            permissions: '0',
+                            hoist: false,
+                            mentionable: false,
+                        },
+                    },
+                },
+                {
+                    id: 'update-high-role',
+                    actionType: 'update',
+                    targetType: 'role',
+                    targetId: 'high-role',
+                    details: {
+                        changes: [{ field: 'name', before: 'High Role', after: 'Renamed High' }],
+                    },
+                },
+                {
+                    id: 'delete-high-role',
+                    actionType: 'delete',
+                    targetType: 'role',
+                    targetId: 'high-role',
+                    details: {
+                        before: snapshot.roles[0],
+                    },
+                },
+                {
+                    id: 'delete-low-role',
+                    actionType: 'delete',
+                    targetType: 'role',
+                    targetId: 'low-role',
+                    details: {
+                        before: snapshot.roles[1],
+                    },
+                },
+            ],
+            { allowDestructiveDeletes: true }
+        );
+
+        expect(report.summary).toMatchObject({
+            ready: 2,
+            unsupported: 2,
+        });
+        expect(report.actions.map((action) => action.status)).toStrictEqual([
+            'ready',
+            'unsupported',
+            'unsupported',
+            'ready',
+        ]);
+        expect(report.actions[1]?.message).toContain('bot role');
+        expect(report.actions[2]?.message).toContain('bot role');
+    });
+
+    it('allows equal-position role operations when hierarchy does not put the role above the bot', () => {
+        const snapshot: DashboardStructureSnapshot = {
+            ...createSnapshot(),
+            botHighestRolePosition: 1,
+            botHighestRoleHierarchyRank: 0,
+            roles: [
+                {
+                    id: 'below-bot-role',
+                    name: 'Below Bot',
+                    position: 1,
+                    hierarchyRank: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+        };
+
+        const report = preflightDashboardStructureImportPlan(
+            snapshot,
+            [
+                {
+                    id: 'create-equal-position-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-equal-role',
+                    details: {
+                        after: {
+                            id: 'source-equal-role',
+                            name: 'Source Equal',
+                            position: 1,
+                            color: 0,
+                            permissions: '0',
+                            hoist: false,
+                            mentionable: false,
+                        },
+                    },
+                },
+                {
+                    id: 'delete-below-bot-role',
+                    actionType: 'delete',
+                    targetType: 'role',
+                    targetId: 'below-bot-role',
+                    details: {
+                        before: snapshot.roles[0],
+                    },
+                },
+            ],
+            { allowDestructiveDeletes: true }
+        );
+
+        expect(report.summary).toMatchObject({
+            ready: 2,
+            unsupported: 0,
+        });
+        expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'ready']);
+    });
+
     it('marks channel parent and position updates ready when the parent category resolves', () => {
         const report = preflightDashboardStructureImportPlan(createSnapshot(), [
             {

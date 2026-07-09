@@ -71,6 +71,11 @@ type EditRoleInput = RoleVisualInput & {
     position?: number;
 };
 
+type RolePositionInput = {
+    guildId: string;
+    positions: Array<{ roleId: string; position: number }>;
+};
+
 type EditableGuildRole = {
     edit(options: {
         name?: string;
@@ -116,6 +121,7 @@ export function createRolePlatform(client: FluxerBot['client']) {
     return {
         create: (input: CreateRoleInput) => createRole(client, input),
         edit: (input: EditRoleInput) => editRole(client, input),
+        setPositions: (input: RolePositionInput) => setRolePositions(client, input),
         delete: (input: { guildId: string; roleId: string }) => deleteRole(client, input),
     };
 }
@@ -621,6 +627,48 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
 
             await guild.setRolePositions([{ id: input.roleId.trim(), position: input.position }]);
         }
+
+        return ok(undefined);
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
+}
+
+async function setRolePositions(
+    client: FluxerBot['client'],
+    input: RolePositionInput
+): Promise<Result<void, FluxerPlatformError>> {
+    const inputResult = requireTextInputs(input, ['guildId']);
+
+    if (inputResult.isErr()) {
+        return err(inputResult.error);
+    }
+
+    const positions = input.positions
+        .map((position) => ({ roleId: position.roleId.trim(), position: position.position }))
+        .filter((position) => position.roleId);
+
+    if (positions.length === 0) return err({ type: 'missing-input', field: 'role' });
+    if (positions.some((position) => !Number.isInteger(position.position) || position.position < 0)) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
+    if (positions.some((position) => position.roleId === input.guildId.trim())) {
+        return err({ type: 'invalid-value', field: 'position' });
+    }
+
+    try {
+        const guild = await client.guilds.fetch(input.guildId.trim());
+
+        if (!guild || !isRolePositionableGuild(guild)) {
+            return err({ type: 'not-found' });
+        }
+
+        await guild.setRolePositions(
+            positions.map((position) => ({
+                id: position.roleId,
+                position: position.position,
+            }))
+        );
 
         return ok(undefined);
     } catch (error) {

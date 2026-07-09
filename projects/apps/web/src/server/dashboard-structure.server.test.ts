@@ -652,13 +652,22 @@ describe('dashboard structure import/export', () => {
         expect(recordStructureImportActionsBatch).not.toHaveBeenCalled();
     });
 
-    it('creates replace-mode JSON dry-runs with explicit delete actions for unmatched current roles', async () => {
-        const current = createFluxerStructure();
+    it('creates replace-mode JSON dry-runs with reset deletes before same-name creates', async () => {
         const backupJson = JSON.stringify({
             version: 1,
-            roles: [],
-            categories: current.categories,
-            channels: current.channels,
+            roles: [
+                {
+                    id: 'role-1',
+                    name: 'Member',
+                    position: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+            categories: [],
+            channels: [],
         });
 
         const result = await createDashboardStructureImportDryRun(request, {
@@ -674,7 +683,8 @@ describe('dashboard structure import/export', () => {
                 plan: expect.objectContaining({
                     importMode: 'replace',
                     summary: expect.objectContaining({
-                        deletes: 1,
+                        creates: 1,
+                        deletes: 3,
                     }),
                 }),
             })
@@ -685,8 +695,27 @@ describe('dashboard structure import/export', () => {
                 actions: [
                     expect.objectContaining({
                         actionType: 'delete',
+                        targetType: 'channel',
+                        targetId: 'channel-1',
+                        sequence: 0,
+                    }),
+                    expect.objectContaining({
+                        actionType: 'delete',
+                        targetType: 'category',
+                        targetId: 'category-1',
+                        sequence: 1,
+                    }),
+                    expect.objectContaining({
+                        actionType: 'delete',
                         targetType: 'role',
                         targetId: 'role-1',
+                        sequence: 2,
+                    }),
+                    expect.objectContaining({
+                        actionType: 'create',
+                        targetType: 'role',
+                        targetId: 'role-1',
+                        sequence: 3,
                     }),
                 ],
             })

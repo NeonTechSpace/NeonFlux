@@ -195,7 +195,7 @@ describe('DashboardStructurePanel', () => {
         fireEvent.change(await screen.findByLabelText('Import JSON dry-run'), {
             target: { value: createStructureJson() },
         });
-        fireEvent.click(screen.getByRole('checkbox', { name: /Replace server layout/u }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /Reset existing layout before import/u }));
         fireEvent.click(screen.getByRole('button', { name: 'Create dry-run' }));
 
         await waitFor(() => expect(createDashboardStructureDryRunRouteData).toHaveBeenCalled());
@@ -203,7 +203,9 @@ describe('DashboardStructurePanel', () => {
             data: { guildId: 'guild-1', backupJson: createStructureJson(), importMode: 'replace' },
         });
         expect(
-            await screen.findByText('Replace dry-run created with 4 planned changes. Review deletes before applying.')
+            await screen.findByText(
+                'Reset-first dry-run created with 4 planned changes. Review deletes before applying.'
+            )
         ).toBeTruthy();
     });
 

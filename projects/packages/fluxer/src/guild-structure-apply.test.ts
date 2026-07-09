@@ -5,10 +5,12 @@ import {
     applyFluxerBotGuildStructureAction,
     applyFluxerBotGuildStructureActions,
     applyFluxerBotGuildStructureUpdate,
+    DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS,
 } from './guild-structure-apply.js';
 
 describe('applyFluxerBotGuildStructureAction', () => {
     afterEach(() => {
+        vi.useRealTimers();
         vi.restoreAllMocks();
     });
 
@@ -135,6 +137,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         const result = await applyFluxerBotGuildStructureActions({
             botToken: ' bot-token ',
             guildId: ' guild-1 ',
+            operationDelayMs: 0,
             actions: [
                 {
                     id: 'action-1',
@@ -161,6 +164,124 @@ describe('applyFluxerBotGuildStructureAction', () => {
             { id: 'action-1', status: 'applied' },
             { id: 'action-2', status: 'applied' },
         ]);
+    });
+
+    it('paces batch mutations between operations by default', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-09T00:00:00.000Z'));
+
+        const editTimes: number[] = [];
+        const edit = vi.fn().mockImplementation(() => {
+            editTimes.push(Date.now());
+            return Promise.resolve(undefined);
+        });
+
+        mockClientLogin({
+            channels: {
+                fetch: vi.fn().mockResolvedValue({ edit }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const resultPromise = applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actions: [
+                {
+                    id: 'action-1',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    changes: [{ field: 'name', after: 'general' }],
+                },
+                {
+                    id: 'action-2',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-2',
+                    changes: [{ field: 'name', after: 'updates' }],
+                },
+                {
+                    id: 'action-3',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-3',
+                    changes: [{ field: 'name', after: 'news' }],
+                },
+            ],
+        });
+
+        await vi.advanceTimersByTimeAsync(DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS * 2);
+
+        const result = await resultPromise;
+
+        expect(result.isOk()).toBe(true);
+        expect(editTimes).toStrictEqual([
+            new Date('2026-07-09T00:00:00.000Z').getTime(),
+            new Date('2026-07-09T00:00:00.000Z').getTime() + DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS,
+            new Date('2026-07-09T00:00:00.000Z').getTime() + DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS * 2,
+        ]);
+    });
+
+    it('does not start creates after reset delete failures when requested', async () => {
+        const deleteChannel = vi.fn().mockRejectedValue({ status: 403 });
+        const createRole = vi.fn().mockResolvedValue({ id: 'created-role-1', guildId: 'guild-1' });
+
+        mockClientLogin({
+            channels: {
+                fetch: vi.fn().mockResolvedValue({
+                    delete: deleteChannel,
+                    editPermission: vi.fn(),
+                    deletePermission: vi.fn(),
+                }),
+            },
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    createRole,
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            operationDelayMs: 0,
+            stopAfterDeleteFailures: true,
+            actions: [
+                {
+                    id: 'action-delete-channel',
+                    actionType: 'delete',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                },
+                {
+                    id: 'action-create-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-role-1',
+                    after: {
+                        id: 'source-role-1',
+                        name: 'Member',
+                        permissions: '0',
+                        position: 1,
+                        color: 0,
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(createRole).not.toHaveBeenCalled();
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [
+                { id: 'action-delete-channel', status: 'failed', errorType: 'permission-denied' },
+                { id: 'action-create-role', status: 'failed', errorType: 'reset-delete-failed' },
+            ],
+            idMap: {},
+        });
     });
 
     it('applies channel parent and position updates', async () => {
@@ -327,6 +448,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         const result = await applyFluxerBotGuildStructureActions({
             botToken: 'bot-token',
             guildId: 'target-guild-1',
+            operationDelayMs: 0,
             actions: [
                 {
                     id: 'action-create-channel',
@@ -391,6 +513,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         const result = await applyFluxerBotGuildStructureActions({
             botToken: 'bot-token',
             guildId: 'target-guild-1',
+            operationDelayMs: 0,
             idMap: {
                 'source-channel-1': 'created-channel-1',
             },
@@ -433,7 +556,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
     });
 
-    it('creates roles with name, permissions, and position', async () => {
+    it('creates roles with name, permissions, and visuals without applying source positions', async () => {
         const createRole = vi.fn().mockResolvedValue({ id: 'created-role-1', guildId: 'guild-1' });
 
         mockClientLogin({
@@ -467,10 +590,94 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(createRole).toHaveBeenCalledWith({
             name: 'Member',
             permissions: '1024',
-            position: 3,
             color: 65280,
             hoist: true,
             mentionable: false,
+        });
+    });
+
+    it('creates roles first and then applies requested role order with mapped target ids', async () => {
+        const createRole = vi
+            .fn()
+            .mockResolvedValueOnce({ id: 'created-role-top', guildId: 'guild-1' })
+            .mockResolvedValueOnce({ id: 'created-role-low', guildId: 'guild-1' });
+        const setRolePositions = vi.fn().mockResolvedValue([]);
+
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    createRole,
+                    setRolePositions,
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            operationDelayMs: 0,
+            actions: [
+                {
+                    id: 'action-create-top-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-role-top',
+                    after: {
+                        id: 'source-role-top',
+                        name: 'Top Role',
+                        permissions: '0',
+                        position: 8,
+                        hierarchyRank: 0,
+                        color: 0,
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+                {
+                    id: 'action-create-low-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-role-low',
+                    after: {
+                        id: 'source-role-low',
+                        name: 'Low Role',
+                        permissions: '0',
+                        position: 3,
+                        hierarchyRank: 1,
+                        color: 0,
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+            ],
+            roleOrder: [
+                { sourceId: 'source-role-low', position: 3, hierarchyRank: 1 },
+                { sourceId: 'source-role-top', position: 8, hierarchyRank: 0 },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(createRole).toHaveBeenNthCalledWith(
+            1,
+            expect.not.objectContaining({
+                position: expect.anything(),
+            })
+        );
+        expect(setRolePositions).toHaveBeenCalledWith([
+            { id: 'created-role-top', position: 8 },
+            { id: 'created-role-low', position: 3 },
+        ]);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [
+                { id: 'action-create-top-role', status: 'applied', createdId: 'created-role-top' },
+                { id: 'action-create-low-role', status: 'applied', createdId: 'created-role-low' },
+            ],
+            idMap: {
+                'source-role-top': 'created-role-top',
+                'source-role-low': 'created-role-low',
+            },
+            roleOrder: { status: 'applied' },
         });
     });
 

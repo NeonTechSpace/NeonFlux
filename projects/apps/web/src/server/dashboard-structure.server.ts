@@ -37,6 +37,7 @@ import type {
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
+import { orderDashboardStructureImportActions } from './dashboard-structure-action-order.js';
 import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type {
     AuthorizedStructureContext,
@@ -732,6 +733,7 @@ export async function createDashboardStructureImportDryRun(
     const importMode = input.importMode === 'replace' ? 'replace' : 'merge';
     const plan = diffDashboardStructureSnapshot(current, requestedResult.snapshot, {
         includeDeletes: importMode === 'replace',
+        resetBeforeCreate: importMode === 'replace',
     });
     const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
         audit: (importRunId) =>
@@ -1043,9 +1045,10 @@ async function persistStructureImportDryRun(
 
     if (runResult.isErr()) return { type: 'database-error' };
 
+    const orderedActions = orderDashboardStructureImportActions(plan.actions, options.importMode ?? 'merge');
     const actionRecords = await recordActionBatches(
         runResult.value.id,
-        plan.actions.map((action, index) => ({
+        orderedActions.map((action, index) => ({
             actionType: action.actionType,
             targetType: action.targetType,
             ...(action.targetId ? { targetId: action.targetId } : {}),

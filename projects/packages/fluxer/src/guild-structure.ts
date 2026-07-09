@@ -9,6 +9,7 @@ export type FluxerGuildRole = {
     id: string;
     name: string;
     position: number;
+    hierarchyRank?: number;
     color: number;
     permissions: string;
     hoist: boolean;
@@ -37,6 +38,8 @@ export type FluxerGuildChannel = {
 export type FluxerGuildStructure = {
     guildId: string;
     guildName: string;
+    botHighestRolePosition?: number;
+    botHighestRoleHierarchyRank?: number;
     roles: FluxerGuildRole[];
     channels: FluxerGuildChannel[];
     categories: FluxerGuildChannel[];
@@ -49,6 +52,12 @@ export type ReadFluxerGuildStructureInput = {
 
 export type ReadFluxerBotGuildStructureInput = Omit<ReadFluxerGuildStructureInput, 'client'> & {
     botToken: string;
+};
+
+type FluxerBotHighestRole = {
+    position: number;
+    hierarchyRank?: number;
+    roleIds: string[];
 };
 
 export type ReadFluxerGuildStructureError =
@@ -112,7 +121,23 @@ export async function readFluxerGuildStructure(
         return err(structureResult.error);
     }
 
-    const normalizedRoles = normalizeRoles(structureResult.value.roles, guildId, structureResult.value.rawRoles);
+    const botHighestRolePositionResult = await readBotHighestRolePosition(
+        input.client,
+        guildResult.value,
+        structureResult.value.roles,
+        structureResult.value.rawRoles
+    );
+
+    if (botHighestRolePositionResult.isErr()) {
+        return err(botHighestRolePositionResult.error);
+    }
+
+    const normalizedRoles = normalizeRoles(
+        structureResult.value.roles,
+        guildId,
+        structureResult.value.rawRoles,
+        botHighestRolePositionResult.value?.roleIds
+    );
     const normalizedChannelResult = normalizeChannels(structureResult.value.channels);
 
     if (!normalizedRoles || !normalizedChannelResult) {
@@ -122,6 +147,12 @@ export async function readFluxerGuildStructure(
     return ok({
         guildId,
         guildName: normalizeGuildName(guildResult.value, guildId),
+        ...(typeof botHighestRolePositionResult.value?.position === 'number'
+            ? { botHighestRolePosition: botHighestRolePositionResult.value.position }
+            : {}),
+        ...(botHighestRolePositionResult.value && typeof botHighestRolePositionResult.value.hierarchyRank === 'number'
+            ? { botHighestRoleHierarchyRank: botHighestRolePositionResult.value.hierarchyRank }
+            : {}),
         roles: normalizedRoles,
         channels: normalizedChannelResult.channels,
         categories: normalizedChannelResult.categories,
@@ -191,12 +222,139 @@ function readGuildId(guild: Guild): string | undefined {
     return typeof guildLike.id === 'string' && guildLike.id.trim() ? guildLike.id.trim() : undefined;
 }
 
-function normalizeRoles(roles: unknown, guildId: string, rawRoles?: unknown[]): FluxerGuildRole[] | undefined {
+async function readBotHighestRolePosition(
+    client: Client,
+    guild: Guild,
+    roles: Role[],
+    rawRoles?: unknown[]
+): Promise<Result<FluxerBotHighestRole | undefined, Extract<ReadFluxerGuildStructureError, { type: 'fetch-failed' }>>> {
+    const botUserId = readClientUserId(client);
+    const fetchMember = readGuildFetchMember(guild);
+
+    if (!botUserId || !fetchMember) {
+        return ok(undefined);
+    }
+
+    try {
+        const member = await fetchMember(botUserId);
+        const roleIds = readMemberRoleIds(member);
+
+        if (!roleIds) {
+            return ok(undefined);
+        }
+
+        const rolePositionById = createRolePositionById(roles, rawRoles);
+        const roleHierarchyRankById = createRoleHierarchyRankById(roles, rawRoles);
+        const highestRole = roleIds.reduce<FluxerBotHighestRole | undefined>((highest, roleId) => {
+            const position = rolePositionById.get(roleId);
+            if (typeof position !== 'number') return highest;
+
+            const hierarchyRank = roleHierarchyRankById.get(roleId);
+            if (
+                !highest ||
+                compareRoleHierarchy(position, hierarchyRank, highest.position, highest.hierarchyRank) < 0
+            ) {
+                return { position, roleIds, ...(typeof hierarchyRank === 'number' ? { hierarchyRank } : {}) };
+            }
+
+            return highest;
+        }, undefined);
+
+        return ok(highestRole);
+    } catch (error) {
+        return err({ type: 'fetch-failed', error });
+    }
+}
+
+function readClientUserId(client: Client): string | undefined {
+    const clientLike = client as unknown as { user?: { id?: unknown } };
+    return typeof clientLike.user?.id === 'string' && clientLike.user.id.trim() ? clientLike.user.id.trim() : undefined;
+}
+
+function readGuildFetchMember(guild: Guild): ((userId: string) => Promise<unknown>) | undefined {
+    const guildLike = guild as unknown as { fetchMember?: unknown };
+    return typeof guildLike.fetchMember === 'function'
+        ? (guildLike.fetchMember as (userId: string) => Promise<unknown>).bind(guild)
+        : undefined;
+}
+
+function readMemberRoleIds(member: unknown): string[] | undefined {
+    if (!isObject(member)) return undefined;
+
+    const roles = isObject(member.roles) ? member.roles : undefined;
+    const roleIds = roles?.roleIds;
+
+    if (!isIterable(roleIds)) return undefined;
+
+    return [...roleIds].filter((roleId): roleId is string => typeof roleId === 'string' && roleId.trim().length > 0);
+}
+
+function createRolePositionById(roles: Role[], rawRoles?: unknown[]): Map<string, number> {
+    const rolePositionById = new Map<string, number>();
+
+    for (const role of roles) {
+        if (typeof role.id === 'string' && typeof role.position === 'number') {
+            rolePositionById.set(role.id, role.position);
+        }
+    }
+
+    for (const rawRole of rawRoles ?? []) {
+        if (!isObject(rawRole) || typeof rawRole.id !== 'string') continue;
+
+        const position = readRolePosition(rawRole);
+        if (typeof position === 'number') {
+            rolePositionById.set(rawRole.id, position);
+        }
+    }
+
+    return rolePositionById;
+}
+
+function createRoleHierarchyRankById(roles: Role[], rawRoles?: unknown[]): Map<string, number> {
+    const roleHierarchyRankById = new Map<string, number>();
+
+    roles.forEach((role, index) => {
+        if (typeof role.id === 'string') {
+            roleHierarchyRankById.set(role.id, index);
+        }
+    });
+
+    (rawRoles ?? []).forEach((rawRole, index) => {
+        if (isObject(rawRole) && typeof rawRole.id === 'string') {
+            roleHierarchyRankById.set(rawRole.id, index);
+        }
+    });
+
+    return roleHierarchyRankById;
+}
+
+function compareRoleHierarchy(
+    leftPosition: number,
+    leftHierarchyRank: number | undefined,
+    rightPosition: number,
+    rightHierarchyRank: number | undefined
+): number {
+    if (leftPosition !== rightPosition) return rightPosition - leftPosition;
+    if (typeof leftHierarchyRank === 'number' && typeof rightHierarchyRank === 'number') {
+        return leftHierarchyRank - rightHierarchyRank;
+    }
+
+    return 0;
+}
+
+function normalizeRoles(
+    roles: unknown,
+    guildId: string,
+    rawRoles?: unknown[],
+    botRoleIds: readonly string[] = []
+): FluxerGuildRole[] | undefined {
     if (!Array.isArray(roles)) {
         return undefined;
     }
 
     const normalizedRoles: FluxerGuildRole[] = [];
+    const botRoleIdSet = new Set(botRoleIds);
+    const rawRoleRankById = createRoleHierarchyRankById([], rawRoles);
     const rawRoleById = new Map(
         (rawRoles ?? [])
             .filter(isObject)
@@ -208,7 +366,9 @@ function normalizeRoles(roles: unknown, guildId: string, rawRoles?: unknown[]): 
         const normalizedRole = normalizeRole(
             role,
             guildId,
-            isObject(role) ? rawRoleById.get(String(role.id)) : undefined
+            isObject(role) ? rawRoleById.get(String(role.id)) : undefined,
+            isObject(role) ? rawRoleRankById.get(String(role.id)) : undefined,
+            isObject(role) && typeof role.id === 'string' && botRoleIdSet.has(role.id)
         );
 
         if (!normalizedRole) {
@@ -221,7 +381,13 @@ function normalizeRoles(roles: unknown, guildId: string, rawRoles?: unknown[]): 
     return normalizedRoles;
 }
 
-function normalizeRole(role: unknown, guildId: string, rawRole?: Record<string, unknown>): FluxerGuildRole | undefined {
+function normalizeRole(
+    role: unknown,
+    guildId: string,
+    rawRole?: Record<string, unknown>,
+    hierarchyRank?: number,
+    isBotAssignedRole = false
+): FluxerGuildRole | undefined {
     if (!isObject(role)) {
         return undefined;
     }
@@ -240,18 +406,29 @@ function normalizeRole(role: unknown, guildId: string, rawRole?: Record<string, 
         return undefined;
     }
 
-    const protection = readRoleProtection(rawRole ?? role, guildId);
+    const position = (rawRole ? readRolePosition(rawRole) : undefined) ?? readRolePosition(role);
+
+    if (typeof position !== 'number') {
+        return undefined;
+    }
+
+    const protection = isBotAssignedRole ? 'bot' : readRoleProtection(rawRole ?? role, guildId);
 
     return {
         id: role.id,
         name: role.name,
-        position: role.position,
+        position,
+        ...(typeof hierarchyRank === 'number' ? { hierarchyRank } : {}),
         color: role.color,
         permissions,
         hoist: role.hoist,
         mentionable: role.mentionable,
         ...(protection ? { protected: true, protectionReason: protection } : {}),
     };
+}
+
+function readRolePosition(role: Record<string, unknown>): number | undefined {
+    return typeof role.position === 'number' && Number.isFinite(role.position) ? role.position : undefined;
 }
 
 export function isProtectedFluxerGuildRole(role: Pick<FluxerGuildRole, 'id'> & Partial<FluxerGuildRole>): boolean {
@@ -399,4 +576,11 @@ function normalizePermissionOverwrite(overwrite: unknown): FluxerPermissionOverw
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
+}
+
+function isIterable(value: unknown): value is Iterable<unknown> {
+    if (!isObject(value)) return false;
+
+    const iterableLike = value as { [Symbol.iterator]?: unknown };
+    return typeof iterableLike[Symbol.iterator] === 'function';
 }

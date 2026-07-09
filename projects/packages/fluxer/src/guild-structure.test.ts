@@ -91,6 +91,7 @@ describe('readFluxerGuildStructure', () => {
                     id: 'role-1',
                     name: 'Member',
                     position: 1,
+                    hierarchyRank: 0,
                     color: 12_345,
                     permissions: '1024',
                     hoist: false,
@@ -129,6 +130,38 @@ describe('readFluxerGuildStructure', () => {
                 },
             ],
         });
+    });
+
+    it('reads the bot highest role position when the bot member is available', async () => {
+        const guild = createGuild({
+            roles: [
+                createRole({ id: 'member-role', name: 'Member', position: 1 }),
+                createRole({ id: 'bot-low-role', name: 'Bot Low', position: 1 }),
+                createRole({ id: 'bot-high-role', name: 'Bot High', position: 1 }),
+                createRole({ id: 'owner-role', name: 'Owner', position: 1 }),
+            ],
+            rawRoles: [
+                { id: 'member-role', position: 2 },
+                { id: 'bot-low-role', position: 4 },
+                { id: 'bot-high-role', position: 7 },
+                { id: 'owner-role', position: 10 },
+            ],
+            botRoleIds: ['bot-low-role', 'bot-high-role'],
+        });
+
+        const result = await readFluxerGuildStructure({
+            client: createClient(createFetchGuildMock(Promise.resolve(guild)), 'bot-user-1'),
+            guildId: 'guild-1',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(guild.fetchMember).toHaveBeenCalledWith('bot-user-1');
+        expect(result._unsafeUnwrap().botHighestRolePosition).toBe(7);
+        expect(result._unsafeUnwrap().roles.find((role) => role.id === 'bot-high-role')).toMatchObject({
+            protected: true,
+            protectionReason: 'bot',
+        });
+        expect(result._unsafeUnwrap().roles.find((role) => role.id === 'owner-role')?.position).toBe(10);
     });
 
     it('returns empty arrays for empty guild structures', async () => {
@@ -364,8 +397,9 @@ describe('readFluxerBotGuildStructure', () => {
     });
 });
 
-function createClient(fetchGuild: FetchGuildMock): ReadFluxerGuildStructureInput['client'] {
+function createClient(fetchGuild: FetchGuildMock, userId?: string): ReadFluxerGuildStructureInput['client'] {
     return {
+        ...(userId ? { user: { id: userId } } : {}),
         guilds: {
             fetch: fetchGuild,
         },
@@ -381,6 +415,7 @@ function createFetchGuildMock(result: Promise<Guild | null>): FetchGuildMock {
 type TestGuild = Guild & {
     fetchRoles: ReturnType<typeof vi.fn<() => Promise<Role[]>>>;
     fetchChannels: ReturnType<typeof vi.fn<() => Promise<GuildChannel[]>>>;
+    fetchMember: ReturnType<typeof vi.fn<(userId: string) => Promise<unknown>>>;
 };
 
 function createGuild(
@@ -390,6 +425,7 @@ function createGuild(
         rolesResult?: Promise<Role[]>;
         channelsResult?: Promise<GuildChannel[]>;
         rawRoles?: unknown[];
+        botRoleIds?: string[];
     } = {}
 ): TestGuild {
     return {
@@ -407,6 +443,11 @@ function createGuild(
         fetchChannels: vi
             .fn<() => Promise<GuildChannel[]>>()
             .mockReturnValue(options.channelsResult ?? Promise.resolve(options.channels ?? [createChannel()])),
+        fetchMember: vi.fn<(userId: string) => Promise<unknown>>().mockResolvedValue({
+            roles: {
+                roleIds: options.botRoleIds ?? [],
+            },
+        }),
     } as unknown as TestGuild;
 }
 

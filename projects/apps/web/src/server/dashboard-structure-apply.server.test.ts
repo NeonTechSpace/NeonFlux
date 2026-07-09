@@ -149,6 +149,7 @@ describe('dashboard structure apply', () => {
                     after: undefined,
                 },
             ],
+            stopAfterDeleteFailures: false,
         });
         expect(updateStructureImportActionStatus).toHaveBeenCalledWith(
             {},
@@ -277,6 +278,130 @@ describe('dashboard structure apply', () => {
                         },
                     }),
                 }),
+            })
+        );
+    });
+
+    it('passes requested role order and matched role ids to Fluxer apply', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createRoleOrderImportRun()));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure({ includeRole: true })));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({
+                actions: [{ id: 'action-update-role', status: 'applied' }],
+                idMap: { 'source-role-1': 'role-1' },
+                roleOrder: { status: 'applied' },
+            })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+        });
+
+        expect(result).toMatchObject({ type: 'applied' });
+        expect(applyFluxerBotGuildStructureActions).toHaveBeenCalledWith(
+            expect.objectContaining({
+                idMap: { 'source-role-1': 'role-1' },
+                roleOrder: [{ sourceId: 'source-role-1', position: 5, hierarchyRank: 0 }],
+            })
+        );
+        expect(updateStructureImportRunStatus).toHaveBeenLastCalledWith(
+            {},
+            expect.objectContaining({
+                status: 'applied',
+                plan: expect.objectContaining({
+                    applySummary: expect.objectContaining({
+                        roleOrderStatus: 'applied',
+                        sourceTargetMap: { 'source-role-1': 'role-1' },
+                    }),
+                }),
+            })
+        );
+    });
+
+    it('fails the import run when requested role ordering fails after ready actions apply', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createRoleOrderImportRun()));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure({ includeRole: true })));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({
+                actions: [{ id: 'action-update-role', status: 'applied' }],
+                idMap: { 'source-role-1': 'role-1' },
+                roleOrder: { status: 'failed', errorType: 'permission-denied' },
+            })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+        });
+
+        expect(result).toMatchObject({ type: 'failed' });
+        expect(updateStructureImportRunStatus).toHaveBeenLastCalledWith(
+            {},
+            expect.objectContaining({
+                status: 'failed',
+                plan: expect.objectContaining({
+                    applySummary: expect.objectContaining({
+                        roleOrderStatus: 'failed',
+                        roleOrderErrorType: 'permission-denied',
+                    }),
+                }),
+            })
+        );
+    });
+
+    it('applies replace-mode reset deletes before creates', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createReplaceImportRun()));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok(createFluxerStructure({ includeRole: true })));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValueOnce(
+            ok({
+                actions: [
+                    { id: 'action-delete-channel', status: 'applied' },
+                    { id: 'action-delete-category', status: 'applied' },
+                    { id: 'action-delete-role', status: 'applied' },
+                    { id: 'action-create-role', status: 'applied', createdId: 'created-role-1' },
+                ],
+                idMap: {
+                    'source-role-1': 'created-role-1',
+                },
+            })
+        );
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+            destructiveConfirmationText: getStructureImportDeleteApprovalText('run-1', 3),
+        });
+
+        expect(result).toMatchObject({ type: 'applied' });
+        expect(applyFluxerBotGuildStructureActions).toHaveBeenCalledWith(
+            expect.objectContaining({
+                stopAfterDeleteFailures: true,
+                actions: [
+                    expect.objectContaining({
+                        id: 'action-delete-channel',
+                        actionType: 'delete',
+                        targetType: 'channel',
+                    }),
+                    expect.objectContaining({
+                        id: 'action-delete-category',
+                        actionType: 'delete',
+                        targetType: 'category',
+                    }),
+                    expect.objectContaining({
+                        id: 'action-delete-role',
+                        actionType: 'delete',
+                        targetType: 'role',
+                    }),
+                    expect.objectContaining({
+                        id: 'action-create-role',
+                        actionType: 'create',
+                        targetType: 'role',
+                    }),
+                ],
             })
         );
     });
@@ -561,6 +686,7 @@ describe('dashboard structure apply', () => {
                     after: undefined,
                 },
             ],
+            stopAfterDeleteFailures: false,
         });
         expect(updateStructureImportActionStatus).toHaveBeenCalledWith(
             {},
@@ -827,6 +953,63 @@ function createCreateImportRun(): StructureImportRunWithActionsRecord {
     };
 }
 
+function createRoleOrderImportRun(): StructureImportRunWithActionsRecord {
+    const timestamp = new Date('2026-06-28T00:00:00.000Z');
+
+    return {
+        ...createImportRun({
+            plan: {
+                requestedSnapshot: {
+                    version: 1,
+                    guildId: 'source-guild-1',
+                    roles: [
+                        {
+                            id: 'source-role-1',
+                            name: 'Member',
+                            position: 5,
+                            hierarchyRank: 0,
+                            color: 0,
+                            permissions: '0',
+                            hoist: false,
+                            mentionable: false,
+                        },
+                    ],
+                    categories: [],
+                    channels: [],
+                },
+                requestedSnapshotVersion: 1,
+                requestedSnapshotStoredAt: '2026-06-28T00:00:00.000Z',
+                summary: {
+                    creates: 0,
+                    updates: 1,
+                    deletes: 0,
+                    roles: 1,
+                    categories: 0,
+                    channels: 0,
+                },
+            },
+        }),
+        actions: [
+            {
+                id: 'action-update-role',
+                runId: 'run-1',
+                sequence: 0,
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'role-1',
+                status: 'dry_run',
+                details: {
+                    label: 'Member',
+                    sourceId: 'source-role-1',
+                    changes: [{ field: 'name', before: 'Old Role', after: 'Member' }],
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+        ],
+    };
+}
+
 function createDeleteImportRun(): StructureImportRunWithActionsRecord {
     const timestamp = new Date('2026-06-28T00:00:00.000Z');
 
@@ -848,6 +1031,118 @@ function createDeleteImportRun(): StructureImportRunWithActionsRecord {
                 id: 'action-delete-channel',
                 runId: 'run-1',
                 sequence: 0,
+                actionType: 'delete',
+                targetType: 'channel',
+                targetId: 'channel-1',
+                status: 'dry_run',
+                details: {
+                    label: 'old-name',
+                    before: {
+                        id: 'channel-1',
+                        name: 'old-name',
+                        type: 0,
+                        parentId: null,
+                        position: 1,
+                        permissionOverwrites: [],
+                    },
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+        ],
+    };
+}
+
+function createReplaceImportRun(): StructureImportRunWithActionsRecord {
+    const timestamp = new Date('2026-06-28T00:00:00.000Z');
+
+    return {
+        ...createImportRun({
+            plan: {
+                importMode: 'replace',
+                summary: {
+                    creates: 1,
+                    updates: 0,
+                    deletes: 3,
+                    roles: 2,
+                    categories: 1,
+                    channels: 1,
+                },
+            },
+        }),
+        actions: [
+            {
+                id: 'action-create-role',
+                runId: 'run-1',
+                sequence: 0,
+                actionType: 'create',
+                targetType: 'role',
+                targetId: 'source-role-1',
+                status: 'dry_run',
+                details: {
+                    label: 'New Role',
+                    after: {
+                        id: 'source-role-1',
+                        name: 'New Role',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+            {
+                id: 'action-delete-role',
+                runId: 'run-1',
+                sequence: 1,
+                actionType: 'delete',
+                targetType: 'role',
+                targetId: 'role-1',
+                status: 'dry_run',
+                details: {
+                    label: 'Old Role',
+                    before: {
+                        id: 'role-1',
+                        name: 'Old Role',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+            {
+                id: 'action-delete-category',
+                runId: 'run-1',
+                sequence: 2,
+                actionType: 'delete',
+                targetType: 'category',
+                targetId: 'category-1',
+                status: 'dry_run',
+                details: {
+                    label: 'Info',
+                    before: {
+                        id: 'category-1',
+                        name: 'Info',
+                        type: 4,
+                        parentId: null,
+                        position: 0,
+                        permissionOverwrites: [],
+                    },
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+            {
+                id: 'action-delete-channel',
+                runId: 'run-1',
+                sequence: 3,
                 actionType: 'delete',
                 targetType: 'channel',
                 targetId: 'channel-1',
@@ -984,11 +1279,24 @@ function createRestorePointBackupRecord(): StructureBackupRecord {
 function createFluxerStructure({
     channelName = 'old-name',
     includeCategory = true,
-}: { channelName?: string; includeCategory?: boolean } = {}) {
+    includeRole = false,
+}: { channelName?: string; includeCategory?: boolean; includeRole?: boolean } = {}) {
     return {
         guildId: 'guild-1',
         guildName: 'Guild 1',
-        roles: [],
+        roles: includeRole
+            ? [
+                  {
+                      id: 'role-1',
+                      name: 'Old Role',
+                      position: 1,
+                      color: 0,
+                      permissions: '0',
+                      hoist: false,
+                      mentionable: false,
+                  },
+              ]
+            : [],
         categories: includeCategory
             ? [
                   {
