@@ -3,11 +3,7 @@ import { ChevronRight, Menu, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 
-import {
-    dashboardCategories,
-    getDashboardCategorySubNavigation,
-    getDefaultDashboardSubNavigationTo,
-} from '../dashboard-categories.js';
+import { dashboardCategories, dashboardNavigationEntries } from '../dashboard-categories.js';
 import type { DashboardCategoryId, DashboardSubNavigationTo } from '../dashboard-categories.js';
 
 export function DashboardCategoryNavigation({
@@ -121,20 +117,19 @@ function DashboardCategoryNavigationList({
 }) {
     return (
         <ul className={variant === 'desktop' ? 'space-y-1' : 'space-y-1'}>
-            {dashboardCategories.map((category) => {
+            {dashboardNavigationEntries.map((entry) => {
+                const { category, subNavigation } = entry;
                 const Icon = category.icon;
                 const active = activeCategoryId === category.id;
-                const subNavigation = getDashboardCategorySubNavigation(category.id);
-                const hasSubNavigation = subNavigation.length > 0;
+                const hasSubNavigation = entry.type === 'group';
                 const open = openOverrides[category.id] ?? active;
-                const defaultSubNavigationTo = getDefaultDashboardSubNavigationTo(category.id);
 
                 return (
                     <li key={category.id}>
-                        {hasSubNavigation && defaultSubNavigationTo ? (
+                        {hasSubNavigation ? (
                             <div className='flex items-center gap-1'>
                                 <Link
-                                    to={defaultSubNavigationTo}
+                                    to={entry.defaultSubNavigationTo}
                                     params={{ guildId }}
                                     activeOptions={{ exact: false }}
                                     aria-current={active ? 'page' : undefined}
@@ -173,9 +168,9 @@ function DashboardCategoryNavigationList({
                             </div>
                         ) : (
                             <Link
-                                to={category.to}
+                                to={entry.linkTo}
                                 params={{ guildId }}
-                                activeOptions={{ exact: true }}
+                                activeOptions={{ exact: subNavigation.length === 0 }}
                                 aria-current={active ? 'page' : undefined}
                                 onClick={onNavigate}
                                 className={getCategoryLinkClassName(active)}>

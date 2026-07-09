@@ -129,6 +129,14 @@ function preflightCreateAction(
     }
 
     if (targetType === 'role') {
+        if (isProtectedRoleTarget(after, current.guildId)) {
+            return toPreflightAction(
+                action,
+                'unsupported',
+                'Protected bot, integration, and default roles are ignored.'
+            );
+        }
+
         return preflightRoleCreateAction(action, after);
     }
 
@@ -269,6 +277,9 @@ function preflightChannelCreateAction(
     if (!isSupportedChannelType(after.type)) {
         return toPreflightAction(action, 'unsupported', `Channel type ${after.type} is not supported for create.`);
     }
+    if (after.url !== undefined && after.url !== null && typeof after.url !== 'string') {
+        return toPreflightAction(action, 'invalid-plan', 'The channel create target has an invalid link URL.');
+    }
 
     const permissionOverwrites = normalizePermissionOverwrites(after.permissionOverwrites);
 
@@ -322,6 +333,14 @@ function preflightDeleteAction(
         return toPreflightAction(action, 'stale', 'The target no longer exists in the current server layout.');
     }
 
+    if (targetType === 'role' && isProtectedRoleTarget(currentItem, current.guildId)) {
+        return toPreflightAction(
+            action,
+            'unsupported',
+            'Protected bot, integration, and default roles cannot be deleted.'
+        );
+    }
+
     if (stableValueKey(currentItem) !== stableValueKey(action.details.before)) {
         return toPreflightAction(action, 'stale', 'The target changed after the dry-run was created.');
     }
@@ -363,6 +382,14 @@ function preflightUpdateAction(
 
     if (!currentItem) {
         return toPreflightAction(action, 'stale', 'The target no longer exists in the current server layout.');
+    }
+
+    if (targetType === 'role' && isProtectedRoleTarget(currentItem, current.guildId)) {
+        return toPreflightAction(
+            action,
+            'unsupported',
+            'Protected bot, integration, and default roles cannot be updated.'
+        );
     }
 
     const staleField = changes.find(
@@ -438,6 +465,22 @@ function normalizeCreateTarget(value: unknown): Record<string, unknown> | undefi
     return isObject(value) ? value : undefined;
 }
 
+function isProtectedRoleTarget(
+    role: { id?: unknown; name?: unknown; position?: unknown; protected?: unknown; protectionReason?: unknown },
+    guildId: string | undefined
+): boolean {
+    return (
+        role.protected === true ||
+        isRoleProtectionReason(role.protectionReason) ||
+        (typeof guildId === 'string' && role.id === guildId) ||
+        (role.name === '@everyone' && role.position === 0)
+    );
+}
+
+function isRoleProtectionReason(value: unknown): boolean {
+    return value === 'everyone' || value === 'bot' || value === 'integration' || value === 'managed';
+}
+
 function isResolvableCategoryId(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
@@ -454,8 +497,8 @@ function isResolvableCategoryId(
     );
 }
 
-function isSupportedChannelType(type: number): type is 0 | 2 | 4 | 5 {
-    return type === 0 || type === 2 || type === 4 || type === 5;
+function isSupportedChannelType(type: number): type is 0 | 2 | 4 | 5 | 998 {
+    return type === 0 || type === 2 || type === 4 || type === 5 || type === 998;
 }
 
 type PermissionOverwrite = {

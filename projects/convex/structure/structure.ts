@@ -838,11 +838,15 @@ export const recordStructureImportActionsBatch = mutation({
 
         const run = await requireRun(ctx, args.runId);
         assertUniqueActionSequences(args.actions.map((action) => action.sequence));
+        await assertAvailableImportActionSequences(
+            ctx,
+            run._id,
+            args.actions.map((action) => action.sequence)
+        );
 
         const now = new Date().toISOString();
         const records = [];
         for (const action of args.actions) {
-            await assertAvailableImportActionSequence(ctx, run._id, action.sequence);
             const document = unwrap(buildStructureImportActionDocument({ ...action, runId: args.runId }, now));
             const id = await ctx.db.insert('structureImportActions', document);
             records.push(toStructureImportActionRecord({ ...document, _id: id }));
@@ -1040,6 +1044,28 @@ async function assertAvailableImportActionSequence(
         .first();
 
     if (existing) {
+        throw new Error('structure-import-action-sequence-duplicate');
+    }
+}
+
+async function assertAvailableImportActionSequences(
+    ctx: StructureMutationCtx,
+    runId: GenericId<'structureImportRuns'>,
+    sequences: number[]
+): Promise<void> {
+    if (sequences.length === 0) return;
+
+    const minSequence = Math.min(...sequences);
+    const maxSequence = Math.max(...sequences);
+    const requestedSequences = new Set(sequences);
+    const existing = await ctx.db
+        .query('structureImportActions')
+        .withIndex('by_run_sequence', (index) =>
+            index.eq('runId', runId).gte('sequence', minSequence).lte('sequence', maxSequence)
+        )
+        .take(sequences.length);
+
+    if (existing.some((action) => requestedSequences.has(action.sequence))) {
         throw new Error('structure-import-action-sequence-duplicate');
     }
 }

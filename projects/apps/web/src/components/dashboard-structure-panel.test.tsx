@@ -242,9 +242,7 @@ describe('DashboardStructurePanel', () => {
         expect(revokeObjectUrl).not.toHaveBeenCalled();
         expect(await screen.findByText('Live server blueprint loaded in explorer.')).toBeTruthy();
         expect(screen.getAllByText('Live server layout').length).toBeGreaterThan(0);
-        expect(
-            screen.getByRole('treeitem', { name: 'Categories/General [category-general]/general [channel-1]' })
-        ).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: 'Categories/General/general' })).toBeTruthy();
     });
 
     it('inspects a successful backup row in the explorer', async () => {
@@ -268,7 +266,7 @@ describe('DashboardStructurePanel', () => {
         });
         expect(await screen.findByText('Backup loaded in explorer.')).toBeTruthy();
         expect(screen.getAllByText('NeonSpace - 2026-07-06 - 10-00').length).toBeGreaterThan(0);
-        expect(screen.getByRole('treeitem', { name: 'Roles/Admin [role-admin]' })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: 'Roles/Admin' })).toBeTruthy();
     });
 
     it('preserves the prior explorer snapshot when import JSON is invalid', async () => {
@@ -289,7 +287,7 @@ describe('DashboardStructurePanel', () => {
 
         expect(await screen.findByText('Import JSON could not be parsed as a server blueprint.')).toBeTruthy();
         expect(screen.getAllByText('Live server layout').length).toBeGreaterThan(0);
-        expect(screen.getByRole('treeitem', { name: 'Roles/Admin [role-admin]' })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: 'Roles/Admin' })).toBeTruthy();
     });
 
     it('compares the loaded explorer source against import JSON and preserves the target on invalid JSON', async () => {
@@ -886,6 +884,42 @@ describe('DashboardStructurePanel', () => {
         });
     });
 
+    it('shows hard preflight blockers before destructive approvals and explains why apply is unavailable', async () => {
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
+            createSettingsResult({ importRuns: [createDeleteImportRun()] })
+        );
+        vi.mocked(preflightDashboardStructureImportRunRouteData).mockResolvedValue({
+            type: 'preflight',
+            importRunId: 'run-1',
+            report: createUnsupportedAndDestructivePreflightReport(),
+        });
+
+        renderStructurePanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Run preflight' }));
+
+        expect(await screen.findByText('Apply blocked')).toBeTruthy();
+        expect(
+            screen.getByText(/Fix or remove 1 unsupported, stale, mapping-required, or invalid planned change/u)
+        ).toBeTruthy();
+        expect(screen.getByText('Delete approval is only available after hard blockers are gone.')).toBeTruthy();
+        expect(screen.queryByLabelText('Type APPLY run-1 to apply ready updates')).toBeNull();
+        expect(screen.queryByLabelText('Type DELETE run-1 1 to approve 1 delete')).toBeNull();
+
+        const blockerItems = screen.getAllByRole('listitem');
+        const unsupported = blockerItems.find((element) =>
+            element.textContent.includes('unsupported: @everyone - @everyone cannot be moved.')
+        );
+        const destructive = blockerItems.find((element) =>
+            element.textContent.includes(
+                'destructive approval required: general - Delete actions require destructive approval.'
+            )
+        );
+        expect(unsupported).toBeDefined();
+        expect(destructive).toBeDefined();
+        expect(unsupported!.compareDocumentPosition(destructive!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('shows a blocked apply message when restore-point backup creation fails', async () => {
         vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
             createSettingsResult({ importRuns: [createDeleteImportRun()] })
@@ -1412,6 +1446,40 @@ function createDestructivePreflightReport() {
                 label: 'general',
                 status: 'destructive-approval-required' as const,
                 message: 'Delete actions require destructive approval.',
+            },
+        ],
+    };
+}
+
+function createUnsupportedAndDestructivePreflightReport() {
+    return {
+        summary: {
+            total: 2,
+            ready: 0,
+            stale: 0,
+            mappingRequired: 0,
+            destructiveApprovalRequired: 1,
+            unsupported: 1,
+            invalidPlan: 0,
+        },
+        actions: [
+            {
+                actionId: 'action-1',
+                actionType: 'delete' as const,
+                targetType: 'channel' as const,
+                targetId: 'channel-1',
+                label: 'general',
+                status: 'destructive-approval-required' as const,
+                message: 'Delete actions require destructive approval.',
+            },
+            {
+                actionId: 'action-2',
+                actionType: 'update' as const,
+                targetType: 'role' as const,
+                targetId: 'guild-1',
+                label: '@everyone',
+                status: 'unsupported' as const,
+                message: '@everyone cannot be moved.',
             },
         ],
     };

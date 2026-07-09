@@ -1,4 +1,4 @@
-import { preparePresortedFileTreeInput } from '@pierre/trees';
+import { prepareFileTreeInput } from '@pierre/trees';
 import type { FileTreePreparedInput } from '@pierre/trees';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
@@ -166,6 +166,7 @@ export function buildDashboardStructureExplorerModel({
     const pathMetadata = new Map<string, DashboardStructureExplorerPathMetadata>();
     const entityPathByKey = new Map<DashboardStructureExplorerEntityKey, string>();
     const actionsByKey = groupActionsByEntityKey(actions);
+    const segments = createPathSegmentAllocator();
     const warnings = driftPreviewCapped ? ['Drift preview is capped. Create a dry-run to inspect every action.'] : [];
 
     addRootMetadata(pathMetadata, roots.roles);
@@ -173,17 +174,19 @@ export function buildDashboardStructureExplorerModel({
     addRootMetadata(pathMetadata, roots.uncategorized);
 
     const categoriesById = new Map((snapshot?.categories ?? []).map((category) => [category.id, category]));
+    const categoryPathById = new Map<string, string>();
 
     for (const role of sortRoles(snapshot?.roles ?? [])) {
         const key = entityKey('role', role.id);
-        const path = `${roots.roles}/${toSegment(role.name, role.id)}`;
+        const label = toDisplayLabel(role.name);
+        const path = `${roots.roles}/${segments.allocate(roots.roles, label)}`;
         addEntityPath({
             actionsByKey,
             entityPathByKey,
             item: role,
             key,
             kind: 'role',
-            label: role.name,
+            label,
             path,
             pathMetadata,
             paths,
@@ -192,14 +195,16 @@ export function buildDashboardStructureExplorerModel({
 
     for (const category of sortChannels(snapshot?.categories ?? [])) {
         const key = entityKey('category', category.id);
-        const path = `${roots.categories}/${toSegment(category.name ?? category.id, category.id)}/`;
+        const label = toDisplayLabel(category.name ?? category.id);
+        const path = `${roots.categories}/${segments.allocate(roots.categories, label)}/`;
+        categoryPathById.set(category.id, path.slice(0, -1));
         addEntityPath({
             actionsByKey,
             entityPathByKey,
             item: category,
             key,
             kind: 'category',
-            label: category.name ?? category.id,
+            label,
             path,
             pathMetadata,
             paths,
@@ -210,16 +215,17 @@ export function buildDashboardStructureExplorerModel({
         const key = entityKey('channel', channel.id);
         const parentCategory = channel.parentId ? categoriesById.get(channel.parentId) : undefined;
         const rootPath = parentCategory
-            ? `${roots.categories}/${toSegment(parentCategory.name ?? parentCategory.id, parentCategory.id)}`
+            ? (categoryPathById.get(parentCategory.id) ?? roots.uncategorized)
             : roots.uncategorized;
-        const path = `${rootPath}/${toSegment(channel.name ?? channel.id, channel.id)}`;
+        const label = toDisplayLabel(channel.name ?? channel.id);
+        const path = `${rootPath}/${segments.allocate(rootPath, label)}`;
         addEntityPath({
             actionsByKey,
             entityPathByKey,
             item: channel,
             key,
             kind: 'channel',
-            label: channel.name ?? channel.id,
+            label,
             parentId: channel.parentId,
             path,
             pathMetadata,
@@ -227,11 +233,13 @@ export function buildDashboardStructureExplorerModel({
         });
     }
 
-    addMissingActionTargets({ actionsByKey, entityPathByKey, pathMetadata, paths });
-    addBlockedShortcuts({ actions, pathMetadata, paths });
+    addMissingActionTargets({ actionsByKey, entityPathByKey, pathMetadata, paths, segments });
+    addBlockedShortcuts({ actions, pathMetadata, paths, segments });
     addUnmatchedPreflightWarnings(preflightReport, warnings);
 
     const uniquePaths = [...new Set(paths)];
+    const treePaths = uniquePaths.filter((path) => pathMetadata.get(path)?.kind !== 'root');
+    const pathOrder = new Map(uniquePaths.map((path, index) => [path, index]));
 
     return {
         counts: {
@@ -243,7 +251,7 @@ export function buildDashboardStructureExplorerModel({
         entityPathByKey,
         pathMetadata,
         paths: uniquePaths,
-        preparedInput: preparePresortedFileTreeInput(uniquePaths),
+        preparedInput: prepareFileTreeInput(treePaths, { sort: createTreePathComparator(pathOrder) }),
         warnings,
     };
 }
@@ -273,7 +281,7 @@ function addEntityPath(input: {
     const actions = input.actionsByKey.get(input.key) ?? [];
     input.paths.push(input.path);
     input.entityPathByKey.set(input.key, input.path);
-    input.pathMetadata.set(input.path, {
+    setPathMetadata(input.pathMetadata, input.path, {
         actions,
         badges: badgesForActions(actions),
         entityKey: input.key,
@@ -293,6 +301,7 @@ function addMissingActionTargets(input: {
     entityPathByKey: Map<DashboardStructureExplorerEntityKey, string>;
     pathMetadata: Map<string, DashboardStructureExplorerPathMetadata>;
     paths: string[];
+    segments: PathSegmentAllocator;
 }): void {
     for (const [key, actions] of input.actionsByKey) {
         if (input.entityPathByKey.has(key)) continue;
@@ -301,13 +310,13 @@ function addMissingActionTargets(input: {
         const representative = actions[0];
         const item = readActionItem(representative);
         const explorerItem = isRole(item) || isChannel(item) ? item : undefined;
-        const label = readActionLabel(representative, item, id);
+        const label = toDisplayLabel(readActionLabel(representative, item, id));
         const rootPath = kind === 'role' ? roots.roles : kind === 'category' ? roots.categories : roots.uncategorized;
-        const path = `${rootPath}/${toSegment(label, id)}${kind === 'category' ? '/' : ''}`;
+        const path = `${rootPath}/${input.segments.allocate(rootPath, label)}${kind === 'category' ? '/' : ''}`;
 
         input.paths.push(path);
         input.entityPathByKey.set(key, path);
-        input.pathMetadata.set(path, {
+        setPathMetadata(input.pathMetadata, path, {
             actions,
             badges: badgesForActions(actions),
             entityKey: key,
@@ -326,6 +335,7 @@ function addBlockedShortcuts(input: {
     actions: DashboardStructureExplorerAction[];
     pathMetadata: Map<string, DashboardStructureExplorerPathMetadata>;
     paths: string[];
+    segments: PathSegmentAllocator;
 }): void {
     const blockedActions = input.actions.filter((action) => badgesForAction(action).includes('blocked'));
     if (blockedActions.length === 0) return;
@@ -334,10 +344,10 @@ function addBlockedShortcuts(input: {
     addRootMetadata(input.pathMetadata, roots.blocked);
 
     for (const action of blockedActions) {
-        const label = action.label ?? action.targetId ?? action.id;
-        const path = `${roots.blocked}/${toSegment(label, action.id)}`;
+        const label = toDisplayLabel(action.label ?? action.targetId ?? action.id);
+        const path = `${roots.blocked}/${input.segments.allocate(roots.blocked, label)}`;
         input.paths.push(path);
-        input.pathMetadata.set(path, {
+        setPathMetadata(input.pathMetadata, path, {
             actions: [action],
             badges: badgesForAction(action),
             kind: 'action',
@@ -350,7 +360,7 @@ function addBlockedShortcuts(input: {
 
 function addRootMetadata(pathMetadata: Map<string, DashboardStructureExplorerPathMetadata>, root: string): void {
     const path = `${root}/`;
-    pathMetadata.set(path, {
+    setPathMetadata(pathMetadata, path, {
         actions: [],
         badges: [],
         kind: 'root',
@@ -358,6 +368,19 @@ function addRootMetadata(pathMetadata: Map<string, DashboardStructureExplorerPat
         path,
         risks: [],
     });
+}
+
+function setPathMetadata(
+    pathMetadata: Map<string, DashboardStructureExplorerPathMetadata>,
+    path: string,
+    metadata: DashboardStructureExplorerPathMetadata
+): void {
+    pathMetadata.set(path, metadata);
+
+    if (!path.endsWith('/')) return;
+
+    const canonicalPath = path.slice(0, -1);
+    pathMetadata.set(canonicalPath, { ...metadata, path: canonicalPath });
 }
 
 function addUnmatchedPreflightWarnings(
@@ -514,11 +537,40 @@ function entityKey(type: 'category' | 'channel' | 'role', id: string): Dashboard
     return `${type}:${id}`;
 }
 
-function toSegment(label: string, id: string): string {
-    const normalizedLabel = sanitizePathSegment(label) || 'Unnamed';
-    const normalizedId = sanitizePathSegment(id) || 'unknown';
+function createTreePathComparator(pathOrder: Map<string, number>) {
+    return (left: { path: string }, right: { path: string }): number => {
+        const leftOrder = pathOrder.get(left.path);
+        const rightOrder = pathOrder.get(right.path);
 
-    return `${normalizedLabel} [${normalizedId}]`;
+        if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder;
+        if (leftOrder !== undefined) return -1;
+        if (rightOrder !== undefined) return 1;
+
+        return left.path.localeCompare(right.path);
+    };
+}
+
+type PathSegmentAllocator = ReturnType<typeof createPathSegmentAllocator>;
+
+function createPathSegmentAllocator() {
+    const usedByScope = new Map<string, Map<string, number>>();
+
+    return {
+        allocate(scope: string, label: string): string {
+            const base = sanitizePathSegment(label) || 'Unnamed';
+            const used = usedByScope.get(scope) ?? new Map<string, number>();
+            usedByScope.set(scope, used);
+
+            const nextCount = (used.get(base) ?? 0) + 1;
+            used.set(base, nextCount);
+
+            return nextCount === 1 ? base : `${base} (${nextCount})`;
+        },
+    };
+}
+
+function toDisplayLabel(value: string): string {
+    return sanitizePathSegment(value) || 'Unnamed';
 }
 
 function sanitizePathSegment(value: string): string {

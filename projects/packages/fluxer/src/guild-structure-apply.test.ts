@@ -54,6 +54,75 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(destroy).toHaveBeenCalledOnce();
     });
 
+    it('creates exported link channels by mapping Fluxer read type 998 to create type 5', async () => {
+        const createChannel = vi.fn().mockResolvedValue({ id: 'created-link-1', guildId: 'guild-1' });
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({
+                    createChannel,
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureAction({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actionType: 'create',
+            targetType: 'channel',
+            targetId: 'source-link-1',
+            after: {
+                id: 'source-link-1',
+                name: 'Github',
+                type: 998,
+                url: ' https://github.com/example/project ',
+                parentId: null,
+                position: 3,
+                permissionOverwrites: [],
+            },
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({ createdId: 'created-link-1' });
+        expect(createChannel).toHaveBeenCalledWith({
+            type: 5,
+            name: 'Github',
+            url: 'https://github.com/example/project',
+            parent_id: null,
+            position: 3,
+        });
+    });
+
+    it('rejects protected role create payloads before login', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
+
+        const result = await applyFluxerBotGuildStructureAction({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            actionType: 'create',
+            targetType: 'role',
+            targetId: 'source-bot-role',
+            after: {
+                id: 'source-bot-role',
+                name: 'Imported Bot',
+                position: 10,
+                color: 0,
+                permissions: '0',
+                hoist: true,
+                mentionable: false,
+                protected: true,
+                protectionReason: 'bot',
+            },
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unsupported-action',
+            reason: 'Protected bot, integration, and default roles cannot be created.',
+        });
+        expect(login).not.toHaveBeenCalled();
+    });
+
     it('reuses one client session for a batch of ordered actions', async () => {
         const edit = vi.fn().mockResolvedValue(undefined);
         const login = mockClientLogin({
@@ -163,7 +232,10 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(result.isOk()).toBe(true);
         expect(setRolePositions).toHaveBeenCalledWith([{ id: 'role-1', position: 5 }]);
         expect(everyoneResult.isErr()).toBe(true);
-        expect(everyoneResult._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-value', field: 'position' });
+        expect(everyoneResult._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unsupported-action',
+            reason: 'Protected default roles cannot be updated.',
+        });
     });
 
     it('applies mapped permission overwrites after creating channels', async () => {

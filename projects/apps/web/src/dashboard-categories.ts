@@ -108,7 +108,35 @@ export type DashboardSubNavigationItem = {
     status: 'implemented' | 'placeholder';
 };
 
-export const dashboardCategories = [
+export type DashboardNavigationCategorySetting = DashboardCategoryDefinition & {
+    items: readonly DashboardSubNavigationItem[];
+};
+
+export type DashboardNavigationEntry =
+    | {
+          category: DashboardCategoryDefinition;
+          defaultSubNavigationTo?: DashboardSubNavigationTo;
+          linkTo: DashboardCategoryTo | DashboardSubNavigationTo;
+          subNavigation: readonly DashboardSubNavigationItem[];
+          type: 'direct';
+      }
+    | {
+          category: DashboardCategoryDefinition;
+          defaultSubNavigationTo: DashboardSubNavigationTo;
+          linkTo: DashboardSubNavigationTo;
+          subNavigation: readonly DashboardSubNavigationItem[];
+          type: 'group';
+      };
+
+type SubNavigationInput = [
+    id: string,
+    label: string,
+    description: string,
+    to: DashboardSubNavigationTo,
+    icon: LucideIcon,
+];
+
+export const dashboardNavigationSettings = [
     {
         id: 'overview',
         label: 'Overview',
@@ -117,6 +145,7 @@ export const dashboardCategories = [
         description: 'Server pulse, activity, and operational health.',
         icon: BarChart3,
         status: 'active',
+        items: [],
     },
     {
         id: 'messaging',
@@ -126,6 +155,29 @@ export const dashboardCategories = [
         description: 'Message composition, publishing, and future outbound feeds.',
         icon: MessageSquareText,
         status: 'active',
+        items: [
+            placeholder(
+                'bluesky',
+                'Bluesky',
+                'Planned Bluesky-to-Fluxer delivery settings.',
+                '/dashboard/$guildId/messaging/bluesky',
+                Sparkles
+            ),
+            placeholder(
+                'free-game-alerts',
+                'Free Game Alerts',
+                'Planned free game alert delivery settings.',
+                '/dashboard/$guildId/messaging/free-game-alerts',
+                Gamepad2
+            ),
+            implemented(
+                'message-builder',
+                'Message Builder',
+                'Compose, preview, and post Fluxer messages.',
+                '/dashboard/$guildId/messaging/message-builder',
+                MessageSquareText
+            ),
+        ],
     },
     {
         id: 'moderation',
@@ -135,6 +187,29 @@ export const dashboardCategories = [
         description: 'Future policy, cases, and automated safety controls.',
         icon: Bot,
         status: 'planned',
+        items: [
+            placeholder(
+                'automod',
+                'Automod',
+                'Planned automated moderation rules.',
+                '/dashboard/$guildId/moderation/automod',
+                Bot
+            ),
+            placeholder(
+                'cases',
+                'Cases',
+                'Planned moderation case history.',
+                '/dashboard/$guildId/moderation/cases',
+                ScrollText
+            ),
+            placeholder(
+                'policy',
+                'Policy',
+                'Planned moderation policy settings.',
+                '/dashboard/$guildId/moderation/policy',
+                ShieldCheck
+            ),
+        ],
     },
     {
         id: 'access',
@@ -144,6 +219,50 @@ export const dashboardCategories = [
         description: 'Role automation, grants, verification, and reaction roles.',
         icon: ShieldCheck,
         status: 'active',
+        items: [
+            placeholder(
+                'autoroles',
+                'Autoroles',
+                'Planned join-role automation.',
+                '/dashboard/$guildId/access/autoroles',
+                Bot
+            ),
+            placeholder(
+                'command-access',
+                'Command Access',
+                'Planned command grant management.',
+                '/dashboard/$guildId/access/command-access',
+                KeyRound
+            ),
+            placeholder(
+                'dashboard-access',
+                'Dashboard Access',
+                'Planned dashboard permission management.',
+                '/dashboard/$guildId/access/dashboard-access',
+                UsersRound
+            ),
+            implemented(
+                'reaction-roles',
+                'Reaction Roles',
+                'Build reaction-backed role menus.',
+                '/dashboard/$guildId/access/reaction-roles',
+                ShieldCheck
+            ),
+            placeholder(
+                'role-reconciliation',
+                'Role Reconciliation',
+                'Planned role drift repair.',
+                '/dashboard/$guildId/access/role-reconciliation',
+                GitCompareArrows
+            ),
+            placeholder(
+                'verification',
+                'Verification',
+                'Planned verification role flows.',
+                '/dashboard/$guildId/access/verification',
+                Activity
+            ),
+        ],
     },
     {
         id: 'community',
@@ -153,6 +272,44 @@ export const dashboardCategories = [
         description: 'Future community workflows and member-facing systems.',
         icon: UsersRound,
         status: 'planned',
+        items: [
+            placeholder(
+                'giveaways',
+                'Giveaways',
+                'Planned giveaway campaigns.',
+                '/dashboard/$guildId/community/giveaways',
+                Gift
+            ),
+            placeholder(
+                'profile-builder',
+                'Profile Builder',
+                'Planned profile form and review workflow.',
+                '/dashboard/$guildId/community/profile-builder',
+                UserRoundCog
+            ),
+            placeholder(
+                'suggestions',
+                'Suggestions',
+                'Planned suggestion voting.',
+                '/dashboard/$guildId/community/suggestions',
+                FileQuestion
+            ),
+            placeholder(
+                'tickets',
+                'Tickets',
+                'Planned public and private tickets.',
+                '/dashboard/$guildId/community/tickets',
+                TicketCheck
+            ),
+            placeholder(
+                'voice-rooms',
+                'Voice Rooms',
+                'Planned join-to-create voice rooms.',
+                '/dashboard/$guildId/community/voice-rooms',
+                Volume2
+            ),
+            placeholder('xp', 'XP / Levels', 'Planned XP and levels.', '/dashboard/$guildId/community/xp', Trophy),
+        ],
     },
     {
         id: 'insights',
@@ -162,6 +319,22 @@ export const dashboardCategories = [
         description: 'Future growth analytics and invite attribution workspaces.',
         icon: ChartNoAxesCombined,
         status: 'planned',
+        items: [
+            placeholder(
+                'growth-tracking',
+                'Growth Tracking',
+                'Planned member movement analytics.',
+                '/dashboard/$guildId/insights/growth-tracking',
+                ChartNoAxesCombined
+            ),
+            placeholder(
+                'invite-tracker',
+                'Invite Tracker',
+                'Planned invite attribution.',
+                '/dashboard/$guildId/insights/invite-tracker',
+                TicketCheck
+            ),
+        ],
     },
     {
         id: 'general',
@@ -171,6 +344,29 @@ export const dashboardCategories = [
         description: 'Core bot behavior and command settings.',
         icon: Settings2,
         status: 'active',
+        items: [
+            placeholder(
+                'bot-presence',
+                'Bot Presence',
+                'Planned status and presence settings.',
+                '/dashboard/$guildId/general/bot-presence',
+                Radio
+            ),
+            placeholder(
+                'command-help',
+                'Command Help',
+                'Planned help visibility settings.',
+                '/dashboard/$guildId/general/command-help',
+                HelpCircle
+            ),
+            implemented(
+                'command-prefix',
+                'Command Prefix',
+                'Change the bot command prefix.',
+                '/dashboard/$guildId/general/command-prefix',
+                Settings2
+            ),
+        ],
     },
     {
         id: 'events',
@@ -180,6 +376,22 @@ export const dashboardCategories = [
         description: 'Future audit and logging exploration.',
         icon: BellDot,
         status: 'planned',
+        items: [
+            implemented(
+                'audit-events',
+                'Audit Events',
+                'Search persisted dashboard and bot changes.',
+                '/dashboard/$guildId/events/audit-events',
+                ScrollText
+            ),
+            placeholder(
+                'logging-destinations',
+                'Logging Destinations',
+                'Planned server-event logging destinations.',
+                '/dashboard/$guildId/events/logging-destinations',
+                BellDot
+            ),
+        ],
     },
     {
         id: 'structure',
@@ -189,6 +401,15 @@ export const dashboardCategories = [
         description: 'Import, export, dry-run, and apply supported server layout changes.',
         icon: GitBranch,
         status: 'active',
+        items: [
+            implemented(
+                'import-export',
+                'Import / Export',
+                'Import, export, dry-run, and apply server layout.',
+                '/dashboard/$guildId/structure/import-export',
+                GitBranch
+            ),
+        ],
     },
     {
         id: 'system',
@@ -198,248 +419,77 @@ export const dashboardCategories = [
         description: 'Future deployment, session, documentation, and platform controls.',
         icon: ServerCog,
         status: 'planned',
+        items: [
+            placeholder(
+                'bot-installation-sync',
+                'Bot Installation Sync',
+                'Planned installation reconciliation visibility.',
+                '/dashboard/$guildId/system/bot-installation-sync',
+                Bot
+            ),
+            placeholder(
+                'convex-dashboard-data',
+                'Convex Dashboard Data',
+                'Planned Convex-backed dashboard data status.',
+                '/dashboard/$guildId/system/convex-dashboard-data',
+                Boxes
+            ),
+            placeholder(
+                'deployment',
+                'Deployment',
+                'Planned deployment and image status.',
+                '/dashboard/$guildId/system/deployment',
+                TerminalSquare
+            ),
+            placeholder(
+                'documentation',
+                'Documentation',
+                'Planned documentation status.',
+                '/dashboard/$guildId/system/documentation',
+                Library
+            ),
+            placeholder(
+                'oauth-sessions',
+                'OAuth Sessions',
+                'Planned OAuth session controls.',
+                '/dashboard/$guildId/system/oauth-sessions',
+                KeyRound
+            ),
+            placeholder(
+                'public-web-links',
+                'Public Web Links',
+                'Planned generated public links.',
+                '/dashboard/$guildId/system/public-web-links',
+                Globe
+            ),
+        ],
     },
-] as const satisfies readonly DashboardCategoryDefinition[];
+] as const satisfies readonly DashboardNavigationCategorySetting[];
 
-const dashboardSubNavigation = {
-    overview: [],
-    messaging: [
-        placeholder(
-            'bluesky',
-            'Bluesky',
-            'Planned Bluesky-to-Fluxer delivery settings.',
-            '/dashboard/$guildId/messaging/bluesky',
-            Sparkles
-        ),
-        placeholder(
-            'free-game-alerts',
-            'Free Game Alerts',
-            'Planned free game alert delivery settings.',
-            '/dashboard/$guildId/messaging/free-game-alerts',
-            Gamepad2
-        ),
-        implemented(
-            'message-builder',
-            'Message Builder',
-            'Compose, preview, and post Fluxer messages.',
-            '/dashboard/$guildId/messaging/message-builder',
-            MessageSquareText
-        ),
-    ],
-    moderation: [
-        placeholder(
-            'automod',
-            'Automod',
-            'Planned automated moderation rules.',
-            '/dashboard/$guildId/moderation/automod',
-            Bot
-        ),
-        placeholder(
-            'cases',
-            'Cases',
-            'Planned moderation case history.',
-            '/dashboard/$guildId/moderation/cases',
-            ScrollText
-        ),
-        placeholder(
-            'policy',
-            'Policy',
-            'Planned moderation policy settings.',
-            '/dashboard/$guildId/moderation/policy',
-            ShieldCheck
-        ),
-    ],
-    access: [
-        placeholder(
-            'autoroles',
-            'Autoroles',
-            'Planned join-role automation.',
-            '/dashboard/$guildId/access/autoroles',
-            Bot
-        ),
-        placeholder(
-            'command-access',
-            'Command Access',
-            'Planned command grant management.',
-            '/dashboard/$guildId/access/command-access',
-            KeyRound
-        ),
-        placeholder(
-            'dashboard-access',
-            'Dashboard Access',
-            'Planned dashboard permission management.',
-            '/dashboard/$guildId/access/dashboard-access',
-            UsersRound
-        ),
-        implemented(
-            'reaction-roles',
-            'Reaction Roles',
-            'Build reaction-backed role menus.',
-            '/dashboard/$guildId/access/reaction-roles',
-            ShieldCheck
-        ),
-        placeholder(
-            'role-reconciliation',
-            'Role Reconciliation',
-            'Planned role drift repair.',
-            '/dashboard/$guildId/access/role-reconciliation',
-            GitCompareArrows
-        ),
-        placeholder(
-            'verification',
-            'Verification',
-            'Planned verification role flows.',
-            '/dashboard/$guildId/access/verification',
-            Activity
-        ),
-    ],
-    community: [
-        placeholder(
-            'giveaways',
-            'Giveaways',
-            'Planned giveaway campaigns.',
-            '/dashboard/$guildId/community/giveaways',
-            Gift
-        ),
-        placeholder(
-            'profile-builder',
-            'Profile Builder',
-            'Planned profile form and review workflow.',
-            '/dashboard/$guildId/community/profile-builder',
-            UserRoundCog
-        ),
-        placeholder(
-            'suggestions',
-            'Suggestions',
-            'Planned suggestion voting.',
-            '/dashboard/$guildId/community/suggestions',
-            FileQuestion
-        ),
-        placeholder(
-            'tickets',
-            'Tickets',
-            'Planned public and private tickets.',
-            '/dashboard/$guildId/community/tickets',
-            TicketCheck
-        ),
-        placeholder(
-            'voice-rooms',
-            'Voice Rooms',
-            'Planned join-to-create voice rooms.',
-            '/dashboard/$guildId/community/voice-rooms',
-            Volume2
-        ),
-        placeholder('xp', 'XP / Levels', 'Planned XP and levels.', '/dashboard/$guildId/community/xp', Trophy),
-    ],
-    insights: [
-        placeholder(
-            'growth-tracking',
-            'Growth Tracking',
-            'Planned member movement analytics.',
-            '/dashboard/$guildId/insights/growth-tracking',
-            ChartNoAxesCombined
-        ),
-        placeholder(
-            'invite-tracker',
-            'Invite Tracker',
-            'Planned invite attribution.',
-            '/dashboard/$guildId/insights/invite-tracker',
-            TicketCheck
-        ),
-    ],
-    general: [
-        placeholder(
-            'bot-presence',
-            'Bot Presence',
-            'Planned status and presence settings.',
-            '/dashboard/$guildId/general/bot-presence',
-            Radio
-        ),
-        placeholder(
-            'command-help',
-            'Command Help',
-            'Planned help visibility settings.',
-            '/dashboard/$guildId/general/command-help',
-            HelpCircle
-        ),
-        implemented(
-            'command-prefix',
-            'Command Prefix',
-            'Change the bot command prefix.',
-            '/dashboard/$guildId/general/command-prefix',
-            Settings2
-        ),
-    ],
-    events: [
-        implemented(
-            'audit-events',
-            'Audit Events',
-            'Search persisted dashboard and bot changes.',
-            '/dashboard/$guildId/events/audit-events',
-            ScrollText
-        ),
-        placeholder(
-            'logging-destinations',
-            'Logging Destinations',
-            'Planned server-event logging destinations.',
-            '/dashboard/$guildId/events/logging-destinations',
-            BellDot
-        ),
-    ],
-    structure: [
-        implemented(
-            'import-export',
-            'Import / Export',
-            'Import, export, dry-run, and apply server layout.',
-            '/dashboard/$guildId/structure/import-export',
-            GitBranch
-        ),
-    ],
-    system: [
-        placeholder(
-            'bot-installation-sync',
-            'Bot Installation Sync',
-            'Planned installation reconciliation visibility.',
-            '/dashboard/$guildId/system/bot-installation-sync',
-            Bot
-        ),
-        placeholder(
-            'convex-dashboard-data',
-            'Convex Dashboard Data',
-            'Planned Convex-backed dashboard data status.',
-            '/dashboard/$guildId/system/convex-dashboard-data',
-            Boxes
-        ),
-        placeholder(
-            'deployment',
-            'Deployment',
-            'Planned deployment and image status.',
-            '/dashboard/$guildId/system/deployment',
-            TerminalSquare
-        ),
-        placeholder(
-            'documentation',
-            'Documentation',
-            'Planned documentation status.',
-            '/dashboard/$guildId/system/documentation',
-            Library
-        ),
-        placeholder(
-            'oauth-sessions',
-            'OAuth Sessions',
-            'Planned OAuth session controls.',
-            '/dashboard/$guildId/system/oauth-sessions',
-            KeyRound
-        ),
-        placeholder(
-            'public-web-links',
-            'Public Web Links',
-            'Planned generated public links.',
-            '/dashboard/$guildId/system/public-web-links',
-            Globe
-        ),
-    ],
-} as const satisfies Record<DashboardCategoryId, readonly DashboardSubNavigationItem[]>;
+export const dashboardCategories = dashboardNavigationSettings.map(({ items: _items, ...category }) => category);
+
+export const dashboardNavigationEntries = dashboardNavigationSettings.map((setting): DashboardNavigationEntry => {
+    const { items, ...category } = setting;
+    const defaultSubNavigationTo = items.at(0)?.to;
+
+    if (items.length > 1 && defaultSubNavigationTo) {
+        return {
+            category,
+            defaultSubNavigationTo,
+            linkTo: defaultSubNavigationTo,
+            subNavigation: items,
+            type: 'group',
+        };
+    }
+
+    return {
+        category,
+        ...(defaultSubNavigationTo ? { defaultSubNavigationTo } : {}),
+        linkTo: defaultSubNavigationTo ?? category.to,
+        subNavigation: items,
+        type: 'direct',
+    };
+});
 
 export function getDashboardCategory(id: DashboardCategoryId): DashboardCategoryDefinition {
     const category = dashboardCategories.find((candidate) => candidate.id === id);
@@ -452,7 +502,7 @@ export function getDashboardCategory(id: DashboardCategoryId): DashboardCategory
 }
 
 export function getDashboardCategorySubNavigation(id: DashboardCategoryId): readonly DashboardSubNavigationItem[] {
-    return dashboardSubNavigation[id];
+    return getDashboardNavigationSetting(id).items;
 }
 
 export function getDashboardSubNavigationItem(id: DashboardCategoryId, itemId: string): DashboardSubNavigationItem {
@@ -496,30 +546,37 @@ export function getDashboardCategoryIdFromPathname(guildId: string, pathname: st
     return category?.id ?? 'overview';
 }
 
-function implemented(
-    id: string,
-    label: string,
-    description: string,
-    to: DashboardSubNavigationTo,
-    icon: LucideIcon
-): DashboardSubNavigationItem {
-    return {
-        id,
-        label,
-        description,
-        to,
-        icon,
-        implemented: true,
-        status: 'implemented',
-    };
+export function getDashboardNavigationEntry(id: DashboardCategoryId): DashboardNavigationEntry {
+    const entry = dashboardNavigationEntries.find((candidate) => candidate.category.id === id);
+
+    if (!entry) {
+        throw new Error(`Unknown dashboard navigation entry: ${id}`);
+    }
+
+    return entry;
 }
 
-function placeholder(
-    id: string,
-    label: string,
-    description: string,
-    to: DashboardSubNavigationTo,
-    icon: LucideIcon
+function getDashboardNavigationSetting(id: DashboardCategoryId): DashboardNavigationCategorySetting {
+    const setting = dashboardNavigationSettings.find((candidate) => candidate.id === id);
+
+    if (!setting) {
+        throw new Error(`Unknown dashboard category: ${id}`);
+    }
+
+    return setting;
+}
+
+function implemented(...input: SubNavigationInput): DashboardSubNavigationItem {
+    return subNavigationItem(input, true);
+}
+
+function placeholder(...input: SubNavigationInput): DashboardSubNavigationItem {
+    return subNavigationItem(input, false);
+}
+
+function subNavigationItem(
+    [id, label, description, to, icon]: SubNavigationInput,
+    isImplemented: boolean
 ): DashboardSubNavigationItem {
     return {
         id,
@@ -527,7 +584,7 @@ function placeholder(
         description,
         to,
         icon,
-        implemented: false,
-        status: 'placeholder',
+        implemented: isImplemented,
+        status: isImplemented ? 'implemented' : 'placeholder',
     };
 }

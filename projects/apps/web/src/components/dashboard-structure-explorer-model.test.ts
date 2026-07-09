@@ -7,6 +7,7 @@ import {
 } from './dashboard-structure-explorer-model.js';
 import type {
     DashboardStructureExplorerAction,
+    DashboardStructureExplorerEntityKey,
     DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
 
@@ -17,30 +18,31 @@ describe('buildDashboardStructureExplorerModel', () => {
         expect(model.paths).toContain('Roles/');
         expect(model.paths).toContain('Categories/');
         expect(model.paths).toContain('Uncategorized Channels/');
-        expect(indexOfPath(model, 'Roles/Admin [role-admin]')).toBeLessThan(
-            indexOfPath(model, 'Roles/Member [role-member]')
+        expect(model.preparedInput.paths).not.toContain('Roles/');
+        expect(model.preparedInput.paths).not.toContain('Categories/');
+        expect(model.preparedInput.paths).not.toContain('Uncategorized Channels/');
+        expect(model.preparedInput.paths.every((path) => !path.includes('['))).toBe(true);
+        expect(indexOfEntity(model, 'role:role-admin')).toBeLessThan(indexOfEntity(model, 'role:role-member'));
+        expect(indexOfEntity(model, 'role:role-member')).toBeLessThan(indexOfEntity(model, 'role:guild-1'));
+        expect(indexOfEntity(model, 'channel:channel-general')).toBeLessThan(
+            indexOfEntity(model, 'channel:channel-updates')
         );
-        expect(indexOfPath(model, 'Roles/Member [role-member]')).toBeLessThan(
-            indexOfPath(model, 'Roles/@everyone [guild-1]')
-        );
-        expect(indexOfPath(model, 'Categories/General [category-general]/general [channel-general]')).toBeLessThan(
-            indexOfPath(model, 'Categories/General [category-general]/updates [channel-updates]')
-        );
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-admin'))?.label).toBe('Admin');
     });
 
     it('places channels under categories or uncategorized fallback', () => {
         const model = buildDashboardStructureExplorerModel({ snapshot: createSnapshot() });
 
-        expect(model.pathMetadata.get('Categories/General [category-general]/general [channel-general]')).toMatchObject(
-            {
-                entityKey: 'channel:channel-general',
-                kind: 'channel',
-                parentId: 'category-general',
-            }
-        );
-        expect(model.pathMetadata.get('Uncategorized Channels/lobby [channel-lobby]')).toMatchObject({
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-general'))).toMatchObject({
+            entityKey: 'channel:channel-general',
+            kind: 'channel',
+            label: 'general',
+            parentId: 'category-general',
+        });
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-lobby'))).toMatchObject({
             entityKey: 'channel:channel-lobby',
             kind: 'channel',
+            label: 'lobby',
             parentId: 'missing-category',
         });
     });
@@ -74,16 +76,16 @@ describe('buildDashboardStructureExplorerModel', () => {
         ];
         const model = buildDashboardStructureExplorerModel({ actions, snapshot: createSnapshot() });
 
-        expect(model.pathMetadata.get('Uncategorized Channels/lobby [channel-lobby]')?.badges).toEqual(
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-lobby'))?.badges).toEqual(
             expect.arrayContaining(['move', 'permissions', 'update'])
         );
-        expect(
-            model.pathMetadata.get('Categories/General [category-general]/general [channel-general]')?.badges
-        ).toEqual(expect.arrayContaining(['blocked', 'unsupported']));
-        expect(model.pathMetadata.get('Uncategorized Channels/channel-new [channel-new]')?.badges).toEqual(
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-general'))?.badges).toEqual(
+            expect.arrayContaining(['blocked', 'unsupported'])
+        );
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-new'))?.badges).toEqual(
             expect.arrayContaining(['create', 'failed', 'retry'])
         );
-        expect(model.paths).toContain('Blocked / Unsupported/channel-general [action-1]');
+        expect(model.paths.some((path) => model.pathMetadata.get(path)?.kind === 'action')).toBe(true);
     });
 
     it('marks @everyone position changes as blocked without blocking normal role moves', () => {
@@ -105,12 +107,14 @@ describe('buildDashboardStructureExplorerModel', () => {
             snapshot: createSnapshot(),
         });
 
-        expect(model.pathMetadata.get('Roles/Member [role-member]')?.badges).toContain('move');
-        expect(model.pathMetadata.get('Roles/Member [role-member]')?.badges).not.toContain('blocked');
-        expect(model.pathMetadata.get('Roles/@everyone [guild-1]')?.badges).toEqual(
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-member'))?.badges).toContain('move');
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-member'))?.badges).not.toContain('blocked');
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:guild-1'))?.badges).toEqual(
             expect.arrayContaining(['blocked', 'unsupported'])
         );
-        expect(model.pathMetadata.get('Roles/@everyone [guild-1]')?.risks).toContain('@everyone cannot be moved.');
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:guild-1'))?.risks).toContain(
+            '@everyone cannot be moved.'
+        );
     });
 
     it('keeps unsafe names from breaking tree paths', () => {
@@ -122,7 +126,26 @@ describe('buildDashboardStructureExplorerModel', () => {
             },
         });
 
-        expect(model.paths).toContain('Categories/Ops Live [category-general]/Unnamed [channel-updates]');
+        expect(model.pathMetadata.get(pathForEntity(model, 'category:category-general'))?.label).toBe('Ops Live');
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-updates'))?.label).toBe('Unnamed');
+    });
+
+    it('keeps duplicate display names unique without exposing ids', () => {
+        const model = buildDashboardStructureExplorerModel({
+            snapshot: {
+                ...createSnapshot(),
+                roles: [
+                    { ...createSnapshot().roles[0], id: 'role-a', name: 'Member' },
+                    { ...createSnapshot().roles[1], id: 'role-b', name: 'Member' },
+                ],
+            },
+        });
+
+        expect(pathForEntity(model, 'role:role-a')).toBe('Roles/Member (2)');
+        expect(pathForEntity(model, 'role:role-b')).toBe('Roles/Member');
+        expect(model.preparedInput.paths.every((path) => !path.includes('role-a') && !path.includes('role-b'))).toBe(
+            true
+        );
     });
 
     it('converts drift/import actions and attaches preflight statuses', () => {
@@ -163,10 +186,12 @@ describe('buildDashboardStructureExplorerModel', () => {
         );
         const model = buildDashboardStructureExplorerModel({ actions, snapshot: createSnapshot() });
 
-        expect(model.pathMetadata.get('Roles/Member [role-member]')?.badges).toEqual(
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-member'))?.badges).toEqual(
             expect.arrayContaining(['delete', 'destructive'])
         );
-        expect(model.pathMetadata.get('Roles/Member [role-member]')?.risks).toContain('Delete approval required.');
+        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-member'))?.risks).toContain(
+            'Delete approval required.'
+        );
     });
 
     it('parses valid explorer snapshots and rejects invalid JSON', () => {
@@ -195,6 +220,22 @@ function indexOfPath(model: ReturnType<typeof buildDashboardStructureExplorerMod
     const index = model.paths.indexOf(path);
     expect(index).toBeGreaterThanOrEqual(0);
     return index;
+}
+
+function indexOfEntity(
+    model: ReturnType<typeof buildDashboardStructureExplorerModel>,
+    entityKey: DashboardStructureExplorerEntityKey
+): number {
+    return indexOfPath(model, pathForEntity(model, entityKey));
+}
+
+function pathForEntity(
+    model: ReturnType<typeof buildDashboardStructureExplorerModel>,
+    entityKey: DashboardStructureExplorerEntityKey
+): string {
+    const path = model.entityPathByKey.get(entityKey);
+    expect(path).toBeTruthy();
+    return path ?? '';
 }
 
 function createAction(overrides: Partial<DashboardStructureExplorerAction> = {}): DashboardStructureExplorerAction {

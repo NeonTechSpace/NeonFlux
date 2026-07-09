@@ -4,6 +4,10 @@ import { err, ok, type Result } from 'neverthrow';
 import { createChannelPlatform, createRolePlatform } from './platform-guild-operations.js';
 import type { FluxerPlatformError } from './platform-shared.js';
 
+// Fluxer reads URL link channels as 998, while guild.createChannel creates links with type 5.
+const LINK_CHANNEL_CREATE_TYPE = 5;
+const LINK_CHANNEL_SNAPSHOT_TYPE = 998;
+
 export type ApplyFluxerBotGuildStructureUpdateInput = {
     botToken: string;
     guildId: string;
@@ -230,6 +234,7 @@ type NormalizedStructureActionInput =
           sourceId: string;
           name: string;
           channelType: 0 | 2 | 4 | 5;
+          url?: string | null;
           parentId?: string | null;
           permissionOverwrites: PermissionOverwrite[];
           position?: number;
@@ -305,6 +310,9 @@ function normalizeStructureDeleteInput(
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category deletes are supported.' });
     }
+    if (input.targetType === 'role' && targetId === input.guildId) {
+        return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be deleted.' });
+    }
 
     return ok({
         botToken: input.botToken,
@@ -323,6 +331,9 @@ function normalizeStructureUpdateInput(
     if (!targetId) return err({ type: 'missing-input', field: 'targetId' });
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category updates are supported.' });
+    }
+    if (input.targetType === 'role' && targetId === input.guildId) {
+        return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be updated.' });
     }
 
     if (input.targetType === 'role') {
@@ -489,6 +500,13 @@ function normalizeStructureCreateInput(
     const name = after.name.trim();
 
     if (input.targetType === 'role') {
+        if (isProtectedRolePayload(after) || isDefaultRolePayload(after) || sourceId === input.guildId) {
+            return err({
+                type: 'unsupported-action',
+                reason: 'Protected bot, integration, and default roles cannot be created.',
+            });
+        }
+
         if (typeof after.permissions !== 'string') return err({ type: 'invalid-value', field: 'permissions' });
         const roleVisuals = normalizeRoleVisuals(after);
         const position = normalizeRolePosition(after.position);
@@ -532,6 +550,10 @@ function normalizeStructureCreateInput(
     if (after.position !== undefined && after.position !== null && position === undefined) {
         return err({ type: 'invalid-value', field: 'position' });
     }
+    const url = normalizeChannelUrl(after.url);
+    if (after.url !== undefined && after.url !== null && url === undefined) {
+        return err({ type: 'invalid-value', field: 'url' });
+    }
 
     const mappedCreatedId = input.idMap?.[sourceId];
 
@@ -566,10 +588,23 @@ function normalizeStructureCreateInput(
         sourceId,
         name,
         channelType,
+        ...(url !== undefined ? { url } : {}),
         parentId: mapOptionalId(typeof after.parentId === 'string' ? after.parentId : null, input.idMap ?? {}),
         permissionOverwrites,
         ...(position !== undefined ? { position } : {}),
     });
+}
+
+function isProtectedRolePayload(value: unknown): boolean {
+    return isObject(value) && (value.protected === true || isRoleProtectionReason(value.protectionReason));
+}
+
+function isDefaultRolePayload(value: unknown): boolean {
+    return isObject(value) && value.name === '@everyone' && value.position === 0;
+}
+
+function isRoleProtectionReason(value: unknown): boolean {
+    return value === 'everyone' || value === 'bot' || value === 'integration' || value === 'managed';
 }
 
 async function applyUpdate(
@@ -636,6 +671,7 @@ async function applyCreate(
         guildId: input.guildId,
         name: input.name,
         type: input.channelType,
+        ...(input.url !== undefined ? { url: input.url } : {}),
         ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
         ...(input.position !== undefined ? { position: input.position } : {}),
     });
@@ -678,7 +714,18 @@ async function applyDelete(
 }
 
 function normalizeChannelType(value: unknown): 0 | 2 | 4 | 5 | undefined {
-    return value === 0 || value === 2 || value === 4 || value === 5 ? value : undefined;
+    if (value === LINK_CHANNEL_SNAPSHOT_TYPE) return LINK_CHANNEL_CREATE_TYPE;
+
+    return value === 0 || value === 2 || value === 4 || value === LINK_CHANNEL_CREATE_TYPE ? value : undefined;
+}
+
+function normalizeChannelUrl(value: unknown): string | null | undefined {
+    if (value === null) return null;
+    if (typeof value !== 'string') return undefined;
+
+    const trimmed = value.trim();
+
+    return trimmed ? trimmed : undefined;
 }
 
 function normalizeRolePosition(value: unknown): number | undefined {

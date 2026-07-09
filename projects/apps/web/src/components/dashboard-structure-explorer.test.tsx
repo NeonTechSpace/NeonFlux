@@ -103,10 +103,8 @@ describe('DashboardStructureExplorer', () => {
             },
         });
 
-        expect(screen.getByRole('treeitem', { name: 'Roles/Admin [role-admin]' })).toBeTruthy();
-        expect(
-            screen.getByRole('treeitem', { name: 'Categories/General [category-general]/general [channel-1]' })
-        ).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: 'Roles/Admin' })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: 'Categories/General/general' })).toBeTruthy();
         expect(screen.getByText('Entity key')).toBeTruthy();
         expect(screen.getByText('role:role-admin')).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Tree' }).getAttribute('aria-pressed')).toBe('true');

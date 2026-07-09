@@ -28,6 +28,14 @@ describe('readFluxerGuildStructure', () => {
 
     it('fetches and normalizes guild roles, channels, and categories', async () => {
         const guild = createGuild({
+            rawRoles: [
+                {
+                    id: 'role-1',
+                    tags: {
+                        bot_id: 'bot-1',
+                    },
+                },
+            ],
             roles: [
                 createRole({
                     id: 'role-1',
@@ -46,6 +54,14 @@ describe('readFluxerGuildStructure', () => {
                     type: 0,
                     parentId: 'category-1',
                     position: 2,
+                }),
+                createChannel({
+                    id: 'link-1',
+                    name: 'Github',
+                    type: 998,
+                    url: 'https://github.com/example/project',
+                    parentId: 'category-1',
+                    position: 3,
                 }),
                 createChannel({
                     id: 'category-1',
@@ -79,6 +95,8 @@ describe('readFluxerGuildStructure', () => {
                     permissions: '1024',
                     hoist: false,
                     mentionable: true,
+                    protected: true,
+                    protectionReason: 'bot',
                 },
             ],
             channels: [
@@ -88,6 +106,15 @@ describe('readFluxerGuildStructure', () => {
                     type: 0,
                     parentId: 'category-1',
                     position: 2,
+                    permissionOverwrites: [],
+                },
+                {
+                    id: 'link-1',
+                    name: 'Github',
+                    type: 998,
+                    url: 'https://github.com/example/project',
+                    parentId: 'category-1',
+                    position: 3,
                     permissionOverwrites: [],
                 },
             ],
@@ -362,9 +389,18 @@ function createGuild(
         channels?: GuildChannel[];
         rolesResult?: Promise<Role[]>;
         channelsResult?: Promise<GuildChannel[]>;
+        rawRoles?: unknown[];
     } = {}
 ): TestGuild {
     return {
+        id: 'guild-1',
+        client: options.rawRoles
+            ? {
+                  rest: {
+                      get: vi.fn().mockResolvedValue(options.rawRoles),
+                  },
+              }
+            : {},
         fetchRoles: vi
             .fn<() => Promise<Role[]>>()
             .mockReturnValue(options.rolesResult ?? Promise.resolve(options.roles ?? [createRole()])),
@@ -415,6 +451,7 @@ type MockChannel = {
     id: string;
     name: string | null;
     type: number;
+    url?: string | null;
     parentId: string | null;
     position?: number;
     permissionOverwrites: Array<{

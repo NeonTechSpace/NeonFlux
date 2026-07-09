@@ -99,6 +99,37 @@ describe('dashboard structure preflight', () => {
         expect(report.actions[1]?.message).toContain('position');
     });
 
+    it('marks exported link channel creates ready', () => {
+        const report = preflightDashboardStructureImportPlan(createSnapshot(), [
+            {
+                id: 'create-link',
+                actionType: 'create',
+                targetType: 'channel',
+                targetId: 'source-link-1',
+                details: {
+                    after: {
+                        id: 'source-link-1',
+                        name: 'Github',
+                        type: 998,
+                        url: 'https://github.com/example/project',
+                        parentId: null,
+                        position: 3,
+                        permissionOverwrites: [],
+                    },
+                },
+            },
+        ]);
+
+        expect(report.summary).toMatchObject({
+            ready: 1,
+            unsupported: 0,
+            invalidPlan: 0,
+        });
+        expect(report.actions[0]).toMatchObject({
+            status: 'ready',
+        });
+    });
+
     it('rejects channel creates with invalid positions before apply', () => {
         const report = preflightDashboardStructureImportPlan(createSnapshot(), [
             {
@@ -211,6 +242,81 @@ describe('dashboard structure preflight', () => {
 
         expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'ready', 'invalid-plan']);
         expect(report.actions[2]?.message).toContain('@everyone');
+    });
+
+    it('blocks protected role creates, updates, and deletes', () => {
+        const snapshot: DashboardStructureSnapshot = {
+            ...createSnapshot(),
+            roles: [
+                ...createSnapshot().roles,
+                {
+                    id: 'bot-role',
+                    name: 'NeonFlux',
+                    position: 10,
+                    color: 0,
+                    permissions: '0',
+                    hoist: true,
+                    mentionable: false,
+                    protected: true,
+                    protectionReason: 'bot',
+                },
+            ],
+        };
+
+        const report = preflightDashboardStructureImportPlan(
+            snapshot,
+            [
+                {
+                    id: 'create-protected',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-bot-role',
+                    details: {
+                        after: {
+                            id: 'source-bot-role',
+                            name: 'Imported Bot',
+                            position: 10,
+                            color: 0,
+                            permissions: '0',
+                            hoist: true,
+                            mentionable: false,
+                            protected: true,
+                            protectionReason: 'integration',
+                        },
+                    },
+                },
+                {
+                    id: 'update-protected',
+                    actionType: 'update',
+                    targetType: 'role',
+                    targetId: 'bot-role',
+                    details: {
+                        changes: [{ field: 'name', before: 'NeonFlux', after: 'Renamed Bot' }],
+                    },
+                },
+                {
+                    id: 'delete-protected',
+                    actionType: 'delete',
+                    targetType: 'role',
+                    targetId: 'bot-role',
+                    details: {
+                        before: snapshot.roles[1],
+                    },
+                },
+            ],
+            { allowDestructiveDeletes: true }
+        );
+
+        expect(report.summary).toMatchObject({
+            unsupported: 3,
+            ready: 0,
+            destructiveApprovalRequired: 0,
+        });
+        expect(report.actions.map((action) => action.status)).toStrictEqual([
+            'unsupported',
+            'unsupported',
+            'unsupported',
+        ]);
     });
 
     it('marks channel parent and position updates ready when the parent category resolves', () => {

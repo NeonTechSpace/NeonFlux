@@ -29,6 +29,7 @@ export function DashboardStructureApplyControls({
     const isApplyBusy = busyAction === `apply:${run.id}`;
     const hasDestructiveApproval = destructiveApprovalCount > 0;
     const canApply = preflightReport ? isApprovablePreflightReport(preflightReport) : false;
+    const hardBlockerCount = preflightReport ? countHardPreflightBlockers(preflightReport) : 0;
     const confirmationMatches =
         applyConfirmation.trim() === expectedApplyText &&
         (!hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText);
@@ -97,13 +98,26 @@ export function DashboardStructureApplyControls({
                         approved deletes.
                     </p>
                 </div>
+            ) : preflightReport && hardBlockerCount > 0 ? (
+                <div className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
+                    <p className='text-xs font-semibold text-rose-100'>Apply blocked</p>
+                    <p className='mt-1 text-xs leading-5 text-neutral-300'>
+                        Fix or remove {hardBlockerCount} unsupported, stale, mapping-required, or invalid planned{' '}
+                        {hardBlockerCount === 1 ? 'change' : 'changes'}, then create a new dry-run.
+                    </p>
+                    {hasDestructiveApproval ? (
+                        <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                            Delete approval is only available after hard blockers are gone.
+                        </p>
+                    ) : null}
+                </div>
             ) : null}
         </div>
     );
 }
 
 function PreflightReport({ report }: { report: DashboardStructurePreflightReport }) {
-    const blockers = report.actions.filter((action) => action.status !== 'ready');
+    const blockers = sortPreflightBlockers(report.actions.filter((action) => action.status !== 'ready'));
 
     return (
         <div className='mt-3 border-t border-sky-400/20 pt-3' role='status' aria-live='polite'>
@@ -127,15 +141,42 @@ function PreflightReport({ report }: { report: DashboardStructurePreflightReport
     );
 }
 
+function sortPreflightBlockers(
+    actions: DashboardStructurePreflightReport['actions']
+): DashboardStructurePreflightReport['actions'] {
+    return [...actions].sort(
+        (left, right) => preflightStatusPriority(left.status) - preflightStatusPriority(right.status)
+    );
+}
+
+function preflightStatusPriority(status: string): number {
+    switch (status) {
+        case 'unsupported':
+        case 'invalid-plan':
+        case 'mapping-required':
+        case 'stale':
+            return 0;
+        case 'destructive-approval-required':
+            return 1;
+        default:
+            return 2;
+    }
+}
+
 function formatStatus(status: string): string {
-    return status.replaceAll('_', ' ');
+    return status.replace(/[-_]/gu, ' ');
 }
 
 function isApprovablePreflightReport(report: DashboardStructurePreflightReport): boolean {
-    const hardBlockers =
-        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan;
+    const hardBlockers = countHardPreflightBlockers(report);
 
     return (
         hardBlockers === 0 && report.summary.ready + report.summary.destructiveApprovalRequired === report.summary.total
+    );
+}
+
+function countHardPreflightBlockers(report: DashboardStructurePreflightReport): number {
+    return (
+        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan
     );
 }

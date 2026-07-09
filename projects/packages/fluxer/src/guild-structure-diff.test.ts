@@ -28,6 +28,7 @@ describe('guild structure diff', () => {
                     id: 'channel-1',
                     name: 'general',
                     type: 0,
+                    url: 'https://example.com/general',
                     parentId: null,
                     position: 1,
                     permissionOverwrites: [],
@@ -58,6 +59,7 @@ describe('guild structure diff', () => {
                         id: 'channel-1',
                         name: 'general',
                         type: 0,
+                        url: 'https://example.com/general',
                         parentId: null,
                         position: 1,
                         permissionOverwrites: [],
@@ -211,5 +213,219 @@ describe('guild structure diff', () => {
                 },
             ],
         });
+    });
+
+    it('ignores protected roles when planning imports', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'guild-1',
+                guildName: 'Guild 1',
+                roles: [
+                    {
+                        id: 'guild-1',
+                        name: '@everyone',
+                        position: 0,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                    {
+                        id: 'bot-role-current',
+                        name: 'Bot',
+                        position: 10,
+                        color: 0,
+                        permissions: '0',
+                        hoist: true,
+                        mentionable: false,
+                        protected: true,
+                        protectionReason: 'bot',
+                    },
+                    {
+                        id: 'role-1',
+                        name: 'Member',
+                        position: 1,
+                        color: 0,
+                        permissions: '0',
+                        hoist: false,
+                        mentionable: false,
+                    },
+                ],
+                categories: [],
+                channels: [],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            guildId: 'source-guild',
+            roles: [
+                {
+                    id: 'source-guild',
+                    name: '@everyone',
+                    position: 0,
+                    color: 0,
+                    permissions: '8',
+                    hoist: false,
+                    mentionable: false,
+                },
+                {
+                    id: 'bot-role-requested',
+                    name: 'Imported Bot',
+                    position: 11,
+                    color: 0,
+                    permissions: '0',
+                    hoist: true,
+                    mentionable: false,
+                    protected: true as const,
+                    protectionReason: 'integration' as const,
+                },
+                {
+                    id: 'role-1',
+                    name: 'Members',
+                    position: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
+
+        expect(plan.actions).toStrictEqual([
+            {
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'role-1',
+                label: 'Members',
+                details: {
+                    label: 'Members',
+                    changes: [{ field: 'name', before: 'Member', after: 'Members' }],
+                },
+            },
+        ]);
+    });
+
+    it('matches same-name same-type channels through matched category names without planning create and delete', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'guild-1',
+                guildName: 'Guild 1',
+                roles: [],
+                categories: [
+                    {
+                        id: 'current-category',
+                        name: 'Links',
+                        type: 4,
+                        parentId: null,
+                        position: 1,
+                        permissionOverwrites: [],
+                    },
+                ],
+                channels: [
+                    {
+                        id: 'current-link',
+                        name: 'docs',
+                        type: 998,
+                        url: 'https://github.com/example/current',
+                        parentId: 'current-category',
+                        position: 1,
+                        permissionOverwrites: [],
+                    },
+                ],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            categories: [
+                {
+                    id: 'requested-category',
+                    name: 'Links',
+                    type: 4,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [],
+                },
+            ],
+            channels: [
+                {
+                    id: 'requested-link',
+                    name: 'docs',
+                    type: 998,
+                    url: 'https://github.com/example/requested',
+                    parentId: 'requested-category',
+                    position: 2,
+                    permissionOverwrites: [],
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
+
+        expect(plan.summary).toStrictEqual({
+            creates: 0,
+            updates: 1,
+            deletes: 0,
+            roles: 0,
+            categories: 0,
+            channels: 1,
+        });
+        expect(plan.actions).toStrictEqual([
+            {
+                actionType: 'update',
+                targetType: 'channel',
+                targetId: 'current-link',
+                label: 'docs',
+                details: {
+                    label: 'docs',
+                    changes: [{ field: 'position', before: 1, after: 2 }],
+                },
+            },
+        ]);
+    });
+
+    it('does not match same-name channels with different types as an update', () => {
+        const current = toFluxerGuildStructureSnapshot(
+            {
+                guildId: 'guild-1',
+                guildName: 'Guild 1',
+                roles: [],
+                categories: [],
+                channels: [
+                    {
+                        id: 'current-text',
+                        name: 'docs',
+                        type: 0,
+                        parentId: null,
+                        position: 1,
+                        permissionOverwrites: [],
+                    },
+                ],
+            },
+            '2026-06-26T10:00:00.000Z'
+        );
+        const requested = {
+            ...current,
+            channels: [
+                {
+                    id: 'requested-link',
+                    name: 'docs',
+                    type: 5,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [],
+                },
+            ],
+        };
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested);
+
+        expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
+            ['create', 'channel', 'requested-link'],
+            ['delete', 'channel', 'current-text'],
+        ]);
     });
 });

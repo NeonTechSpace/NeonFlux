@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
     dashboardCategories,
+    dashboardNavigationEntries,
+    dashboardNavigationSettings,
     getDashboardCategorySubNavigation,
     getDefaultDashboardSubNavigationTo,
+    getDashboardNavigationEntry,
 } from './dashboard-categories.js';
 
 describe('dashboard categories', () => {
@@ -40,6 +43,32 @@ describe('dashboard categories', () => {
         expect(getDefaultDashboardSubNavigationTo('events')).toBe('/dashboard/$guildId/events/audit-events');
         expect(getDefaultDashboardSubNavigationTo('structure')).toBe('/dashboard/$guildId/structure/import-export');
         expect(getDefaultDashboardSubNavigationTo('system')).toBe('/dashboard/$guildId/system/bot-installation-sync');
+    });
+
+    it('derives render-ready navigation entries from one composable settings list', () => {
+        expect(dashboardNavigationEntries.map((entry) => entry.category.id)).toStrictEqual(
+            dashboardNavigationSettings.map((setting) => setting.id)
+        );
+        expect(dashboardCategories.map((category) => category.id)).toStrictEqual(
+            dashboardNavigationSettings.map((setting) => setting.id)
+        );
+    });
+
+    it('renders categories with one item as direct links instead of collapsible groups', () => {
+        expect(getDashboardNavigationEntry('messaging')).toMatchObject({
+            type: 'group',
+            defaultSubNavigationTo: '/dashboard/$guildId/messaging/bluesky',
+            linkTo: '/dashboard/$guildId/messaging/bluesky',
+        });
+        expect(getDashboardNavigationEntry('structure')).toMatchObject({
+            type: 'direct',
+            defaultSubNavigationTo: '/dashboard/$guildId/structure/import-export',
+            linkTo: '/dashboard/$guildId/structure/import-export',
+        });
+        expect(getDashboardNavigationEntry('overview')).toMatchObject({
+            type: 'direct',
+            linkTo: '/dashboard/$guildId',
+        });
     });
 
     it('marks only the approved dashboard subitems implemented', () => {

@@ -29,6 +29,7 @@ type CreateChannelInput = {
     guildId: string;
     type: 0 | 2 | 4 | 5;
     name: string;
+    url?: string | null;
     parentId?: string | null;
     position?: number;
 };
@@ -374,12 +375,14 @@ async function createChannel(
     const normalizedParentId = parentId !== undefined && parentId.length > 0 ? parentId : null;
 
     return runGuildAction(client, input.guildId, async (guild) => {
-        const channel = await guild.createChannel({
+        const channelData: Parameters<typeof guild.createChannel>[0] & { url?: string | null } = {
             type: input.type,
             name: input.name.trim(),
+            ...(input.url !== undefined ? { url: input.url } : {}),
             ...(input.parentId !== undefined ? { parent_id: normalizedParentId } : {}),
             ...(input.position !== undefined ? { position: input.position } : {}),
-        });
+        };
+        const channel = await guild.createChannel(channelData);
 
         return {
             id: channel.id,

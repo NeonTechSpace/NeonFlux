@@ -3,6 +3,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 const GUILD_CATEGORY_CHANNEL_TYPE = 4;
 
+export type FluxerGuildRoleProtectionReason = 'everyone' | 'bot' | 'integration' | 'managed';
+
 export type FluxerGuildRole = {
     id: string;
     name: string;
@@ -11,6 +13,8 @@ export type FluxerGuildRole = {
     permissions: string;
     hoist: boolean;
     mentionable: boolean;
+    protected?: boolean;
+    protectionReason?: FluxerGuildRoleProtectionReason;
 };
 
 export type FluxerPermissionOverwrite = {
@@ -24,6 +28,7 @@ export type FluxerGuildChannel = {
     id: string;
     name: string | null;
     type: number;
+    url?: string | null;
     parentId: string | null;
     position: number | null;
     permissionOverwrites: FluxerPermissionOverwrite[];
@@ -107,7 +112,7 @@ export async function readFluxerGuildStructure(
         return err(structureResult.error);
     }
 
-    const normalizedRoles = normalizeRoles(structureResult.value.roles);
+    const normalizedRoles = normalizeRoles(structureResult.value.roles, guildId, structureResult.value.rawRoles);
     const normalizedChannelResult = normalizeChannels(structureResult.value.channels);
 
     if (!normalizedRoles || !normalizedChannelResult) {
@@ -138,28 +143,73 @@ async function fetchGuildStructure(
     guild: Guild
 ): Promise<
     Result<
-        { roles: Role[]; channels: GuildChannel[] },
+        { roles: Role[]; rawRoles?: unknown[]; channels: GuildChannel[] },
         Extract<ReadFluxerGuildStructureError, { type: 'fetch-failed' }>
     >
 > {
     try {
-        const [roles, channels] = await Promise.all([guild.fetchRoles(), guild.fetchChannels()]);
+        const [roles, rawRoles, channels] = await Promise.all([
+            guild.fetchRoles(),
+            fetchRawGuildRoles(guild),
+            guild.fetchChannels(),
+        ]);
 
-        return ok({ roles, channels });
+        return ok({ roles, ...(rawRoles ? { rawRoles } : {}), channels });
     } catch (error) {
         return err({ type: 'fetch-failed', error });
     }
 }
 
-function normalizeRoles(roles: unknown): FluxerGuildRole[] | undefined {
+async function fetchRawGuildRoles(guild: Guild): Promise<unknown[] | undefined> {
+    const rest = readClientRest(guild);
+    const guildId = readGuildId(guild);
+
+    if (!rest || !guildId) return undefined;
+
+    try {
+        const data = await rest.get(`/guilds/${guildId}/roles`, { auth: true });
+        if (Array.isArray(data)) return data.map((role: unknown) => role);
+        if (!isObject(data)) return [];
+
+        return Object.values(data);
+    } catch {
+        return undefined;
+    }
+}
+
+function readClientRest(guild: Guild): { get: (path: string, options?: unknown) => Promise<unknown> } | undefined {
+    const guildLike = guild as unknown as { client?: unknown };
+    const client = isObject(guildLike.client) ? guildLike.client : undefined;
+    const rest = isObject(client?.rest) ? client.rest : undefined;
+    return typeof rest?.get === 'function'
+        ? (rest as { get: (path: string, options?: unknown) => Promise<unknown> })
+        : undefined;
+}
+
+function readGuildId(guild: Guild): string | undefined {
+    const guildLike = guild as unknown as { id?: unknown };
+    return typeof guildLike.id === 'string' && guildLike.id.trim() ? guildLike.id.trim() : undefined;
+}
+
+function normalizeRoles(roles: unknown, guildId: string, rawRoles?: unknown[]): FluxerGuildRole[] | undefined {
     if (!Array.isArray(roles)) {
         return undefined;
     }
 
     const normalizedRoles: FluxerGuildRole[] = [];
+    const rawRoleById = new Map(
+        (rawRoles ?? [])
+            .filter(isObject)
+            .filter((role): role is Record<string, unknown> & { id: string } => typeof role.id === 'string')
+            .map((role) => [role.id, role])
+    );
 
     for (const role of roles) {
-        const normalizedRole = normalizeRole(role);
+        const normalizedRole = normalizeRole(
+            role,
+            guildId,
+            isObject(role) ? rawRoleById.get(String(role.id)) : undefined
+        );
 
         if (!normalizedRole) {
             return undefined;
@@ -171,7 +221,7 @@ function normalizeRoles(roles: unknown): FluxerGuildRole[] | undefined {
     return normalizedRoles;
 }
 
-function normalizeRole(role: unknown): FluxerGuildRole | undefined {
+function normalizeRole(role: unknown, guildId: string, rawRole?: Record<string, unknown>): FluxerGuildRole | undefined {
     if (!isObject(role)) {
         return undefined;
     }
@@ -190,6 +240,8 @@ function normalizeRole(role: unknown): FluxerGuildRole | undefined {
         return undefined;
     }
 
+    const protection = readRoleProtection(rawRole ?? role, guildId);
+
     return {
         id: role.id,
         name: role.name,
@@ -198,7 +250,35 @@ function normalizeRole(role: unknown): FluxerGuildRole | undefined {
         permissions,
         hoist: role.hoist,
         mentionable: role.mentionable,
+        ...(protection ? { protected: true, protectionReason: protection } : {}),
     };
+}
+
+export function isProtectedFluxerGuildRole(role: Pick<FluxerGuildRole, 'id'> & Partial<FluxerGuildRole>): boolean {
+    return role.protected === true || role.protectionReason !== undefined;
+}
+
+function readRoleProtection(
+    role: Record<string, unknown>,
+    guildId: string
+): FluxerGuildRoleProtectionReason | undefined {
+    if (role.id === guildId) return 'everyone';
+    if (role.managed === true) return 'managed';
+
+    const tags = isObject(role.tags) ? role.tags : undefined;
+
+    if (typeof role.botId === 'string' || typeof role.bot_id === 'string' || typeof tags?.bot_id === 'string') {
+        return 'bot';
+    }
+    if (
+        typeof role.integrationId === 'string' ||
+        typeof role.integration_id === 'string' ||
+        typeof tags?.integration_id === 'string'
+    ) {
+        return 'integration';
+    }
+
+    return undefined;
 }
 
 function normalizeGuildName(guild: Guild, fallback: string): string {
@@ -268,6 +348,7 @@ function normalizeChannel(channel: unknown): FluxerGuildChannel | undefined {
         id: channel.id,
         name: channel.name,
         type: channel.type,
+        ...(typeof channel.url === 'string' || channel.url === null ? { url: channel.url } : {}),
         parentId: channel.parentId,
         position: channel.position ?? null,
         permissionOverwrites,
