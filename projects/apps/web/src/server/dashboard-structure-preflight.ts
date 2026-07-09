@@ -1,6 +1,7 @@
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import { isObject, stableValueKey } from './dashboard-structure-preflight-utils.js';
 
 type DashboardStructurePreflightActionStatus =
     | 'ready'
@@ -660,24 +661,4 @@ function countStatus(
     status: DashboardStructurePreflightActionStatus
 ): number {
     return actions.filter((action) => action.status === status).length;
-}
-
-function stableValueKey(value: unknown): string {
-    if (Array.isArray(value)) {
-        return JSON.stringify(value.map((item) => stableValueKey(item)).sort());
-    }
-
-    if (isObject(value)) {
-        return JSON.stringify(
-            Object.entries(value)
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([key, item]) => [key, stableValueKey(item)])
-        );
-    }
-
-    return JSON.stringify(value);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
 }

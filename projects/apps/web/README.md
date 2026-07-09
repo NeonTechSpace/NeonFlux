@@ -6,7 +6,7 @@ To run this application:
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev:web
 ```
 
 # Building For Production

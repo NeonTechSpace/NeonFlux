@@ -130,6 +130,12 @@ function validateSupportedDeploymentRef(value: string): void {
 }
 
 export function validateResetDataArgs(args: ResetDataArgs): void {
+    if (!args.dryRun && !hasExplicitDeploymentTarget(args.convexArgs)) {
+        throw new Error(
+            'Refusing to reset Convex data without an explicit deployment target. Use --deployment dev, --deployment <deployment-name>, or --prod.'
+        );
+    }
+
     if (!args.yes && !args.dryRun) {
         throw new Error('Refusing to reset Convex data without --yes. Use --dry-run to inspect the generated command.');
     }
@@ -139,6 +145,10 @@ export function validateResetDataArgs(args: ResetDataArgs): void {
             'Refusing to reset a production Convex deployment without --confirm-production-reset. This deletes all documents.'
         );
     }
+}
+
+function hasExplicitDeploymentTarget(args: readonly string[]): boolean {
+    return args.includes('--prod') || args.some((arg) => arg === '--deployment' || arg.startsWith('--deployment='));
 }
 
 export function getConvexSchemaTableNames(schema: { tables?: Record<string, unknown> } = convexSchema): string[] {

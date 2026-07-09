@@ -185,9 +185,9 @@ NeonFlux uses Convex for durable state and live dashboard data. To self-host Con
 
 ### Reset Convex Data
 
-The reset script replaces the selected Convex deployment with an empty snapshot for every table in the current schema. It is destructive. Run it from `projects`.
+The reset script replaces the selected Convex deployment with an empty snapshot for every table in the current schema. It is destructive. Run it from `projects`. Non-dry-run resets must name an explicit destination with `--deployment dev`, `--deployment <deployment-name>`, or `--prod --confirm-production-reset`. Ambient Convex targets are refused.
 
-After schema changes, push the current Convex schema/functions before resetting dev. This prevents stale deployed schema state from keeping old tables around.
+After schema or function changes, push the current Convex schema/functions before resetting dev. This prevents stale deployed schema state from keeping old tables or functions around.
 
 ```bash
 cd projects

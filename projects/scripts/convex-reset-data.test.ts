@@ -43,6 +43,15 @@ describe('convex reset data script', () => {
         expect(() =>
             validateResetDataArgs({
                 confirmProductionReset: false,
+                convexArgs: [],
+                dryRun: false,
+                yes: true,
+            })
+        ).toThrow('without an explicit deployment target');
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
                 convexArgs: ['--deployment', 'dev'],
                 dryRun: false,
                 yes: false,
@@ -57,6 +66,35 @@ describe('convex reset data script', () => {
                 yes: true,
             })
         ).toThrow('without --confirm-production-reset');
+    });
+
+    it('allows explicit dev targets and dry-run inspection', () => {
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: [],
+                dryRun: true,
+                yes: false,
+            })
+        ).not.toThrow();
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: ['--deployment', 'dev'],
+                dryRun: false,
+                yes: true,
+            })
+        ).not.toThrow();
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: ['--deployment=agile-capybara-631'],
+                dryRun: false,
+                yes: true,
+            })
+        ).not.toThrow();
     });
 
     it('reads table names from the current Convex schema', () => {

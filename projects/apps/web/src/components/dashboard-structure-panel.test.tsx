@@ -11,6 +11,7 @@ import {
     downloadDashboardStructureExportRouteData,
     importDashboardStructureBackupRouteData,
     preflightDashboardStructureImportRunRouteData,
+    readDashboardStructureBackupPageRouteData,
     readDashboardStructureBackupJsonRouteData,
     readDashboardStructureDriftRouteData,
     readDashboardStructureImportActionPageRouteData,
@@ -35,6 +36,7 @@ vi.mock('../server/dashboard-structure-route-data.js', async (importActual) => {
         downloadDashboardStructureExportRouteData: vi.fn(),
         importDashboardStructureBackupRouteData: vi.fn(),
         preflightDashboardStructureImportRunRouteData: vi.fn(),
+        readDashboardStructureBackupPageRouteData: vi.fn(),
         readDashboardStructureBackupJsonRouteData: vi.fn(),
         readDashboardStructureDriftRouteData: vi.fn(),
         readDashboardStructureImportActionPageRouteData: vi.fn(),
@@ -170,7 +172,7 @@ describe('DashboardStructurePanel', () => {
         renderStructurePanel();
 
         expect(await screen.findByText('Restore point')).toBeTruthy();
-        fireEvent.click(await screen.findByRole('button', { name: 'Create restore dry-run' }));
+        fireEvent.click((await screen.findAllByRole('button', { name: 'Create restore dry-run' }))[0]);
 
         await waitFor(() => expect(importDashboardStructureBackupRouteData).toHaveBeenCalled());
         expect(importDashboardStructureBackupRouteData).toHaveBeenCalledWith({
@@ -715,7 +717,7 @@ describe('DashboardStructurePanel', () => {
             target: { value: 'APPLY run-1' },
         });
         fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
-        fireEvent.click(await screen.findByRole('button', { name: 'Create restore dry-run' }));
+        fireEvent.click((await screen.findAllByRole('button', { name: 'Create restore dry-run' }))[0]);
 
         await waitFor(() => expect(importDashboardStructureBackupRouteData).toHaveBeenCalled());
         expect(importDashboardStructureBackupRouteData).toHaveBeenCalledWith({
@@ -758,6 +760,62 @@ describe('DashboardStructurePanel', () => {
         expect(screen.getByRole('button', { name: 'Create restore dry-run' })).toBeTruthy();
     });
 
+    it('refreshes loaded backup pages after apply creates a restore point', async () => {
+        const originalBackup = createBackupSummary({ id: 'backup-1', name: 'Original backup' });
+        const loadedBackup = createBackupSummary({ id: 'backup-2', name: 'Loaded older backup' });
+        const restorePointBackup = createBackupSummary({
+            id: 'backup-restore-1',
+            name: 'Restore point before apply',
+            source: 'restore_point',
+        });
+
+        vi.mocked(readDashboardStructureSettingsRouteData)
+            .mockResolvedValueOnce(
+                createSettingsResult({
+                    backupNextCursor: 'cursor-1',
+                    backups: [originalBackup],
+                    importRuns: [createImportRun({ status: 'confirmed' })],
+                })
+            )
+            .mockResolvedValueOnce(
+                createSettingsResult({
+                    backups: [restorePointBackup, originalBackup],
+                    importRuns: [createImportRun({ status: 'applied' })],
+                })
+            );
+        vi.mocked(readDashboardStructureBackupPageRouteData).mockResolvedValue({
+            type: 'backup-page',
+            page: {
+                backups: [loadedBackup],
+            },
+        });
+        vi.mocked(preflightDashboardStructureImportRunRouteData).mockResolvedValue({
+            type: 'preflight',
+            importRunId: 'run-1',
+            report: createReadyPreflightReport(),
+        });
+        vi.mocked(applyDashboardStructureImportRunRouteData).mockResolvedValue({
+            type: 'applied',
+            importRun: createImportRun({ status: 'applied' }),
+            restorePointBackupId: 'backup-restore-1',
+        });
+
+        renderStructurePanel();
+
+        expect(await screen.findByText('Original backup')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+        expect(await screen.findByText('Loaded older backup')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Run preflight' }));
+        fireEvent.change(await screen.findByLabelText('Type APPLY run-1 to apply ready updates'), {
+            target: { value: 'APPLY run-1' },
+        });
+        fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
+
+        expect(await screen.findByText('Restore point before apply')).toBeTruthy();
+        expect(screen.getByText('Restore point')).toBeTruthy();
+    });
+
     it('shows restore shortcut errors without replacing the local import run on failure', async () => {
         vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
             createSettingsResult({ importRuns: [createImportRun({ status: 'confirmed' })] })
@@ -783,7 +841,7 @@ describe('DashboardStructurePanel', () => {
             target: { value: 'APPLY run-1' },
         });
         fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
-        fireEvent.click(await screen.findByRole('button', { name: 'Create restore dry-run' }));
+        fireEvent.click((await screen.findAllByRole('button', { name: 'Create restore dry-run' }))[0]);
 
         expect(await screen.findByText('This backup does not have server blueprint JSON.')).toBeTruthy();
         expect(screen.queryByText(/Restore dry-run created with .* planned changes/u)).toBeNull();
@@ -1099,6 +1157,7 @@ function createSettingsResult(
             scheduledDrift: NonNullable<DashboardStructureBackupSettings['scheduledDrift']>;
         }>;
         importRuns?: DashboardStructureImportRun[];
+        backupNextCursor?: string;
         observedState?: {
             changedSinceLastBackup: boolean;
             observedChangeCount: number;
@@ -1111,6 +1170,7 @@ function createSettingsResult(
     return {
         type: 'settings' as const,
         backups: overrides.backups ?? [],
+        ...(overrides.backupNextCursor ? { backupNextCursor: overrides.backupNextCursor } : {}),
         backupSettings: {
             enabled: false,
             cadenceWeeks: 1,

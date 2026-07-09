@@ -653,49 +653,19 @@ async function deleteRole(
 }
 
 function isEditableGuildChannel(channel: unknown): channel is EditableGuildChannel {
-    if (typeof channel !== 'object' || channel === null) {
-        return false;
-    }
-
-    return typeof (channel as { edit?: unknown }).edit === 'function';
+    return hasFunction(channel, 'edit');
 }
 
 function isMutableGuildChannel(channel: unknown): channel is MutableGuildChannel {
-    if (typeof channel !== 'object' || channel === null) {
-        return false;
-    }
-
-    const possibleChannel = channel as {
-        delete?: unknown;
-        editPermission?: unknown;
-        deletePermission?: unknown;
-    };
-
-    return (
-        typeof possibleChannel.delete === 'function' &&
-        typeof possibleChannel.editPermission === 'function' &&
-        typeof possibleChannel.deletePermission === 'function'
-    );
+    return ['delete', 'editPermission', 'deletePermission'].every((key) => hasFunction(channel, key));
 }
 
 function isChannelPositionableGuild(guild: unknown): guild is ChannelPositionableGuild {
-    if (typeof guild !== 'object' || guild === null) {
-        return false;
-    }
-
-    const possibleGuild = guild as { setChannelPositions?: unknown };
-
-    return typeof possibleGuild.setChannelPositions === 'function';
+    return hasFunction(guild, 'setChannelPositions');
 }
 
 function isRolePositionableGuild(guild: unknown): guild is RolePositionableGuild {
-    if (typeof guild !== 'object' || guild === null) {
-        return false;
-    }
-
-    const possibleGuild = guild as { setRolePositions?: unknown };
-
-    return typeof possibleGuild.setRolePositions === 'function';
+    return hasFunction(guild, 'setRolePositions');
 }
 
 function normalizeRoleVisualInput(
@@ -717,5 +687,9 @@ function normalizeRoleVisualInput(
 }
 
 function isEditableGuildRole(role: unknown): role is EditableGuildRole {
-    return typeof role === 'object' && role !== null && typeof (role as { edit?: unknown }).edit === 'function';
+    return hasFunction(role, 'edit');
+}
+
+function hasFunction(value: unknown, key: string): boolean {
+    return typeof value === 'object' && value !== null && typeof (value as Record<string, unknown>)[key] === 'function';
 }

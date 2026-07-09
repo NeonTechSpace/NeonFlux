@@ -337,7 +337,9 @@ function getAuditEventDetails(
     const channelId = getMetadataString(event.metadata.channelId);
     const channelName =
         getMetadataString(event.metadata.channelName) ?? (channelId ? channelNameById.get(channelId) : undefined);
-    const messageId = getMetadataString(event.metadata.messageId) ?? event.targetId;
+    const messageId =
+        getMetadataString(event.metadata.messageId) ?? (event.feature === 'posting' ? event.targetId : undefined);
+    const targetDetail = getAuditTargetDetail(event);
     const details = [
         {
             label: 'Actor',
@@ -355,6 +357,7 @@ function getAuditEventDetails(
                   },
               ]
             : []),
+        ...(targetDetail ? [targetDetail] : []),
         ...(messageId
             ? [
                   {
@@ -363,17 +366,76 @@ function getAuditEventDetails(
                   },
               ]
             : []),
-        ...getAuditMetadataDetails(event.metadata),
+        ...getAuditMetadataDetails(event),
     ];
 
     return details;
 }
 
-function getAuditMetadataDetails(metadata: Record<string, unknown>) {
-    return [
+function getAuditTargetDetail(event: DashboardAuditEvent): { label: string; value: ReactNode } | undefined {
+    if (!event.targetId) return undefined;
+
+    if (event.feature === 'import_export') {
+        return {
+            label: getStructureAuditTargetLabel(event.action),
+            value: <MonoValue value={event.targetId} />,
+        };
+    }
+
+    if (event.feature !== 'posting') {
+        return {
+            label: 'Target',
+            value: <MonoValue value={event.targetId} />,
+        };
+    }
+
+    return undefined;
+}
+
+function getStructureAuditTargetLabel(action: string): string {
+    if (action === 'structure.backup_restore_point_created' || action.startsWith('structure.import_')) {
+        return 'Import run';
+    }
+
+    if (
+        action === 'structure.backup_settings_updated' ||
+        action === 'structure.backup_retention_pruned' ||
+        action.startsWith('structure.scheduled_drift_')
+    ) {
+        return 'Guild/settings target';
+    }
+
+    if (action.startsWith('structure.backup_')) {
+        return 'Backup target';
+    }
+
+    return 'Target';
+}
+
+function getAuditMetadataDetails(event: DashboardAuditEvent) {
+    const metadata = event.metadata;
+    const baseDetails = [
         formatMetadataDetail('Content length', metadata.contentLength),
         formatMetadataDetail('Embeds', metadata.embedCount),
         formatMetadataDetail('Source', metadata.source),
+    ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
+
+    if (event.feature !== 'import_export') return baseDetails;
+
+    return [
+        ...baseDetails,
+        formatMetadataDetail('Actions', metadata.actionCount),
+        formatMetadataDetail('Creates', metadata.createCount),
+        formatMetadataDetail('Updates', metadata.updateCount),
+        formatMetadataDetail('Deletes', metadata.deleteCount),
+        formatMetadataDetail('Applied', metadata.appliedCount),
+        formatMetadataDetail('Failed', metadata.failedCount),
+        formatMetadataDetail('Backup', metadata.backupName ?? metadata.backupId),
+        formatMetadataDetail('Backup source', metadata.backupSource),
+        formatMetadataDetail('Restore point', metadata.restorePointBackupId),
+        formatMetadataDetail('Retention deleted', metadata.deletedCount),
+        formatMetadataDetail('Drift status', metadata.status),
+        formatMetadataDetail('Drift changes', metadata.changeCount),
     ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
 }
 

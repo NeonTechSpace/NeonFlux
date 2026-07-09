@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
-import { loadConvexConfig } from '../packages/config/src/env.js';
+import { loadConvexConfig, loadLocalEnv } from '../packages/config/src/env.js';
 import { parseNeonFluxJwksDataUri } from '../packages/convex/src/jwt.js';
 import { assertNoArgs } from './script-args.js';
 
@@ -73,9 +73,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 function main(): void {
     assertNoArgs();
+    loadLocalEnv();
 
-    const validation = validateConvexAuthConfigEnv(process.env);
+    const validation = validateConvexAuthConfigEnv(toConvexPublicAuthConfigEnv(process.env));
     process.stdout.write(`${formatConvexAuthConfigValidation(validation)}\n`);
+}
+
+function toConvexPublicAuthConfigEnv(env: NodeJS.ProcessEnv): ConvexAuthConfigValidationEnvironment {
+    return {
+        NEONFLUX_AUTH_JWT_AUDIENCE: env.NEONFLUX_AUTH_JWT_AUDIENCE,
+        NEONFLUX_AUTH_JWT_ISSUER: env.NEONFLUX_AUTH_JWT_ISSUER,
+        NEONFLUX_AUTH_JWT_JWKS: env.NEONFLUX_AUTH_JWT_JWKS,
+    };
 }
 
 function describeJwksConfig(value: string): string {

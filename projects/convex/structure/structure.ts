@@ -4,7 +4,7 @@ import { requireNeonFluxService } from '../auth.js';
 import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { dashboardLiveAreasForBotActionFeature } from '../core/dashboard_live_model.js';
-import { buildBotActionEventDocument } from '../core/events_model.js';
+import { buildBotActionEventDocument, buildBotActionEventSortKey } from '../core/events_model.js';
 import {
     addDays,
     buildBackupSortCursor,
@@ -1067,7 +1067,10 @@ async function recordStructureAuditInMutation(
         )
     );
 
-    await ctx.db.insert('botActionEvents', document);
+    const auditEventId = await ctx.db.insert('botActionEvents', document);
+    await ctx.db.patch('botActionEvents', auditEventId, {
+        sortKey: buildBotActionEventSortKey({ createdAt: document.createdAt, id: auditEventId }),
+    });
     await markDashboardLiveAreasChangedInMutation(ctx, {
         areas: dashboardLiveAreasForBotActionFeature(document.feature),
         guildId,
