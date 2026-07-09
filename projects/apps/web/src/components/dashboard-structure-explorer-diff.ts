@@ -1,4 +1,5 @@
-import { parseDiffFromFile, type FileDiffMetadata } from '@pierre/diffs';
+import { parseDiffFromFile } from '@pierre/diffs';
+import type { FileDiffMetadata } from '@pierre/diffs';
 
 import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 

@@ -14,25 +14,36 @@ import {
 
 describe('convex reset data script', () => {
     it('parses guarded destination arguments', () => {
-        expect(parseResetDataArgs(['--deployment', 'local', '--yes'])).toStrictEqual({
+        expect(parseResetDataArgs(['--deployment', 'dev', '--yes'])).toStrictEqual({
             confirmProductionReset: false,
-            convexArgs: ['--deployment', 'local'],
+            convexArgs: ['--deployment', 'dev'],
             dryRun: false,
             yes: true,
         });
-        expect(parseResetDataArgs(['--deployment=dev', '--dry-run'])).toStrictEqual({
-            confirmProductionReset: false,
-            convexArgs: ['--deployment=dev'],
+        expect(parseResetDataArgs(['--prod', '--confirm-production-reset', '--dry-run'])).toStrictEqual({
+            confirmProductionReset: true,
+            convexArgs: ['--prod'],
             dryRun: true,
             yes: false,
         });
+        expect(parseResetDataArgs(['--deployment=staging', '--dry-run'])).toStrictEqual({
+            confirmProductionReset: false,
+            convexArgs: ['--deployment=staging'],
+            dryRun: true,
+            yes: false,
+        });
+    });
+
+    it('rejects local deployment resets because the wrapper targets hosted dev or prod deployments', () => {
+        expect(() => parseResetDataArgs(['--deployment', 'local', '--yes'])).toThrow('Refusing --deployment local');
+        expect(() => parseResetDataArgs(['--deployment=local', '--yes'])).toThrow('Refusing --deployment local');
     });
 
     it('requires explicit confirmation for destructive and production resets', () => {
         expect(() =>
             validateResetDataArgs({
                 confirmProductionReset: false,
-                convexArgs: ['--deployment', 'local'],
+                convexArgs: ['--deployment', 'dev'],
                 dryRun: false,
                 yes: false,
             })

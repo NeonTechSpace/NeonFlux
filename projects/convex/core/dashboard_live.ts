@@ -36,8 +36,7 @@ export const listDashboardLiveStates = query({
         for (const area of normalizeDashboardLiveAreas(args.areas)) {
             const state = await ctx.db
                 .query('dashboardLiveStates')
-                .withIndex('by_guild_area', (query) => query.eq('guildId', guildId))
-                .filter((query) => query.eq(query.field('area'), area))
+                .withIndex('by_guild_area', (query) => query.eq('guildId', guildId).eq('area', area))
                 .unique();
 
             states.push(
@@ -91,13 +90,12 @@ export async function markDashboardLiveAreasChangedInMutation(
     for (const area of normalizeDashboardLiveAreas(input.areas)) {
         const existing = await ctx.db
             .query('dashboardLiveStates')
-            .withIndex('by_guild_area', (query) => query.eq('guildId', guildId))
-            .filter((query) => query.eq(query.field('area'), area))
+            .withIndex('by_guild_area', (query) => query.eq('guildId', guildId).eq('area', area))
             .unique();
 
         if (existing) {
             const nextVersion = existing.version + 1;
-            await ctx.db.patch(existing._id, {
+            await ctx.db.patch('dashboardLiveStates', existing._id, {
                 updatedAt: now,
                 version: nextVersion,
             });

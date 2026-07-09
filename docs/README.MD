@@ -183,6 +183,43 @@ See [docs/Convex.md](docs/Convex.md) for the full Convex auth and deploy workflo
 
 NeonFlux uses Convex for durable state and live dashboard data. To self-host Convex separately from NeonFlux app data, see [docs/Convex.md](docs/Convex.md).
 
+### Reset Convex Data
+
+The reset script replaces the selected Convex deployment with an empty snapshot for every table in the current schema. It is destructive. Run it from `projects`.
+
+After schema changes, push the current Convex schema/functions before resetting dev. This prevents stale deployed schema state from keeping old tables around.
+
+```bash
+cd projects
+pnpm convex:dev:once
+```
+
+Dry-run the hosted dev reset first:
+
+```bash
+pnpm convex:reset-data -- --deployment dev --dry-run
+```
+
+Reset the hosted dev deployment:
+
+```bash
+pnpm convex:reset-data -- --deployment dev --yes
+```
+
+Dry-run the production reset first:
+
+```bash
+pnpm convex:reset-data -- --prod --confirm-production-reset --dry-run
+```
+
+Reset production only after the current Convex code has been intentionally deployed and the dry-run targets the intended deployment:
+
+```bash
+pnpm convex:reset-data -- --prod --confirm-production-reset --yes
+```
+
+Do not use `--deployment local` for this wrapper. Convex local imports require a separately created local deployment. Use `--deployment dev` for the hosted dev deployment.
+
 ## Docker
 
 Docker users can run NeonFlux with the published GHCR images for the bot and web app.

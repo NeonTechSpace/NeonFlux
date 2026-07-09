@@ -113,7 +113,7 @@ export const upsertDeploymentConfig = mutation({
         const document = documentResult.value;
 
         if (existingConfig) {
-            await ctx.db.patch(existingConfig._id, toDeploymentConfigPatch(document));
+            await ctx.db.patch('deploymentConfig', existingConfig._id, toDeploymentConfigPatch(document));
         } else {
             await ctx.db.insert('deploymentConfig', document);
         }
@@ -198,7 +198,7 @@ export const upsertBotInstallation = mutation({
         const existingInstallation = await findBotInstallationDocument(ctx, guildId);
 
         if (existingInstallation) {
-            await ctx.db.patch(existingInstallation._id, { updatedAt: now });
+            await ctx.db.patch('botInstallations', existingInstallation._id, { updatedAt: now });
 
             return toBotInstallationRecord({
                 ...existingInstallation,
@@ -230,7 +230,7 @@ export const deleteBotInstallation = mutation({
             return null;
         }
 
-        await ctx.db.delete(installation._id);
+        await ctx.db.delete('botInstallations', installation._id);
 
         return toBotInstallationRecord(installation);
     },
@@ -266,7 +266,7 @@ async function upsertGuildDocument(ctx: CoreMutationCtx, guildId: string, now: s
     const existingGuild = await findGuildDocument(ctx, guildId);
 
     if (existingGuild) {
-        await ctx.db.patch(existingGuild._id, { updatedAt: now });
+        await ctx.db.patch('guilds', existingGuild._id, { updatedAt: now });
 
         return {
             ...existingGuild,

@@ -124,7 +124,7 @@ export function toBackupSettingsRecord(record: ConvexStructureBackupSettingsReco
         lastDriftCheckedAt: record.lastDriftCheckedAt ? new Date(record.lastDriftCheckedAt) : null,
         lastDriftErrorMessage: record.lastDriftErrorMessage ?? null,
         lastDriftFieldSummary: toDriftFieldSummaryRecord(record.lastDriftFieldSummary),
-        lastDriftHasMorePreview: record.lastDriftHasMorePreview === true,
+        lastDriftHasMorePreview: record.lastDriftHasMorePreview,
         lastDriftLiveCounts: toDriftLiveCountsRecord(record.lastDriftLiveCounts),
         lastDriftStatus: record.lastDriftStatus ?? null,
         lastDriftSummary: toDriftSummaryRecord(record.lastDriftSummary),

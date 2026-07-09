@@ -16,10 +16,12 @@ import {
     buildDashboardStructureExplorerModel,
     readDashboardStructureExplorerEntityKey,
     toDashboardStructureExplorerActions,
-    type DashboardStructureExplorerAction,
-    type DashboardStructureExplorerEntityKey,
-    type DashboardStructureExplorerModel,
-    type DashboardStructureExplorerSnapshot,
+} from './dashboard-structure-explorer-model.js';
+import type {
+    DashboardStructureExplorerAction,
+    DashboardStructureExplorerEntityKey,
+    DashboardStructureExplorerModel,
+    DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
 import { DashboardStructureExplorerDetails } from './dashboard-structure-explorer-details.js';
 

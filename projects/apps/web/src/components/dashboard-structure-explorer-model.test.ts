@@ -4,8 +4,10 @@ import {
     buildDashboardStructureExplorerModel,
     parseDashboardStructureExplorerSnapshot,
     toDashboardStructureExplorerActions,
-    type DashboardStructureExplorerAction,
-    type DashboardStructureExplorerSnapshot,
+} from './dashboard-structure-explorer-model.js';
+import type {
+    DashboardStructureExplorerAction,
+    DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
 
 describe('buildDashboardStructureExplorerModel', () => {

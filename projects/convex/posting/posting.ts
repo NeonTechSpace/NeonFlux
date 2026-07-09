@@ -86,7 +86,7 @@ export const upsertMessageTemplate = mutation({
         );
 
         if (existingTemplate) {
-            await ctx.db.patch(existingTemplate._id, {
+            await ctx.db.patch('messageTemplates', existingTemplate._id, {
                 content: document.content,
                 embeds: document.embeds,
                 updatedAt: document.updatedAt,
@@ -134,7 +134,7 @@ export const recordPostedMessage = mutation({
         );
 
         if (existingMessage) {
-            await ctx.db.patch(existingMessage._id, {
+            await ctx.db.patch('postedMessages', existingMessage._id, {
                 createdByUserId: document.createdByUserId,
                 purpose: document.purpose,
                 templateId: document.templateId,
@@ -201,7 +201,7 @@ export const deleteMessageTemplate = mutation({
             return null;
         }
 
-        await ctx.db.delete(template._id);
+        await ctx.db.delete('messageTemplates', template._id);
 
         return toMessageTemplateRecord(template);
     },
@@ -224,7 +224,7 @@ async function findMessageTemplateByIdDocument(
     ctx: PostingQueryCtx | PostingMutationCtx,
     templateId: GenericId<'messageTemplates'>
 ): Promise<StoredMessageTemplateDocument | null> {
-    return await ctx.db.get(templateId);
+    return await ctx.db.get('messageTemplates', templateId);
 }
 
 async function requireMessageTemplateDocument(

@@ -59,6 +59,7 @@
         "generate:token-encryption-key": "tsx scripts/generate-token-encryption-key.ts"
     },
     "devDependencies": {
+        "@convex-dev/eslint-plugin": "^2.0.0",
         "@eslint/js": "^10.0.1",
         "@types/node": "^25.9.3",
         "@vitest/eslint-plugin": "^1.6.20",

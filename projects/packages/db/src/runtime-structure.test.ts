@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type {
+    StructureBackupSettingsRecord,
+    StructureScheduledDriftFieldSummaryRecord,
+    StructureScheduledDriftLiveCountsRecord,
+    StructureScheduledDriftSummaryRecord,
+} from './contracts-structure.js';
 import type { ConvexDatabase } from './convex.js';
 import {
     claimDueStructureBackupSetting,
@@ -78,6 +84,32 @@ const importRun = {
 type TestStructureRunRecord = Omit<ReturnType<typeof withoutActions>, 'appliedAt' | 'confirmedAt'> & {
     appliedAt: string | null;
     confirmedAt: string | null;
+};
+type TestSettingsRecord = Omit<
+    StructureBackupSettingsRecord,
+    | 'createdAt'
+    | 'lastAttemptAt'
+    | 'lastDriftCheckedAt'
+    | 'lastDriftFieldSummary'
+    | 'lastDriftLiveCounts'
+    | 'lastDriftSummary'
+    | 'lastSuccessAt'
+    | 'nextBackupAt'
+    | 'nextDriftCheckAt'
+    | 'nextRetentionPruneAt'
+    | 'updatedAt'
+> & {
+    createdAt: string;
+    lastAttemptAt: string | null;
+    lastDriftCheckedAt: string | null;
+    lastDriftFieldSummary: Partial<StructureScheduledDriftFieldSummaryRecord> | null;
+    lastDriftLiveCounts: Partial<StructureScheduledDriftLiveCountsRecord> | null;
+    lastDriftSummary: Partial<StructureScheduledDriftSummaryRecord> | null;
+    lastSuccessAt: string | null;
+    nextBackupAt: string | null;
+    nextDriftCheckAt: string | null;
+    nextRetentionPruneAt: string | null;
+    updatedAt: string;
 };
 
 describe('Convex structure database functions', () => {
@@ -499,7 +531,7 @@ function toActionRecord(record: typeof action) {
     };
 }
 
-function createSettingsRecord(overrides: Record<string, unknown> = {}) {
+function createSettingsRecord(overrides: Partial<TestSettingsRecord> = {}): TestSettingsRecord {
     return {
         cadenceWeeks: 1,
         createdAt: '2026-07-03T08:00:00.000Z',
@@ -527,10 +559,10 @@ function createSettingsRecord(overrides: Record<string, unknown> = {}) {
     };
 }
 
-function toSettingsRecord(record: Record<string, any>) {
+function toSettingsRecord(record: TestSettingsRecord): StructureBackupSettingsRecord {
     return {
         ...record,
-        createdAt: record.createdAt ? new Date(record.createdAt) : undefined,
+        createdAt: new Date(record.createdAt),
         lastAttemptAt: record.lastAttemptAt ? new Date(record.lastAttemptAt) : null,
         lastDriftCheckedAt: record.lastDriftCheckedAt ? new Date(record.lastDriftCheckedAt) : null,
         lastDriftFieldSummary: record.lastDriftFieldSummary
@@ -564,7 +596,7 @@ function toSettingsRecord(record: Record<string, any>) {
         nextBackupAt: record.nextBackupAt ? new Date(record.nextBackupAt) : null,
         nextDriftCheckAt: record.nextDriftCheckAt ? new Date(record.nextDriftCheckAt) : null,
         nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
-        updatedAt: record.updatedAt ? new Date(record.updatedAt) : undefined,
+        updatedAt: new Date(record.updatedAt),
     };
 }
 

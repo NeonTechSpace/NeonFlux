@@ -1,10 +1,21 @@
 import js from '@eslint/js';
+import convexPlugin from '@convex-dev/eslint-plugin';
 import vitest from '@vitest/eslint-plugin';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import n from 'eslint-plugin-n';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+
+const convexEslintRules = /** @type {import('eslint').ESLint.Plugin['rules']} */ (
+    /** @type {unknown} */ (convexPlugin.rules)
+);
+
+/** @type {import('eslint').ESLint.Plugin} */
+const convexEslintPlugin = {
+    meta: convexPlugin.meta,
+    rules: convexEslintRules,
+};
 
 const typedParserOptions = {
     project: './tsconfig.eslint.json',
@@ -45,6 +56,19 @@ export default defineConfig([
     n.configs['flat/recommended-module'],
     ...tseslint.configs.strictTypeChecked,
     ...tseslint.configs.stylisticTypeChecked,
+    {
+        files: ['**/convex/**/*.ts'],
+        plugins: {
+            '@convex-dev': convexEslintPlugin,
+        },
+        rules: {
+            '@convex-dev/import-wrong-runtime': 'off',
+            '@convex-dev/no-old-registered-function-syntax': 'error',
+            '@convex-dev/require-args-validator': 'error',
+            '@convex-dev/explicit-table-ids': 'error',
+            '@convex-dev/no-filter-in-query': 'warn',
+        },
+    },
     {
         files: ['**/*.{js,ts,tsx}'],
         languageOptions: nodeLanguageOptions,

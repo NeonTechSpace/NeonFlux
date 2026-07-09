@@ -162,7 +162,7 @@ export const syncGuildInviteSnapshots = mutation({
             );
 
             if (existing) {
-                await ctx.db.patch(existing._id, toInviteSnapshotPatch(document));
+                await ctx.db.patch('guildInviteSnapshots', existing._id, toInviteSnapshotPatch(document));
             } else {
                 await ctx.db.insert('guildInviteSnapshots', document);
             }
@@ -177,7 +177,7 @@ export const syncGuildInviteSnapshots = mutation({
             if (!currentCodes.has(activeRow.code)) {
                 const revoked = revokeGuildInviteSnapshotDocument(activeRow, observedAt);
 
-                await ctx.db.patch(activeRow._id, {
+                await ctx.db.patch('guildInviteSnapshots', activeRow._id, {
                     active: false,
                     lastSeenAt: revoked.lastSeenAt,
                     revokedAt: revoked.revokedAt,
@@ -226,7 +226,10 @@ export const incrementGuildMessageActivityDay = mutation({
             : seedDocument;
 
         if (existing) {
-            await ctx.db.patch(existing._id, { messageCount: document.messageCount, updatedAt: document.updatedAt });
+            await ctx.db.patch('guildMessageActivityDays', existing._id, {
+                messageCount: document.messageCount,
+                updatedAt: document.updatedAt,
+            });
             return toGuildMessageActivityDayRecord({ ...document, _id: existing._id });
         } else {
             const id = await ctx.db.insert('guildMessageActivityDays', document);

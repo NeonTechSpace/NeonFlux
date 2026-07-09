@@ -109,7 +109,7 @@ export const upsertGuildCommandPermissionRule = mutation({
         );
 
         if (existingRule) {
-            await ctx.db.patch(existingRule._id, {
+            await ctx.db.patch('guildCommandPermissionRules', existingRule._id, {
                 roleIds: document.roleIds,
                 updatedAt: document.updatedAt,
                 userIds: document.userIds,
@@ -134,7 +134,7 @@ export const deleteGuildCommandPermissionRule = mutation({
             return null;
         }
 
-        await ctx.db.delete(rule._id);
+        await ctx.db.delete('guildCommandPermissionRules', rule._id);
 
         return toCommandPermissionRuleRecord(rule);
     },
@@ -201,7 +201,7 @@ export const upsertGuildDashboardPermissionRule = mutation({
         );
 
         if (existingRule) {
-            await ctx.db.patch(existingRule._id, {
+            await ctx.db.patch('guildDashboardPermissionRules', existingRule._id, {
                 roleIds: document.roleIds,
                 updatedAt: document.updatedAt,
                 userIds: document.userIds,

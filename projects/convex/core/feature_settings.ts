@@ -111,7 +111,7 @@ export const upsertGuildFeatureSetting = mutation({
         );
 
         if (existingSetting) {
-            await ctx.db.patch(existingSetting._id, {
+            await ctx.db.patch('guildFeatureSettings', existingSetting._id, {
                 config: document.config,
                 enabled: document.enabled,
                 updatedAt: document.updatedAt,
@@ -137,7 +137,7 @@ export const deleteGuildFeatureSetting = mutation({
             return null;
         }
 
-        await ctx.db.delete(setting._id);
+        await ctx.db.delete('guildFeatureSettings', setting._id);
 
         return toGuildFeatureSettingRecord(setting);
     },

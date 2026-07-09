@@ -134,7 +134,7 @@ export const revokeWebSession = mutation({
         }
 
         const revokedAt = args.revokedAt ? unwrap(normalizeTimestamp(args.revokedAt)) : new Date().toISOString();
-        await ctx.db.patch(session._id, { revokedAt });
+        await ctx.db.patch('webSessions', session._id, { revokedAt });
 
         return toWebSessionRecord({
             ...session,
@@ -175,7 +175,7 @@ export const upsertFluxerOAuthTokenSet = mutation({
                 updatedAt: now,
             };
 
-            await ctx.db.patch(existingTokenSet._id, patch);
+            await ctx.db.patch('fluxerOauthTokens', existingTokenSet._id, patch);
 
             return toFluxerOAuthTokenRecord({
                 ...existingTokenSet,
@@ -236,7 +236,7 @@ export const invalidateFluxerOAuthTokenSet = mutation({
         const invalidatedAt = args.invalidatedAt
             ? unwrap(normalizeTimestamp(args.invalidatedAt))
             : new Date().toISOString();
-        await ctx.db.patch(tokenSet._id, { invalidatedAt });
+        await ctx.db.patch('fluxerOauthTokens', tokenSet._id, { invalidatedAt });
 
         return toFluxerOAuthTokenRecord({
             ...tokenSet,

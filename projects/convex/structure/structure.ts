@@ -211,7 +211,7 @@ export const recordStructureObservedEvent = mutation({
         );
 
         if (existing) {
-            await ctx.db.patch(existing._id, {
+            await ctx.db.patch('guildFeatureSettings', existing._id, {
                 config: document.config,
                 enabled: true,
                 updatedAt: document.updatedAt,
@@ -340,7 +340,7 @@ export const renameStructureBackup = mutation({
         if (backup?.guildId !== guildId) return null;
 
         const name = normalizeBackupName(args.name, backup.name);
-        await ctx.db.patch(backup._id, { name });
+        await ctx.db.patch('structureBackups', backup._id, { name });
         await recordStructureAuditInMutation(ctx, guildId, args.audit, new Date().toISOString(), backup._id);
 
         return toStructureBackupSummaryRecord({ ...backup, name });
@@ -356,7 +356,7 @@ export const deleteStructureBackup = mutation({
         const backup = await findBackupById(ctx, parseBackupId(args.backupId));
         if (backup?.guildId !== guildId) return false;
 
-        await ctx.db.delete(backup._id);
+        await ctx.db.delete('structureBackups', backup._id);
         await recordStructureAuditInMutation(ctx, guildId, args.audit, new Date().toISOString(), backup._id);
 
         return true;
@@ -433,7 +433,7 @@ export const upsertStructureBackupSettings = mutation({
         const patch = unwrap(buildStructureBackupSettingsPatch(existing ?? undefined, args, now));
 
         if (existing) {
-            await ctx.db.patch(existing._id, patch);
+            await ctx.db.patch('structureBackupSettings', existing._id, patch);
             const updated = await findBackupSettingsDocument(ctx, guildId);
             await recordStructureAuditInMutation(ctx, guildId, args.audit, now, guildId);
             return toStructureBackupSettingsRecord(updated ?? undefined, guildId);
@@ -540,11 +540,11 @@ export const pruneExpiredStructureBackupsForGuild = mutation({
         const hasMore = expiredBackups.length > limit;
 
         for (const backup of page) {
-            await ctx.db.delete(backup._id);
+            await ctx.db.delete('structureBackups', backup._id);
         }
 
         const nextRetentionPruneAt = hasMore ? now : addDays(now, 1);
-        await ctx.db.patch(settings._id, {
+        await ctx.db.patch('structureBackupSettings', settings._id, {
             nextRetentionPruneAt,
             retentionDays,
             updatedAt: now,
@@ -606,7 +606,7 @@ export const claimDueStructureBackupSetting = mutation({
 
         if (!existing || !patch) return null;
 
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
         const updated = await findBackupSettingsDocument(ctx, guildId);
 
         return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
@@ -633,7 +633,7 @@ export const clearStructureBackupSettingLease = mutation({
 
         if (!existing || !patch) return false;
 
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
 
         return true;
     },
@@ -671,7 +671,7 @@ export const claimDueStructureDriftSetting = mutation({
 
         if (!existing || !patch) return null;
 
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
         const updated = await findBackupSettingsDocument(ctx, guildId);
 
         return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
@@ -696,7 +696,7 @@ export const clearStructureDriftSettingLease = mutation({
 
         if (!existing || !patch) return false;
 
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
 
         return true;
     },
@@ -728,7 +728,7 @@ export const recordStructureScheduledDriftResult = mutation({
         if (!existing) throw new Error('settings-not-found');
 
         const patch = unwrap(buildStructureScheduledDriftResultPatch(existing, args, now));
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
         await recordStructureAuditInMutation(ctx, guildId, args.audit, now, guildId);
         const updated = await findBackupSettingsDocument(ctx, guildId);
         if (!updated) throw new Error('settings-not-found');
@@ -796,7 +796,7 @@ export const updateStructureImportRunStatus = mutation({
         if (!run) return null;
 
         const patch = unwrap(buildStructureImportRunStatusPatch(run, args, new Date().toISOString()));
-        await ctx.db.patch(run._id, patch);
+        await ctx.db.patch('structureImportRuns', run._id, patch);
         await recordStructureAuditInMutation(ctx, run.guildId, args.audit, patch.updatedAt, run._id);
 
         return toStructureImportRunRecord({ ...run, ...patch });
@@ -890,7 +890,7 @@ export const updateStructureImportActionStatus = mutation({
         const details = isObjectRecord(args.details) ? args.details : action.details;
         const updatedAt = new Date().toISOString();
 
-        await ctx.db.patch(action._id, { details, status: args.status, updatedAt });
+        await ctx.db.patch('structureImportActions', action._id, { details, status: args.status, updatedAt });
 
         return toStructureImportActionRecord({ ...action, details, status: args.status, updatedAt });
     },
@@ -911,7 +911,7 @@ async function recordBackupAttempt(
     );
 
     if (existing) {
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch('structureBackupSettings', existing._id, patch);
         return;
     }
 
@@ -947,7 +947,7 @@ async function findBackupById(
     ctx: StructureQueryCtx | StructureMutationCtx,
     backupId: GenericId<'structureBackups'>
 ): Promise<StoredBackupDocument | null> {
-    return await ctx.db.get(backupId);
+    return await ctx.db.get('structureBackups', backupId);
 }
 
 async function findLatestBackupBySourceAndStatus(
@@ -956,13 +956,13 @@ async function findLatestBackupBySourceAndStatus(
     source: string,
     status: string
 ): Promise<StoredBackupDocument | null> {
-    return (await ctx.db
+    return await ctx.db
         .query('structureBackups')
         .withIndex('by_guild_source_status_sort_key', (index) =>
             index.eq('guildId', guildId).eq('source', source).eq('status', status)
         )
         .order('desc')
-        .first()) as StoredBackupDocument | null;
+        .first();
 }
 
 async function findBackupSettingsDocument(
@@ -1002,14 +1002,14 @@ async function findRunById(
     ctx: StructureQueryCtx | StructureMutationCtx,
     runId: GenericId<'structureImportRuns'>
 ): Promise<StoredImportRunDocument | null> {
-    return await ctx.db.get(runId);
+    return await ctx.db.get('structureImportRuns', runId);
 }
 
 async function findActionById(
     ctx: StructureMutationCtx,
     actionId: GenericId<'structureImportActions'>
 ): Promise<StoredImportActionDocument | null> {
-    return await ctx.db.get(actionId);
+    return await ctx.db.get('structureImportActions', actionId);
 }
 
 async function requireSourceBackupIfProvided(

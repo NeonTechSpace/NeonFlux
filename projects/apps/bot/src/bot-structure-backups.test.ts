@@ -275,16 +275,17 @@ describe('runDueStructureBackups', () => {
             now: new Date('2026-07-06T00:00:00.000Z'),
         });
 
+        const expectedDriftMetadata: unknown = expect.objectContaining({
+            baselineBackupId: 'baseline-1',
+            changeCount: 1,
+            source: 'scheduled_drift',
+        });
         expect(recordStructureScheduledDriftResult).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
                 audit: {
                     action: structureAuditActions.scheduledDriftDetected,
-                    metadata: expect.objectContaining({
-                        baselineBackupId: 'baseline-1',
-                        changeCount: 1,
-                        source: 'scheduled_drift',
-                    }),
+                    metadata: expectedDriftMetadata,
                     targetId: 'guild-drift',
                 },
                 baselineBackupId: 'baseline-1',
@@ -355,11 +356,14 @@ describe('runDueStructureBackups', () => {
             status: structureScheduledDriftStatuses.noBaseline,
         });
         expect(noBaselineInput).not.toHaveProperty('audit');
+        const expectedFailedAudit: unknown = expect.objectContaining({
+            action: structureAuditActions.scheduledDriftFailed,
+        });
         expect(recordStructureScheduledDriftResult).toHaveBeenNthCalledWith(
             2,
             {},
             expect.objectContaining({
-                audit: expect.objectContaining({ action: structureAuditActions.scheduledDriftFailed }),
+                audit: expectedFailedAudit,
                 errorMessage: 'Structure read failed: login-failed',
                 guildId: 'guild-failed',
                 status: structureScheduledDriftStatuses.failed,

@@ -109,7 +109,7 @@ export const upsertGuildSecurityPolicy = mutation({
         );
 
         if (existingPolicy) {
-            await ctx.db.patch(existingPolicy._id, {
+            await ctx.db.patch('guildSecurityPolicies', existingPolicy._id, {
                 defconLevel: document.defconLevel,
                 updatedAt: document.updatedAt,
             });
@@ -185,7 +185,7 @@ export const deleteGuildDefconExemption = mutation({
             return null;
         }
 
-        await ctx.db.delete(exemption._id);
+        await ctx.db.delete('guildDefconExemptions', exemption._id);
 
         return toGuildDefconExemptionRecord(exemption);
     },

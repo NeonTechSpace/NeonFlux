@@ -123,7 +123,7 @@ export const upsertReactionRoleMessage = mutation({
         );
 
         if (existingMessage) {
-            await ctx.db.patch(existingMessage._id, {
+            await ctx.db.patch('reactionRoleMessages', existingMessage._id, {
                 channelId: document.channelId,
                 enabled: document.enabled,
                 generateOverview: document.generateOverview,
@@ -216,10 +216,10 @@ export const deleteReactionRoleMessage = mutation({
         const options = await listOptionsByMessageId(ctx, message._id);
 
         for (const option of options) {
-            await ctx.db.delete(option._id);
+            await ctx.db.delete('reactionRoleOptions', option._id);
         }
 
-        await ctx.db.delete(message._id);
+        await ctx.db.delete('reactionRoleMessages', message._id);
 
         return toReactionRoleMessageRecord(message);
     },
@@ -349,7 +349,7 @@ export const upsertReactionRoleAssignment = mutation({
         );
 
         if (existingAssignment) {
-            await ctx.db.patch(existingAssignment._id, {
+            await ctx.db.patch('reactionRoleAssignments', existingAssignment._id, {
                 assignedAt: document.assignedAt,
                 emojiKey: document.emojiKey,
                 removedAt: document.removedAt,
@@ -374,7 +374,7 @@ export const markReactionRoleAssignmentRemoved = mutation({
 
         const removedAt = new Date().toISOString();
 
-        await ctx.db.patch(assignment._id, { removedAt });
+        await ctx.db.patch('reactionRoleAssignments', assignment._id, { removedAt });
 
         return toReactionRoleAssignmentRecord({ ...assignment, removedAt });
     },
@@ -389,8 +389,9 @@ export const listActiveReactionRoleAssignmentsByGuildUser = query({
         const userId = unwrap(normalizeRequiredUserId(args.userId));
         const assignments = await ctx.db
             .query('reactionRoleAssignments')
-            .withIndex('by_guild_user', (query) => query.eq('guildId', guildId).eq('userId', userId))
-            .filter((query) => query.eq(query.field('removedAt'), undefined))
+            .withIndex('by_guild_user_removed', (query) =>
+                query.eq('guildId', guildId).eq('userId', userId).eq('removedAt', undefined)
+            )
             .take(normalizeLimit(args.limit));
 
         return assignments.sort(compareAssignmentsByRole).map(toReactionRoleAssignmentRecord);
@@ -407,10 +408,9 @@ export const listActiveReactionRoleAssignmentsByGuildMessageUser = query({
         const userId = unwrap(normalizeRequiredUserId(args.userId));
         const assignments = await ctx.db
             .query('reactionRoleAssignments')
-            .withIndex('by_guild_message_user', (query) =>
-                query.eq('guildId', guildId).eq('messageId', messageId).eq('userId', userId)
+            .withIndex('by_guild_message_user_removed', (query) =>
+                query.eq('guildId', guildId).eq('messageId', messageId).eq('userId', userId).eq('removedAt', undefined)
             )
-            .filter((query) => query.eq(query.field('removedAt'), undefined))
             .take(normalizeLimit(args.limit));
 
         return assignments.sort(compareAssignmentsByAssignedAt).map(toReactionRoleAssignmentRecord);
@@ -427,15 +427,14 @@ export const markReactionRoleAssignmentsRemovedByMessageUser = mutation({
         const userId = unwrap(normalizeRequiredUserId(args.userId));
         const assignments = await ctx.db
             .query('reactionRoleAssignments')
-            .withIndex('by_guild_message_user', (query) =>
-                query.eq('guildId', guildId).eq('messageId', messageId).eq('userId', userId)
+            .withIndex('by_guild_message_user_removed', (query) =>
+                query.eq('guildId', guildId).eq('messageId', messageId).eq('userId', userId).eq('removedAt', undefined)
             )
-            .filter((query) => query.eq(query.field('removedAt'), undefined))
             .take(500);
         const removedAt = new Date().toISOString();
 
         for (const assignment of assignments) {
-            await ctx.db.patch(assignment._id, { removedAt });
+            await ctx.db.patch('reactionRoleAssignments', assignment._id, { removedAt });
         }
 
         return assignments
@@ -461,7 +460,7 @@ async function upsertReactionRoleOptionDocument(
     );
 
     if (existingOption) {
-        await ctx.db.patch(existingOption._id, {
+        await ctx.db.patch('reactionRoleOptions', existingOption._id, {
             position: document.position,
             roleId: document.roleId,
             updatedAt: document.updatedAt,
@@ -485,7 +484,7 @@ async function deleteReactionRoleOptionDocument(
 
     if (!option) return null;
 
-    await ctx.db.delete(option._id);
+    await ctx.db.delete('reactionRoleOptions', option._id);
 
     return toReactionRoleOptionRecord(option);
 }
@@ -506,7 +505,7 @@ async function requireReactionRoleMessage(
     ctx: ReactionRolesMutationCtx,
     id: GenericId<'reactionRoleMessages'>
 ): Promise<StoredReactionRoleMessageDocument> {
-    const message = await ctx.db.get(id);
+    const message = await ctx.db.get('reactionRoleMessages', id);
 
     if (!message) {
         throw new Error('reaction-role-message-not-found');

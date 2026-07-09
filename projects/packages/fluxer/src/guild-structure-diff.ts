@@ -164,7 +164,7 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
     targetType: FluxerGuildStructurePlannedAction['targetType'],
     currentItems: readonly TItem[],
     requestedItems: readonly TItem[],
-    fields: readonly (keyof TItem)[]
+    fields: ReadonlyArray<keyof TItem>
 ): FluxerGuildStructurePlannedAction[] {
     const currentById = new Map(currentItems.map((item) => [item.id, item]));
     const requestedById = new Map(requestedItems.map((item) => [item.id, item]));
@@ -197,7 +197,7 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
 function diffFields<TItem>(
     current: TItem,
     requested: TItem,
-    fields: readonly (keyof TItem)[]
+    fields: ReadonlyArray<keyof TItem>
 ): Array<{ field: string; before: unknown; after: unknown }> {
     return fields.flatMap((field) => {
         const before = current[field];
@@ -211,10 +211,10 @@ function diffFields<TItem>(
     });
 }
 
-function toAction<TItem extends { id: string; name: string | null }>(
+function toAction(
     actionType: FluxerGuildStructurePlannedAction['actionType'],
     targetType: FluxerGuildStructurePlannedAction['targetType'],
-    item: TItem,
+    item: { id: string; name: string | null },
     details: Record<string, unknown>
 ): FluxerGuildStructurePlannedAction {
     return {

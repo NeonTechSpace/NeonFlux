@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -14,7 +15,12 @@ vi.mock('@pierre/trees/react', () => ({
     FileTree: ({ model }: { model: MockTreeModel }) => (
         <div aria-label='Mock blueprint tree' role='tree'>
             {model.paths.map((path) => (
-                <button key={path} type='button' role='treeitem' onClick={() => model.selectPath(path)}>
+                <button
+                    key={path}
+                    type='button'
+                    role='treeitem'
+                    aria-selected={model.selectedPaths.includes(path)}
+                    onClick={() => model.selectPath(path)}>
                     {path}
                 </button>
             ))}
@@ -61,9 +67,13 @@ type MockUseFileTreeInput = {
     };
 };
 
+const renderedExplorers: RenderResult[] = [];
+
 describe('DashboardStructureExplorer', () => {
     afterEach(() => {
-        cleanup();
+        for (const renderedExplorer of renderedExplorers.splice(0)) {
+            renderedExplorer.unmount();
+        }
     });
 
     it('prompts for loading a snapshot and exposes load actions', () => {
@@ -337,7 +347,7 @@ describe('DashboardStructureExplorer', () => {
 });
 
 function renderExplorer(overrides: Partial<Parameters<typeof DashboardStructureExplorer>[0]> = {}) {
-    return render(
+    const view = render(
         <DashboardStructureExplorer
             busyAction={undefined}
             drift={undefined}
@@ -360,6 +370,9 @@ function renderExplorer(overrides: Partial<Parameters<typeof DashboardStructureE
             {...overrides}
         />
     );
+
+    renderedExplorers.push(view);
+    return view;
 }
 
 function createExplorerCanonicalJson({ channelName = 'general' }: { channelName?: string } = {}): string {

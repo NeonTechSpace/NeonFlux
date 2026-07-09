@@ -1,4 +1,5 @@
-import { preparePresortedFileTreeInput, type FileTreePreparedInput } from '@pierre/trees';
+import { preparePresortedFileTreeInput } from '@pierre/trees';
+import type { FileTreePreparedInput } from '@pierre/trees';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
@@ -521,10 +522,13 @@ function toSegment(label: string, id: string): string {
 }
 
 function sanitizePathSegment(value: string): string {
-    return value
-        .replace(/[\/\\\u0000-\u001f\u007f]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return Array.from(value, sanitizePathSegmentChar).join('').replace(/\s+/g, ' ').trim();
+}
+
+function sanitizePathSegmentChar(value: string): string {
+    const code = value.charCodeAt(0);
+
+    return value === '/' || value === '\\' || code <= 31 || code === 127 ? ' ' : value;
 }
 
 function isRole(value: unknown): value is FluxerGuildRole {

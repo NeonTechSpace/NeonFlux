@@ -37,17 +37,19 @@ import {
 } from './dashboard-structure-backup-health.js';
 import {
     DashboardStructureExplorer,
-    type DashboardStructureExplorerComparisonTarget,
     readDashboardStructureExplorerActionEntityKey,
-    type DashboardStructureExplorerOverlayMode,
-    type DashboardStructureExplorerSource,
+} from './dashboard-structure-explorer.js';
+import type {
+    DashboardStructureExplorerComparisonTarget,
+    DashboardStructureExplorerOverlayMode,
+    DashboardStructureExplorerSource,
 } from './dashboard-structure-explorer.js';
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import {
     parseDashboardStructureExplorerSnapshot,
     readDashboardStructureExplorerEntityKey,
-    type DashboardStructureExplorerEntityKey,
 } from './dashboard-structure-explorer-model.js';
+import type { DashboardStructureExplorerEntityKey } from './dashboard-structure-explorer-model.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 
@@ -1824,6 +1826,8 @@ function BackupLibraryRow({
     return (
         <div
             id={backupRowId}
+            role='group'
+            aria-label={`Backup ${backup.name}`}
             className='scroll-mt-24 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3 shadow-sm'>
             <div className='grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.75fr)_auto] lg:items-center'>
                 <div className='min-w-0'>

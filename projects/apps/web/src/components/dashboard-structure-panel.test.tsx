@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -46,7 +46,12 @@ vi.mock('@pierre/trees/react', () => ({
     FileTree: ({ model }: { model: MockTreeModel }) => (
         <div aria-label='Mock blueprint tree' role='tree'>
             {model.paths.map((path) => (
-                <button key={path} type='button' role='treeitem' onClick={() => model.selectPath(path)}>
+                <button
+                    key={path}
+                    type='button'
+                    role='treeitem'
+                    aria-selected={model.selectedPaths.includes(path)}
+                    onClick={() => model.selectPath(path)}>
                     {path}
                 </button>
             ))}
@@ -100,7 +105,6 @@ describe('DashboardStructurePanel', () => {
         for (const renderedPanel of renderedPanels.splice(0)) {
             renderedPanel.unmount();
         }
-        cleanup();
         vi.useRealTimers();
         vi.unstubAllGlobals();
         vi.clearAllMocks();
@@ -901,7 +905,9 @@ describe('DashboardStructurePanel', () => {
         expect(screen.getAllByText('Fluxer read failed').length).toBeGreaterThan(0);
         const reviewLink = screen.getByRole('link', { name: 'Review' });
         expect(reviewLink.getAttribute('href')).toBe('#server-blueprint-backup-backup-1');
-        expect(document.querySelector('#server-blueprint-backup-backup-1')).toBeTruthy();
+        expect(screen.getByRole('group', { name: 'Backup NeonSpace - 2026-07-06 - 10-00' }).id).toBe(
+            'server-blueprint-backup-backup-1'
+        );
     });
 
     it('shows overdue scheduled backup and retention prune warnings', async () => {

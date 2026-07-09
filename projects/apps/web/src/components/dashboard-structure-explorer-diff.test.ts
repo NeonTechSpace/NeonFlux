@@ -49,11 +49,12 @@ describe('buildDashboardStructureExplorerJsonDiff', () => {
         expect(result.type).toBe('diff');
         expect(result.beforeLabel).toBe('Live / source');
         expect(result.afterLabel).toBe('Import JSON');
-        if (result.type === 'diff') {
-            expect(result.fileDiff.name).toBe('Import JSON.json');
-            expect(result.fileDiff.prevName).toBe('Live source.json');
-            expect(result.fileDiff.hunks.length).toBeGreaterThan(0);
+        if (result.type !== 'diff') {
+            throw new Error(`Expected diff result, got ${result.type}`);
         }
+        expect(result.fileDiff.name).toBe('Import JSON.json');
+        expect(result.fileDiff.prevName).toBe('Live source.json');
+        expect(result.fileDiff.hunks.length).toBeGreaterThan(0);
     });
 
     it('returns a no-difference state when canonical JSON matches', () => {

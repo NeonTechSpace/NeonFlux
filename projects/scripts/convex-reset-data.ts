@@ -17,6 +17,7 @@ type ResetDataArgs = {
 };
 
 const productionDeploymentRefs = new Set(['prod', 'production']);
+const unsupportedDeploymentRefs = new Set(['local']);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     await main().catch((error: unknown) => {
@@ -102,12 +103,14 @@ export function parseResetDataArgs(argv: readonly string[]): ResetDataArgs {
         if (arg === '--deployment') {
             const value = argv[index + 1];
             if (!value) throw new Error('--deployment requires a value');
+            validateSupportedDeploymentRef(value);
             convexArgs.push(arg, value);
             index += 1;
             continue;
         }
 
         if (arg?.startsWith('--deployment=')) {
+            validateSupportedDeploymentRef(arg.slice('--deployment='.length));
             convexArgs.push(arg);
             continue;
         }
@@ -116,6 +119,14 @@ export function parseResetDataArgs(argv: readonly string[]): ResetDataArgs {
     }
 
     return { confirmProductionReset, convexArgs, dryRun, yes };
+}
+
+function validateSupportedDeploymentRef(value: string): void {
+    if (unsupportedDeploymentRefs.has(value.toLowerCase())) {
+        throw new Error(
+            'Refusing --deployment local for reset-data. Use --deployment dev for the hosted dev deployment, or create/select a local Convex deployment manually before using the Convex CLI directly.'
+        );
+    }
 }
 
 export function validateResetDataArgs(args: ResetDataArgs): void {

@@ -305,7 +305,7 @@ async function resolveBotActionEventCursor(
     ctx: EventsQueryCtx,
     cursor: BotActionEventCursor
 ): Promise<ResolvedBotActionEventCursor> {
-    const document = await ctx.db.get(parseBotActionEventId(cursor.id));
+    const document = await ctx.db.get('botActionEvents', parseBotActionEventId(cursor.id));
 
     if (!document) {
         throw new Error('invalid-cursor');
