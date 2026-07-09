@@ -47,6 +47,7 @@
         "convex:dev": "tsx scripts/convex-cli.ts dev",
         "convex:dev:once": "tsx scripts/convex-cli.ts dev --once --tail-logs disable --typecheck enable",
         "convex:deploy": "tsx scripts/convex-cli.ts deploy",
+        "convex:reset-data": "tsx scripts/convex-reset-data.ts",
         "convex:validate-auth-config": "tsx scripts/convex-auth-config-validate.ts",
         "convex:check-auth-env": "tsx scripts/convex-auth-env-readiness.ts",
         "convex:configure-auth-env": "tsx scripts/convex-auth-env-configure.ts",
