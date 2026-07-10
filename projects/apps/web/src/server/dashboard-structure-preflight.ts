@@ -87,6 +87,10 @@ function preflightAction(
     actions: DashboardStructurePreflightInputAction[],
     options: DashboardStructurePreflightOptions
 ): DashboardStructurePreflightAction {
+    if (action.targetType === 'role-order') {
+        return preflightRoleOrderAction(current, action, actions, options);
+    }
+
     const targetType = normalizeTargetType(action.targetType);
 
     if (!targetType || !action.targetId) {
@@ -103,6 +107,48 @@ function preflightAction(
         default:
             return toPreflightAction(action, 'invalid-plan', 'The dry-run action type is not recognized.');
     }
+}
+
+function preflightRoleOrderAction(
+    current: DashboardStructureSnapshot,
+    action: DashboardStructurePreflightInputAction,
+    actions: DashboardStructurePreflightInputAction[],
+    options: DashboardStructurePreflightOptions
+): DashboardStructurePreflightAction {
+    const roles = action.details.after;
+    if (action.actionType !== 'update' || action.targetId !== 'role-order' || !Array.isArray(roles)) {
+        return toPreflightAction(action, 'invalid-plan', 'The role-order step is malformed.');
+    }
+
+    const sourceIds = new Set<string>();
+    for (const role of roles) {
+        if (
+            !isObject(role) ||
+            typeof role.sourceId !== 'string' ||
+            !role.sourceId.trim() ||
+            !Number.isInteger(role.position) ||
+            typeof role.position !== 'number' ||
+            role.position <= 0 ||
+            sourceIds.has(role.sourceId)
+        ) {
+            return toPreflightAction(action, 'invalid-plan', 'The role-order step contains an invalid role position.');
+        }
+        sourceIds.add(role.sourceId);
+
+        const targetId = options.idMap?.[role.sourceId] ?? role.sourceId;
+        const exists = current.roles.some((candidate) => candidate.id === targetId);
+        const willBeCreated = actions.some(
+            (candidate) =>
+                candidate.actionType === 'create' &&
+                candidate.targetType === 'role' &&
+                candidate.targetId === role.sourceId
+        );
+        if (!exists && !willBeCreated) {
+            return toPreflightAction(action, 'mapping-required', 'A role-order target cannot be mapped safely.');
+        }
+    }
+
+    return toPreflightAction(action, 'ready', 'The reviewed role-order step is ready to apply.');
 }
 
 function preflightCreateAction(
@@ -122,6 +168,10 @@ function preflightCreateAction(
         return toPreflightAction(action, 'stale', 'The create target already exists in the current server layout.');
     }
 
+    if (targetType === 'role' && isProtectedRoleTarget(after, current.guildId)) {
+        return toPreflightAction(action, 'unsupported', 'Protected bot, integration, and default roles are ignored.');
+    }
+
     const mappedTargetId = action.targetId ? options.idMap?.[action.targetId] : undefined;
 
     if (mappedTargetId) {
@@ -129,14 +179,6 @@ function preflightCreateAction(
     }
 
     if (targetType === 'role') {
-        if (isProtectedRoleTarget(after, current.guildId)) {
-            return toPreflightAction(
-                action,
-                'unsupported',
-                'Protected bot, integration, and default roles are ignored.'
-            );
-        }
-
         return preflightRoleCreateAction(action, after);
     }
 
@@ -163,7 +205,19 @@ function preflightMappedCreateRepairAction(
     }
 
     if (targetType === 'role') {
-        return toPreflightAction(action, 'stale', 'The mapped role already exists and cannot be created again.');
+        const roleValidation = preflightRoleCreateAction(action, after);
+        if (roleValidation.status !== 'ready') return roleValidation;
+
+        const mappedRole = mappedItem as FluxerGuildRole;
+        if (!isMatchingMappedRole(mappedRole, after)) {
+            return toPreflightAction(action, 'stale', 'The previously created retry role changed after creation.');
+        }
+
+        return toPreflightAction(
+            action,
+            'ready',
+            'The previously created role exists. Retry will reuse it instead of creating a duplicate.'
+        );
     }
     const mappedChannel = mappedItem as FluxerGuildChannel;
 
@@ -221,6 +275,16 @@ function preflightMappedCreateRepairAction(
         action,
         'ready',
         'The previously created item exists. Retry will repair its permission overwrites instead of creating it again.'
+    );
+}
+
+function isMatchingMappedRole(role: FluxerGuildRole, after: Record<string, unknown>): boolean {
+    return (
+        role.name === after.name &&
+        role.permissions === after.permissions &&
+        role.color === after.color &&
+        role.hoist === after.hoist &&
+        role.mentionable === after.mentionable
     );
 }
 

@@ -556,6 +556,45 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
     });
 
+    it('reuses mapped retry roles instead of creating duplicates', async () => {
+        mockClientLogin({});
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'target-guild-1',
+            operationDelayMs: 0,
+            idMap: {
+                'source-role-1': 'created-role-1',
+            },
+            actions: [
+                {
+                    id: 'retry-create-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'source-role-1',
+                    after: {
+                        id: 'source-role-1',
+                        name: 'Member',
+                        permissions: '1024',
+                        position: 3,
+                        color: 0,
+                        hoist: false,
+                        mentionable: false,
+                    },
+                },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [{ id: 'retry-create-role', status: 'applied', createdId: 'created-role-1' }],
+            idMap: {
+                'source-role-1': 'created-role-1',
+            },
+        });
+    });
+
     it('creates roles with name, permissions, and visuals without applying source positions', async () => {
         const createRole = vi.fn().mockResolvedValue({ id: 'created-role-1', guildId: 'guild-1' });
 
@@ -658,12 +697,13 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(createRole).toHaveBeenNthCalledWith(
-            1,
-            expect.not.objectContaining({
-                position: expect.anything(),
-            })
-        );
+        expect(createRole).toHaveBeenNthCalledWith(1, {
+            name: 'Top Role',
+            permissions: '0',
+            color: 0,
+            hoist: false,
+            mentionable: false,
+        });
         expect(setRolePositions).toHaveBeenCalledWith([
             { id: 'created-role-top', position: 8 },
             { id: 'created-role-low', position: 3 },
@@ -678,6 +718,100 @@ describe('applyFluxerBotGuildStructureAction', () => {
                 'source-role-low': 'created-role-low',
             },
             roleOrder: { status: 'applied' },
+        });
+    });
+
+    it('stops external mutations immediately when the apply lease is lost', async () => {
+        const edit = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            channels: {
+                fetch: vi.fn().mockResolvedValue({ edit }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+        const beforeMutation = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            operationDelayMs: 0,
+            beforeMutation,
+            actions: [
+                {
+                    id: 'action-first',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    changes: [{ field: 'name', after: 'first' }],
+                },
+                {
+                    id: 'action-second',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-2',
+                    changes: [{ field: 'name', after: 'second' }],
+                },
+            ],
+        });
+
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [
+                { id: 'action-first', status: 'applied' },
+                { id: 'action-second', status: 'failed', errorType: 'apply-lease-lost' },
+            ],
+            idMap: {},
+        });
+        expect(edit).toHaveBeenCalledOnce();
+        expect(beforeMutation).toHaveBeenCalledTimes(2);
+    });
+
+    it('rechecks the apply lease between mutations inside one compound action', async () => {
+        const editPermission = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            channels: {
+                fetch: vi.fn().mockResolvedValue({
+                    delete: vi.fn(),
+                    deletePermission: vi.fn(),
+                    editPermission,
+                }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+        const beforeMutation = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            operationDelayMs: 0,
+            beforeMutation,
+            actions: [
+                {
+                    id: 'action-overwrites',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    changes: [
+                        {
+                            field: 'permissionOverwrites',
+                            before: [],
+                            after: [
+                                { id: 'role-1', type: 0, allow: '1', deny: '0' },
+                                { id: 'role-2', type: 0, allow: '2', deny: '0' },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            actions: [{ id: 'action-overwrites', status: 'failed', errorType: 'apply-lease-lost' }],
+            idMap: {},
+        });
+        expect(editPermission).toHaveBeenCalledExactlyOnceWith('role-1', {
+            type: 0,
+            allow: '1',
+            deny: '0',
         });
     });
 

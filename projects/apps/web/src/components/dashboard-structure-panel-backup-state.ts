@@ -1,7 +1,7 @@
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
 import type { BackupPageState } from './dashboard-structure-panel-types.js';
 
-export function buildBackupFreshnessSignature(backups: readonly DashboardStructureBackupSummary[]): string {
+function buildBackupFreshnessSignature(backups: readonly DashboardStructureBackupSummary[]): string {
     return backups
         .map((backup) =>
             [

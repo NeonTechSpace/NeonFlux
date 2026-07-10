@@ -17,6 +17,7 @@ import {
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
 import { reconcileBotInstallations } from './bot-installation-sync.js';
+import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
@@ -34,6 +35,7 @@ export type CreateBotAppInput = {
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
     let bot: FluxerBot | undefined;
     let databaseClosed = false;
+    let reactionRoleScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): void } | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
@@ -280,6 +282,10 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             }
 
             if (config.fluxerBotToken) {
+                reactionRoleScheduler = startReactionRoleScheduler({
+                    context: createFeatureHandlerContext(),
+                    logger,
+                });
                 structureBackupScheduler = startStructureBackupScheduler({
                     botToken: config.fluxerBotToken,
                     database,
@@ -290,6 +296,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             return true;
         },
         async stop() {
+            await reactionRoleScheduler?.stop();
             structureBackupScheduler?.stop();
             await bot?.stop();
             await closeDatabaseOnce();

@@ -1,3 +1,5 @@
+export const maxCurrentInviteSnapshots = 1_000;
+
 export type GuildMemberFlowEventType = 'join' | 'leave';
 export type GuildInviteAttributionStatus =
     | 'ambiguous'
@@ -31,14 +33,6 @@ export type GuildInviteSnapshotDocument = {
     uses: number;
 };
 
-export type GuildMessageActivityDayDocument = {
-    activityDate: string;
-    channelId: string;
-    guildId: string;
-    messageCount: number;
-    updatedAt: string;
-};
-
 export type GuildInviteSnapshotInput = {
     channelId?: string | null;
     code?: string | null;
@@ -58,11 +52,6 @@ export type GuildOverviewAggregate = {
     invites: {
         activeInviteCount: number;
         attribution: Record<GuildInviteAttributionStatus, number>;
-        topInviters: Array<{
-            attributedJoins: number;
-            inviteCodes: Array<{ active: boolean; code: string; uses: number }>;
-            inviterUserId: string;
-        }>;
         totalInviteUses: number;
     };
     memberFlow: {
@@ -73,7 +62,6 @@ export type GuildOverviewAggregate = {
     };
     messages: {
         graph: Array<{ date: string; messageCount: number }>;
-        topChannels: Array<{ channelId: string; messageCount: number }>;
         totalMessages: number;
     };
     trackingStartedAt?: string;
@@ -169,93 +157,6 @@ export function buildGuildInviteSnapshotDocument(
     };
 }
 
-export function revokeGuildInviteSnapshotDocument(
-    document: GuildInviteSnapshotDocument,
-    observedAt: string
-): GuildInviteSnapshotDocument {
-    return {
-        ...document,
-        active: false,
-        lastSeenAt: observedAt,
-        revokedAt: observedAt,
-    };
-}
-
-export function buildGuildMessageActivityDayDocument(
-    input: {
-        channelId?: string | null;
-        guildId?: string | null;
-        occurredAt?: string | null;
-    },
-    now: string,
-    existing?: Pick<GuildMessageActivityDayDocument, 'messageCount'>
-): GrowthInputResult<GuildMessageActivityDayDocument> {
-    const guildId = normalizeRequiredString(input.guildId, 'guildId');
-    const channelId = normalizeRequiredString(input.channelId, 'channelId');
-    const occurredAt = input.occurredAt === undefined ? now : normalizeTimestamp(input.occurredAt);
-
-    if (!guildId.ok) return guildId;
-    if (!channelId.ok) return channelId;
-    if (!occurredAt) return { error: { field: 'occurredAt', type: 'invalid-value' }, ok: false };
-
-    return {
-        ok: true,
-        value: {
-            activityDate: formatUtcDate(occurredAt),
-            channelId: channelId.value,
-            guildId: guildId.value,
-            messageCount: (existing?.messageCount ?? 0) + 1,
-            updatedAt: occurredAt,
-        },
-    };
-}
-
-export function toGuildOverviewAggregate(input: {
-    days: number;
-    inviteSnapshots: GuildInviteSnapshotDocument[];
-    memberEvents: GuildMemberFlowEventDocument[];
-    messageActivityDays: GuildMessageActivityDayDocument[];
-    now: string;
-}): GuildOverviewAggregate {
-    const now = new Date(input.now);
-    const memberFlowGraph = createMemberFlowGraph(input.memberEvents, input.days, now);
-    const messageGraph = createMessageActivityGraph(input.messageActivityDays, input.days, now);
-    const totalJoins = input.memberEvents.filter((event) => event.eventType === 'join').length;
-    const totalLeaves = input.memberEvents.filter((event) => event.eventType === 'leave').length;
-    const activeInviteSnapshots = input.inviteSnapshots.filter((invite) => invite.active);
-    const trackingStartedAt = findTrackingStartedAt(
-        input.memberEvents,
-        input.inviteSnapshots,
-        input.messageActivityDays
-    );
-
-    return {
-        ...(trackingStartedAt === undefined ? {} : { trackingStartedAt }),
-        dataHealth: {
-            hasInviteSnapshots: input.inviteSnapshots.length > 0,
-            hasMemberFlow: input.memberEvents.length > 0,
-            hasMessageActivity: input.messageActivityDays.length > 0,
-        },
-        invites: {
-            activeInviteCount: activeInviteSnapshots.length,
-            attribution: createAttributionCounts(input.memberEvents),
-            topInviters: createTopInviters(input.memberEvents, input.inviteSnapshots),
-            totalInviteUses: activeInviteSnapshots.reduce((total, invite) => total + invite.uses, 0),
-        },
-        memberFlow: {
-            graph: memberFlowGraph,
-            netGrowth: totalJoins - totalLeaves,
-            totalJoins,
-            totalLeaves,
-        },
-        messages: {
-            graph: messageGraph,
-            topChannels: createTopChannels(input.messageActivityDays),
-            totalMessages: input.messageActivityDays.reduce((total, day) => total + day.messageCount, 0),
-        },
-    };
-}
-
 export function normalizeOverviewDays(days: number | undefined): GrowthInputResult<number> {
     if (days === undefined) return { ok: true, value: 30 };
 
@@ -297,126 +198,6 @@ export function toGuildInviteSnapshotRecord(document: GuildInviteSnapshotDocumen
     };
 }
 
-export function toGuildMessageActivityDayRecord(document: GuildMessageActivityDayDocument & { _id: string }) {
-    return { ...document, id: document._id };
-}
-
-function createMessageActivityGraph(
-    messageActivityDays: GuildMessageActivityDayDocument[],
-    days: number,
-    now: Date
-): GuildOverviewAggregate['messages']['graph'] {
-    const messageCountsByDate = new Map<string, number>();
-
-    for (const activityDay of messageActivityDays) {
-        messageCountsByDate.set(
-            activityDay.activityDate,
-            (messageCountsByDate.get(activityDay.activityDate) ?? 0) + activityDay.messageCount
-        );
-    }
-
-    return Array.from({ length: days }, (_, index) => {
-        const offset = days - 1 - index;
-        const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset));
-        const date = formatUtcDate(day.toISOString());
-
-        return { date, messageCount: messageCountsByDate.get(date) ?? 0 };
-    });
-}
-
-function createMemberFlowGraph(
-    memberEvents: GuildMemberFlowEventDocument[],
-    days: number,
-    now: Date
-): GuildOverviewAggregate['memberFlow']['graph'] {
-    return Array.from({ length: days }, (_, index) => {
-        const offset = days - 1 - index;
-        const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset));
-        const date = formatUtcDate(day.toISOString());
-        const dayEvents = memberEvents.filter((event) => formatUtcDate(event.occurredAt) === date);
-        const joins = dayEvents.filter((event) => event.eventType === 'join').length;
-        const leaves = dayEvents.filter((event) => event.eventType === 'leave').length;
-
-        return { date, joins, leaves, netGrowth: joins - leaves };
-    });
-}
-
-function createAttributionCounts(
-    memberEvents: GuildMemberFlowEventDocument[]
-): Record<GuildInviteAttributionStatus, number> {
-    const counts = {
-        ambiguous: 0,
-        attributed: 0,
-        'baseline-missing': 0,
-        'not-applicable': 0,
-        unavailable: 0,
-    } satisfies Record<GuildInviteAttributionStatus, number>;
-
-    for (const event of memberEvents) {
-        counts[event.attributionStatus] += 1;
-    }
-
-    return counts;
-}
-
-function createTopInviters(
-    memberEvents: GuildMemberFlowEventDocument[],
-    inviteSnapshots: GuildInviteSnapshotDocument[]
-): GuildOverviewAggregate['invites']['topInviters'] {
-    const joinsByInviter = new Map<string, number>();
-
-    for (const event of memberEvents) {
-        if (event.eventType === 'join' && event.attributionStatus === 'attributed' && event.inviterUserId) {
-            joinsByInviter.set(event.inviterUserId, (joinsByInviter.get(event.inviterUserId) ?? 0) + 1);
-        }
-    }
-
-    return [...joinsByInviter.entries()]
-        .map(([inviterUserId, attributedJoins]) => ({
-            attributedJoins,
-            inviteCodes: inviteSnapshots
-                .filter((invite) => invite.inviterUserId === inviterUserId)
-                .sort(compareInviteSnapshotDocuments)
-                .map((invite) => ({ active: invite.active, code: invite.code, uses: invite.uses })),
-            inviterUserId,
-        }))
-        .sort(
-            (left, right) =>
-                right.attributedJoins - left.attributedJoins || left.inviterUserId.localeCompare(right.inviterUserId)
-        )
-        .slice(0, 10);
-}
-
-function createTopChannels(
-    messageActivityDays: GuildMessageActivityDayDocument[]
-): GuildOverviewAggregate['messages']['topChannels'] {
-    const messagesByChannel = new Map<string, number>();
-
-    for (const day of messageActivityDays) {
-        messagesByChannel.set(day.channelId, (messagesByChannel.get(day.channelId) ?? 0) + day.messageCount);
-    }
-
-    return [...messagesByChannel.entries()]
-        .map(([channelId, messageCount]) => ({ channelId, messageCount }))
-        .sort((left, right) => right.messageCount - left.messageCount || left.channelId.localeCompare(right.channelId))
-        .slice(0, 10);
-}
-
-function findTrackingStartedAt(
-    memberEvents: GuildMemberFlowEventDocument[],
-    inviteSnapshots: GuildInviteSnapshotDocument[],
-    messageActivityDays: GuildMessageActivityDayDocument[]
-): string | undefined {
-    const timestamps = [
-        ...memberEvents.map((event) => Date.parse(event.occurredAt)),
-        ...inviteSnapshots.map((snapshot) => Date.parse(snapshot.firstSeenAt)),
-        ...messageActivityDays.map((day) => Date.parse(`${day.activityDate}T00:00:00.000Z`)),
-    ].filter((timestamp) => Number.isFinite(timestamp));
-    const earliest = Math.min(...timestamps);
-
-    return Number.isFinite(earliest) ? new Date(earliest).toISOString() : undefined;
-}
-
 function normalizeMemberFlowEventType(value: string | null | undefined): GrowthInputResult<GuildMemberFlowEventType> {
     const normalizedValue = value?.trim();
 
@@ -439,14 +220,6 @@ function normalizeAttributionStatus(value: string | null | undefined): GrowthInp
     }
 
     return { error: { field: 'attributionStatus', type: 'invalid-value' }, ok: false };
-}
-
-function compareInviteSnapshotDocuments(left: GuildInviteSnapshotDocument, right: GuildInviteSnapshotDocument): number {
-    return left.code.localeCompare(right.code);
-}
-
-function formatUtcDate(value: string): string {
-    return new Date(value).toISOString().slice(0, 10);
 }
 
 function normalizeRequiredString(value: string | null | undefined, field: string): GrowthInputResult<string> {

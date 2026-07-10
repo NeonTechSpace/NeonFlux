@@ -37,10 +37,13 @@ describe('reaction roles model', () => {
             guildId: 'guild-1',
             id: messageId,
             kind: 'reaction_role',
+            lifecycle: 'ready',
             messageContent: 'Pick one',
             messageEmbeds: [],
             messageId: 'message-1',
             mode: 'normal',
+            pendingOperationId: null,
+            revision: 1,
             source: 'existing',
             staleAt: null,
             updatedAt: now,
@@ -163,12 +166,16 @@ describe('reaction roles model', () => {
         if (!result.ok) return;
         expect(toReactionRoleAssignmentRecord({ ...result.value, _id: assignmentId })).toStrictEqual({
             assignedAt: now,
+            desiredState: 'present',
             emojiKey: 'unicode:check',
             guildId: 'guild-1',
             id: assignmentId,
             messageId: 'message-1',
+            reactionRoleMessageId: null,
             removedAt: null,
             roleId: 'role-1',
+            status: 'applied',
+            updatedAt: now,
             userId: 'user-1',
         });
     });

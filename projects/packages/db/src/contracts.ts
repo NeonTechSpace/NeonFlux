@@ -100,13 +100,20 @@ export type GuildInviteSnapshotRecord = {
     uses: number;
 };
 
-export type GuildMessageActivityDayRecord = {
+export type GuildMessageActivityRecord = {
     activityDate: string;
-    channelId: string;
     guildId: string;
-    id: string;
-    messageCount: number;
-    updatedAt: Date;
+    shard: number;
+};
+
+export type GuildInviteSnapshotState = {
+    baselineObserved: boolean;
+    snapshots: GuildInviteSnapshotRecord[];
+};
+
+export type GuildInviteSnapshotSyncResult = {
+    baselineObserved: true;
+    snapshotCount: number;
 };
 
 export type GuildInviteSnapshotInput = {
@@ -136,24 +143,11 @@ export type GuildOverviewAggregate = {
         activeInviteCount: number;
         totalInviteUses: number;
         attribution: Record<GuildInviteAttributionStatus, number>;
-        topInviters: Array<{
-            attributedJoins: number;
-            inviteCodes: Array<{
-                active: boolean;
-                code: string;
-                uses: number;
-            }>;
-            inviterUserId: string;
-        }>;
     };
     messages: {
         totalMessages: number;
         graph: Array<{
             date: string;
-            messageCount: number;
-        }>;
-        topChannels: Array<{
-            channelId: string;
             messageCount: number;
         }>;
     };
@@ -279,6 +273,7 @@ export type WebSessionRepositoryError =
 export type FluxerOAuthTokenRecord = {
     accessToken: EncryptedOAuthTokenPayload;
     accessTokenExpiresAt: Date;
+    credentialGeneration: number;
     createdAt: Date;
     fluxerUserId: string;
     invalidatedAt: Date | null;
@@ -287,6 +282,17 @@ export type FluxerOAuthTokenRecord = {
     tokenType: string;
     updatedAt: Date;
 };
+
+export type FluxerOAuthRefreshLeaseClaim =
+    | { status: 'claimed' }
+    | { retryAt: Date; status: 'busy' | 'cooldown' }
+    | { status: 'missing' | 'stale' };
+
+export type FluxerOAuthRefreshCompletion =
+    | { status: 'applied'; tokenSet: FluxerOAuthTokenRecord }
+    | { status: 'stale' };
+
+export type FluxerOAuthRefreshMutationStatus = { status: 'applied' | 'deleted' | 'stale' };
 
 export type FluxerOAuthTokenRepositoryError =
     | 'missing-fluxer-user-id'

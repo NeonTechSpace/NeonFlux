@@ -13,4 +13,5 @@ export const reactionRoleOptionsTable = defineTable({
 })
     .index('by_message_emoji', ['reactionRoleMessageId', 'emojiKey'])
     .index('by_message_position', ['reactionRoleMessageId', 'position', 'emojiKey'])
+    .index('by_message_role', ['reactionRoleMessageId', 'roleId'])
     .index('by_role', ['roleId']);

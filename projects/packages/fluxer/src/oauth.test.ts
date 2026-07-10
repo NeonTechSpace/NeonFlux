@@ -1,12 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     buildFluxerAuthorizeUrl,
     exchangeFluxerAuthorizationCode,
     FLUXER_OAUTH_TOKEN_URL,
     refreshFluxerOAuthToken,
-    type FluxerOAuthFetch,
 } from './oauth.js';
+
+afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
 
 describe('buildFluxerAuthorizeUrl', () => {
     it('builds the login URL', () => {
@@ -109,9 +113,9 @@ describe('buildFluxerAuthorizeUrl', () => {
 
 describe('exchangeFluxerAuthorizationCode', () => {
     it('exchanges an authorization code for normalized token data', async () => {
-        let capturedInput: string | URL | undefined;
+        let capturedInput: string | URL | Request | undefined;
         let capturedInit: RequestInit | undefined;
-        const testFetch: FluxerOAuthFetch = (input, init) => {
+        const testFetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
             capturedInput = input;
             capturedInit = init;
 
@@ -124,14 +128,14 @@ describe('exchangeFluxerAuthorizationCode', () => {
                     scope: 'identify guilds',
                 })
             );
-        };
+        });
+        vi.stubGlobal('fetch', testFetch);
 
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: testFetch,
         });
 
         expect(result.isOk()).toBe(true);
@@ -159,12 +163,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('fails when app id is missing', async () => {
+        stubUnusedFetch();
         const result = await exchangeFluxerAuthorizationCode({
             appId: ' ',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -172,12 +176,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('fails when client secret is missing', async () => {
+        stubUnusedFetch();
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: ' ',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -185,12 +189,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('fails when code is missing', async () => {
+        stubUnusedFetch();
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: ' ',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -198,12 +202,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('fails when redirect URL is missing', async () => {
+        stubUnusedFetch();
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: ' ',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -211,13 +215,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('returns request-failed for non-2xx responses', async () => {
+        stubFetch(jsonResponse({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' }));
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: () =>
-                Promise.resolve(jsonResponse({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' })),
         });
 
         expect(result.isErr()).toBe(true);
@@ -229,12 +232,12 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('returns invalid-response for invalid JSON responses', async () => {
+        stubFetch(new Response('not-json'));
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: () => Promise.resolve(new Response('not-json')),
         });
 
         expect(result.isErr()).toBe(true);
@@ -242,20 +245,19 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('returns invalid-response for missing token response fields', async () => {
+        stubFetch(
+            jsonResponse({
+                access_token: 'access-token',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                scope: 'identify guilds',
+            })
+        );
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: () =>
-                Promise.resolve(
-                    jsonResponse({
-                        access_token: 'access-token',
-                        token_type: 'Bearer',
-                        expires_in: 3600,
-                        scope: 'identify guilds',
-                    })
-                ),
         });
 
         expect(result.isErr()).toBe(true);
@@ -263,21 +265,20 @@ describe('exchangeFluxerAuthorizationCode', () => {
     });
 
     it('returns invalid-response for invalid token expiration values', async () => {
+        stubFetch(
+            jsonResponse({
+                access_token: 'access-token',
+                token_type: 'Bearer',
+                expires_in: -1,
+                refresh_token: 'refresh-token',
+                scope: 'identify guilds',
+            })
+        );
         const result = await exchangeFluxerAuthorizationCode({
             appId: 'app-id',
             clientSecret: 'client-secret',
             code: 'authorization-code',
             redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-            fetch: () =>
-                Promise.resolve(
-                    jsonResponse({
-                        access_token: 'access-token',
-                        token_type: 'Bearer',
-                        expires_in: -1,
-                        refresh_token: 'refresh-token',
-                        scope: 'identify guilds',
-                    })
-                ),
         });
 
         expect(result.isErr()).toBe(true);
@@ -287,9 +288,9 @@ describe('exchangeFluxerAuthorizationCode', () => {
 
 describe('refreshFluxerOAuthToken', () => {
     it('refreshes a token set with normalized token data', async () => {
-        let capturedInput: string | URL | undefined;
+        let capturedInput: string | URL | Request | undefined;
         let capturedInit: RequestInit | undefined;
-        const testFetch: FluxerOAuthFetch = (input, init) => {
+        const testFetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
             capturedInput = input;
             capturedInit = init;
 
@@ -302,13 +303,13 @@ describe('refreshFluxerOAuthToken', () => {
                     scope: 'identify guilds',
                 })
             );
-        };
+        });
+        vi.stubGlobal('fetch', testFetch);
 
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: 'old-refresh-token',
-            fetch: testFetch,
         });
 
         expect(result.isOk()).toBe(true);
@@ -337,11 +338,11 @@ describe('refreshFluxerOAuthToken', () => {
     });
 
     it('fails when app id is missing', async () => {
+        stubUnusedFetch();
         const result = await refreshFluxerOAuthToken({
             appId: ' ',
             clientSecret: 'client-secret',
             refreshToken: 'refresh-token',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -349,11 +350,11 @@ describe('refreshFluxerOAuthToken', () => {
     });
 
     it('fails when client secret is missing', async () => {
+        stubUnusedFetch();
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: ' ',
             refreshToken: 'refresh-token',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
@@ -361,77 +362,170 @@ describe('refreshFluxerOAuthToken', () => {
     });
 
     it('fails when refresh token is missing', async () => {
+        stubUnusedFetch();
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: ' ',
-            fetch: createUnusedFetch(),
         });
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'refreshToken' });
     });
 
-    it('returns request-failed for non-2xx responses', async () => {
+    it('classifies a parsed invalid_grant response as terminal', async () => {
+        const fetch = stubFetch(jsonResponse({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' }));
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: 'refresh-token',
-            fetch: () =>
-                Promise.resolve(jsonResponse({ error: 'invalid_grant' }, { status: 401, statusText: 'Unauthorized' })),
         });
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'request-failed',
-            status: 401,
-            statusText: 'Unauthorized',
+            errorCode: 'invalid_grant',
+            status: 400,
+            type: 'terminal-response',
         });
+        expect(fetch).toHaveBeenCalledOnce();
     });
 
-    it('returns network-error for fetch failures', async () => {
-        const networkError = new Error('Network unavailable.');
+    it('keeps non-terminal provider rejections distinct from invalid credentials', async () => {
+        stubFetch(jsonResponse({ error: 'invalid_client' }, { status: 401, statusText: 'Unauthorized' }));
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: 'refresh-token',
-            fetch: () => Promise.reject(networkError),
         });
 
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: networkError });
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            status: 401,
+            statusText: 'Unauthorized',
+            type: 'request-failed',
+        });
+    });
+
+    it('retries network failures a bounded number of times without surfacing error details', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() => Promise.reject(new Error('Network unavailable with secret details.')));
+        vi.stubGlobal('fetch', fetch);
+
+        const resultPromise = refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+        });
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error' });
+        expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not treat invalid_grant after an ambiguous network attempt as terminal', async () => {
+        vi.useFakeTimers();
+        const fetch = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('Response lost after provider processing.'))
+            .mockResolvedValueOnce(
+                jsonResponse({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' })
+            );
+        vi.stubGlobal('fetch', fetch);
+
+        const resultPromise = refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+        });
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'ambiguous-response' });
+        expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('honors Retry-After before retrying a rate-limited refresh', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-10T08:00:00.000Z'));
+        const fetch = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    { error: 'rate_limited' },
+                    { headers: { 'Retry-After': '2' }, status: 429, statusText: 'Too Many Requests' }
+                )
+            )
+            .mockResolvedValueOnce(createSuccessfulTokenResponse());
+        vi.stubGlobal('fetch', fetch);
+
+        const resultPromise = refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+        });
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
+
+        expect(result.isOk()).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(Date.now()).toBe(Date.parse('2026-07-10T08:00:02.000Z'));
+    });
+
+    it('returns a transient response after bounded 5xx retries', async () => {
+        vi.useFakeTimers();
+        const fetch = vi.fn(() =>
+            Promise.resolve(jsonResponse({ error: 'unavailable' }, { status: 503, statusText: 'Unavailable' }))
+        );
+        vi.stubGlobal('fetch', fetch);
+
+        const resultPromise = refreshFluxerOAuthToken({
+            appId: 'app-id',
+            clientSecret: 'client-secret',
+            refreshToken: 'refresh-token',
+        });
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            retryAfterMs: 1_000,
+            status: 503,
+            statusText: 'Unavailable',
+            type: 'transient-response',
+        });
+        expect(fetch).toHaveBeenCalledTimes(3);
     });
 
     it('returns invalid-response for invalid JSON responses', async () => {
+        const fetch = stubFetch(new Response('not-json'));
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: 'refresh-token',
-            fetch: () => Promise.resolve(new Response('not-json')),
         });
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+        expect(fetch).toHaveBeenCalledOnce();
     });
 
     it('returns invalid-response for malformed token responses', async () => {
+        const fetch = stubFetch(
+            jsonResponse({
+                access_token: 'access-token',
+                token_type: 'Bearer',
+                refresh_token: 'refresh-token',
+                scope: 'identify guilds',
+            })
+        );
         const result = await refreshFluxerOAuthToken({
             appId: 'app-id',
             clientSecret: 'client-secret',
             refreshToken: 'refresh-token',
-            fetch: () =>
-                Promise.resolve(
-                    jsonResponse({
-                        access_token: 'access-token',
-                        token_type: 'Bearer',
-                        refresh_token: 'refresh-token',
-                        scope: 'identify guilds',
-                    })
-                ),
         });
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'invalid-response' });
+        expect(fetch).toHaveBeenCalledOnce();
     });
 });
 
@@ -444,6 +538,27 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
     });
 }
 
-function createUnusedFetch(): FluxerOAuthFetch {
-    return () => Promise.reject(new Error('Fetch should not be called.'));
+function createSuccessfulTokenResponse(): Response {
+    return jsonResponse({
+        access_token: 'new-access-token',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        refresh_token: 'new-refresh-token',
+        scope: 'identify guilds',
+    });
+}
+
+function stubFetch(response: Response) {
+    const fetch = vi.fn(() => Promise.resolve(response));
+
+    vi.stubGlobal('fetch', fetch);
+
+    return fetch;
+}
+
+function stubUnusedFetch(): void {
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.reject(new Error('Fetch should not be called.')))
+    );
 }

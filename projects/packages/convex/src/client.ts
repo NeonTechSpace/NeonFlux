@@ -7,8 +7,10 @@ import {
 } from 'convex/server';
 import { convexToJson, jsonToConvex, type JSONValue } from 'convex/values';
 
+export type NeonFluxConvexAuthTokenProvider = () => Promise<string | undefined>;
+
 export type NeonFluxConvexClientConfig = {
-    authToken?: string;
+    authTokenProvider?: NeonFluxConvexAuthTokenProvider;
     url: string;
 };
 
@@ -48,6 +50,7 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
     args: FunctionArgs<FuncRef>
 ): Promise<FunctionReturnType<FuncRef>> {
     const path = getFunctionName(reference);
+    const authToken = await config.authTokenProvider?.();
     const response = await fetch(new URL(`/api/${operation}`, config.url), {
         body: JSON.stringify({
             args: [convexToJson(args)],
@@ -55,7 +58,7 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
             path,
         }),
         headers: {
-            ...(config.authToken ? { Authorization: `Bearer ${config.authToken}` } : {}),
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
             'Content-Type': 'application/json',
             'Convex-Client': 'neonflux-runtime-server',
         },

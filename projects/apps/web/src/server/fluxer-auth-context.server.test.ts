@@ -1,9 +1,11 @@
 import { Buffer } from 'node:buffer';
 
 import {
+    claimFluxerOAuthTokenRefreshLease,
+    completeFluxerOAuthTokenRefresh,
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
-    upsertFluxerOAuthTokenSet,
+    recordFluxerOAuthTokenRefreshFailure,
 } from '@neonflux/db';
 import type { FluxerOAuthTokenRecord, WebSessionRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
@@ -50,9 +52,11 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
+        claimFluxerOAuthTokenRefreshLease: vi.fn(),
+        completeFluxerOAuthTokenRefresh: vi.fn(),
         findUsableFluxerOAuthTokenSetByUserId: vi.fn(),
         invalidateFluxerOAuthTokenSet: vi.fn(),
-        upsertFluxerOAuthTokenSet: vi.fn(),
+        recordFluxerOAuthTokenRefreshFailure: vi.fn(),
     };
 });
 
@@ -73,27 +77,25 @@ describe('readAuthenticatedFluxerContext', () => {
         vi.mocked(readAuthenticatedWebSession).mockResolvedValue(ok(activeSession));
         vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValue(ok(createTokenSet()));
         vi.mocked(refreshFluxerOAuthToken).mockResolvedValue(ok(createRefreshResponse()));
-        vi.mocked(upsertFluxerOAuthTokenSet).mockImplementation((_db, input) =>
+        vi.mocked(claimFluxerOAuthTokenRefreshLease).mockResolvedValue(ok({ status: 'claimed' }));
+        vi.mocked(completeFluxerOAuthTokenRefresh).mockImplementation((_db, input) =>
             Promise.resolve(
-                ok(
-                    createTokenSet({
+                ok({
+                    status: 'applied',
+                    tokenSet: createTokenSet({
+                        credentialGeneration: input.expectedGeneration + 1,
                         fluxerUserId: input.fluxerUserId,
                         accessToken: input.accessToken,
-                        refreshToken: input.refreshToken ?? null,
+                        refreshToken: input.refreshToken,
                         tokenType: input.tokenType,
                         accessTokenExpiresAt: input.accessTokenExpiresAt,
                         scopes: [...input.scopes],
-                    })
-                )
-            )
-        );
-        vi.mocked(invalidateFluxerOAuthTokenSet).mockResolvedValue(
-            ok(
-                createTokenSet({
-                    invalidatedAt: new Date('2026-06-21T00:00:00.000Z'),
+                    }),
                 })
             )
         );
+        vi.mocked(recordFluxerOAuthTokenRefreshFailure).mockResolvedValue(ok({ status: 'applied' }));
+        vi.mocked(invalidateFluxerOAuthTokenSet).mockResolvedValue(ok({ status: 'deleted' }));
     });
 
     afterEach(() => {
@@ -130,7 +132,8 @@ describe('readAuthenticatedFluxerContext', () => {
         await readAuthenticatedFluxerContext(request);
 
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(claimFluxerOAuthTokenRefreshLease).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
         expect(invalidateFluxerOAuthTokenSet).not.toHaveBeenCalled();
     });
 
@@ -159,9 +162,11 @@ describe('readAuthenticatedFluxerContext', () => {
             clientSecret: 'fluxer-client-secret',
             refreshToken,
         });
-        expect(upsertFluxerOAuthTokenSet).toHaveBeenCalledWith(
+        expect(claimFluxerOAuthTokenRefreshLease).toHaveBeenCalledOnce();
+        expect(completeFluxerOAuthTokenRefresh).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
+                expectedGeneration: 1,
                 fluxerUserId: activeSession.fluxerUserId,
                 tokenType: 'Bearer',
                 accessTokenExpiresAt: refreshedAccessTokenExpiresAt,
@@ -169,6 +174,106 @@ describe('readAuthenticatedFluxerContext', () => {
             })
         );
         expect(invalidateFluxerOAuthTokenSet).not.toHaveBeenCalled();
+    });
+
+    it('refreshes within the access-token expiry safety skew', async () => {
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValueOnce(
+            ok(
+                createTokenSet({
+                    accessTokenExpiresAt: new Date('2026-06-21T00:00:30.000Z'),
+                    refreshToken: createEncryptedRefreshToken(),
+                })
+            )
+        );
+
+        const result = await readAuthenticatedFluxerContext(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(refreshFluxerOAuthToken).toHaveBeenCalledOnce();
+    });
+
+    it('shares one refresh across concurrent requests for the same Fluxer user', async () => {
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValue(
+            ok(
+                createTokenSet({
+                    accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+                    refreshToken: createEncryptedRefreshToken(),
+                })
+            )
+        );
+
+        const [firstResult, secondResult] = await Promise.all([
+            readAuthenticatedFluxerContext(request),
+            readAuthenticatedFluxerContext(request),
+        ]);
+
+        expect(firstResult.isOk()).toBe(true);
+        expect(secondResult.isOk()).toBe(true);
+        expect(claimFluxerOAuthTokenRefreshLease).toHaveBeenCalledOnce();
+        expect(refreshFluxerOAuthToken).toHaveBeenCalledOnce();
+        expect(completeFluxerOAuthTokenRefresh).toHaveBeenCalledOnce();
+    });
+
+    it('uses the winning credential when another process owns the refresh lease', async () => {
+        const expiredTokenSet = createTokenSet({
+            accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+            refreshToken: createEncryptedRefreshToken(),
+        });
+        const winningTokenSet = createTokenSet({ credentialGeneration: 2 });
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId)
+            .mockResolvedValueOnce(ok(expiredTokenSet))
+            .mockResolvedValueOnce(ok(winningTokenSet));
+        vi.mocked(claimFluxerOAuthTokenRefreshLease).mockResolvedValueOnce(
+            ok({ retryAt: new Date('2026-06-21T00:00:15.000Z'), status: 'busy' })
+        );
+
+        const result = await readAuthenticatedFluxerContext(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap().accessToken).toBe(accessToken);
+        expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
+    });
+
+    it('keeps polling a distributed refresh through the reported lease window', async () => {
+        const expiredTokenSet = createTokenSet({
+            accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+            refreshToken: createEncryptedRefreshToken(),
+        });
+        const winningTokenSet = createTokenSet({ credentialGeneration: 2 });
+        const startedAtMs = Date.now();
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId)
+            .mockResolvedValueOnce(ok(expiredTokenSet))
+            .mockImplementation(() =>
+                Promise.resolve(ok(Date.now() - startedAtMs >= 4_000 ? winningTokenSet : expiredTokenSet))
+            );
+        vi.mocked(claimFluxerOAuthTokenRefreshLease).mockResolvedValueOnce(
+            ok({ retryAt: new Date(startedAtMs + 15_000), status: 'busy' })
+        );
+
+        const resultPromise = readAuthenticatedFluxerContext(request);
+        await vi.advanceTimersByTimeAsync(7_000);
+        const result = await resultPromise;
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap().accessToken).toBe(accessToken);
+        expect(findUsableFluxerOAuthTokenSetByUserId).toHaveBeenCalledTimes(9);
+        expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
+    });
+
+    it('uses the winning credential when refresh completion loses its generation CAS', async () => {
+        const expiredTokenSet = createTokenSet({
+            accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+            refreshToken: createEncryptedRefreshToken(),
+        });
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId)
+            .mockResolvedValueOnce(ok(expiredTokenSet))
+            .mockResolvedValueOnce(ok(createTokenSet({ credentialGeneration: 2 })));
+        vi.mocked(completeFluxerOAuthTokenRefresh).mockResolvedValueOnce(ok({ status: 'stale' }));
+
+        const result = await readAuthenticatedFluxerContext(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap().accessToken).toBe(accessToken);
     });
 
     it('encrypts refreshed token data before persisting it', async () => {
@@ -217,7 +322,7 @@ describe('readAuthenticatedFluxerContext', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('missing-refresh-token');
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
     it('passes through missing session errors and does not query token storage', async () => {
@@ -293,7 +398,7 @@ describe('readAuthenticatedFluxerContext', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('invalid-token-payload');
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
     it('returns decrypt-failed when a different valid encryption key is configured', async () => {
@@ -345,10 +450,10 @@ describe('readAuthenticatedFluxerContext', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('decrypt-failed');
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
-    it('invalidates the token set when Fluxer rejects token refresh', async () => {
+    it('CAS-deletes the matching token generation for a verified terminal refresh response', async () => {
         vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValueOnce(
             ok(
                 createTokenSet({
@@ -358,23 +463,43 @@ describe('readAuthenticatedFluxerContext', () => {
             )
         );
         vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(
-            err({ type: 'request-failed', status: 401, statusText: 'Unauthorized' })
+            err({ errorCode: 'invalid_grant', status: 400, type: 'terminal-response' })
         );
 
         const result = await readAuthenticatedFluxerContext(request);
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('token-refresh-failed');
-        expect(invalidateFluxerOAuthTokenSet).toHaveBeenCalledWith(
-            {},
-            {
-                fluxerUserId: activeSession.fluxerUserId,
-            }
-        );
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        const invalidationInput = vi.mocked(invalidateFluxerOAuthTokenSet).mock.calls[0]?.[1];
+
+        expect(invalidationInput).toMatchObject({
+            expectedGeneration: 1,
+            fluxerUserId: activeSession.fluxerUserId,
+        });
+        expect(invalidationInput.leaseId).toBeTypeOf('string');
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
-    it('returns database-error when token invalidation fails after Fluxer rejects refresh', async () => {
+    it('does not delete a newer credential generation after a stale terminal response', async () => {
+        const expiredTokenSet = createTokenSet({
+            accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+            refreshToken: createEncryptedRefreshToken(),
+        });
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId)
+            .mockResolvedValueOnce(ok(expiredTokenSet))
+            .mockResolvedValueOnce(ok(createTokenSet({ credentialGeneration: 2 })));
+        vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(
+            err({ errorCode: 'invalid_grant', status: 400, type: 'terminal-response' })
+        );
+        vi.mocked(invalidateFluxerOAuthTokenSet).mockResolvedValueOnce(ok({ status: 'stale' }));
+
+        const result = await readAuthenticatedFluxerContext(request);
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap().accessToken).toBe(accessToken);
+    });
+
+    it('returns database-error when terminal token deletion fails twice', async () => {
         vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValueOnce(
             ok(
                 createTokenSet({
@@ -384,15 +509,17 @@ describe('readAuthenticatedFluxerContext', () => {
             )
         );
         vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(
-            err({ type: 'request-failed', status: 401, statusText: 'Unauthorized' })
+            err({ errorCode: 'invalid_grant', status: 400, type: 'terminal-response' })
         );
-        vi.mocked(invalidateFluxerOAuthTokenSet).mockResolvedValueOnce(err('database-error'));
+        vi.mocked(invalidateFluxerOAuthTokenSet).mockResolvedValue(err('database-error'));
 
-        const result = await readAuthenticatedFluxerContext(request);
+        const resultPromise = readAuthenticatedFluxerContext(request);
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('database-error');
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
     it('returns token-refresh-failed without invalidating when refresh has a network failure', async () => {
@@ -404,16 +531,35 @@ describe('readAuthenticatedFluxerContext', () => {
                 })
             )
         );
-        vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(
-            err({ type: 'network-error', error: new Error('Network unavailable.') })
-        );
+        vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(err({ type: 'network-error' }));
 
         const result = await readAuthenticatedFluxerContext(request);
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('token-refresh-failed');
         expect(invalidateFluxerOAuthTokenSet).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
+        expect(recordFluxerOAuthTokenRefreshFailure).toHaveBeenCalledOnce();
+    });
+
+    it('preserves the credential for a non-terminal provider rejection', async () => {
+        vi.mocked(findUsableFluxerOAuthTokenSetByUserId).mockResolvedValueOnce(
+            ok(
+                createTokenSet({
+                    accessTokenExpiresAt: expiredAccessTokenExpiresAt,
+                    refreshToken: createEncryptedRefreshToken(),
+                })
+            )
+        );
+        vi.mocked(refreshFluxerOAuthToken).mockResolvedValueOnce(
+            err({ type: 'request-failed', status: 401, statusText: 'Unauthorized' })
+        );
+
+        const result = await readAuthenticatedFluxerContext(request);
+
+        expect(result._unsafeUnwrapErr()).toBe('token-refresh-failed');
+        expect(invalidateFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(recordFluxerOAuthTokenRefreshFailure).toHaveBeenCalledOnce();
     });
 
     it('returns token-refresh-failed without invalidating when refresh returns malformed token data', async () => {
@@ -432,7 +578,8 @@ describe('readAuthenticatedFluxerContext', () => {
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('token-refresh-failed');
         expect(invalidateFluxerOAuthTokenSet).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
+        expect(recordFluxerOAuthTokenRefreshFailure).toHaveBeenCalledOnce();
     });
 
     it('returns database-error when refreshed token persistence fails', async () => {
@@ -444,9 +591,11 @@ describe('readAuthenticatedFluxerContext', () => {
                 })
             )
         );
-        vi.mocked(upsertFluxerOAuthTokenSet).mockResolvedValueOnce(err('database-error'));
+        vi.mocked(completeFluxerOAuthTokenRefresh).mockResolvedValue(err('database-error'));
 
-        const result = await readAuthenticatedFluxerContext(request);
+        const resultPromise = readAuthenticatedFluxerContext(request);
+        await vi.runAllTimersAsync();
+        const result = await resultPromise;
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('database-error');
@@ -466,7 +615,7 @@ describe('readAuthenticatedFluxerContext', () => {
 
         await expect(readAuthenticatedFluxerContext(request)).rejects.toThrow('FLUXER_APP_ID is required');
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 
     it('throws clearly when FLUXER_CLIENT_SECRET is missing for refresh', async () => {
@@ -482,7 +631,7 @@ describe('readAuthenticatedFluxerContext', () => {
 
         await expect(readAuthenticatedFluxerContext(request)).rejects.toThrow('FLUXER_CLIENT_SECRET is required');
         expect(refreshFluxerOAuthToken).not.toHaveBeenCalled();
-        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(completeFluxerOAuthTokenRefresh).not.toHaveBeenCalled();
     });
 });
 
@@ -497,6 +646,7 @@ function createTokenSet(overrides: Partial<FluxerOAuthTokenRecord> = {}): Fluxer
     return {
         fluxerUserId: activeSession.fluxerUserId,
         accessToken: createEncryptedAccessToken(),
+        credentialGeneration: 1,
         refreshToken: null,
         tokenType: 'Bearer',
         accessTokenExpiresAt: futureAccessTokenExpiresAt,
@@ -540,10 +690,10 @@ function createEncryptedRefreshToken(): EncryptedFluxerToken {
     return result._unsafeUnwrap();
 }
 
-function getPersistedTokenInput(): Parameters<typeof upsertFluxerOAuthTokenSet>[1] {
-    expect(upsertFluxerOAuthTokenSet).toHaveBeenCalled();
+function getPersistedTokenInput(): Parameters<typeof completeFluxerOAuthTokenRefresh>[1] {
+    expect(completeFluxerOAuthTokenRefresh).toHaveBeenCalled();
 
-    const call = vi.mocked(upsertFluxerOAuthTokenSet).mock.calls[0];
+    const call = vi.mocked(completeFluxerOAuthTokenRefresh).mock.calls[0];
 
     return call[1];
 }

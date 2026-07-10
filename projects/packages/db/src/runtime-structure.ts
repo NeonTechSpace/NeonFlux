@@ -707,7 +707,15 @@ export async function listAllStructureImportActionsByRunId(
 
 export async function updateStructureImportRunStatus(
     db: StructureDb,
-    input: { plan?: Record<string, unknown>; runId: string; status: string; audit?: StructureAuditInput }
+    input: {
+        plan?: Record<string, unknown>;
+        runId: string;
+        status: string;
+        audit?: StructureAuditInput;
+        expectedApplyAttemptId?: string;
+        expectedApplyLeaseOwner?: string;
+        requireExpiredApplyLease?: boolean;
+    }
 ): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
     const runId = normalizeRequiredText(input.runId, 'runId');
     const status = normalizeRequiredText(input.status, 'status');
@@ -720,7 +728,10 @@ export async function updateStructureImportRunStatus(
             api.structure.updateStructureImportRunStatus,
             compactConvexArgs({
                 audit: normalizeStructureAuditInput(input.audit),
+                expectedApplyAttemptId: normalizeOptionalText(input.expectedApplyAttemptId),
+                expectedApplyLeaseOwner: normalizeOptionalText(input.expectedApplyLeaseOwner),
                 plan: input.plan,
+                requireExpiredApplyLease: input.requireExpiredApplyLease,
                 runId: runId.value,
                 status: status.value,
             })

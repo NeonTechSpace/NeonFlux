@@ -3,14 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
     buildGuildInviteSnapshotDocument,
     buildGuildMemberFlowEventDocument,
-    buildGuildMessageActivityDayDocument,
     normalizeObservedAt,
     normalizeOverviewDays,
-    revokeGuildInviteSnapshotDocument,
     toGuildInviteSnapshotRecord,
     toGuildMemberFlowEventRecord,
-    toGuildMessageActivityDayRecord,
-    toGuildOverviewAggregate,
 } from './growth_overview_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
@@ -44,7 +40,7 @@ describe('growth overview model', () => {
         });
     });
 
-    it('normalizes invite snapshots and revokes missing active snapshots', () => {
+    it('normalizes current invite snapshots', () => {
         const snapshot = buildGuildInviteSnapshotDocument(
             'guild-1',
             {
@@ -74,104 +70,10 @@ describe('growth overview model', () => {
 
         if (!snapshot.ok) throw new Error('Expected invite snapshot.');
 
-        const revoked = revokeGuildInviteSnapshotDocument(snapshot.value, '2026-07-04T00:00:00.000Z');
-
-        expect(toGuildInviteSnapshotRecord({ ...revoked, _id: 'invite-1' })).toMatchObject({
-            active: false,
+        expect(toGuildInviteSnapshotRecord({ ...snapshot.value, _id: 'invite-1' })).toMatchObject({
+            active: true,
             id: 'invite-1',
-            revokedAt: '2026-07-04T00:00:00.000Z',
-        });
-    });
-
-    it('increments message activity days by UTC date', () => {
-        const initial = buildGuildMessageActivityDayDocument(
-            { channelId: 'channel-1', guildId: 'guild-1', occurredAt: '2026-07-03T23:59:00.000Z' },
-            now
-        );
-
-        if (!initial.ok) throw new Error('Expected message activity day.');
-
-        const next = buildGuildMessageActivityDayDocument(
-            { channelId: 'channel-1', guildId: 'guild-1', occurredAt: '2026-07-03T23:59:10.000Z' },
-            now,
-            initial.value
-        );
-
-        expect(next).toMatchObject({
-            ok: true,
-            value: { activityDate: '2026-07-03', messageCount: 2 },
-        });
-        expect(toGuildMessageActivityDayRecord({ ...initial.value, _id: 'message-day-1' })).toMatchObject({
-            id: 'message-day-1',
-        });
-    });
-
-    it('builds aggregate graphs, attribution counts, and top lists', () => {
-        const join = buildGuildMemberFlowEventDocument(
-            {
-                attributionStatus: 'attributed',
-                eventType: 'join',
-                guildId: 'guild-1',
-                inviterUserId: 'inviter-1',
-                occurredAt: '2026-07-02T12:00:00.000Z',
-                userId: 'user-1',
-            },
-            now
-        );
-        const leave = buildGuildMemberFlowEventDocument(
-            {
-                eventType: 'leave',
-                guildId: 'guild-1',
-                occurredAt: '2026-07-03T12:00:00.000Z',
-                userId: 'user-2',
-            },
-            now
-        );
-        const invite = buildGuildInviteSnapshotDocument(
-            'guild-1',
-            { code: 'invite-a', inviterUserId: 'inviter-1', uses: 7 },
-            '2026-07-01T00:00:00.000Z'
-        );
-        const messageDay = buildGuildMessageActivityDayDocument(
-            { channelId: 'channel-1', guildId: 'guild-1', occurredAt: '2026-07-03T08:00:00.000Z' },
-            now
-        );
-
-        if (!join.ok || !leave.ok || !invite.ok || !messageDay.ok) throw new Error('Expected valid fixtures.');
-
-        expect(
-            toGuildOverviewAggregate({
-                days: 2,
-                inviteSnapshots: [invite.value],
-                memberEvents: [join.value, leave.value],
-                messageActivityDays: [messageDay.value],
-                now,
-            })
-        ).toMatchObject({
-            invites: {
-                activeInviteCount: 1,
-                attribution: { attributed: 1, 'not-applicable': 1 },
-                topInviters: [{ attributedJoins: 1, inviterUserId: 'inviter-1' }],
-                totalInviteUses: 7,
-            },
-            memberFlow: {
-                graph: [
-                    { date: '2026-07-02', joins: 1, leaves: 0, netGrowth: 1 },
-                    { date: '2026-07-03', joins: 0, leaves: 1, netGrowth: -1 },
-                ],
-                netGrowth: 0,
-                totalJoins: 1,
-                totalLeaves: 1,
-            },
-            messages: {
-                graph: [
-                    { date: '2026-07-02', messageCount: 0 },
-                    { date: '2026-07-03', messageCount: 1 },
-                ],
-                topChannels: [{ channelId: 'channel-1', messageCount: 1 }],
-                totalMessages: 1,
-            },
-            trackingStartedAt: '2026-07-01T00:00:00.000Z',
+            revokedAt: null,
         });
     });
 

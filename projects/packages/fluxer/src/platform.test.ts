@@ -177,6 +177,33 @@ describe('createFluxerPlatform', () => {
         expect(resolve).not.toHaveBeenCalled();
     });
 
+    it('keeps explicit empty embed arrays so full-state edits clear stale embeds', async () => {
+        const edit = vi.fn().mockResolvedValue({ id: 'message-1', channelId: 'channel-1', guildId: 'guild-1' });
+        const fetch = vi.fn().mockResolvedValue({
+            id: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            edit,
+        });
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({ messages: { fetch } }),
+                },
+            })
+        );
+
+        const result = await platform.messages.edit({
+            channelId: 'channel-1',
+            messageId: 'message-1',
+            content: 'Plain text only',
+            embeds: [],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(edit).toHaveBeenCalledWith({ content: 'Plain text only', embeds: [] });
+    });
+
     it('rejects blank reaction emoji before fetching the message', async () => {
         const resolve = vi.fn();
         const platform = createFluxerPlatform(
@@ -231,6 +258,37 @@ describe('createFluxerPlatform', () => {
         expect(result.isOk()).toBe(true);
         expect(fetch).toHaveBeenCalledWith('message-1');
         expect(removeReaction).toHaveBeenCalledWith('🎉', 'user-1');
+    });
+
+    it('removes an entire emoji reaction through the normalized messages port', async () => {
+        const removeReactionEmoji = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
+        const fetch = vi.fn().mockResolvedValue({
+            id: 'message-1',
+            channelId: 'channel-1',
+            guildId: 'guild-1',
+            removeReactionEmoji,
+        });
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({
+                        messages: {
+                            fetch,
+                        },
+                    }),
+                },
+            })
+        );
+
+        const result = await platform.messages.removeReactionEmoji({
+            channelId: ' channel-1 ',
+            messageId: ' message-1 ',
+            emoji: ' 🎉 ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(fetch).toHaveBeenCalledWith('message-1');
+        expect(removeReactionEmoji).toHaveBeenCalledWith('🎉');
     });
 
     it('returns unsupported when user reaction removal is not exposed by the SDK object', async () => {

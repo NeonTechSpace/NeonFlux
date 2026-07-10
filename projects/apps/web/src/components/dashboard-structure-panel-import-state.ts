@@ -289,7 +289,7 @@ export function useDashboardStructureImportState({
             }));
             setStatus({
                 tone: 'success',
-                message: `Retry dry-run created with ${result.importRun.actionCount} failed action${
+                message: `Reconciliation dry-run created with ${result.importRun.actionCount} live change${
                     result.importRun.actionCount === 1 ? '' : 's'
                 }.`,
             });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     diffFluxerGuildStructureSnapshot,
+    FluxerGuildStructureAmbiguousIdentityError,
     normalizeFluxerGuildStructureSnapshot,
     toFluxerGuildStructureSnapshot,
 } from './guild-structure-diff.js';
@@ -122,6 +123,173 @@ describe('guild structure diff', () => {
         });
     });
 
+    it('rejects duplicate object and permission overwrite identities', () => {
+        const duplicateObject = normalizeFluxerGuildStructureSnapshot({
+            guildId: 'guild-1',
+            roles: [
+                {
+                    id: 'duplicate-id',
+                    name: 'Member',
+                    position: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+            categories: [],
+            channels: [
+                {
+                    id: 'duplicate-id',
+                    name: 'general',
+                    type: 0,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [],
+                },
+            ],
+        });
+        const duplicateOverwrite = normalizeFluxerGuildStructureSnapshot({
+            guildId: 'guild-1',
+            roles: [
+                {
+                    id: 'role-1',
+                    name: 'Member',
+                    position: 1,
+                    color: 0,
+                    permissions: '0',
+                    hoist: false,
+                    mentionable: false,
+                },
+            ],
+            categories: [],
+            channels: [
+                {
+                    id: 'channel-1',
+                    name: 'general',
+                    type: 0,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [
+                        { id: 'role-1', type: 0, allow: '1', deny: '0' },
+                        { id: 'role-1', type: 0, allow: '0', deny: '1' },
+                    ],
+                },
+            ],
+        });
+
+        expect(duplicateObject).toStrictEqual({
+            type: 'invalid',
+            message: 'Server blueprint JSON contains duplicate object id "duplicate-id".',
+        });
+        expect(duplicateOverwrite).toStrictEqual({
+            type: 'invalid',
+            message: 'Channel "channel-1" contains duplicate permission overwrite "0:role-1".',
+        });
+    });
+
+    it('fails closed instead of guessing between ambiguous same-name matches', () => {
+        const createMemberRole = (id: string, permissions: string) => ({
+            id,
+            name: 'Member',
+            position: 1,
+            color: 0,
+            permissions,
+            hoist: false,
+            mentionable: false,
+        });
+        const current = toFluxerGuildStructureSnapshot({
+            guildId: 'target-guild',
+            guildName: 'Target Guild',
+            roles: [createMemberRole('role-current-1', '1'), createMemberRole('role-current-2', '2')],
+            categories: [],
+            channels: [],
+        });
+        const requested = toFluxerGuildStructureSnapshot({
+            guildId: 'source-guild',
+            guildName: 'Source Guild',
+            roles: [createMemberRole('role-source', '8')],
+            categories: [],
+            channels: [],
+        });
+
+        expect(() => diffFluxerGuildStructureSnapshot(current, requested)).toThrow(
+            FluxerGuildStructureAmbiguousIdentityError
+        );
+    });
+
+    it('fails closed when an earlier fallback would consume a later exact-shape match', () => {
+        const createMemberRole = (id: string, permissions: string) => ({
+            id,
+            name: 'Member',
+            position: 1,
+            color: 0,
+            permissions,
+            hoist: false,
+            mentionable: false,
+        });
+        const current = toFluxerGuildStructureSnapshot({
+            guildId: 'target-guild',
+            guildName: 'Target Guild',
+            roles: [createMemberRole('role-current', '2')],
+            categories: [],
+            channels: [],
+        });
+        const requested = toFluxerGuildStructureSnapshot({
+            guildId: 'source-guild',
+            guildName: 'Source Guild',
+            roles: [createMemberRole('role-fallback', '1'), createMemberRole('role-exact', '2')],
+            categories: [],
+            channels: [],
+        });
+
+        expect(() => diffFluxerGuildStructureSnapshot(current, requested)).toThrow(
+            FluxerGuildStructureAmbiguousIdentityError
+        );
+    });
+
+    it('rejects missing parent categories and role overwrite targets', () => {
+        const missingParent = normalizeFluxerGuildStructureSnapshot({
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [
+                {
+                    id: 'channel-1',
+                    name: 'general',
+                    type: 0,
+                    parentId: 'missing-category',
+                    position: 1,
+                    permissionOverwrites: [],
+                },
+            ],
+        });
+        const missingRole = normalizeFluxerGuildStructureSnapshot({
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [
+                {
+                    id: 'channel-1',
+                    name: 'general',
+                    type: 0,
+                    parentId: null,
+                    position: 1,
+                    permissionOverwrites: [{ id: 'missing-role', type: 0, allow: '1', deny: '0' }],
+                },
+            ],
+        });
+
+        expect(missingParent).toStrictEqual({
+            type: 'invalid',
+            message: 'Channel "channel-1" references missing parent category "missing-category".',
+        });
+        expect(missingRole).toStrictEqual({
+            type: 'invalid',
+            message: 'Channel "channel-1" references missing overwrite role "missing-role".',
+        });
+    });
+
     it('plans creates, updates, deletes, and permission changes against the current server layout', () => {
         const current = toFluxerGuildStructureSnapshot(
             {
@@ -194,9 +362,9 @@ describe('guild structure diff', () => {
 
         expect(plan.summary).toStrictEqual({
             creates: 1,
-            updates: 2,
+            updates: 3,
             deletes: 1,
-            roles: 3,
+            roles: 4,
             categories: 0,
             channels: 1,
         });
@@ -205,8 +373,9 @@ describe('guild structure diff', () => {
             ['create', 'role', 'role-new'],
             ['delete', 'role', 'role-stale'],
             ['update', 'channel', 'channel-1'],
+            ['update', 'role-order', 'role-order'],
         ]);
-        expect(plan.actions.at(-1)?.details).toMatchObject({
+        expect(plan.actions.find((action) => action.targetType === 'channel')?.details).toMatchObject({
             changes: [
                 {
                     field: 'permissionOverwrites',
@@ -352,9 +521,9 @@ describe('guild structure diff', () => {
 
         expect(plan.summary).toStrictEqual({
             creates: 0,
-            updates: 1,
+            updates: 2,
             deletes: 0,
-            roles: 1,
+            roles: 2,
             categories: 0,
             channels: 0,
         });
@@ -368,7 +537,6 @@ describe('guild structure diff', () => {
                     label: 'Member',
                     sourceId: 'source-member',
                     changes: [
-                        { field: 'position', before: 1, after: 5 },
                         { field: 'color', before: 0, after: 255 },
                         { field: 'permissions', before: '0', after: '8' },
                         { field: 'hoist', before: false, after: true },
@@ -376,7 +544,9 @@ describe('guild structure diff', () => {
                     ],
                 },
             },
+            expect.objectContaining({ actionType: 'update', targetId: 'role-order', targetType: 'role-order' }),
         ]);
+        expect(plan.sourceTargetMap).toStrictEqual({ 'source-member': 'target-member' });
     });
 
     it('reset-before-create mode deletes eligible current roles and recreates same-name requested roles', () => {
@@ -441,15 +611,16 @@ describe('guild structure diff', () => {
 
         expect(plan.summary).toStrictEqual({
             creates: 1,
-            updates: 0,
+            updates: 1,
             deletes: 1,
-            roles: 2,
+            roles: 3,
             categories: 0,
             channels: 0,
         });
         expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
             ['delete', 'role', 'target-member'],
             ['create', 'role', 'source-member'],
+            ['update', 'role-order', 'role-order'],
         ]);
     });
 
@@ -503,9 +674,9 @@ describe('guild structure diff', () => {
 
         expect(plan.summary).toStrictEqual({
             creates: 0,
-            updates: 0,
+            updates: 1,
             deletes: 1,
-            roles: 1,
+            roles: 2,
             categories: 0,
             channels: 0,
         });
@@ -528,7 +699,9 @@ describe('guild structure diff', () => {
                     },
                 },
             },
+            expect.objectContaining({ actionType: 'update', targetId: 'role-order', targetType: 'role-order' }),
         ]);
+        expect(plan.sourceTargetMap).toStrictEqual({ 'source-member': 'target-member-kept' });
     });
 
     it('can omit deletes for merge-mode import previews', () => {
@@ -637,6 +810,10 @@ describe('guild structure diff', () => {
                 },
             },
         ]);
+        expect(plan.sourceTargetMap).toStrictEqual({
+            'requested-category': 'current-category',
+            'requested-link': 'current-link',
+        });
     });
 
     it('does not match same-name channels with different types as an update', () => {

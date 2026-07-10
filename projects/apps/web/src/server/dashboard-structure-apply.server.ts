@@ -1,12 +1,11 @@
 import '@tanstack/react-start/server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import { loadWebConfig } from '@neonflux/config';
 import {
-    createStructureBackup,
     findStructureImportRunWithActionsByGuildId,
     structureAuditActions,
-    structureBackupSources,
-    structureBackupStatuses,
     structureImportActionStatuses,
     structureImportRunStatuses,
     updateStructureImportActionStatus,
@@ -16,17 +15,32 @@ import type { StructureImportActionRecord } from '@neonflux/db';
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
+import {
+    completeDashboardStructureApplyAttempt,
+    createDashboardStructureApplyAttempt,
+    renewDashboardStructureApplyAttempt,
+    runWithDashboardStructureApplyHeartbeat,
+} from './dashboard-structure-apply-attempt.js';
 import { orderDashboardStructureImportActions } from './dashboard-structure-action-order.js';
 import {
     loadAuthorizedStructureContext,
     recordStructureAuditBestEffort,
 } from './dashboard-structure-context.server.js';
-import type {
-    AuthorizedStructureContext,
-    DashboardStructureErrorResult,
-} from './dashboard-structure-context.server.js';
-import { normalizeDashboardStructureSnapshot, toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
+import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import {
+    createApplyRestorePoint,
+    summarizeApplyRestorePointRisk,
+} from './dashboard-structure-apply-restore-point.server.js';
+import {
+    readApplySourceTargetMap,
+    readImportMode,
+    readMatchedRoleSourceTargetMap,
+    readPersistedRoleOrder,
+    readRequestedGuildId,
+    readStructureActionChanges,
+} from './dashboard-structure-apply-plan.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
 import type {
     DashboardStructurePreflightInputAction,
@@ -111,46 +125,101 @@ export async function applyDashboardStructureImportRun(
 
     const preflightResult = await runApplyPreflight(botToken, context.guild.id, importRunResult.value.actions, {
         allowDestructiveDeletes: deleteActionCount > 0,
-        idMap: readApplySourceTargetMap(importRunResult.value.plan),
+        idMap: {
+            ...readApplySourceTargetMap(importRunResult.value.plan),
+            ...readMatchedRoleSourceTargetMap(importRunResult.value.actions),
+        },
         sourceGuildId: readRequestedGuildId(importRunResult.value.plan),
     });
 
     if (preflightResult.type !== 'ready') return preflightResult;
 
-    const riskSummary = summarizeRestorePointRisk(importRunResult.value.actions);
-    const restorePointResult =
-        riskSummary.riskyActionCount > 0
-            ? await createRestorePointBackup(context, preflightResult.snapshot, importRunId, riskSummary)
-            : undefined;
-
-    if (restorePointResult === 'database-error') return { type: 'restore-point-failed' };
+    let applyAttempt = createDashboardStructureApplyAttempt({
+        attemptId: randomUUID(),
+        leaseOwner: randomUUID(),
+        now: new Date(),
+        roleOrderRequired: importRunResult.value.actions.some((action) => action.targetType === 'role-order'),
+    });
 
     const applyingResult = await updateStructureImportRunStatus(database.db, {
         runId: importRunId,
         status: structureImportRunStatuses.applying,
+        plan: {
+            ...importRunResult.value.plan,
+            applyAttempt,
+        },
     });
 
     if (applyingResult.isErr()) return mapRunStatusError(applyingResult.error);
 
-    const applyResult = await applyReadyActions(
-        botToken,
-        context.guild.id,
-        importRunResult.value.actions,
-        readRequestedGuildId(importRunResult.value.plan),
-        readApplySourceTargetMap(importRunResult.value.plan),
-        readImportMode(importRunResult.value.plan),
-        readRequestedSnapshot(importRunResult.value.plan)
-    );
+    const riskSummary = summarizeApplyRestorePointRisk(importRunResult.value.actions);
+    const restorePointResult =
+        riskSummary.riskyActionCount > 0
+            ? await createApplyRestorePoint(context, preflightResult.snapshot, importRunId, riskSummary)
+            : undefined;
+
+    if (restorePointResult === 'database-error') {
+        applyAttempt = completeDashboardStructureApplyAttempt(applyAttempt, {
+            now: new Date(),
+            outcome: 'failed',
+        });
+        await updateStructureImportRunStatus(database.db, {
+            expectedApplyAttemptId: applyAttempt.attemptId,
+            expectedApplyLeaseOwner: applyAttempt.leaseOwner,
+            plan: { ...applyingResult.value.plan, applyAttempt },
+            runId: importRunId,
+            status: structureImportRunStatuses.failed,
+        });
+        return { type: 'restore-point-failed' };
+    }
+
+    const renewApplyLease = async (now: Date): Promise<boolean> => {
+        applyAttempt = renewDashboardStructureApplyAttempt(applyAttempt, now);
+        const renewalResult = await updateStructureImportRunStatus(database.db, {
+            expectedApplyAttemptId: applyAttempt.attemptId,
+            expectedApplyLeaseOwner: applyAttempt.leaseOwner,
+            plan: { ...applyingResult.value.plan, applyAttempt },
+            runId: importRunId,
+            status: structureImportRunStatuses.applying,
+        });
+        return renewalResult.isOk();
+    };
+    const heartbeatResult = await runWithDashboardStructureApplyHeartbeat({
+        operation: () =>
+            applyReadyActions(
+                botToken,
+                context.guild.id,
+                importRunResult.value.actions,
+                readRequestedGuildId(importRunResult.value.plan),
+                readApplySourceTargetMap(importRunResult.value.plan),
+                readImportMode(importRunResult.value.plan),
+                () => renewApplyLease(new Date())
+            ),
+        renew: async (now) => {
+            if (!(await renewApplyLease(now))) throw new Error('structure-apply-heartbeat-failed');
+        },
+    });
+    const applyResult = heartbeatResult.value;
     const finalStatus =
         applyResult.actions.every((result) => result.status === structureImportActionStatuses.applied) &&
         applyResult.roleOrderStatus !== 'failed'
             ? structureImportRunStatuses.applied
             : structureImportRunStatuses.failed;
+    applyAttempt = completeDashboardStructureApplyAttempt(applyAttempt, {
+        now: new Date(),
+        outcome: finalStatus === structureImportRunStatuses.applied ? 'succeeded' : 'failed',
+        ...(applyResult.roleOrderStatus ? { roleOrderStatus: applyResult.roleOrderStatus } : {}),
+        ...(applyResult.roleOrderErrorType ? { roleOrderErrorType: applyResult.roleOrderErrorType } : {}),
+        ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}),
+    });
     const finalRunResult = await updateStructureImportRunStatus(database.db, {
+        expectedApplyAttemptId: applyAttempt.attemptId,
+        expectedApplyLeaseOwner: applyAttempt.leaseOwner,
         runId: importRunId,
         status: finalStatus,
         plan: {
             ...applyingResult.value.plan,
+            applyAttempt,
             applySummary: {
                 applied: applyResult.actions.filter((result) => result.status === structureImportActionStatuses.applied)
                     .length,
@@ -160,6 +229,7 @@ export async function applyDashboardStructureImportRun(
                 ...(applyResult.roleOrderStatus ? { roleOrderStatus: applyResult.roleOrderStatus } : {}),
                 ...(applyResult.roleOrderErrorType ? { roleOrderErrorType: applyResult.roleOrderErrorType } : {}),
                 ...(restorePointResult ? { restorePointBackupId: restorePointResult.id } : {}),
+                ...(heartbeatResult.heartbeatFailed ? { heartbeatFailed: true } : {}),
             },
         },
     });
@@ -230,72 +300,6 @@ async function runApplyPreflight(
     return { type: 'ready', snapshot };
 }
 
-type RestorePointRiskSummary = {
-    deleteCount: number;
-    permissionRiskCount: number;
-    riskyActionCount: number;
-};
-
-async function createRestorePointBackup(
-    context: AuthorizedStructureContext,
-    snapshot: DashboardStructureSnapshot,
-    importRunId: string,
-    riskSummary: RestorePointRiskSummary
-): Promise<{ id: string } | 'database-error'> {
-    const database = await getWebDb();
-    const result = await createStructureBackup(database.db, {
-        audit: createStructureAuditPayload(context, structureAuditActions.backupRestorePointCreated, importRunId, {
-            categoryCount: snapshot.categories.length,
-            channelCount: snapshot.channels.length,
-            deleteCount: riskSummary.deleteCount,
-            permissionRiskCount: riskSummary.permissionRiskCount,
-            riskyActionCount: riskSummary.riskyActionCount,
-            roleCount: snapshot.roles.length,
-            source: structureBackupSources.restorePoint,
-        }),
-        guildId: context.guild.id,
-        createdByUserId: context.actor.actorUserId,
-        serverName: context.guild.name,
-        source: structureBackupSources.restorePoint,
-        status: structureBackupStatuses.succeeded,
-        structure: toJsonRecord(snapshot),
-        roleCount: snapshot.roles.length,
-        categoryCount: snapshot.categories.length,
-        channelCount: snapshot.channels.length,
-    }).catch(() => undefined);
-
-    if (!result || result.isErr()) return 'database-error';
-
-    return { id: result.value.id };
-}
-
-function summarizeRestorePointRisk(actions: StructureImportActionRecord[]): RestorePointRiskSummary {
-    const deleteCount = countDeleteActions(actions);
-    const permissionRiskCount = actions.filter(isPermissionRiskAction).length;
-
-    return {
-        deleteCount,
-        permissionRiskCount,
-        riskyActionCount: deleteCount + permissionRiskCount,
-    };
-}
-
-function isPermissionRiskAction(action: StructureImportActionRecord): boolean {
-    if (action.actionType !== 'update') return false;
-
-    const details = toJsonRecord(action.details);
-    const changes = readChanges(details);
-
-    return changes.some((change) => {
-        if (action.targetType === 'role') return change.field === 'permissions';
-        if (action.targetType === 'category' || action.targetType === 'channel') {
-            return change.field === 'permissionOverwrites';
-        }
-
-        return false;
-    });
-}
-
 async function applyReadyActions(
     botToken: string,
     guildId: string,
@@ -303,15 +307,18 @@ async function applyReadyActions(
     sourceGuildId: string | undefined,
     initialIdMap: Record<string, string>,
     importMode: 'merge' | 'replace',
-    requestedSnapshot: DashboardStructureSnapshot | undefined
+    beforeMutation: () => Promise<boolean>
 ) {
     const database = await getWebDb();
     const results: Array<{ actionId: string; status: string }> = [];
-    const orderedActions = orderDashboardStructureImportActions(actions, importMode);
+    const roleOrderAction = actions.find((action) => action.targetType === 'role-order');
+    const executableActions = actions.filter((action) => action.targetType !== 'role-order');
+    const orderedActions = orderDashboardStructureImportActions(executableActions, importMode);
     const sourceTargetMap = {
         ...initialIdMap,
         ...readMatchedRoleSourceTargetMap(actions),
     };
+    const persistedRoleOrder = readPersistedRoleOrder(actions);
     const applyResult = await applyFluxerBotGuildStructureActions({
         botToken,
         guildId,
@@ -323,13 +330,14 @@ async function applyReadyActions(
                 actionType: action.actionType,
                 targetType: action.targetType,
                 targetId: action.targetId ?? '',
-                changes: readChanges(details),
+                changes: readStructureActionChanges(details),
                 after: details.after,
             };
         }),
+        beforeMutation,
         ...(sourceGuildId ? { sourceGuildId } : {}),
         ...(Object.keys(sourceTargetMap).length > 0 ? { idMap: sourceTargetMap } : {}),
-        ...(requestedSnapshot ? { roleOrder: toRequestedRoleOrder(requestedSnapshot) } : {}),
+        ...(persistedRoleOrder ? { roleOrder: persistedRoleOrder } : {}),
         stopAfterDeleteFailures: importMode === 'replace',
     });
 
@@ -389,7 +397,7 @@ async function applyReadyActions(
         results.push({ actionId: action.id, status });
     }
 
-    for (const action of actions) {
+    for (const action of executableActions) {
         if (resultActionIds.has(action.id)) continue;
 
         await updateStructureImportActionStatus(database.db, {
@@ -405,6 +413,31 @@ async function applyReadyActions(
         results.push({
             actionId: action.id,
             status: structureImportActionStatuses.failed,
+        });
+    }
+
+    if (roleOrderAction) {
+        const roleOrderStatus =
+            applyResult.value.roleOrder?.status === 'applied'
+                ? structureImportActionStatuses.applied
+                : structureImportActionStatuses.failed;
+        const roleOrderDetails = {
+            ...toJsonRecord(roleOrderAction.details),
+            appliedAt: new Date().toISOString(),
+            ...(applyResult.value.roleOrder?.errorType
+                ? { errorType: applyResult.value.roleOrder.errorType }
+                : roleOrderStatus === structureImportActionStatuses.failed
+                  ? { errorType: 'role-order-skipped' }
+                  : {}),
+        };
+        const roleOrderStatusResult = await updateStructureImportActionStatus(database.db, {
+            actionId: roleOrderAction.id,
+            details: roleOrderDetails,
+            status: roleOrderStatus,
+        });
+        results.push({
+            actionId: roleOrderAction.id,
+            status: roleOrderStatusResult.isOk() ? roleOrderStatus : structureImportActionStatuses.failed,
         });
     }
 
@@ -436,78 +469,6 @@ function toPreflightAction(action: StructureImportActionRecord): DashboardStruct
     };
 }
 
-function readChanges(details: Record<string, unknown>): Array<{ field: string; before?: unknown; after: unknown }> {
-    const changes = details.changes;
-
-    if (!Array.isArray(changes)) return [];
-
-    return changes
-        .filter(
-            (change): change is { field: string; before?: unknown; after: unknown } =>
-                isObject(change) && typeof change.field === 'string'
-        )
-        .map((change) => ({
-            field: change.field,
-            ...(change.before !== undefined ? { before: change.before } : {}),
-            after: change.after,
-        }));
-}
-
-function readRequestedGuildId(plan: Record<string, unknown>): string | undefined {
-    return typeof plan.requestedGuildId === 'string' && plan.requestedGuildId.trim()
-        ? plan.requestedGuildId.trim()
-        : undefined;
-}
-
-function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string, string> {
-    const directMap = isObject(plan.sourceTargetMap) ? plan.sourceTargetMap : undefined;
-    const applySummary = isObject(plan.applySummary) ? plan.applySummary : undefined;
-    const summaryMap =
-        applySummary && isObject(applySummary.sourceTargetMap) ? applySummary.sourceTargetMap : undefined;
-    const source = directMap ?? summaryMap ?? {};
-
-    return Object.fromEntries(
-        Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    );
-}
-
-function readImportMode(plan: Record<string, unknown>): 'merge' | 'replace' {
-    return plan.importMode === 'replace' ? 'replace' : 'merge';
-}
-
-function readRequestedSnapshot(plan: Record<string, unknown>): DashboardStructureSnapshot | undefined {
-    const normalized = normalizeDashboardStructureSnapshot(plan.requestedSnapshot);
-
-    return normalized.type === 'valid' ? normalized.snapshot : undefined;
-}
-
-function readMatchedRoleSourceTargetMap(actions: StructureImportActionRecord[]): Record<string, string> {
-    return Object.fromEntries(
-        actions.flatMap((action): Array<[string, string]> => {
-            if (action.actionType !== 'update' || action.targetType !== 'role' || !action.targetId) return [];
-
-            const details = toJsonRecord(action.details);
-            const sourceId = typeof details.sourceId === 'string' ? details.sourceId.trim() : '';
-
-            return sourceId ? [[sourceId, action.targetId]] : [];
-        })
-    );
-}
-
-function toRequestedRoleOrder(snapshot: DashboardStructureSnapshot) {
-    return snapshot.roles.flatMap((role) => {
-        if (role.protected || role.protectionReason || role.name === '@everyone' || role.position <= 0) return [];
-
-        return [
-            {
-                sourceId: role.id,
-                position: role.position,
-                ...(role.hierarchyRank !== undefined ? { hierarchyRank: role.hierarchyRank } : {}),
-            },
-        ];
-    });
-}
-
 function mapRunStatusError(error: { type: string; from?: string }): DashboardStructureApplyResult {
     if (error.type === 'invalid-status-transition') {
         return { type: 'not-applicable', status: error.from ?? 'unknown' };
@@ -520,32 +481,10 @@ function mapRepositoryError(error: { type: string }): DashboardStructureErrorRes
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
 }
 
-function createStructureAuditPayload(
-    context: AuthorizedStructureContext,
-    action: string,
-    targetId: string | undefined,
-    metadata: Record<string, unknown>
-) {
-    return {
-        action,
-        actorUserId: context.actor.actorUserId,
-        metadata: {
-            source: 'dashboard',
-            ...metadata,
-            ...context.actor.metadata,
-        },
-        ...(targetId ? { targetId } : {}),
-    };
-}
-
 function countDeleteActions(actions: StructureImportActionRecord[]): number {
     return actions.filter((action) => action.actionType === 'delete').length;
 }
 
 function toJsonRecord(value: unknown): Record<string, unknown> {
     return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
 }

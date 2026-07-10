@@ -1,6 +1,5 @@
 import '@tanstack/react-start/server-only';
 
-import { recordBotActionEvent } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
@@ -60,35 +59,4 @@ export async function resolveReactionRoleActor(request: Request): Promise<Reacti
             ...(currentUserResult.value.globalName ? { actorDisplayName: currentUserResult.value.globalName } : {}),
         },
     };
-}
-
-export async function recordReactionRoleAuditEvent(
-    db: Parameters<typeof recordBotActionEvent>[0],
-    guildPageData: AuthorizedReactionRoleGuildPageData,
-    actor: Extract<ReactionRoleActor, { type: 'actor' }>,
-    input: {
-        action: string;
-        targetId: string;
-        metadata: Record<string, string | number | boolean | null | undefined>;
-    }
-): Promise<'recorded' | 'database-error'> {
-    const rawMetadata: Record<string, string | number | boolean | null | undefined> = {
-        ...input.metadata,
-        source: 'dashboard',
-        ...actor.metadata,
-    };
-    const metadataEntries = Object.entries(rawMetadata).filter((entry) => entry[1] !== undefined) as Array<
-        [string, string | number | boolean | null]
-    >;
-    const metadata = Object.fromEntries(metadataEntries);
-    const result = await recordBotActionEvent(db, {
-        guildId: guildPageData.guild.id,
-        feature: 'reaction_roles',
-        action: input.action,
-        actorUserId: actor.actorUserId,
-        targetId: input.targetId,
-        metadata,
-    });
-
-    return result.isOk() ? 'recorded' : 'database-error';
 }

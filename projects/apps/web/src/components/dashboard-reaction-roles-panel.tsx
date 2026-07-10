@@ -8,10 +8,12 @@ import {
 import {
     deleteDashboardReactionRoleMessageRouteData,
     readDashboardReactionRolesSettingsRouteData,
+    retryDashboardReactionRoleOperationRouteData,
 } from '../server/dashboard-reaction-roles-route-data.js';
 import type {
     DashboardReactionRoleEmoji,
     DashboardReactionRoleMessage,
+    DashboardReactionRoleOperation,
 } from '../server/dashboard-reaction-roles.server.js';
 import { ReactionRoleEditor } from './dashboard-reaction-role-editor.js';
 
@@ -63,24 +65,55 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         },
     });
     const deleteMutation = useMutation({
-        mutationFn: async (messageId: string) =>
+        mutationFn: async (message: DashboardReactionRoleMessage) =>
             deleteDashboardReactionRoleMessageRouteData({
                 data: {
+                    expectedRevision: message.revision,
                     guildId,
-                    messageId,
+                    idempotencyKey: crypto.randomUUID(),
+                    messageId: message.messageId,
                 },
             }),
         onSuccess: async (result) => {
-            if (result.type !== 'deleted') {
+            if (result.type !== 'operation-accepted' && result.type !== 'operation-existing') {
                 setPanelMessage({ type: 'error', text: 'Could not delete that reaction-role menu.' });
                 return;
             }
 
-            setPanelMessage({ type: 'success', text: 'Reaction-role menu deleted.' });
+            setPanelMessage({
+                type: 'warning',
+                text: 'Deletion queued. The menu stays disabled until grants are removed and the live message is deleted.',
+            });
             await invalidateSettings();
         },
         onError: () => setPanelMessage({ type: 'error', text: 'Could not delete that reaction-role menu.' }),
     });
+    const retryMutation = useMutation({
+        mutationFn: async (input: { confirmUnknownPublishAbsent: boolean; operationId: string }) =>
+            retryDashboardReactionRoleOperationRouteData({ data: { guildId, ...input } }),
+        onSuccess: async (result) => {
+            setPanelMessage(
+                result.type === 'operation-accepted'
+                    ? { type: 'warning', text: 'Synchronization retry queued.' }
+                    : { type: 'error', text: 'Could not retry this operation.' }
+            );
+            await invalidateSettings();
+        },
+        onError: () => setPanelMessage({ type: 'error', text: 'Could not retry this operation.' }),
+    });
+
+    function retryOperation(operation: DashboardReactionRoleOperation): void {
+        const unknownPublish = operation.errorCode === 'unknown_publish_outcome';
+        if (
+            unknownPublish &&
+            !window.confirm(
+                'Confirm that you checked the Fluxer channel and removed any message from the uncertain publish. Retry only when no orphan message remains.'
+            )
+        ) {
+            return;
+        }
+        retryMutation.mutate({ confirmUnknownPublishAbsent: unknownPublish, operationId: operation.id });
+    }
 
     async function invalidateSettings(): Promise<void> {
         await queryClient.invalidateQueries({ queryKey: getDashboardReactionRolesSettingsQueryKey(guildId) });
@@ -141,7 +174,8 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
             {view.type === 'overview' ? (
                 <ReactionRoleOverview
                     messages={settingsQuery.data.messages}
-                    busyMessageId={deleteMutation.variables}
+                    operations={settingsQuery.data.operations}
+                    busyMessageId={deleteMutation.variables?.messageId}
                     onCreate={() => {
                         setPanelMessage(undefined);
                         setView({ type: 'create' });
@@ -150,7 +184,13 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
                         setPanelMessage(undefined);
                         setView({ type: 'edit', message });
                     }}
-                    onDelete={(messageId) => deleteMutation.mutate(messageId)}
+                    onDelete={(message) => {
+                        const confirmed = window.confirm(
+                            'Delete the live Fluxer message and remove every role this menu granted? The menu remains disabled until cleanup finishes.'
+                        );
+                        if (confirmed) deleteMutation.mutate(message);
+                    }}
+                    onRetry={retryOperation}
                 />
             ) : (
                 <ReactionRoleEditor
@@ -170,18 +210,26 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
 
 function ReactionRoleOverview({
     messages,
+    operations,
     busyMessageId,
     onCreate,
     onEdit,
     onDelete,
+    onRetry,
 }: {
     messages: DashboardReactionRoleMessage[];
+    operations: DashboardReactionRoleOperation[];
     busyMessageId?: string;
     onCreate: () => void;
     onEdit: (message: DashboardReactionRoleMessage) => void;
-    onDelete: (messageId: string) => void;
+    onDelete: (message: DashboardReactionRoleMessage) => void;
+    onRetry: (operation: DashboardReactionRoleOperation) => void;
 }) {
-    if (messages.length === 0) {
+    const pendingPublishes = operations.filter(
+        (operation) => operation.type === 'publish' && operation.status !== 'succeeded'
+    );
+
+    if (messages.length === 0 && pendingPublishes.length === 0) {
         return (
             <section className='p-4' aria-label='Reaction-role menus'>
                 <div className='rounded-lg border border-dashed border-sky-500/50 bg-sky-500/5 p-5'>
@@ -202,6 +250,9 @@ function ReactionRoleOverview({
 
     return (
         <section className='space-y-3 p-4' aria-label='Reaction-role menus'>
+            {pendingPublishes.map((operation) => (
+                <ReactionRoleOperationStatus key={operation.id} operation={operation} onRetry={onRetry} />
+            ))}
             {messages.map((message) => (
                 <article key={message.messageId} className='rounded-md border border-neutral-800 bg-neutral-950 p-3'>
                     <div className='flex flex-wrap items-start justify-between gap-3'>
@@ -211,7 +262,8 @@ function ReactionRoleOverview({
                             </p>
                             <p className='mt-1 text-sm text-neutral-400'>
                                 {message.options.length} options,{' '}
-                                {message.mode === 'exclusive' ? 'exclusive' : 'normal'}
+                                {message.mode === 'exclusive' ? 'exclusive' : 'normal'} ·{' '}
+                                {formatLifecycle(message.lifecycle)}
                             </p>
                             <p className='mt-1 font-mono text-xs text-neutral-600'>Message {message.messageId}</p>
                         </div>
@@ -219,13 +271,14 @@ function ReactionRoleOverview({
                             <button
                                 type='button'
                                 onClick={() => onEdit(message)}
+                                disabled={message.lifecycle !== 'ready'}
                                 className='min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-300 hover:text-sky-200'>
                                 Edit
                             </button>
                             <button
                                 type='button'
-                                onClick={() => onDelete(message.messageId)}
-                                disabled={busyMessageId === message.messageId}
+                                onClick={() => onDelete(message)}
+                                disabled={busyMessageId === message.messageId || message.lifecycle !== 'ready'}
                                 className='min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-rose-300 hover:text-rose-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
                                 Delete
                             </button>
@@ -241,10 +294,78 @@ function ReactionRoleOverview({
                             </span>
                         ))}
                     </div>
+                    {message.pendingOperationId ? (
+                        <ReactionRoleOperationStatus
+                            operation={operations.find((operation) => operation.id === message.pendingOperationId)}
+                            onRetry={onRetry}
+                        />
+                    ) : null}
                 </article>
             ))}
         </section>
     );
+}
+
+function ReactionRoleOperationStatus({
+    operation,
+    onRetry,
+}: {
+    operation?: DashboardReactionRoleOperation;
+    onRetry: (operation: DashboardReactionRoleOperation) => void;
+}) {
+    if (!operation) return null;
+    const progress =
+        operation.totalCount > 0 ? ` ${operation.processedCount}/${operation.totalCount} grants processed.` : '';
+    return (
+        <div
+            className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+                operation.status === 'needs_attention'
+                    ? 'border-rose-500/50 bg-rose-500/10 text-rose-200'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+            }`}>
+            <p className='font-medium'>
+                {operation.status === 'needs_attention'
+                    ? 'Needs administrator attention'
+                    : `${operation.type} in progress`}
+            </p>
+            <p className='mt-1 text-xs opacity-80'>
+                {operation.errorCode
+                    ? formatOperationError(operation.errorCode)
+                    : 'The bot is synchronizing this menu.'}
+                {progress}
+            </p>
+            {operation.status === 'needs_attention' ? (
+                <button
+                    type='button'
+                    onClick={() => onRetry(operation)}
+                    className='mt-2 min-h-9 rounded-md border border-current px-3 text-xs font-semibold'>
+                    {operation.errorCode === 'unknown_publish_outcome'
+                        ? 'I removed any orphan, retry publish'
+                        : 'Retry synchronization'}
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function formatLifecycle(lifecycle: DashboardReactionRoleMessage['lifecycle']): string {
+    if (lifecycle === 'needs_attention') return 'needs attention';
+    if (lifecycle === 'deleting') return 'deleting';
+    if (lifecycle === 'syncing') return 'syncing';
+    return 'ready';
+}
+
+function formatOperationError(errorCode: string): string {
+    if (errorCode === 'unknown_publish_outcome') {
+        return 'Fluxer may have created the message, so NeonFlux will not retry automatically. Check the channel and remove any orphan before trying again.';
+    }
+    if (errorCode === 'role_hierarchy_blocked') {
+        return 'The bot cannot remove one or more granted roles. Move the bot role above them, then retry.';
+    }
+    if (errorCode === 'permission-denied') {
+        return 'Fluxer denied a required action. Restore the bot permission, then retry.';
+    }
+    return `Synchronization stopped: ${errorCode.replaceAll('_', ' ')}.`;
 }
 
 function ReactionRoleStatusMessages({

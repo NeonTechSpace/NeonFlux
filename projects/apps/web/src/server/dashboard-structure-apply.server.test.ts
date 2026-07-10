@@ -135,7 +135,20 @@ describe('dashboard structure apply', () => {
         });
 
         expect(result).toMatchObject({ type: 'applied' });
-        expect(updateStructureImportRunStatus).toHaveBeenNthCalledWith(1, {}, { runId: 'run-1', status: 'applying' });
+        expect(updateStructureImportRunStatus).toHaveBeenNthCalledWith(
+            1,
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    applyAttempt: expect.objectContaining({
+                        outcome: 'active',
+                        roleOrder: { status: 'not-required' },
+                    }),
+                }),
+                runId: 'run-1',
+                status: 'applying',
+            })
+        );
         expect(applyFluxerBotGuildStructureActions).toHaveBeenCalledWith({
             botToken: 'bot-token',
             guildId: 'guild-1',
@@ -149,6 +162,7 @@ describe('dashboard structure apply', () => {
                     after: undefined,
                 },
             ],
+            beforeMutation: expect.any(Function),
             stopAfterDeleteFailures: false,
         });
         expect(updateStructureImportActionStatus).toHaveBeenCalledWith(
@@ -212,6 +226,21 @@ describe('dashboard structure apply', () => {
         expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
         expect(createStructureBackup).not.toHaveBeenCalled();
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
+    });
+
+    it('lets the atomic applying transition reject a concurrent apply before any external mutation', async () => {
+        vi.mocked(updateStructureImportRunStatus).mockResolvedValueOnce(err({ type: 'database-error' }));
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            confirmationText: getStructureImportApplyText('run-1'),
+        });
+
+        expect(result).toStrictEqual({ type: 'database-error' });
+        expect(createStructureBackup).not.toHaveBeenCalled();
+        expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
+        expect(updateStructureImportActionStatus).not.toHaveBeenCalled();
     });
 
     it('applies ready category and channel creates with source-to-target mapping', async () => {
@@ -667,8 +696,8 @@ describe('dashboard structure apply', () => {
                 status: 'applying',
             })
         );
-        expect(vi.mocked(createStructureBackup).mock.invocationCallOrder[0]).toBeLessThan(
-            vi.mocked(updateStructureImportRunStatus).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+        expect(vi.mocked(updateStructureImportRunStatus).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(createStructureBackup).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
         );
         expect(vi.mocked(createStructureBackup).mock.invocationCallOrder[0]).toBeLessThan(
             vi.mocked(applyFluxerBotGuildStructureActions).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
@@ -686,6 +715,7 @@ describe('dashboard structure apply', () => {
                     after: undefined,
                 },
             ],
+            beforeMutation: expect.any(Function),
             stopAfterDeleteFailures: false,
         });
         expect(updateStructureImportActionStatus).toHaveBeenCalledWith(
@@ -801,7 +831,20 @@ describe('dashboard structure apply', () => {
         });
 
         expect(result).toStrictEqual({ type: 'restore-point-failed' });
-        expect(updateStructureImportRunStatus).not.toHaveBeenCalled();
+        expect(updateStructureImportRunStatus).toHaveBeenCalledTimes(2);
+        expect(updateStructureImportRunStatus).toHaveBeenNthCalledWith(
+            2,
+            {},
+            expect.objectContaining({
+                expectedApplyAttemptId: expect.any(String),
+                expectedApplyLeaseOwner: expect.any(String),
+                plan: expect.objectContaining({
+                    applyAttempt: expect.objectContaining({ outcome: 'failed' }),
+                }),
+                runId: 'run-1',
+                status: 'failed',
+            })
+        );
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
     });
 
@@ -981,9 +1024,9 @@ function createRoleOrderImportRun(): StructureImportRunWithActionsRecord {
                 requestedSnapshotStoredAt: '2026-06-28T00:00:00.000Z',
                 summary: {
                     creates: 0,
-                    updates: 1,
+                    updates: 2,
                     deletes: 0,
-                    roles: 1,
+                    roles: 2,
                     categories: 0,
                     channels: 0,
                 },
@@ -1002,6 +1045,27 @@ function createRoleOrderImportRun(): StructureImportRunWithActionsRecord {
                     label: 'Member',
                     sourceId: 'source-role-1',
                     changes: [{ field: 'name', before: 'Old Role', after: 'Member' }],
+                },
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            },
+            {
+                id: 'action-role-order',
+                runId: 'run-1',
+                sequence: 1,
+                actionType: 'update',
+                targetType: 'role-order',
+                targetId: 'role-order',
+                status: 'dry_run',
+                details: {
+                    label: 'Role order',
+                    after: [{ sourceId: 'source-role-1', position: 5, hierarchyRank: 0 }],
+                    changes: [
+                        {
+                            field: 'roleOrder',
+                            after: [{ sourceId: 'source-role-1', position: 5, hierarchyRank: 0 }],
+                        },
+                    ],
                 },
                 createdAt: timestamp,
                 updatedAt: timestamp,

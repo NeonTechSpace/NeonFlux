@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { ConvexDatabase } from './convex.js';
 import {
-    incrementGuildMessageActivityDay,
     listGuildInviteSnapshots,
     loadGuildOverviewAggregate,
     recordGuildMemberFlowEvent,
+    recordGuildMemberJoinWithInviteSnapshots,
+    recordGuildMessageActivity,
     syncGuildInviteSnapshots,
 } from './runtime-growth-overview.js';
 
@@ -36,11 +37,8 @@ const inviteSnapshot = {
 };
 const messageActivity = {
     activityDate: '2026-07-03',
-    channelId: 'channel-1',
     guildId: 'guild-1',
-    id: 'message-day-1',
-    messageCount: 7,
-    updatedAt: '2026-07-03T09:00:00.000Z',
+    shard: 12,
 };
 const overview = {
     trackingStartedAt: '2026-07-01T00:00:00.000Z',
@@ -60,18 +58,10 @@ const overview = {
             'not-applicable': 0,
             unavailable: 0,
         },
-        topInviters: [
-            {
-                attributedJoins: 1,
-                inviteCodes: [{ active: true, code: 'alpha', uses: 4 }],
-                inviterUserId: 'inviter-1',
-            },
-        ],
     },
     messages: {
         totalMessages: 7,
         graph: [{ date: '2026-07-03', messageCount: 7 }],
-        topChannels: [{ channelId: 'channel-1', messageCount: 7 }],
     },
     dataHealth: {
         hasInviteSnapshots: true,
@@ -106,10 +96,52 @@ describe('Convex growth overview database functions', () => {
         });
     });
 
+    it('records a join and its bounded invite snapshot replacement through one Convex mutation', async () => {
+        const db = createConvexDb({ mutationResults: [memberEvent] });
+
+        const result = await recordGuildMemberJoinWithInviteSnapshots(db, {
+            attributionStatus: 'attributed',
+            guildId: ' guild-1 ',
+            inviteCode: ' alpha ',
+            inviterUserId: ' inviter-1 ',
+            invites: [
+                {
+                    channelId: ' channel-1 ',
+                    code: ' alpha ',
+                    inviterUserId: ' inviter-1 ',
+                    temporary: false,
+                    uses: 4,
+                },
+            ],
+            observedAt: new Date('2026-07-03T08:00:00.000Z'),
+            userId: ' user-1 ',
+        });
+
+        expect(result._unsafeUnwrap()).toStrictEqual(toMemberEventRecord(memberEvent));
+        expect(db.client.mutationCalls).toHaveLength(1);
+        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
+            attributionStatus: 'attributed',
+            guildId: 'guild-1',
+            inviteCode: 'alpha',
+            inviterUserId: 'inviter-1',
+            invites: [
+                {
+                    channelId: 'channel-1',
+                    code: 'alpha',
+                    inviterUserId: 'inviter-1',
+                    temporary: false,
+                    uses: 4,
+                },
+            ],
+            observedAt: '2026-07-03T08:00:00.000Z',
+            userId: 'user-1',
+        });
+    });
+
     it('syncs and lists invite snapshots through Convex', async () => {
         const db = createConvexDb({
-            mutationResults: [[inviteSnapshot]],
-            queryResults: [[inviteSnapshot]],
+            mutationResults: [{ baselineObserved: true, snapshotCount: 1 }],
+            queryResults: [{ baselineObserved: true, snapshots: [inviteSnapshot] }],
         });
 
         const synced = await syncGuildInviteSnapshots(db, {
@@ -127,8 +159,11 @@ describe('Convex growth overview database functions', () => {
         });
         const listed = await listGuildInviteSnapshots(db, { guildId: 'guild-1' });
 
-        expect(synced._unsafeUnwrap()).toStrictEqual([toInviteSnapshotRecord(inviteSnapshot)]);
-        expect(listed._unsafeUnwrap()).toStrictEqual([toInviteSnapshotRecord(inviteSnapshot)]);
+        expect(synced._unsafeUnwrap()).toStrictEqual({ baselineObserved: true, snapshotCount: 1 });
+        expect(listed._unsafeUnwrap()).toStrictEqual({
+            baselineObserved: true,
+            snapshots: [toInviteSnapshotRecord(inviteSnapshot)],
+        });
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             guildId: 'guild-1',
             observedAt: '2026-07-03T09:00:00.000Z',
@@ -150,9 +185,9 @@ describe('Convex growth overview database functions', () => {
             queryResults: [overview],
         });
 
-        const activity = await incrementGuildMessageActivityDay(db, {
-            channelId: ' channel-1 ',
+        const activity = await recordGuildMessageActivity(db, {
             guildId: ' guild-1 ',
+            messageId: ' message-1 ',
             occurredAt: new Date('2026-07-03T09:00:00.000Z'),
         });
         const aggregate = await loadGuildOverviewAggregate(db, {
@@ -171,6 +206,11 @@ describe('Convex growth overview database functions', () => {
             guildId: 'guild-1',
             now: '2026-07-03T12:00:00.000Z',
         });
+        expect(db.client.mutationCalls[0]?.args).toStrictEqual({
+            guildId: 'guild-1',
+            messageId: 'message-1',
+            occurredAt: '2026-07-03T09:00:00.000Z',
+        });
     });
 
     it('maps validation failures before calling Convex', async () => {
@@ -185,6 +225,12 @@ describe('Convex growth overview database functions', () => {
         const invalidInvite = await syncGuildInviteSnapshots(db, {
             guildId: 'guild-1',
             invites: [{ code: 'alpha', uses: -1 }],
+        });
+        const invalidAtomicJoin = await recordGuildMemberJoinWithInviteSnapshots(db, {
+            attributionStatus: 'attributed',
+            guildId: 'guild-1',
+            invites: [{ code: 'alpha', uses: -1 }],
+            userId: 'user-1',
         });
         const invalidDays = await loadGuildOverviewAggregate(db, {
             days: 91,
@@ -203,6 +249,10 @@ describe('Convex growth overview database functions', () => {
             field: 'uses',
             type: 'invalid-value',
         });
+        expect(invalidAtomicJoin._unsafeUnwrapErr()).toStrictEqual({
+            field: 'uses',
+            type: 'invalid-value',
+        });
         expect(invalidDays._unsafeUnwrapErr()).toStrictEqual({
             field: 'days',
             type: 'invalid-value',
@@ -214,9 +264,9 @@ describe('Convex growth overview database functions', () => {
     it('maps Convex failures to database errors', async () => {
         const db = createConvexDb({ mutationErrors: [new Error('guild-not-found')] });
 
-        const result = await incrementGuildMessageActivityDay(db, {
-            channelId: 'channel-1',
+        const result = await recordGuildMessageActivity(db, {
             guildId: 'guild-1',
+            messageId: 'message-1',
         });
 
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'database-error' });
@@ -257,11 +307,8 @@ function toInviteSnapshotRecord(record: typeof inviteSnapshot) {
 function toMessageActivityRecord(record: typeof messageActivity) {
     return {
         activityDate: record.activityDate,
-        channelId: record.channelId,
         guildId: record.guildId,
-        id: record.id,
-        messageCount: record.messageCount,
-        updatedAt: new Date(record.updatedAt),
+        shard: record.shard,
     };
 }
 

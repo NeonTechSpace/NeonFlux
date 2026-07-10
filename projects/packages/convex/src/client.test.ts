@@ -24,7 +24,7 @@ describe('createNeonFluxConvexHttpClient', () => {
             )
         );
         const client = createNeonFluxConvexHttpClient({
-            authToken: 'service-jwt',
+            authTokenProvider: () => Promise.resolve('service-jwt'),
             url: 'https://neonflux-test.convex.cloud',
         });
 
@@ -48,6 +48,55 @@ describe('createNeonFluxConvexHttpClient', () => {
         });
     });
 
+    it('resolves bearer authentication at request time', async () => {
+        const authorizationHeaders: Array<string | null> = [];
+        const fetch = vi.fn((_input: URL | RequestInfo, init?: RequestInit) => {
+            authorizationHeaders.push(new Headers(init?.headers).get('Authorization'));
+
+            return Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        status: 'success',
+                        value: {
+                            instanceMode: 'multi',
+                            ownerIds: [],
+                            publicWebUrl: null,
+                        },
+                    })
+                )
+            );
+        });
+        let authToken = 'service-jwt-1';
+        const authTokenProvider = vi.fn(() => Promise.resolve(authToken));
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider,
+            url: 'https://neonflux-test.convex.cloud',
+        });
+
+        vi.stubGlobal('fetch', fetch);
+
+        await client.query(api.core.readDeploymentConfig, {});
+        authToken = 'service-jwt-2';
+        await client.query(api.core.readDeploymentConfig, {});
+
+        expect(authTokenProvider).toHaveBeenCalledTimes(2);
+        expect(authorizationHeaders).toStrictEqual(['Bearer service-jwt-1', 'Bearer service-jwt-2']);
+    });
+
+    it('does not send a Convex request when the token provider fails', async () => {
+        const fetch = vi.fn();
+        const authFailure = new Error('service authentication unavailable');
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider: () => Promise.reject(authFailure),
+            url: 'https://neonflux-test.convex.cloud',
+        });
+
+        vi.stubGlobal('fetch', fetch);
+
+        await expect(client.query(api.core.readDeploymentConfig, {})).rejects.toBe(authFailure);
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('surfaces Convex error payloads from mutations', async () => {
         stubFetch(
             new Response(
@@ -59,7 +108,7 @@ describe('createNeonFluxConvexHttpClient', () => {
             )
         );
         const client = createNeonFluxConvexHttpClient({
-            authToken: 'service-jwt',
+            authTokenProvider: () => Promise.resolve('service-jwt'),
             url: 'https://neonflux-test.convex.cloud',
         });
 
@@ -76,7 +125,7 @@ describe('createNeonFluxConvexHttpClient', () => {
     it('surfaces HTTP status and response body when the target rejects a request', async () => {
         stubFetch(new Response('NoAuthProvider', { status: 401 }));
         const client = createNeonFluxConvexHttpClient({
-            authToken: 'service-jwt',
+            authTokenProvider: () => Promise.resolve('service-jwt'),
             url: 'https://neonflux-test.convex.cloud',
         });
 

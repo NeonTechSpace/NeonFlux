@@ -2,12 +2,14 @@ import { err, ok, type Result } from 'neverthrow';
 
 export const FLUXER_AUTHORIZE_URL = 'https://web.fluxer.app/oauth2/authorize';
 export const FLUXER_OAUTH_TOKEN_URL = 'https://api.fluxer.app/v1/oauth2/token';
+export const FLUXER_OAUTH_REFRESH_MAX_ATTEMPTS = 3;
+export const FLUXER_OAUTH_REFRESH_MAX_RETRY_DELAY_MS = 5_000;
+export const FLUXER_OAUTH_REQUEST_TIMEOUT_MS = 10_000;
 
 const MAX_OAUTH_EXPIRES_IN_SECONDS = 2_147_483_647;
+const OAUTH_REFRESH_RETRY_BASE_DELAY_MS = 250;
 
 export type FluxerOAuthScope = 'identify' | 'guilds' | 'email' | 'connections' | 'bot';
-
-export type FluxerOAuthFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 export type BuildFluxerAuthorizeUrlInput = {
     appId: string;
@@ -21,14 +23,12 @@ export type ExchangeFluxerAuthorizationCodeInput = {
     clientSecret: string;
     code: string;
     redirectUrl: string;
-    fetch?: FluxerOAuthFetch;
 };
 
 export type RefreshFluxerOAuthTokenInput = {
     appId: string;
     clientSecret: string;
     refreshToken: string;
-    fetch?: FluxerOAuthFetch;
 };
 
 export type FluxerOAuthTokenResponse = {
@@ -48,7 +48,10 @@ export type FluxerOAuthTokenExchangeError =
 export type FluxerOAuthTokenRefreshError =
     | { type: 'missing-input'; field: 'appId' | 'clientSecret' | 'refreshToken' }
     | { type: 'request-failed'; status: number; statusText: string }
-    | { type: 'network-error'; error: unknown }
+    | { type: 'ambiguous-response' }
+    | { type: 'network-error' }
+    | { type: 'terminal-response'; errorCode: 'invalid_grant'; status: number }
+    | { type: 'transient-response'; retryAfterMs?: number; status: number; statusText: string }
     | { type: 'invalid-response' };
 
 export function buildFluxerAuthorizeUrl(input: BuildFluxerAuthorizeUrlInput): string {
@@ -111,7 +114,7 @@ export async function exchangeFluxerAuthorizationCode(
     body.set('client_id', appId);
     body.set('client_secret', clientSecret);
 
-    return submitFluxerOAuthTokenRequest({ body, fetch: input.fetch });
+    return submitFluxerOAuthTokenRequest(body);
 }
 
 export async function refreshFluxerOAuthToken(
@@ -139,7 +142,7 @@ export async function refreshFluxerOAuthToken(
     body.set('client_id', appId);
     body.set('client_secret', clientSecret);
 
-    return submitFluxerOAuthTokenRequest({ body, fetch: input.fetch });
+    return submitFluxerOAuthRefreshRequest(body);
 }
 
 function requireValue(value: string, name: string): void {
@@ -153,16 +156,16 @@ type FluxerOAuthTokenRequestError =
     | { type: 'network-error'; error: unknown }
     | { type: 'invalid-response' };
 
-async function submitFluxerOAuthTokenRequest(input: {
-    body: FormData;
-    fetch: FluxerOAuthFetch | undefined;
-}): Promise<Result<FluxerOAuthTokenResponse, FluxerOAuthTokenRequestError>> {
+async function submitFluxerOAuthTokenRequest(
+    body: FormData
+): Promise<Result<FluxerOAuthTokenResponse, FluxerOAuthTokenRequestError>> {
     let response: Response;
 
     try {
-        response = await (input.fetch ?? fetch)(FLUXER_OAUTH_TOKEN_URL, {
+        response = await fetch(FLUXER_OAUTH_TOKEN_URL, {
             method: 'POST',
-            body: input.body,
+            body,
+            signal: AbortSignal.timeout(FLUXER_OAUTH_REQUEST_TIMEOUT_MS),
         });
     } catch (error) {
         return err({ type: 'network-error', error });
@@ -191,6 +194,138 @@ async function submitFluxerOAuthTokenRequest(input: {
     }
 
     return ok(tokenResponse);
+}
+
+async function submitFluxerOAuthRefreshRequest(
+    body: FormData
+): Promise<Result<FluxerOAuthTokenResponse, FluxerOAuthTokenRefreshError>> {
+    let hadAmbiguousAttempt = false;
+
+    for (let attempt = 0; attempt < FLUXER_OAUTH_REFRESH_MAX_ATTEMPTS; attempt += 1) {
+        let response: Response;
+
+        try {
+            response = await fetch(FLUXER_OAUTH_TOKEN_URL, {
+                body,
+                method: 'POST',
+                signal: AbortSignal.timeout(FLUXER_OAUTH_REQUEST_TIMEOUT_MS),
+            });
+        } catch {
+            hadAmbiguousAttempt = true;
+
+            if (attempt + 1 >= FLUXER_OAUTH_REFRESH_MAX_ATTEMPTS) {
+                return err({ type: 'network-error' });
+            }
+
+            await waitForOAuthRetry(readOAuthRetryDelayMs(undefined, attempt));
+            continue;
+        }
+
+        if (response.ok) {
+            return parseFluxerOAuthTokenResponseResult(response);
+        }
+
+        const retryAfterMs = readOAuthRetryDelayMs(response.headers.get('Retry-After'), attempt);
+
+        if (isTransientOAuthStatus(response.status)) {
+            hadAmbiguousAttempt ||= response.status >= 500;
+
+            if (attempt + 1 < FLUXER_OAUTH_REFRESH_MAX_ATTEMPTS) {
+                await waitForOAuthRetry(retryAfterMs);
+                continue;
+            }
+
+            return err({
+                type: 'transient-response',
+                retryAfterMs,
+                status: response.status,
+                statusText: response.statusText,
+            });
+        }
+
+        const errorCode = await readOAuthErrorCode(response);
+
+        if (errorCode === 'invalid_grant' && !hadAmbiguousAttempt) {
+            return err({
+                type: 'terminal-response',
+                errorCode,
+                status: response.status,
+            });
+        }
+
+        if (hadAmbiguousAttempt) {
+            return err({ type: 'ambiguous-response' });
+        }
+
+        return err({
+            type: 'request-failed',
+            status: response.status,
+            statusText: response.statusText,
+        });
+    }
+
+    return err({ type: 'network-error' });
+}
+
+async function parseFluxerOAuthTokenResponseResult(
+    response: Response
+): Promise<Result<FluxerOAuthTokenResponse, { type: 'invalid-response' }>> {
+    let responseBody: unknown;
+
+    try {
+        responseBody = await response.json();
+    } catch {
+        return err({ type: 'invalid-response' });
+    }
+
+    const tokenResponse = parseFluxerOAuthTokenResponse(responseBody);
+
+    return tokenResponse ? ok(tokenResponse) : err({ type: 'invalid-response' });
+}
+
+async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
+    try {
+        const body = (await response.json()) as unknown;
+
+        if (isObject(body) && typeof body.error === 'string') {
+            const errorCode = body.error.trim().toLowerCase();
+
+            return errorCode || undefined;
+        }
+    } catch {
+        return undefined;
+    }
+
+    return undefined;
+}
+
+function isTransientOAuthStatus(status: number): boolean {
+    return status === 429 || (status >= 500 && status <= 599);
+}
+
+function readOAuthRetryDelayMs(retryAfter: string | null | undefined, attempt: number): number {
+    const fallbackDelay = Math.min(
+        OAUTH_REFRESH_RETRY_BASE_DELAY_MS * 2 ** attempt,
+        FLUXER_OAUTH_REFRESH_MAX_RETRY_DELAY_MS
+    );
+
+    if (!retryAfter) {
+        return fallbackDelay;
+    }
+
+    const seconds = Number(retryAfter);
+    const retryAtMs = Date.parse(retryAfter);
+    const parsedDelay = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : retryAtMs - Date.now();
+
+    return Number.isFinite(parsedDelay)
+        ? Math.min(Math.max(0, parsedDelay), FLUXER_OAUTH_REFRESH_MAX_RETRY_DELAY_MS)
+        : fallbackDelay;
+}
+
+function waitForOAuthRetry(delayMs: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, delayMs);
+    });
 }
 
 function parseFluxerOAuthTokenResponse(value: unknown): FluxerOAuthTokenResponse | undefined {
@@ -228,5 +363,5 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isValidExpiresIn(value: unknown): value is number {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_OAUTH_EXPIRES_IN_SECONDS;
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= MAX_OAUTH_EXPIRES_IN_SECONDS;
 }

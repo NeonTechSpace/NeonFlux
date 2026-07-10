@@ -176,7 +176,10 @@ describe('Convex structure database functions', () => {
         const runs = await listStructureImportRunsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
         const foundRun = await findStructureImportRunByGuildId(db, { guildId: ' guild-1 ', runId: ' run-1 ' });
         const updatedRun = await updateStructureImportRunStatus(db, {
+            expectedApplyAttemptId: ' attempt-1 ',
+            expectedApplyLeaseOwner: ' worker-1 ',
             plan: { changes: 2 },
+            requireExpiredApplyLease: true,
             runId: ' run-1 ',
             status: ' confirmed ',
         });
@@ -207,6 +210,20 @@ describe('Convex structure database functions', () => {
         expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(withoutActions(importRun))]);
         expect(foundRun._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutActions(importRun)));
         expect(updatedRun._unsafeUnwrap()).toStrictEqual(toRunRecord(confirmedRun));
+        expect(
+            db.client.mutationCalls.some(
+                (call) =>
+                    JSON.stringify(call.args) ===
+                    JSON.stringify({
+                        expectedApplyAttemptId: 'attempt-1',
+                        expectedApplyLeaseOwner: 'worker-1',
+                        plan: { changes: 2 },
+                        requireExpiredApplyLease: true,
+                        runId: 'run-1',
+                        status: 'confirmed',
+                    })
+            )
+        ).toBe(true);
         expect(recordedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(action));
         expect(updatedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(completedAction));
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({

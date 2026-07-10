@@ -1,11 +1,11 @@
 import {
-    incrementGuildMessageActivityDay,
     listGuildInviteSnapshots,
     recordGuildMemberFlowEvent,
-    syncGuildInviteSnapshots,
+    recordGuildMemberJoinWithInviteSnapshots,
+    recordGuildMessageActivity,
     type GuildInviteAttributionStatus,
     type GuildInviteSnapshotInput,
-    type GuildInviteSnapshotRecord,
+    type GuildInviteSnapshotState,
 } from '@neonflux/db';
 import { readFluxerGuildInvites, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
@@ -27,6 +27,7 @@ type BotMemberLeftEvent = Omit<BotMemberJoinedEvent, 'type'> & {
 export type BotGrowthMemberEvent = BotMemberJoinedEvent | BotMemberLeftEvent;
 
 type BotGrowthTrackingEvent = BotMessageCreatedEvent | BotGrowthMemberEvent;
+const guildInviteTrackingTails = new Map<string, Promise<void>>();
 
 export type BotGrowthTrackingResult =
     | { status: 'tracked' }
@@ -45,7 +46,7 @@ export async function trackGrowthOverviewEvent(
             return trackMessageActivity(context, event);
 
         case 'member.joined':
-            return trackMemberJoin(context, event);
+            return serializeGuildInviteTracking(event.guildId, () => trackMemberJoin(context, event));
 
         case 'member.left':
             return trackMemberLeave(context, event);
@@ -60,9 +61,9 @@ async function trackMessageActivity(
         return ok({ status: 'ignored', reason: event.authorIsBot ? 'bot-authored-message' : 'guild-not-processable' });
     }
 
-    const result = await incrementGuildMessageActivityDay(context.db, {
+    const result = await recordGuildMessageActivity(context.db, {
         guildId: event.guildId,
-        channelId: event.channelId,
+        messageId: event.messageId,
     });
 
     return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
@@ -89,16 +90,19 @@ async function trackMemberJoin(
 
     const currentInvites = inviteReadResult.value;
     const attribution = attributeInviteUsage(previousSnapshotsResult.value, currentInvites);
-    const syncResult = await syncGuildInviteSnapshots(context.db, {
+    const recordResult = await recordGuildMemberJoinWithInviteSnapshots(context.db, {
+        ...attribution,
         guildId: event.guildId,
         invites: currentInvites.map(toInviteSnapshotInput),
+        userId: event.userId,
     });
 
-    if (syncResult.isErr()) {
-        return err('database-error');
+    if (recordResult.isErr()) {
+        if (recordResult.error.type === 'database-error') return err('database-error');
+        return recordJoin(context, event, { attributionStatus: 'unavailable' });
     }
 
-    return recordJoin(context, event, attribution);
+    return ok({ status: 'tracked' });
 }
 
 async function trackMemberLeave(
@@ -116,7 +120,7 @@ async function trackMemberLeave(
 }
 
 function attributeInviteUsage(
-    previousSnapshots: GuildInviteSnapshotRecord[],
+    previousState: GuildInviteSnapshotState,
     currentInvites: FluxerGuildInvite[]
 ):
     | {
@@ -125,11 +129,11 @@ function attributeInviteUsage(
           inviterUserId?: string;
       }
     | { attributionStatus: Exclude<GuildInviteAttributionStatus, 'not-applicable' | 'attributed'> } {
-    if (previousSnapshots.length === 0) {
+    if (!previousState.baselineObserved) {
         return { attributionStatus: 'baseline-missing' };
     }
 
-    const previousUsesByCode = new Map(previousSnapshots.map((invite) => [invite.code, invite.uses]));
+    const previousUsesByCode = new Map(previousState.snapshots.map((invite) => [invite.code, invite.uses]));
     const candidates = currentInvites.filter((invite) => invite.uses > (previousUsesByCode.get(invite.code) ?? 0));
 
     if (candidates.length === 1) {
@@ -151,6 +155,22 @@ function attributeInviteUsage(
     }
 
     return { attributionStatus: 'unavailable' };
+}
+
+async function serializeGuildInviteTracking<T>(guildId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = guildInviteTrackingTails.get(guildId) ?? Promise.resolve();
+    const queued = previous.catch(() => undefined).then(operation);
+    const tail = queued.then(
+        () => undefined,
+        () => undefined
+    );
+    guildInviteTrackingTails.set(guildId, tail);
+
+    try {
+        return await queued;
+    } finally {
+        if (guildInviteTrackingTails.get(guildId) === tail) guildInviteTrackingTails.delete(guildId);
+    }
 }
 
 async function recordJoin(

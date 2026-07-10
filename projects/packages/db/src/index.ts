@@ -21,6 +21,9 @@ export type {
     DeploymentConfigRecord,
     DeploymentConfigRepositoryError,
     EncryptedOAuthTokenPayload,
+    FluxerOAuthRefreshCompletion,
+    FluxerOAuthRefreshLeaseClaim,
+    FluxerOAuthRefreshMutationStatus,
     FluxerOAuthTokenRecord,
     FluxerOAuthTokenRepositoryError,
     GuildCommandPermissionRuleRecord,
@@ -34,9 +37,11 @@ export type {
     GuildInviteAttributionStatus,
     GuildInviteSnapshotInput,
     GuildInviteSnapshotRecord,
+    GuildInviteSnapshotState,
+    GuildInviteSnapshotSyncResult,
     GuildMemberFlowEventRecord,
     GuildMemberFlowEventType,
-    GuildMessageActivityDayRecord,
+    GuildMessageActivityRecord,
     GuildOverviewAggregate,
     GuildSecurityPolicyRecord,
     GuildSecurityPolicyRepositoryError,
@@ -53,8 +58,19 @@ export type {
     ReactionRoleMessageRecord,
     ReactionRoleMessageSource,
     ReactionRoleMessageWithOptions,
+    ReactionRoleMaintenanceResult,
+    ReactionRoleMemberReconciliation,
+    ReactionRoleMemberStateRecord,
+    ReactionRoleMemberTransitionResult,
+    ReactionRoleDesiredConfig,
+    ReactionRoleOperationRecord,
+    ReactionRoleOperationRequestResult,
+    ReactionRoleOperationRetryResult,
+    ReactionRoleOperationStatus,
+    ReactionRoleOperationType,
     ReactionRoleOptionMatch,
     ReactionRoleOptionRecord,
+    ReactionRoleReconciliationItemRecord,
     ReactionRolesRepositoryError,
 } from './contracts-reaction-roles.js';
 export type {
@@ -94,10 +110,13 @@ export {
     upsertGuildDashboardPermissionRule,
 } from './runtime-access.js';
 export {
+    claimFluxerOAuthTokenRefreshLease,
+    completeFluxerOAuthTokenRefresh,
     createWebSession,
     findActiveWebSessionById,
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
+    recordFluxerOAuthTokenRefreshFailure,
     revokeWebSession,
     upsertFluxerOAuthTokenSet,
 } from './runtime-auth.js';
@@ -111,10 +130,11 @@ export {
     upsertGuildSecurityPolicy,
 } from './runtime-settings.js';
 export {
-    incrementGuildMessageActivityDay,
     listGuildInviteSnapshots,
     loadGuildOverviewAggregate,
     recordGuildMemberFlowEvent,
+    recordGuildMemberJoinWithInviteSnapshots,
+    recordGuildMessageActivity,
     syncGuildInviteSnapshots,
 } from './runtime-growth-overview.js';
 export {
@@ -125,22 +145,49 @@ export {
     upsertMessageTemplate,
 } from './runtime-posting.js';
 export {
-    deleteReactionRoleMessage,
-    deleteReactionRoleOption,
-    deleteReactionRoleOptionByMessage,
     findEnabledReactionRoleOptionByReaction,
     findReactionRoleMessage,
+    findReactionRoleMessageWithOptions,
     findReactionRoleOption,
     listActiveReactionRoleAssignmentsByGuildMessageUser,
     listActiveReactionRoleAssignmentsByGuildUser,
     listReactionRoleMessagesByGuildId,
-    markReactionRoleAssignmentRemoved,
-    markReactionRoleAssignmentsRemovedByMessageUser,
-    upsertReactionRoleAssignment,
-    upsertReactionRoleMessage,
-    upsertReactionRoleOption,
-    upsertReactionRoleOptionByMessage,
 } from './runtime-reaction-roles.js';
+export {
+    blockReactionRoleReconciliationItem,
+    claimNextReactionRoleOperation,
+    completeReactionRoleDeleteOperation,
+    completeReactionRolePublishOperation,
+    completeReactionRoleReconciliationItem,
+    completeReactionRoleSaveOperation,
+    deferReactionRoleOperation,
+    listPendingReactionRoleReconciliationItems,
+    listReactionRoleOperationsByGuildId,
+    maintainReactionRoleState,
+    markReactionRoleOperationNeedsAttention,
+    markReactionRoleOperationSending,
+    recordReactionRoleOperationExternalMessage,
+    requestReactionRoleDeleteOperation,
+    requestReactionRolePublishOperation,
+    requestReactionRoleSaveOperation,
+    retryReactionRoleOperation,
+    snapshotReactionRoleOperationAssignments,
+} from './runtime-reaction-role-operations.js';
+export {
+    blockReactionRoleMemberState,
+    claimNextReactionRoleMemberState,
+    completeReactionRoleMemberState,
+    deferReactionRoleMemberState,
+    hasActiveReactionRoleMemberLease,
+    loadReactionRoleMemberReconciliation,
+    requestReactionRoleMemberTransition,
+} from './runtime-reaction-role-members.js';
+export {
+    acquireReactionRoleUserLease,
+    hasOtherActiveReactionRoleAssignment,
+    releaseReactionRoleUserLease,
+    renewReactionRoleUserLease,
+} from './runtime-reaction-role-user-leases.js';
 export {
     claimDueStructureBackupSetting,
     claimDueStructureDriftSetting,

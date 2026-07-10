@@ -133,7 +133,8 @@ function ImportRunCard({
     const isRetryBusy = busyAction === `retry:${run.id}`;
     const canConfirm = run.status === 'dry_run_complete';
     const canPreflight = run.status === 'confirmed';
-    const canRetry = run.status === 'failed';
+    const canRetry = run.status === 'failed' || run.recoveryAvailable === true;
+    const isRecovery = run.recoveryAvailable === true;
 
     return (
         <div
@@ -199,14 +200,16 @@ function ImportRunCard({
             {canRetry ? (
                 <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
                     <p className='text-xs leading-5 text-neutral-300'>
-                        Retry creates a new dry-run from failed actions only.
+                        {isRecovery
+                            ? 'Recovery re-reads the live server before creating a reconciliation dry-run.'
+                            : 'Retry re-reads the live server before creating a reconciliation dry-run.'}
                     </p>
                     <button
                         type='button'
                         onClick={() => onRetry(run)}
                         disabled={Boolean(busyAction)}
                         className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        {isRetryBusy ? 'Creating retry' : 'Retry failed'}
+                        {isRetryBusy ? 'Creating retry' : isRecovery ? 'Recover apply' : 'Retry failed'}
                     </button>
                 </div>
             ) : null}

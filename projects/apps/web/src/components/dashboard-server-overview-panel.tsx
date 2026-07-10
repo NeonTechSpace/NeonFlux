@@ -332,9 +332,9 @@ function formatMessageTooltipValue(value: unknown): [string, string] {
 }
 
 function formatMessageSummary(overview: DashboardGuildOverview): string | undefined {
-    const topChannel = overview.messages.topChannels.at(0);
+    const activeDays = overview.messages.graph.filter((day) => day.messageCount > 0).length;
 
-    return topChannel ? `${topChannel.messageCount} in busiest channel` : undefined;
+    return activeDays > 0 ? `${activeDays} active day${activeDays === 1 ? '' : 's'}` : undefined;
 }
 
 function formatSignedNumber(value: number): string {

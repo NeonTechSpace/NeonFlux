@@ -69,6 +69,7 @@ export function ReactionRoleEditor({
     const [selectedEmoji, setSelectedEmoji] = useState<DashboardReactionRoleEmoji>();
     const [selectedRole, setSelectedRole] = useState<DashboardReactionRoleRole>();
     const [editorMessage, setEditorMessage] = useState<EditorMessage>();
+    const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
     const embedResult =
         draft.messageType === 'embed' ? normalizeDashboardEmbedDraft(draft.embedDraft) : { valid: true as const };
     const baseEmbeds = embedResult.valid && embedResult.embed ? [embedResult.embed] : [];
@@ -83,6 +84,7 @@ export function ReactionRoleEditor({
         mutationFn: async () => {
             const payload = {
                 guildId,
+                idempotencyKey,
                 ...(draft.messageType === 'plain' && draft.content.trim() ? { content: draft.content.trim() } : {}),
                 embeds: baseEmbeds,
                 mode: draft.mode,
@@ -99,6 +101,7 @@ export function ReactionRoleEditor({
                 return saveDashboardReactionRoleMessageRouteData({
                     data: {
                         ...payload,
+                        expectedRevision: editorMode.message.revision,
                         messageId: editorMode.message.messageId,
                     },
                 });
@@ -112,21 +115,13 @@ export function ReactionRoleEditor({
             });
         },
         onSuccess: async (result) => {
-            if (
-                result.type === 'published' ||
-                result.type === 'saved' ||
-                result.type === 'published-with-seed-errors' ||
-                result.type === 'saved-with-reaction-errors'
-            ) {
+            if (result.type === 'operation-accepted' || result.type === 'operation-existing') {
                 const message: EditorMessage = {
-                    type:
-                        result.type === 'published-with-seed-errors' || result.type === 'saved-with-reaction-errors'
-                            ? 'warning'
-                            : 'success',
+                    type: 'success',
                     text:
-                        result.type === 'published' || result.type === 'published-with-seed-errors'
-                            ? getPublishSuccessMessage(result.type)
-                            : getSaveSuccessMessage(result.type),
+                        editorMode.type === 'create'
+                            ? 'Menu publish queued. It will appear when Fluxer confirms it.'
+                            : 'Menu synchronization queued. It remains disabled until complete.',
                 };
 
                 setEditorMessage(message);
@@ -144,12 +139,17 @@ export function ReactionRoleEditor({
 
     function updateDraft(update: Partial<ReactionRoleDraft>): void {
         setDraft((currentDraft) => ({ ...currentDraft, ...update }));
+        setIdempotencyKey(crypto.randomUUID());
     }
 
     function addOption(): void {
         if (!selectedEmoji || !selectedRole || draft.options.length >= maxReactionRoleOptions) return;
         if (draft.options.some((option) => option.emojiKey === selectedEmoji.key)) {
             setEditorMessage({ type: 'error', text: 'Each emoji can only appear once on this menu.' });
+            return;
+        }
+        if (draft.options.some((option) => option.roleId === selectedRole.id)) {
+            setEditorMessage({ type: 'error', text: 'Each role can only appear once on this menu.' });
             return;
         }
 
@@ -217,7 +217,9 @@ export function ReactionRoleEditor({
                     <h4 className='text-base font-semibold text-white'>
                         {editorMode.type === 'edit' ? 'Edit reaction-role menu' : 'Create reaction-role menu'}
                     </h4>
-                    <p className='mt-1 text-sm leading-6 text-neutral-400'>Changes are local until you save them.</p>
+                    <p className='mt-1 text-sm leading-6 text-neutral-400'>
+                        Saving disables the menu until Fluxer and stored configuration are synchronized.
+                    </p>
                 </div>
                 <button
                     type='button'
@@ -497,18 +499,6 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
         : undefined;
 }
 
-function getPublishSuccessMessage(type: 'published' | 'published-with-seed-errors'): string {
-    return type === 'published'
-        ? 'Reaction-role menu published.'
-        : 'Menu published, but one or more seed reactions could not be added.';
-}
-
-function getSaveSuccessMessage(type: 'saved' | 'saved-with-reaction-errors'): string {
-    return type === 'saved'
-        ? 'Reaction-role menu saved.'
-        : 'Menu saved, but one or more reactions could not be synced.';
-}
-
 function getSaveErrorMessage(type: string, message?: string): string {
     if (message) return message;
 
@@ -525,6 +515,12 @@ function getSaveErrorMessage(type: string, message?: string): string {
             return 'Fluxer could not publish this menu.';
         case 'not-found':
             return 'This reaction-role menu is not available anymore.';
+        case 'operation-busy':
+            return 'This menu already has a synchronization in progress.';
+        case 'revision-conflict':
+            return 'This menu changed elsewhere. Reload it before saving.';
+        case 'idempotency-conflict':
+            return 'This submission changed after it was queued. Try saving again.';
         default:
             return 'Could not save this reaction-role menu.';
     }

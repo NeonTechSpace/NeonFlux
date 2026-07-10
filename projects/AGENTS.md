@@ -22,3 +22,4 @@
 - Do not stage, commit, tag, push, squash, rebase, or run mutating VCS commands without explicit permission.
 - Keep handwritten production files under 555 LOC unless a narrow exception is justified.
 - Validate changes with `pnpm check` from this folder when practical.
+- Before finalizing material implementation work, perform a hostile self-audit of the complete working-copy diff and relevant surrounding code, contracts, schemas, tests, and Research notes. Apply the existing safety, data-lifecycle, failure-path, concurrency, authorization, secret-handling, payload/performance, UI-accuracy, regression-coverage, and maintainability requirements. Fix in-scope P1/P2 issues, rerun proportionate validation, and report remaining risks, skipped checks, and any required live validation without overstating certainty.

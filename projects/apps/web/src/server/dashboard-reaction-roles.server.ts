@@ -1,24 +1,23 @@
 import '@tanstack/react-start/server-only';
 
-import { loadWebConfig } from '@neonflux/config';
 import {
-    deleteReactionRoleMessage,
     listReactionRoleMessagesByGuildId,
-    upsertReactionRoleMessage,
-    upsertReactionRoleOptionByMessage,
+    listReactionRoleOperationsByGuildId,
+    requestReactionRoleDeleteOperation,
+    requestReactionRolePublishOperation,
+    retryReactionRoleOperation,
 } from '@neonflux/db';
-import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { mapDashboardGuildPageError, resolveReactionRoleActor } from './dashboard-reaction-roles-audit.server.js';
 import {
-    mapDashboardGuildPageError,
-    recordReactionRoleAuditEvent,
-    resolveReactionRoleActor,
-} from './dashboard-reaction-roles-audit.server.js';
-import { mapReactionRoleRepositoryError } from './dashboard-reaction-roles-errors.server.js';
+    createReactionRoleRequestHash,
+    isValidReactionRoleIdempotencyKey,
+    mapReactionRoleOperationRequestResult,
+    toDashboardReactionRoleOperation,
+} from './dashboard-reaction-roles-operations.server.js';
 import { normalizeReactionRolePublishPayload } from './dashboard-reaction-roles-payload.js';
-import { seedDashboardReactionRoleOptionReactions } from './dashboard-reaction-roles-reactions.server.js';
 import {
     loadReactionRoleEmojis,
     loadReactionRoleStructure,
@@ -29,6 +28,7 @@ import type {
     DashboardReactionRoleMessageDeleteResult,
     DashboardReactionRolePublishInput,
     DashboardReactionRolePublishResult,
+    DashboardReactionRoleRetryResult,
     DashboardReactionRolesSettingsResult,
 } from './dashboard-reaction-roles-types.js';
 
@@ -40,33 +40,27 @@ export async function loadDashboardReactionRolesSettings(
     guildId: string
 ): Promise<DashboardReactionRolesSettingsResult> {
     const guildPageData = await loadDashboardGuildPageData(request, guildId);
-
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
-    }
-
-    const messagesResult = await listReactionRoleMessagesByGuildId((await getWebDb()).db, {
-        guildId: guildPageData.guild.id,
-    });
-
-    if (messagesResult.isErr()) {
-        return { type: 'database-error' };
-    }
-
-    const structureResult = await loadReactionRoleStructure(guildPageData.guild.id);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const database = await getWebDb();
+    const [messages, operations] = await Promise.all([
+        listReactionRoleMessagesByGuildId(database.db, { guildId: guildPageData.guild.id }),
+        listReactionRoleOperationsByGuildId(database.db, { guildId: guildPageData.guild.id, limit: 50 }),
+    ]);
+    if (messages.isErr() || operations.isErr()) return { type: 'database-error' };
+    const structure = await loadReactionRoleStructure(guildPageData.guild.id);
     const emojiResult = await loadReactionRoleEmojis(guildPageData.guild.id);
     const emojiByKey = new Map(emojiResult.emojis.map((emoji) => [emoji.key, emoji]));
-
     return {
-        type: 'settings',
-        roles: structureResult.roles,
-        channels: structureResult.channels,
-        emojis: emojiResult.emojis,
-        structureReadStatus: structureResult.status,
+        channels: structure.channels,
         emojiReadStatus: emojiResult.status,
-        messages: messagesResult.value.map((message) =>
-            toDashboardReactionRoleMessage(message, structureResult.rolesById, structureResult.channelsById, emojiByKey)
+        emojis: emojiResult.emojis,
+        messages: messages.value.map((message) =>
+            toDashboardReactionRoleMessage(message, structure.rolesById, structure.channelsById, emojiByKey)
         ),
+        operations: operations.value.map(toDashboardReactionRoleOperation),
+        roles: structure.roles,
+        structureReadStatus: structure.status,
+        type: 'settings',
     };
 }
 
@@ -75,141 +69,43 @@ export async function publishDashboardReactionRoleMessage(
     input: DashboardReactionRolePublishInput
 ): Promise<DashboardReactionRolePublishResult> {
     const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
-
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const actor = await resolveReactionRoleActor(request);
+    if (actor.type !== 'actor') return actor;
+    if (!isValidReactionRoleIdempotencyKey(input.idempotencyKey)) {
+        return { type: 'invalid-input', field: 'idempotencyKey' };
     }
-
-    const actorResult = await resolveReactionRoleActor(request);
-
-    if (actorResult.type !== 'actor') {
-        return actorResult;
-    }
-
-    const botToken = loadWebConfig().fluxerBotToken;
-
-    if (!botToken) {
-        return { type: 'bot-token-missing' };
-    }
-
-    const structureResult = await loadReactionRoleStructure(guildPageData.guild.id);
-
-    if (structureResult.status !== 'available') {
-        return structureResult.status === 'bot-token-missing'
+    const structure = await loadReactionRoleStructure(guildPageData.guild.id);
+    if (structure.status !== 'available') {
+        return structure.status === 'bot-token-missing'
             ? { type: 'bot-token-missing' }
             : { type: 'guild-lookup-failed' };
     }
-
-    const payloadResult = normalizeReactionRolePublishPayload(input, structureResult.rolesById);
-
-    if (payloadResult.type !== 'payload') {
-        return payloadResult;
-    }
-
-    const sendResult = await sendFluxerBotGuildChannelMessage({
-        botToken,
-        guildId: guildPageData.guild.id,
-        channelId: payloadResult.channelId,
-        ...(payloadResult.content ? { content: payloadResult.content } : {}),
-        ...(payloadResult.embeds.length > 0 ? { embeds: payloadResult.embeds } : {}),
-    });
-
-    if (sendResult.isErr()) {
-        return { type: 'send-failed' };
-    }
-
-    const database = await getWebDb();
-    const messageResult = await upsertReactionRoleMessage(database.db, {
-        guildId: guildPageData.guild.id,
-        channelId: sendResult.value.channelId,
-        messageId: sendResult.value.id,
-        mode: payloadResult.mode,
-        source: 'dashboard',
-        messageContent: payloadResult.content,
-        messageEmbeds: payloadResult.embeds,
-        generateOverview: payloadResult.generateOverview,
+    const payload = normalizeReactionRolePublishPayload(input, structure.rolesById);
+    if (payload.type !== 'payload') return payload;
+    if (!structure.channelsById.has(payload.channelId)) return { type: 'invalid-input', field: 'channelId' };
+    const desiredConfig = {
         enabled: true,
-    });
-
-    if (messageResult.isErr()) {
-        return mapReactionRoleRepositoryError(messageResult.error);
-    }
-
-    for (const option of payloadResult.options) {
-        const optionResult = await upsertReactionRoleOptionByMessage(database.db, {
-            guildId: guildPageData.guild.id,
-            messageId: sendResult.value.id,
-            emojiKey: option.emojiKey,
-            roleId: option.roleId,
-            position: option.position,
-        });
-
-        if (optionResult.isErr()) {
-            return mapReactionRoleRepositoryError(optionResult.error);
-        }
-    }
-
-    const seedFailures = await seedDashboardReactionRoleOptionReactions({
-        botToken,
+        generateOverview: payload.generateOverview,
+        messageContent: payload.content ?? null,
+        messageEmbeds: payload.embeds,
+        mode: payload.mode,
+        options: payload.options.map(({ emojiKey, position, roleId }) => ({ emojiKey, position, roleId })),
+    };
+    const operation = await requestReactionRolePublishOperation((await getWebDb()).db, {
+        actorMetadata: actor.metadata,
+        actorUserId: actor.actorUserId,
+        channelId: payload.channelId,
+        desiredConfig,
         guildId: guildPageData.guild.id,
-        channelId: sendResult.value.channelId,
-        messageId: sendResult.value.id,
-        emojiKeys: payloadResult.options.map((option) => option.emojiKey),
+        idempotencyKey: input.idempotencyKey,
+        requestHash: createReactionRoleRequestHash({
+            channelId: payload.channelId,
+            desiredConfig,
+            type: 'publish',
+        }),
     });
-
-    const channel = structureResult.channelsById.get(sendResult.value.channelId);
-    const auditResult = await recordReactionRoleAuditEvent(database.db, guildPageData, actorResult, {
-        action: 'message.created',
-        targetId: sendResult.value.id,
-        metadata: {
-            channelId: sendResult.value.channelId,
-            ...(channel ? { channelName: channel.name } : {}),
-            messageId: sendResult.value.id,
-            mode: payloadResult.mode,
-            optionCount: payloadResult.options.length,
-            generateOverview: payloadResult.generateOverview,
-            seedFailureCount: seedFailures.length,
-        },
-    });
-
-    if (auditResult === 'database-error') {
-        return { type: 'database-error' };
-    }
-
-    if (seedFailures.length > 0) {
-        await recordReactionRoleAuditEvent(database.db, guildPageData, actorResult, {
-            action: 'reaction_seed.failed',
-            targetId: sendResult.value.id,
-            metadata: {
-                channelId: sendResult.value.channelId,
-                messageId: sendResult.value.id,
-                failedEmojiKeys: seedFailures.join(','),
-            },
-        });
-    }
-
-    const savedMessages = await listReactionRoleMessagesByGuildId(database.db, { guildId: guildPageData.guild.id });
-
-    if (savedMessages.isErr()) {
-        return { type: 'database-error' };
-    }
-
-    const savedMessage = savedMessages.value.find((message) => message.messageId === sendResult.value.id) ?? {
-        ...messageResult.value,
-        options: [],
-    };
-    const message = toDashboardReactionRoleMessage(
-        savedMessage,
-        structureResult.rolesById,
-        structureResult.channelsById,
-        new Map()
-    );
-
-    return {
-        type: seedFailures.length > 0 ? 'published-with-seed-errors' : 'published',
-        message,
-        seedFailures,
-    };
+    return operation.isErr() ? { type: 'database-error' } : mapReactionRoleOperationRequestResult(operation.value);
 }
 
 export async function deleteDashboardReactionRoleMessage(
@@ -217,50 +113,45 @@ export async function deleteDashboardReactionRoleMessage(
     input: DashboardReactionRoleMessageDeleteInput
 ): Promise<DashboardReactionRoleMessageDeleteResult> {
     const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
-
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const actor = await resolveReactionRoleActor(request);
+    if (actor.type !== 'actor') return actor;
+    if (!isValidReactionRoleIdempotencyKey(input.idempotencyKey)) {
+        return { type: 'invalid-input', field: 'idempotencyKey' };
     }
-
-    const actorResult = await resolveReactionRoleActor(request);
-
-    if (actorResult.type !== 'actor') {
-        return actorResult;
+    if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) {
+        return { type: 'invalid-input', field: 'expectedRevision' };
     }
-
-    const database = await getWebDb();
-    const messageResult = await deleteReactionRoleMessage(database.db, {
+    const operation = await requestReactionRoleDeleteOperation((await getWebDb()).db, {
+        actorMetadata: actor.metadata,
+        actorUserId: actor.actorUserId,
+        expectedRevision: input.expectedRevision,
         guildId: guildPageData.guild.id,
+        idempotencyKey: input.idempotencyKey,
         messageId: input.messageId,
+        requestHash: createReactionRoleRequestHash({
+            expectedRevision: input.expectedRevision,
+            messageId: input.messageId,
+            type: 'delete',
+        }),
     });
+    return operation.isErr() ? { type: 'database-error' } : mapReactionRoleOperationRequestResult(operation.value);
+}
 
-    if (messageResult.isErr()) {
-        return mapReactionRoleRepositoryError(messageResult.error);
-    }
-
-    const structureResult = await loadReactionRoleStructure(guildPageData.guild.id);
-    const message = toDashboardReactionRoleMessage(
-        messageResult.value,
-        structureResult.rolesById,
-        structureResult.channelsById,
-        new Map()
-    );
-    const auditResult = await recordReactionRoleAuditEvent(database.db, guildPageData, actorResult, {
-        action: 'message.deleted',
-        targetId: message.messageId,
-        metadata: {
-            channelId: message.channelId,
-            ...(message.channelName ? { channelName: message.channelName } : {}),
-            messageId: message.messageId,
-        },
+export async function retryDashboardReactionRoleOperation(
+    request: Request,
+    input: { confirmUnknownPublishAbsent: boolean; guildId: string; operationId: string }
+): Promise<DashboardReactionRoleRetryResult> {
+    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const result = await retryReactionRoleOperation((await getWebDb()).db, {
+        confirmUnknownPublishAbsent: input.confirmUnknownPublishAbsent,
+        guildId: guildPageData.guild.id,
+        operationId: input.operationId,
     });
-
-    if (auditResult === 'database-error') {
-        return { type: 'database-error' };
+    if (result.isErr()) return { type: 'database-error' };
+    if (result.value.type === 'queued') {
+        return { type: 'operation-accepted', operation: toDashboardReactionRoleOperation(result.value.operation) };
     }
-
-    return {
-        type: 'deleted',
-        message,
-    };
+    return result.value.type === 'confirmation-required' ? { type: 'confirmation-required' } : { type: 'not-found' };
 }

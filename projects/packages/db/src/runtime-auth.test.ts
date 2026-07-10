@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { ConvexDatabase } from './convex.js';
 import {
+    claimFluxerOAuthTokenRefreshLease,
+    completeFluxerOAuthTokenRefresh,
     createWebSession,
     findActiveWebSessionById,
     findUsableFluxerOAuthTokenSetByUserId,
     invalidateFluxerOAuthTokenSet,
+    recordFluxerOAuthTokenRefreshFailure,
     revokeWebSession,
     upsertFluxerOAuthTokenSet,
 } from './runtime-auth.js';
@@ -30,6 +33,7 @@ const revokedSession = {
 const tokenSet = {
     accessToken: encryptedToken,
     accessTokenExpiresAt: '2026-07-03T09:00:00.000Z',
+    credentialGeneration: 1,
     createdAt: '2026-07-03T08:00:00.000Z',
     fluxerUserId: 'fluxer-user-1',
     invalidatedAt: null,
@@ -38,9 +42,11 @@ const tokenSet = {
     tokenType: 'Bearer',
     updatedAt: '2026-07-03T08:10:00.000Z',
 };
-const invalidatedTokenSet = {
+const refreshedTokenSet = {
     ...tokenSet,
-    invalidatedAt: '2026-07-03T08:30:00.000Z',
+    accessTokenExpiresAt: '2026-07-03T10:00:00.000Z',
+    credentialGeneration: 2,
+    refreshToken: encryptedToken,
 };
 
 describe('Convex auth-store database functions', () => {
@@ -105,9 +111,15 @@ describe('Convex auth-store database functions', () => {
         expect(invalidCreate._unsafeUnwrapErr()).toBe('missing-session-id');
     });
 
-    it('upserts, finds, and invalidates Fluxer OAuth tokens through Convex', async () => {
+    it('routes OAuth credential generation, lease, completion, cooldown, and terminal deletion through Convex', async () => {
         const db = createConvexDb({
-            mutationResults: [tokenSet, invalidatedTokenSet],
+            mutationResults: [
+                tokenSet,
+                { status: 'claimed' },
+                { status: 'applied', tokenSet: refreshedTokenSet },
+                { status: 'applied' },
+                { status: 'deleted' },
+            ],
             queryResults: [tokenSet],
         });
 
@@ -122,20 +134,60 @@ describe('Convex auth-store database functions', () => {
         const found = await findUsableFluxerOAuthTokenSetByUserId(db, {
             fluxerUserId: tokenSet.fluxerUserId,
         });
-        const invalidated = await invalidateFluxerOAuthTokenSet(db, {
+        const claim = await claimFluxerOAuthTokenRefreshLease(db, {
+            expectedGeneration: 1,
             fluxerUserId: tokenSet.fluxerUserId,
-            invalidatedAt: new Date(invalidatedTokenSet.invalidatedAt),
+            leaseExpiresAt: new Date('2026-07-03T08:00:15.000Z'),
+            leaseId: 'lease-1',
+            leaseOwner: 'web-1',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+        const completed = await completeFluxerOAuthTokenRefresh(db, {
+            accessToken: encryptedToken,
+            accessTokenExpiresAt: new Date(refreshedTokenSet.accessTokenExpiresAt),
+            expectedGeneration: 1,
+            fluxerUserId: tokenSet.fluxerUserId,
+            leaseId: 'lease-1',
+            refreshToken: encryptedToken,
+            scopes: tokenSet.scopes,
+            tokenType: tokenSet.tokenType,
+        });
+        const failure = await recordFluxerOAuthTokenRefreshFailure(db, {
+            expectedGeneration: 1,
+            fluxerUserId: tokenSet.fluxerUserId,
+            leaseId: 'lease-1',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+            retryAt: new Date('2026-07-03T08:00:05.000Z'),
+        });
+        const invalidated = await invalidateFluxerOAuthTokenSet(db, {
+            expectedGeneration: 1,
+            fluxerUserId: tokenSet.fluxerUserId,
+            leaseId: 'lease-1',
         });
 
         expect(upserted._unsafeUnwrap()).toStrictEqual(toOAuthTokenRecord(tokenSet));
         expect(found._unsafeUnwrap()).toStrictEqual(toOAuthTokenRecord(tokenSet));
-        expect(invalidated._unsafeUnwrap()).toStrictEqual(toOAuthTokenRecord(invalidatedTokenSet));
+        expect(claim._unsafeUnwrap()).toStrictEqual({ status: 'claimed' });
+        expect(completed._unsafeUnwrap()).toStrictEqual({
+            status: 'applied',
+            tokenSet: toOAuthTokenRecord(refreshedTokenSet),
+        });
+        expect(failure._unsafeUnwrap()).toStrictEqual({ status: 'applied' });
+        expect(invalidated._unsafeUnwrap()).toStrictEqual({ status: 'deleted' });
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             accessToken: encryptedToken,
             accessTokenExpiresAt: tokenSet.accessTokenExpiresAt,
             fluxerUserId: tokenSet.fluxerUserId,
             scopes: tokenSet.scopes,
             tokenType: tokenSet.tokenType,
+        });
+        expect(db.client.mutationCalls[1]?.args).toStrictEqual({
+            expectedGeneration: 1,
+            fluxerUserId: tokenSet.fluxerUserId,
+            leaseExpiresAt: '2026-07-03T08:00:15.000Z',
+            leaseId: 'lease-1',
+            leaseOwner: 'web-1',
+            now: '2026-07-03T08:00:00.000Z',
         });
     });
 
@@ -148,9 +200,10 @@ describe('Convex auth-store database functions', () => {
         const missing = await findUsableFluxerOAuthTokenSetByUserId(db, {
             fluxerUserId: tokenSet.fluxerUserId,
         });
-        const invalidatedAt = await invalidateFluxerOAuthTokenSet(db, {
+        const invalidGeneration = await invalidateFluxerOAuthTokenSet(db, {
+            expectedGeneration: -1,
             fluxerUserId: tokenSet.fluxerUserId,
-            invalidatedAt: new Date(Number.NaN),
+            leaseId: 'lease-1',
         });
         const missingScopes = await upsertFluxerOAuthTokenSet(db, {
             accessToken: encryptedToken,
@@ -161,8 +214,28 @@ describe('Convex auth-store database functions', () => {
         });
 
         expect(missing._unsafeUnwrapErr()).toBe('not-found');
-        expect(invalidatedAt._unsafeUnwrapErr()).toBe('database-error');
+        expect(invalidGeneration._unsafeUnwrapErr()).toBe('database-error');
         expect(missingScopes._unsafeUnwrapErr()).toBe('missing-scopes');
+    });
+
+    it('maps an active distributed refresh lease with its retry time', async () => {
+        const db = createConvexDb({
+            mutationResults: [{ retryAt: '2026-07-03T08:00:15.000Z', status: 'busy' }],
+        });
+
+        const result = await claimFluxerOAuthTokenRefreshLease(db, {
+            expectedGeneration: 1,
+            fluxerUserId: tokenSet.fluxerUserId,
+            leaseExpiresAt: new Date('2026-07-03T08:00:15.000Z'),
+            leaseId: 'lease-2',
+            leaseOwner: 'web-2',
+            now: new Date('2026-07-03T08:00:00.000Z'),
+        });
+
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            retryAt: new Date('2026-07-03T08:00:15.000Z'),
+            status: 'busy',
+        });
     });
 });
 
@@ -176,13 +249,14 @@ function toWebSessionRecord(record: typeof session | typeof revokedSession) {
     };
 }
 
-function toOAuthTokenRecord(record: typeof tokenSet | typeof invalidatedTokenSet) {
+function toOAuthTokenRecord(record: typeof tokenSet | typeof refreshedTokenSet) {
     return {
         accessToken: record.accessToken,
         accessTokenExpiresAt: new Date(record.accessTokenExpiresAt),
+        credentialGeneration: record.credentialGeneration,
         createdAt: new Date(record.createdAt),
         fluxerUserId: record.fluxerUserId,
-        invalidatedAt: record.invalidatedAt ? new Date(record.invalidatedAt) : null,
+        invalidatedAt: null,
         refreshToken: record.refreshToken,
         scopes: record.scopes,
         tokenType: record.tokenType,

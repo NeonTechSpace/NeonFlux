@@ -44,10 +44,14 @@ export function DashboardStructureBackupHistory({
     onRenameNameChange: (name: string) => void;
     onCancelDelete: () => void;
 }) {
+    'use no memo';
+
     const parentRef = useRef<HTMLDivElement>(null);
     const backups = page.backups;
     const hasLoadMoreRow = Boolean(page.nextCursor);
     const rowCount = backups.length + (hasLoadMoreRow ? 1 : 0);
+    // TanStack Virtual owns mutable measurement callbacks, so this component intentionally opts out of compilation.
+    // eslint-disable-next-line react-hooks/incompatible-library
     const virtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: () => parentRef.current,

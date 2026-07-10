@@ -49,6 +49,7 @@ describe('handleFluxerCallbackRequest', () => {
                 ok({
                     fluxerUserId: input.fluxerUserId,
                     accessToken: input.accessToken,
+                    credentialGeneration: 1,
                     refreshToken: input.refreshToken ?? null,
                     tokenType: input.tokenType,
                     accessTokenExpiresAt: input.accessTokenExpiresAt,

@@ -54,6 +54,9 @@ export type DashboardReactionRoleMessage = {
     messageEmbeds: DashboardReactionRoleEmbedPayload[];
     generateOverview: boolean;
     enabled: boolean;
+    lifecycle: 'deleting' | 'needs_attention' | 'ready' | 'syncing';
+    pendingOperationId?: string;
+    revision: number;
     staleAt?: string;
     updatedAt: string;
     options: DashboardReactionRoleOption[];
@@ -77,12 +80,15 @@ export type DashboardReactionRolesSettingsResult =
           structureReadStatus: DashboardReactionRoleReadStatus;
           emojiReadStatus: DashboardReactionRoleReadStatus;
           messages: DashboardReactionRoleMessage[];
+          operations: DashboardReactionRoleOperation[];
       }
     | DashboardReactionRolesErrorResult;
 
 export type DashboardReactionRoleMessageSaveInput = {
     guildId: string;
     messageId: string;
+    expectedRevision: number;
+    idempotencyKey: string;
     content?: string;
     embeds?: DashboardReactionRoleEmbedPayload[];
     mode: DashboardReactionRoleMode;
@@ -96,34 +102,62 @@ export type DashboardReactionRoleMessageSaveInput = {
 };
 
 export type DashboardReactionRoleMessageDeleteInput = {
+    expectedRevision: number;
     guildId: string;
+    idempotencyKey: string;
     messageId: string;
 };
 
+export type DashboardReactionRoleOperation = {
+    blockedCount: number;
+    channelId: string;
+    completedAt?: string;
+    errorCode?: string;
+    externalMessageId?: string;
+    id: string;
+    processedCount: number;
+    status: 'cancelled' | 'needs_attention' | 'queued' | 'running' | 'succeeded' | 'waiting_retry';
+    totalCount: number;
+    type: 'delete' | 'publish' | 'save';
+    updatedAt: string;
+};
+
+type DashboardReactionRoleOperationAcceptedResult = {
+    type: 'operation-accepted' | 'operation-existing';
+    operation: DashboardReactionRoleOperation;
+};
+
 export type DashboardReactionRolePublishResult =
-    | { type: 'published'; message: DashboardReactionRoleMessage; seedFailures: string[] }
-    | { type: 'published-with-seed-errors'; message: DashboardReactionRoleMessage; seedFailures: string[] }
+    | DashboardReactionRoleOperationAcceptedResult
+    | { type: 'operation-busy'; operation?: DashboardReactionRoleOperation }
+    | { type: 'idempotency-conflict' }
+    | { type: 'revision-conflict'; currentRevision: number }
     | { type: 'invalid-input'; field: string; message?: string }
     | { type: 'bot-token-missing' }
     | { type: 'send-failed' }
     | DashboardReactionRolesErrorResult;
 
 export type DashboardReactionRoleMessageSaveResult =
-    | { type: 'saved'; message: DashboardReactionRoleMessage; seedFailures: string[]; cleanupFailures: string[] }
-    | {
-          type: 'saved-with-reaction-errors';
-          message: DashboardReactionRoleMessage;
-          seedFailures: string[];
-          cleanupFailures: string[];
-      }
+    | DashboardReactionRoleOperationAcceptedResult
+    | { type: 'operation-busy'; operation?: DashboardReactionRoleOperation }
+    | { type: 'idempotency-conflict' }
+    | { type: 'revision-conflict'; currentRevision: number }
     | { type: 'invalid-input'; field: string; message?: string }
     | { type: 'bot-token-missing' }
     | { type: 'edit-failed' }
     | DashboardReactionRolesErrorResult;
 
 export type DashboardReactionRoleMessageDeleteResult =
-    | { type: 'deleted'; message: DashboardReactionRoleMessage }
+    | DashboardReactionRoleOperationAcceptedResult
+    | { type: 'operation-busy'; operation?: DashboardReactionRoleOperation }
+    | { type: 'idempotency-conflict' }
+    | { type: 'revision-conflict'; currentRevision: number }
     | { type: 'invalid-input'; field: string }
+    | DashboardReactionRolesErrorResult;
+
+export type DashboardReactionRoleRetryResult =
+    | { type: 'operation-accepted'; operation: DashboardReactionRoleOperation }
+    | { type: 'confirmation-required' }
     | DashboardReactionRolesErrorResult;
 
 export type DashboardReactionRoleMutationErrorResult =

@@ -3,6 +3,9 @@ import { err, ok, type Result } from 'neverthrow';
 
 import type {
     EncryptedOAuthTokenPayload,
+    FluxerOAuthRefreshCompletion,
+    FluxerOAuthRefreshLeaseClaim,
+    FluxerOAuthRefreshMutationStatus,
     FluxerOAuthTokenRecord,
     FluxerOAuthTokenRepositoryError,
     WebSessionRecord,
@@ -25,6 +28,7 @@ type ConvexWebSessionRecord = {
 type ConvexFluxerOAuthTokenRecord = {
     accessToken: EncryptedOAuthTokenPayload;
     accessTokenExpiresAt: string;
+    credentialGeneration: number;
     createdAt: string;
     fluxerUserId: string;
     invalidatedAt: string | null;
@@ -149,24 +153,140 @@ export async function findUsableFluxerOAuthTokenSetByUserId(
     }
 }
 
-export async function invalidateFluxerOAuthTokenSet(
+export async function claimFluxerOAuthTokenRefreshLease(
     db: FluxerOAuthTokenDb,
     input: {
+        expectedGeneration: number;
         fluxerUserId: string;
-        invalidatedAt?: Date;
+        leaseExpiresAt: Date;
+        leaseId: string;
+        leaseOwner: string;
+        now: Date;
     }
-): Promise<Result<FluxerOAuthTokenRecord, FluxerOAuthTokenRepositoryError>> {
-    if (input.invalidatedAt && !isValidDate(input.invalidatedAt)) {
+): Promise<Result<FluxerOAuthRefreshLeaseClaim, FluxerOAuthTokenRepositoryError>> {
+    if (
+        !isValidCredentialGeneration(input.expectedGeneration) ||
+        !isValidDate(input.leaseExpiresAt) ||
+        !isValidDate(input.now)
+    ) {
         return err('database-error');
     }
 
     try {
-        const tokenSet = await db.client.mutation(api.auth_store.invalidateFluxerOAuthTokenSet, {
+        const claim = await db.client.mutation(api.auth_store.claimFluxerOAuthTokenRefreshLease, {
+            expectedGeneration: input.expectedGeneration,
             fluxerUserId: input.fluxerUserId,
-            ...(input.invalidatedAt ? { invalidatedAt: input.invalidatedAt.toISOString() } : {}),
+            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
+            leaseId: input.leaseId,
+            leaseOwner: input.leaseOwner,
+            now: input.now.toISOString(),
         });
 
-        return tokenSet ? ok(toFluxerOAuthTokenRecord(tokenSet)) : err('not-found');
+        switch (claim.status) {
+            case 'busy':
+            case 'cooldown':
+                return ok({ retryAt: new Date(claim.retryAt), status: claim.status });
+
+            case 'claimed':
+            case 'missing':
+            case 'stale':
+                return ok({ status: claim.status });
+        }
+    } catch (error) {
+        return err(mapFluxerOAuthTokenError(error));
+    }
+}
+
+export async function completeFluxerOAuthTokenRefresh(
+    db: FluxerOAuthTokenDb,
+    input: {
+        accessToken: EncryptedOAuthTokenPayload;
+        accessTokenExpiresAt: Date;
+        expectedGeneration: number;
+        fluxerUserId: string;
+        leaseId: string;
+        refreshToken: EncryptedOAuthTokenPayload;
+        scopes: readonly string[];
+        tokenType: string;
+    }
+): Promise<Result<FluxerOAuthRefreshCompletion, FluxerOAuthTokenRepositoryError>> {
+    if (!isValidCredentialGeneration(input.expectedGeneration) || !isValidDate(input.accessTokenExpiresAt)) {
+        return err('database-error');
+    }
+
+    try {
+        const completion = await db.client.mutation(api.auth_store.completeFluxerOAuthTokenRefresh, {
+            accessToken: input.accessToken,
+            accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
+            expectedGeneration: input.expectedGeneration,
+            fluxerUserId: input.fluxerUserId,
+            leaseId: input.leaseId,
+            refreshToken: input.refreshToken,
+            scopes: [...input.scopes],
+            tokenType: input.tokenType,
+        });
+
+        return completion.status === 'applied'
+            ? ok({ status: 'applied', tokenSet: toFluxerOAuthTokenRecord(completion.tokenSet) })
+            : ok({ status: 'stale' });
+    } catch (error) {
+        return err(mapFluxerOAuthTokenError(error));
+    }
+}
+
+export async function recordFluxerOAuthTokenRefreshFailure(
+    db: FluxerOAuthTokenDb,
+    input: {
+        expectedGeneration: number;
+        fluxerUserId: string;
+        leaseId: string;
+        now: Date;
+        retryAt: Date;
+    }
+): Promise<Result<FluxerOAuthRefreshMutationStatus, FluxerOAuthTokenRepositoryError>> {
+    if (
+        !isValidCredentialGeneration(input.expectedGeneration) ||
+        !isValidDate(input.now) ||
+        !isValidDate(input.retryAt)
+    ) {
+        return err('database-error');
+    }
+
+    try {
+        return ok(
+            await db.client.mutation(api.auth_store.recordFluxerOAuthTokenRefreshFailure, {
+                expectedGeneration: input.expectedGeneration,
+                fluxerUserId: input.fluxerUserId,
+                leaseId: input.leaseId,
+                now: input.now.toISOString(),
+                retryAt: input.retryAt.toISOString(),
+            })
+        );
+    } catch (error) {
+        return err(mapFluxerOAuthTokenError(error));
+    }
+}
+
+export async function invalidateFluxerOAuthTokenSet(
+    db: FluxerOAuthTokenDb,
+    input: {
+        expectedGeneration: number;
+        fluxerUserId: string;
+        leaseId: string;
+    }
+): Promise<Result<FluxerOAuthRefreshMutationStatus, FluxerOAuthTokenRepositoryError>> {
+    if (!isValidCredentialGeneration(input.expectedGeneration)) {
+        return err('database-error');
+    }
+
+    try {
+        return ok(
+            await db.client.mutation(api.auth_store.invalidateFluxerOAuthTokenSet, {
+                expectedGeneration: input.expectedGeneration,
+                fluxerUserId: input.fluxerUserId,
+                leaseId: input.leaseId,
+            })
+        );
     } catch (error) {
         return err(mapFluxerOAuthTokenError(error));
     }
@@ -186,6 +306,7 @@ function toFluxerOAuthTokenRecord(record: ConvexFluxerOAuthTokenRecord): FluxerO
     return {
         accessToken: record.accessToken,
         accessTokenExpiresAt: new Date(record.accessTokenExpiresAt),
+        credentialGeneration: record.credentialGeneration,
         createdAt: new Date(record.createdAt),
         fluxerUserId: record.fluxerUserId,
         invalidatedAt: record.invalidatedAt ? new Date(record.invalidatedAt) : null,
@@ -225,4 +346,8 @@ function mapFluxerOAuthTokenError(error: unknown): FluxerOAuthTokenRepositoryErr
 
 function isValidDate(date: Date): boolean {
     return Number.isFinite(date.getTime());
+}
+
+function isValidCredentialGeneration(value: number): boolean {
+    return Number.isSafeInteger(value) && value >= 0;
 }

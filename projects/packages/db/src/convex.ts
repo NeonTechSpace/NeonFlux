@@ -2,13 +2,18 @@ import type { RequiredConvexConfig } from '@neonflux/config/env';
 import { createNeonFluxConvexHttpClient } from '@neonflux/convex/client';
 import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 
+export const CONVEX_SERVICE_AUTH_TOKEN_LIFETIME_SECONDS = 10 * 60;
+export const CONVEX_SERVICE_AUTH_REFRESH_SKEW_SECONDS = 60;
+export const CONVEX_SERVICE_AUTH_SIGNING_RETRY_DELAY_MS = 5_000;
+
 export type ConvexDbServiceName = 'bot' | 'web';
 
 export type ConvexServiceDbOptions = {
     expiresInSeconds?: number;
-    now?: Date;
     serviceName: ConvexDbServiceName;
 };
+
+export type ConvexServiceAuthTokenProvider = () => Promise<string>;
 
 export type ConvexServiceDbClient = {
     close(): Promise<void>;
@@ -25,9 +30,108 @@ export type ConvexDatabase = {
     serviceName: ConvexDbServiceName;
 };
 
-export async function createConvexServiceAuthToken(
+type CachedConvexServiceAuthToken = {
+    refreshAtMs: number;
+    value: string;
+};
+
+type ConvexServiceAuthSigningFailure = {
+    error: ConvexServiceAuthTokenRefreshError;
+    retryAtMs: number;
+};
+
+export class ConvexServiceAuthTokenRefreshError extends Error {
+    constructor(serviceName: ConvexDbServiceName) {
+        super(`Convex ${serviceName} service authentication token refresh failed.`);
+        this.name = 'ConvexServiceAuthTokenRefreshError';
+    }
+}
+
+export function createConvexServiceAuthToken(
     config: RequiredConvexConfig,
     options: ConvexServiceDbOptions
+): Promise<string> {
+    const expiresInSeconds = readServiceAuthTokenLifetimeSeconds(options.expiresInSeconds);
+
+    return signConvexServiceAuthToken(config, options.serviceName, expiresInSeconds, new Date());
+}
+
+export function createConvexServiceAuthTokenProvider(
+    config: RequiredConvexConfig,
+    options: ConvexServiceDbOptions
+): ConvexServiceAuthTokenProvider {
+    const expiresInSeconds = readServiceAuthTokenLifetimeSeconds(options.expiresInSeconds);
+    const serviceName = options.serviceName;
+    const refreshSkewSeconds = Math.min(CONVEX_SERVICE_AUTH_REFRESH_SKEW_SECONDS, Math.floor(expiresInSeconds / 2));
+    let cachedToken: CachedConvexServiceAuthToken | undefined;
+    let refreshPromise: Promise<string> | undefined;
+    let signingFailure: ConvexServiceAuthSigningFailure | undefined;
+
+    return function provideConvexServiceAuthToken(): Promise<string> {
+        const requestTimeMs = Date.now();
+
+        if (cachedToken && requestTimeMs < cachedToken.refreshAtMs) {
+            return Promise.resolve(cachedToken.value);
+        }
+
+        cachedToken = undefined;
+
+        if (refreshPromise) {
+            return refreshPromise;
+        }
+
+        if (signingFailure && requestTimeMs < signingFailure.retryAtMs) {
+            return Promise.reject(signingFailure.error);
+        }
+
+        signingFailure = undefined;
+
+        const issuedAtMs = Math.floor(requestTimeMs / 1_000) * 1_000;
+        const refreshAtMs = issuedAtMs + (expiresInSeconds - refreshSkewSeconds) * 1_000;
+        const refresh = signConvexServiceAuthToken(config, serviceName, expiresInSeconds, new Date(issuedAtMs))
+            .then((token) => {
+                if (Date.now() >= refreshAtMs) {
+                    throw new Error('The signed Convex service authentication token is already stale.');
+                }
+
+                cachedToken = {
+                    refreshAtMs,
+                    value: token,
+                };
+
+                return token;
+            })
+            .catch(() => {
+                // Keep signer/parser details out of surfaced errors because they may contain key material.
+                const error = new ConvexServiceAuthTokenRefreshError(serviceName);
+
+                signingFailure = {
+                    error,
+                    retryAtMs: Date.now() + CONVEX_SERVICE_AUTH_SIGNING_RETRY_DELAY_MS,
+                };
+
+                throw error;
+            });
+
+        refreshPromise = refresh;
+
+        const clearRefreshPromise = () => {
+            if (refreshPromise === refresh) {
+                refreshPromise = undefined;
+            }
+        };
+
+        void refresh.then(clearRefreshPromise, clearRefreshPromise);
+
+        return refresh;
+    };
+}
+
+function signConvexServiceAuthToken(
+    config: RequiredConvexConfig,
+    serviceName: ConvexDbServiceName,
+    expiresInSeconds: number,
+    now: Date
 ): Promise<string> {
     return signNeonFluxServiceJwt(
         {
@@ -36,26 +140,36 @@ export async function createConvexServiceAuthToken(
             privateKeyPem: config.authJwtPrivateKey,
         },
         {
-            ...(options.expiresInSeconds ? { expiresInSeconds: options.expiresInSeconds } : {}),
-            ...(options.now ? { now: options.now } : {}),
-            serviceName: options.serviceName,
+            expiresInSeconds,
+            now,
+            serviceName,
         }
     );
 }
 
-export async function createConvexServiceDb(
+function readServiceAuthTokenLifetimeSeconds(value: number | undefined): number {
+    const lifetime = value ?? CONVEX_SERVICE_AUTH_TOKEN_LIFETIME_SECONDS;
+
+    if (!Number.isSafeInteger(lifetime) || lifetime < 2) {
+        throw new RangeError('Convex service authentication token lifetime must be an integer of at least 2 seconds.');
+    }
+
+    return lifetime;
+}
+
+export function createConvexServiceDb(
     config: RequiredConvexConfig,
     options: ConvexServiceDbOptions
 ): Promise<ConvexServiceDbClient> {
-    const authToken = await createConvexServiceAuthToken(config, options);
+    const authTokenProvider = createConvexServiceAuthTokenProvider(config, options);
     const client = createNeonFluxConvexHttpClient({
-        authToken,
+        authTokenProvider,
         url: config.url,
     });
 
-    return {
-        async close() {
-            await Promise.resolve();
+    return Promise.resolve({
+        close() {
+            return Promise.resolve();
         },
         client,
         db: {
@@ -66,5 +180,5 @@ export async function createConvexServiceDb(
         deployment: config.deployment,
         serviceName: options.serviceName,
         url: config.url,
-    };
+    });
 }

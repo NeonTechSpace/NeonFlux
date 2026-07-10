@@ -22,12 +22,14 @@ import {
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
     buildStructureImportRunStatusPatch,
+    checkStructureApplyAttemptPreconditions,
     normalizeBackupName,
     normalizeBackupRetentionDays,
     normalizeLimit,
     normalizeRequiredGuildId,
     STRUCTURE_BACKUP_SOURCE,
     STRUCTURE_BACKUP_STATUS,
+    STRUCTURE_IMPORT_RUN_STATUS,
     toStructureBackupRecord,
     toStructureBackupSettingsRecord,
     toStructureBackupSummaryRecord,
@@ -788,12 +790,46 @@ export const findStructureImportRunByGuildId = query({
 });
 
 export const updateStructureImportRunStatus = mutation({
-    args: { audit: v.optional(auditInputValidator), plan: v.optional(v.any()), runId: v.string(), status: v.string() },
+    args: {
+        audit: v.optional(auditInputValidator),
+        expectedApplyAttemptId: v.optional(v.string()),
+        expectedApplyLeaseOwner: v.optional(v.string()),
+        plan: v.optional(v.any()),
+        requireExpiredApplyLease: v.optional(v.boolean()),
+        runId: v.string(),
+        status: v.string(),
+    },
     returns: v.union(runRecordValidator, v.null()),
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const run = await findRunById(ctx, parseRunId(args.runId));
         if (!run) return null;
+
+        if (
+            run.status === STRUCTURE_IMPORT_RUN_STATUS.confirmed &&
+            args.status === STRUCTURE_IMPORT_RUN_STATUS.applying
+        ) {
+            const activeGuildRun = await ctx.db
+                .query('structureImportRuns')
+                .withIndex('by_guild_status', (index) =>
+                    index.eq('guildId', run.guildId).eq('status', STRUCTURE_IMPORT_RUN_STATUS.applying)
+                )
+                .first();
+            if (activeGuildRun && activeGuildRun._id !== run._id) {
+                throw new Error('structure-guild-apply-active');
+            }
+        }
+
+        if (
+            run.status === STRUCTURE_IMPORT_RUN_STATUS.applying &&
+            args.status === STRUCTURE_IMPORT_RUN_STATUS.applying &&
+            (!args.expectedApplyAttemptId || !args.expectedApplyLeaseOwner)
+        ) {
+            throw new Error('structure-apply-attempt-required');
+        }
+
+        const attemptPrecondition = checkStructureApplyAttemptPreconditions(run.plan, args, new Date().toISOString());
+        if (attemptPrecondition !== 'ready') throw new Error(`structure-apply-${attemptPrecondition}`);
 
         const patch = unwrap(buildStructureImportRunStatusPatch(run, args, new Date().toISOString()));
         await ctx.db.patch('structureImportRuns', run._id, patch);

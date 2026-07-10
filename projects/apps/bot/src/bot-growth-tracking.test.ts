@@ -1,12 +1,12 @@
 import type { AppMode } from '@neonflux/config';
 import {
-    incrementGuildMessageActivityDay,
     listGuildInviteSnapshots,
     recordGuildMemberFlowEvent,
-    syncGuildInviteSnapshots,
+    recordGuildMemberJoinWithInviteSnapshots,
+    recordGuildMessageActivity,
     type GuildInviteSnapshotRecord,
     type GuildMemberFlowEventRecord,
-    type GuildMessageActivityDayRecord,
+    type GuildMessageActivityRecord,
 } from '@neonflux/db';
 import { readFluxerGuildInvites, type FluxerBot, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
@@ -16,10 +16,10 @@ import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
 import type { BotFeatureHandlerContext, BotFeatureEvent } from './bot-feature-types.js';
 
 vi.mock('@neonflux/db', () => ({
-    incrementGuildMessageActivityDay: vi.fn(),
     listGuildInviteSnapshots: vi.fn(),
     recordGuildMemberFlowEvent: vi.fn(),
-    syncGuildInviteSnapshots: vi.fn(),
+    recordGuildMemberJoinWithInviteSnapshots: vi.fn(),
+    recordGuildMessageActivity: vi.fn(),
 }));
 
 vi.mock('@neonflux/fluxer', () => ({
@@ -32,8 +32,10 @@ const testClient = {} as FluxerBot['client'];
 describe('trackGrowthOverviewEvent', () => {
     beforeEach(() => {
         vi.resetAllMocks();
-        vi.mocked(incrementGuildMessageActivityDay).mockResolvedValue(ok(createMessageActivityRecord()));
-        vi.mocked(listGuildInviteSnapshots).mockResolvedValue(ok([createInviteSnapshot()]));
+        vi.mocked(recordGuildMessageActivity).mockResolvedValue(ok(createMessageActivityRecord()));
+        vi.mocked(listGuildInviteSnapshots).mockResolvedValue(
+            ok({ baselineObserved: true, snapshots: [createInviteSnapshot()] })
+        );
         vi.mocked(readFluxerGuildInvites).mockResolvedValue(
             ok([
                 createFluxerInvite({
@@ -43,7 +45,7 @@ describe('trackGrowthOverviewEvent', () => {
             ])
         );
         vi.mocked(recordGuildMemberFlowEvent).mockResolvedValue(ok(createMemberFlowRecord()));
-        vi.mocked(syncGuildInviteSnapshots).mockResolvedValue(ok([createInviteSnapshot({ uses: 2 })]));
+        vi.mocked(recordGuildMemberJoinWithInviteSnapshots).mockResolvedValue(ok(createMemberFlowRecord()));
     });
 
     it('respects single-mode guild gating before tracking member joins', async () => {
@@ -76,8 +78,11 @@ describe('trackGrowthOverviewEvent', () => {
             client: testClient,
             guildId: 'guild-1',
         });
-        expect(syncGuildInviteSnapshots).toHaveBeenCalledWith(testDb, {
+        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledWith(testDb, {
+            attributionStatus: 'attributed',
             guildId: 'guild-1',
+            inviteCode: 'alpha',
+            inviterUserId: 'inviter-1',
             invites: [
                 {
                     code: 'alpha',
@@ -87,19 +92,13 @@ describe('trackGrowthOverviewEvent', () => {
                     temporary: false,
                 },
             ],
-        });
-        expect(recordGuildMemberFlowEvent).toHaveBeenCalledWith(testDb, {
-            guildId: 'guild-1',
             userId: 'user-1',
-            eventType: 'join',
-            attributionStatus: 'attributed',
-            inviteCode: 'alpha',
-            inviterUserId: 'inviter-1',
         });
+        expect(recordGuildMemberFlowEvent).not.toHaveBeenCalled();
     });
 
     it('marks joins as baseline-missing when no prior invite snapshot exists', async () => {
-        vi.mocked(listGuildInviteSnapshots).mockResolvedValueOnce(ok([]));
+        vi.mocked(listGuildInviteSnapshots).mockResolvedValueOnce(ok({ baselineObserved: false, snapshots: [] }));
 
         const result = await trackGrowthOverviewEvent(createContext(createMultiMode()), {
             type: 'member.joined',
@@ -109,12 +108,60 @@ describe('trackGrowthOverviewEvent', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(recordGuildMemberFlowEvent).toHaveBeenCalledWith(testDb, {
+        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ attributionStatus: 'baseline-missing' })
+        );
+    });
+
+    it('distinguishes a successfully observed empty baseline from a missing baseline', async () => {
+        vi.mocked(listGuildInviteSnapshots).mockResolvedValueOnce(ok({ baselineObserved: true, snapshots: [] }));
+        vi.mocked(readFluxerGuildInvites).mockResolvedValueOnce(ok([]));
+
+        await trackGrowthOverviewEvent(createContext(createMultiMode()), {
+            type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            eventType: 'join',
-            attributionStatus: 'baseline-missing',
+            roleIds: [],
         });
+
+        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ attributionStatus: 'unavailable' })
+        );
+    });
+
+    it('falls back to an unavailable event when invite-sync input is invalid', async () => {
+        vi.mocked(recordGuildMemberJoinWithInviteSnapshots).mockResolvedValueOnce(
+            err({ field: 'uses', type: 'invalid-value' })
+        );
+
+        const result = await trackGrowthOverviewEvent(createContext(createMultiMode()), {
+            type: 'member.joined',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            roleIds: [],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(recordGuildMemberFlowEvent).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ attributionStatus: 'unavailable' })
+        );
+    });
+
+    it('does not double-write after an ambiguous atomic mutation outcome', async () => {
+        vi.mocked(recordGuildMemberJoinWithInviteSnapshots).mockResolvedValueOnce(err({ type: 'database-error' }));
+
+        const result = await trackGrowthOverviewEvent(createContext(createMultiMode()), {
+            type: 'member.joined',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            roleIds: [],
+        });
+
+        expect(result._unsafeUnwrapErr()).toBe('database-error');
+        expect(recordGuildMemberFlowEvent).not.toHaveBeenCalled();
     });
 
     it('marks joins as unavailable when invite reading is denied', async () => {
@@ -128,7 +175,7 @@ describe('trackGrowthOverviewEvent', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(syncGuildInviteSnapshots).not.toHaveBeenCalled();
+        expect(recordGuildMemberJoinWithInviteSnapshots).not.toHaveBeenCalled();
         expect(recordGuildMemberFlowEvent).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
             userId: 'user-1',
@@ -154,14 +201,14 @@ describe('trackGrowthOverviewEvent', () => {
         });
     });
 
-    it('increments message activity for non-bot guild messages', async () => {
+    it('records sharded message activity for non-bot guild messages', async () => {
         const result = await trackGrowthOverviewEvent(createContext(createMultiMode()), createMessageEvent());
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({ status: 'tracked' });
-        expect(incrementGuildMessageActivityDay).toHaveBeenCalledWith(testDb, {
+        expect(recordGuildMessageActivity).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
-            channelId: 'channel-1',
+            messageId: 'message-1',
         });
     });
 
@@ -176,7 +223,40 @@ describe('trackGrowthOverviewEvent', () => {
             status: 'ignored',
             reason: 'bot-authored-message',
         });
-        expect(incrementGuildMessageActivityDay).not.toHaveBeenCalled();
+        expect(recordGuildMessageActivity).not.toHaveBeenCalled();
+    });
+
+    it('serializes invite baseline updates for concurrent joins in one guild', async () => {
+        let releaseFirstRead: (() => void) | undefined;
+        const firstRead = new Promise<void>((resolve) => {
+            releaseFirstRead = resolve;
+        });
+        vi.mocked(readFluxerGuildInvites)
+            .mockImplementationOnce(async () => {
+                await firstRead;
+                return ok([createFluxerInvite({ uses: 2 })]);
+            })
+            .mockResolvedValueOnce(ok([createFluxerInvite({ uses: 3 })]));
+
+        const first = trackGrowthOverviewEvent(createContext(createMultiMode()), {
+            type: 'member.joined',
+            guildId: 'guild-1',
+            userId: 'user-1',
+            roleIds: [],
+        });
+        const second = trackGrowthOverviewEvent(createContext(createMultiMode()), {
+            type: 'member.joined',
+            guildId: 'guild-1',
+            userId: 'user-2',
+            roleIds: [],
+        });
+
+        await vi.waitFor(() => expect(listGuildInviteSnapshots).toHaveBeenCalledTimes(1));
+        releaseFirstRead?.();
+        await Promise.all([first, second]);
+
+        expect(listGuildInviteSnapshots).toHaveBeenCalledTimes(2);
+        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -271,16 +351,11 @@ function createMemberFlowRecord(overrides: Partial<GuildMemberFlowEventRecord> =
     };
 }
 
-function createMessageActivityRecord(
-    overrides: Partial<GuildMessageActivityDayRecord> = {}
-): GuildMessageActivityDayRecord {
+function createMessageActivityRecord(overrides: Partial<GuildMessageActivityRecord> = {}): GuildMessageActivityRecord {
     return {
-        id: 'activity-1',
         guildId: 'guild-1',
-        channelId: 'channel-1',
         activityDate: '2026-06-26',
-        messageCount: 1,
-        updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+        shard: 12,
         ...overrides,
     };
 }

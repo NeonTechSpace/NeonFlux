@@ -25,6 +25,7 @@ type SdkMessage = {
     delete(): Promise<void>;
     react(emoji: string): Promise<void>;
     removeReaction?(emoji: string, userId?: string): Promise<void>;
+    removeReactionEmoji?(emoji: string): Promise<void>;
 };
 
 type SdkMessageReactions = {
@@ -83,6 +84,8 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         react: (input: { channelId: string; messageId: string; emoji: string }) => reactToMessage(client, input),
         removeReaction: (input: { channelId: string; messageId: string; emoji: string; userId: string }) =>
             removeMessageReaction(client, input),
+        removeReactionEmoji: (input: { channelId: string; messageId: string; emoji: string }) =>
+            removeMessageReactionEmoji(client, input),
         listReactionUsers: (input: {
             channelId: string;
             messageId: string;
@@ -264,6 +267,25 @@ async function removeMessageReaction(
     }
 }
 
+async function removeMessageReactionEmoji(
+    client: FluxerBot['client'],
+    input: { channelId: string; messageId: string; emoji: string }
+): Promise<Result<void, FluxerPlatformError>> {
+    const emoji = input.emoji.trim();
+    if (!emoji) return err({ type: 'missing-input', field: 'emoji' });
+    const messageResult = await fetchSdkMessage(client, input);
+    if (messageResult.isErr()) return err(messageResult.error);
+    if (typeof messageResult.value.removeReactionEmoji !== 'function') {
+        return err({ type: 'unsupported', feature: 'message-reaction-emoji-removal' });
+    }
+    try {
+        await messageResult.value.removeReactionEmoji(emoji);
+        return ok(undefined);
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
+}
+
 async function listReactionUsers(
     client: FluxerBot['client'],
     input: { channelId: string; messageId: string; emoji: string; limit: number; after?: string }
@@ -361,15 +383,15 @@ function normalizeMessageEditPayload(input: {
     embeds?: MessageSendOptions['embeds'];
 }): Result<{ content?: string; embeds?: MessageSendOptions['embeds'] }, FluxerPlatformError> {
     const content = input.content?.trim();
-    const embeds = input.embeds && input.embeds.length > 0 ? input.embeds : undefined;
+    const embeds = input.embeds;
 
-    if (!content && !embeds) {
+    if (!content && (!embeds || embeds.length === 0)) {
         return err({ type: 'missing-input', field: 'message' });
     }
 
     return ok({
-        ...(content ? { content } : {}),
-        ...(embeds ? { embeds } : {}),
+        ...(input.content === undefined ? {} : { content: content ?? '' }),
+        ...(embeds === undefined ? {} : { embeds }),
     });
 }
 

@@ -7,9 +7,11 @@ import type {
     GuildInviteAttributionStatus,
     GuildInviteSnapshotInput,
     GuildInviteSnapshotRecord,
+    GuildInviteSnapshotState,
+    GuildInviteSnapshotSyncResult,
     GuildMemberFlowEventRecord,
     GuildMemberFlowEventType,
-    GuildMessageActivityDayRecord,
+    GuildMessageActivityRecord,
     GuildOverviewAggregate,
 } from './contracts.js';
 
@@ -44,13 +46,10 @@ type ConvexGuildInviteSnapshotRecord = {
     uses: number;
 };
 
-type ConvexGuildMessageActivityDayRecord = {
+type ConvexGuildMessageActivityRecord = {
     activityDate: string;
-    channelId: string;
     guildId: string;
-    id: string;
-    messageCount: number;
-    updatedAt: string;
+    shard: number;
 };
 
 type ConvexGuildOverviewAggregate = Omit<GuildOverviewAggregate, 'trackingStartedAt'> & {
@@ -82,18 +81,68 @@ export async function recordGuildMemberFlowEvent(
     }
 }
 
+export async function recordGuildMemberJoinWithInviteSnapshots(
+    db: GrowthOverviewDb,
+    input: {
+        attributionStatus: Exclude<GuildInviteAttributionStatus, 'not-applicable'>;
+        guildId: string;
+        inviteCode?: string;
+        inviterUserId?: string;
+        invites: readonly GuildInviteSnapshotInput[];
+        observedAt?: Date;
+        userId: string;
+    }
+): Promise<Result<GuildMemberFlowEventRecord, GrowthOverviewRepositoryError>> {
+    const member = normalizeMemberFlowInput({
+        attributionStatus: input.attributionStatus,
+        eventType: 'join',
+        guildId: input.guildId,
+        ...(input.inviteCode === undefined ? {} : { inviteCode: input.inviteCode }),
+        ...(input.inviterUserId === undefined ? {} : { inviterUserId: input.inviterUserId }),
+        ...(input.observedAt === undefined ? {} : { occurredAt: input.observedAt }),
+        userId: input.userId,
+    });
+    const inviteSync = normalizeInviteSyncInput({
+        guildId: input.guildId,
+        invites: input.invites,
+        ...(input.observedAt === undefined ? {} : { observedAt: input.observedAt }),
+    });
+
+    if (member.isErr()) return err(member.error);
+    if (inviteSync.isErr()) return err(inviteSync.error);
+    if (!member.value.attributionStatus || member.value.attributionStatus === 'not-applicable') {
+        return err({ field: 'attributionStatus', type: 'invalid-value' });
+    }
+
+    try {
+        const event = await db.client.mutation(api.growth_overview.recordGuildMemberJoinWithInviteSnapshots, {
+            attributionStatus: member.value.attributionStatus,
+            guildId: member.value.guildId,
+            invites: inviteSync.value.invites,
+            userId: member.value.userId,
+            ...(member.value.inviteCode === undefined ? {} : { inviteCode: member.value.inviteCode }),
+            ...(member.value.inviterUserId === undefined ? {} : { inviterUserId: member.value.inviterUserId }),
+            ...(inviteSync.value.observedAt === undefined ? {} : { observedAt: inviteSync.value.observedAt }),
+        });
+
+        return ok(toGuildMemberFlowEventRecord(event));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function syncGuildInviteSnapshots(
     db: GrowthOverviewDb,
     input: { guildId: string; invites: readonly GuildInviteSnapshotInput[]; observedAt?: Date }
-): Promise<Result<GuildInviteSnapshotRecord[], GrowthOverviewRepositoryError>> {
+): Promise<Result<GuildInviteSnapshotSyncResult, GrowthOverviewRepositoryError>> {
     const normalizedInput = normalizeInviteSyncInput(input);
 
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const snapshots = await db.client.mutation(api.growth_overview.syncGuildInviteSnapshots, normalizedInput.value);
+        const result = await db.client.mutation(api.growth_overview.syncGuildInviteSnapshots, normalizedInput.value);
 
-        return ok(snapshots.map(toGuildInviteSnapshotRecord));
+        return ok(result);
     } catch {
         return err({ type: 'database-error' });
     }
@@ -102,42 +151,45 @@ export async function syncGuildInviteSnapshots(
 export async function listGuildInviteSnapshots(
     db: GrowthOverviewDb,
     input: { guildId: string }
-): Promise<Result<GuildInviteSnapshotRecord[], GrowthOverviewRepositoryError>> {
+): Promise<Result<GuildInviteSnapshotState, GrowthOverviewRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
 
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const snapshots = await db.client.query(api.growth_overview.listGuildInviteSnapshots, {
+        const state = await db.client.query(api.growth_overview.listGuildInviteSnapshots, {
             guildId: guildId.value,
         });
 
-        return ok(snapshots.map(toGuildInviteSnapshotRecord));
+        return ok({
+            baselineObserved: state.baselineObserved,
+            snapshots: state.snapshots.map(toGuildInviteSnapshotRecord),
+        });
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function incrementGuildMessageActivityDay(
+export async function recordGuildMessageActivity(
     db: GrowthOverviewDb,
-    input: { channelId: string; guildId: string; occurredAt?: Date }
-): Promise<Result<GuildMessageActivityDayRecord, GrowthOverviewRepositoryError>> {
+    input: { guildId: string; messageId: string; occurredAt?: Date }
+): Promise<Result<GuildMessageActivityRecord, GrowthOverviewRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const channelId = normalizeRequiredText(input.channelId, 'channelId');
+    const messageId = normalizeRequiredText(input.messageId, 'messageId');
     const occurredAt = input.occurredAt ? normalizeDate(input.occurredAt, 'occurredAt') : ok(undefined);
 
     if (guildId.isErr()) return err(guildId.error);
-    if (channelId.isErr()) return err(channelId.error);
+    if (messageId.isErr()) return err(messageId.error);
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const activity = await db.client.mutation(api.growth_overview.incrementGuildMessageActivityDay, {
-            channelId: channelId.value,
+        const activity = await db.client.mutation(api.growth_overview.recordGuildMessageActivity, {
             guildId: guildId.value,
+            messageId: messageId.value,
             ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
         });
 
-        return ok(toGuildMessageActivityDayRecord(activity));
+        return ok(toGuildMessageActivityRecord(activity));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -334,14 +386,11 @@ function toGuildInviteSnapshotRecord(record: ConvexGuildInviteSnapshotRecord): G
     };
 }
 
-function toGuildMessageActivityDayRecord(record: ConvexGuildMessageActivityDayRecord): GuildMessageActivityDayRecord {
+function toGuildMessageActivityRecord(record: ConvexGuildMessageActivityRecord): GuildMessageActivityRecord {
     return {
         activityDate: record.activityDate,
-        channelId: record.channelId,
         guildId: record.guildId,
-        id: record.id,
-        messageCount: record.messageCount,
-        updatedAt: new Date(record.updatedAt),
+        shard: record.shard,
     };
 }
 

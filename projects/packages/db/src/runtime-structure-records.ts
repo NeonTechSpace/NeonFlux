@@ -7,7 +7,6 @@ import type {
     StructureImportActionPageRecord,
     StructureImportActionRecord,
     StructureImportRunRecord,
-    StructureImportRunWithActionsRecord,
     StructureObservedEventStateRecord,
 } from './contracts-structure.js';
 import type { GuildFeatureRepositoryError } from './contracts.js';
@@ -69,9 +68,6 @@ export type ConvexStructureImportActionRecord = Omit<StructureImportActionRecord
 export type ConvexStructureImportActionPageRecord = {
     actions: ConvexStructureImportActionRecord[];
     nextCursor: string | null;
-};
-export type ConvexStructureImportRunWithActionsRecord = ConvexStructureImportRunRecord & {
-    actions: ConvexStructureImportActionRecord[];
 };
 export type ConvexStructureObservedEventStateRecord = Omit<
     StructureObservedEventStateRecord,
@@ -211,15 +207,6 @@ export function toImportActionPageRecord(
     return {
         actions: record.actions.map(toImportActionRecord),
         nextCursor: record.nextCursor,
-    };
-}
-
-export function toImportRunWithActionsRecord(
-    record: ConvexStructureImportRunWithActionsRecord
-): StructureImportRunWithActionsRecord {
-    return {
-        ...toImportRunRecord(record),
-        actions: record.actions.map(toImportActionRecord),
     };
 }
 

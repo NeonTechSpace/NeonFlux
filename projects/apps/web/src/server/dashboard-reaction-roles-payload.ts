@@ -1,6 +1,9 @@
 import type { ReactionRoleMessageMode } from '@neonflux/db';
 
 const maxReactionRoleOptions = 30;
+const maxMessageContentLength = 4_000;
+const maxEmbedPayloadLength = 100_000;
+const maxIdentityLength = 256;
 
 export type DashboardReactionRoleJsonValue =
     | string
@@ -33,6 +36,7 @@ export type DashboardReactionRolePublishInput = {
     embeds?: DashboardReactionRoleEmbedPayload[];
     mode: ReactionRoleMessageMode;
     generateOverview: boolean;
+    idempotencyKey: string;
     options: DashboardReactionRolePublishOptionInput[];
 };
 
@@ -57,6 +61,9 @@ export function normalizeReactionRolePublishPayload(
     const embeds = Array.isArray(input.embeds) ? input.embeds.map(toJsonValue).filter(isSerializableRecord) : [];
 
     if (!channelId) return { type: 'invalid-input', field: 'channelId' };
+    if (channelId.length > maxIdentityLength) return { type: 'invalid-input', field: 'channelId' };
+    if ((content?.length ?? 0) > maxMessageContentLength) return { type: 'invalid-input', field: 'content' };
+    if (JSON.stringify(embeds).length > maxEmbedPayloadLength) return { type: 'invalid-input', field: 'embeds' };
     if (!Array.isArray(input.options) || input.options.length === 0) return { type: 'invalid-input', field: 'options' };
 
     if (input.options.length > maxReactionRoleOptions) {
@@ -68,6 +75,7 @@ export function normalizeReactionRolePublishPayload(
     }
 
     const seenEmojiKeys = new Set<string>();
+    const seenRoleIds = new Set<string>();
     const normalizedOptions = input.options.map((option, index) => ({
         emojiKey: option.emojiKey.trim(),
         emojiLabel: option.emojiLabel?.trim() || option.emojiKey.trim(),
@@ -77,10 +85,14 @@ export function normalizeReactionRolePublishPayload(
 
     for (const option of normalizedOptions) {
         if (!option.emojiKey) return { type: 'invalid-input', field: 'emojiKey' };
+        if (option.emojiKey.length > maxIdentityLength) return { type: 'invalid-input', field: 'emojiKey' };
         if (!option.roleId || !rolesById.has(option.roleId)) return { type: 'invalid-input', field: 'roleId' };
+        if (option.roleId.length > maxIdentityLength) return { type: 'invalid-input', field: 'roleId' };
         if (seenEmojiKeys.has(option.emojiKey)) return { type: 'invalid-input', field: 'emojiKey' };
+        if (seenRoleIds.has(option.roleId)) return { type: 'invalid-input', field: 'roleId' };
         if (option.position < 0) return { type: 'invalid-input', field: 'position' };
         seenEmojiKeys.add(option.emojiKey);
+        seenRoleIds.add(option.roleId);
     }
 
     const overviewPayload = input.generateOverview
@@ -93,6 +105,9 @@ export function normalizeReactionRolePublishPayload(
             field: 'message',
             message: 'Add message content, an embed, or generated overview.',
         };
+    }
+    if ((overviewPayload.content?.length ?? 0) > maxMessageContentLength) {
+        return { type: 'invalid-input', field: 'content', message: 'Generated message content is too long.' };
     }
 
     return {

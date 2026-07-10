@@ -19,4 +19,5 @@ export const guildInviteSnapshotsTable = defineTable({
 })
     .index('by_guild_active', ['guildId', 'active'])
     .index('by_guild_code', ['guildId', 'code'])
-    .index('by_guild_inviter', ['guildId', 'inviterUserId']);
+    .index('by_guild_inviter', ['guildId', 'inviterUserId'])
+    .index('by_active', ['active']);

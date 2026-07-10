@@ -204,9 +204,9 @@ describe('dashboard structure diff', () => {
 
         expect(plan.summary).toStrictEqual({
             creates: 1,
-            updates: 1,
+            updates: 2,
             deletes: 1,
-            roles: 3,
+            roles: 4,
             categories: 0,
             channels: 0,
         });
@@ -214,6 +214,7 @@ describe('dashboard structure diff', () => {
             ['update', 'role', 'role-1'],
             ['create', 'role', 'role-new'],
             ['delete', 'role', 'role-stale'],
+            ['update', 'role-order', 'role-order'],
         ]);
         expect(plan.actions[0]?.details).toMatchObject({
             changes: [

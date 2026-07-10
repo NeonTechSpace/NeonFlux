@@ -28,10 +28,13 @@ export type ReactionRoleMessageDocument = {
     generateOverview: boolean;
     guildId: string;
     kind: string;
+    lifecycle?: string;
     messageContent?: string;
     messageEmbeds: unknown[];
     messageId: string;
     mode: string;
+    pendingOperationId?: GenericId<'reactionRoleOperations'>;
+    revision?: number;
     source: string;
     staleAt?: string;
     updatedAt: string;
@@ -45,10 +48,13 @@ export type ReactionRoleMessageRecord = {
     guildId: string;
     id: string;
     kind: string;
+    lifecycle: 'deleting' | 'needs_attention' | 'ready' | 'syncing';
     messageContent: string | null;
     messageEmbeds: unknown[];
     messageId: string;
     mode: ReactionRoleMessageMode;
+    pendingOperationId: string | null;
+    revision: number;
     source: ReactionRoleMessageSource;
     staleAt: string | null;
     updatedAt: string;
@@ -94,22 +100,30 @@ export type ReactionRoleAssignmentInput = {
 
 export type ReactionRoleAssignmentDocument = {
     assignedAt: string;
+    desiredState?: string;
     emojiKey: string;
     guildId: string;
     messageId: string;
+    reactionRoleMessageId?: GenericId<'reactionRoleMessages'>;
     removedAt?: string;
     roleId: string;
+    status?: string;
+    updatedAt?: string;
     userId: string;
 };
 
 export type ReactionRoleAssignmentRecord = {
     assignedAt: string;
+    desiredState: 'absent' | 'present';
     emojiKey: string;
     guildId: string;
     id: string;
     messageId: string;
+    reactionRoleMessageId: string | null;
     removedAt: string | null;
     roleId: string;
+    status: 'applied' | 'blocked' | 'pending';
+    updatedAt: string;
     userId: string;
 };
 
@@ -132,7 +146,7 @@ export type ReactionRoleInputResult<Value> = { ok: true; value: Value } | { erro
 export function buildReactionRoleMessageDocument(
     input: ReactionRoleMessageInput,
     now: string,
-    existing?: Pick<ReactionRoleMessageDocument, 'createdAt'>
+    existing?: Pick<ReactionRoleMessageDocument, 'createdAt' | 'lifecycle' | 'pendingOperationId' | 'revision'>
 ): ReactionRoleInputResult<ReactionRoleMessageDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const channelId = normalizeRequiredString(input.channelId, 'channelId');
@@ -169,10 +183,13 @@ export function buildReactionRoleMessageDocument(
             generateOverview: input.generateOverview ?? false,
             guildId: guildId.value,
             kind: 'reaction_role',
+            lifecycle: existing?.lifecycle ?? 'ready',
             ...(messageContent ? { messageContent } : {}),
             messageEmbeds,
             messageId: messageId.value,
             mode,
+            ...(existing?.pendingOperationId ? { pendingOperationId: existing.pendingOperationId } : {}),
+            revision: existing?.revision ?? 1,
             source,
             ...(staleAt ? { staleAt } : {}),
             updatedAt,
@@ -291,10 +308,18 @@ export function toReactionRoleMessageRecord(
         guildId: document.guildId,
         id: document._id,
         kind: document.kind,
+        lifecycle:
+            document.lifecycle === 'syncing' ||
+            document.lifecycle === 'deleting' ||
+            document.lifecycle === 'needs_attention'
+                ? document.lifecycle
+                : 'ready',
         messageContent: document.messageContent ?? null,
         messageEmbeds: document.messageEmbeds,
         messageId: document.messageId,
         mode: document.mode === 'exclusive' ? 'exclusive' : 'normal',
+        pendingOperationId: document.pendingOperationId ?? null,
+        revision: Number.isInteger(document.revision) && (document.revision ?? 0) > 0 ? (document.revision ?? 1) : 1,
         source: document.source === 'dashboard' ? 'dashboard' : 'existing',
         staleAt: document.staleAt ?? null,
         updatedAt: document.updatedAt,
@@ -320,12 +345,16 @@ export function toReactionRoleAssignmentRecord(
 ): ReactionRoleAssignmentRecord {
     return {
         assignedAt: document.assignedAt,
+        desiredState: document.desiredState === 'absent' ? 'absent' : 'present',
         emojiKey: document.emojiKey,
         guildId: document.guildId,
         id: document._id,
         messageId: document.messageId,
+        reactionRoleMessageId: document.reactionRoleMessageId ?? null,
         removedAt: document.removedAt ?? null,
         roleId: document.roleId,
+        status: document.status === 'pending' || document.status === 'blocked' ? document.status : 'applied',
+        updatedAt: document.updatedAt ?? document.assignedAt,
         userId: document.userId,
     };
 }

@@ -374,9 +374,9 @@ describe('dashboard structure import/export', () => {
             },
             summary: {
                 creates: 0,
-                updates: 3,
+                updates: 4,
                 deletes: 0,
-                roles: 1,
+                roles: 2,
                 categories: 1,
                 channels: 1,
             },
@@ -399,9 +399,10 @@ describe('dashboard structure import/export', () => {
             guildId: 'authorized-guild',
         });
         expect(result.type === 'structure-drift' ? result.previewActions.map((action) => action.fields) : []).toEqual([
-            ['name', 'position', 'color', 'permissions', 'hoist', 'mentionable'],
+            ['name', 'color', 'permissions', 'hoist', 'mentionable'],
             ['position', 'permissionOverwrites'],
             ['name', 'type', 'parentId', 'position', 'permissionOverwrites'],
+            ['roleOrder'],
         ]);
     });
 
@@ -623,6 +624,44 @@ describe('dashboard structure import/export', () => {
         );
     });
 
+    it('persists complete cross-guild identity mappings for no-op matches', async () => {
+        const current = createFluxerStructure();
+        const sourceRole = { ...current.roles[0], id: 'source-role-1' };
+        const backupJson = JSON.stringify({
+            version: 1,
+            guildId: 'source-guild',
+            roles: [sourceRole],
+            categories: [{ ...current.categories[0], id: 'source-category-1' }],
+            channels: [
+                {
+                    ...current.channels[0],
+                    id: 'source-channel-1',
+                    parentId: 'source-category-1',
+                    permissionOverwrites: [{ id: 'source-role-1', type: 0, allow: '1', deny: '0' }],
+                },
+            ],
+        });
+
+        const result = await createDashboardStructureImportDryRun(request, {
+            guildId: 'authorized-guild',
+            backupJson,
+        });
+
+        expect(result).toMatchObject({ type: 'dry-run-created' });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    sourceTargetMap: {
+                        'source-role-1': 'role-1',
+                        'source-category-1': 'category-1',
+                        'source-channel-1': 'channel-1',
+                    },
+                }),
+            })
+        );
+    });
+
     it('defaults JSON dry-runs to merge mode without deleting unmatched current roles', async () => {
         const current = createFluxerStructure();
         const backupJson = JSON.stringify({
@@ -716,6 +755,12 @@ describe('dashboard structure import/export', () => {
                         targetType: 'role',
                         targetId: 'role-1',
                         sequence: 3,
+                    }),
+                    expect.objectContaining({
+                        actionType: 'update',
+                        targetType: 'role-order',
+                        targetId: 'role-order',
+                        sequence: 4,
                     }),
                 ],
             })
@@ -987,6 +1032,109 @@ describe('dashboard structure import/export', () => {
                         }),
                     }),
                 ],
+            })
+        );
+    });
+
+    it('recovers an expired applying run by re-reading live state and creating a fresh role-order retry', async () => {
+        const requestedStructure = createFluxerStructure();
+        const requestedSnapshot = {
+            ...requestedStructure,
+            guildId: 'authorized-guild',
+            roles: requestedStructure.roles.map((role) => ({ ...role, position: 4 })),
+            version: 1,
+        };
+        const stalePlan = {
+            applyAttempt: {
+                attemptId: 'attempt-1',
+                heartbeatAt: '2026-07-10T00:00:00.000Z',
+                leaseExpiresAt: '2026-07-10T00:05:00.000Z',
+                leaseOwner: 'worker-1',
+                outcome: 'active',
+                roleOrder: { status: 'pending' },
+                startedAt: '2026-07-10T00:00:00.000Z',
+            },
+            importMode: 'merge',
+            requestedSnapshot,
+            requestedSnapshotStoredAt: '2026-07-10T00:00:00.000Z',
+            requestedSnapshotVersion: 1,
+            summary: { creates: 0, updates: 0, deletes: 0, roles: 0, categories: 0, channels: 0 },
+        };
+        const staleRun = createImportRunRecord({ actions: [], plan: stalePlan, status: 'applying' });
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValueOnce(ok(staleRun));
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
+            ok({
+                ...createFluxerStructure(),
+                channels: [
+                    ...createFluxerStructure().channels,
+                    {
+                        id: 'live-only-channel',
+                        name: 'live-only',
+                        type: 0,
+                        parentId: null,
+                        position: 2,
+                        permissionOverwrites: [],
+                    },
+                ],
+            })
+        );
+        vi.mocked(updateStructureImportRunStatus)
+            .mockImplementationOnce(async (_db, input) =>
+                ok(createImportRunRecord({ actions: [], plan: input.plan ?? stalePlan, status: 'failed' }))
+            )
+            .mockResolvedValueOnce(ok(createImportRunRecord({ id: 'retry-run-1', status: 'dry_run_complete' })));
+        vi.mocked(createStructureImportRun).mockResolvedValueOnce(
+            ok(createImportRunRecord({ actions: [], id: 'retry-run-1', status: 'draft' }))
+        );
+        vi.mocked(recordStructureImportActionsBatch).mockResolvedValueOnce(
+            ok([
+                createImportActionRecord({
+                    actionType: 'update',
+                    id: 'retry-role-order-action',
+                    runId: 'retry-run-1',
+                    status: 'dry_run',
+                    targetId: 'role-1',
+                    targetType: 'role',
+                }),
+            ])
+        );
+
+        const result = await retryDashboardStructureImportRun(request, {
+            guildId: 'requested-guild',
+            importRunId: 'run-1',
+        });
+
+        expect(result).toMatchObject({ type: 'retry-created', importRun: { id: 'retry-run-1' } });
+        expect(updateStructureImportRunStatus).toHaveBeenNthCalledWith(
+            1,
+            {},
+            expect.objectContaining({
+                expectedApplyAttemptId: 'attempt-1',
+                expectedApplyLeaseOwner: 'worker-1',
+                requireExpiredApplyLease: true,
+                status: 'failed',
+            })
+        );
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledWith({
+            botToken: 'bot-token',
+            guildId: 'authorized-guild',
+        });
+        expect(createStructureImportRun).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                plan: expect.objectContaining({
+                    recoveredUnknownOutcome: true,
+                    retryOfRunId: 'run-1',
+                    summary: expect.objectContaining({ roles: 1, updates: 1 }),
+                }),
+            })
+        );
+        expect(recordStructureImportActionsBatch).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                actions: expect.not.arrayContaining([
+                    expect.objectContaining({ actionType: 'delete', targetId: 'live-only-channel' }),
+                ]),
             })
         );
     });

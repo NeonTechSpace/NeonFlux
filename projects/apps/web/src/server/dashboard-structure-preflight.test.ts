@@ -733,6 +733,58 @@ describe('dashboard structure preflight', () => {
         });
     });
 
+    it('reuses unchanged mapped retry roles and blocks changed ones', () => {
+        const createRoleAction = {
+            id: 'retry-role',
+            actionType: 'create',
+            targetType: 'role',
+            targetId: 'source-role-1',
+            details: {
+                after: {
+                    id: 'source-role-1',
+                    name: 'Imported Role',
+                    position: 3,
+                    color: 0,
+                    permissions: '1024',
+                    hoist: false,
+                    mentionable: false,
+                },
+            },
+        };
+        const mappedRole = {
+            id: 'created-role-1',
+            name: 'Imported Role',
+            position: 1,
+            color: 0,
+            permissions: '1024',
+            hoist: false,
+            mentionable: false,
+        };
+        const options = { idMap: { 'source-role-1': 'created-role-1' } };
+        const ready = preflightDashboardStructureImportPlan(
+            { ...createSnapshot(), roles: [...createSnapshot().roles, mappedRole] },
+            [createRoleAction],
+            options
+        );
+        const stale = preflightDashboardStructureImportPlan(
+            {
+                ...createSnapshot(),
+                roles: [...createSnapshot().roles, { ...mappedRole, permissions: '0' }],
+            },
+            [createRoleAction],
+            options
+        );
+
+        expect(ready.actions[0]).toMatchObject({
+            status: 'ready',
+            message: 'The previously created role exists. Retry will reuse it instead of creating a duplicate.',
+        });
+        expect(stale.actions[0]).toMatchObject({
+            status: 'stale',
+            message: 'The previously created retry role changed after creation.',
+        });
+    });
+
     it('blocks mapped retry create repair when the created target changed after partial creation', () => {
         const report = preflightDashboardStructureImportPlan(
             {

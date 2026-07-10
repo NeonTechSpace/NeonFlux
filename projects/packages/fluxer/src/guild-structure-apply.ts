@@ -50,6 +50,7 @@ export type ApplyFluxerBotGuildStructureBatchInput = {
     botToken: string;
     guildId: string;
     actions: ApplyFluxerBotGuildStructureBatchActionInput[];
+    beforeMutation?: () => Promise<boolean>;
     idMap?: Record<string, string>;
     operationDelayMs?: number;
     roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
@@ -74,6 +75,7 @@ export type ApplyFluxerBotGuildStructureBatchResult = {
 
 export type ApplyFluxerBotGuildStructureUpdateError =
     | FluxerPlatformError
+    | { type: 'apply-lease-lost' }
     | { type: 'missing-input'; field: 'botToken' | 'guildId' | 'targetId' | 'name' | 'after' }
     | { type: 'invalid-value'; field: string }
     | { type: 'unsupported-action'; reason: string }
@@ -88,7 +90,7 @@ type PartialCreateError = {
 export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError | PartialCreateError;
 type ApplyNormalizedActionError = ApplyFluxerBotGuildStructureActionError;
 type StructureApplyRateLimiter = {
-    waitBeforeMutation: () => Promise<void>;
+    waitBeforeMutation: () => Promise<boolean>;
 };
 
 export async function applyFluxerBotGuildStructureUpdate(
@@ -141,14 +143,20 @@ export async function applyFluxerBotGuildStructureActions(
     const client = new Client({ gatewayDebug: false });
     const idMap: Record<string, string> = { ...(input.idMap ?? {}) };
     const actions: ApplyFluxerBotGuildStructureBatchResult['actions'] = [];
-    const rateLimiter = createStructureApplyRateLimiter(input.operationDelayMs);
+    const rateLimiter = createStructureApplyRateLimiter(input.operationDelayMs, input.beforeMutation);
 
     try {
         await client.login(botToken);
 
         let deleteFailed = false;
+        let leaseLost = false;
 
         for (const action of input.actions) {
+            if (leaseLost) {
+                actions.push({ id: action.id, status: 'failed', errorType: 'apply-lease-lost' });
+                continue;
+            }
+
             if (input.stopAfterDeleteFailures === true && deleteFailed && action.actionType !== 'delete') {
                 actions.push({
                     id: action.id,
@@ -175,9 +183,11 @@ export async function applyFluxerBotGuildStructureActions(
             const result = await applyNormalizedAction(client, normalized.value, rateLimiter);
 
             if (result.isErr()) {
+                if (result.error.type === 'apply-lease-lost') leaseLost = true;
                 if (action.actionType === 'delete') deleteFailed = true;
 
                 if (action.targetId && result.error.type === 'partial-create-failed') {
+                    if (result.error.causeType === 'apply-lease-lost') leaseLost = true;
                     idMap[action.targetId] = result.error.createdId;
                     actions.push({
                         id: action.id,
@@ -240,7 +250,7 @@ async function applyRequestedRoleOrder(
 
     if (positions.length === 0) return undefined;
 
-    await input.rateLimiter.waitBeforeMutation();
+    if (!(await input.rateLimiter.waitBeforeMutation())) return { status: 'failed', errorType: 'apply-lease-lost' };
     const result = await createRolePlatform(client).setPositions({
         guildId: input.guildId,
         positions,
@@ -605,6 +615,7 @@ function normalizeStructureCreateInput(
     if (typeof after.name !== 'string' || !after.name.trim()) return err({ type: 'missing-input', field: 'name' });
 
     const name = after.name.trim();
+    const mappedCreatedId = input.idMap?.[sourceId];
 
     if (input.targetType === 'role') {
         if (isProtectedRolePayload(after) || isDefaultRolePayload(after) || sourceId === input.guildId) {
@@ -624,6 +635,15 @@ function normalizeStructureCreateInput(
             normalizeRolePosition(after.position) === undefined
         ) {
             return err({ type: 'invalid-value', field: 'position' });
+        }
+
+        if (mappedCreatedId) {
+            return ok({
+                botToken: input.botToken,
+                guildId: input.guildId,
+                actionType: 'noop',
+                createdId: mappedCreatedId,
+            });
         }
 
         return ok({
@@ -663,8 +683,6 @@ function normalizeStructureCreateInput(
     if (after.url !== undefined && after.url !== null && url === undefined) {
         return err({ type: 'invalid-value', field: 'url' });
     }
-
-    const mappedCreatedId = input.idMap?.[sourceId];
 
     if (mappedCreatedId) {
         if (permissionOverwrites.length === 0) {
@@ -722,7 +740,7 @@ async function applyUpdate(
     rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
     if (input.targetType === 'role') {
-        await rateLimiter.waitBeforeMutation();
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const result = await createRolePlatform(client).edit({
             guildId: input.guildId,
             roleId: input.targetId,
@@ -735,7 +753,7 @@ async function applyUpdate(
     const channelPlatform = createChannelPlatform(client);
 
     if (input.name || input.parentId !== undefined || input.position !== undefined) {
-        await rateLimiter.waitBeforeMutation();
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const editResult = await channelPlatform.edit({
             channelId: input.targetId,
             guildId: input.guildId,
@@ -767,7 +785,7 @@ async function applyCreate(
     rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
     if (input.targetType === 'role') {
-        await rateLimiter.waitBeforeMutation();
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const result = await createRolePlatform(client).create({
             guildId: input.guildId,
             name: input.name,
@@ -781,7 +799,7 @@ async function applyCreate(
     }
 
     const channelPlatform = createChannelPlatform(client);
-    await rateLimiter.waitBeforeMutation();
+    if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
     const result = await channelPlatform.create({
         guildId: input.guildId,
         name: input.name,
@@ -821,7 +839,7 @@ async function applyDelete(
     input: Extract<NormalizedStructureActionInput, { actionType: 'delete' }>,
     rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
-    await rateLimiter.waitBeforeMutation();
+    if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
     const result =
         input.targetType === 'role'
             ? await createRolePlatform(client).delete({
@@ -970,14 +988,14 @@ async function applyPermissionOverwrites(
     channelId: string,
     replacement: PermissionOverwriteReplacement,
     rateLimiter: StructureApplyRateLimiter
-): Promise<Result<void, FluxerPlatformError>> {
+): Promise<Result<void, FluxerPlatformError | { type: 'apply-lease-lost' }>> {
     const beforeByKey = new Map(replacement.before.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
     const afterByKey = new Map(replacement.after.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
 
     for (const before of replacement.before) {
         if (afterByKey.has(permissionOverwriteKey(before))) continue;
 
-        await rateLimiter.waitBeforeMutation();
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const deleteResult = await channelPlatform.deletePermission({
             channelId,
             overwriteId: before.id,
@@ -991,7 +1009,7 @@ async function applyPermissionOverwrites(
 
         if (before && stablePermissionOverwriteKey(before) === stablePermissionOverwriteKey(after)) continue;
 
-        await rateLimiter.waitBeforeMutation();
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const editResult = await channelPlatform.editPermission({
             channelId,
             overwriteId: after.id,
@@ -1032,23 +1050,21 @@ function mapOptionalId(value: string | null, idMap: Record<string, string>): str
 }
 
 function createStructureApplyRateLimiter(
-    delayMs = DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS
+    delayMs = DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS,
+    beforeMutation?: () => Promise<boolean>
 ): StructureApplyRateLimiter {
     const normalizedDelayMs = Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
     let mutationStarted = false;
 
     return {
         waitBeforeMutation: async () => {
-            if (!mutationStarted) {
-                mutationStarted = true;
-                return;
+            if (mutationStarted && normalizedDelayMs > 0) {
+                await new Promise<void>((resolve) => {
+                    setTimeout(resolve, normalizedDelayMs);
+                });
             }
-
-            if (normalizedDelayMs === 0) return;
-
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve, normalizedDelayMs);
-            });
+            mutationStarted = true;
+            return beforeMutation ? beforeMutation() : true;
         },
     };
 }

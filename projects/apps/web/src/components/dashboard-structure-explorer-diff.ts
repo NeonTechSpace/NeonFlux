@@ -3,7 +3,7 @@ import type { FileDiffMetadata } from '@pierre/diffs';
 
 import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 
-export const dashboardStructureExplorerDiffInlineCharLimit = 250_000;
+const dashboardStructureExplorerDiffInlineCharLimit = 250_000;
 
 export type DashboardStructureExplorerJsonDiff = {
     afterLabel: string;

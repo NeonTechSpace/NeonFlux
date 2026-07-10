@@ -17,6 +17,7 @@ import {
     readDashboardStructureDriftRouteData,
     readDashboardStructureImportActionPageRouteData,
     readDashboardStructureSettingsRouteData,
+    retryDashboardStructureImportRunRouteData,
 } from '../server/dashboard-structure-route-data.js';
 import type * as DashboardStructureRouteDataModule from '../server/dashboard-structure-route-data.js';
 import type {
@@ -43,6 +44,7 @@ vi.mock('../server/dashboard-structure-route-data.js', async (importActual) => {
         readDashboardStructureDriftRouteData: vi.fn(),
         readDashboardStructureImportActionPageRouteData: vi.fn(),
         readDashboardStructureSettingsRouteData: vi.fn(),
+        retryDashboardStructureImportRunRouteData: vi.fn(),
     };
 });
 
@@ -645,6 +647,27 @@ describe('DashboardStructurePanel', () => {
 
         expect(await screen.findByText('source-channel-1 -> created-channel-1')).toBeTruthy();
         expect(screen.getByText('partial-create-failed: permission-denied')).toBeTruthy();
+    });
+
+    it('offers stale applying-run recovery and reports the live reconciliation result', async () => {
+        const recoveryRun = createImportRun({ recoveryAvailable: true, status: 'applying' });
+        vi.mocked(readDashboardStructureSettingsRouteData).mockResolvedValue(
+            createSettingsResult({ importRuns: [recoveryRun] })
+        );
+        vi.mocked(retryDashboardStructureImportRunRouteData).mockResolvedValue({
+            type: 'retry-created',
+            importRun: createImportRun({ id: 'retry-run-1', status: 'dry_run_complete' }),
+        });
+
+        renderStructurePanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Recover apply' }));
+        await waitFor(() =>
+            expect(retryDashboardStructureImportRunRouteData).toHaveBeenCalledWith({
+                data: { guildId: 'guild-1', importRunId: 'run-1' },
+            })
+        );
+        expect(await screen.findByText('Reconciliation dry-run created with 1 live change.')).toBeTruthy();
     });
 
     it('runs non-mutating preflight for confirmed dry-runs', async () => {

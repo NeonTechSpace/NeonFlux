@@ -314,6 +314,8 @@ export type StructureImportRunStatusPatch = {
     updatedAt: string;
 };
 
+export type StructureApplyAttemptPreconditionResult = 'ready' | 'attempt-mismatch' | 'lease-active';
+
 const importRunStatusTransitions = new Map<string, readonly string[]>([
     [
         STRUCTURE_IMPORT_RUN_STATUS.draft,
@@ -327,7 +329,10 @@ const importRunStatusTransitions = new Map<string, readonly string[]>([
         STRUCTURE_IMPORT_RUN_STATUS.confirmed,
         [STRUCTURE_IMPORT_RUN_STATUS.applying, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
     ],
-    [STRUCTURE_IMPORT_RUN_STATUS.applying, [STRUCTURE_IMPORT_RUN_STATUS.applied, STRUCTURE_IMPORT_RUN_STATUS.failed]],
+    [
+        STRUCTURE_IMPORT_RUN_STATUS.applying,
+        [STRUCTURE_IMPORT_RUN_STATUS.applying, STRUCTURE_IMPORT_RUN_STATUS.applied, STRUCTURE_IMPORT_RUN_STATUS.failed],
+    ],
     [STRUCTURE_IMPORT_RUN_STATUS.applied, []],
     [STRUCTURE_IMPORT_RUN_STATUS.cancelled, []],
     [STRUCTURE_IMPORT_RUN_STATUS.failed, []],
@@ -712,6 +717,38 @@ export function buildStructureImportRunStatusPatch(
             updatedAt: now,
         },
     };
+}
+
+export function checkStructureApplyAttemptPreconditions(
+    plan: Record<string, unknown>,
+    input: {
+        expectedApplyAttemptId?: string;
+        expectedApplyLeaseOwner?: string;
+        requireExpiredApplyLease?: boolean;
+    },
+    now: string
+): StructureApplyAttemptPreconditionResult {
+    if (!input.expectedApplyAttemptId && !input.expectedApplyLeaseOwner && !input.requireExpiredApplyLease) {
+        return 'ready';
+    }
+
+    const attempt = normalizeRecord(plan.applyAttempt);
+    if (
+        !attempt ||
+        attempt.attemptId !== input.expectedApplyAttemptId ||
+        attempt.leaseOwner !== input.expectedApplyLeaseOwner
+    ) {
+        return 'attempt-mismatch';
+    }
+
+    if (
+        input.requireExpiredApplyLease &&
+        (typeof attempt.leaseExpiresAt !== 'string' || Date.parse(attempt.leaseExpiresAt) > Date.parse(now))
+    ) {
+        return 'lease-active';
+    }
+
+    return 'ready';
 }
 
 export function buildStructureImportActionDocument(

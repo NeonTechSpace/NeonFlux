@@ -4,6 +4,7 @@ import type {
     DashboardReactionRoleMessageDeleteResult,
     DashboardReactionRoleMessageSaveResult,
     DashboardReactionRolePublishResult,
+    DashboardReactionRoleRetryResult,
     DashboardReactionRolesSettingsResult,
 } from './dashboard-reaction-roles.server.js';
 import type {
@@ -16,8 +17,10 @@ type DashboardGuildRouteInput = {
 };
 
 type DashboardReactionRoleMessageSaveRouteInput = {
+    expectedRevision: number;
     guildId: string;
     messageId: string;
+    idempotencyKey: string;
     content?: string;
     embeds?: DashboardReactionRoleEmbedPayload[];
     mode: 'normal' | 'exclusive';
@@ -32,6 +35,7 @@ type DashboardReactionRoleMessageSaveRouteInput = {
 
 type DashboardReactionRolePublishRouteInput = {
     guildId: string;
+    idempotencyKey: string;
     channelId: string;
     content?: string;
     embeds?: DashboardReactionRoleEmbedPayload[];
@@ -46,7 +50,9 @@ type DashboardReactionRolePublishRouteInput = {
 };
 
 type DashboardReactionRoleMessageDeleteRouteInput = {
+    expectedRevision: number;
     guildId: string;
+    idempotencyKey: string;
     messageId: string;
 };
 
@@ -94,6 +100,15 @@ export const deleteDashboardReactionRoleMessageRouteData = createServerFn({ meth
         return deleteDashboardReactionRoleMessage(getRequest(), data);
     });
 
+export const retryDashboardReactionRoleOperationRouteData = createServerFn({ method: 'POST' })
+    .validator(validateReactionRoleRetryRouteInput)
+    .handler(async ({ data }): Promise<DashboardReactionRoleRetryResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { retryDashboardReactionRoleOperation } = await import('./dashboard-reaction-roles.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return retryDashboardReactionRoleOperation(getRequest(), data);
+    });
+
 function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteInput {
     if (!input || typeof input !== 'object') {
         return { guildId: '' };
@@ -111,6 +126,7 @@ function validateReactionRolePublishRouteInput(input: unknown): DashboardReactio
         return {
             guildId: '',
             channelId: '',
+            idempotencyKey: '',
             mode: 'normal',
             generateOverview: false,
             options: [],
@@ -122,6 +138,7 @@ function validateReactionRolePublishRouteInput(input: unknown): DashboardReactio
     return {
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
         channelId: typeof payload.channelId === 'string' ? payload.channelId : '',
+        idempotencyKey: typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : '',
         ...(typeof payload.content === 'string' ? { content: payload.content } : {}),
         embeds: Array.isArray(payload.embeds) ? toSerializableEmbedArray(payload.embeds) : [],
         mode: payload.mode === 'exclusive' ? 'exclusive' : 'normal',
@@ -134,6 +151,8 @@ function validateReactionRoleMessageSaveRouteInput(input: unknown): DashboardRea
     if (!input || typeof input !== 'object') {
         return {
             guildId: '',
+            expectedRevision: 0,
+            idempotencyKey: '',
             messageId: '',
             mode: 'normal',
             generateOverview: false,
@@ -145,6 +164,11 @@ function validateReactionRoleMessageSaveRouteInput(input: unknown): DashboardRea
 
     return {
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
+        expectedRevision:
+            typeof payload.expectedRevision === 'number' && Number.isInteger(payload.expectedRevision)
+                ? payload.expectedRevision
+                : 0,
+        idempotencyKey: typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : '',
         messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
         ...(typeof payload.content === 'string' ? { content: payload.content } : {}),
         embeds: Array.isArray(payload.embeds) ? toSerializableEmbedArray(payload.embeds) : [],
@@ -207,13 +231,27 @@ function toJsonValue(value: unknown): DashboardReactionRoleJsonValue | undefined
 
 function validateReactionRoleMessageDeleteRouteInput(input: unknown): DashboardReactionRoleMessageDeleteRouteInput {
     if (!input || typeof input !== 'object') {
-        return { guildId: '', messageId: '' };
+        return { expectedRevision: 0, guildId: '', idempotencyKey: '', messageId: '' };
     }
 
     const payload = input as Record<string, unknown>;
 
     return {
+        expectedRevision:
+            typeof payload.expectedRevision === 'number' && Number.isInteger(payload.expectedRevision)
+                ? payload.expectedRevision
+                : 0,
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
+        idempotencyKey: typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : '',
         messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
+    };
+}
+
+function validateReactionRoleRetryRouteInput(input: unknown) {
+    const payload = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
+    return {
+        confirmUnknownPublishAbsent: payload.confirmUnknownPublishAbsent === true,
+        guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
+        operationId: typeof payload.operationId === 'string' ? payload.operationId : '',
     };
 }

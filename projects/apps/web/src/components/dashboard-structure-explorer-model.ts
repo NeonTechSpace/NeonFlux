@@ -20,7 +20,7 @@ export type DashboardStructureExplorerSnapshot = {
 
 export type DashboardStructureExplorerEntityKey = `role:${string}` | `category:${string}` | `channel:${string}`;
 
-export type DashboardStructureExplorerBadge =
+type DashboardStructureExplorerBadge =
     | 'blocked'
     | 'create'
     | 'delete'
@@ -99,9 +99,7 @@ export function parseDashboardStructureExplorerSnapshot(value: string): Dashboar
     }
 }
 
-export function normalizeDashboardStructureExplorerSnapshot(
-    value: unknown
-): DashboardStructureExplorerSnapshot | undefined {
+function normalizeDashboardStructureExplorerSnapshot(value: unknown): DashboardStructureExplorerSnapshot | undefined {
     if (!isObject(value)) return undefined;
     if (!Array.isArray(value.roles) || !Array.isArray(value.categories) || !Array.isArray(value.channels)) {
         return undefined;

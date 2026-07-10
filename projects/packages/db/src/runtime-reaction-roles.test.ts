@@ -6,6 +6,7 @@ import {
     deleteReactionRoleOption,
     findEnabledReactionRoleOptionByReaction,
     findReactionRoleMessage,
+    findReactionRoleMessageWithOptions,
     findReactionRoleOption,
     listActiveReactionRoleAssignmentsByGuildMessageUser,
     listActiveReactionRoleAssignmentsByGuildUser,
@@ -58,7 +59,13 @@ describe('Convex reaction-role database functions', () => {
     it('upserts, lists, finds, and deletes messages and options through Convex', async () => {
         const db = createConvexDb({
             mutationResults: [message, option, option, message],
-            queryResults: [[{ ...message, options: [option] }], message, { message, option }, option],
+            queryResults: [
+                [{ ...message, options: [option] }],
+                message,
+                { ...message, options: [option] },
+                { message, option },
+                option,
+            ],
         });
 
         const upsertedMessage = await upsertReactionRoleMessage(db, {
@@ -74,6 +81,10 @@ describe('Convex reaction-role database functions', () => {
         });
         const listed = await listReactionRoleMessagesByGuildId(db, { guildId: ' guild-1 ' });
         const found = await findReactionRoleMessage(db, { guildId: ' guild-1 ', messageId: ' message-1 ' });
+        const foundWithOptions = await findReactionRoleMessageWithOptions(db, {
+            guildId: ' guild-1 ',
+            messageId: ' message-1 ',
+        });
         const matched = await findEnabledReactionRoleOptionByReaction(db, {
             emojiKey: ' unicode:check ',
             guildId: ' guild-1 ',
@@ -100,6 +111,10 @@ describe('Convex reaction-role database functions', () => {
             { ...toMessageRecord(message), options: [toOptionRecord(option)] },
         ]);
         expect(found._unsafeUnwrap()).toStrictEqual(toMessageRecord(message));
+        expect(foundWithOptions._unsafeUnwrap()).toStrictEqual({
+            ...toMessageRecord(message),
+            options: [toOptionRecord(option)],
+        });
         expect(matched._unsafeUnwrap()).toStrictEqual({
             message: toMessageRecord(message),
             option: toOptionRecord(option),
@@ -227,6 +242,9 @@ function toMessageRecord(record: typeof message) {
     return {
         ...record,
         createdAt: new Date(record.createdAt),
+        lifecycle: 'ready' as const,
+        pendingOperationId: null,
+        revision: 1,
         staleAt: null,
         updatedAt: new Date(record.updatedAt),
     };
@@ -253,7 +271,11 @@ function toAssignmentRecord(record: {
     return {
         ...record,
         assignedAt: new Date(record.assignedAt),
+        desiredState: record.removedAt ? ('absent' as const) : ('present' as const),
+        reactionRoleMessageId: null,
         removedAt: record.removedAt ? new Date(record.removedAt) : null,
+        status: 'applied' as const,
+        updatedAt: new Date(record.assignedAt),
     };
 }
 

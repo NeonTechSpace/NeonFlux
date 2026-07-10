@@ -14,6 +14,7 @@ import {
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
     buildStructureImportRunStatusPatch,
+    checkStructureApplyAttemptPreconditions,
     chooseLatestStructureDriftBaselineBackup,
     toStructureBackupRecord,
     toStructureImportActionRecord,
@@ -177,6 +178,16 @@ describe('structure model', () => {
         const confirmed = unwrap(
             buildStructureImportRunStatusPatch({ ...run, ...dryRun }, { status: 'confirmed' }, now)
         );
+        const applying = unwrap(
+            buildStructureImportRunStatusPatch({ ...run, ...dryRun, ...confirmed }, { status: 'applying' }, now)
+        );
+        const heartbeat = unwrap(
+            buildStructureImportRunStatusPatch(
+                { ...run, ...dryRun, ...confirmed, ...applying },
+                { plan: { ...run.plan, heartbeat: true }, status: 'applying' },
+                now
+            )
+        );
         const invalid = buildStructureImportRunStatusPatch(run, { status: 'applied' }, now);
 
         expect(toStructureImportRunRecord({ ...run, _id: runId })).toMatchObject({
@@ -186,10 +197,41 @@ describe('structure model', () => {
             status: 'draft',
         });
         expect(confirmed.confirmedAt).toBe(now);
+        expect(heartbeat).toMatchObject({ plan: { heartbeat: true }, status: 'applying' });
         expect(invalid).toStrictEqual({
             error: { from: 'draft', to: 'applied', type: 'invalid-status-transition' },
             ok: false,
         });
+    });
+
+    it('guards apply lease renewal and stale recovery with attempt identity', () => {
+        const plan = {
+            applyAttempt: {
+                attemptId: 'attempt-1',
+                leaseExpiresAt: '2026-07-10T12:05:00.000Z',
+                leaseOwner: 'worker-1',
+            },
+        };
+        const identity = { expectedApplyAttemptId: 'attempt-1', expectedApplyLeaseOwner: 'worker-1' };
+
+        expect(checkStructureApplyAttemptPreconditions(plan, identity, now)).toBe('ready');
+        expect(
+            checkStructureApplyAttemptPreconditions(
+                plan,
+                { ...identity, requireExpiredApplyLease: true },
+                '2026-07-10T12:04:59.000Z'
+            )
+        ).toBe('lease-active');
+        expect(
+            checkStructureApplyAttemptPreconditions(
+                plan,
+                { ...identity, requireExpiredApplyLease: true },
+                '2026-07-10T12:05:00.000Z'
+            )
+        ).toBe('ready');
+        expect(
+            checkStructureApplyAttemptPreconditions(plan, { ...identity, expectedApplyAttemptId: 'attempt-2' }, now)
+        ).toBe('attempt-mismatch');
     });
 
     it('recalculates next automatic backup time when cadence changes', () => {

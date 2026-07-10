@@ -11,4 +11,5 @@ export const guildMessageActivityDaysTable = defineTable({
     updatedAt: timestamp,
 })
     .index('by_guild_channel_date', ['guildId', 'channelId', 'activityDate'])
-    .index('by_guild_date', ['guildId', 'activityDate']);
+    .index('by_guild_date', ['guildId', 'activityDate'])
+    .index('by_date', ['activityDate']);

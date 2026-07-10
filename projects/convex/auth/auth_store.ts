@@ -2,7 +2,10 @@ import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
 import {
+    decideFluxerOAuthRefreshLeaseClaim,
     isActiveSession,
+    matchesFluxerOAuthRefreshLease,
+    normalizeCredentialGeneration,
     normalizeEncryptedTokenPayload,
     normalizeFutureTimestamp,
     normalizeOptionalEncryptedTokenPayload,
@@ -30,10 +33,16 @@ type StoredFluxerOAuthTokenDocument = {
     _id: GenericId<'fluxerOauthTokens'>;
     accessToken: EncryptedOAuthTokenPayload;
     accessTokenExpiresAt: string;
+    credentialGeneration?: number;
     createdAt: string;
     fluxerUserId: string;
     invalidatedAt?: string;
     refreshToken?: EncryptedOAuthTokenPayload;
+    refreshLeaseExpiresAt?: string;
+    refreshLeaseGeneration?: number;
+    refreshLeaseId?: string;
+    refreshLeaseOwner?: string;
+    refreshRetryAfter?: string;
     scopes: string[];
     tokenType: string;
     updatedAt: string;
@@ -57,6 +66,7 @@ const webSessionRecordValidator = v.object({
 const fluxerOAuthTokenRecordValidator = v.object({
     accessToken: encryptedOAuthTokenPayloadValidator,
     accessTokenExpiresAt: v.string(),
+    credentialGeneration: v.number(),
     createdAt: v.string(),
     fluxerUserId: v.string(),
     invalidatedAt: v.union(v.string(), v.null()),
@@ -65,6 +75,21 @@ const fluxerOAuthTokenRecordValidator = v.object({
     tokenType: v.string(),
     updatedAt: v.string(),
 });
+const fluxerOAuthRefreshLeaseClaimValidator = v.union(
+    v.object({ status: v.literal('claimed') }),
+    v.object({ retryAt: v.string(), status: v.literal('busy') }),
+    v.object({ retryAt: v.string(), status: v.literal('cooldown') }),
+    v.object({ status: v.literal('missing') }),
+    v.object({ status: v.literal('stale') })
+);
+const fluxerOAuthRefreshCompletionValidator = v.union(
+    v.object({ status: v.literal('applied'), tokenSet: fluxerOAuthTokenRecordValidator }),
+    v.object({ status: v.literal('stale') })
+);
+const fluxerOAuthRefreshMutationStatusValidator = v.union(
+    v.object({ status: v.literal('applied') }),
+    v.object({ status: v.literal('stale') })
+);
 
 export const createWebSession = mutation({
     args: {
@@ -165,11 +190,18 @@ export const upsertFluxerOAuthTokenSet = mutation({
         const existingTokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
 
         if (existingTokenSet) {
+            const credentialGeneration = unwrap(normalizeCredentialGeneration(existingTokenSet.credentialGeneration));
             const patch = {
                 accessToken,
                 accessTokenExpiresAt,
+                credentialGeneration: credentialGeneration + 1,
                 invalidatedAt: undefined,
                 refreshToken,
+                refreshLeaseExpiresAt: undefined,
+                refreshLeaseGeneration: undefined,
+                refreshLeaseId: undefined,
+                refreshLeaseOwner: undefined,
+                refreshRetryAfter: undefined,
                 scopes,
                 tokenType,
                 updatedAt: now,
@@ -186,6 +218,7 @@ export const upsertFluxerOAuthTokenSet = mutation({
         const document = {
             accessToken,
             accessTokenExpiresAt,
+            credentialGeneration: 1,
             createdAt: now,
             fluxerUserId,
             ...(refreshToken ? { refreshToken } : {}),
@@ -218,30 +251,170 @@ export const findUsableFluxerOAuthTokenSetByUserId = query({
     },
 });
 
-export const invalidateFluxerOAuthTokenSet = mutation({
+export const claimFluxerOAuthTokenRefreshLease = mutation({
     args: {
+        expectedGeneration: v.number(),
         fluxerUserId: v.string(),
-        invalidatedAt: v.optional(v.string()),
+        leaseExpiresAt: v.string(),
+        leaseId: v.string(),
+        leaseOwner: v.string(),
+        now: v.string(),
     },
-    returns: v.union(fluxerOAuthTokenRecordValidator, v.null()),
+    returns: fluxerOAuthRefreshLeaseClaimValidator,
     handler: async (ctx: AuthStoreMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedAuthStoreServices);
         const fluxerUserId = unwrap(normalizeRequiredString(args.fluxerUserId, 'missing-fluxer-user-id'));
+        const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
+        const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
+        const leaseOwner = unwrap(normalizeRequiredString(args.leaseOwner, 'missing-lease-owner'));
+        const now = unwrap(normalizeTimestamp(args.now));
+        const leaseExpiresAt = unwrap(normalizeFutureTimestamp(args.leaseExpiresAt, Date.parse(now))).isoString;
         const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
+        const decision = decideFluxerOAuthRefreshLeaseClaim(tokenSet, {
+            expectedGeneration,
+            nowMs: Date.parse(now),
+        });
 
-        if (!tokenSet) {
-            return null;
+        if (decision.status !== 'claimable') {
+            return decision;
         }
 
-        const invalidatedAt = args.invalidatedAt
-            ? unwrap(normalizeTimestamp(args.invalidatedAt))
-            : new Date().toISOString();
-        await ctx.db.patch('fluxerOauthTokens', tokenSet._id, { invalidatedAt });
+        if (!tokenSet) {
+            return { status: 'missing' as const };
+        }
 
-        return toFluxerOAuthTokenRecord({
-            ...tokenSet,
-            invalidatedAt,
+        await ctx.db.patch('fluxerOauthTokens', tokenSet._id, {
+            refreshLeaseExpiresAt: leaseExpiresAt,
+            refreshLeaseGeneration: expectedGeneration,
+            refreshLeaseId: leaseId,
+            refreshLeaseOwner: leaseOwner,
+            refreshRetryAfter: undefined,
         });
+
+        return { status: 'claimed' as const };
+    },
+});
+
+export const completeFluxerOAuthTokenRefresh = mutation({
+    args: {
+        accessToken: encryptedOAuthTokenPayloadValidator,
+        accessTokenExpiresAt: v.string(),
+        expectedGeneration: v.number(),
+        fluxerUserId: v.string(),
+        leaseId: v.string(),
+        refreshToken: encryptedOAuthTokenPayloadValidator,
+        scopes: v.array(v.string()),
+        tokenType: v.string(),
+    },
+    returns: fluxerOAuthRefreshCompletionValidator,
+    handler: async (ctx: AuthStoreMutationCtx, args) => {
+        await requireNeonFluxService(ctx, allowedAuthStoreServices);
+        const fluxerUserId = unwrap(normalizeRequiredString(args.fluxerUserId, 'missing-fluxer-user-id'));
+        const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
+        const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
+        const accessToken = unwrap(normalizeEncryptedTokenPayload(args.accessToken, 'invalid-access-token'));
+        const refreshToken = unwrap(normalizeEncryptedTokenPayload(args.refreshToken, 'invalid-refresh-token'));
+        const tokenType = unwrap(normalizeRequiredString(args.tokenType, 'missing-token-type'));
+        const accessTokenExpiresAt = unwrap(normalizeTimestamp(args.accessTokenExpiresAt));
+        const scopes = unwrap(normalizeScopes(args.scopes));
+        const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
+
+        if (!matchesFluxerOAuthRefreshLease(tokenSet, { expectedGeneration, leaseId })) {
+            return { status: 'stale' as const };
+        }
+
+        if (!tokenSet) {
+            return { status: 'stale' as const };
+        }
+
+        const patch = {
+            accessToken,
+            accessTokenExpiresAt,
+            credentialGeneration: expectedGeneration + 1,
+            invalidatedAt: undefined,
+            refreshLeaseExpiresAt: undefined,
+            refreshLeaseGeneration: undefined,
+            refreshLeaseId: undefined,
+            refreshLeaseOwner: undefined,
+            refreshRetryAfter: undefined,
+            refreshToken,
+            scopes,
+            tokenType,
+            updatedAt: new Date().toISOString(),
+        };
+
+        await ctx.db.patch('fluxerOauthTokens', tokenSet._id, patch);
+
+        return {
+            status: 'applied' as const,
+            tokenSet: toFluxerOAuthTokenRecord({ ...tokenSet, ...patch }),
+        };
+    },
+});
+
+export const recordFluxerOAuthTokenRefreshFailure = mutation({
+    args: {
+        expectedGeneration: v.number(),
+        fluxerUserId: v.string(),
+        leaseId: v.string(),
+        now: v.string(),
+        retryAt: v.string(),
+    },
+    returns: fluxerOAuthRefreshMutationStatusValidator,
+    handler: async (ctx: AuthStoreMutationCtx, args) => {
+        await requireNeonFluxService(ctx, allowedAuthStoreServices);
+        const fluxerUserId = unwrap(normalizeRequiredString(args.fluxerUserId, 'missing-fluxer-user-id'));
+        const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
+        const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
+        const now = unwrap(normalizeTimestamp(args.now));
+        const retryAt = unwrap(normalizeFutureTimestamp(args.retryAt, Date.parse(now))).isoString;
+        const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
+
+        if (!matchesFluxerOAuthRefreshLease(tokenSet, { expectedGeneration, leaseId })) {
+            return { status: 'stale' as const };
+        }
+
+        if (!tokenSet) {
+            return { status: 'stale' as const };
+        }
+
+        await ctx.db.patch('fluxerOauthTokens', tokenSet._id, {
+            refreshLeaseExpiresAt: undefined,
+            refreshLeaseGeneration: undefined,
+            refreshLeaseId: undefined,
+            refreshLeaseOwner: undefined,
+            refreshRetryAfter: retryAt,
+        });
+
+        return { status: 'applied' as const };
+    },
+});
+
+export const invalidateFluxerOAuthTokenSet = mutation({
+    args: {
+        expectedGeneration: v.number(),
+        fluxerUserId: v.string(),
+        leaseId: v.string(),
+    },
+    returns: v.union(v.object({ status: v.literal('deleted') }), v.object({ status: v.literal('stale') })),
+    handler: async (ctx: AuthStoreMutationCtx, args) => {
+        await requireNeonFluxService(ctx, allowedAuthStoreServices);
+        const fluxerUserId = unwrap(normalizeRequiredString(args.fluxerUserId, 'missing-fluxer-user-id'));
+        const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
+        const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
+        const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
+
+        if (!matchesFluxerOAuthRefreshLease(tokenSet, { expectedGeneration, leaseId })) {
+            return { status: 'stale' as const };
+        }
+
+        if (!tokenSet) {
+            return { status: 'stale' as const };
+        }
+
+        await ctx.db.delete('fluxerOauthTokens', tokenSet._id);
+
+        return { status: 'deleted' as const };
     },
 });
 
@@ -292,6 +465,7 @@ function toWebSessionRecord(document: {
 function toFluxerOAuthTokenRecord(document: {
     accessToken: EncryptedOAuthTokenPayload;
     accessTokenExpiresAt: string;
+    credentialGeneration?: number;
     createdAt: string;
     fluxerUserId: string;
     invalidatedAt?: string | undefined;
@@ -303,6 +477,7 @@ function toFluxerOAuthTokenRecord(document: {
     return {
         accessToken: document.accessToken,
         accessTokenExpiresAt: document.accessTokenExpiresAt,
+        credentialGeneration: unwrap(normalizeCredentialGeneration(document.credentialGeneration)),
         createdAt: document.createdAt,
         fluxerUserId: document.fluxerUserId,
         invalidatedAt: document.invalidatedAt ?? null,

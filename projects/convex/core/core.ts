@@ -1,6 +1,7 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
+import { clearGuildGrowthCurrentState } from '../growth/growth_current_state_lifecycle.js';
 import {
     buildDeploymentConfigDocument,
     normalizeListLimit,
@@ -225,6 +226,8 @@ export const deleteBotInstallation = mutation({
         await requireNeonFluxService(ctx, allowedMutationServices);
         const guildId = normalizeRequiredGuildId(args.guildId);
         const installation = await findBotInstallationDocument(ctx, guildId);
+
+        await clearGuildGrowthCurrentState(ctx, guildId);
 
         if (!installation) {
             return null;

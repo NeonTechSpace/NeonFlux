@@ -94,16 +94,6 @@ describe('loadDashboardGuildOverview', () => {
                             unavailable: 0,
                             'not-applicable': 1,
                         },
-                        topInviters: [
-                            {
-                                inviterUserId: 'inviter-1',
-                                attributedJoins: 2,
-                                inviteCodes: [
-                                    { code: 'alpha', uses: 5, active: true },
-                                    { code: 'beta', uses: 3, active: true },
-                                ],
-                            },
-                        ],
                     },
                     messages: {
                         totalMessages: 12,
@@ -111,7 +101,6 @@ describe('loadDashboardGuildOverview', () => {
                             { date: '2026-06-25', messageCount: 4 },
                             { date: '2026-06-26', messageCount: 8 },
                         ],
-                        topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
                     },
                     dataHealth: {
                         hasMemberFlow: true,
@@ -147,16 +136,6 @@ describe('loadDashboardGuildOverview', () => {
                         unavailable: 0,
                         notApplicable: 1,
                     },
-                    topInviters: [
-                        {
-                            inviterUserId: 'inviter-1',
-                            attributedJoins: 2,
-                            inviteCodes: [
-                                { code: 'alpha', uses: 5, active: true },
-                                { code: 'beta', uses: 3, active: true },
-                            ],
-                        },
-                    ],
                 },
                 messages: {
                     totalMessages: 12,
@@ -164,7 +143,6 @@ describe('loadDashboardGuildOverview', () => {
                         { date: '2026-06-25', messageCount: 4 },
                         { date: '2026-06-26', messageCount: 8 },
                     ],
-                    topChannels: [{ channelId: 'channel-1', messageCount: 12 }],
                 },
                 dataHealth: {
                     hasMemberFlow: true,
@@ -207,12 +185,10 @@ function createOverviewAggregateShape(): GuildOverviewAggregate {
                 unavailable: 0,
                 'not-applicable': 0,
             },
-            topInviters: [],
         },
         messages: {
             totalMessages: 0,
             graph: [{ date: '2026-06-26', messageCount: 0 }],
-            topChannels: [],
         },
         dataHealth: {
             hasMemberFlow: false,
@@ -240,12 +216,10 @@ function createOverview() {
                 unavailable: 0,
                 notApplicable: 0,
             },
-            topInviters: [],
         },
         messages: {
             totalMessages: 0,
             graph: [{ date: '2026-06-26', messageCount: 0 }],
-            topChannels: [],
         },
         dataHealth: {
             hasMemberFlow: false,

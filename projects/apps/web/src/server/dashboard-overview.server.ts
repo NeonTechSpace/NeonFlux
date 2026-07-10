@@ -29,24 +29,11 @@ export type DashboardGuildOverview = {
             unavailable: number;
             notApplicable: number;
         };
-        topInviters: Array<{
-            inviterUserId: string;
-            attributedJoins: number;
-            inviteCodes: Array<{
-                code: string;
-                uses: number;
-                active: boolean;
-            }>;
-        }>;
     };
     messages: {
         totalMessages: number;
         graph: Array<{
             date: string;
-            messageCount: number;
-        }>;
-        topChannels: Array<{
-            channelId: string;
             messageCount: number;
         }>;
     };
@@ -108,7 +95,6 @@ export async function loadDashboardGuildOverview(
                     unavailable: aggregateResult.value.invites.attribution.unavailable,
                     notApplicable: aggregateResult.value.invites.attribution['not-applicable'],
                 },
-                topInviters: aggregateResult.value.invites.topInviters,
             },
             messages: aggregateResult.value.messages,
             dataHealth: aggregateResult.value.dataHealth,
