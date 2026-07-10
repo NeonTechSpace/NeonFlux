@@ -577,18 +577,46 @@ export async function recordStructureScheduledDriftResult(
 
 export async function createStructureImportRun(
     db: StructureDb,
-    input: { createdByUserId?: string; guildId: string; plan?: Record<string, unknown>; sourceBackupId?: string }
+    input: {
+        createdByUserId?: string;
+        deleteActionCount: number;
+        deleteSetDigest?: string;
+        guildId: string;
+        plan?: Record<string, unknown>;
+        planDigest: string;
+        planVersion: 2;
+        policy: 'merge' | 'synchronize' | 'rebuild';
+        requestedSnapshotDigest: string;
+        sourceBackupId?: string;
+    }
 ): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const deleteSetDigest = normalizeOptionalText(input.deleteSetDigest);
+    const planDigest = normalizeRequiredText(input.planDigest, 'planDigest');
+    const requestedSnapshotDigest = normalizeRequiredText(input.requestedSnapshotDigest, 'requestedSnapshotDigest');
     if (guildId.isErr()) return err(guildId.error);
+    if (!Number.isInteger(input.deleteActionCount) || input.deleteActionCount < 0)
+        return err({ field: 'deleteActionCount', type: 'invalid-value' });
+    if (input.deleteActionCount > 0 && !deleteSetDigest)
+        return err({ field: 'deleteSetDigest', type: 'missing-input' });
+    if (input.deleteActionCount === 0 && deleteSetDigest)
+        return err({ field: 'deleteSetDigest', type: 'invalid-value' });
+    if (planDigest.isErr()) return err(planDigest.error);
+    if (requestedSnapshotDigest.isErr()) return err(requestedSnapshotDigest.error);
 
     try {
         const run = await db.client.mutation(
             api.structure.createStructureImportRun,
             compactConvexArgs({
                 createdByUserId: normalizeOptionalText(input.createdByUserId),
+                deleteActionCount: input.deleteActionCount,
+                deleteSetDigest,
                 guildId: guildId.value,
                 plan: input.plan ?? {},
+                planDigest: planDigest.value,
+                planVersion: input.planVersion,
+                policy: input.policy,
+                requestedSnapshotDigest: requestedSnapshotDigest.value,
                 sourceBackupId: normalizeOptionalText(input.sourceBackupId),
             })
         );
@@ -705,44 +733,6 @@ export async function listAllStructureImportActionsByRunId(
     return ok(actions);
 }
 
-export async function updateStructureImportRunStatus(
-    db: StructureDb,
-    input: {
-        plan?: Record<string, unknown>;
-        runId: string;
-        status: string;
-        audit?: StructureAuditInput;
-        expectedApplyAttemptId?: string;
-        expectedApplyLeaseOwner?: string;
-        requireExpiredApplyLease?: boolean;
-    }
-): Promise<Result<StructureImportRunRecord, StructureImportExportRepositoryError>> {
-    const runId = normalizeRequiredText(input.runId, 'runId');
-    const status = normalizeRequiredText(input.status, 'status');
-
-    if (runId.isErr()) return err(runId.error);
-    if (status.isErr()) return err(status.error);
-
-    try {
-        const run = await db.client.mutation(
-            api.structure.updateStructureImportRunStatus,
-            compactConvexArgs({
-                audit: normalizeStructureAuditInput(input.audit),
-                expectedApplyAttemptId: normalizeOptionalText(input.expectedApplyAttemptId),
-                expectedApplyLeaseOwner: normalizeOptionalText(input.expectedApplyLeaseOwner),
-                plan: input.plan,
-                requireExpiredApplyLease: input.requireExpiredApplyLease,
-                runId: runId.value,
-                status: status.value,
-            })
-        );
-
-        return run ? ok(toImportRunRecord(run)) : err({ type: 'not-found' });
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
 export async function recordStructureImportAction(
     db: StructureDb,
     input: {
@@ -750,7 +740,6 @@ export async function recordStructureImportAction(
         details?: Record<string, unknown>;
         runId: string;
         sequence: number;
-        status?: string;
         targetId?: string;
         targetType: string;
     }
@@ -774,7 +763,6 @@ export async function recordStructureImportActionsBatch(
             actionType: string;
             details?: Record<string, unknown>;
             sequence: number;
-            status?: string;
             targetId?: string;
             targetType: string;
         }>;
@@ -798,7 +786,6 @@ export async function recordStructureImportActionsBatch(
             actionType: normalized.value.actionType,
             details: normalized.value.details,
             sequence: normalized.value.sequence,
-            ...(normalized.value.status ? { status: normalized.value.status } : {}),
             ...(normalized.value.targetId ? { targetId: normalized.value.targetId } : {}),
             targetType: normalized.value.targetType,
         });
@@ -811,29 +798,6 @@ export async function recordStructureImportActionsBatch(
         });
 
         return ok(records.map(toImportActionRecord));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function updateStructureImportActionStatus(
-    db: StructureDb,
-    input: { actionId: string; details?: Record<string, unknown>; status: string }
-): Promise<Result<StructureImportActionRecord, StructureImportExportRepositoryError>> {
-    const actionId = normalizeRequiredText(input.actionId, 'actionId');
-    const status = normalizeRequiredText(input.status, 'status');
-
-    if (actionId.isErr()) return err(actionId.error);
-    if (status.isErr()) return err(status.error);
-
-    try {
-        const action = await db.client.mutation(api.structure.updateStructureImportActionStatus, {
-            actionId: actionId.value,
-            ...(input.details ? { details: input.details } : {}),
-            status: status.value,
-        });
-
-        return action ? ok(toImportActionRecord(action)) : err({ type: 'not-found' });
     } catch {
         return err({ type: 'database-error' });
     }
@@ -867,14 +831,12 @@ function normalizeImportActionInput(input: {
     details?: Record<string, unknown>;
     runId: string;
     sequence?: number;
-    status?: string;
     targetId?: string;
     targetType: string;
 }) {
     const runId = normalizeRequiredText(input.runId, 'runId');
     const actionType = normalizeRequiredText(input.actionType, 'actionType');
     const targetType = normalizeRequiredText(input.targetType, 'targetType');
-    const status = normalizeOptionalText(input.status);
     const targetId = normalizeOptionalText(input.targetId);
     const sequence = input.sequence;
 
@@ -890,7 +852,6 @@ function normalizeImportActionInput(input: {
         details: input.details ?? {},
         runId: runId.value,
         sequence,
-        ...(status ? { status } : {}),
         ...(targetId ? { targetId } : {}),
         targetType: targetType.value,
     });

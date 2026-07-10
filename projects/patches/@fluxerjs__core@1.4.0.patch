@@ -1,0 +1,30 @@
+diff --git a/dist/subpath-message-DSs_mdc4.d.mts b/dist/subpath-message-DSs_mdc4.d.mts
+index 08e110968fa64f1f81d51d994b67dc4746bf6ba9..029029425d5554cef73ef2757f51c674a1399ca6 100644
+--- a/dist/subpath-message-DSs_mdc4.d.mts
++++ b/dist/subpath-message-DSs_mdc4.d.mts
+@@ -878,8 +878,9 @@ declare class Guild extends Base {
+      * Requires Manage Channels permission.
+      */
+     createChannel(data: {
+-        type: 0 | 2 | 4 | 5;
++        type: 0 | 2 | 4 | 998;
+         name: string;
++        url?: string | null;
+         parent_id?: string | null;
+         topic?: string | null;
+         bitrate?: number | null;
+diff --git a/dist/subpath-message-DSs_mdc4.d.ts b/dist/subpath-message-DSs_mdc4.d.ts
+index 08e110968fa64f1f81d51d994b67dc4746bf6ba9..029029425d5554cef73ef2757f51c674a1399ca6 100644
+--- a/dist/subpath-message-DSs_mdc4.d.ts
++++ b/dist/subpath-message-DSs_mdc4.d.ts
+@@ -878,8 +878,9 @@ declare class Guild extends Base {
+      * Requires Manage Channels permission.
+      */
+     createChannel(data: {
+-        type: 0 | 2 | 4 | 5;
++        type: 0 | 2 | 4 | 998;
+         name: string;
++        url?: string | null;
+         parent_id?: string | null;
+         topic?: string | null;
+         bitrate?: number | null;

@@ -5,8 +5,10 @@ import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
     DashboardStructureImportRun,
+    DashboardStructureRoleMappingConflict,
 } from '../server/dashboard-structure.server.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
 import { DashboardStructureBackupHistory as BackupHistory } from './dashboard-structure-backup-history.js';
 import { DashboardStructureBackupSettings as BackupSettings } from './dashboard-structure-backup-settings.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
@@ -22,13 +24,44 @@ import type { BackupPageState, DriftState, PanelStatus } from './dashboard-struc
 
 export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
 
+export const dashboardStructureDeploymentPolicies = [
+    {
+        value: 'merge',
+        label: 'Merge additions only',
+        description: 'Create missing items and update or reorder matches while retaining eligible target-only items.',
+    },
+    {
+        value: 'synchronize',
+        label: 'Match blueprint (recommended)',
+        description: 'Match eligible roles and channels, including deleting eligible target-only objects.',
+    },
+    {
+        value: 'rebuild',
+        label: 'Reset and rebuild',
+        description: 'Delete all eligible roles and channels, retain protected objects, then recreate the blueprint.',
+    },
+] as const satisfies ReadonlyArray<{
+    value: DashboardStructurePolicy;
+    label: string;
+    description: string;
+}>;
+
 export function DashboardStructurePanelView({
     surface,
     ...workspace
 }: DashboardStructurePanelViewProps & { surface: DashboardStructureSurface | 'all' }) {
+    const refreshIssue = workspace.settingsRefreshIssue ? (
+        <ExecutionProgressIssue
+            code={workspace.settingsRefreshIssue.code}
+            message='Blueprint data could not refresh. The last confirmed workspace remains visible.'
+            retryLabel='Retry Blueprint refresh'
+            onRetry={workspace.onRetrySettingsRefresh}
+        />
+    ) : null;
     if (surface === 'all') {
         return (
             <div className='space-y-12'>
+                {refreshIssue}
                 <CurrentSurface workspace={workspace} showActions={false} />
                 <BackupsSurface workspace={workspace} showStatus={false} />
                 <CompareSurface workspace={workspace} />
@@ -44,6 +77,7 @@ export function DashboardStructurePanelView({
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}>
+            {refreshIssue}
             {surface === 'current' ? <CurrentSurface workspace={workspace} showActions /> : null}
             {surface === 'backups' ? <BackupsSurface workspace={workspace} showStatus /> : null}
             {surface === 'compare' ? <CompareSurface workspace={workspace} /> : null}
@@ -66,9 +100,7 @@ function CurrentSurface({
             ? formatObservedState(workspace.observedState)
             : 'No layout events observed since this process started.';
     const drift = workspace.driftState;
-    const driftChangeCount = drift
-        ? drift.summary.creates + drift.summary.updates + drift.summary.deletes
-        : undefined;
+    const driftChangeCount = drift ? drift.summary.creates + drift.summary.updates + drift.summary.deletes : undefined;
     const driftCopy = drift
         ? `${driftChangeCount} ${driftChangeCount === 1 ? 'difference' : 'differences'} checked ${formatDate(drift.checkedAt)}`
         : workspace.backupSettings.scheduledDrift?.checkedAt
@@ -117,7 +149,9 @@ function CurrentSurface({
                 <VersionConnector />
                 <VersionPoint
                     label='Live layout'
-                    title={workspace.observedState.changedSinceLastBackup ? 'May differ from baseline' : 'Ready to inspect'}
+                    title={
+                        workspace.observedState.changedSinceLastBackup ? 'May differ from baseline' : 'Ready to inspect'
+                    }
                     detail={
                         latestBackup
                             ? `${latestBackup.roleCount} roles · ${latestBackup.categoryCount} categories · ${latestBackup.channelCount} channels in baseline`
@@ -219,12 +253,19 @@ function BackupsSurface({
             {workspace.backupJson ? (
                 <div className='flex flex-wrap items-center justify-between gap-3 border-b border-[var(--dash-border)] py-4'>
                     <p className='text-sm text-[var(--dash-text-muted)]'>The new backup is available for deployment.</p>
-                    <button type='button' onClick={workspace.onSetBackupJsonAsImportJson} className={secondaryButtonClass}>
+                    <button
+                        type='button'
+                        onClick={workspace.onSetBackupJsonAsImportJson}
+                        className={secondaryButtonClass}>
                         Use as deploy source
                     </button>
                 </div>
             ) : null}
-            {showStatus && workspace.status ? <div className='py-4'><StatusMessage status={workspace.status} /></div> : null}
+            {showStatus && workspace.status ? (
+                <div className='py-4'>
+                    <StatusMessage status={workspace.status} />
+                </div>
+            ) : null}
             <div className='pt-5'>
                 <BackupHistory
                     page={workspace.backupPage}
@@ -318,23 +359,26 @@ function DeploySurface({
                 </p>
             </div>
             <ol className='grid border-b border-[var(--dash-border)] md:grid-cols-4' aria-label='Deployment stages'>
-                {['Source', 'Review', 'Safety check', stage === 4 && workspace.latestRun?.status === 'failed' ? 'Recover' : 'Apply'].map(
-                    (label, index) => (
-                        <li
-                            key={label}
-                            aria-current={stage === index + 1 ? 'step' : undefined}
-                            className={`border-b-2 px-1 py-4 text-sm ${
-                                stage === index + 1
-                                    ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
-                                    : index + 1 < stage
-                                      ? 'border-transparent text-[var(--dash-text-muted)]'
-                                      : 'border-transparent text-[var(--dash-text-subtle)]'
-                            }`}>
-                            <span className='mr-2 font-mono text-xs'>{index + 1}</span>
-                            {label}
-                        </li>
-                    )
-                )}
+                {[
+                    'Source',
+                    'Review',
+                    'Safety check',
+                    stage === 4 && workspace.latestRun?.status === 'failed' ? 'Recover' : 'Apply',
+                ].map((label, index) => (
+                    <li
+                        key={label}
+                        aria-current={stage === index + 1 ? 'step' : undefined}
+                        className={`border-b-2 px-1 py-4 text-sm ${
+                            stage === index + 1
+                                ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
+                                : index + 1 < stage
+                                  ? 'border-transparent text-[var(--dash-text-muted)]'
+                                  : 'border-transparent text-[var(--dash-text-subtle)]'
+                        }`}>
+                        <span className='mr-2 font-mono text-xs'>{index + 1}</span>
+                        {label}
+                    </li>
+                ))}
             </ol>
 
             {stage === 1 || forceSourceDetails ? (
@@ -346,21 +390,26 @@ function DeploySurface({
                         runs={[workspace.latestRun]}
                         latestRun={workspace.latestRun}
                         busyAction={workspace.busyAction}
-                        confirmationByRunId={workspace.confirmationByRunId}
                         preflightByRunId={workspace.preflightByRunId}
-                        applyConfirmationByRunId={workspace.applyConfirmationByRunId}
                         deleteConfirmationByRunId={workspace.deleteConfirmationByRunId}
-                        onConfirmationChange={workspace.onConfirmationChange}
-                        onApplyConfirmationChange={workspace.onApplyConfirmationChange}
                         onDeleteConfirmationChange={workspace.onDeleteConfirmationChange}
-                        onConfirm={workspace.onConfirmRun}
+                        onApprove={workspace.onApprovePlan}
                         onPreflight={workspace.onPreflightRun}
                         onApply={workspace.onApplyRun}
+                        onControl={workspace.onControlExecution}
                         onLoadActions={workspace.onLoadRunActions}
-                        onInspectAction={workspace.explorer.selectImportAction}
-                        onRetry={workspace.onRetryRun}
+                        onLoadDecisions={workspace.onLoadRunDecisions}
+                        onRecoveryPlan={workspace.onRecoveryPlan}
                     />
                 </div>
+            ) : null}
+            {workspace.executionProgressIssue ? (
+                <ExecutionProgressIssue
+                    code={workspace.executionProgressIssue.code}
+                    message='Live progress could not refresh. The last confirmed state remains visible.'
+                    retryLabel='Retry progress'
+                    onRetry={workspace.onRetryExecutionProgress}
+                />
             ) : null}
             {workspace.restoreShortcutBackupId ? (
                 <div className='pt-5'>
@@ -372,7 +421,11 @@ function DeploySurface({
                     />
                 </div>
             ) : null}
-            {workspace.status ? <div className='pt-5'><StatusMessage status={workspace.status} /></div> : null}
+            {workspace.status ? (
+                <div className='pt-5'>
+                    <StatusMessage status={workspace.status} />
+                </div>
+            ) : null}
         </section>
     );
 }
@@ -384,13 +437,19 @@ function DeploySource({
     workspace: DashboardStructurePanelViewProps;
     forceDetailsOpen: boolean;
 }) {
+    const mappingRows = workspace.roleMappingConflicts.flatMap((conflict) =>
+        conflict.sourceIds.map((sourceId) => ({ conflict, sourceId }))
+    );
+    const mappingsComplete =
+        mappingRows.length === 0 || mappingRows.every(({ sourceId }) => Boolean(workspace.roleMappings[sourceId]));
+
     return (
         <div className='pt-6'>
             <label htmlFor='server-blueprint-import-file' className='text-sm font-semibold text-[var(--dash-text)]'>
                 Import JSON file
             </label>
             <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                JSON is validated before a dry-run is created. Nothing changes on Fluxer at this stage.
+                JSON is validated before a deployment plan is created. Nothing changes on Fluxer at this stage.
             </p>
             <input
                 id='server-blueprint-import-file'
@@ -402,12 +461,16 @@ function DeploySource({
                 }}
                 className='mt-3 block w-full max-w-2xl border-b border-[var(--dash-border)] bg-transparent px-0 py-3 text-sm text-[var(--dash-text-muted)] file:mr-4 file:rounded-[var(--dash-radius-control)] file:border-0 file:bg-[var(--dash-surface-raised)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--dash-text)] hover:file:bg-[var(--dash-surface-selected)]'
             />
-            <details className='mt-4 max-w-2xl border-y border-[var(--dash-border)]' open={forceDetailsOpen || undefined}>
+            <details
+                className='mt-4 max-w-2xl border-y border-[var(--dash-border)]'
+                open={forceDetailsOpen || undefined}>
                 <summary className='cursor-pointer list-none py-3 text-sm font-medium text-[var(--dash-text)] marker:hidden'>
                     Or paste blueprint JSON
                 </summary>
                 <div className='pb-4'>
-                    <label htmlFor='server-blueprint-import-json' className='sr-only'>Import JSON dry-run</label>
+                    <label htmlFor='server-blueprint-import-json' className='sr-only'>
+                        Blueprint JSON
+                    </label>
                     <textarea
                         id='server-blueprint-import-json'
                         value={workspace.importJson}
@@ -427,33 +490,92 @@ function DeploySource({
                 </div>
             </details>
             {workspace.importJson.trim() ? (
-                <details className='mt-4 max-w-2xl border-b border-[var(--dash-border)]'>
-                    <summary className='cursor-pointer list-none py-3 text-sm font-medium text-[var(--dash-text)] marker:hidden'>
-                        Start from an empty eligible layout
-                    </summary>
-                    <label className='flex items-start gap-3 pb-4 text-sm text-[var(--dash-text-muted)]'>
-                        <input
-                            type='checkbox'
-                            aria-label='Reset existing layout before import'
-                            checked={workspace.replaceImportMode}
-                            onChange={(event) => workspace.onReplaceImportModeChange(event.currentTarget.checked)}
-                            className='mt-1 size-4 rounded border-[var(--dash-border-strong)] bg-[var(--dash-bg)] text-[var(--dash-warning)]'
-                        />
-                        <span>
-                            <strong className='block text-[var(--dash-text)]'>Reset eligible roles and channels first</strong>
-                            Deletes remain reviewable and require separate approval. Protected and default roles are not removed.
-                        </span>
-                    </label>
-                </details>
+                <fieldset className='mt-5 max-w-2xl' aria-label='Deployment policy'>
+                    <legend className='text-sm font-semibold text-[var(--dash-text)]'>Deployment policy</legend>
+                    <div className='mt-3 grid gap-2'>
+                        {dashboardStructureDeploymentPolicies.map((option) => (
+                            <label
+                                key={option.value}
+                                htmlFor={`structure-policy-${option.value}`}
+                                aria-label={option.label}
+                                className={`flex cursor-pointer items-start gap-3 rounded-[var(--dash-radius-control)] border p-4 transition ${
+                                    workspace.structurePolicy === option.value
+                                        ? 'border-[var(--dash-primary)] bg-[var(--dash-primary-ring)]'
+                                        : 'border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'
+                                }`}>
+                                <input
+                                    id={`structure-policy-${option.value}`}
+                                    type='radio'
+                                    name='structure-policy'
+                                    value={option.value}
+                                    checked={workspace.structurePolicy === option.value}
+                                    onChange={() => workspace.onStructurePolicyChange(option.value)}
+                                    className='mt-1 size-4 border-[var(--dash-border-strong)] bg-[var(--dash-bg)] text-[var(--dash-primary)]'
+                                />
+                                <span>
+                                    <strong className='block text-sm text-[var(--dash-text)]'>{option.label}</strong>
+                                    <span className='mt-1 block text-xs leading-5 text-[var(--dash-text-muted)]'>
+                                        {option.description}
+                                    </span>
+                                </span>
+                            </label>
+                        ))}
+                    </div>
+                </fieldset>
+            ) : null}
+            {mappingRows.length > 0 ? (
+                <div
+                    className='mt-5 max-w-2xl rounded-[var(--dash-radius-control)] border border-amber-400/40 bg-amber-950/20 p-4'
+                    role='alert'>
+                    <h4 className='text-sm font-semibold text-amber-100'>Match duplicate blueprint items</h4>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                        These roles are still genuinely ambiguous after projecting the final hierarchy. Select each
+                        existing target role once. No server changes occur until the reviewed plan is applied.
+                    </p>
+                    <div className='mt-4 space-y-4'>
+                        {mappingRows.map(({ conflict, sourceId }) => (
+                            <label key={sourceId} className='block text-xs text-[var(--dash-text-muted)]'>
+                                <span className='mb-1 block font-semibold text-[var(--dash-text)]'>
+                                    Source {conflict.targetType} {conflict.name} ({sourceId})
+                                </span>
+                                <select
+                                    aria-label={`Target ${conflict.targetType} for ${conflict.name} ${sourceId}`}
+                                    value={workspace.roleMappings[sourceId] ?? ''}
+                                    onChange={(event) =>
+                                        workspace.onRoleMappingChange(sourceId, event.currentTarget.value)
+                                    }
+                                    className='min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 text-sm text-[var(--dash-text)] outline-none focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]'>
+                                    <option value=''>Choose an existing target {conflict.targetType}</option>
+                                    {conflict.candidateTargetIds.map((targetId) => {
+                                        const selectedByAnotherSource = Object.entries(workspace.roleMappings).some(
+                                            ([selectedSourceId, selectedTargetId]) =>
+                                                selectedSourceId !== sourceId && selectedTargetId === targetId
+                                        );
+
+                                        return (
+                                            <option key={targetId} value={targetId} disabled={selectedByAnotherSource}>
+                                                {conflict.name} ({targetId})
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </label>
+                        ))}
+                    </div>
+                </div>
             ) : null}
             <div className='mt-6 flex items-center justify-between gap-4 border-t border-[var(--dash-border)] pt-4'>
-                <p className='text-xs text-[var(--dash-text-muted)]'>Merge is the default strategy.</p>
+                <p className='text-xs text-[var(--dash-text-muted)]'>The selected policy is saved with the plan.</p>
                 <button
                     type='button'
-                    onClick={workspace.onCreateDryRun}
-                    disabled={Boolean(workspace.busyAction) || !workspace.importJson.trim()}
+                    onClick={workspace.onCreatePlan}
+                    disabled={Boolean(workspace.busyAction) || !workspace.importJson.trim() || !mappingsComplete}
                     className={primaryButtonClass}>
-                    {workspace.busyAction === 'dry-run' ? 'Creating dry-run' : 'Create dry-run'}
+                    {workspace.busyAction === 'plan'
+                        ? 'Creating plan'
+                        : mappingRows.length > 0
+                          ? 'Create plan with mappings'
+                          : 'Create deployment plan'}
                 </button>
             </div>
             <p className='mt-4 max-w-3xl text-xs leading-5 text-[var(--dash-text-subtle)]'>
@@ -483,20 +605,26 @@ function RunsSurface({
                 </p>
             </div>
             {workspace.importRuns.length === 0 ? (
-                <p className='py-10 text-sm text-[var(--dash-text-muted)]'>No import dry-runs yet.</p>
+                <p className='py-10 text-sm text-[var(--dash-text-muted)]'>No deployment plans yet.</p>
             ) : (
                 <div role='table' aria-label='Deployment runs'>
                     <div
                         role='row'
                         className='hidden grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] gap-4 border-b border-[var(--dash-border)] px-2 py-2 text-xs text-[var(--dash-text-subtle)] md:grid'>
-                        <span role='columnheader'>Started</span><span role='columnheader'>Planned changes</span><span role='columnheader'>State</span><span role='columnheader'>Action</span>
+                        <span role='columnheader'>Started</span>
+                        <span role='columnheader'>Planned changes</span>
+                        <span role='columnheader'>State</span>
+                        <span role='columnheader'>Action</span>
                     </div>
                     {workspace.importRuns.map((run) => (
                         <details key={run.id} className='group border-b border-[var(--dash-border)]'>
                             <summary className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'>
-                                <span className='text-sm text-[var(--dash-text-muted)]'>{formatDate(run.createdAt)}</span>
+                                <span className='text-sm text-[var(--dash-text-muted)]'>
+                                    {formatDate(run.createdAt)}
+                                </span>
                                 <span className='text-sm text-[var(--dash-text)]'>
-                                    {run.actionCount} actions · {run.summary.creates} create · {run.summary.updates} update · {run.summary.deletes} delete
+                                    {run.actionCount} actions · {run.summary.creates} create · {run.summary.updates}{' '}
+                                    update · {run.summary.deletes} delete
                                 </span>
                                 <span className='text-sm text-[var(--dash-text-muted)]'>{formatRunStatus(run)}</span>
                                 <span className='text-sm font-medium text-[var(--dash-primary)]'>
@@ -509,20 +637,25 @@ function RunsSurface({
                                         runs={[run]}
                                         latestRun={workspace.latestRun}
                                         busyAction={workspace.busyAction}
-                                        confirmationByRunId={workspace.confirmationByRunId}
                                         preflightByRunId={workspace.preflightByRunId}
-                                        applyConfirmationByRunId={workspace.applyConfirmationByRunId}
                                         deleteConfirmationByRunId={workspace.deleteConfirmationByRunId}
-                                        onConfirmationChange={workspace.onConfirmationChange}
-                                        onApplyConfirmationChange={workspace.onApplyConfirmationChange}
                                         onDeleteConfirmationChange={workspace.onDeleteConfirmationChange}
-                                        onConfirm={workspace.onConfirmRun}
+                                        onApprove={workspace.onApprovePlan}
                                         onPreflight={workspace.onPreflightRun}
                                         onApply={workspace.onApplyRun}
+                                        onControl={workspace.onControlExecution}
                                         onLoadActions={workspace.onLoadRunActions}
-                                        onInspectAction={workspace.explorer.selectImportAction}
-                                        onRetry={workspace.onRetryRun}
+                                        onLoadDecisions={workspace.onLoadRunDecisions}
+                                        onRecoveryPlan={workspace.onRecoveryPlan}
                                     />
+                                    {workspace.executionProgressIssue?.runId === run.id ? (
+                                        <ExecutionProgressIssue
+                                            code={workspace.executionProgressIssue.code}
+                                            message='Live progress could not refresh. The last confirmed state remains visible.'
+                                            retryLabel='Retry progress'
+                                            onRetry={workspace.onRetryExecutionProgress}
+                                        />
+                                    ) : null}
                                 </div>
                             ) : null}
                         </details>
@@ -535,24 +668,47 @@ function RunsSurface({
 
 function getDeployStage(run: DashboardStructureImportRun | undefined): 1 | 2 | 3 | 4 {
     if (!run) return 1;
-    if (run.status === 'draft' || run.status === 'dry_run_complete') return 2;
-    if (run.status === 'confirmed') return 3;
+    if (run.status === 'building' || run.status === 'needs_mapping' || run.status === 'review_ready') return 2;
+    if (run.status === 'approved') return 3;
     return 4;
 }
 
 function formatRunStatus(run: DashboardStructureImportRun): string {
     switch (run.status) {
-        case 'dry_run_complete':
+        case 'review_ready':
             return 'Waiting for review';
-        case 'confirmed':
+        case 'approved':
             return 'Waiting for safety check';
-        case 'applying':
-            return `Applying ${run.actions.filter((action) => action.status === 'succeeded').length} of ${run.actionCount}`;
-        case 'failed':
-            return run.recoveryAvailable ? 'Recovery available' : 'Failed';
         default:
-            return run.status.replaceAll('_', ' ');
+            return run.execution?.status.replaceAll('_', ' ') ?? run.status.replaceAll('_', ' ');
     }
+}
+
+function ExecutionProgressIssue({
+    code,
+    message,
+    retryLabel,
+    onRetry,
+}: {
+    code: string;
+    message: string;
+    retryLabel: string;
+    onRetry: () => void;
+}) {
+    return (
+        <div className='mt-4 flex flex-wrap items-center justify-between gap-3 border border-amber-400/30 bg-amber-950/20 p-3'>
+            <div>
+                <p className='text-xs text-amber-100'>{message}</p>
+                <p className='mt-1 font-mono text-[11px] text-neutral-500'>Diagnostic: {code}</p>
+            </div>
+            <button
+                type='button'
+                onClick={onRetry}
+                className='rounded border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100'>
+                {retryLabel}
+            </button>
+        </div>
+    );
 }
 
 const primaryButtonClass =
@@ -561,19 +717,18 @@ const secondaryButtonClass =
     'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 
 export type DashboardStructurePanelViewProps = {
-    applyConfirmationByRunId: Record<string, string>;
     backupJson: string;
     backupPage: BackupPageState;
     backupSettings: DashboardStructureBackupSettings;
     busyAction: StructureBusyAction | undefined;
     cadenceDraft: number;
-    confirmationByRunId: Record<string, string>;
     deleteConfirmBackupId: string | undefined;
     deleteConfirmationByRunId: Record<string, string>;
     driftState: DriftState | undefined;
     editingBackupId: string | undefined;
     editingBackupName: string;
     enabledDraft: boolean;
+    executionProgressIssue: { code: string; runId: string } | undefined;
     explorer: DashboardStructureExplorerPanelState;
     importJson: string;
     importRuns: DashboardStructureImportRun[];
@@ -585,12 +740,15 @@ export type DashboardStructurePanelViewProps = {
         changedSinceLastBackup: boolean;
     };
     preflightByRunId: Record<string, DashboardStructurePreflightReport>;
-    replaceImportMode: boolean;
+    structurePolicy: DashboardStructurePolicy;
+    roleMappingConflicts: DashboardStructureRoleMappingConflict[];
+    roleMappings: Record<string, string>;
     restoreShortcutBackupId: string | undefined;
     retentionDraft: number;
+    settingsRefreshIssue: { code: string } | undefined;
     status: PanelStatus | undefined;
-    onApplyConfirmationChange: (runId: string, confirmation: string) => void;
     onApplyRun: (run: DashboardStructureImportRun) => void;
+    onControlExecution: (run: DashboardStructureImportRun, request: 'pause' | 'resume' | 'cancel') => void;
     onBackupCadenceWeeksChange: Dispatch<SetStateAction<number | undefined>>;
     onBackupDelete: (backup: DashboardStructureBackupSummary) => void;
     onBackupDownload: (backup: DashboardStructureBackupSummary) => void;
@@ -605,9 +763,9 @@ export type DashboardStructurePanelViewProps = {
     onCancelBackupRename: () => void;
     onCheckBackupDrift: (backup: DashboardStructureBackupSummary) => void;
     onCheckLatestDrift: () => void;
-    onConfirmRun: (run: DashboardStructureImportRun) => void;
+    onApprovePlan: (run: DashboardStructureImportRun) => void;
     onCreateBackup: () => void;
-    onCreateDryRun: () => void;
+    onCreatePlan: () => void;
     onCreateRestoreDryRun: (backupId: string) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
     onDownloadCurrentStructure: () => void;
@@ -616,10 +774,13 @@ export type DashboardStructurePanelViewProps = {
     onImportStructureFile: (file: File | undefined) => Promise<void>;
     onLoadMoreBackups: () => void;
     onLoadRunActions: (run: DashboardStructureImportRun) => void;
+    onLoadRunDecisions: (run: DashboardStructureImportRun) => void;
     onPreflightRun: (run: DashboardStructureImportRun) => void;
-    onConfirmationChange: (runId: string, confirmation: string) => void;
-    onReplaceImportModeChange: Dispatch<SetStateAction<boolean>>;
-    onRetryRun: (run: DashboardStructureImportRun) => void;
+    onRetryExecutionProgress: () => void;
+    onRetrySettingsRefresh: () => void;
+    onStructurePolicyChange: (policy: DashboardStructurePolicy) => void;
+    onRoleMappingChange: (sourceId: string, targetId: string) => void;
+    onRecoveryPlan: (run: DashboardStructureImportRun) => void;
     onSaveBackupSettings: (value: DashboardStructureBackupSettingsValue) => void;
     onSetBackupJsonAsImportJson: () => void;
     onReviewScheduledDrift: (baselineBackupId: string) => void;

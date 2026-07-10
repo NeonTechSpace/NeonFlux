@@ -8,3 +8,6 @@ allowBuilds:
     esbuild: true
     lightningcss: true
     unrs-resolver: true
+
+patchedDependencies:
+    '@fluxerjs/core@1.4.0': patches/@fluxerjs__core@1.4.0.patch

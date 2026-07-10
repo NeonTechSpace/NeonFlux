@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@fluxerjs/core@1.4.0': b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b
+
 importers:
 
   .:
@@ -365,7 +368,7 @@ importers:
     dependencies:
       '@fluxerjs/core':
         specifier: ^1.4.0
-        version: 1.4.0
+        version: 1.4.0(patch_hash=b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b)
       '@neonflux/core':
         specifier: workspace:*
         version: link:../core
@@ -6940,7 +6943,7 @@ snapshots:
 
   '@fluxerjs/collection@1.4.0': {}
 
-  '@fluxerjs/core@1.4.0':
+  '@fluxerjs/core@1.4.0(patch_hash=b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b)':
     dependencies:
       '@fluxerjs/builders': 1.4.0
       '@fluxerjs/collection': 1.4.0

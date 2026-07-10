@@ -34,3 +34,11 @@ export function getDashboardPostingTemplatesQueryKey(guildId: string) {
 export function getDashboardStructureSettingsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'structure-settings'] as const;
 }
+
+export function getDashboardStructureExecutionProgressBaseQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'structure-execution-progress'] as const;
+}
+
+export function getDashboardStructureExecutionProgressQueryKey(guildId: string, runId: string) {
+    return [...getDashboardStructureExecutionProgressBaseQueryKey(guildId), runId] as const;
+}

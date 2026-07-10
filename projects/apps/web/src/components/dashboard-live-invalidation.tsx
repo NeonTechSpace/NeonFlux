@@ -10,6 +10,7 @@ import {
     getDashboardOverviewQueryKey,
     getDashboardPostingTemplatesQueryKey,
     getDashboardReactionRolesSettingsQueryKey,
+    getDashboardStructureExecutionProgressBaseQueryKey,
     getDashboardStructureSettingsQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
@@ -113,8 +114,9 @@ export function useDashboardLiveInvalidation({
 
             hasBaseline = true;
 
+            const invalidatedDestinations = new Set<string>();
             for (const area of changedAreas) {
-                invalidateDashboardLiveArea(queryClient, guildId, area);
+                invalidateDashboardLiveArea(queryClient, guildId, area, invalidatedDestinations);
             }
         }
 
@@ -137,7 +139,7 @@ function createDashboardLiveClient(url: string): DashboardLiveClient {
     });
 }
 
-async function fetchDashboardConvexToken(): Promise<string | null> {
+export async function fetchDashboardConvexToken(): Promise<string | null> {
     const response = await fetch('/auth/convex/token', {
         cache: 'no-store',
         credentials: 'same-origin',
@@ -151,7 +153,7 @@ async function fetchDashboardConvexToken(): Promise<string | null> {
     return typeof body.token === 'string' && body.token.length > 0 ? body.token : null;
 }
 
-function readDashboardConvexUrl(): string | undefined {
+export function readDashboardConvexUrl(): string | undefined {
     const value = import.meta.env.VITE_CONVEX_URL;
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -161,52 +163,66 @@ function invalidateVisibleAreas(
     guildId: string,
     visibleAreas: ReadonlySet<DashboardLiveArea>
 ): void {
+    const invalidatedDestinations = new Set<string>();
     for (const area of visibleAreas) {
-        invalidateDashboardLiveArea(queryClient, guildId, area);
+        invalidateDashboardLiveArea(queryClient, guildId, area, invalidatedDestinations);
     }
 }
 
 function invalidateDashboardLiveArea(
     queryClient: ReturnType<typeof useQueryClient>,
     guildId: string,
-    area: DashboardLiveArea
+    area: DashboardLiveArea,
+    invalidatedDestinations: Set<string>
 ): void {
+    const invalidateOnce = (destination: string, queryKey: readonly unknown[]) => {
+        if (invalidatedDestinations.has(destination)) return;
+        invalidatedDestinations.add(destination);
+        void queryClient.invalidateQueries({ queryKey });
+    };
+    const destination = dashboardLiveInvalidationDestination(area);
+
     switch (area) {
         case 'overview':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardOverviewQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardOverviewQueryKey(guildId));
             return;
 
         case 'commands':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardCommandSettingsQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardCommandSettingsQueryKey(guildId));
             return;
 
         case 'reaction_roles':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardReactionRolesSettingsQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardReactionRolesSettingsQueryKey(guildId));
             return;
 
         case 'posting':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardPostingTemplatesQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardPostingTemplatesQueryKey(guildId));
             return;
 
         case 'import_export':
+            invalidateOnce(destination, getDashboardStructureSettingsQueryKey(guildId));
+            return;
+
+        case 'structure_execution':
+            invalidateOnce(destination, getDashboardStructureExecutionProgressBaseQueryKey(guildId));
+            return;
+
         case 'structure':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardStructureSettingsQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardStructureSettingsQueryKey(guildId));
             return;
 
         case 'audit':
-            void queryClient.invalidateQueries({
-                queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
-            });
+            invalidateOnce(destination, getDashboardAuditEventsBaseQueryKey(guildId));
             return;
     }
+}
+
+export function dashboardLiveInvalidationDestination(area: DashboardLiveArea): string {
+    if (area === 'import_export' || area === 'structure') return 'structure-settings';
+    if (area === 'structure_execution') return 'structure-execution-progress';
+    return area;
+}
+
+export function countDashboardLiveInvalidationDestinations(areas: readonly DashboardLiveArea[]): number {
+    return new Set(areas.map(dashboardLiveInvalidationDestination)).size;
 }

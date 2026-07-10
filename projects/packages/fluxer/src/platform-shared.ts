@@ -70,12 +70,18 @@ function isNotFoundError(error: unknown): boolean {
 }
 
 function getErrorStatus(error: unknown): number | undefined {
-    if (typeof error !== 'object' || error === null) {
-        return undefined;
+    const visited = new Set<object>();
+    let current = error;
+
+    while (typeof current === 'object' && current !== null && !visited.has(current)) {
+        visited.add(current);
+
+        const possibleError = current as { cause?: unknown; status?: unknown; statusCode?: unknown };
+        const possibleStatus = possibleError.status ?? possibleError.statusCode;
+
+        if (typeof possibleStatus === 'number') return possibleStatus;
+        current = possibleError.cause;
     }
 
-    const possibleError = error as { status?: unknown; statusCode?: unknown };
-    const possibleStatus = possibleError.status ?? possibleError.statusCode;
-
-    return typeof possibleStatus === 'number' ? possibleStatus : undefined;
+    return undefined;
 }

@@ -7,7 +7,9 @@ export {
     structureBackupSources,
     structureBackupStatuses,
     structureScheduledDriftStatuses,
-    structureImportActionStatuses,
+    structureImportActionAttemptStates,
+    structureImportExecutionStatuses,
+    structureImportExecutionPhases,
     structureImportRunStatuses,
 } from './contracts-structure.js';
 export type {
@@ -84,7 +86,16 @@ export type {
     StructureScheduledDriftSummaryRecord,
     StructureImportActionPageRecord,
     StructureImportActionRecord,
+    StructureImportActionAttemptRecord,
+    StructureImportApprovalRecord,
+    StructureImportExecutionClaimRecord,
+    StructureImportExecutionRecord,
+    StructureImportExecutionPhase,
+    StructureImportExecutionStatus,
+    StructureImportDecisionPageRecord,
+    StructureImportDecisionRecord,
     StructureImportExportRepositoryError,
+    StructureImportPreflightRecord,
     StructureImportRunRecord,
     StructureImportRunWithActionsRecord,
     StructureObservedEventStateRecord,
@@ -223,8 +234,27 @@ export {
     pruneExpiredStructureBackupsForGuild,
     renameStructureBackup,
     upsertStructureBackupSettings,
-    updateStructureImportActionStatus,
-    updateStructureImportRunStatus,
 } from './runtime-structure.js';
+export {
+    approveStructureImportPlan,
+    checkpointStructureImportExecution,
+    claimNextStructureImportExecution,
+    completeStructureImportActionAttempt,
+    completeAndCheckpointStructureImportActionAttempt,
+    enqueueStructureImportExecution,
+    ensureStructureImportRestorePoint,
+    finalizeStructureImportExecution,
+    findLatestStructureImportApproval,
+    findLatestStructureImportExecution,
+    findLatestStructureImportPreflight,
+    recordStructureImportPreflight,
+    recordStructureImportDecisionsBatch,
+    listStructureImportDecisionsPage,
+    renewStructureImportExecutionLease,
+    requestStructureImportExecutionControl,
+    startStructureImportActionAttempt,
+    transitionStructureImportPlanState,
+} from './runtime-structure-execution.js';
+export type { StructureAuditInput } from './runtime-structure-execution.js';
 export { createRuntimeDb, isConvexRuntimeDb, readConvexServiceRuntimeConfig } from './service.js';
 export type { RuntimeDbClient } from './service.js';

@@ -87,12 +87,23 @@ import type * as schema_tables_reaction_role_reconciliation_items from "../schem
 import type * as schema_tables_reaction_role_user_leases from "../schema/tables/reaction_role_user_leases.js";
 import type * as schema_tables_structure_backup_settings from "../schema/tables/structure_backup_settings.js";
 import type * as schema_tables_structure_backups from "../schema/tables/structure_backups.js";
+import type * as schema_tables_structure_import_action_attempts from "../schema/tables/structure_import_action_attempts.js";
 import type * as schema_tables_structure_import_actions from "../schema/tables/structure_import_actions.js";
+import type * as schema_tables_structure_import_approvals from "../schema/tables/structure_import_approvals.js";
+import type * as schema_tables_structure_import_decisions from "../schema/tables/structure_import_decisions.js";
+import type * as schema_tables_structure_import_executions from "../schema/tables/structure_import_executions.js";
+import type * as schema_tables_structure_import_preflights from "../schema/tables/structure_import_preflights.js";
 import type * as schema_tables_structure_import_runs from "../schema/tables/structure_import_runs.js";
 import type * as schema_tables_web_sessions from "../schema/tables/web_sessions.js";
 import type * as security_policies from "../security_policies.js";
 import type * as structure from "../structure.js";
 import type * as structure_structure from "../structure/structure.js";
+import type * as structure_structure_execution from "../structure/structure_execution.js";
+import type * as structure_structure_import_attempts from "../structure/structure_import_attempts.js";
+import type * as structure_structure_import_execution from "../structure/structure_import_execution.js";
+import type * as structure_structure_import_progress from "../structure/structure_import_progress.js";
+import type * as structure_structure_import_review from "../structure/structure_import_review.js";
+import type * as structure_structure_import_terminal from "../structure/structure_import_terminal.js";
 import type * as structure_structure_model from "../structure/structure_model.js";
 
 import type {
@@ -181,12 +192,23 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/reaction_role_user_leases": typeof schema_tables_reaction_role_user_leases;
   "schema/tables/structure_backup_settings": typeof schema_tables_structure_backup_settings;
   "schema/tables/structure_backups": typeof schema_tables_structure_backups;
+  "schema/tables/structure_import_action_attempts": typeof schema_tables_structure_import_action_attempts;
   "schema/tables/structure_import_actions": typeof schema_tables_structure_import_actions;
+  "schema/tables/structure_import_approvals": typeof schema_tables_structure_import_approvals;
+  "schema/tables/structure_import_decisions": typeof schema_tables_structure_import_decisions;
+  "schema/tables/structure_import_executions": typeof schema_tables_structure_import_executions;
+  "schema/tables/structure_import_preflights": typeof schema_tables_structure_import_preflights;
   "schema/tables/structure_import_runs": typeof schema_tables_structure_import_runs;
   "schema/tables/web_sessions": typeof schema_tables_web_sessions;
   security_policies: typeof security_policies;
   structure: typeof structure;
   "structure/structure": typeof structure_structure;
+  "structure/structure_execution": typeof structure_structure_execution;
+  "structure/structure_import_attempts": typeof structure_structure_import_attempts;
+  "structure/structure_import_execution": typeof structure_structure_import_execution;
+  "structure/structure_import_progress": typeof structure_structure_import_progress;
+  "structure/structure_import_review": typeof structure_structure_import_review;
+  "structure/structure_import_terminal": typeof structure_structure_import_terminal;
   "structure/structure_model": typeof structure_structure_model;
 }>;
 

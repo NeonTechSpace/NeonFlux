@@ -27,8 +27,6 @@ import {
     recordStructureImportActionsBatch,
     recordStructureObservedEvent,
     recordStructureScheduledDriftResult,
-    updateStructureImportActionStatus,
-    updateStructureImportRunStatus,
 } from './runtime-structure.js';
 
 const observedState = {
@@ -63,28 +61,24 @@ const action = {
     id: 'action-1',
     runId: 'run-1',
     sequence: 0,
-    status: 'pending',
     targetId: 'channel-1',
     targetType: 'channel',
-    updatedAt: '2026-07-03T08:15:00.000Z',
 };
 const importRun = {
     actions: [action],
-    appliedAt: null,
-    confirmedAt: null,
+    deleteActionCount: 1,
+    deleteSetDigest: 'delete-digest',
     createdAt: '2026-07-03T08:10:00.000Z',
     createdByUserId: 'user-1',
     guildId: 'guild-1',
     id: 'run-1',
     plan: { changes: 1 },
+    requestedSnapshotDigest: 'snapshot-digest',
     sourceBackupId: 'backup-1',
-    status: 'draft',
+    status: 'building',
     updatedAt: '2026-07-03T08:10:00.000Z',
 };
-type TestStructureRunRecord = Omit<ReturnType<typeof withoutActions>, 'appliedAt' | 'confirmedAt'> & {
-    appliedAt: string | null;
-    confirmedAt: string | null;
-};
+type TestStructureRunRecord = ReturnType<typeof withoutActions>;
 type TestSettingsRecord = Omit<
     StructureBackupSettingsRecord,
     | 'createdAt'
@@ -138,20 +132,9 @@ describe('Convex structure database functions', () => {
     });
 
     it('routes backups and import runs through Convex', async () => {
-        const confirmedRun = {
-            ...importRun,
-            confirmedAt: '2026-07-03T08:30:00.000Z',
-            status: 'confirmed',
-            updatedAt: '2026-07-03T08:30:00.000Z',
-        };
-        const completedAction = {
-            ...action,
-            status: 'completed',
-            updatedAt: '2026-07-03T08:35:00.000Z',
-        };
         const restorePointBackup = { ...backup, source: 'restore_point' };
         const db = createConvexDb({
-            mutationResults: [restorePointBackup, withoutActions(importRun), confirmedRun, action, completedAction],
+            mutationResults: [restorePointBackup, withoutActions(importRun), action],
             queryResults: [[backup], [backup], backup, [withoutActions(importRun)], withoutActions(importRun)],
         });
 
@@ -169,33 +152,25 @@ describe('Convex structure database functions', () => {
         });
         const createdRun = await createStructureImportRun(db, {
             createdByUserId: ' user-1 ',
+            deleteActionCount: 1,
+            deleteSetDigest: ' delete-digest ',
             guildId: ' guild-1 ',
             plan: importRun.plan,
+            planDigest: ' plan-digest ',
+            planVersion: 2,
+            policy: 'synchronize',
+            requestedSnapshotDigest: ' snapshot-digest ',
             sourceBackupId: ' backup-1 ',
         });
         const runs = await listStructureImportRunsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
         const foundRun = await findStructureImportRunByGuildId(db, { guildId: ' guild-1 ', runId: ' run-1 ' });
-        const updatedRun = await updateStructureImportRunStatus(db, {
-            expectedApplyAttemptId: ' attempt-1 ',
-            expectedApplyLeaseOwner: ' worker-1 ',
-            plan: { changes: 2 },
-            requireExpiredApplyLease: true,
-            runId: ' run-1 ',
-            status: ' confirmed ',
-        });
         const recordedAction = await recordStructureImportAction(db, {
             actionType: ' create ',
             details: action.details,
             runId: ' run-1 ',
             sequence: 0,
-            status: ' pending ',
             targetId: ' channel-1 ',
             targetType: ' channel ',
-        });
-        const updatedAction = await updateStructureImportActionStatus(db, {
-            actionId: ' action-1 ',
-            details: { ok: true },
-            status: ' completed ',
         });
 
         expect(createdBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(restorePointBackup));
@@ -209,23 +184,7 @@ describe('Convex structure database functions', () => {
         expect(createdRun._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutActions(importRun)));
         expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(withoutActions(importRun))]);
         expect(foundRun._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutActions(importRun)));
-        expect(updatedRun._unsafeUnwrap()).toStrictEqual(toRunRecord(confirmedRun));
-        expect(
-            db.client.mutationCalls.some(
-                (call) =>
-                    JSON.stringify(call.args) ===
-                    JSON.stringify({
-                        expectedApplyAttemptId: 'attempt-1',
-                        expectedApplyLeaseOwner: 'worker-1',
-                        plan: { changes: 2 },
-                        requireExpiredApplyLease: true,
-                        runId: 'run-1',
-                        status: 'confirmed',
-                    })
-            )
-        ).toBe(true);
         expect(recordedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(action));
-        expect(updatedAction._unsafeUnwrap()).toStrictEqual(toActionRecord(completedAction));
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             createdByUserId: 'user-1',
             guildId: 'guild-1',
@@ -485,10 +444,6 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             backupId: 'backup-1',
         });
-        const missingRunUpdate = await updateStructureImportRunStatus(db, {
-            runId: 'run-1',
-            status: 'confirmed',
-        });
         const missingActionSequence = await recordStructureImportAction(db, {
             actionType: 'create',
             details: {},
@@ -500,7 +455,6 @@ describe('Convex structure database functions', () => {
         expect(missingEventType._unsafeUnwrapErr()).toStrictEqual({ field: 'eventType', type: 'missing-input' });
         expect(invalidLimit._unsafeUnwrapErr()).toStrictEqual({ field: 'limit', type: 'invalid-value' });
         expect(missingSnapshot._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
-        expect(missingRunUpdate._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
         expect(missingActionSequence._unsafeUnwrapErr()).toStrictEqual({ field: 'sequence', type: 'invalid-value' });
     });
 });
@@ -533,8 +487,6 @@ function toBackupSummaryRecord(record: typeof backup) {
 function toRunRecord(record: TestStructureRunRecord) {
     return {
         ...record,
-        appliedAt: record.appliedAt ? new Date(record.appliedAt) : null,
-        confirmedAt: record.confirmedAt ? new Date(record.confirmedAt) : null,
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
     };
@@ -544,7 +496,6 @@ function toActionRecord(record: typeof action) {
     return {
         ...record,
         createdAt: new Date(record.createdAt),
-        updatedAt: new Date(record.updatedAt),
     };
 }
 

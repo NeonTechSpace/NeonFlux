@@ -4,14 +4,14 @@ import {
     dashboardLiveAreasForBotActionFeature,
     normalizeDashboardLiveAreas,
     normalizeDashboardLiveGuildId,
+    structureExecutionLiveAreas,
 } from './dashboard_live_model.js';
 
 describe('dashboard live model', () => {
     it('normalizes supported areas and drops unknown values', () => {
-        expect(normalizeDashboardLiveAreas([' commands ', 'nope', 'commands', 'audit'])).toStrictEqual([
-            'commands',
-            'audit',
-        ]);
+        expect(
+            normalizeDashboardLiveAreas([' commands ', 'nope', 'commands', 'structure_execution', 'audit'])
+        ).toStrictEqual(['commands', 'structure_execution', 'audit']);
     });
 
     it('maps audit features to visible dashboard areas plus audit', () => {
@@ -26,5 +26,10 @@ describe('dashboard live model', () => {
 
     it('trims live guild ids', () => {
         expect(normalizeDashboardLiveGuildId(' guild-1 ')).toBe('guild-1');
+    });
+
+    it('isolates execution progress from canonical structure invalidation', () => {
+        expect(structureExecutionLiveAreas).toStrictEqual(['structure_execution']);
+        expect(structureExecutionLiveAreas).not.toContain('structure');
     });
 });

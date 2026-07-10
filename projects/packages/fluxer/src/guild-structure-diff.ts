@@ -1,5 +1,39 @@
-import { isProtectedFluxerGuildRole, type FluxerGuildChannel, type FluxerGuildRole } from './guild-structure.js';
+import { isProtectedFluxerGuildRole, type FluxerGuildRole } from './guild-structure.js';
+import type { FluxerGuildStructureRoleProjection } from './guild-structure-role-projection.js';
 import type { FluxerGuildStructureSnapshot } from './guild-structure-snapshot.js';
+import type {
+    FluxerGuildStructureDiffOptions,
+    FluxerGuildStructureFieldSummary,
+    FluxerGuildStructurePlan,
+    FluxerGuildStructurePlannedAction,
+    FluxerGuildStructurePlanSummary,
+} from './guild-structure-plan.js';
+import {
+    emptyIdentity,
+    findUnmappedProtectedRoleIds,
+    mapRequestedChannel,
+    omitProtectedRoleOverwrites,
+    projectChannelOrder,
+    type CollectionIdentity,
+} from './guild-structure-channel-projection.js';
+import {
+    buildDecisions,
+    buildProjectedSnapshot,
+    buildRebuildDecisions,
+    createFingerprintInput,
+    findUnsupportedChannelChanges,
+} from './guild-structure-plan-builders.js';
+import {
+    buildCategoryIdentity,
+    buildChannelIdentity,
+    buildCompleteSourceTargetMap,
+    projectRoles,
+} from './guild-structure-identity.js';
+
+export {
+    FluxerGuildStructureAmbiguousIdentityError,
+    FluxerGuildStructureInvalidIdentityMappingError,
+} from './guild-structure-identity.js';
 
 export {
     normalizeFluxerGuildStructureSnapshot,
@@ -8,141 +42,283 @@ export {
     type FluxerGuildStructureSnapshotValidationResult,
 } from './guild-structure-snapshot.js';
 
-export type FluxerGuildStructurePlannedAction = {
-    actionType: 'create' | 'update' | 'delete';
-    targetType: 'role' | 'category' | 'channel' | 'role-order';
-    targetId?: string;
-    label: string;
-    details: Record<string, unknown>;
-};
+export type {
+    FluxerGuildStructureDecision,
+    FluxerGuildStructureDiffOptions,
+    FluxerGuildStructureFieldSummary,
+    FluxerGuildStructurePlan,
+    FluxerGuildStructurePlanBlocker,
+    FluxerGuildStructurePlanFingerprintInput,
+    FluxerGuildStructurePlannedAction,
+    FluxerGuildStructurePlanSummary,
+    FluxerGuildStructurePolicy,
+} from './guild-structure-plan.js';
 
-export type FluxerGuildStructurePlanSummary = {
-    creates: number;
-    updates: number;
-    deletes: number;
-    roles: number;
-    categories: number;
-    channels: number;
-};
-
-export type FluxerGuildStructurePlan = {
-    summary: FluxerGuildStructurePlanSummary;
-    actions: FluxerGuildStructurePlannedAction[];
-    sourceTargetMap?: Record<string, string>;
-};
-
-export type FluxerGuildStructureFieldSummary = {
-    names: number;
-    permissions: number;
-    positions: number;
-    parentMoves: number;
-    typeChanges: number;
-    roleVisuals: number;
-};
-
-export type FluxerGuildStructureDiffOptions = {
-    includeDeletes?: boolean;
-    resetBeforeCreate?: boolean;
-};
-
-const roleFields = ['name', 'position', 'color', 'permissions', 'hoist', 'mentionable'] as const;
 const roleEditableFields = ['name', 'color', 'permissions', 'hoist', 'mentionable'] as const;
-const channelFields = ['name', 'type', 'parentId', 'position', 'permissionOverwrites'] as const;
-
-export class FluxerGuildStructureAmbiguousIdentityError extends Error {
-    readonly code = 'ambiguous-structure-identity';
-
-    constructor() {
-        super('Server blueprint contains an ambiguous same-name match. Rename duplicates before creating a plan.');
-        this.name = 'FluxerGuildStructureAmbiguousIdentityError';
-    }
-}
+const channelEditableFields = ['name', 'type', 'parentId', 'permissionOverwrites'] as const;
 
 export function diffFluxerGuildStructureSnapshot(
     current: FluxerGuildStructureSnapshot,
     requested: FluxerGuildStructureSnapshot,
-    options: FluxerGuildStructureDiffOptions = {}
+    options: FluxerGuildStructureDiffOptions
 ): FluxerGuildStructurePlan {
-    const includeDeletes = options.includeDeletes ?? true;
-    if (options.resetBeforeCreate) {
-        return createResetBeforeCreatePlan(current, requested, includeDeletes);
-    }
+    if (options.policy === 'rebuild') return createRebuildPlan(current, requested);
 
-    const roleIdentity = buildRoleIdentity(current.roles, requested.roles, current.guildId, requested.guildId);
-    const categoryIdentity = buildCategoryIdentity(current.categories, requested.categories);
-    const channelIdentity = buildChannelIdentity(current.channels, requested.channels, categoryIdentity);
-    const sourceTargetMap = buildSourceTargetMap(roleIdentity, categoryIdentity, channelIdentity);
+    const deleteUnmatched = options.policy === 'synchronize';
+
+    const roleResult = projectRoles(current, requested, options.policy, !deleteUnmatched, options.roleMappings);
+    const roleIdentity = roleResult.identity;
+    const categoryIdentity = buildCategoryIdentity(current.categories, requested.categories, options.categoryMappings);
+    const channelIdentity = buildChannelIdentity(
+        current.channels,
+        requested.channels,
+        categoryIdentity,
+        options.channelMappings
+    );
+    const ignoredProtectedRoleIds = findUnmappedProtectedRoleIds(
+        current.roles,
+        requested.roles,
+        requested.guildId,
+        isProtectedSnapshotRole
+    );
+    const preservedProtectedOverwriteIds = new Set(
+        current.roles.flatMap((role) =>
+            role.protectionReason === 'bot' ||
+            role.protectionReason === 'integration' ||
+            role.protectionReason === 'managed'
+                ? [role.id]
+                : []
+        )
+    );
+    const currentCategoryById = new Map(current.categories.map((category) => [category.id, category]));
+    const currentChannelById = new Map(current.channels.map((channel) => [channel.id, channel]));
+    const sourceTargetMap = buildCompleteSourceTargetMap(requested, roleIdentity, categoryIdentity, channelIdentity);
+    const blockers = findUnsupportedChannelChanges(current, requested, categoryIdentity, channelIdentity);
+    const blockedSourceIds = new Set(blockers.map((blocker) => blocker.sourceId));
     const structuralActions: FluxerGuildStructurePlannedAction[] = [
         ...diffCollection('role', current.roles, requested.roles, roleEditableFields, {
             identity: roleIdentity,
-            includeDeletes,
+            deleteUnmatched,
             shouldSkipCurrentDelete: (role) => isProtectedSnapshotRole(role, current.guildId),
             shouldSkipRequested: (role) => isProtectedSnapshotRole(role, requested.guildId),
             shouldSkipUpdate: (currentRole, requestedRole) =>
                 isProtectedSnapshotRole(currentRole, current.guildId) ||
                 isProtectedSnapshotRole(requestedRole, requested.guildId),
         }),
-        ...diffCollection('category', current.categories, requested.categories, channelFields, {
-            includeDeletes,
+        ...diffCollection('category', current.categories, requested.categories, channelEditableFields, {
+            deleteUnmatched,
             identity: categoryIdentity,
+            shouldSkipUpdate: (_current, requestedCategory) => blockedSourceIds.has(requestedCategory.id),
+            mapRequestedItem: (category) => {
+                const currentCategory = currentCategoryById.get(
+                    categoryIdentity.requestedToCurrentId.get(category.id) ?? category.id
+                );
+                return mapRequestedChannel(category, {
+                    categoryIdentity,
+                    roleIdentity,
+                    ignoredProtectedRoleIds,
+                    preservedProtectedOverwriteIds,
+                    ...(currentCategory ? { currentChannel: currentCategory } : {}),
+                    ...(current.guildId ? { currentGuildId: current.guildId } : {}),
+                    ...(requested.guildId ? { requestedGuildId: requested.guildId } : {}),
+                });
+            },
         }),
-        ...diffCollection('channel', current.channels, requested.channels, channelFields, {
-            includeDeletes,
+        ...diffCollection('channel', current.channels, requested.channels, channelEditableFields, {
+            deleteUnmatched,
             identity: channelIdentity,
-            mapRequestedItem: (channel) => mapRequestedChannel(channel, categoryIdentity),
+            shouldSkipUpdate: (_current, requestedChannel) => blockedSourceIds.has(requestedChannel.id),
+            mapRequestedItem: (channel) => {
+                const currentChannel = currentChannelById.get(
+                    channelIdentity.requestedToCurrentId.get(channel.id) ?? channel.id
+                );
+                return mapRequestedChannel(channel, {
+                    categoryIdentity,
+                    roleIdentity,
+                    ignoredProtectedRoleIds,
+                    preservedProtectedOverwriteIds,
+                    ...(currentChannel ? { currentChannel } : {}),
+                    ...(current.guildId ? { currentGuildId: current.guildId } : {}),
+                    ...(requested.guildId ? { requestedGuildId: requested.guildId } : {}),
+                });
+            },
         }),
     ];
-    const roleOrderAction = buildRoleOrderAction(
-        structuralActions,
+    const roleOrderAction = buildRoleOrderAction(structuralActions, roleResult.projection, current.roles);
+    const channelOrderAction = buildChannelOrderAction({
+        actions: structuralActions,
+        current,
         requested,
-        hasRolePositionChange(current.roles, requested.roles, roleIdentity)
-    );
-    const actions = [...structuralActions, ...(roleOrderAction ? [roleOrderAction] : [])];
+        categoryIdentity,
+        channelIdentity,
+        retainUnmatchedCurrentChannels: !deleteUnmatched,
+    });
+    const actions = [
+        ...structuralActions,
+        ...(channelOrderAction ? [channelOrderAction] : []),
+        ...(roleOrderAction ? [roleOrderAction] : []),
+    ];
+    const decisions = buildDecisions({
+        current,
+        requested,
+        policy: options.policy,
+        roleIdentity,
+        categoryIdentity,
+        channelIdentity,
+        actions: structuralActions,
+        blockers,
+    });
+    const projectedSnapshot = buildProjectedSnapshot({
+        current,
+        requested,
+        roleProjection: roleResult.projection,
+        categoryIdentity,
+        channelIdentity,
+        retainUnmatched: !deleteUnmatched,
+        ignoredProtectedRoleIds,
+        preservedProtectedOverwriteIds,
+        blockedSourceIds,
+    });
+    const fingerprintInput = createFingerprintInput(options.policy, sourceTargetMap, projectedSnapshot, decisions);
 
     return {
+        version: 2,
+        policy: options.policy,
         summary: summarizeActions(actions),
         actions,
-        ...(Object.keys(sourceTargetMap).length > 0 ? { sourceTargetMap } : {}),
+        sourceTargetMap,
+        roleProjection: roleResult.projection,
+        projectedSnapshot,
+        fingerprintInput,
+        decisions,
+        blockers,
     };
 }
 
-function createResetBeforeCreatePlan(
+function createRebuildPlan(
     current: FluxerGuildStructureSnapshot,
-    requested: FluxerGuildStructureSnapshot,
-    includeDeletes: boolean
+    requested: FluxerGuildStructureSnapshot
 ): FluxerGuildStructurePlan {
+    const roleResult = projectRoles(current, requested, 'rebuild', false);
+    const ignoredProtectedRoleIds = findUnmappedProtectedRoleIds(
+        current.roles,
+        requested.roles,
+        requested.guildId,
+        isProtectedSnapshotRole
+    );
     const structuralActions: FluxerGuildStructurePlannedAction[] = [
-        ...(includeDeletes
-            ? [
-                  ...current.roles
-                      .filter((role) => !isProtectedSnapshotRole(role, current.guildId))
-                      .map((role) => toAction('delete', 'role', role, { before: role })),
-                  ...current.categories.map((category) =>
-                      toAction('delete', 'category', category, { before: category })
-                  ),
-                  ...current.channels.map((channel) => toAction('delete', 'channel', channel, { before: channel })),
-              ]
-            : []),
+        ...[
+            ...current.roles
+                .filter((role) => !isProtectedSnapshotRole(role, current.guildId))
+                .map((role) => toAction('delete', 'role', role, { before: role })),
+            ...current.categories.map((category) => toAction('delete', 'category', category, { before: category })),
+            ...current.channels.map((channel) => toAction('delete', 'channel', channel, { before: channel })),
+        ],
         ...requested.roles
             .filter((role) => !isProtectedSnapshotRole(role, requested.guildId))
             .map((role) => toAction('create', 'role', role, { after: role })),
-        ...requested.categories.map((category) => toAction('create', 'category', category, { after: category })),
-        ...requested.channels.map((channel) => toAction('create', 'channel', channel, { after: channel })),
+        ...requested.categories.map((category) => {
+            const sanitized = omitProtectedRoleOverwrites(category, ignoredProtectedRoleIds);
+            return toAction('create', 'category', sanitized, { after: sanitized });
+        }),
+        ...requested.channels.map((channel) => {
+            const sanitized = omitProtectedRoleOverwrites(channel, ignoredProtectedRoleIds);
+            return toAction('create', 'channel', sanitized, { after: sanitized });
+        }),
     ];
-    const roleOrderAction = buildRoleOrderAction(structuralActions, requested);
-    const actions = [...structuralActions, ...(roleOrderAction ? [roleOrderAction] : [])];
+    const roleOrderAction = buildRoleOrderAction(structuralActions, roleResult.projection, current.roles);
+    const channelOrderAction = buildChannelOrderAction({
+        actions: structuralActions,
+        current,
+        requested,
+        categoryIdentity: emptyIdentity(),
+        channelIdentity: emptyIdentity(),
+        retainUnmatchedCurrentChannels: false,
+    });
+    const actions = [
+        ...structuralActions,
+        ...(channelOrderAction ? [channelOrderAction] : []),
+        ...(roleOrderAction ? [roleOrderAction] : []),
+    ];
+    const sourceTargetMap = buildCompleteSourceTargetMap(
+        requested,
+        roleResult.identity,
+        emptyIdentity(),
+        emptyIdentity()
+    );
+    const decisions = buildRebuildDecisions(current, requested);
+    const projectedSnapshot = buildProjectedSnapshot({
+        current,
+        requested,
+        roleProjection: roleResult.projection,
+        categoryIdentity: emptyIdentity(),
+        channelIdentity: emptyIdentity(),
+        retainUnmatched: false,
+        ignoredProtectedRoleIds,
+        preservedProtectedOverwriteIds: new Set(),
+        blockedSourceIds: new Set(),
+    });
+    const fingerprintInput = createFingerprintInput('rebuild', sourceTargetMap, projectedSnapshot, decisions);
 
     return {
+        version: 2,
+        policy: 'rebuild',
         summary: summarizeActions(actions),
         actions,
+        sourceTargetMap,
+        roleProjection: roleResult.projection,
+        projectedSnapshot,
+        fingerprintInput,
+        decisions,
+        blockers: [],
+    };
+}
+
+function buildChannelOrderAction(input: {
+    actions: FluxerGuildStructurePlannedAction[];
+    current: FluxerGuildStructureSnapshot;
+    requested: FluxerGuildStructureSnapshot;
+    categoryIdentity: CollectionIdentity;
+    channelIdentity: CollectionIdentity;
+    retainUnmatchedCurrentChannels: boolean;
+}): FluxerGuildStructurePlannedAction | undefined {
+    const { before, after, resolvedAfter } = projectChannelOrder(input);
+    const changesChannelMembership = input.actions.some((action) => {
+        if (action.targetType !== 'category' && action.targetType !== 'channel') return false;
+        if (action.actionType === 'create' || action.actionType === 'delete') return true;
+        const changes = Array.isArray(action.details.changes) ? action.details.changes : [];
+        return changes.some((change) => isObject(change) && change.field === 'parentId');
+    });
+    if (JSON.stringify(before) === JSON.stringify(resolvedAfter) && !changesChannelMembership) {
+        return undefined;
+    }
+    if (after.length === 0) return undefined;
+
+    return {
+        actionType: 'update',
+        targetType: 'channel-order',
+        targetId: 'channel-order',
+        label: 'Channel order',
+        details: {
+            label: 'Channel order',
+            before,
+            after,
+            changes: [{ field: 'channelOrder', before, after }],
+        },
     };
 }
 
 function buildRoleOrderAction(
     actions: FluxerGuildStructurePlannedAction[],
-    requested: FluxerGuildStructureSnapshot,
-    hasPositionChange = false
+    projection: FluxerGuildStructureRoleProjection,
+    currentRoles: readonly FluxerGuildRole[]
 ): FluxerGuildStructurePlannedAction | undefined {
+    const currentById = new Map(currentRoles.map((role) => [role.id, role]));
+    const hasPositionChange = projection.roles.some((role) => {
+        if (!role.sourceId) return false;
+        if (!role.targetId) return true;
+        return currentById.get(role.targetId)?.position !== role.position;
+    });
     const changesRoleOrder =
         hasPositionChange ||
         actions.some((action) => {
@@ -151,13 +327,13 @@ function buildRoleOrderAction(
         });
     if (!changesRoleOrder) return undefined;
 
-    const after = requested.roles.flatMap((role) => {
-        if (isProtectedSnapshotRole(role, requested.guildId) || role.position <= 0) return [];
+    const after = projection.roles.flatMap((role) => {
+        if (!role.sourceId || role.protected || role.position <= 0) return [];
         return [
             {
-                sourceId: role.id,
+                sourceId: role.sourceId,
                 position: role.position,
-                ...(role.hierarchyRank !== undefined ? { hierarchyRank: role.hierarchyRank } : {}),
+                hierarchyRank: role.hierarchyRank,
             },
         ];
     });
@@ -176,20 +352,6 @@ function buildRoleOrderAction(
     };
 }
 
-function hasRolePositionChange(
-    currentRoles: readonly FluxerGuildRole[],
-    requestedRoles: readonly FluxerGuildRole[],
-    identity: CollectionIdentity
-): boolean {
-    const currentById = new Map(currentRoles.map((role) => [role.id, role]));
-
-    return requestedRoles.some((requested) => {
-        const currentId = identity.requestedToCurrentId.get(requested.id);
-        const current = currentId ? currentById.get(currentId) : undefined;
-        return current !== undefined && current.position !== requested.position;
-    });
-}
-
 function summarizeActions(actions: FluxerGuildStructurePlannedAction[]): FluxerGuildStructurePlanSummary {
     return {
         creates: actions.filter((action) => action.actionType === 'create').length,
@@ -197,7 +359,8 @@ function summarizeActions(actions: FluxerGuildStructurePlannedAction[]): FluxerG
         deletes: actions.filter((action) => action.actionType === 'delete').length,
         roles: actions.filter((action) => action.targetType === 'role' || action.targetType === 'role-order').length,
         categories: actions.filter((action) => action.targetType === 'category').length,
-        channels: actions.filter((action) => action.targetType === 'channel').length,
+        channels: actions.filter((action) => action.targetType === 'channel' || action.targetType === 'channel-order')
+            .length,
     };
 }
 
@@ -235,7 +398,9 @@ export function summarizeFluxerGuildStructurePlanFields(
             if (change.field === 'permissionOverwrites' || change.field === 'permissions') {
                 fieldSummary.permissions += 1;
             }
-            if (change.field === 'position' || change.field === 'roleOrder') fieldSummary.positions += 1;
+            if (change.field === 'position' || change.field === 'roleOrder' || change.field === 'channelOrder') {
+                fieldSummary.positions += 1;
+            }
             if (change.field === 'parentId') fieldSummary.parentMoves += 1;
             if (change.field === 'type') fieldSummary.typeChanges += 1;
             if (change.field === 'color' || change.field === 'hoist' || change.field === 'mentionable') {
@@ -253,7 +418,7 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
     requestedItems: readonly TItem[],
     fields: ReadonlyArray<keyof TItem>,
     options: {
-        includeDeletes?: boolean;
+        deleteUnmatched?: boolean;
         identity?: CollectionIdentity;
         mapRequestedItem?: (item: TItem) => TItem;
         shouldSkipCurrentDelete?: (item: TItem) => boolean;
@@ -297,7 +462,7 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
         }
     }
 
-    if (options.includeDeletes ?? true) {
+    if (options.deleteUnmatched ?? true) {
         for (const current of currentItems) {
             if (options.shouldSkipCurrentDelete?.(current)) continue;
 
@@ -308,154 +473,6 @@ function diffCollection<TItem extends { id: string; name: string | null }>(
     }
 
     return actions;
-}
-
-type CollectionIdentity = {
-    requestedToCurrentId: Map<string, string>;
-    usedCurrentIds: Set<string>;
-};
-
-function buildSourceTargetMap(...identities: CollectionIdentity[]): Record<string, string> {
-    return Object.fromEntries(
-        identities.flatMap((identity) =>
-            [...identity.requestedToCurrentId].filter(([sourceId, targetId]) => sourceId !== targetId)
-        )
-    );
-}
-
-function buildRoleIdentity(
-    currentRoles: readonly FluxerGuildRole[],
-    requestedRoles: readonly FluxerGuildRole[],
-    currentGuildId: string | undefined,
-    requestedGuildId: string | undefined
-): CollectionIdentity {
-    return buildCollectionIdentity(currentRoles, requestedRoles, (requested, current, usedCurrentIds) => {
-        if (isProtectedSnapshotRole(requested, requestedGuildId)) return undefined;
-
-        const sameNameCandidates = current.filter(
-            (candidate) =>
-                !usedCurrentIds.has(candidate.id) &&
-                !isProtectedSnapshotRole(candidate, currentGuildId) &&
-                sameStructureName(candidate, requested)
-        );
-        const exactShapeCandidates = sameNameCandidates.filter((candidate) =>
-            sameRoleImportShape(candidate, requested)
-        );
-
-        if (exactShapeCandidates.length > 1) throw new FluxerGuildStructureAmbiguousIdentityError();
-        if (exactShapeCandidates.length === 1) {
-            return exactShapeCandidates[0];
-        }
-
-        if (sameNameCandidates.length > 1) throw new FluxerGuildStructureAmbiguousIdentityError();
-
-        return sameNameCandidates.length === 1 ? sameNameCandidates[0] : undefined;
-    });
-}
-
-function sameRoleImportShape(left: FluxerGuildRole, right: FluxerGuildRole): boolean {
-    return roleFields.every((field) => stableValueKey(left[field]) === stableValueKey(right[field]));
-}
-
-function buildCategoryIdentity(
-    currentCategories: readonly FluxerGuildChannel[],
-    requestedCategories: readonly FluxerGuildChannel[]
-): CollectionIdentity {
-    return buildCollectionIdentity(currentCategories, requestedCategories, (requested, current, usedCurrentIds) =>
-        findUniqueCompatibleItem(current, usedCurrentIds, (candidate) => sameStructureName(candidate, requested))
-    );
-}
-
-function buildChannelIdentity(
-    currentChannels: readonly FluxerGuildChannel[],
-    requestedChannels: readonly FluxerGuildChannel[],
-    categoryIdentity: CollectionIdentity
-): CollectionIdentity {
-    return buildCollectionIdentity(currentChannels, requestedChannels, (requested, current, usedCurrentIds) => {
-        const requestedParentId = resolveRequestedCategoryId(requested.parentId, categoryIdentity);
-
-        return findUniqueCompatibleItem(
-            current,
-            usedCurrentIds,
-            (candidate) =>
-                sameStructureName(candidate, requested) &&
-                candidate.type === requested.type &&
-                candidate.parentId === requestedParentId
-        );
-    });
-}
-
-function buildCollectionIdentity<TItem extends { id: string }>(
-    currentItems: readonly TItem[],
-    requestedItems: readonly TItem[],
-    findFallbackCurrent: (
-        requested: TItem,
-        currentItems: readonly TItem[],
-        usedCurrentIds: ReadonlySet<string>
-    ) => TItem | undefined
-): CollectionIdentity {
-    const currentById = new Map(currentItems.map((item) => [item.id, item]));
-    const requestedToCurrentId = new Map<string, string>();
-    const usedCurrentIds = new Set<string>();
-
-    for (const requested of requestedItems) {
-        if (currentById.has(requested.id)) {
-            requestedToCurrentId.set(requested.id, requested.id);
-            usedCurrentIds.add(requested.id);
-        }
-    }
-
-    const fallbackMatches = requestedItems.flatMap((requested) => {
-        if (requestedToCurrentId.has(requested.id)) return [];
-
-        const fallbackCurrent = findFallbackCurrent(requested, currentItems, usedCurrentIds);
-        return fallbackCurrent ? [{ requested, fallbackCurrent }] : [];
-    });
-    const fallbackUseCounts = new Map<string, number>();
-    for (const match of fallbackMatches) {
-        fallbackUseCounts.set(match.fallbackCurrent.id, (fallbackUseCounts.get(match.fallbackCurrent.id) ?? 0) + 1);
-    }
-    if ([...fallbackUseCounts.values()].some((count) => count > 1)) {
-        throw new FluxerGuildStructureAmbiguousIdentityError();
-    }
-
-    for (const { requested, fallbackCurrent } of fallbackMatches) {
-        requestedToCurrentId.set(requested.id, fallbackCurrent.id);
-        usedCurrentIds.add(fallbackCurrent.id);
-    }
-
-    return { requestedToCurrentId, usedCurrentIds };
-}
-
-function findUniqueCompatibleItem<TItem extends { id: string }>(
-    items: readonly TItem[],
-    usedItemIds: ReadonlySet<string>,
-    isCompatible: (item: TItem) => boolean
-): TItem | undefined {
-    const candidates = items.filter((item) => !usedItemIds.has(item.id) && isCompatible(item));
-
-    if (candidates.length > 1) throw new FluxerGuildStructureAmbiguousIdentityError();
-
-    return candidates.length === 1 ? candidates[0] : undefined;
-}
-
-function sameStructureName(left: { name: string | null }, right: { name: string | null }): boolean {
-    if (typeof left.name !== 'string' || typeof right.name !== 'string') return false;
-
-    return left.name.trim() === right.name.trim();
-}
-
-function mapRequestedChannel(channel: FluxerGuildChannel, categoryIdentity: CollectionIdentity): FluxerGuildChannel {
-    return {
-        ...channel,
-        parentId: resolveRequestedCategoryId(channel.parentId, categoryIdentity),
-    };
-}
-
-function resolveRequestedCategoryId(categoryId: string | null, categoryIdentity: CollectionIdentity): string | null {
-    if (!categoryId) return null;
-
-    return categoryIdentity.requestedToCurrentId.get(categoryId) ?? categoryId;
 }
 
 function diffFields<TItem>(

@@ -17,6 +17,11 @@ type ChannelPositionableGuild = {
     setChannelPositions(updates: Array<{ id: string; parent_id?: string | null; position?: number }>): Promise<unknown>;
 };
 
+type ChannelPositionInput = {
+    guildId: string;
+    positions: Array<{ channelId: string; parentId: string | null; position: number }>;
+};
+
 type RolePositionableGuild = {
     setRolePositions(updates: Array<{ id: string; position?: number }>): Promise<unknown>;
 };
@@ -27,7 +32,7 @@ type EditableGuildMember = {
 
 type CreateChannelInput = {
     guildId: string;
-    type: 0 | 2 | 4 | 5;
+    type: 0 | 2 | 4 | 998;
     name: string;
     url?: string | null;
     parentId?: string | null;
@@ -76,16 +81,6 @@ type RolePositionInput = {
     positions: Array<{ roleId: string; position: number }>;
 };
 
-type EditableGuildRole = {
-    edit(options: {
-        name?: string;
-        permissions?: string;
-        color?: number;
-        hoist?: boolean;
-        mentionable?: boolean;
-    }): Promise<unknown>;
-};
-
 export function createMemberPlatform(client: FluxerBot['client']) {
     return {
         read: (input: { guildId: string; userId: string }) => readMember(client, input),
@@ -111,10 +106,44 @@ export function createChannelPlatform(client: FluxerBot['client']) {
     return {
         create: (input: CreateChannelInput) => createChannel(client, input),
         edit: (input: EditChannelInput) => editChannel(client, input),
+        setPositions: (input: ChannelPositionInput) => setChannelPositions(client, input),
         delete: (input: { channelId: string }) => deleteChannel(client, input),
         editPermission: (input: EditPermissionInput) => editChannelPermission(client, input),
         deletePermission: (input: { channelId: string; overwriteId: string }) => deleteChannelPermission(client, input),
     };
+}
+
+async function setChannelPositions(
+    client: FluxerBot['client'],
+    input: ChannelPositionInput
+): Promise<Result<void, FluxerPlatformError>> {
+    const inputResult = requireTextInputs(input, ['guildId']);
+
+    if (inputResult.isErr()) return err(inputResult.error);
+    if (
+        input.positions.length === 0 ||
+        input.positions.some(
+            (position) => !position.channelId.trim() || !Number.isInteger(position.position) || position.position < 0
+        )
+    ) {
+        return err({ type: 'invalid-value', field: 'positions' });
+    }
+
+    try {
+        const guild = await client.guilds.fetch(input.guildId.trim());
+        if (!isChannelPositionableGuild(guild)) return err({ type: 'not-found' });
+
+        await guild.setChannelPositions(
+            input.positions.map((position) => ({
+                id: position.channelId.trim(),
+                parent_id: position.parentId?.trim() ?? null,
+                position: position.position,
+            }))
+        );
+        return ok(undefined);
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
 }
 
 export function createRolePlatform(client: FluxerBot['client']) {
@@ -606,26 +635,21 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
-
-        if (!guild) {
-            return err({ type: 'not-found' });
-        }
+        const guildId = input.guildId.trim();
+        const roleId = input.roleId.trim();
 
         if (Object.keys(options).length > 0) {
-            const role = await guild.fetchRole(input.roleId.trim());
-
-            if (!isEditableGuildRole(role)) {
-                return err({ type: 'not-found' });
-            }
-
-            await role.edit(options);
+            await client.rest.patch(`/guilds/${guildId}/roles/${roleId}`, {
+                body: options,
+                auth: true,
+            });
         }
 
         if (input.position !== undefined) {
+            const guild = await client.guilds.fetch(guildId);
             if (!isRolePositionableGuild(guild)) return err({ type: 'not-found' });
 
-            await guild.setRolePositions([{ id: input.roleId.trim(), position: input.position }]);
+            await guild.setRolePositions([{ id: roleId, position: input.position }]);
         }
 
         return ok(undefined);
@@ -687,15 +711,9 @@ async function deleteRole(
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
-
-        if (!guild) {
-            return err({ type: 'not-found' });
-        }
-
-        const role = await guild.fetchRole(input.roleId.trim());
-
-        await role.delete();
+        const guildId = input.guildId.trim();
+        const roleId = input.roleId.trim();
+        await client.rest.delete(`/guilds/${guildId}/roles/${roleId}`, { auth: true });
 
         return ok(undefined);
     } catch (error) {
@@ -735,10 +753,6 @@ function normalizeRoleVisualInput(
         ...(input.hoist !== undefined ? { hoist: input.hoist } : {}),
         ...(input.mentionable !== undefined ? { mentionable: input.mentionable } : {}),
     });
-}
-
-function isEditableGuildRole(role: unknown): role is EditableGuildRole {
-    return hasFunction(role, 'edit');
 }
 
 function hasFunction(value: unknown, key: string): boolean {

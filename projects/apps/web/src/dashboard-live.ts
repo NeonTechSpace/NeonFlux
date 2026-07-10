@@ -5,6 +5,7 @@ const dashboardLiveAreas = [
     'posting',
     'import_export',
     'structure',
+    'structure_execution',
     'audit',
 ] as const;
 

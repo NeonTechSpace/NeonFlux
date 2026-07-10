@@ -1,9 +1,7 @@
 import '@tanstack/react-start/server-only';
 
-import { recordBotActionEvent } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -29,8 +27,6 @@ type StructureActor =
     | { type: 'auth-required' }
     | { type: 'database-error' };
 
-const structureFeature = 'import_export';
-
 export async function loadAuthorizedStructureContext(
     request: Request,
     guildId: string
@@ -50,15 +46,13 @@ export async function loadAuthorizedStructureContext(
     };
 }
 
-export async function recordStructureAudit(
+export function createStructureAuditInput(
     context: AuthorizedStructureContext,
     action: string,
     targetId: string,
     metadata: Record<string, unknown>
-): Promise<'recorded' | 'database-error'> {
-    const result = await recordBotActionEvent((await getWebDb()).db, {
-        guildId: context.guild.id,
-        feature: structureFeature,
+) {
+    return {
         action,
         actorUserId: context.actor.actorUserId,
         targetId,
@@ -67,22 +61,7 @@ export async function recordStructureAudit(
             ...metadata,
             ...context.actor.metadata,
         },
-    });
-
-    return result.isOk() ? 'recorded' : 'database-error';
-}
-
-export async function recordStructureAuditBestEffort(
-    context: AuthorizedStructureContext,
-    action: string,
-    targetId: string,
-    metadata: Record<string, unknown>
-): Promise<void> {
-    try {
-        await recordStructureAudit(context, action, targetId, metadata);
-    } catch {
-        // Audit is observational. It must not redefine the outcome of a durable structure operation.
-    }
+    };
 }
 
 async function resolveStructureActor(request: Request): Promise<StructureActor> {

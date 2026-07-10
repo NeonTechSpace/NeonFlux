@@ -538,17 +538,16 @@ describe('createFluxerPlatform', () => {
     });
 
     it('edits role name, position, and visual fields through the normalized roles port', async () => {
-        const edit = vi.fn().mockResolvedValue(undefined);
-        const fetchRole = vi.fn().mockResolvedValue({ edit });
+        const patchRole = vi.fn().mockResolvedValue(undefined);
+        const fetchGuild = vi.fn();
         const setRolePositions = vi.fn().mockResolvedValue([]);
+        fetchGuild.mockResolvedValue({ setRolePositions });
         const platform = createFluxerPlatform(
             createClient({
                 guilds: {
-                    fetch: vi.fn().mockResolvedValue({
-                        fetchRole,
-                        setRolePositions,
-                    }),
+                    fetch: fetchGuild,
                 },
+                rest: { patch: patchRole },
             })
         );
 
@@ -564,15 +563,81 @@ describe('createFluxerPlatform', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(fetchRole).toHaveBeenCalledWith('role-1');
-        expect(edit).toHaveBeenCalledWith({
-            name: 'Member',
-            permissions: '2048',
-            color: 255,
-            hoist: true,
-            mentionable: false,
+        expect(patchRole).toHaveBeenCalledWith('/guilds/guild-1/roles/role-1', {
+            auth: true,
+            body: {
+                name: 'Member',
+                permissions: '2048',
+                color: 255,
+                hoist: true,
+                mentionable: false,
+            },
         });
+        expect(fetchGuild).toHaveBeenCalledTimes(1);
         expect(setRolePositions).toHaveBeenCalledWith([{ id: 'role-1', position: 5 }]);
+    });
+
+    it('edits a role directly without fetching the guild or a single role', async () => {
+        const patchRole = vi.fn().mockResolvedValue(undefined);
+        const fetchGuild = vi.fn();
+        const platform = createFluxerPlatform(
+            createClient({
+                guilds: { fetch: fetchGuild },
+                rest: { patch: patchRole },
+            })
+        );
+
+        const result = await platform.roles.edit({
+            guildId: 'guild-1',
+            roleId: 'role-1',
+            hoist: false,
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(patchRole).toHaveBeenCalledWith('/guilds/guild-1/roles/role-1', {
+            auth: true,
+            body: { hoist: false },
+        });
+        expect(fetchGuild).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [403, 'permission-denied'],
+        [404, 'not-found'],
+    ] as const)('maps role edit API status %i to %s', async (statusCode, expectedType) => {
+        const platform = createFluxerPlatform(
+            createClient({
+                guilds: { fetch: vi.fn() },
+                rest: { patch: vi.fn().mockRejectedValue({ statusCode }) },
+            })
+        );
+
+        const result = await platform.roles.edit({
+            guildId: 'guild-1',
+            roleId: 'role-1',
+            name: 'Member',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: expectedType });
+    });
+
+    it('rejects empty role edits before using REST or fetching the guild', async () => {
+        const patchRole = vi.fn();
+        const fetchGuild = vi.fn();
+        const platform = createFluxerPlatform(
+            createClient({
+                guilds: { fetch: fetchGuild },
+                rest: { patch: patchRole },
+            })
+        );
+
+        const result = await platform.roles.edit({ guildId: 'guild-1', roleId: 'role-1' });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'missing-input', field: 'role' });
+        expect(patchRole).not.toHaveBeenCalled();
+        expect(fetchGuild).not.toHaveBeenCalled();
     });
 
     it('rejects @everyone role moves before fetching the guild', async () => {
@@ -722,6 +787,50 @@ describe('createFluxerPlatform', () => {
         expect(result._unsafeUnwrapErr()).toStrictEqual({
             type: 'not-found',
         } satisfies FluxerPlatformError);
+    });
+
+    it('deletes roles through the documented REST endpoint without a single-role lookup', async () => {
+        const deleteRole = vi.fn().mockResolvedValue(undefined);
+        const fetchGuild = vi.fn();
+        const platform = createFluxerPlatform(
+            createClient({
+                guilds: { fetch: fetchGuild },
+                rest: { delete: deleteRole },
+            })
+        );
+
+        const result = await platform.roles.delete({
+            guildId: ' guild-1 ',
+            roleId: ' role-1 ',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(deleteRole).toHaveBeenCalledWith('/guilds/guild-1/roles/role-1', { auth: true });
+        expect(fetchGuild).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [403, 'permission-denied'],
+        [404, 'not-found'],
+    ] as const)('maps nested SDK status %i to %s', async (statusCode, expectedType) => {
+        const wrappedError = new Error('SDK operation failed', {
+            cause: { statusCode },
+        });
+        const platform = createFluxerPlatform(
+            createClient({
+                rest: {
+                    delete: vi.fn().mockRejectedValue(wrappedError),
+                },
+            })
+        );
+
+        const result = await platform.roles.delete({
+            guildId: 'guild-1',
+            roleId: 'role-1',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: expectedType });
     });
 
     it('reads member role IDs without exposing SDK member objects', async () => {

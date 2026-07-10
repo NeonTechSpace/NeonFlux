@@ -56,7 +56,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(destroy).toHaveBeenCalledOnce();
     });
 
-    it('creates exported link channels by mapping Fluxer read type 998 to create type 5', async () => {
+    it('creates exported link channels with Fluxer wire type 998', async () => {
         const createChannel = vi.fn().mockResolvedValue({ id: 'created-link-1', guildId: 'guild-1' });
         mockClientLogin({
             guilds: {
@@ -87,7 +87,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({ createdId: 'created-link-1' });
         expect(createChannel).toHaveBeenCalledWith({
-            type: 5,
+            type: 998,
             name: 'Github',
             url: 'https://github.com/example/project',
             parent_id: null,
@@ -166,6 +166,56 @@ describe('applyFluxerBotGuildStructureAction', () => {
         ]);
     });
 
+    it('reports provider retry timing and invokes the result callback for rate limits', async () => {
+        const edit = vi.fn().mockRejectedValue({ status: 429, retry_after: 2.5 });
+        mockClientLogin({ channels: { fetch: vi.fn().mockResolvedValue({ edit }) } });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+        const onActionResult = vi.fn().mockResolvedValue(true);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            actions: [
+                {
+                    id: 'action-1',
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    changes: [{ field: 'name', after: 'general' }],
+                },
+            ],
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            onActionResult,
+            operationDelayMs: 0,
+        });
+
+        expect(result._unsafeUnwrap().actions).toStrictEqual([
+            { id: 'action-1', status: 'failed', errorType: 'rate-limited', retryAfterMs: 2_500 },
+        ]);
+        expect(onActionResult).toHaveBeenCalledWith(
+            { id: 'action-1', status: 'failed', errorType: 'rate-limited', retryAfterMs: 2_500 },
+            {}
+        );
+    });
+
+    it('invokes the result callback for normalization failures', async () => {
+        mockClientLogin({});
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+        const onActionResult = vi.fn().mockResolvedValue(true);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            actions: [{ id: 'action-1', actionType: 'update', targetType: 'channel' }],
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            onActionResult,
+            operationDelayMs: 0,
+        });
+
+        expect(result._unsafeUnwrap().actions).toStrictEqual([
+            { id: 'action-1', status: 'failed', errorType: 'missing-input' },
+        ]);
+        expect(onActionResult).toHaveBeenCalledOnce();
+    });
+
     it('paces batch mutations between operations by default', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-07-09T00:00:00.000Z'));
@@ -223,7 +273,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         ]);
     });
 
-    it('does not start creates after reset delete failures when requested', async () => {
+    it('does not start creates after rebuild delete failures when requested', async () => {
         const deleteChannel = vi.fn().mockRejectedValue({ status: 403 });
         const createRole = vi.fn().mockResolvedValue({ id: 'created-role-1', guildId: 'guild-1' });
 
@@ -278,7 +328,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             actions: [
                 { id: 'action-delete-channel', status: 'failed', errorType: 'permission-denied' },
-                { id: 'action-create-role', status: 'failed', errorType: 'reset-delete-failed' },
+                { id: 'action-create-role', status: 'failed', errorType: 'rebuild-delete-failed' },
             ],
             idMap: {},
         });
@@ -721,6 +771,124 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
     });
 
+    it('reconciles the complete channel hierarchy after applying structural actions', async () => {
+        const setChannelPositions = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({ setChannelPositions }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'guild-1',
+            operationDelayMs: 0,
+            actions: [],
+            idMap: {
+                'source-category-a': 'target-category-a',
+                'source-category-b': 'target-category-b',
+                'source-channel-a-1': 'target-channel-a-1',
+                'source-channel-a-2': 'target-channel-a-2',
+                'source-channel-b': 'target-channel-b',
+            },
+            channelOrder: [
+                { sourceId: 'source-category-b', parentSourceId: null, position: 20 },
+                { sourceId: 'source-channel-b', parentSourceId: 'source-category-b', position: 21 },
+                { sourceId: 'source-channel-a-2', parentSourceId: 'source-category-a', position: 3 },
+                { sourceId: 'source-category-a', parentSourceId: null, position: 1 },
+                { sourceId: 'source-channel-a-1', parentSourceId: 'source-category-a', position: 2 },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(setChannelPositions).toHaveBeenCalledWith([
+            { id: 'target-category-a', parent_id: null, position: 0 },
+            { id: 'target-category-b', parent_id: null, position: 1 },
+            { id: 'target-channel-a-1', parent_id: 'target-category-a', position: 0 },
+            { id: 'target-channel-a-2', parent_id: 'target-category-a', position: 1 },
+            { id: 'target-channel-b', parent_id: 'target-category-b', position: 0 },
+        ]);
+        expect(result._unsafeUnwrap()).toMatchObject({ channelOrder: { status: 'applied' } });
+    });
+
+    it('fails synthetic ordering before mutation when a source id is not mapped', async () => {
+        const setChannelPositions = vi.fn().mockResolvedValue(undefined);
+        const setRolePositions = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({ setChannelPositions, setRolePositions }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'target-guild',
+            operationDelayMs: 0,
+            actions: [],
+            idMap: {
+                'source-category': 'target-category',
+                'source-role': 'target-role',
+            },
+            channelOrder: [
+                { sourceId: 'source-category', parentSourceId: null, position: 0 },
+                { sourceId: 'source-channel-missing', parentSourceId: 'source-category', position: 1 },
+            ],
+            roleOrder: [
+                { sourceId: 'source-role', position: 2 },
+                { sourceId: 'source-role-missing', position: 1 },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toMatchObject({
+            channelOrder: { status: 'failed', errorType: 'structure-order-mapping-missing' },
+            roleOrder: { status: 'failed', errorType: 'structure-order-mapping-missing' },
+        });
+        expect(setChannelPositions).not.toHaveBeenCalled();
+        expect(setRolePositions).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed or ambiguous synthetic order plans before mutation', async () => {
+        const setChannelPositions = vi.fn().mockResolvedValue(undefined);
+        const setRolePositions = vi.fn().mockResolvedValue(undefined);
+        mockClientLogin({
+            guilds: {
+                fetch: vi.fn().mockResolvedValue({ setChannelPositions, setRolePositions }),
+            },
+        });
+        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
+
+        const result = await applyFluxerBotGuildStructureActions({
+            botToken: 'bot-token',
+            guildId: 'target-guild',
+            operationDelayMs: 0,
+            actions: [],
+            idMap: {
+                'source-channel-a': 'target-channel',
+                'source-channel-b': 'target-channel',
+                'source-role': 'target-role',
+            },
+            channelOrder: [
+                { sourceId: 'source-channel-a', parentSourceId: null, position: 0 },
+                { sourceId: 'source-channel-b', parentSourceId: null, position: 1 },
+            ],
+            roleOrder: [
+                { sourceId: 'source-role', position: 2 },
+                { sourceId: ' ', position: 1 },
+            ],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toMatchObject({
+            channelOrder: { status: 'failed', errorType: 'structure-order-plan-invalid' },
+            roleOrder: { status: 'failed', errorType: 'structure-order-plan-invalid' },
+        });
+        expect(setChannelPositions).not.toHaveBeenCalled();
+        expect(setRolePositions).not.toHaveBeenCalled();
+    });
+
     it('stops external mutations immediately when the apply lease is lost', async () => {
         const edit = vi.fn().mockResolvedValue(undefined);
         mockClientLogin({
@@ -816,15 +984,10 @@ describe('applyFluxerBotGuildStructureAction', () => {
     });
 
     it('updates role name, permissions, and visual fields', async () => {
-        const editRole = vi.fn().mockResolvedValue(undefined);
-        const fetchRole = vi.fn().mockResolvedValue({ edit: editRole });
+        const patchRole = vi.fn().mockResolvedValue(undefined);
 
         mockClientLogin({
-            guilds: {
-                fetch: vi.fn().mockResolvedValue({
-                    fetchRole,
-                }),
-            },
+            rest: { patch: patchRole },
         });
         vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
 
@@ -844,13 +1007,15 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(fetchRole).toHaveBeenCalledWith('role-1');
-        expect(editRole).toHaveBeenCalledWith({
-            name: 'Member',
-            permissions: '2048',
-            color: 255,
-            hoist: true,
-            mentionable: true,
+        expect(patchRole).toHaveBeenCalledWith('/guilds/guild-1/roles/role-1', {
+            auth: true,
+            body: {
+                name: 'Member',
+                permissions: '2048',
+                color: 255,
+                hoist: true,
+                mentionable: true,
+            },
         });
     });
 
@@ -1021,13 +1186,10 @@ describe('applyFluxerBotGuildStructureAction', () => {
 
     it('deletes roles through the role platform', async () => {
         const deleteRole = vi.fn().mockResolvedValue(undefined);
-        const fetchRole = vi.fn().mockResolvedValue({ delete: deleteRole });
 
         mockClientLogin({
-            guilds: {
-                fetch: vi.fn().mockResolvedValue({
-                    fetchRole,
-                }),
+            rest: {
+                delete: deleteRole,
             },
         });
         vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
@@ -1041,8 +1203,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(fetchRole).toHaveBeenCalledWith('role-1');
-        expect(deleteRole).toHaveBeenCalledOnce();
+        expect(deleteRole).toHaveBeenCalledWith('/guilds/guild-1/roles/role-1', { auth: true });
     });
 
     it('rejects unsupported create targets before login', async () => {

@@ -24,20 +24,11 @@ export const STRUCTURE_SCHEDULED_DRIFT_STATUS = {
 } as const;
 
 export const STRUCTURE_IMPORT_RUN_STATUS = {
-    applied: 'applied',
-    applying: 'applying',
-    cancelled: 'cancelled',
-    confirmed: 'confirmed',
-    draft: 'draft',
-    dryRunComplete: 'dry_run_complete',
-    failed: 'failed',
-} as const;
-
-export const STRUCTURE_IMPORT_ACTION_STATUS = {
-    applied: 'applied',
-    dryRun: 'dry_run',
-    failed: 'failed',
-    pending: 'pending',
+    building: 'building',
+    needsMapping: 'needs_mapping',
+    reviewReady: 'review_ready',
+    approved: 'approved',
+    stale: 'stale',
 } as const;
 
 export type StructureBackupInput = {
@@ -48,6 +39,7 @@ export type StructureBackupInput = {
     createdByUserId?: string | null;
     errorMessage?: string | null;
     guildId?: string | null;
+    deleteActionCount?: number | null;
     name?: string | null;
     roleCount?: number | null;
     serverName?: string | null;
@@ -126,26 +118,34 @@ export type StructureScheduledDriftResultInput = {
 };
 
 export type StructureImportRunInput = {
-    appliedAt?: string | null;
-    confirmedAt?: string | null;
     createdAt?: string | null;
     createdByUserId?: string | null;
     guildId?: string | null;
+    deleteActionCount?: number | null;
+    deleteSetDigest?: string | null;
+    planDigest?: string | null;
+    planVersion?: number | null;
+    policy?: string | null;
     plan?: Record<string, unknown> | null;
+    requestedSnapshotDigest?: string | null;
     sourceBackupId?: string | null;
     status?: string | null;
     updatedAt?: string | null;
 };
 
 export type StructureImportRunDocument = {
-    appliedAt?: string;
-    confirmedAt?: string;
     createdAt: string;
     createdByUserId?: string;
     guildId: string;
+    deleteActionCount: number;
+    deleteSetDigest?: string;
+    planDigest: string;
+    planVersion: number;
+    policy: 'merge' | 'synchronize' | 'rebuild';
     plan: Record<string, unknown>;
+    requestedSnapshotDigest: string;
     sourceBackupId?: GenericId<'structureBackups'>;
-    status: string;
+    status: 'building' | 'needs_mapping' | 'review_ready' | 'approved' | 'stale';
     updatedAt: string;
 };
 
@@ -155,22 +155,18 @@ export type StructureImportActionInput = {
     details?: Record<string, unknown> | null;
     runId?: string | null;
     sequence?: number | null;
-    status?: string | null;
     targetId?: string | null;
     targetType?: string | null;
-    updatedAt?: string | null;
 };
 
 export type StructureImportActionDocument = {
-    actionType: string;
+    actionType: 'create' | 'update' | 'delete' | 'noop';
     createdAt: string;
     details: Record<string, unknown>;
     runId: GenericId<'structureImportRuns'>;
     sequence: number;
-    status: string;
     targetId?: string;
-    targetType: string;
-    updatedAt: string;
+    targetType: 'role' | 'category' | 'channel' | 'channel-order' | 'role-order';
 };
 
 export type StructureObservedEventStateDocument = {
@@ -226,15 +222,19 @@ export type StructureBackupSettingsRecord = {
 };
 
 export type StructureImportRunRecord = {
-    appliedAt: string | null;
-    confirmedAt: string | null;
     createdAt: string;
     createdByUserId: string | null;
     guildId: string;
+    deleteActionCount: number;
+    deleteSetDigest: string | null;
+    planDigest: string;
+    planVersion: number;
+    policy: 'merge' | 'synchronize' | 'rebuild';
     id: string;
     plan: Record<string, unknown>;
+    requestedSnapshotDigest: string;
     sourceBackupId: string | null;
-    status: string;
+    status: 'building' | 'needs_mapping' | 'review_ready' | 'approved' | 'stale';
     updatedAt: string;
 };
 
@@ -245,10 +245,8 @@ export type StructureImportActionRecord = {
     id: string;
     runId: string;
     sequence: number;
-    status: string;
     targetId: string | null;
     targetType: string;
-    updatedAt: string;
 };
 
 export type StructureImportActionPageRecord = {
@@ -306,38 +304,6 @@ export type StructureBackupSettingsPatch = {
     retentionDays?: number;
     updatedAt: string;
 };
-export type StructureImportRunStatusPatch = {
-    appliedAt?: string;
-    confirmedAt?: string;
-    plan: Record<string, unknown>;
-    status: string;
-    updatedAt: string;
-};
-
-export type StructureApplyAttemptPreconditionResult = 'ready' | 'attempt-mismatch' | 'lease-active';
-
-const importRunStatusTransitions = new Map<string, readonly string[]>([
-    [
-        STRUCTURE_IMPORT_RUN_STATUS.draft,
-        [STRUCTURE_IMPORT_RUN_STATUS.dryRunComplete, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
-    ],
-    [
-        STRUCTURE_IMPORT_RUN_STATUS.dryRunComplete,
-        [STRUCTURE_IMPORT_RUN_STATUS.confirmed, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
-    ],
-    [
-        STRUCTURE_IMPORT_RUN_STATUS.confirmed,
-        [STRUCTURE_IMPORT_RUN_STATUS.applying, STRUCTURE_IMPORT_RUN_STATUS.cancelled],
-    ],
-    [
-        STRUCTURE_IMPORT_RUN_STATUS.applying,
-        [STRUCTURE_IMPORT_RUN_STATUS.applying, STRUCTURE_IMPORT_RUN_STATUS.applied, STRUCTURE_IMPORT_RUN_STATUS.failed],
-    ],
-    [STRUCTURE_IMPORT_RUN_STATUS.applied, []],
-    [STRUCTURE_IMPORT_RUN_STATUS.cancelled, []],
-    [STRUCTURE_IMPORT_RUN_STATUS.failed, []],
-]);
-
 export function buildStructureBackupDocument(
     input: StructureBackupInput,
     now: string
@@ -654,22 +620,31 @@ export function buildStructureImportRunDocument(
     now: string
 ): StructureInputResult<StructureImportRunDocument> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
+    const deleteActionCount = input.deleteActionCount;
+    const deleteSetDigest = normalizeOptionalString(input.deleteSetDigest);
+    const planDigest = normalizeRequiredString(input.planDigest, 'planDigest');
+    const requestedSnapshotDigest = normalizeRequiredString(input.requestedSnapshotDigest, 'requestedSnapshotDigest');
+    const policy = normalizeImportPolicy(input.policy);
+    const status = normalizeImportRunStatus(input.status);
     const plan = normalizeRecord(input.plan ?? {});
     const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
     const updatedAt = input.updatedAt === undefined ? now : normalizeTimestamp(input.updatedAt);
-    const confirmedAt = input.confirmedAt === undefined ? undefined : normalizeTimestamp(input.confirmedAt);
-    const appliedAt = input.appliedAt === undefined ? undefined : normalizeTimestamp(input.appliedAt);
 
     if (!guildId.ok) return guildId;
+    if (typeof deleteActionCount !== 'number' || !Number.isInteger(deleteActionCount) || deleteActionCount < 0)
+        return { error: { field: 'deleteActionCount', type: 'invalid-value' }, ok: false };
+    if (deleteActionCount > 0 && !deleteSetDigest)
+        return { error: { field: 'deleteSetDigest', type: 'missing-input' }, ok: false };
+    if (deleteActionCount === 0 && deleteSetDigest)
+        return { error: { field: 'deleteSetDigest', type: 'invalid-value' }, ok: false };
+    if (!planDigest.ok) return planDigest;
+    if (!requestedSnapshotDigest.ok) return requestedSnapshotDigest;
+    if (!policy) return { error: { field: 'policy', type: 'invalid-value' }, ok: false };
+    if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
+    if (input.planVersion !== 2) return { error: { field: 'planVersion', type: 'invalid-value' }, ok: false };
     if (!plan) return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
     if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
-    if (input.confirmedAt !== undefined && input.confirmedAt !== null && !confirmedAt) {
-        return { error: { field: 'confirmedAt', type: 'invalid-value' }, ok: false };
-    }
-    if (input.appliedAt !== undefined && input.appliedAt !== null && !appliedAt) {
-        return { error: { field: 'appliedAt', type: 'invalid-value' }, ok: false };
-    }
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
     const sourceBackupId = normalizeOptionalString(input.sourceBackupId);
@@ -677,78 +652,21 @@ export function buildStructureImportRunDocument(
     return {
         ok: true,
         value: {
-            ...(appliedAt ? { appliedAt } : {}),
-            ...(confirmedAt ? { confirmedAt } : {}),
             createdAt,
             ...(createdByUserId ? { createdByUserId } : {}),
             guildId: guildId.value,
+            deleteActionCount,
+            ...(deleteSetDigest ? { deleteSetDigest } : {}),
+            planDigest: planDigest.value,
+            planVersion: 2,
+            policy,
             plan,
+            requestedSnapshotDigest: requestedSnapshotDigest.value,
             ...(sourceBackupId ? { sourceBackupId: sourceBackupId as GenericId<'structureBackups'> } : {}),
-            status: normalizeOptionalString(input.status) ?? STRUCTURE_IMPORT_RUN_STATUS.draft,
+            status,
             updatedAt,
         },
     };
-}
-
-export function buildStructureImportRunStatusPatch(
-    existing: Pick<StructureImportRunDocument, 'appliedAt' | 'confirmedAt' | 'plan' | 'status'>,
-    input: { plan?: Record<string, unknown> | null; status?: string | null },
-    now: string
-): StructureInputResult<StructureImportRunStatusPatch> {
-    const status = normalizeRequiredString(input.status, 'status');
-    const plan = normalizeRecord(input.plan ?? existing.plan);
-
-    if (!status.ok) return status;
-    if (!plan) return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
-
-    const transition = assertAllowedStatusTransition(existing.status, status.value);
-    if (!transition.ok) return transition;
-
-    const appliedAt = status.value === STRUCTURE_IMPORT_RUN_STATUS.applied ? now : existing.appliedAt;
-    const confirmedAt = status.value === STRUCTURE_IMPORT_RUN_STATUS.confirmed ? now : existing.confirmedAt;
-
-    return {
-        ok: true,
-        value: {
-            ...(appliedAt ? { appliedAt } : {}),
-            ...(confirmedAt ? { confirmedAt } : {}),
-            plan,
-            status: status.value,
-            updatedAt: now,
-        },
-    };
-}
-
-export function checkStructureApplyAttemptPreconditions(
-    plan: Record<string, unknown>,
-    input: {
-        expectedApplyAttemptId?: string;
-        expectedApplyLeaseOwner?: string;
-        requireExpiredApplyLease?: boolean;
-    },
-    now: string
-): StructureApplyAttemptPreconditionResult {
-    if (!input.expectedApplyAttemptId && !input.expectedApplyLeaseOwner && !input.requireExpiredApplyLease) {
-        return 'ready';
-    }
-
-    const attempt = normalizeRecord(plan.applyAttempt);
-    if (
-        !attempt ||
-        attempt.attemptId !== input.expectedApplyAttemptId ||
-        attempt.leaseOwner !== input.expectedApplyLeaseOwner
-    ) {
-        return 'attempt-mismatch';
-    }
-
-    if (
-        input.requireExpiredApplyLease &&
-        (typeof attempt.leaseExpiresAt !== 'string' || Date.parse(attempt.leaseExpiresAt) > Date.parse(now))
-    ) {
-        return 'lease-active';
-    }
-
-    return 'ready';
 }
 
 export function buildStructureImportActionDocument(
@@ -760,32 +678,32 @@ export function buildStructureImportActionDocument(
     const targetType = normalizeRequiredString(input.targetType, 'targetType');
     const details = normalizeRecord(input.details ?? {});
     const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
-    const updatedAt = input.updatedAt === undefined ? now : normalizeTimestamp(input.updatedAt);
 
     if (!runId.ok) return runId;
     if (!actionType.ok) return actionType;
     if (!targetType.ok) return targetType;
     if (!details) return { error: { field: 'details', type: 'invalid-value' }, ok: false };
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
-    if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
 
     const sequence = normalizeRequiredNonNegativeInteger(input.sequence);
     const targetId = normalizeOptionalString(input.targetId);
+    const normalizedActionType = normalizeImportActionType(actionType.value);
+    const normalizedTargetType = normalizeImportTargetType(targetType.value);
 
     if (sequence === undefined) return { error: { field: 'sequence', type: 'invalid-value' }, ok: false };
+    if (!normalizedActionType) return { error: { field: 'actionType', type: 'invalid-value' }, ok: false };
+    if (!normalizedTargetType) return { error: { field: 'targetType', type: 'invalid-value' }, ok: false };
 
     return {
         ok: true,
         value: {
-            actionType: actionType.value,
+            actionType: normalizedActionType,
             createdAt,
             details,
             runId: runId.value as GenericId<'structureImportRuns'>,
             sequence,
-            status: normalizeOptionalString(input.status) ?? STRUCTURE_IMPORT_ACTION_STATUS.pending,
             ...(targetId ? { targetId } : {}),
-            targetType: targetType.value,
-            updatedAt,
+            targetType: normalizedTargetType,
         },
     };
 }
@@ -920,13 +838,17 @@ export function toStructureImportRunRecord(
     document: StructureImportRunDocument & { _id: string }
 ): StructureImportRunRecord {
     return {
-        appliedAt: document.appliedAt ?? null,
-        confirmedAt: document.confirmedAt ?? null,
         createdAt: document.createdAt,
         createdByUserId: document.createdByUserId ?? null,
         guildId: document.guildId,
+        deleteActionCount: document.deleteActionCount,
+        deleteSetDigest: document.deleteSetDigest ?? null,
+        planDigest: document.planDigest,
+        planVersion: document.planVersion,
+        policy: document.policy,
         id: document._id,
         plan: document.plan,
+        requestedSnapshotDigest: document.requestedSnapshotDigest,
         sourceBackupId: document.sourceBackupId ?? null,
         status: document.status,
         updatedAt: document.updatedAt,
@@ -943,10 +865,8 @@ export function toStructureImportActionRecord(
         id: document._id,
         runId: document.runId,
         sequence: document.sequence,
-        status: document.status,
         targetId: document.targetId ?? null,
         targetType: document.targetType,
-        updatedAt: document.updatedAt,
     };
 }
 
@@ -1023,6 +943,63 @@ export function buildBackupSortCursor(input: { createdAt: string; id: string }):
     return `${input.createdAt}|${input.id}`;
 }
 
+export function isStructureBackupRetentionEligible(
+    backup: { createdAt: string; id: string; source: string },
+    input: { protectedRestorePointIds: ReadonlySet<string>; restorePointCutoff: string }
+): boolean {
+    if (input.protectedRestorePointIds.has(backup.id)) return false;
+    return backup.source !== STRUCTURE_BACKUP_SOURCE.restorePoint || backup.createdAt < input.restorePointCutoff;
+}
+
+export function classifyStructureImportExecutionReclaim(input: {
+    hasStartedAttempt: boolean;
+    leaseExpiresAt?: string;
+    now: string;
+}): 'active' | 'outcome_unknown' | 'reclaim' {
+    if (!input.leaseExpiresAt || input.leaseExpiresAt > input.now) return 'active';
+    return input.hasStartedAttempt ? 'outcome_unknown' : 'reclaim';
+}
+
+export function resolveExpiredStructureImportControl(controlRequest: unknown): 'paused' | 'cancelled' {
+    return controlRequest === 'cancel' ? 'cancelled' : 'paused';
+}
+
+export function validateStructureImportDecisionSequences(
+    sequences: readonly number[],
+    existingSequences: readonly number[] = [],
+    expectedStart?: number
+): 'empty' | 'invalid' | 'duplicate' | 'sparse' | 'collision' | 'gap' | null {
+    if (sequences.length === 0) return 'empty';
+    if (sequences.some((sequence) => !Number.isInteger(sequence) || sequence < 0)) return 'invalid';
+    if (new Set(sequences).size !== sequences.length) return 'duplicate';
+    const min = Math.min(...sequences);
+    const max = Math.max(...sequences);
+    if (max - min + 1 !== sequences.length || sequences.some((sequence, index) => sequence !== min + index))
+        return 'sparse';
+    if (expectedStart !== undefined && min !== expectedStart) return 'gap';
+    const requested = new Set(sequences);
+    return existingSequences.some((sequence) => requested.has(sequence)) ? 'collision' : null;
+}
+
+export function isStructureImportDecisionLedgerComplete(
+    plan: unknown,
+    decisions: Array<{ classification: string; sequence: number }>
+): boolean {
+    if (typeof plan !== 'object' || plan === null || Array.isArray(plan)) return false;
+    const decisionSummary = (plan as Record<string, unknown>).decisionSummary;
+    if (typeof decisionSummary !== 'object' || decisionSummary === null || Array.isArray(decisionSummary)) return false;
+    const expectedEntries = Object.entries(decisionSummary);
+    if (expectedEntries.some(([, count]) => !Number.isInteger(count) || (count as number) < 0)) return false;
+    const expectedCount = expectedEntries.reduce((total, [, count]) => total + (count as number), 0);
+    if (decisions.length !== expectedCount || decisions.some((decision, index) => decision.sequence !== index)) {
+        return false;
+    }
+    const actual = new Map<string, number>();
+    for (const decision of decisions)
+        actual.set(decision.classification, (actual.get(decision.classification) ?? 0) + 1);
+    return expectedEntries.every(([classification, count]) => (actual.get(classification) ?? 0) === count);
+}
+
 export function chooseLatestStructureDriftBaselineBackup<TBackup extends StructureBackupDocument>(
     backups: readonly TBackup[]
 ): TBackup | undefined {
@@ -1078,11 +1055,6 @@ function isDriftDueAndClaimable(existing: StructureBackupSettingsDocument | unde
     return !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow;
 }
 
-function assertAllowedStatusTransition(from: string, to: string): StructureInputResult<undefined> {
-    if (from === to || importRunStatusTransitions.get(from)?.includes(to)) return { ok: true, value: undefined };
-    return { error: { from, to, type: 'invalid-status-transition' }, ok: false };
-}
-
 function normalizeBackupSource(value: string | null | undefined): string | undefined {
     const source = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_SOURCE.manual;
     return source === STRUCTURE_BACKUP_SOURCE.manual ||
@@ -1111,6 +1083,36 @@ function normalizeScheduledDriftStatus(value: string | null | undefined): string
         status === STRUCTURE_SCHEDULED_DRIFT_STATUS.failed ||
         status === STRUCTURE_SCHEDULED_DRIFT_STATUS.noBaseline
         ? status
+        : undefined;
+}
+
+function normalizeImportPolicy(value: string | null | undefined): 'merge' | 'synchronize' | 'rebuild' | undefined {
+    const policy = normalizeOptionalString(value);
+    return policy === 'merge' || policy === 'synchronize' || policy === 'rebuild' ? policy : undefined;
+}
+
+function normalizeImportRunStatus(value: string | null | undefined): StructureImportRunDocument['status'] | undefined {
+    const status = normalizeOptionalString(value) ?? STRUCTURE_IMPORT_RUN_STATUS.building;
+    return status === 'building' ||
+        status === 'needs_mapping' ||
+        status === 'review_ready' ||
+        status === 'approved' ||
+        status === 'stale'
+        ? status
+        : undefined;
+}
+
+function normalizeImportActionType(value: string): StructureImportActionDocument['actionType'] | undefined {
+    return value === 'create' || value === 'update' || value === 'delete' || value === 'noop' ? value : undefined;
+}
+
+function normalizeImportTargetType(value: string): StructureImportActionDocument['targetType'] | undefined {
+    return value === 'role' ||
+        value === 'category' ||
+        value === 'channel' ||
+        value === 'channel-order' ||
+        value === 'role-order'
+        ? value
         : undefined;
 }
 
@@ -1177,4 +1179,20 @@ function readTargetChangeCounts(value: unknown): Record<string, number> {
             .map(([key, count]) => [key, readNonNegativeInteger(count)] as const)
             .filter(([, count]) => count > 0)
     );
+}
+
+export function resolveStructureExecutionIdMap(plan: unknown): Record<string, string> {
+    const sourceTargetMap = normalizeRecord(normalizeRecord(plan)?.sourceTargetMap);
+    if (!sourceTargetMap) throw new Error('structure-plan-source-target-map-invalid');
+
+    const resolved: Record<string, string> = {};
+    for (const [sourceId, targetId] of Object.entries(sourceTargetMap)) {
+        if (!sourceId.trim()) throw new Error('structure-plan-source-target-map-invalid');
+        if (targetId === null) continue;
+        if (typeof targetId !== 'string' || !targetId.trim()) {
+            throw new Error('structure-plan-source-target-map-invalid');
+        }
+        resolved[sourceId] = targetId;
+    }
+    return resolved;
 }

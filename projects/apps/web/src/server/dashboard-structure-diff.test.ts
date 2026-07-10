@@ -200,7 +200,7 @@ describe('dashboard structure diff', () => {
             exportedAt: '2026-06-26T10:00:00.000Z',
         });
 
-        const plan = diffDashboardStructureSnapshot(current, requested);
+        const plan = diffDashboardStructureSnapshot(current, requested, { policy: 'synchronize' });
 
         expect(plan.summary).toStrictEqual({
             creates: 1,

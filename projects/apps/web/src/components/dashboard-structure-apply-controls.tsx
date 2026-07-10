@@ -1,38 +1,40 @@
+import {
+    countDashboardStructurePreflightHardBlockers,
+    isDashboardStructurePreflightReady,
+} from '../server/dashboard-structure-preflight.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-v2.js';
 
 export function DashboardStructureApplyControls({
     run,
     busyAction,
     preflightReport,
-    applyConfirmation,
     deleteConfirmation,
     onPreflight,
-    onApplyConfirmationChange,
     onDeleteConfirmationChange,
     onApply,
 }: {
     run: DashboardStructureImportRun;
     busyAction: string | undefined;
     preflightReport: DashboardStructurePreflightReport | undefined;
-    applyConfirmation: string;
     deleteConfirmation: string;
     onPreflight: (run: DashboardStructureImportRun) => void;
-    onApplyConfirmationChange: (runId: string, confirmation: string) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
     onApply: (run: DashboardStructureImportRun) => void;
 }) {
-    const expectedApplyText = `APPLY ${run.id}`;
     const destructiveApprovalCount = preflightReport?.summary.destructiveApprovalRequired ?? 0;
-    const expectedDeleteText = `DELETE ${run.id} ${destructiveApprovalCount}`;
+    const expectedDeleteText = getDashboardStructureDeleteApprovalText(
+        run.id,
+        destructiveApprovalCount,
+        run.deleteSetDigest ?? ''
+    );
     const isPreflightBusy = busyAction === `preflight:${run.id}`;
     const isApplyBusy = busyAction === `apply:${run.id}`;
     const hasDestructiveApproval = destructiveApprovalCount > 0;
-    const canApply = preflightReport ? isApprovablePreflightReport(preflightReport) : false;
-    const hardBlockerCount = preflightReport ? countHardPreflightBlockers(preflightReport) : 0;
-    const confirmationMatches =
-        applyConfirmation.trim() === expectedApplyText &&
-        (!hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText);
+    const canApply = preflightReport ? isDashboardStructurePreflightReady(preflightReport) : false;
+    const hardBlockerCount = preflightReport ? countDashboardStructurePreflightHardBlockers(preflightReport) : 0;
+    const confirmationMatches = !hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText;
 
     return (
         <div className='mt-3 rounded-md border border-sky-400/30 bg-sky-950/20 p-3'>
@@ -40,7 +42,7 @@ export function DashboardStructureApplyControls({
                 <div>
                     <p className='text-xs font-semibold text-sky-100'>Apply preflight</p>
                     <p className='mt-1 text-xs leading-5 text-neutral-400'>
-                        Re-checks the confirmed dry-run against the current server before any apply attempt.
+                        Re-checks the approved plan against the current server before it can be queued.
                     </p>
                 </div>
                 <button
@@ -54,22 +56,13 @@ export function DashboardStructureApplyControls({
             {preflightReport ? <PreflightReport report={preflightReport} /> : null}
             {canApply ? (
                 <div className='mt-3 border-t border-sky-400/20 pt-3'>
-                    <label className='block text-xs font-semibold text-sky-100' htmlFor={`apply-${run.id}`}>
-                        Type {expectedApplyText} to apply ready updates
-                    </label>
-                    <div className='mt-2 flex flex-col gap-2 sm:flex-row'>
-                        <input
-                            id={`apply-${run.id}`}
-                            value={applyConfirmation}
-                            onChange={(event) => onApplyConfirmationChange(run.id, event.currentTarget.value)}
-                            className='min-h-10 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-300/30'
-                        />
+                    <div className='mt-2 flex justify-end'>
                         <button
                             type='button'
                             onClick={() => onApply(run)}
                             disabled={Boolean(busyAction) || !confirmationMatches}
                             className='min-h-10 rounded-md bg-emerald-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                            {isApplyBusy ? 'Applying' : 'Apply'}
+                            {isApplyBusy ? 'Queueing' : 'Queue deployment'}
                         </button>
                     </div>
                     {hasDestructiveApproval ? (
@@ -77,7 +70,7 @@ export function DashboardStructureApplyControls({
                             <label
                                 className='block text-xs font-semibold text-rose-100'
                                 htmlFor={`delete-approval-${run.id}`}>
-                                Type {expectedDeleteText} to approve {destructiveApprovalCount} delete
+                                Type {expectedDeleteText} to approve {destructiveApprovalCount} irreversible delete
                                 {destructiveApprovalCount === 1 ? '' : 's'}
                             </label>
                             <input
@@ -87,8 +80,8 @@ export function DashboardStructureApplyControls({
                                 className='mt-2 min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-300/30'
                             />
                             <p className='mt-2 text-xs leading-5 text-neutral-400'>
-                                Deletes are irreversible server mutations. NeonFlux re-checks the dry-run immediately
-                                before applying them.
+                                Deletes are irreversible server mutations. Approval is bound to this exact plan and
+                                safety check.
                             </p>
                         </div>
                     ) : null}
@@ -103,7 +96,7 @@ export function DashboardStructureApplyControls({
                     <p className='text-xs font-semibold text-rose-100'>Apply blocked</p>
                     <p className='mt-1 text-xs leading-5 text-neutral-300'>
                         Fix or remove {hardBlockerCount} unsupported, stale, mapping-required, or invalid planned{' '}
-                        {hardBlockerCount === 1 ? 'change' : 'changes'}, then create a new dry-run.
+                        {hardBlockerCount === 1 ? 'change' : 'changes'}, then create a new deployment plan.
                     </p>
                     {hasDestructiveApproval ? (
                         <p className='mt-2 text-xs leading-5 text-neutral-400'>
@@ -165,18 +158,4 @@ function preflightStatusPriority(status: string): number {
 
 function formatStatus(status: string): string {
     return status.replace(/[-_]/gu, ' ');
-}
-
-function isApprovablePreflightReport(report: DashboardStructurePreflightReport): boolean {
-    const hardBlockers = countHardPreflightBlockers(report);
-
-    return (
-        hardBlockers === 0 && report.summary.ready + report.summary.destructiveApprovalRequired === report.summary.total
-    );
-}
-
-function countHardPreflightBlockers(report: DashboardStructurePreflightReport): number {
-    return (
-        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan
-    );
 }

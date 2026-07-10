@@ -33,12 +33,20 @@ export function DashboardStructureBackupStatus({
     return (
         <div>
             <dl className='grid border-y border-[var(--dash-border)] md:grid-cols-3 md:divide-x md:divide-[var(--dash-border)]'>
-                <StatusFact label='Last attempt' value={settings.lastAttemptAt ? formatDate(settings.lastAttemptAt) : 'Never'} />
-                <StatusFact label='Last success' value={settings.lastSuccessAt ? formatDate(settings.lastSuccessAt) : 'Never'} />
+                <StatusFact
+                    label='Last attempt'
+                    value={settings.lastAttemptAt ? formatDate(settings.lastAttemptAt) : 'Never'}
+                />
+                <StatusFact
+                    label='Last success'
+                    value={settings.lastSuccessAt ? formatDate(settings.lastSuccessAt) : 'Never'}
+                />
                 <StatusFact label='Backup state' value={backupState} />
             </dl>
             {healthIssues.length > 0 ? (
-                <div aria-label='Backup health' className='divide-y divide-[var(--dash-border)] border-b border-[var(--dash-border)]'>
+                <div
+                    aria-label='Backup health'
+                    className='divide-y divide-[var(--dash-border)] border-b border-[var(--dash-border)]'>
                     {healthIssues.map((issue) => (
                         <div
                             key={issue.type}
@@ -46,7 +54,9 @@ export function DashboardStructureBackupStatus({
                             <div className='min-w-0'>
                                 <p
                                     className={`text-sm font-semibold ${
-                                        issue.tone === 'error' ? 'text-[var(--dash-danger)]' : 'text-[var(--dash-warning)]'
+                                        issue.tone === 'error'
+                                            ? 'text-[var(--dash-danger)]'
+                                            : 'text-[var(--dash-warning)]'
                                     }`}>
                                     {issue.title}
                                 </p>

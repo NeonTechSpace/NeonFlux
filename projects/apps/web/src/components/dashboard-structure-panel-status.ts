@@ -9,11 +9,8 @@ export function toRunActionStatus(result: {
     status?: string;
 }): PanelStatus {
     if (result.type === 'invalid-input' && result.message) return { tone: 'error', message: result.message };
-    if (result.type === 'confirmation-mismatch' && result.expectedText) {
-        return { tone: 'error', message: `Type ${result.expectedText} exactly to confirm.` };
-    }
-    if (result.type === 'not-confirmable' && result.status) {
-        return { tone: 'error', message: `This dry-run is ${formatStatus(result.status)} and cannot be confirmed.` };
+    if (result.type === 'not-approvable' && result.status) {
+        return { tone: 'error', message: `This plan is ${formatStatus(result.status)} and cannot be approved.` };
     }
     return toErrorStatus(result.type);
 }
@@ -26,14 +23,11 @@ export function toApplyErrorStatus(result: {
     report?: DashboardStructurePreflightReport;
 }): PanelStatus {
     if (result.type === 'invalid-input' && result.message) return { tone: 'error', message: result.message };
-    if (result.type === 'confirmation-mismatch' && result.expectedText) {
-        return { tone: 'error', message: `Type ${result.expectedText} exactly to apply.` };
-    }
     if (result.type === 'destructive-confirmation-mismatch' && result.expectedText) {
         return { tone: 'error', message: `Type ${result.expectedText} exactly to approve deletes.` };
     }
     if (result.type === 'not-applicable' && result.status) {
-        return { tone: 'error', message: `This dry-run is ${formatStatus(result.status)} and cannot be applied.` };
+        return { tone: 'error', message: `This plan is ${formatStatus(result.status)} and cannot be queued.` };
     }
     if (result.type === 'preflight-blocked' && result.report) {
         return {

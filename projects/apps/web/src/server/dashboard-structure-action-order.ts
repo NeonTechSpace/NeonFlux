@@ -1,4 +1,4 @@
-export type DashboardStructureImportMode = 'merge' | 'replace';
+import type { DashboardStructurePolicy } from './dashboard-structure-v2.js';
 
 type StructureActionForOrdering = {
     actionType: string;
@@ -8,30 +8,36 @@ type StructureActionForOrdering = {
 
 export function orderDashboardStructureImportActions<TAction extends StructureActionForOrdering>(
     actions: readonly TAction[],
-    importMode: DashboardStructureImportMode
+    policy: DashboardStructurePolicy
 ): TAction[] {
     return actions
         .map((action, index) => ({ action, index }))
-        .sort((left, right) => compareStructureActions(left, right, importMode))
+        .sort((left, right) => compareStructureActions(left, right, policy))
         .map(({ action }) => action);
 }
 
 function compareStructureActions<TAction extends StructureActionForOrdering>(
     left: { action: TAction; index: number },
     right: { action: TAction; index: number },
-    importMode: DashboardStructureImportMode
+    policy: DashboardStructurePolicy
 ): number {
     return (
-        readActionTypeOrder(left.action.actionType, importMode) -
-            readActionTypeOrder(right.action.actionType, importMode) ||
-        readTargetOrder(left.action, importMode) - readTargetOrder(right.action, importMode) ||
+        readTerminalOrder(left.action) - readTerminalOrder(right.action) ||
+        readActionTypeOrder(left.action.actionType, policy) - readActionTypeOrder(right.action.actionType, policy) ||
+        readTargetOrder(left.action, policy) - readTargetOrder(right.action, policy) ||
         (left.action.sequence ?? left.index) - (right.action.sequence ?? right.index)
     );
 }
 
-function readActionTypeOrder(actionType: string, importMode: DashboardStructureImportMode): number {
+function readTerminalOrder(action: StructureActionForOrdering): number {
+    if (action.targetType === 'channel-order') return 1;
+    if (action.targetType === 'role-order') return 2;
+    return 0;
+}
+
+function readActionTypeOrder(actionType: string, policy: DashboardStructurePolicy): number {
     const order =
-        importMode === 'replace'
+        policy === 'rebuild'
             ? new Map([
                   ['delete', 0],
                   ['create', 1],
@@ -46,7 +52,7 @@ function readActionTypeOrder(actionType: string, importMode: DashboardStructureI
     return order.get(actionType) ?? 99;
 }
 
-function readTargetOrder(action: StructureActionForOrdering, importMode: DashboardStructureImportMode): number {
+function readTargetOrder(action: StructureActionForOrdering, policy: DashboardStructurePolicy): number {
     if (action.actionType === 'create') {
         return readOrder(
             action.targetType,
@@ -70,7 +76,7 @@ function readTargetOrder(action: StructureActionForOrdering, importMode: Dashboa
     }
 
     const updateOrder =
-        importMode === 'replace'
+        policy === 'rebuild'
             ? new Map([
                   ['role', 0],
                   ['category', 1],

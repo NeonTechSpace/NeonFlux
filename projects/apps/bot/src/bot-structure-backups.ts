@@ -303,7 +303,7 @@ async function checkScheduledStructureDrift(input: {
     }
 
     const liveSnapshot = toFluxerGuildStructureSnapshot(structureResult.value, input.now.toISOString());
-    const plan = diffFluxerGuildStructureSnapshot(liveSnapshot, baselineSnapshot.snapshot);
+    const plan = diffFluxerGuildStructureSnapshot(liveSnapshot, baselineSnapshot.snapshot, { policy: 'merge' });
     const changeCount = countFluxerGuildStructurePlanChanges(plan.summary);
     const status = changeCount > 0 ? structureScheduledDriftStatuses.changed : structureScheduledDriftStatuses.clean;
 

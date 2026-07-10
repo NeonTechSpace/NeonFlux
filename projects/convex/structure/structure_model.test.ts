@@ -13,9 +13,13 @@ import {
     buildStructureScheduledDriftResultPatch,
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
-    buildStructureImportRunStatusPatch,
-    checkStructureApplyAttemptPreconditions,
     chooseLatestStructureDriftBaselineBackup,
+    classifyStructureImportExecutionReclaim,
+    isStructureBackupRetentionEligible,
+    isStructureImportDecisionLedgerComplete,
+    resolveExpiredStructureImportControl,
+    resolveStructureExecutionIdMap,
+    validateStructureImportDecisionSequences,
     toStructureBackupRecord,
     toStructureImportActionRecord,
     toStructureImportRunRecord,
@@ -28,6 +32,30 @@ const runId = 'run-1' as GenericId<'structureImportRuns'>;
 const actionId = 'action-1' as GenericId<'structureImportActions'>;
 
 describe('structure model', () => {
+    it('seeds executions with every resolved source-to-target match and leaves creates unresolved', () => {
+        expect(
+            resolveStructureExecutionIdMap({
+                sourceTargetMap: {
+                    'source-category': 'target-category',
+                    'source-channel': 'target-channel',
+                    'source-create': null,
+                    'source-role': 'target-role',
+                },
+            })
+        ).toStrictEqual({
+            'source-category': 'target-category',
+            'source-channel': 'target-channel',
+            'source-role': 'target-role',
+        });
+    });
+
+    it('rejects malformed execution source-to-target maps', () => {
+        expect(() => resolveStructureExecutionIdMap({})).toThrow('structure-plan-source-target-map-invalid');
+        expect(() => resolveStructureExecutionIdMap({ sourceTargetMap: { source: 42 } })).toThrow(
+            'structure-plan-source-target-map-invalid'
+        );
+    });
+
     it('builds backups with defaults and validates structure shape', () => {
         const backup = unwrap(
             buildStructureBackupDocument(
@@ -162,76 +190,97 @@ describe('structure model', () => {
         expect(chooseLatestStructureDriftBaselineBackup([restorePoint, failed])).toBeUndefined();
     });
 
-    it('builds import runs and enforces status transitions', () => {
+    it('keeps restore points for the recovery window and while linked to unresolved executions', () => {
+        const cutoff = '2026-06-11T00:00:00.000Z';
+        expect(
+            isStructureBackupRetentionEligible(
+                { createdAt: '2026-06-20T00:00:00.000Z', id: 'recent', source: 'restore_point' },
+                { protectedRestorePointIds: new Set(), restorePointCutoff: cutoff }
+            )
+        ).toBe(false);
+        expect(
+            isStructureBackupRetentionEligible(
+                { createdAt: '2026-05-01T00:00:00.000Z', id: 'linked', source: 'restore_point' },
+                { protectedRestorePointIds: new Set(['linked']), restorePointCutoff: cutoff }
+            )
+        ).toBe(false);
+        expect(
+            isStructureBackupRetentionEligible(
+                { createdAt: '2026-05-01T00:00:00.000Z', id: 'expired', source: 'restore_point' },
+                { protectedRestorePointIds: new Set(), restorePointCutoff: cutoff }
+            )
+        ).toBe(true);
+    });
+
+    it('never replays an expired lease with a started attempt', () => {
+        expect(
+            classifyStructureImportExecutionReclaim({
+                hasStartedAttempt: true,
+                leaseExpiresAt: '2026-07-11T09:59:59.000Z',
+                now: '2026-07-11T10:00:00.000Z',
+            })
+        ).toBe('outcome_unknown');
+        expect(
+            classifyStructureImportExecutionReclaim({
+                hasStartedAttempt: false,
+                leaseExpiresAt: '2026-07-11T09:59:59.000Z',
+                now: '2026-07-11T10:00:00.000Z',
+            })
+        ).toBe('reclaim');
+        expect(resolveExpiredStructureImportControl('pause')).toBe('paused');
+        expect(resolveExpiredStructureImportControl('cancel')).toBe('cancelled');
+    });
+
+    it('rejects sparse and colliding decision-ledger sequences', () => {
+        expect(validateStructureImportDecisionSequences([10, 12])).toBe('sparse');
+        expect(validateStructureImportDecisionSequences([1, 0])).toBe('sparse');
+        expect(validateStructureImportDecisionSequences([2, 3], [], 0)).toBe('gap');
+        expect(validateStructureImportDecisionSequences([10, 11], [3, 11])).toBe('collision');
+        expect(validateStructureImportDecisionSequences([10, 11], [3, 4])).toBeNull();
+    });
+
+    it('requires a complete contiguous decision ledger before review', () => {
+        const plan = { decisionSummary: { create: 1, update: 1, delete: 0 } };
+        expect(
+            isStructureImportDecisionLedgerComplete(plan, [
+                { classification: 'create', sequence: 0 },
+                { classification: 'update', sequence: 1 },
+            ])
+        ).toBe(true);
+        expect(isStructureImportDecisionLedgerComplete(plan, [{ classification: 'create', sequence: 0 }])).toBe(false);
+        expect(
+            isStructureImportDecisionLedgerComplete(plan, [
+                { classification: 'create', sequence: 0 },
+                { classification: 'update', sequence: 2 },
+            ])
+        ).toBe(false);
+    });
+
+    it('builds clean v2 import runs', () => {
         const run = unwrap(
             buildStructureImportRunDocument(
                 {
                     createdByUserId: 'actor-1',
+                    deleteActionCount: 0,
                     guildId: 'guild-1',
                     plan: { summary: { creates: 1 } },
+                    planDigest: 'plan-digest',
+                    planVersion: 2,
+                    policy: 'merge',
+                    requestedSnapshotDigest: 'snapshot-digest',
                     sourceBackupId: 'backup-1',
                 },
                 now
             )
         );
-        const dryRun = unwrap(buildStructureImportRunStatusPatch(run, { status: 'dry_run_complete' }, now));
-        const confirmed = unwrap(
-            buildStructureImportRunStatusPatch({ ...run, ...dryRun }, { status: 'confirmed' }, now)
-        );
-        const applying = unwrap(
-            buildStructureImportRunStatusPatch({ ...run, ...dryRun, ...confirmed }, { status: 'applying' }, now)
-        );
-        const heartbeat = unwrap(
-            buildStructureImportRunStatusPatch(
-                { ...run, ...dryRun, ...confirmed, ...applying },
-                { plan: { ...run.plan, heartbeat: true }, status: 'applying' },
-                now
-            )
-        );
-        const invalid = buildStructureImportRunStatusPatch(run, { status: 'applied' }, now);
 
         expect(toStructureImportRunRecord({ ...run, _id: runId })).toMatchObject({
-            confirmedAt: null,
+            deleteActionCount: 0,
+            deleteSetDigest: null,
             id: runId,
             sourceBackupId: backupId,
-            status: 'draft',
+            status: 'building',
         });
-        expect(confirmed.confirmedAt).toBe(now);
-        expect(heartbeat).toMatchObject({ plan: { heartbeat: true }, status: 'applying' });
-        expect(invalid).toStrictEqual({
-            error: { from: 'draft', to: 'applied', type: 'invalid-status-transition' },
-            ok: false,
-        });
-    });
-
-    it('guards apply lease renewal and stale recovery with attempt identity', () => {
-        const plan = {
-            applyAttempt: {
-                attemptId: 'attempt-1',
-                leaseExpiresAt: '2026-07-10T12:05:00.000Z',
-                leaseOwner: 'worker-1',
-            },
-        };
-        const identity = { expectedApplyAttemptId: 'attempt-1', expectedApplyLeaseOwner: 'worker-1' };
-
-        expect(checkStructureApplyAttemptPreconditions(plan, identity, now)).toBe('ready');
-        expect(
-            checkStructureApplyAttemptPreconditions(
-                plan,
-                { ...identity, requireExpiredApplyLease: true },
-                '2026-07-10T12:04:59.000Z'
-            )
-        ).toBe('lease-active');
-        expect(
-            checkStructureApplyAttemptPreconditions(
-                plan,
-                { ...identity, requireExpiredApplyLease: true },
-                '2026-07-10T12:05:00.000Z'
-            )
-        ).toBe('ready');
-        expect(
-            checkStructureApplyAttemptPreconditions(plan, { ...identity, expectedApplyAttemptId: 'attempt-2' }, now)
-        ).toBe('attempt-mismatch');
     });
 
     it('recalculates next automatic backup time when cadence changes', () => {
@@ -497,7 +546,6 @@ describe('structure model', () => {
         expect(toStructureImportActionRecord({ ...action, _id: actionId })).toMatchObject({
             id: actionId,
             runId,
-            status: 'pending',
             targetId: null,
         });
     });

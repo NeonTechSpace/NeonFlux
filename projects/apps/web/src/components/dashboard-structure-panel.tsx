@@ -1,6 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet } from '@tanstack/react-router';
-import { motion } from 'motion/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { createContext, use, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -11,95 +9,60 @@ import {
     deleteDashboardStructureBackupRouteData,
     readDashboardStructureBackupPageRouteData,
     readDashboardStructureBackupJsonRouteData,
-    readDashboardStructureDriftRouteData,
-    readDashboardStructureSettingsRouteData,
     renameDashboardStructureBackupRouteData,
     saveDashboardStructureBackupSettingsRouteData,
 } from '../server/dashboard-structure-route-data.js';
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
+import { DashboardStructureErrorBoundary, DashboardStructureErrorState } from './dashboard-structure-error-boundary.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { isBackupPageStateFresh } from './dashboard-structure-panel-backup-state.js';
 import { downloadJsonFile } from './dashboard-structure-panel-download.js';
+import { createDashboardStructureDriftActions } from './dashboard-structure-drift-actions.js';
 import { useDashboardStructureExplorerState } from './dashboard-structure-panel-explorer-state.js';
 import { formatBackupSource, formatCounts, formatDate } from './dashboard-structure-panel-format.js';
 import { useDashboardStructureImportState } from './dashboard-structure-panel-import-state.js';
 import { DashboardStructureLoading } from './dashboard-structure-panel-shared.js';
-import { countPlanChanges, toDriftErrorStatus, toErrorStatus } from './dashboard-structure-panel-status.js';
+import { readDashboardStructureDiagnosticCode } from './dashboard-structure-progress.js';
+import { toErrorStatus } from './dashboard-structure-panel-status.js';
 import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 import { DashboardStructurePanelView } from './dashboard-structure-panel-view.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
-import type {
-    DashboardStructurePanelViewProps,
-    DashboardStructureSurface,
-} from './dashboard-structure-panel-view.js';
+import type { DashboardStructurePanelViewProps, DashboardStructureSurface } from './dashboard-structure-panel-view.js';
+import { useDashboardStructureWorkspaceQueries } from './dashboard-structure-workspace-queries.js';
+import {
+    DashboardStructureWorkspaceOutlet,
+    DashboardStructureWorkspaceShell,
+} from './dashboard-structure-workspace-shell.js';
 
 const structureLiveArea = ['import_export', 'structure'] as const;
 const DashboardStructureWorkspaceContext = createContext<DashboardStructurePanelViewProps | undefined>(undefined);
 
-const blueprintNavigation = [
-    { id: 'current', label: 'Current', to: '/dashboard/$guildId/structure/current' },
-    { id: 'backups', label: 'Backups', to: '/dashboard/$guildId/structure/backups' },
-    { id: 'compare', label: 'Compare', to: '/dashboard/$guildId/structure/compare' },
-    { id: 'deploy', label: 'Deploy', to: '/dashboard/$guildId/structure/deploy' },
-    { id: 'runs', label: 'Runs', to: '/dashboard/$guildId/structure/runs' },
-] as const;
-
 export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
+    const queryClient = useQueryClient();
     useDashboardLiveInvalidation({
         guildId,
         areas: structureLiveArea,
     });
 
     return (
-        <DashboardStructureController guildId={guildId}>
-            {(workspace) => (
-                <DashboardStructureWorkspaceContext value={workspace}>
-                    <section className='min-w-0' aria-labelledby='server-blueprint-title'>
-                        <header className='sticky top-0 z-10 border-b border-[var(--dash-border)] bg-[rgba(7,8,11,0.94)] px-1 backdrop-blur-md'>
-                            <div className='flex min-h-14 items-center justify-between gap-5'>
-                                <h2
-                                    id='server-blueprint-title'
-                                    className='text-xl font-semibold tracking-tight text-[var(--dash-text)]'>
-                                    Server Blueprint
-                                </h2>
-                                <p className='hidden text-sm text-[var(--dash-text-muted)] 2xl:block'>
-                                    Capture versions, understand differences, and apply reviewed changes.
-                                </p>
-                            </div>
-                            <nav className='flex min-w-0 gap-6 overflow-x-auto' aria-label='Server Blueprint tools'>
-                                {blueprintNavigation.map((item) => (
-                                    <Link
-                                        key={item.id}
-                                        to={item.to}
-                                        params={{ guildId }}
-                                        className='relative shrink-0 py-3 text-sm font-medium text-[var(--dash-text-muted)] transition-colors hover:text-[var(--dash-text)] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)]'
-                                        activeProps={{ className: 'text-[var(--dash-text)]' }}>
-                                        {({ isActive }) => (
-                                            <>
-                                                {item.label}
-                                                {isActive ? (
-                                                    <motion.span
-                                                        layoutId='server-blueprint-active-tool'
-                                                        className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
-                                                        transition={{ duration: 0.18, ease: 'easeOut' }}
-                                                    />
-                                                ) : null}
-                                            </>
-                                        )}
-                                    </Link>
-                                ))}
-                            </nav>
-                        </header>
-                        <div className='pt-5'>
-                            <Outlet />
-                        </div>
-                    </section>
-                </DashboardStructureWorkspaceContext>
-            )}
-        </DashboardStructureController>
+        <DashboardStructureErrorBoundary
+            onRetry={() => {
+                void queryClient.invalidateQueries({ queryKey: getDashboardStructureSettingsQueryKey(guildId) });
+            }}>
+            <DashboardStructureController guildId={guildId}>
+                {(workspace) => (
+                    <DashboardStructureWorkspaceContext value={workspace}>
+                        <DashboardStructureWorkspaceShell guildId={guildId}>
+                            <DashboardStructureWorkspaceOutlet />
+                        </DashboardStructureWorkspaceShell>
+                    </DashboardStructureWorkspaceContext>
+                )}
+            </DashboardStructureController>
+        </DashboardStructureErrorBoundary>
     );
 }
 
@@ -129,7 +92,7 @@ function DashboardStructureController({
     const queryClient = useQueryClient();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
-    const [replaceImportMode, setReplaceImportMode] = useState(false);
+    const [structurePolicy, setStructurePolicy] = useState<DashboardStructurePolicy>('synchronize');
     const [backupJson, setBackupJson] = useState('');
     const [status, setStatus] = useState<PanelStatus | undefined>();
     const [busyAction, setBusyAction] = useState<StructureBusyAction | undefined>();
@@ -141,16 +104,8 @@ function DashboardStructureController({
     const [editingBackupId, setEditingBackupId] = useState<string | undefined>();
     const [editingBackupName, setEditingBackupName] = useState('');
     const [deleteConfirmBackupId, setDeleteConfirmBackupId] = useState<string | undefined>();
-    const settingsQuery = useQuery({
-        queryKey,
-        queryFn: async () => {
-            const result = await readDashboardStructureSettingsRouteData({ data: { guildId } });
-
-            if (result.type !== 'settings') throw new Error('Could not load server blueprint tools.');
-
-            return result;
-        },
-    });
+    const { activeExecutionRun, executionProgress, retrySettings, settingsQuery } =
+        useDashboardStructureWorkspaceQueries(guildId);
     const explorer = useDashboardStructureExplorerState({
         driftState,
         guildId,
@@ -160,13 +115,14 @@ function DashboardStructureController({
     });
     const imports = useDashboardStructureImportState({
         guildId,
-        importMode: replaceImportMode ? 'replace' : 'merge',
+        policy: structurePolicy,
         importJson,
         refreshAuditEvents,
         refreshSettings,
         setBusyAction,
         setStatus,
     });
+    const driftActions = createDashboardStructureDriftActions({ guildId, setBusyAction, setDriftState, setStatus });
 
     async function refreshSettings(options: { resetBackups?: boolean } = {}): Promise<void> {
         if (options.resetBackups) setBackupPageState(undefined);
@@ -224,7 +180,8 @@ function DashboardStructureController({
 
         try {
             setImportJson(await file.text());
-            setStatus({ tone: 'neutral', message: `Loaded ${file.name}. Create a dry-run to review changes.` });
+            imports.clearRoleMappings();
+            setStatus({ tone: 'neutral', message: `Loaded ${file.name}. Create a deployment plan to review changes.` });
         } catch {
             setStatus({ tone: 'error', message: 'Server blueprint file could not be read.' });
         }
@@ -359,7 +316,13 @@ function DashboardStructureController({
                 setStatus(
                     result.type === 'invalid-input'
                         ? { tone: 'error', message: result.message }
-                        : toErrorStatus(result.type)
+                        : result.type === 'restore-point-protected'
+                          ? {
+                                tone: 'error',
+                                message:
+                                    'Restore-point backups are retained for deployment recovery and cannot be deleted manually.',
+                            }
+                          : toErrorStatus(result.type)
                 );
                 return;
             }
@@ -431,75 +394,35 @@ function DashboardStructureController({
             }
 
             setImportJson(result.backupJson);
-            setStatus({ tone: 'neutral', message: 'Backup JSON loaded. Create a dry-run to review changes.' });
+            imports.clearRoleMappings();
+            setStatus({ tone: 'neutral', message: 'Backup JSON loaded. Create a deployment plan to review changes.' });
         } finally {
             setBusyAction(undefined);
         }
     }
 
-    async function runDriftCheck(input: { baselineBackupId?: string; busyAction: StructureBusyAction }): Promise<void> {
-        setStatus(undefined);
-        setBusyAction(input.busyAction);
+    if (!settingsQuery.data && settingsQuery.isPending) return <DashboardStructureLoading />;
 
-        try {
-            const result = await readDashboardStructureDriftRouteData({
-                data: {
-                    guildId,
-                    ...(input.baselineBackupId ? { baselineBackupId: input.baselineBackupId } : {}),
-                },
-            });
-
-            if (result.type !== 'structure-drift') {
-                setDriftState(undefined);
-                setStatus(toDriftErrorStatus(result.type));
-                return;
-            }
-
-            setDriftState(result);
-            const count = countPlanChanges(result.summary);
-            setStatus(
-                count === 0
-                    ? { tone: 'success', message: `Live server matches ${result.baseline.name}.` }
-                    : {
-                          tone: 'neutral',
-                          message: `Drift check found ${count} server layout change${
-                              count === 1 ? '' : 's'
-                          } against ${result.baseline.name}.`,
-                      }
-            );
-        } finally {
-            setBusyAction(undefined);
-        }
-    }
-
-    async function checkDrift(backup?: DashboardStructureBackupSummary): Promise<void> {
-        await runDriftCheck({
-            ...(backup ? { baselineBackupId: backup.id } : {}),
-            busyAction: backup ? `backup-drift:${backup.id}` : 'drift',
-        });
-    }
-
-    async function reviewScheduledDrift(baselineBackupId: string): Promise<void> {
-        await runDriftCheck({
-            baselineBackupId,
-            busyAction: 'drift',
-        });
-    }
-
-    if (settingsQuery.isPending) return <DashboardStructureLoading />;
-
-    if (settingsQuery.isError) {
+    if (!settingsQuery.data) {
         return (
-            <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4'>
-                <h3 className='text-lg font-semibold text-white'>Import / Export</h3>
-                <p className='mt-2 text-sm leading-6 text-rose-300'>Could not load server blueprint tools.</p>
-            </article>
+            <DashboardStructureErrorState
+                title='Server Blueprint could not load'
+                message='The dashboard did not receive Blueprint data. Retry the read; this does not queue or apply a deployment.'
+                diagnosticCode={readDashboardStructureDiagnosticCode(settingsQuery.error)}
+                onRetry={() => {
+                    retrySettings();
+                }}
+            />
         );
     }
 
     const importRuns = settingsQuery.data.importRuns.map((run) => ({
         ...run,
         actions: imports.actionPagesByRunId[run.id]?.actions ?? run.actions,
+        decisions: imports.decisionPagesByRunId[run.id]?.decisions ?? run.decisions,
+        ...(run.id === activeExecutionRun?.id && executionProgress.execution
+            ? { execution: executionProgress.execution }
+            : {}),
     }));
     const latestRun = importRuns.at(0);
     const backupSettings = settingsQuery.data.backupSettings;
@@ -515,32 +438,41 @@ function DashboardStructureController({
               };
 
     return children({
-        applyConfirmationByRunId: imports.applyConfirmationByRunId,
         backupJson,
         backupPage,
         backupSettings,
         busyAction,
         cadenceDraft,
-        confirmationByRunId: imports.confirmationByRunId,
         deleteConfirmBackupId,
         deleteConfirmationByRunId: imports.deleteConfirmationByRunId,
         driftState,
         editingBackupId,
         editingBackupName,
         enabledDraft,
+        executionProgressIssue:
+            executionProgress.issueCode && activeExecutionRun
+                ? {
+                      code: executionProgress.issueCode,
+                      runId: activeExecutionRun.id,
+                  }
+                : undefined,
         explorer,
-        replaceImportMode,
+        structurePolicy,
         importJson,
         importRuns,
         latestRun,
         observedState: settingsQuery.data.observedState,
         preflightByRunId: imports.preflightByRunId,
         restoreShortcutBackupId: imports.restoreShortcutBackupId,
+        roleMappingConflicts: imports.roleMappingConflicts,
+        roleMappings: imports.roleMappings,
         retentionDraft,
+        settingsRefreshIssue: settingsQuery.isError
+            ? { code: readDashboardStructureDiagnosticCode(settingsQuery.error) }
+            : undefined,
         status,
-        onApplyConfirmationChange: (runId, confirmation) =>
-            imports.setApplyConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
         onApplyRun: (run) => void imports.applyImportRun(run),
+        onControlExecution: (run, request) => void imports.controlExecution(run, request),
         onBackupCadenceWeeksChange: setBackupCadenceWeeks,
         onBackupDelete: (backup) => void deleteBackup(backup),
         onBackupDownload: (backup) => void loadBackupJson(backup, 'download'),
@@ -551,37 +483,60 @@ function DashboardStructureController({
         onBackupRenameNameChange: setEditingBackupName,
         onBackupRetentionDaysChange: setBackupRetentionDays,
         onBeginBackupRename: (backup) => {
-                setEditingBackupId(backup.id);
-                setEditingBackupName(backup.name);
-                setDeleteConfirmBackupId(undefined);
-            },
+            setEditingBackupId(backup.id);
+            setEditingBackupName(backup.name);
+            setDeleteConfirmBackupId(undefined);
+        },
         onCancelBackupDelete: () => setDeleteConfirmBackupId(undefined),
         onCancelBackupRename: () => {
-                setEditingBackupId(undefined);
-                setEditingBackupName('');
-            },
-        onCheckBackupDrift: (backup) => void checkDrift(backup),
-        onCheckLatestDrift: () => void checkDrift(),
-        onConfirmRun: (run) => void imports.confirmImportRun(run),
+            setEditingBackupId(undefined);
+            setEditingBackupName('');
+        },
+        onCheckBackupDrift: (backup) => void driftActions.check(backup),
+        onCheckLatestDrift: () => void driftActions.check(),
+        onApprovePlan: (run) => void imports.approvePlan(run),
         onCreateBackup: () => void createBackup(),
-        onCreateDryRun: () => void imports.createDryRun(),
-        onCreateRestoreDryRun: (backupId) =>
-            void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
+        onCreatePlan: () => void imports.createPlan(),
+        onCreateRestoreDryRun: (backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
         onDeleteConfirmationChange: (runId, confirmation) =>
             imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
         onDownloadCurrentStructure: () => void downloadCurrentStructure(),
         onDriftCreateDryRun: (backup) => void importBackup(backup),
-        onImportJsonChange: setImportJson,
-        onReplaceImportModeChange: setReplaceImportMode,
+        onImportJsonChange: (value) => {
+            setImportJson(value);
+            imports.clearRoleMappings();
+        },
+        onStructurePolicyChange: (value) => {
+            setStructurePolicy(value);
+            imports.clearRoleMappings();
+        },
+        onRoleMappingChange: (sourceId, targetId) =>
+            imports.setRoleMappings((current) => {
+                if (!targetId) {
+                    const next = { ...current };
+                    delete next[sourceId];
+                    return next;
+                }
+
+                return { ...current, [sourceId]: targetId };
+            }),
         onImportStructureFile: importStructureFile,
         onLoadMoreBackups: () => void loadMoreBackups(),
         onLoadRunActions: (run) => void imports.loadRunActions(run),
+        onLoadRunDecisions: (run) => void imports.loadRunDecisions(run),
         onPreflightRun: (run) => void imports.preflightImportRun(run),
-        onConfirmationChange: (runId, confirmation) =>
-            imports.setConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
-        onRetryRun: (run) => void imports.retryImportRun(run),
-        onReviewScheduledDrift: (baselineBackupId) => void reviewScheduledDrift(baselineBackupId),
+        onRetryExecutionProgress: () => {
+            executionProgress.retry();
+        },
+        onRetrySettingsRefresh: () => {
+            retrySettings();
+        },
+        onRecoveryPlan: (run) => void imports.createRecoveryPlan(run),
+        onReviewScheduledDrift: (baselineBackupId) => void driftActions.reviewScheduled(baselineBackupId),
         onSaveBackupSettings: (value) => void saveBackupSettings(value),
-        onSetBackupJsonAsImportJson: () => setImportJson(backupJson),
+        onSetBackupJsonAsImportJson: () => {
+            setImportJson(backupJson);
+            imports.clearRoleMappings();
+        },
     });
 }

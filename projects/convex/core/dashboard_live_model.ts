@@ -5,10 +5,12 @@ export const dashboardLiveAreas = [
     'posting',
     'import_export',
     'structure',
+    'structure_execution',
     'audit',
 ] as const;
 
 export type DashboardLiveArea = (typeof dashboardLiveAreas)[number];
+export const structureExecutionLiveAreas = ['structure_execution'] as const satisfies readonly DashboardLiveArea[];
 
 export type DashboardLiveStateRecord = {
     area: DashboardLiveArea;

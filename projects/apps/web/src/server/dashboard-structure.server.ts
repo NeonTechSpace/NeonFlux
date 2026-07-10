@@ -2,10 +2,13 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 import {
+    approveStructureImportPlan,
     createStructureBackup,
     createStructureImportRun,
     deleteStructureBackup,
     findLatestStructureDriftBaselineBackupByGuildId,
+    findLatestStructureImportExecution,
+    findLatestStructureImportPreflight,
     findStructureBackupByGuildId,
     findStructureBackupSettingsByGuildId,
     findStructureImportRunByGuildId,
@@ -19,9 +22,8 @@ import {
     structureAuditActions,
     structureBackupSources,
     structureBackupStatuses,
-    structureImportActionStatuses,
     structureImportRunStatuses,
-    updateStructureImportRunStatus,
+    transitionStructureImportPlanState,
     upsertStructureBackupSettings,
 } from '@neonflux/db';
 import type {
@@ -30,6 +32,8 @@ import type {
     StructureBackupSummaryPageRecord,
     StructureBackupSummaryRecord,
     StructureImportActionRecord,
+    StructureImportExecutionRecord,
+    StructureImportPreflightRecord,
     StructureImportRunRecord,
     StructureImportRunWithActionsRecord,
     StructureObservedEventStateRecord,
@@ -39,10 +43,10 @@ import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 import { getWebDb } from './db.server.js';
 import { orderDashboardStructureImportActions } from './dashboard-structure-action-order.js';
 import {
-    isDashboardStructureApplyAttemptExpired,
-    readDashboardStructureApplyAttempt,
-    recoverDashboardStructureApplyAttempt,
-} from './dashboard-structure-apply-attempt.js';
+    readPersistedCategoryMappings,
+    readPersistedChannelMappings,
+    readPersistedRoleMappings,
+} from './dashboard-structure-apply-plan.js';
 import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type {
     AuthorizedStructureContext,
@@ -55,6 +59,29 @@ import {
     toDashboardStructureSnapshot,
 } from './dashboard-structure-diff.js';
 import type { DashboardStructurePlan, DashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import type { DashboardStructurePreflightReport } from './dashboard-structure-preflight.js';
+import {
+    createDashboardStructurePlanDigests,
+    materializeDashboardStructureReviewDecisions,
+    recordDashboardStructureReviewDecisions,
+    summarizeDashboardStructureReviewDecisions,
+} from './dashboard-structure-plan-persistence.server.js';
+import {
+    createDashboardStructureRecoveryMetadata,
+    loadDashboardStructureRecoverySource,
+} from './dashboard-structure-recovery.server.js';
+import {
+    createEmptyDecisionSummary,
+    dashboardStructureExecutionPhases,
+    isDashboardStructurePolicy,
+} from './dashboard-structure-v2.js';
+import type {
+    DashboardStructureDecisionSummary,
+    DashboardStructureExecutionProgress,
+    DashboardStructurePersistedPreflight,
+    DashboardStructurePolicy,
+    DashboardStructureReviewDecision,
+} from './dashboard-structure-v2.js';
 
 const dashboardImportActionInlineLimit = 100;
 const dashboardBackupPageSize = 50;
@@ -125,7 +152,6 @@ export type DashboardStructureImportAction = {
     actionType: string;
     targetType: string;
     targetId?: string;
-    status: string;
     label?: string;
     details: DashboardStructureJsonRecord;
 };
@@ -142,6 +168,27 @@ export type DashboardStructureImportRun = {
     requestedSnapshot?: DashboardStructureSnapshot;
     requestedSnapshotStoredAt?: string;
     recoveryAvailable?: boolean;
+    verification?: DashboardStructureVerification;
+    policy: DashboardStructurePolicy;
+    decisionSummary: DashboardStructureDecisionSummary;
+    decisions: DashboardStructureReviewDecision[];
+    planDigest: string;
+    deleteActionCount: number;
+    deleteSetDigest?: string;
+    preflight?: DashboardStructurePersistedPreflight & { report: DashboardStructurePreflightReport };
+    execution?: DashboardStructureExecutionProgress;
+};
+
+type DashboardStructureVerification = {
+    status: 'matched' | 'mismatch' | 'read-failed';
+    verifiedAt: string;
+    mismatchCount: number;
+    preview: Array<{
+        logicalId: string;
+        field: string;
+        expected?: DashboardStructureJsonValue;
+        actual?: DashboardStructureJsonValue;
+    }>;
 };
 
 type DashboardStructureImportActionPage = {
@@ -285,6 +332,7 @@ export type DashboardStructureBackupDeleteResult =
           backupId: string;
       }
     | { type: 'invalid-input'; message: string }
+    | { type: 'restore-point-protected' }
     | DashboardStructureErrorResult;
 
 export type DashboardStructureBackupImportInput = {
@@ -300,6 +348,7 @@ export type DashboardStructureBackupImportResult =
     | { type: 'backup-json-unavailable' }
     | { type: 'bot-token-missing' }
     | { type: 'invalid-input'; message: string }
+    | { type: 'mapping-required'; conflicts: DashboardStructureRoleMappingConflict[] }
     | { type: 'structure-read-failed' }
     | DashboardStructureErrorResult;
 
@@ -318,50 +367,62 @@ export type DashboardStructureBackupSettingsResult =
     | { type: 'invalid-input'; message: string }
     | DashboardStructureErrorResult;
 
-export type DashboardStructureDryRunResult =
+export type DashboardStructurePlanResult =
     | {
-          type: 'dry-run-created';
+          type: 'plan-created';
           importRun: DashboardStructureImportRun;
       }
     | { type: 'invalid-input'; message: string }
+    | { type: 'mapping-required'; conflicts: DashboardStructureRoleMappingConflict[] }
     | { type: 'bot-token-missing' }
     | { type: 'structure-read-failed' }
     | DashboardStructureErrorResult;
 
-export type DashboardStructureDryRunInput = {
+export type DashboardStructurePlanInput = {
     guildId: string;
     backupJson: string;
-    importMode?: 'merge' | 'replace';
+    policy: DashboardStructurePolicy;
+    roleMappings?: Record<string, string>;
+    categoryMappings?: Record<string, string>;
+    channelMappings?: Record<string, string>;
 };
 
-export type DashboardStructureConfirmInput = {
+export type DashboardStructureRoleMappingConflict = {
+    targetType: 'role' | 'category' | 'channel';
+    name: string;
+    sourceIds: string[];
+    candidateTargetIds: string[];
+};
+
+export type DashboardStructureApprovalInput = {
     guildId: string;
     importRunId: string;
-    confirmationText: string;
+    planDigest: string;
 };
 
-export type DashboardStructureConfirmResult =
+export type DashboardStructureApprovalResult =
     | {
-          type: 'confirmed';
+          type: 'approved';
           importRun: DashboardStructureImportRun;
       }
     | { type: 'invalid-input'; message: string }
-    | { type: 'confirmation-mismatch'; expectedText: string }
-    | { type: 'not-confirmable'; status: string }
+    | { type: 'plan-digest-mismatch' }
+    | { type: 'not-approvable'; status: string }
     | DashboardStructureErrorResult;
 
-export type DashboardStructureRetryInput = {
+export type DashboardStructureRecoveryInput = {
     guildId: string;
     importRunId: string;
 };
 
-export type DashboardStructureRetryResult =
+export type DashboardStructureRecoveryResult =
     | {
-          type: 'retry-created';
+          type: 'recovery-plan-created';
           importRun: DashboardStructureImportRun;
       }
     | { type: 'invalid-input'; message: string }
-    | { type: 'not-retryable'; status: string }
+    | { type: 'mapping-required'; conflicts: DashboardStructureRoleMappingConflict[] }
+    | { type: 'not-recoverable'; status: string }
     | { type: 'bot-token-missing' }
     | { type: 'structure-read-failed' }
     | DashboardStructureErrorResult;
@@ -409,12 +470,36 @@ export async function loadDashboardStructureSettings(
         return { type: 'database-error' };
     }
 
+    const runStateResults = await Promise.all(
+        runsResult.value.map(async (run) => {
+            const [preflight, execution] = await Promise.all([
+                findLatestStructureImportPreflight(database.db, { guildId: context.guild.id, runId: run.id }),
+                findLatestStructureImportExecution(database.db, { guildId: context.guild.id, runId: run.id }),
+            ]);
+            return { run, preflight, execution };
+        })
+    );
+    if (runStateResults.some(({ preflight, execution }) => preflight.isErr() || execution.isErr())) {
+        return { type: 'database-error' };
+    }
+
     return {
         type: 'settings',
         backups: backupsResult.value.backups.map(toDashboardBackupSummary),
         ...(backupsResult.value.nextCursor ? { backupNextCursor: backupsResult.value.nextCursor } : {}),
         backupSettings: toDashboardBackupSettings(backupSettingsResult.value),
-        importRuns: runsResult.value.map(toDashboardImportRun),
+        importRuns: runStateResults.map(({ run, preflight, execution }) => {
+            const executionRecord = execution.isOk() ? execution.value : null;
+            const recoveryAvailable =
+                executionRecord !== null &&
+                ['partially_applied', 'needs_reconciliation', 'outcome_unknown'].includes(executionRecord.status);
+            return {
+                ...toDashboardImportRun(run),
+                ...(preflight.isOk() && preflight.value ? { preflight: toDashboardPreflight(preflight.value) } : {}),
+                ...(executionRecord ? { execution: toDashboardExecution(executionRecord) } : {}),
+                ...(recoveryAvailable ? { recoveryAvailable: true } : {}),
+            };
+        }),
         observedState: toDashboardObservedState(observedStateResult.value, backupSettingsResult.value),
     };
 }
@@ -551,8 +636,8 @@ export async function readDashboardStructureDrift(
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
 
     const current = toDashboardStructureSnapshot(currentResult.value);
-    const planResult = tryDiffDashboardStructureSnapshot(current, requestedResult.snapshot);
-    if (planResult.type === 'invalid-input') return { type: 'backup-json-unavailable' };
+    const planResult = tryDiffDashboardStructureSnapshot(current, requestedResult.snapshot, { policy: 'synchronize' });
+    if (planResult.type !== 'valid') return { type: 'backup-json-unavailable' };
     const plan = planResult.plan;
 
     return {
@@ -615,6 +700,14 @@ export async function deleteDashboardStructureBackup(
     if (!backupId) return { type: 'invalid-input', message: 'Choose a backup to delete.' };
 
     const database = await getWebDb();
+    const backupResult = await findStructureBackupByGuildId(database.db, {
+        backupId,
+        guildId: context.guild.id,
+    });
+    if (backupResult.isErr()) return mapRepositoryError(backupResult.error);
+    if (backupResult.value.source === structureBackupSources.restorePoint) {
+        return { type: 'restore-point-protected' };
+    }
     const result = await deleteStructureBackup(database.db, {
         audit: createStructureAuditPayload(context, structureAuditActions.backupDeleted, backupId, {}),
         backupId,
@@ -663,10 +756,11 @@ export async function importDashboardStructureBackup(
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
 
     const current = toDashboardStructureSnapshot(currentResult.value);
-    const planResult = tryDiffDashboardStructureSnapshot(current, requestedResult.snapshot);
-    if (planResult.type === 'invalid-input') return planResult;
+    const planResult = tryDiffDashboardStructureSnapshot(current, requestedResult.snapshot, { policy: 'synchronize' });
+    if (planResult.type !== 'valid') return planResult;
     const plan = planResult.plan;
-    const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
+    const runResult = await persistStructureImportPlan(context, plan, requestedResult.snapshot, {
+        policy: 'synchronize',
         audit: (importRunId) =>
             createStructureAuditPayload(context, structureAuditActions.backupImportCreated, backupResult.value.id, {
                 actionCount: plan.actions.length,
@@ -676,7 +770,7 @@ export async function importDashboardStructureBackup(
         sourceBackupId: backupResult.value.id,
     });
 
-    if (runResult.type !== 'dry-run-created') return runResult;
+    if (runResult.type !== 'plan-created') return runResult;
 
     return {
         type: 'backup-import-created',
@@ -719,10 +813,10 @@ export async function saveDashboardStructureBackupSettings(
     };
 }
 
-export async function createDashboardStructureImportDryRun(
+export async function createDashboardStructureImportPlan(
     request: Request,
-    input: DashboardStructureDryRunInput
-): Promise<DashboardStructureDryRunResult> {
+    input: DashboardStructurePlanInput
+): Promise<DashboardStructurePlanResult> {
     const context = await loadAuthorizedStructureContext(request, input.guildId);
 
     if (context.type !== 'authorized') return context;
@@ -743,34 +837,42 @@ export async function createDashboardStructureImportDryRun(
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
 
     const current = toDashboardStructureSnapshot(currentResult.value);
-    const importMode = input.importMode === 'replace' ? 'replace' : 'merge';
+    if (!isDashboardStructurePolicy(input.policy)) {
+        return { type: 'invalid-input', message: 'Choose how this blueprint should own the target server.' };
+    }
+    const policy = input.policy;
     const planResult = tryDiffDashboardStructureSnapshot(current, requestedResult.snapshot, {
-        includeDeletes: importMode === 'replace',
-        resetBeforeCreate: importMode === 'replace',
+        policy,
+        roleMappings: input.roleMappings,
+        categoryMappings: input.categoryMappings,
+        channelMappings: input.channelMappings,
     });
-    if (planResult.type === 'invalid-input') return planResult;
+    if (planResult.type !== 'valid') return planResult;
     const plan = planResult.plan;
-    const runResult = await persistStructureImportDryRun(context, plan, requestedResult.snapshot, {
+    const runResult = await persistStructureImportPlan(context, plan, requestedResult.snapshot, {
         audit: (importRunId) =>
-            createStructureAuditPayload(context, structureAuditActions.importDryRunCreated, importRunId, {
+            createStructureAuditPayload(context, structureAuditActions.importPlanCreated, importRunId, {
                 actionCount: plan.actions.length,
                 createCount: plan.summary.creates,
                 updateCount: plan.summary.updates,
                 deleteCount: plan.summary.deletes,
-                importMode,
+                policy,
             }),
-        importMode,
+        policy,
+        roleMappings: input.roleMappings,
+        categoryMappings: input.categoryMappings,
+        channelMappings: input.channelMappings,
     });
 
-    if (runResult.type !== 'dry-run-created') return runResult;
+    if (runResult.type !== 'plan-created') return runResult;
 
     return runResult;
 }
 
-export async function confirmDashboardStructureImportRun(
+export async function approveDashboardStructurePlan(
     request: Request,
-    input: DashboardStructureConfirmInput
-): Promise<DashboardStructureConfirmResult> {
+    input: DashboardStructureApprovalInput
+): Promise<DashboardStructureApprovalResult> {
     const context = await loadAuthorizedStructureContext(request, input.guildId);
 
     if (context.type !== 'authorized') return context;
@@ -778,13 +880,7 @@ export async function confirmDashboardStructureImportRun(
     const importRunId = input.importRunId.trim();
 
     if (!importRunId) {
-        return { type: 'invalid-input', message: 'Choose an import dry-run to confirm.' };
-    }
-
-    const expectedText = getStructureImportConfirmationText(importRunId);
-
-    if (input.confirmationText.trim() !== expectedText) {
-        return { type: 'confirmation-mismatch', expectedText };
+        return { type: 'invalid-input', message: 'Choose a deployment plan to approve.' };
     }
 
     const database = await getWebDb();
@@ -795,166 +891,96 @@ export async function confirmDashboardStructureImportRun(
 
     if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
 
-    if (importRunResult.value.status !== structureImportRunStatuses.dryRunComplete) {
-        return { type: 'not-confirmable', status: importRunResult.value.status };
+    if (importRunResult.value.status !== structureImportRunStatuses.reviewReady) {
+        return { type: 'not-approvable', status: importRunResult.value.status };
+    }
+    const planDigest = importRunResult.value.planDigest;
+    if (!planDigest || input.planDigest !== planDigest) return { type: 'plan-digest-mismatch' };
+    const blockers = Array.isArray(importRunResult.value.plan.blockers) ? importRunResult.value.plan.blockers : [];
+    if (blockers.length > 0) {
+        return { type: 'invalid-input', message: 'Resolve every blocked blueprint decision before approval.' };
     }
 
     const summary = summarizeActions(importRunResult.value.actions);
-    const confirmedResult = await updateStructureImportRunStatus(database.db, {
-        audit: createStructureAuditPayload(context, structureAuditActions.importConfirmed, importRunId, {
+    const approvedAt = new Date();
+    const approvalResult = await approveStructureImportPlan(database.db, {
+        runId: importRunId,
+        planDigest,
+        approvedByUserId: context.actor.actorUserId,
+        approvedAt,
+        deleteSetDigest: null,
+        destructiveActionCount: null,
+        destructiveApprovedAt: null,
+        destructivePreflightDigest: null,
+        audit: createStructureAuditPayload(context, structureAuditActions.importPlanApproved, importRunId, {
             actionCount: importRunResult.value.actions.length,
             createCount: summary.creates,
             updateCount: summary.updates,
             deleteCount: summary.deletes,
         }),
-        runId: importRunId,
-        status: structureImportRunStatuses.confirmed,
     });
 
-    if (confirmedResult.isErr()) {
-        if (confirmedResult.error.type === 'invalid-status-transition') {
-            return { type: 'not-confirmable', status: confirmedResult.error.from };
-        }
+    if (approvalResult.isErr()) return mapRepositoryError(approvalResult.error);
 
-        return mapRepositoryError(confirmedResult.error);
-    }
-
-    const confirmedRun = toDashboardImportRun({
-        ...confirmedResult.value,
+    const approvedRun = toDashboardImportRun({
+        ...importRunResult.value,
+        status: structureImportRunStatuses.approved,
+        updatedAt: approvedAt,
         actions: importRunResult.value.actions,
     });
 
     return {
-        type: 'confirmed',
-        importRun: confirmedRun,
+        type: 'approved',
+        importRun: approvedRun,
     };
 }
 
-export async function retryDashboardStructureImportRun(
+export async function createDashboardStructureRecoveryPlan(
     request: Request,
-    input: DashboardStructureRetryInput
-): Promise<DashboardStructureRetryResult> {
+    input: DashboardStructureRecoveryInput
+): Promise<DashboardStructureRecoveryResult> {
     const context = await loadAuthorizedStructureContext(request, input.guildId);
 
     if (context.type !== 'authorized') return context;
 
     const importRunId = input.importRunId.trim();
-    if (!importRunId) return { type: 'invalid-input', message: 'Choose a failed import run to retry.' };
+    if (!importRunId) return { type: 'invalid-input', message: 'Choose a deployment that needs reconciliation.' };
 
-    const database = await getWebDb();
-    const importRunResult = await findStructureImportRunWithActionsByGuildId(database.db, {
-        guildId: context.guild.id,
-        runId: importRunId,
-    });
-
-    if (importRunResult.isErr()) return mapRepositoryError(importRunResult.error);
-    let sourceRun = importRunResult.value;
-    if (sourceRun.status === structureImportRunStatuses.applying) {
-        const attempt = readDashboardStructureApplyAttempt(sourceRun.plan);
-        if (!attempt || !isDashboardStructureApplyAttemptExpired(sourceRun.plan)) {
-            return { type: 'not-retryable', status: sourceRun.status };
-        }
-
-        const recoveredAttempt = recoverDashboardStructureApplyAttempt(attempt, new Date());
-        const recoveredPlan = { ...sourceRun.plan, applyAttempt: recoveredAttempt };
-        const recoveredRunResult = await updateStructureImportRunStatus(database.db, {
-            expectedApplyAttemptId: attempt.attemptId,
-            expectedApplyLeaseOwner: attempt.leaseOwner,
-            plan: recoveredPlan,
-            requireExpiredApplyLease: true,
-            runId: sourceRun.id,
-            status: structureImportRunStatuses.failed,
-        });
-        if (recoveredRunResult.isErr()) return { type: 'not-retryable', status: sourceRun.status };
-        sourceRun = { ...recoveredRunResult.value, actions: sourceRun.actions, plan: recoveredPlan };
-    }
-
-    if (sourceRun.status !== structureImportRunStatuses.failed) {
-        return { type: 'not-retryable', status: importRunResult.value.status };
-    }
-
+    const recoverySource = await loadDashboardStructureRecoverySource(context.guild.id, importRunId);
+    if (recoverySource.type !== 'source') return recoverySource;
+    const sourceRun = recoverySource.run;
+    const sourceExecution = recoverySource.execution;
     const requestedSnapshot = readRequestedSnapshot(sourceRun.plan);
-    if (requestedSnapshot) {
-        const botToken = loadWebConfig().fluxerBotToken;
-        if (!botToken) return { type: 'bot-token-missing' };
-
-        const currentResult = await readFluxerBotGuildStructure({ botToken, guildId: context.guild.id });
-        if (currentResult.isErr()) return { type: 'structure-read-failed' };
-
-        const currentSnapshot = toDashboardStructureSnapshot(currentResult.value);
-        const importMode = readImportMode(sourceRun.plan);
-        const planResult = tryDiffDashboardStructureSnapshot(currentSnapshot, requestedSnapshot, {
-            includeDeletes: importMode === 'replace',
-        });
-        if (planResult.type === 'invalid-input') return planResult;
-        const plan = planResult.plan;
-
-        const retryResult = await persistStructureImportDryRun(context, plan, requestedSnapshot, {
-            importMode,
-            planMetadata: {
-                recoveredUnknownOutcome: readDashboardStructureApplyAttempt(sourceRun.plan)?.outcome === 'unknown',
-                retryOfRunId: sourceRun.id,
-            },
-            source: 'dashboard-retry-reconciliation',
-            ...(sourceRun.sourceBackupId ? { sourceBackupId: sourceRun.sourceBackupId } : {}),
-        });
-
-        return retryResult.type === 'dry-run-created'
-            ? { type: 'retry-created', importRun: retryResult.importRun }
-            : retryResult;
+    if (!requestedSnapshot) return { type: 'invalid-input', message: 'This run has no v2 source snapshot.' };
+    const botToken = loadWebConfig().fluxerBotToken;
+    if (!botToken) return { type: 'bot-token-missing' };
+    const currentResult = await readFluxerBotGuildStructure({ botToken, guildId: context.guild.id });
+    if (currentResult.isErr()) return { type: 'structure-read-failed' };
+    if (!readPolicy(sourceRun.plan)) {
+        return { type: 'invalid-input', message: 'This run is not a Server Blueprint v2 plan.' };
     }
-
-    const failedActions = sourceRun.actions.filter((action) => action.status === structureImportActionStatuses.failed);
-    if (failedActions.length === 0) return { type: 'invalid-input', message: 'This run has no failed actions.' };
-
-    const retryPlan = {
-        ...sourceRun.plan,
-        retryOfRunId: sourceRun.id,
-        sourceTargetMap: readApplySourceTargetMap(sourceRun.plan),
-        summary: summarizeActions(failedActions),
-    };
-    const retryRunResult = await createStructureImportRun(database.db, {
-        createdByUserId: context.actor.actorUserId,
-        guildId: context.guild.id,
-        plan: toJsonRecord(retryPlan),
-    });
-
-    if (retryRunResult.isErr()) return { type: 'database-error' };
-
-    const retryActions = await recordActionBatches(
-        retryRunResult.value.id,
-        failedActions.map((action, index) => ({
-            actionType: action.actionType,
-            details: toJsonRecord({
-                ...action.details,
-                retryOfActionId: action.id,
-            }),
-            sequence: index,
-            status: structureImportActionStatuses.dryRun,
-            targetId: action.targetId ?? undefined,
-            targetType: action.targetType,
-        }))
+    const policy: DashboardStructurePolicy = 'synchronize';
+    const roleMappings = readPersistedRoleMappings(sourceRun.plan);
+    const categoryMappings = readPersistedCategoryMappings(sourceRun.plan);
+    const channelMappings = readPersistedChannelMappings(sourceRun.plan);
+    const planResult = tryDiffDashboardStructureSnapshot(
+        toDashboardStructureSnapshot(currentResult.value),
+        requestedSnapshot,
+        { policy, roleMappings, categoryMappings, channelMappings }
     );
-
-    if (retryActions === 'database-error') {
-        await markStructureImportRunActionWriteFailed(retryRunResult.value.id, retryRunResult.value.plan);
-        return { type: 'database-error' };
-    }
-
-    const updatedRunResult = await updateStructureImportRunStatus(database.db, {
-        audit: createStructureAuditPayload(context, structureAuditActions.importRetryCreated, retryRunResult.value.id, {
-            actionCount: failedActions.length,
-            retryOfRunId: importRunId,
-        }),
-        runId: retryRunResult.value.id,
-        status: structureImportRunStatuses.dryRunComplete,
+    if (planResult.type !== 'valid') return planResult;
+    const recoveryResult = await persistStructureImportPlan(context, planResult.plan, requestedSnapshot, {
+        policy,
+        roleMappings,
+        categoryMappings,
+        channelMappings,
+        planMetadata: createDashboardStructureRecoveryMetadata(sourceRun.id, sourceExecution.id),
+        source: 'dashboard-recovery-plan',
+        ...(sourceRun.sourceBackupId ? { sourceBackupId: sourceRun.sourceBackupId } : {}),
     });
-
-    if (updatedRunResult.isErr()) return { type: 'database-error' };
-
-    const importRun = toDashboardImportRun({ ...updatedRunResult.value, actions: retryActions });
-
-    return { type: 'retry-created', importRun };
+    return recoveryResult.type === 'plan-created'
+        ? { type: 'recovery-plan-created', importRun: recoveryResult.importRun }
+        : recoveryResult;
 }
 
 export async function readDashboardStructureImportActionPage(
@@ -1079,26 +1105,48 @@ async function recordFailedDashboardStructureBackup(
     if (backupResult.isErr()) return 'database-error';
 }
 
-async function persistStructureImportDryRun(
+async function persistStructureImportPlan(
     context: AuthorizedStructureContext,
     plan: DashboardStructurePlan,
     requestedSnapshot: DashboardStructureSnapshot,
     options: {
         audit?: (importRunId: string) => StructureAuditPayload;
-        importMode?: 'merge' | 'replace';
+        policy: DashboardStructurePolicy;
         planMetadata?: Record<string, unknown>;
+        roleMappings?: Record<string, string>;
+        categoryMappings?: Record<string, string>;
+        channelMappings?: Record<string, string>;
         source?: string;
         sourceBackupId?: string;
-    } = {}
-): Promise<DashboardStructureDryRunResult> {
+    }
+): Promise<DashboardStructurePlanResult> {
     const database = await getWebDb();
     const requestedSnapshotStoredAt = new Date().toISOString();
+    const { planDigest, deleteActionCount, deleteSetDigest, requestedSnapshotDigest } =
+        createDashboardStructurePlanDigests(plan, requestedSnapshot);
+    const reviewDecisions = materializeDashboardStructureReviewDecisions(plan, requestedSnapshot);
     const runResult = await createStructureImportRun(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,
+        planVersion: 2,
+        policy: options.policy,
+        planDigest,
+        deleteActionCount,
+        ...(deleteSetDigest ? { deleteSetDigest } : {}),
+        requestedSnapshotDigest,
         plan: toJsonRecord({
             summary: plan.summary,
-            ...(plan.sourceTargetMap ? { sourceTargetMap: plan.sourceTargetMap } : {}),
+            sourceTargetMap: plan.sourceTargetMap,
+            roleProjection: plan.roleProjection,
+            ...(options.roleMappings && Object.keys(options.roleMappings).length > 0
+                ? { roleMappings: options.roleMappings }
+                : {}),
+            ...(options.categoryMappings && Object.keys(options.categoryMappings).length > 0
+                ? { categoryMappings: options.categoryMappings }
+                : {}),
+            ...(options.channelMappings && Object.keys(options.channelMappings).length > 0
+                ? { channelMappings: options.channelMappings }
+                : {}),
             requestedGuildId: requestedSnapshot.guildId ?? null,
             requestedExportedAt: requestedSnapshot.exportedAt ?? null,
             requestedSnapshot,
@@ -1106,14 +1154,26 @@ async function persistStructureImportDryRun(
             requestedSnapshotVersion: 1,
             source: options.source ?? 'dashboard-json',
             ...(options.planMetadata ?? {}),
-            ...(options.importMode ? { importMode: options.importMode } : {}),
+            planVersion: 2,
+            policy: options.policy,
+            planDigest,
+            decisionSummary: summarizeDashboardStructureReviewDecisions(reviewDecisions),
+            blockers: plan.blockers,
+            projectedSnapshot: plan.projectedSnapshot,
+            fingerprintInput: plan.fingerprintInput,
         }),
         ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
     });
 
     if (runResult.isErr()) return { type: 'database-error' };
 
-    const orderedActions = orderDashboardStructureImportActions(plan.actions, options.importMode ?? 'merge');
+    const decisionRecords = await recordDashboardStructureReviewDecisions(runResult.value.id, reviewDecisions);
+    if (decisionRecords === 'database-error') {
+        await markStructureImportRunActionWriteFailed(runResult.value.id);
+        return { type: 'database-error' };
+    }
+
+    const orderedActions = orderDashboardStructureImportActions(plan.actions, options.policy);
     const actionRecords = await recordActionBatches(
         runResult.value.id,
         orderedActions.map((action, index) => ({
@@ -1121,26 +1181,27 @@ async function persistStructureImportDryRun(
             targetType: action.targetType,
             ...(action.targetId ? { targetId: action.targetId } : {}),
             sequence: index,
-            status: structureImportActionStatuses.dryRun,
             details: toJsonRecord(action.details),
         }))
     );
 
     if (actionRecords === 'database-error') {
-        await markStructureImportRunActionWriteFailed(runResult.value.id, runResult.value.plan);
+        await markStructureImportRunActionWriteFailed(runResult.value.id);
         return { type: 'database-error' };
     }
 
-    const updatedRunResult = await updateStructureImportRunStatus(database.db, {
+    const updatedRunResult = await transitionStructureImportPlanState(database.db, {
         audit: options.audit?.(runResult.value.id),
         runId: runResult.value.id,
-        status: structureImportRunStatuses.dryRunComplete,
+        expectedStatus: structureImportRunStatuses.building,
+        now: new Date(),
+        status: structureImportRunStatuses.reviewReady,
     });
 
     if (updatedRunResult.isErr()) return { type: 'database-error' };
 
     return {
-        type: 'dry-run-created',
+        type: 'plan-created',
         importRun: toDashboardImportRun({
             ...updatedRunResult.value,
             actions: actionRecords,
@@ -1180,16 +1241,14 @@ async function recordActionBatches(
     return records;
 }
 
-async function markStructureImportRunActionWriteFailed(runId: string, plan: Record<string, unknown>): Promise<void> {
+async function markStructureImportRunActionWriteFailed(runId: string): Promise<void> {
     const database = await getWebDb();
 
-    await updateStructureImportRunStatus(database.db, {
+    await transitionStructureImportPlanState(database.db, {
         runId,
-        status: structureImportRunStatuses.cancelled,
-        plan: {
-            ...plan,
-            errorType: 'action-write-failed',
-        },
+        expectedStatus: structureImportRunStatuses.building,
+        now: new Date(),
+        status: structureImportRunStatuses.stale,
     });
 }
 
@@ -1283,7 +1342,9 @@ function summarizeDriftFields(plan: DashboardStructurePlan): DashboardStructureD
         for (const field of readChangedFields(action.details)) {
             if (field === 'name') fieldSummary.names += 1;
             if (field === 'parentId') fieldSummary.parentMoves += 1;
-            if (field === 'position' || field === 'roleOrder') fieldSummary.positions += 1;
+            if (field === 'position' || field === 'roleOrder' || field === 'channelOrder') {
+                fieldSummary.positions += 1;
+            }
             if (field === 'type') fieldSummary.typeChanges += 1;
             if (field === 'permissions' || field === 'permissionOverwrites') fieldSummary.permissions += 1;
             if (field === 'color' || field === 'hoist' || field === 'mentionable') fieldSummary.roleVisuals += 1;
@@ -1407,15 +1468,18 @@ function readNonNegativeNumber(value: unknown): number {
     return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
 
-export function toDashboardImportRun(
+function toDashboardImportRun(
     record: StructureImportRunRecord | StructureImportRunWithActionsRecord
 ): DashboardStructureImportRun {
     const actions = 'actions' in record ? record.actions : [];
     const summary = readPlanSummary(record.plan);
     const requestedSnapshot = readRequestedSnapshot(record.plan);
     const requestedSnapshotStoredAt = readRequestedSnapshotStoredAt(record.plan);
-    const recoveryAvailable =
-        record.status === structureImportRunStatuses.applying && isDashboardStructureApplyAttemptExpired(record.plan);
+    const policy = readPolicy(record.plan);
+    if (!policy || record.plan.planVersion !== 2) throw new Error('invalid-server-blueprint-v2-plan');
+    const decisionSummary = readDecisionSummary(record.plan);
+    const planDigest = typeof record.plan.planDigest === 'string' ? record.plan.planDigest : '';
+    if (!planDigest) throw new Error('invalid-server-blueprint-v2-digest');
 
     return {
         id: record.id,
@@ -1428,7 +1492,50 @@ export function toDashboardImportRun(
         actions: shouldInlineImportActions(summary, actions) ? actions.map(toDashboardImportAction) : [],
         ...(requestedSnapshot ? { requestedSnapshot } : {}),
         ...(requestedSnapshot && requestedSnapshotStoredAt ? { requestedSnapshotStoredAt } : {}),
-        ...(recoveryAvailable ? { recoveryAvailable: true } : {}),
+        policy,
+        decisionSummary,
+        decisions: [],
+        planDigest,
+        deleteActionCount: record.deleteActionCount,
+        ...(record.deleteSetDigest ? { deleteSetDigest: record.deleteSetDigest } : {}),
+    };
+}
+
+function toDashboardPreflight(
+    record: StructureImportPreflightRecord
+): DashboardStructurePersistedPreflight & { report: DashboardStructurePreflightReport } {
+    const report = record.report as DashboardStructurePreflightReport;
+    const blockerCount =
+        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan;
+    return {
+        checkedAt: record.checkedAt.toISOString(),
+        digest: record.preflightDigest,
+        status: record.status === 'ready' ? 'ready' : 'blocked',
+        blockerCount,
+        report,
+    };
+}
+
+function toDashboardExecution(record: StructureImportExecutionRecord): DashboardStructureExecutionProgress {
+    if (!dashboardStructureExecutionPhases.includes(record.phase)) {
+        throw new Error('invalid-server-blueprint-execution-phase');
+    }
+    const phase = record.phase;
+    return {
+        id: record.id,
+        status: record.status,
+        phase,
+        completedActions: record.appliedActions + record.failedActions + record.skippedActions,
+        failedActions: record.failedActions,
+        totalActions: record.totalActions,
+        ...(record.currentActionLabel ? { currentActionLabel: record.currentActionLabel } : {}),
+        ...(record.retryAt ? { retryAt: record.retryAt.toISOString() } : {}),
+        ...(record.errorType ? { errorType: record.errorType } : {}),
+        ...(record.restorePointBackupId ? { restorePointBackupId: record.restorePointBackupId } : {}),
+        createdAt: record.createdAt.toISOString(),
+        ...(record.startedAt ? { startedAt: record.startedAt.toISOString() } : {}),
+        updatedAt: record.updatedAt.toISOString(),
+        ...(record.completedAt ? { completedAt: record.completedAt.toISOString() } : {}),
     };
 }
 
@@ -1457,7 +1564,6 @@ function toDashboardImportAction(record: StructureImportActionRecord): Dashboard
         actionType: record.actionType,
         targetType: record.targetType,
         ...(record.targetId ? { targetId: record.targetId } : {}),
-        status: record.status,
         ...(label ? { label } : {}),
         details,
     };
@@ -1518,26 +1624,39 @@ function summarizeActions(actions: StructureImportActionRecord[]): DashboardStru
     };
 }
 
-function readApplySourceTargetMap(plan: Record<string, unknown>): Record<string, unknown> {
-    if (isObject(plan.sourceTargetMap)) return plan.sourceTargetMap;
-
-    const applySummary = isObject(plan.applySummary) ? plan.applySummary : {};
-    return isObject(applySummary.sourceTargetMap) ? applySummary.sourceTargetMap : {};
+function readPolicy(plan: Record<string, unknown>): DashboardStructurePolicy | undefined {
+    return isDashboardStructurePolicy(plan.policy) ? plan.policy : undefined;
 }
 
-function readImportMode(plan: Record<string, unknown>): 'merge' | 'replace' {
-    return plan.importMode === 'replace' ? 'replace' : 'merge';
+function readDecisionSummary(plan: Record<string, unknown>): DashboardStructureDecisionSummary {
+    if (!isObject(plan.decisionSummary)) throw new Error('invalid-server-blueprint-v2-decision-summary');
+    const summary = createEmptyDecisionSummary();
+    for (const classification of Object.keys(summary) as Array<keyof DashboardStructureDecisionSummary>) {
+        summary[classification] = readNonNegativeNumber(plan.decisionSummary[classification]);
+    }
+    return summary;
 }
 
 function tryDiffDashboardStructureSnapshot(
     current: DashboardStructureSnapshot,
     requested: DashboardStructureSnapshot,
-    options: { includeDeletes?: boolean; resetBeforeCreate?: boolean } = {}
-): { type: 'valid'; plan: DashboardStructurePlan } | { type: 'invalid-input'; message: string } {
+    options: {
+        policy: DashboardStructurePolicy;
+        roleMappings?: Record<string, string>;
+        categoryMappings?: Record<string, string>;
+        channelMappings?: Record<string, string>;
+    }
+):
+    | { type: 'valid'; plan: DashboardStructurePlan }
+    | { type: 'invalid-input'; message: string }
+    | { type: 'mapping-required'; conflicts: DashboardStructureRoleMappingConflict[] } {
     try {
         return { type: 'valid', plan: diffDashboardStructureSnapshot(current, requested, options) };
     } catch (error) {
         if (error instanceof DashboardStructureAmbiguousIdentityError) {
+            return { type: 'mapping-required', conflicts: error.conflicts };
+        }
+        if (isObject(error) && error.code === 'invalid-identity-mapping' && typeof error.message === 'string') {
             return { type: 'invalid-input', message: error.message };
         }
         throw error;
@@ -1569,10 +1688,6 @@ function sanitizeDownloadName(value: string): string {
 
 function mapRepositoryError(error: { type: string }): DashboardStructureErrorResult {
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
-}
-
-function getStructureImportConfirmationText(importRunId: string): string {
-    return `CONFIRM ${importRunId.trim()}`;
 }
 
 function toJsonRecord(value: unknown): DashboardStructureJsonRecord {

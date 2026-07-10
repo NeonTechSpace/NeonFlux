@@ -21,15 +21,13 @@ import {
     chooseLatestStructureDriftBaselineBackup,
     buildStructureImportActionDocument,
     buildStructureImportRunDocument,
-    buildStructureImportRunStatusPatch,
-    checkStructureApplyAttemptPreconditions,
     normalizeBackupName,
     normalizeBackupRetentionDays,
+    isStructureBackupRetentionEligible,
     normalizeLimit,
     normalizeRequiredGuildId,
     STRUCTURE_BACKUP_SOURCE,
     STRUCTURE_BACKUP_STATUS,
-    STRUCTURE_IMPORT_RUN_STATUS,
     toStructureBackupRecord,
     toStructureBackupSettingsRecord,
     toStructureBackupSummaryRecord,
@@ -38,7 +36,6 @@ import {
     toStructureObservedEventStateRecord,
     type StructureBackupDocument,
     type StructureBackupSettingsDocument,
-    type StructureImportActionDocument,
     type StructureImportRunDocument,
     type StructureObservedEventStateDocument,
 } from './structure_model.js';
@@ -49,13 +46,25 @@ type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredBackupDocument = StructureBackupDocument & { _id: GenericId<'structureBackups'> };
 type StoredBackupSettingsDocument = StructureBackupSettingsDocument & { _id: GenericId<'structureBackupSettings'> };
 type StoredImportRunDocument = StructureImportRunDocument & { _id: GenericId<'structureImportRuns'> };
-type StoredImportActionDocument = StructureImportActionDocument & { _id: GenericId<'structureImportActions'> };
 type StoredObservedEventDocument = StructureObservedEventStateDocument & { _id: GenericId<'guildFeatureSettings'> };
 
 const allowedStructureServices = ['bot', 'web'] as const;
 const structureFeature = 'import_export';
+// Restore points remain available for operator reconciliation even when regular backup retention is shorter.
+const restorePointMinimumRecoveryDays = 30;
+const protectedRestorePointExecutionStatuses = [
+    'queued',
+    'running',
+    'waiting_rate_limit',
+    'pause_requested',
+    'paused',
+    'verifying',
+    'partially_applied',
+    'needs_reconciliation',
+    'outcome_unknown',
+] as const;
 const nullableString = v.union(v.string(), v.null());
-const auditInputValidator = v.object({
+export const auditInputValidator = v.object({
     action: v.string(),
     actorUserId: v.optional(v.union(v.string(), v.null())),
     metadata: v.optional(v.any()),
@@ -73,7 +82,6 @@ const backupRecordValidator = v.object({
     name: v.string(),
     roleCount: v.number(),
     source: v.string(),
-    status: v.string(),
     structure: v.union(v.any(), v.null()),
 });
 const backupSummaryRecordValidator = v.object({
@@ -88,7 +96,6 @@ const backupSummaryRecordValidator = v.object({
     name: v.string(),
     roleCount: v.number(),
     source: v.string(),
-    status: v.string(),
 });
 const backupSettingsValidator = v.object({
     cadenceWeeks: v.number(),
@@ -130,25 +137,33 @@ const actionRecordValidator = v.object({
     id: v.string(),
     runId: v.string(),
     sequence: v.number(),
-    status: v.string(),
     targetId: nullableString,
     targetType: v.string(),
-    updatedAt: v.string(),
 });
 const actionPageValidator = v.object({
     actions: v.array(actionRecordValidator),
     nextCursor: nullableString,
 });
 const runRecordValidator = v.object({
-    appliedAt: nullableString,
-    confirmedAt: nullableString,
     createdAt: v.string(),
     createdByUserId: nullableString,
     guildId: v.string(),
+    deleteActionCount: v.number(),
+    deleteSetDigest: nullableString,
+    planDigest: v.string(),
+    planVersion: v.number(),
+    policy: v.union(v.literal('merge'), v.literal('synchronize'), v.literal('rebuild')),
     id: v.string(),
     plan: v.any(),
+    requestedSnapshotDigest: v.string(),
     sourceBackupId: nullableString,
-    status: v.string(),
+    status: v.union(
+        v.literal('building'),
+        v.literal('needs_mapping'),
+        v.literal('review_ready'),
+        v.literal('approved'),
+        v.literal('stale')
+    ),
     updatedAt: v.string(),
 });
 const observedStateValidator = v.object({
@@ -166,7 +181,6 @@ const importActionInputValidator = v.object({
     actionType: v.string(),
     details: v.optional(v.any()),
     sequence: v.number(),
-    status: v.optional(v.string()),
     targetId: v.optional(v.union(v.string(), v.null())),
     targetType: v.string(),
 });
@@ -357,9 +371,23 @@ export const deleteStructureBackup = mutation({
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
         const backup = await findBackupById(ctx, parseBackupId(args.backupId));
         if (backup?.guildId !== guildId) return false;
+        const now = new Date().toISOString();
+        if (backup.source === STRUCTURE_BACKUP_SOURCE.restorePoint) {
+            const minimumDeleteAt = addDays(backup.createdAt, restorePointMinimumRecoveryDays);
+            if (minimumDeleteAt > now) throw new Error('structure-restore-point-recovery-window-active');
+            for (const status of protectedRestorePointExecutionStatuses) {
+                const references = await ctx.db
+                    .query('structureImportExecutions')
+                    .withIndex('by_guild_status', (index) => index.eq('guildId', guildId).eq('status', status))
+                    .collect();
+                if (references.some((execution) => execution.restorePointBackupId === String(backup._id))) {
+                    throw new Error('structure-restore-point-execution-active');
+                }
+            }
+        }
 
         await ctx.db.delete('structureBackups', backup._id);
-        await recordStructureAuditInMutation(ctx, guildId, args.audit, new Date().toISOString(), backup._id);
+        await recordStructureAuditInMutation(ctx, guildId, args.audit, now, backup._id);
 
         return true;
     },
@@ -549,15 +577,34 @@ export const pruneExpiredStructureBackupsForGuild = mutation({
         const limit = normalizeLimit(args.limit, 100);
         const retentionDays = normalizeBackupRetentionDays(settings.retentionDays);
         const cutoff = new Date(Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+        const restorePointCutoff = new Date(
+            Date.parse(now) - restorePointMinimumRecoveryDays * 24 * 60 * 60 * 1000
+        ).toISOString();
+        const protectedRestorePointIds = new Set<string>();
+        for (const status of protectedRestorePointExecutionStatuses) {
+            const executions = await ctx.db
+                .query('structureImportExecutions')
+                .withIndex('by_guild_status', (index) => index.eq('guildId', guildId).eq('status', status))
+                .collect();
+            for (const execution of executions) {
+                if (execution.restorePointBackupId) protectedRestorePointIds.add(execution.restorePointBackupId);
+            }
+        }
         const expiredBackups = await ctx.db
             .query('structureBackups')
             .withIndex('by_guild_sort_key', (index) =>
                 index.eq('guildId', guildId).lt('sortKey', maxBackupSortKeyForTimestamp(cutoff))
             )
             .order('asc')
-            .take(limit + 1);
-        const page = expiredBackups.slice(0, limit);
-        const hasMore = expiredBackups.length > limit;
+            .take(limit * 10 + 1);
+        const eligibleBackups = expiredBackups.filter((backup) =>
+            isStructureBackupRetentionEligible(
+                { createdAt: backup.createdAt, id: String(backup._id), source: backup.source },
+                { protectedRestorePointIds, restorePointCutoff }
+            )
+        );
+        const page = eligibleBackups.slice(0, limit);
+        const hasMore = eligibleBackups.length > limit;
 
         for (const backup of page) {
             await ctx.db.delete('structureBackups', backup._id);
@@ -762,7 +809,13 @@ export const createStructureImportRun = mutation({
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.union(v.string(), v.null())),
         guildId: v.string(),
+        deleteActionCount: v.number(),
+        deleteSetDigest: v.optional(v.string()),
+        planDigest: v.string(),
+        planVersion: v.number(),
+        policy: v.union(v.literal('merge'), v.literal('synchronize'), v.literal('rebuild')),
         plan: v.optional(v.any()),
+        requestedSnapshotDigest: v.string(),
         sourceBackupId: v.optional(v.union(v.string(), v.null())),
     },
     returns: runRecordValidator,
@@ -807,63 +860,12 @@ export const findStructureImportRunByGuildId = query({
     },
 });
 
-export const updateStructureImportRunStatus = mutation({
-    args: {
-        audit: v.optional(auditInputValidator),
-        expectedApplyAttemptId: v.optional(v.string()),
-        expectedApplyLeaseOwner: v.optional(v.string()),
-        plan: v.optional(v.any()),
-        requireExpiredApplyLease: v.optional(v.boolean()),
-        runId: v.string(),
-        status: v.string(),
-    },
-    returns: v.union(runRecordValidator, v.null()),
-    handler: async (ctx: StructureMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const run = await findRunById(ctx, parseRunId(args.runId));
-        if (!run) return null;
-
-        if (
-            run.status === STRUCTURE_IMPORT_RUN_STATUS.confirmed &&
-            args.status === STRUCTURE_IMPORT_RUN_STATUS.applying
-        ) {
-            const activeGuildRun = await ctx.db
-                .query('structureImportRuns')
-                .withIndex('by_guild_status', (index) =>
-                    index.eq('guildId', run.guildId).eq('status', STRUCTURE_IMPORT_RUN_STATUS.applying)
-                )
-                .first();
-            if (activeGuildRun && activeGuildRun._id !== run._id) {
-                throw new Error('structure-guild-apply-active');
-            }
-        }
-
-        if (
-            run.status === STRUCTURE_IMPORT_RUN_STATUS.applying &&
-            args.status === STRUCTURE_IMPORT_RUN_STATUS.applying &&
-            (!args.expectedApplyAttemptId || !args.expectedApplyLeaseOwner)
-        ) {
-            throw new Error('structure-apply-attempt-required');
-        }
-
-        const attemptPrecondition = checkStructureApplyAttemptPreconditions(run.plan, args, new Date().toISOString());
-        if (attemptPrecondition !== 'ready') throw new Error(`structure-apply-${attemptPrecondition}`);
-
-        const patch = unwrap(buildStructureImportRunStatusPatch(run, args, new Date().toISOString()));
-        await ctx.db.patch('structureImportRuns', run._id, patch);
-        await recordStructureAuditInMutation(ctx, run.guildId, args.audit, patch.updatedAt, run._id);
-
-        return toStructureImportRunRecord({ ...run, ...patch });
-    },
-});
-
 export const recordStructureImportAction = mutation({
     args: {
         actionType: v.string(),
         details: v.optional(v.any()),
         runId: v.string(),
         sequence: v.number(),
-        status: v.optional(v.string()),
         targetId: v.optional(v.union(v.string(), v.null())),
         targetType: v.string(),
     },
@@ -934,23 +936,6 @@ export const listStructureImportActionsByRunIdPage = query({
             actions: page.map(toStructureImportActionRecord),
             nextCursor: extra ? String(page.at(-1)?.sequence ?? extra.sequence) : null,
         };
-    },
-});
-
-export const updateStructureImportActionStatus = mutation({
-    args: { actionId: v.string(), details: v.optional(v.any()), status: v.string() },
-    returns: v.union(actionRecordValidator, v.null()),
-    handler: async (ctx: StructureMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const action = await findActionById(ctx, parseActionId(args.actionId));
-        if (!action) return null;
-
-        const details = isObjectRecord(args.details) ? args.details : action.details;
-        const updatedAt = new Date().toISOString();
-
-        await ctx.db.patch('structureImportActions', action._id, { details, status: args.status, updatedAt });
-
-        return toStructureImportActionRecord({ ...action, details, status: args.status, updatedAt });
     },
 });
 
@@ -1063,13 +1048,6 @@ async function findRunById(
     return await ctx.db.get('structureImportRuns', runId);
 }
 
-async function findActionById(
-    ctx: StructureMutationCtx,
-    actionId: GenericId<'structureImportActions'>
-): Promise<StoredImportActionDocument | null> {
-    return await ctx.db.get('structureImportActions', actionId);
-}
-
 async function requireSourceBackupIfProvided(
     ctx: StructureMutationCtx,
     input: { guildId: string; sourceBackupId?: string | null | undefined }
@@ -1124,7 +1102,7 @@ async function assertAvailableImportActionSequences(
     }
 }
 
-async function recordStructureAuditInMutation(
+export async function recordStructureAuditInMutation(
     ctx: StructureMutationCtx,
     guildId: string,
     audit: { action: string; actorUserId?: string | null; metadata?: unknown; targetId?: string | null } | undefined,
@@ -1243,10 +1221,6 @@ function parseBackupId(backupId: string): GenericId<'structureBackups'> {
 
 function parseRunId(runId: string): GenericId<'structureImportRuns'> {
     return unwrapRequiredString(runId, 'runId') as GenericId<'structureImportRuns'>;
-}
-
-function parseActionId(actionId: string): GenericId<'structureImportActions'> {
-    return unwrapRequiredString(actionId, 'actionId') as GenericId<'structureImportActions'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

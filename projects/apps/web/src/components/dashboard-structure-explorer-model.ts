@@ -147,7 +147,6 @@ export function toDashboardStructureExplorerActions(
             ...(action.label ? { label: action.label } : {}),
             ...(preflight ? { preflightMessage: preflight.message, preflightStatus: preflight.status } : {}),
             ...('sequence' in action ? { sequence: action.sequence } : {}),
-            ...('status' in action ? { status: action.status } : {}),
             ...(action.targetId ? { targetId: action.targetId } : {}),
             targetType: action.targetType,
         };

@@ -1,6 +1,7 @@
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import type { DashboardStructurePolicy } from './dashboard-structure-v2.js';
 import { isObject, stableValueKey } from './dashboard-structure-preflight-utils.js';
 
 type DashboardStructurePreflightActionStatus =
@@ -45,11 +46,54 @@ export type DashboardStructurePreflightReport = {
     actions: DashboardStructurePreflightAction[];
 };
 
+export function countDashboardStructurePreflightHardBlockers(report: DashboardStructurePreflightReport): number {
+    return (
+        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan
+    );
+}
+
+export function isDashboardStructurePreflightReady(report: DashboardStructurePreflightReport): boolean {
+    return (
+        countDashboardStructurePreflightHardBlockers(report) === 0 &&
+        report.summary.ready + report.summary.destructiveApprovalRequired === report.summary.total
+    );
+}
+
+export function prependDashboardStructureProjectionBlocker(
+    report: DashboardStructurePreflightReport,
+    message: string
+): DashboardStructurePreflightReport {
+    return {
+        summary: {
+            ...report.summary,
+            total: report.summary.total + 1,
+            stale: report.summary.stale + 1,
+        },
+        actions: [
+            {
+                actionId: 'role-projection',
+                actionType: 'verify',
+                targetType: 'role-projection',
+                label: 'Projected role layout',
+                status: 'stale',
+                message,
+            },
+            ...report.actions,
+        ],
+    };
+}
+
 export type DashboardStructurePreflightOptions = {
     allowDestructiveDeletes?: boolean;
     idMap?: Record<string, string>;
-    importMode?: 'merge' | 'replace';
+    policy: DashboardStructurePolicy;
     sourceGuildId?: string;
+};
+
+type DashboardStructureChannelOrderEntry = {
+    sourceId: string;
+    parentSourceId: string | null;
+    position: number;
 };
 
 type StructureItem = FluxerGuildRole | FluxerGuildChannel;
@@ -64,7 +108,7 @@ const supportedUpdateFields = new Map<TargetType, ReadonlySet<string>>([
 export function preflightDashboardStructureImportPlan(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions = {}
+    options: DashboardStructurePreflightOptions = { policy: 'synchronize' }
 ): DashboardStructurePreflightReport {
     const preflightActions = actions.map((action) => preflightAction(current, action, actions, options));
 
@@ -91,6 +135,9 @@ function preflightAction(
     if (action.targetType === 'role-order') {
         return preflightRoleOrderAction(current, action, actions, options);
     }
+    if (action.targetType === 'channel-order') {
+        return preflightChannelOrderAction(current, action, actions, options);
+    }
 
     const targetType = normalizeTargetType(action.targetType);
 
@@ -108,6 +155,182 @@ function preflightAction(
         default:
             return toPreflightAction(action, 'invalid-plan', 'The dry-run action type is not recognized.');
     }
+}
+
+function preflightChannelOrderAction(
+    current: DashboardStructureSnapshot,
+    action: DashboardStructurePreflightInputAction,
+    actions: DashboardStructurePreflightInputAction[],
+    options: DashboardStructurePreflightOptions
+): DashboardStructurePreflightAction {
+    const channels = action.details.after;
+    if (action.actionType !== 'update' || action.targetId !== 'channel-order' || !Array.isArray(channels)) {
+        return toPreflightAction(action, 'invalid-plan', 'The channel-order step is malformed.');
+    }
+
+    const before = readChannelOrderProjection(action.details.before);
+    if (action.details.before !== undefined && !before) {
+        return toPreflightAction(action, 'invalid-plan', 'The reviewed channel-order baseline is malformed.');
+    }
+    if (before && !sameChannelOrder(before, normalizeDashboardStructureChannelOrder(current), options.idMap)) {
+        return toPreflightAction(
+            action,
+            'stale',
+            'The live channel or category order changed after this dry-run was reviewed.'
+        );
+    }
+
+    const sourceIds = new Set<string>();
+    for (const channel of channels) {
+        if (
+            !isObject(channel) ||
+            typeof channel.sourceId !== 'string' ||
+            !channel.sourceId.trim() ||
+            (channel.parentSourceId !== null && typeof channel.parentSourceId !== 'string') ||
+            typeof channel.position !== 'number' ||
+            !Number.isInteger(channel.position) ||
+            channel.position < 0 ||
+            sourceIds.has(channel.sourceId)
+        ) {
+            return toPreflightAction(
+                action,
+                'invalid-plan',
+                'The channel-order step contains an invalid channel position.'
+            );
+        }
+        sourceIds.add(channel.sourceId);
+
+        const targetId = options.idMap?.[channel.sourceId] ?? channel.sourceId;
+        const exists = [...current.categories, ...current.channels].some((candidate) => candidate.id === targetId);
+        const willBeCreated = actions.some(
+            (candidate) =>
+                candidate.actionType === 'create' &&
+                (candidate.targetType === 'category' || candidate.targetType === 'channel') &&
+                candidate.targetId === channel.sourceId
+        );
+        if (!exists && !willBeCreated) {
+            return toPreflightAction(action, 'mapping-required', 'A channel-order target cannot be mapped safely.');
+        }
+
+        if (channel.parentSourceId) {
+            const parentTargetId = options.idMap?.[channel.parentSourceId] ?? channel.parentSourceId;
+            const parentExists = current.categories.some((candidate) => candidate.id === parentTargetId);
+            const parentWillBeCreated = actions.some(
+                (candidate) =>
+                    candidate.actionType === 'create' &&
+                    candidate.targetType === 'category' &&
+                    candidate.targetId === channel.parentSourceId
+            );
+            if (!parentExists && !parentWillBeCreated) {
+                return toPreflightAction(action, 'mapping-required', 'A channel-order parent cannot be mapped safely.');
+            }
+        }
+    }
+
+    return toPreflightAction(action, 'ready', 'The reviewed channel-order step is ready to apply.');
+}
+
+function normalizeDashboardStructureChannelOrder(
+    snapshot: DashboardStructureSnapshot
+): DashboardStructureChannelOrderEntry[] {
+    const grouped = new Map<string, Array<{ sourceId: string; parentSourceId: string | null; rawPosition: number }>>();
+    for (const channel of [...snapshot.categories, ...snapshot.channels]) {
+        const parentSourceId = channel.parentId;
+        const key = parentSourceId ?? '';
+        const siblings = grouped.get(key) ?? [];
+        siblings.push({
+            sourceId: channel.id,
+            parentSourceId,
+            rawPosition: typeof channel.position === 'number' ? channel.position : Number.MAX_SAFE_INTEGER,
+        });
+        grouped.set(key, siblings);
+    }
+
+    return [...grouped.values()]
+        .flatMap((siblings) =>
+            siblings
+                .sort(
+                    (left, right) => left.rawPosition - right.rawPosition || left.sourceId.localeCompare(right.sourceId)
+                )
+                .map((channel, position) => ({
+                    sourceId: channel.sourceId,
+                    parentSourceId: channel.parentSourceId,
+                    position,
+                }))
+        )
+        .sort(compareChannelOrderEntries);
+}
+
+function readChannelOrderProjection(value: unknown): DashboardStructureChannelOrderEntry[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const sourceIds = new Set<string>();
+    const siblingPositions = new Set<string>();
+    const entries = value.flatMap((channel) => {
+        if (
+            !isObject(channel) ||
+            typeof channel.sourceId !== 'string' ||
+            !channel.sourceId.trim() ||
+            (channel.parentSourceId !== null && typeof channel.parentSourceId !== 'string') ||
+            typeof channel.position !== 'number' ||
+            !Number.isInteger(channel.position) ||
+            channel.position < 0
+        ) {
+            return [];
+        }
+        const sourceId = channel.sourceId.trim();
+        const parentSourceId = channel.parentSourceId?.trim() || null;
+        const siblingKey = `${parentSourceId ?? ''}:${channel.position}`;
+        if (sourceIds.has(sourceId) || siblingPositions.has(siblingKey)) return [];
+        sourceIds.add(sourceId);
+        siblingPositions.add(siblingKey);
+        return [{ sourceId, parentSourceId, position: channel.position }];
+    });
+
+    if (entries.length !== value.length) return undefined;
+    const groupedPositions = new Map<string, number[]>();
+    for (const entry of entries) {
+        const key = entry.parentSourceId ?? '';
+        groupedPositions.set(key, [...(groupedPositions.get(key) ?? []), entry.position]);
+    }
+    if (
+        [...groupedPositions.values()].some((positions) =>
+            positions
+                .sort((left, right) => left - right)
+                .some((position, expectedPosition) => position !== expectedPosition)
+        )
+    ) {
+        return undefined;
+    }
+
+    return entries.sort(compareChannelOrderEntries);
+}
+
+function sameChannelOrder(
+    expected: DashboardStructureChannelOrderEntry[],
+    actual: DashboardStructureChannelOrderEntry[],
+    idMap: Record<string, string> | undefined
+): boolean {
+    if (expected.length !== actual.length) return false;
+    const resolved = expected
+        .map((channel) => ({
+            sourceId: idMap?.[channel.sourceId] ?? channel.sourceId,
+            parentSourceId: channel.parentSourceId ? (idMap?.[channel.parentSourceId] ?? channel.parentSourceId) : null,
+            position: channel.position,
+        }))
+        .sort(compareChannelOrderEntries);
+
+    return stableValueKey(resolved) === stableValueKey(actual);
+}
+
+function compareChannelOrderEntries(
+    left: DashboardStructureChannelOrderEntry,
+    right: DashboardStructureChannelOrderEntry
+): number {
+    return (
+        (left.parentSourceId ?? '').localeCompare(right.parentSourceId ?? '') ||
+        left.position - right.position ||
+        left.sourceId.localeCompare(right.sourceId)
+    );
 }
 
 function preflightRoleOrderAction(
@@ -633,8 +856,8 @@ function isResolvableCategoryId(
     );
 }
 
-function isSupportedChannelType(type: number): type is 0 | 2 | 4 | 5 | 998 {
-    return type === 0 || type === 2 || type === 4 || type === 5 || type === 998;
+function isSupportedChannelType(type: number): type is 0 | 2 | 4 | 998 {
+    return type === 0 || type === 2 || type === 4 || type === 998;
 }
 
 type PermissionOverwrite = {
@@ -721,7 +944,7 @@ function isSameGuildReplaceCreate(
     options: DashboardStructurePreflightOptions
 ): boolean {
     return (
-        options.importMode === 'replace' &&
+        options.policy === 'rebuild' &&
         options.sourceGuildId === current.guildId &&
         actions.some(
             (candidate) =>
@@ -739,7 +962,7 @@ function isSameGuildReplaceRole(
     options: DashboardStructurePreflightOptions
 ): boolean {
     return (
-        options.importMode === 'replace' &&
+        options.policy === 'rebuild' &&
         options.sourceGuildId === current.guildId &&
         actions.some(
             (action) => action.actionType === 'create' && action.targetType === 'role' && action.targetId === roleId

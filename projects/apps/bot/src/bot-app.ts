@@ -19,6 +19,7 @@ import {
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
+import { startStructureImportExecutionWorker } from './bot-structure-import-worker.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
 export type BotApp = {
@@ -40,6 +41,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let reactionRoleScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
+    let structureImportWorker: { stop(): Promise<void> } | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
         if (databaseClosed) {
@@ -300,6 +302,11 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     database,
                     logger,
                 });
+                structureImportWorker = startStructureImportExecutionWorker({
+                    botToken: config.fluxerBotToken,
+                    database,
+                    logger,
+                });
             }
 
             return true;
@@ -309,6 +316,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             await installationRepairScheduler?.stop();
             await reactionRoleScheduler?.stop();
             await structureBackupScheduler?.stop();
+            await structureImportWorker?.stop();
             await bot?.stop();
             await closeDatabaseOnce();
         },

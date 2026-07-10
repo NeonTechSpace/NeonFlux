@@ -1,9 +1,16 @@
+import { useState } from 'react';
+
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
 } from '../server/dashboard-structure.server.js';
+import { formatDashboardStructureExecutionPhase } from '../server/dashboard-structure-v2.js';
 import { DashboardStructureApplyControls } from './dashboard-structure-apply-controls.js';
+import {
+    DashboardStructureActionInspector,
+    DashboardStructureActionPreview,
+} from './dashboard-structure-action-inspection.js';
 
 export type StructureBusyAction =
     | 'export'
@@ -19,47 +26,45 @@ export type StructureBusyAction =
     | `backup-rename:${string}`
     | `backup-delete:${string}`
     | `backup-import:${string}`
-    | 'dry-run'
+    | 'plan'
     | `actions:${string}`
-    | `confirm:${string}`
+    | `decisions:${string}`
+    | `approval:${string}`
     | `preflight:${string}`
     | `apply:${string}`
-    | `retry:${string}`;
+    | `control:${string}`
+    | `recovery:${string}`;
 
 export function DashboardStructureImportHistory({
     runs,
     latestRun,
     busyAction,
-    confirmationByRunId,
     preflightByRunId,
-    applyConfirmationByRunId,
     deleteConfirmationByRunId,
-    onConfirmationChange,
-    onApplyConfirmationChange,
     onDeleteConfirmationChange,
-    onConfirm,
+    onApprove,
     onPreflight,
     onApply,
+    onControl,
     onLoadActions,
+    onLoadDecisions,
     onInspectAction,
-    onRetry,
+    onRecoveryPlan,
 }: {
     runs: DashboardStructureImportRun[];
     latestRun: DashboardStructureImportRun | undefined;
     busyAction: StructureBusyAction | undefined;
-    confirmationByRunId: Record<string, string>;
     preflightByRunId: Record<string, DashboardStructurePreflightReport>;
-    applyConfirmationByRunId: Record<string, string>;
     deleteConfirmationByRunId: Record<string, string>;
-    onConfirmationChange: (runId: string, confirmation: string) => void;
-    onApplyConfirmationChange: (runId: string, confirmation: string) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
-    onConfirm: (run: DashboardStructureImportRun) => void;
+    onApprove: (run: DashboardStructureImportRun) => void;
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
+    onControl: (run: DashboardStructureImportRun, request: 'pause' | 'resume' | 'cancel') => void;
     onLoadActions: (run: DashboardStructureImportRun) => void;
+    onLoadDecisions: (run: DashboardStructureImportRun) => void;
     onInspectAction?: (run: DashboardStructureImportRun, action: DashboardStructureImportAction) => void;
-    onRetry: (run: DashboardStructureImportRun) => void;
+    onRecoveryPlan: (run: DashboardStructureImportRun) => void;
 }) {
     if (runs.length === 0) {
         return <p className='text-sm leading-6 text-neutral-400'>No import dry-runs yet.</p>;
@@ -73,19 +78,17 @@ export function DashboardStructureImportHistory({
                     run={run}
                     isLatest={latestRun?.id === run.id}
                     busyAction={busyAction}
-                    confirmation={confirmationByRunId[run.id] ?? ''}
-                    preflightReport={preflightByRunId[run.id]}
-                    applyConfirmation={applyConfirmationByRunId[run.id] ?? ''}
+                    preflightReport={preflightByRunId[run.id] ?? run.preflight?.report}
                     deleteConfirmation={deleteConfirmationByRunId[run.id] ?? ''}
-                    onConfirmationChange={onConfirmationChange}
-                    onApplyConfirmationChange={onApplyConfirmationChange}
                     onDeleteConfirmationChange={onDeleteConfirmationChange}
-                    onConfirm={onConfirm}
+                    onApprove={onApprove}
                     onPreflight={onPreflight}
                     onApply={onApply}
+                    onControl={onControl}
                     onLoadActions={onLoadActions}
+                    onLoadDecisions={onLoadDecisions}
                     onInspectAction={onInspectAction}
-                    onRetry={onRetry}
+                    onRecoveryPlan={onRecoveryPlan}
                 />
             ))}
         </div>
@@ -96,45 +99,40 @@ function ImportRunCard({
     run,
     isLatest,
     busyAction,
-    confirmation,
     preflightReport,
-    applyConfirmation,
     deleteConfirmation,
-    onConfirmationChange,
-    onApplyConfirmationChange,
     onDeleteConfirmationChange,
-    onConfirm,
+    onApprove,
     onPreflight,
     onApply,
+    onControl,
     onLoadActions,
+    onLoadDecisions,
     onInspectAction,
-    onRetry,
+    onRecoveryPlan,
 }: {
     run: DashboardStructureImportRun;
     isLatest: boolean;
     busyAction: StructureBusyAction | undefined;
-    confirmation: string;
     preflightReport: DashboardStructurePreflightReport | undefined;
-    applyConfirmation: string;
     deleteConfirmation: string;
-    onConfirmationChange: (runId: string, confirmation: string) => void;
-    onApplyConfirmationChange: (runId: string, confirmation: string) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
-    onConfirm: (run: DashboardStructureImportRun) => void;
+    onApprove: (run: DashboardStructureImportRun) => void;
     onPreflight: (run: DashboardStructureImportRun) => void;
     onApply: (run: DashboardStructureImportRun) => void;
+    onControl: (run: DashboardStructureImportRun, request: 'pause' | 'resume' | 'cancel') => void;
     onLoadActions: (run: DashboardStructureImportRun) => void;
+    onLoadDecisions: (run: DashboardStructureImportRun) => void;
     onInspectAction?: (run: DashboardStructureImportRun, action: DashboardStructureImportAction) => void;
-    onRetry: (run: DashboardStructureImportRun) => void;
+    onRecoveryPlan: (run: DashboardStructureImportRun) => void;
 }) {
-    const expectedText = `CONFIRM ${run.id}`;
-    const isConfirmBusy = busyAction === `confirm:${run.id}`;
+    const [inspectedAction, setInspectedAction] = useState<DashboardStructureImportAction | undefined>();
+    const isApprovalBusy = busyAction === `approval:${run.id}`;
     const isActionBusy = busyAction === `actions:${run.id}`;
-    const isRetryBusy = busyAction === `retry:${run.id}`;
-    const canConfirm = run.status === 'dry_run_complete';
-    const canPreflight = run.status === 'confirmed';
-    const canRetry = run.status === 'failed' || run.recoveryAvailable === true;
-    const isRecovery = run.recoveryAvailable === true;
+    const isRecoveryBusy = busyAction === `recovery:${run.id}`;
+    const canApprove = run.status === 'review_ready';
+    const canPreflight = run.status === 'approved';
+    const canRecover = run.recoveryAvailable === true;
 
     return (
         <div
@@ -152,35 +150,52 @@ function ImportRunCard({
             <p className='mt-3 text-sm text-neutral-300'>
                 {run.summary.creates} create, {run.summary.updates} update, {run.summary.deletes} delete
             </p>
-            <ActionPreview
+            <p className='mt-1 text-xs font-medium text-sky-200'>{formatPolicy(run.policy)}</p>
+            <DecisionSummary
+                run={run}
+                loading={busyAction === `decisions:${run.id}`}
+                onLoad={() => onLoadDecisions(run)}
+            />
+            {run.execution ? (
+                <ExecutionProgress
+                    execution={run.execution}
+                    busy={busyAction === `control:${run.id}`}
+                    onControl={(request) => onControl(run, request)}
+                />
+            ) : null}
+            {run.verification ? <VerificationResult verification={run.verification} /> : null}
+            <DashboardStructureActionPreview
                 actions={run.actions}
                 actionCount={run.actionCount}
                 isLoading={isActionBusy}
                 onLoad={() => onLoadActions(run)}
-                onInspectAction={onInspectAction ? (action) => onInspectAction(run, action) : undefined}
+                onInspectAction={(action) => {
+                    setInspectedAction(action);
+                    onInspectAction?.(run, action);
+                }}
             />
-            {canConfirm ? (
+            {inspectedAction ? (
+                <DashboardStructureActionInspector
+                    action={inspectedAction}
+                    onClose={() => setInspectedAction(undefined)}
+                />
+            ) : null}
+            {canApprove ? (
                 <div className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'>
-                    <label className='block text-xs font-semibold text-amber-100' htmlFor={`confirm-${run.id}`}>
-                        Type {expectedText} to confirm review
-                    </label>
-                    <div className='mt-2 flex flex-col gap-2 sm:flex-row'>
-                        <input
-                            id={`confirm-${run.id}`}
-                            value={confirmation}
-                            onChange={(event) => onConfirmationChange(run.id, event.currentTarget.value)}
-                            className='min-h-10 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-300/30'
-                        />
+                    <p className='text-xs leading-5 text-neutral-300'>
+                        Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
+                    </p>
+                    <div className='mt-2 flex justify-end'>
                         <button
                             type='button'
-                            onClick={() => onConfirm(run)}
-                            disabled={Boolean(busyAction) || confirmation.trim() !== expectedText}
+                            onClick={() => onApprove(run)}
+                            disabled={Boolean(busyAction)}
                             className='min-h-10 rounded-md bg-amber-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                            {isConfirmBusy ? 'Confirming' : 'Confirm'}
+                            {isApprovalBusy ? 'Approving' : 'Approve reviewed plan'}
                         </button>
                     </div>
                     <p className='mt-2 text-xs leading-5 text-neutral-400'>
-                        Confirmation records approval only. No server changes are applied yet.
+                        Approval is recorded separately from execution. No server changes are applied yet.
                     </p>
                 </div>
             ) : null}
@@ -189,27 +204,24 @@ function ImportRunCard({
                     run={run}
                     busyAction={busyAction}
                     preflightReport={preflightReport}
-                    applyConfirmation={applyConfirmation}
                     deleteConfirmation={deleteConfirmation}
                     onPreflight={onPreflight}
-                    onApplyConfirmationChange={onApplyConfirmationChange}
                     onDeleteConfirmationChange={onDeleteConfirmationChange}
                     onApply={onApply}
                 />
             ) : null}
-            {canRetry ? (
+            {canRecover ? (
                 <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
                     <p className='text-xs leading-5 text-neutral-300'>
-                        {isRecovery
-                            ? 'Recovery re-reads the live server before creating a reconciliation dry-run.'
-                            : 'Retry re-reads the live server before creating a reconciliation dry-run.'}
+                        Recovery re-reads the live server and creates a new Match blueprint plan from the remaining
+                        differences.
                     </p>
                     <button
                         type='button'
-                        onClick={() => onRetry(run)}
+                        onClick={() => onRecoveryPlan(run)}
                         disabled={Boolean(busyAction)}
                         className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        {isRetryBusy ? 'Creating retry' : isRecovery ? 'Recover apply' : 'Retry failed'}
+                        {isRecoveryBusy ? 'Creating recovery plan' : 'Create recovery plan'}
                     </button>
                 </div>
             ) : null}
@@ -217,101 +229,210 @@ function ImportRunCard({
     );
 }
 
-function ActionPreview({
-    actions,
-    actionCount,
-    isLoading,
+function DecisionSummary({
+    run,
+    loading,
     onLoad,
-    onInspectAction,
 }: {
-    actions: DashboardStructureImportAction[];
-    actionCount: number;
-    isLoading: boolean;
+    run: DashboardStructureImportRun;
+    loading: boolean;
     onLoad: () => void;
-    onInspectAction?: (action: DashboardStructureImportAction) => void;
 }) {
-    if (actions.length === 0 && actionCount > 0) {
-        return (
-            <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'>
-                <p className='text-xs text-neutral-400'>Actions are loaded on demand.</p>
+    const [classification, setClassification] = useState('all');
+    const visible = Object.entries(run.decisionSummary).filter(([, count]) => count > 0);
+    const total = visible.reduce((sum, [, count]) => sum + count, 0);
+    const filtered =
+        classification === 'all'
+            ? run.decisions
+            : run.decisions.filter((decision) => decision.classification === classification);
+
+    return (
+        <details className='mt-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'>
+            <summary className='cursor-pointer text-xs font-semibold text-neutral-200'>
+                Full projected result · {total} decisions
+            </summary>
+            <div className='mt-3 flex flex-wrap gap-2'>
+                {visible.map(([decisionClassification, count]) => (
+                    <span
+                        key={decisionClassification}
+                        className='rounded border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300'>
+                        {decisionClassification.replaceAll('-', ' ')}: {count}
+                    </span>
+                ))}
+            </div>
+            <label className='mt-3 block text-xs text-neutral-400'>
+                Filter decisions
+                <select
+                    value={classification}
+                    onChange={(event) => setClassification(event.currentTarget.value)}
+                    className='ml-2 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-200'>
+                    <option value='all'>All</option>
+                    {visible.map(([value]) => (
+                        <option key={value} value={value}>
+                            {value.replaceAll('-', ' ')}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            {filtered.length > 0 ? (
+                <ul className='mt-3 max-h-72 space-y-1 overflow-y-auto text-xs text-neutral-400'>
+                    {filtered.map((decision) => (
+                        <li
+                            key={decision.logicalId}
+                            className='flex justify-between gap-3 border-t border-neutral-800 py-2'>
+                            <span className='min-w-0 truncate'>{decision.name}</span>
+                            <span className='shrink-0 text-neutral-300'>
+                                {decision.classification.replaceAll('-', ' ')}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className='mt-3 text-xs text-neutral-500'>No loaded decisions match this filter.</p>
+            )}
+            {run.decisions.length < total ? (
                 <button
                     type='button'
                     onClick={onLoad}
-                    disabled={isLoading}
-                    className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                    {isLoading ? 'Loading' : 'Load actions'}
+                    disabled={loading}
+                    className='mt-3 rounded border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 disabled:opacity-50'>
+                    {loading
+                        ? 'Loading decisions'
+                        : run.decisions.length === 0
+                          ? 'Load decisions'
+                          : 'Load more decisions'}
                 </button>
-            </div>
-        );
-    }
-
-    if (actions.length === 0) {
-        return <p className='mt-2 text-xs text-neutral-500'>No structural changes detected.</p>;
-    }
-
-    return (
-        <ul className='mt-3 divide-y divide-neutral-800 text-sm'>
-            {actions.slice(0, 6).map((action) => (
-                <li key={action.id} className='flex items-start justify-between gap-3 py-2'>
-                    <span className='min-w-0 text-neutral-300'>
-                        <span>
-                            <span className='font-semibold text-neutral-100'>{action.actionType}</span>{' '}
-                            {action.targetType} {action.label ?? action.targetId ?? 'unknown'}
-                        </span>
-                        {formatActionMapping(action) ? (
-                            <span className='mt-1 block font-mono text-xs text-neutral-500'>
-                                {formatActionMapping(action)}
-                            </span>
-                        ) : null}
-                        {formatActionFailure(action) ? (
-                            <span className='mt-1 block text-xs text-rose-300'>{formatActionFailure(action)}</span>
-                        ) : null}
-                    </span>
-                    <span className='flex shrink-0 items-center gap-2 text-xs text-neutral-500'>
-                        {action.status.replaceAll('_', ' ')}
-                        {onInspectAction ? (
-                            <button
-                                type='button'
-                                onClick={() => onInspectAction(action)}
-                                className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200'>
-                                Inspect
-                            </button>
-                        ) : null}
-                    </span>
-                </li>
-            ))}
-            {actionCount > actions.length ? (
-                <li className='flex items-center justify-between gap-3 py-2'>
-                    <span className='text-xs text-neutral-500'>+{actionCount - actions.length} more</span>
-                    <button
-                        type='button'
-                        onClick={onLoad}
-                        disabled={isLoading}
-                        className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        {isLoading ? 'Loading' : 'Load more'}
-                    </button>
-                </li>
             ) : null}
-        </ul>
+        </details>
     );
 }
 
-function formatActionMapping(action: DashboardStructureImportAction): string | undefined {
-    const sourceId = typeof action.details.sourceId === 'string' ? action.details.sourceId : undefined;
-    const createdId = typeof action.details.createdId === 'string' ? action.details.createdId : undefined;
-
-    return sourceId && createdId ? `${sourceId} -> ${createdId}` : undefined;
+function formatPolicy(policy: DashboardStructureImportRun['policy']): string {
+    if (policy === 'merge') return 'Merge additions only';
+    if (policy === 'rebuild') return 'Reset and rebuild';
+    return 'Match blueprint';
 }
 
-function formatActionFailure(action: DashboardStructureImportAction): string | undefined {
-    if (action.status !== 'failed') return undefined;
+function ExecutionProgress({
+    execution,
+    busy,
+    onControl,
+}: {
+    execution: NonNullable<DashboardStructureImportRun['execution']>;
+    busy: boolean;
+    onControl: (request: 'pause' | 'resume' | 'cancel') => void;
+}) {
+    const percent =
+        execution.totalActions > 0 ? Math.round((execution.completedActions / execution.totalActions) * 100) : 0;
+    return (
+        <div className='mt-3 rounded-md border border-sky-400/30 bg-sky-950/20 p-3' role='status'>
+            <div className='flex items-center justify-between gap-3 text-xs'>
+                <strong className='text-sky-100'>{execution.status.replaceAll('_', ' ')}</strong>
+                <span className='text-neutral-300'>
+                    {execution.completedActions} / {execution.totalActions}
+                </span>
+            </div>
+            <progress
+                className='mt-2 h-1.5 w-full accent-sky-300'
+                value={execution.completedActions}
+                max={Math.max(1, execution.totalActions)}
+                aria-label={`${execution.phase.replaceAll('_', ' ')} progress: ${percent}%`}
+            />
+            <p className='mt-2 text-xs text-neutral-400'>
+                {execution.currentActionLabel ?? formatDashboardStructureExecutionPhase(execution.phase)}
+                {execution.retryAt ? ` · resumes ${formatDate(execution.retryAt)}` : ''}
+            </p>
+            <ol className='mt-3 grid gap-1 border-l border-neutral-700 pl-3 text-[11px] text-neutral-500'>
+                <li>Queued {formatDate(execution.createdAt)}</li>
+                {execution.startedAt ? <li>Started {formatDate(execution.startedAt)}</li> : null}
+                <li>
+                    {execution.completedAt ? 'Completed' : 'Last updated'}{' '}
+                    {formatDate(execution.completedAt ?? execution.updatedAt)}
+                </li>
+            </ol>
+            {execution.failedActions > 0 || execution.errorType ? (
+                <p className='mt-2 text-xs text-rose-200'>
+                    {execution.failedActions} failed{execution.errorType ? ` · ${execution.errorType}` : ''}
+                </p>
+            ) : null}
+            <div className='mt-3 flex flex-wrap gap-2'>
+                {['running', 'waiting_rate_limit'].includes(execution.status) ? (
+                    <button
+                        type='button'
+                        disabled={busy}
+                        onClick={() => onControl('pause')}
+                        className='rounded border border-sky-400/40 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50'>
+                        Pause deployment
+                    </button>
+                ) : null}
+                {execution.status === 'paused' ? (
+                    <button
+                        type='button'
+                        disabled={busy}
+                        onClick={() => onControl('resume')}
+                        className='rounded border border-sky-400/40 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50'>
+                        Resume deployment
+                    </button>
+                ) : null}
+                {['queued', 'paused'].includes(execution.status) ? (
+                    <button
+                        type='button'
+                        disabled={busy}
+                        onClick={() => onControl('cancel')}
+                        className='rounded border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:opacity-50'>
+                        Cancel {execution.status === 'queued' ? 'queued' : 'paused'} deployment
+                    </button>
+                ) : null}
+            </div>
+        </div>
+    );
+}
 
-    const errorType = typeof action.details.errorType === 'string' ? action.details.errorType : undefined;
-    const causeType = typeof action.details.errorCauseType === 'string' ? action.details.errorCauseType : undefined;
+function VerificationResult({
+    verification,
+}: {
+    verification: NonNullable<DashboardStructureImportRun['verification']>;
+}) {
+    if (verification.status === 'matched') {
+        return (
+            <p className='mt-3 rounded-md border border-emerald-400/30 bg-emerald-950/20 p-3 text-xs text-emerald-200'>
+                Post-apply verification matched the projected result.
+            </p>
+        );
+    }
 
-    if (!errorType) return 'Failed without a recorded cause.';
+    if (verification.status === 'read-failed') {
+        return (
+            <p className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-200'>
+                Post-apply verification could not read the server. The apply result is not verified.
+            </p>
+        );
+    }
 
-    return causeType ? `${formatStatus(errorType)}: ${formatStatus(causeType)}` : formatStatus(errorType);
+    return (
+        <div className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3 text-xs text-rose-200'>
+            <p>
+                Post-apply verification found {verification.mismatchCount} projected result mismatch
+                {verification.mismatchCount === 1 ? '' : 'es'}.
+            </p>
+            {verification.preview.length > 0 ? (
+                <ul className='mt-2 space-y-1 font-mono text-[11px] text-neutral-300'>
+                    {verification.preview.map((mismatch) => (
+                        <li
+                            key={`${mismatch.logicalId}:${mismatch.field}:${formatVerificationValue(mismatch.expected)}:${formatVerificationValue(mismatch.actual)}`}>
+                            {mismatch.logicalId}.{mismatch.field}: expected {formatVerificationValue(mismatch.expected)}
+                            , got {formatVerificationValue(mismatch.actual)}
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+        </div>
+    );
+}
+
+function formatVerificationValue(value: unknown): string {
+    if (value === undefined) return 'missing';
+    return JSON.stringify(value);
 }
 
 function formatDate(value: string): string {

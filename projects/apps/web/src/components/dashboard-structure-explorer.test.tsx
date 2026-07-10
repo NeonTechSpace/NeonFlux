@@ -331,7 +331,7 @@ describe('DashboardStructureExplorer', () => {
         expect(screen.getByText('Changes permissions.')).toBeTruthy();
     });
 
-    it('shows unloaded dry-run action CTA and failed partial-create repair context', () => {
+    it('shows the unloaded plan action CTA', () => {
         const onLoadActions = vi.fn();
         const run = createImportRun({
             actionCount: 2,
@@ -342,7 +342,6 @@ describe('DashboardStructureExplorer', () => {
                     actionType: 'create',
                     targetType: 'channel',
                     targetId: 'channel-new',
-                    status: 'failed',
                     label: 'announcements',
                     details: {
                         createdId: 'created-channel-1',
@@ -367,8 +366,6 @@ describe('DashboardStructureExplorer', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Load actions' }));
 
         expect(onLoadActions).toHaveBeenCalledWith(run);
-        expect(screen.getByText('Retry can repair a partial create instead of duplicating it.')).toBeTruthy();
-        expect(screen.getByText('Last apply attempt failed for this action.')).toBeTruthy();
     });
 });
 
@@ -542,6 +539,21 @@ function createImportRun(overrides: Partial<DashboardStructureImportRun> = {}): 
         },
         actionCount: 1,
         actions: [],
+        policy: 'synchronize',
+        decisionSummary: {
+            'no-op': 0,
+            create: 1,
+            update: 0,
+            delete: 0,
+            'unmanaged-retained': 0,
+            'protected-retained': 0,
+            'protected-omitted': 0,
+            'blocked-ambiguous': 0,
+            'blocked-unsupported': 0,
+        },
+        decisions: [],
+        planDigest: 'plan-digest',
+        deleteActionCount: 0,
         ...overrides,
     };
 }

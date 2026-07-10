@@ -52,18 +52,12 @@ export type ConvexStructureBackupRetentionPruneRecord = {
     hasMore: boolean;
     nextRetentionPruneAt: string | null;
 };
-export type ConvexStructureImportRunRecord = Omit<
-    StructureImportRunRecord,
-    'appliedAt' | 'confirmedAt' | 'createdAt' | 'updatedAt'
-> & {
-    appliedAt: string | null;
-    confirmedAt: string | null;
+export type ConvexStructureImportRunRecord = Omit<StructureImportRunRecord, 'createdAt' | 'updatedAt'> & {
     createdAt: string;
     updatedAt: string;
 };
-export type ConvexStructureImportActionRecord = Omit<StructureImportActionRecord, 'createdAt' | 'updatedAt'> & {
+export type ConvexStructureImportActionRecord = Omit<StructureImportActionRecord, 'createdAt'> & {
     createdAt: string;
-    updatedAt: string;
 };
 export type ConvexStructureImportActionPageRecord = {
     actions: ConvexStructureImportActionRecord[];
@@ -186,8 +180,6 @@ export function toBackupRetentionPruneRecord(
 export function toImportRunRecord(record: ConvexStructureImportRunRecord): StructureImportRunRecord {
     return {
         ...record,
-        appliedAt: record.appliedAt ? new Date(record.appliedAt) : null,
-        confirmedAt: record.confirmedAt ? new Date(record.confirmedAt) : null,
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
     };
@@ -197,7 +189,6 @@ export function toImportActionRecord(record: ConvexStructureImportActionRecord):
     return {
         ...record,
         createdAt: new Date(record.createdAt),
-        updatedAt: new Date(record.updatedAt),
     };
 }
 

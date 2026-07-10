@@ -4,9 +4,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { createChannelPlatform, createRolePlatform } from './platform-guild-operations.js';
 import type { FluxerPlatformError } from './platform-shared.js';
 
-// Fluxer reads URL link channels as 998, while guild.createChannel creates links with type 5.
-const LINK_CHANNEL_CREATE_TYPE = 5;
-const LINK_CHANNEL_SNAPSHOT_TYPE = 998;
+const LINK_CHANNEL_TYPE = 998;
 export const DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS = 750;
 
 export type ApplyFluxerBotGuildStructureUpdateInput = {
@@ -46,14 +44,28 @@ export type ApplyFluxerBotGuildStructureRoleOrderInput = {
     hierarchyRank?: number;
 };
 
+export type ApplyFluxerBotGuildStructureChannelOrderInput = {
+    sourceId: string;
+    parentSourceId: string | null;
+    position: number;
+};
+
 export type ApplyFluxerBotGuildStructureBatchInput = {
     botToken: string;
     guildId: string;
     actions: ApplyFluxerBotGuildStructureBatchActionInput[];
     beforeMutation?: () => Promise<boolean>;
+    beforeAction?: (action: ApplyFluxerBotGuildStructureBatchActionInput) => Promise<boolean>;
+    channelOrder?: ApplyFluxerBotGuildStructureChannelOrderInput[];
+    channelOrderActionId?: string;
     idMap?: Record<string, string>;
     operationDelayMs?: number;
+    onActionResult?: (
+        result: ApplyFluxerBotGuildStructureBatchResult['actions'][number],
+        idMap: Readonly<Record<string, string>>
+    ) => Promise<boolean>;
     roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
+    roleOrderActionId?: string;
     sourceGuildId?: string;
     stopAfterDeleteFailures?: boolean;
 };
@@ -65,11 +77,18 @@ export type ApplyFluxerBotGuildStructureBatchResult = {
         createdId?: string;
         errorCauseType?: string;
         errorType?: string;
+        retryAfterMs?: number;
     }>;
     idMap: Record<string, string>;
+    channelOrder?: {
+        status: 'applied' | 'failed';
+        errorType?: string;
+        retryAfterMs?: number;
+    };
     roleOrder?: {
         status: 'applied' | 'failed';
         errorType?: string;
+        retryAfterMs?: number;
     };
 };
 
@@ -85,6 +104,7 @@ type PartialCreateError = {
     type: 'partial-create-failed';
     createdId: string;
     causeType: ApplyFluxerBotGuildStructureUpdateError['type'];
+    retryAfterMs?: number;
 };
 
 export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError | PartialCreateError;
@@ -153,16 +173,28 @@ export async function applyFluxerBotGuildStructureActions(
 
         for (const action of input.actions) {
             if (leaseLost) {
-                actions.push({ id: action.id, status: 'failed', errorType: 'apply-lease-lost' });
+                const failedResult = { id: action.id, status: 'failed' as const, errorType: 'apply-lease-lost' };
+                actions.push(failedResult);
+                await input.onActionResult?.(failedResult, idMap);
                 continue;
             }
 
             if (input.stopAfterDeleteFailures === true && deleteFailed && action.actionType !== 'delete') {
-                actions.push({
+                const failedResult = {
                     id: action.id,
-                    status: 'failed',
-                    errorType: 'reset-delete-failed',
-                });
+                    status: 'failed' as const,
+                    errorType: 'rebuild-delete-failed',
+                };
+                actions.push(failedResult);
+                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
+                continue;
+            }
+
+            if (input.beforeAction && !(await input.beforeAction(action))) {
+                leaseLost = true;
+                const failedResult = { id: action.id, status: 'failed' as const, errorType: 'apply-lease-lost' };
+                actions.push(failedResult);
+                await input.onActionResult?.(failedResult, idMap);
                 continue;
             }
 
@@ -175,8 +207,10 @@ export async function applyFluxerBotGuildStructureActions(
             });
 
             if (normalized.isErr()) {
-                actions.push({ id: action.id, status: 'failed', errorType: normalized.error.type });
+                const failedResult = { id: action.id, status: 'failed' as const, errorType: normalized.error.type };
+                actions.push(failedResult);
                 if (action.actionType === 'delete') deleteFailed = true;
+                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
                 continue;
             }
 
@@ -189,17 +223,28 @@ export async function applyFluxerBotGuildStructureActions(
                 if (action.targetId && result.error.type === 'partial-create-failed') {
                     if (result.error.causeType === 'apply-lease-lost') leaseLost = true;
                     idMap[action.targetId] = result.error.createdId;
-                    actions.push({
+                    const failedResult = {
                         id: action.id,
                         status: 'failed',
                         createdId: result.error.createdId,
                         errorType: result.error.type,
                         errorCauseType: result.error.causeType,
-                    });
+                        ...(result.error.retryAfterMs === undefined ? {} : { retryAfterMs: result.error.retryAfterMs }),
+                    } as const;
+                    actions.push(failedResult);
+                    if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
                     continue;
                 }
 
-                actions.push({ id: action.id, status: 'failed', errorType: result.error.type });
+                const retryAfterMs = readApplyRetryAfterMs(result.error);
+                const failedResult = {
+                    id: action.id,
+                    status: 'failed' as const,
+                    errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
+                    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+                };
+                actions.push(failedResult);
+                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
                 continue;
             }
 
@@ -207,23 +252,72 @@ export async function applyFluxerBotGuildStructureActions(
                 idMap[action.targetId] = result.value.createdId;
             }
 
-            actions.push({
+            const appliedResult = {
                 id: action.id,
-                status: 'applied',
+                status: 'applied' as const,
                 ...(result.value.createdId ? { createdId: result.value.createdId } : {}),
-            });
+            };
+            actions.push(appliedResult);
+            if (input.onActionResult && !(await input.onActionResult(appliedResult, idMap))) leaseLost = true;
         }
 
+        const shouldApplyOrder = actions.every((action) => action.status === 'applied');
+        const channelOrderSyntheticAction = input.channelOrderActionId
+            ? { id: input.channelOrderActionId, actionType: 'update', targetType: 'channel-order' }
+            : undefined;
+        if (
+            channelOrderSyntheticAction &&
+            input.beforeAction &&
+            !(await input.beforeAction(channelOrderSyntheticAction))
+        ) {
+            leaseLost = true;
+        }
+        const channelOrder = await applyRequestedChannelOrder(client, {
+            guildId,
+            idMap,
+            rateLimiter,
+            ...(input.channelOrder ? { channelOrder: input.channelOrder } : {}),
+            shouldApply: shouldApplyOrder && !leaseLost,
+        });
+        if (channelOrderSyntheticAction && channelOrder && input.onActionResult) {
+            const result = {
+                id: channelOrderSyntheticAction.id,
+                status: channelOrder.status,
+                ...(channelOrder.errorType ? { errorType: channelOrder.errorType } : {}),
+                ...(channelOrder.retryAfterMs === undefined ? {} : { retryAfterMs: channelOrder.retryAfterMs }),
+            };
+            if (!(await input.onActionResult(result, idMap))) leaseLost = true;
+        }
+        const roleOrderSyntheticAction = input.roleOrderActionId
+            ? { id: input.roleOrderActionId, actionType: 'update', targetType: 'role-order' }
+            : undefined;
+        if (roleOrderSyntheticAction && input.beforeAction && !(await input.beforeAction(roleOrderSyntheticAction))) {
+            leaseLost = true;
+        }
         const roleOrder = await applyRequestedRoleOrder(client, {
             guildId,
             idMap,
             rateLimiter,
             ...(input.roleOrder ? { roleOrder: input.roleOrder } : {}),
-            shouldApply: actions.every((action) => action.status === 'applied'),
+            shouldApply: shouldApplyOrder && !leaseLost,
         });
+        if (roleOrderSyntheticAction && roleOrder && input.onActionResult) {
+            const result = {
+                id: roleOrderSyntheticAction.id,
+                status: roleOrder.status,
+                ...(roleOrder.errorType ? { errorType: roleOrder.errorType } : {}),
+                ...(roleOrder.retryAfterMs === undefined ? {} : { retryAfterMs: roleOrder.retryAfterMs }),
+            };
+            if (!(await input.onActionResult(result, idMap))) leaseLost = true;
+        }
 
-        if (roleOrder) {
-            return ok({ actions, idMap, roleOrder });
+        if (channelOrder || roleOrder) {
+            return ok({
+                actions,
+                idMap,
+                ...(channelOrder ? { channelOrder } : {}),
+                ...(roleOrder ? { roleOrder } : {}),
+            });
         }
 
         return ok({ actions, idMap });
@@ -232,6 +326,83 @@ export async function applyFluxerBotGuildStructureActions(
     } finally {
         await client.destroy().catch(() => undefined);
     }
+}
+
+async function applyRequestedChannelOrder(
+    client: Client,
+    input: {
+        guildId: string;
+        idMap: Record<string, string>;
+        rateLimiter: StructureApplyRateLimiter;
+        channelOrder?: ApplyFluxerBotGuildStructureChannelOrderInput[];
+        shouldApply: boolean;
+    }
+): Promise<ApplyFluxerBotGuildStructureBatchResult['channelOrder'] | undefined> {
+    if (!input.shouldApply || !input.channelOrder || input.channelOrder.length === 0) return undefined;
+
+    const normalized = normalizeRequestedChannelPositions(input.channelOrder, input.idMap);
+    if (!normalized.ok) return { status: 'failed', errorType: normalized.errorType };
+    if (normalized.positions.length === 0) return undefined;
+
+    if (!(await input.rateLimiter.waitBeforeMutation())) return { status: 'failed', errorType: 'apply-lease-lost' };
+    const result = await createChannelPlatform(client).setPositions({
+        guildId: input.guildId,
+        positions: normalized.positions,
+    });
+
+    if (result.isOk()) return { status: 'applied' };
+    const retryAfterMs = readApplyRetryAfterMs(result.error);
+    return {
+        status: 'failed',
+        errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    };
+}
+
+function normalizeRequestedChannelPositions(
+    channelOrder: ApplyFluxerBotGuildStructureChannelOrderInput[],
+    idMap: Record<string, string>
+): StructureOrderNormalizationResult<Array<{ channelId: string; parentId: string | null; position: number }>> {
+    const grouped = new Map<string, ApplyFluxerBotGuildStructureChannelOrderInput[]>();
+    const seenSourceIds = new Set<string>();
+    for (const channel of channelOrder) {
+        if (
+            typeof channel.sourceId !== 'string' ||
+            !channel.sourceId.trim() ||
+            (channel.parentSourceId !== null &&
+                (typeof channel.parentSourceId !== 'string' || !channel.parentSourceId.trim())) ||
+            !Number.isInteger(channel.position) ||
+            channel.position < 0
+        ) {
+            return { ok: false, errorType: 'structure-order-plan-invalid' };
+        }
+        const sourceId = channel.sourceId.trim();
+        if (seenSourceIds.has(sourceId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
+        seenSourceIds.add(sourceId);
+        const parentSourceId = channel.parentSourceId === null ? '' : channel.parentSourceId.trim();
+        grouped.set(parentSourceId, [...(grouped.get(parentSourceId) ?? []), channel]);
+    }
+    const seenTargetIds = new Set<string>();
+
+    const positions: Array<{ channelId: string; parentId: string | null; position: number }> = [];
+    for (const [parentSourceId, channels] of [...grouped.entries()].sort(([left], [right]) =>
+        left === '' ? -1 : right === '' ? 1 : left.localeCompare(right)
+    )) {
+        const parentId = parentSourceId ? idMap[parentSourceId] : null;
+        if (parentSourceId && !parentId) return { ok: false, errorType: 'structure-order-mapping-missing' };
+        const resolvedParentId = parentId ?? null;
+        for (const [position, channel] of [...channels]
+            .sort((left, right) => left.position - right.position || left.sourceId.localeCompare(right.sourceId))
+            .entries()) {
+            const sourceId = channel.sourceId.trim();
+            const channelId = idMap[sourceId];
+            if (!channelId) return { ok: false, errorType: 'structure-order-mapping-missing' };
+            if (seenTargetIds.has(channelId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
+            seenTargetIds.add(channelId);
+            positions.push({ channelId, parentId: resolvedParentId, position });
+        }
+    }
+    return { ok: true, positions };
 }
 
 async function applyRequestedRoleOrder(
@@ -246,43 +417,60 @@ async function applyRequestedRoleOrder(
 ): Promise<ApplyFluxerBotGuildStructureBatchResult['roleOrder'] | undefined> {
     if (!input.shouldApply || !input.roleOrder || input.roleOrder.length === 0) return undefined;
 
-    const positions = normalizeRequestedRolePositions(input.roleOrder, input.idMap);
-
-    if (positions.length === 0) return undefined;
+    const normalized = normalizeRequestedRolePositions(input.roleOrder, input.idMap);
+    if (!normalized.ok) return { status: 'failed', errorType: normalized.errorType };
+    if (normalized.positions.length === 0) return undefined;
 
     if (!(await input.rateLimiter.waitBeforeMutation())) return { status: 'failed', errorType: 'apply-lease-lost' };
     const result = await createRolePlatform(client).setPositions({
         guildId: input.guildId,
-        positions,
+        positions: normalized.positions,
     });
 
-    return result.isOk() ? { status: 'applied' } : { status: 'failed', errorType: result.error.type };
+    if (result.isOk()) return { status: 'applied' };
+    const retryAfterMs = readApplyRetryAfterMs(result.error);
+    return {
+        status: 'failed',
+        errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    };
 }
 
 function normalizeRequestedRolePositions(
     roleOrder: ApplyFluxerBotGuildStructureRoleOrderInput[],
     idMap: Record<string, string>
-): Array<{ roleId: string; position: number }> {
+): StructureOrderNormalizationResult<Array<{ roleId: string; position: number }>> {
     const seenTargetIds = new Set<string>();
-
-    return [...roleOrder]
-        .filter(
-            (role): role is ApplyFluxerBotGuildStructureRoleOrderInput =>
-                typeof role.sourceId === 'string' &&
-                role.sourceId.trim().length > 0 &&
-                Number.isInteger(role.position) &&
-                role.position > 0
-        )
-        .sort(compareRequestedRoleOrder)
-        .flatMap((role) => {
-            const targetId = idMap[role.sourceId.trim()] ?? role.sourceId.trim();
-
-            if (!targetId || seenTargetIds.has(targetId)) return [];
-            seenTargetIds.add(targetId);
-
-            return [{ roleId: targetId, position: role.position }];
-        });
+    const seenSourceIds = new Set<string>();
+    const positions: Array<{ roleId: string; position: number }> = [];
+    for (const role of roleOrder) {
+        if (
+            typeof role.sourceId !== 'string' ||
+            !role.sourceId.trim() ||
+            !Number.isInteger(role.position) ||
+            role.position <= 0 ||
+            (role.hierarchyRank !== undefined && (!Number.isInteger(role.hierarchyRank) || role.hierarchyRank < 0))
+        ) {
+            return { ok: false, errorType: 'structure-order-plan-invalid' };
+        }
+        const sourceId = role.sourceId.trim();
+        if (seenSourceIds.has(sourceId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
+        seenSourceIds.add(sourceId);
+    }
+    for (const role of [...roleOrder].sort(compareRequestedRoleOrder)) {
+        const sourceId = role.sourceId.trim();
+        const targetId = idMap[sourceId];
+        if (!targetId) return { ok: false, errorType: 'structure-order-mapping-missing' };
+        if (seenTargetIds.has(targetId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
+        seenTargetIds.add(targetId);
+        positions.push({ roleId: targetId, position: role.position });
+    }
+    return { ok: true, positions };
 }
+
+type StructureOrderNormalizationResult<T> =
+    | { ok: true; positions: T }
+    | { ok: false; errorType: 'structure-order-mapping-missing' | 'structure-order-plan-invalid' };
 
 function compareRequestedRoleOrder(
     left: ApplyFluxerBotGuildStructureRoleOrderInput,
@@ -349,7 +537,7 @@ type NormalizedStructureActionInput =
           targetType: 'category' | 'channel';
           sourceId: string;
           name: string;
-          channelType: 0 | 2 | 4 | 5;
+          channelType: 0 | 2 | 4 | 998;
           url?: string | null;
           parentId?: string | null;
           permissionOverwrites: PermissionOverwrite[];
@@ -823,10 +1011,12 @@ async function applyCreate(
         );
 
         if (overwriteResult.isErr()) {
+            const retryAfterMs = readApplyRetryAfterMs(overwriteResult.error);
             return err({
                 type: 'partial-create-failed',
                 createdId: result.value.id,
                 causeType: overwriteResult.error.type,
+                ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
             });
         }
     }
@@ -853,10 +1043,8 @@ async function applyDelete(
     return result.isOk() ? ok({}) : err(result.error);
 }
 
-function normalizeChannelType(value: unknown): 0 | 2 | 4 | 5 | undefined {
-    if (value === LINK_CHANNEL_SNAPSHOT_TYPE) return LINK_CHANNEL_CREATE_TYPE;
-
-    return value === 0 || value === 2 || value === 4 || value === LINK_CHANNEL_CREATE_TYPE ? value : undefined;
+function normalizeChannelType(value: unknown): 0 | 2 | 4 | 998 | undefined {
+    return value === 0 || value === 2 || value === 4 || value === LINK_CHANNEL_TYPE ? value : undefined;
 }
 
 function normalizeChannelUrl(value: unknown): string | null | undefined {
@@ -1071,4 +1259,54 @@ function createStructureApplyRateLimiter(
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
+}
+
+function isRateLimitedApplyError(error: ApplyFluxerBotGuildStructureActionError): boolean {
+    if (error.type !== 'operation-failed') return false;
+    const visited = new Set<object>();
+    let current: unknown = error.error;
+    while (typeof current === 'object' && current !== null && !visited.has(current)) {
+        visited.add(current);
+        const value = current as { cause?: unknown; status?: unknown; statusCode?: unknown };
+        if (value.status === 429 || value.statusCode === 429) return true;
+        current = value.cause;
+    }
+    return false;
+}
+
+function readApplyRetryAfterMs(error: ApplyFluxerBotGuildStructureActionError): number | undefined {
+    if (error.type !== 'operation-failed') return undefined;
+    const visited = new Set<object>();
+    let current: unknown = error.error;
+    while (typeof current === 'object' && current !== null && !visited.has(current)) {
+        visited.add(current);
+        const value = current as {
+            cause?: unknown;
+            data?: unknown;
+            headers?: { get?: (name: string) => string | null };
+            retryAfter?: unknown;
+            retryAfterMs?: unknown;
+            retry_after?: unknown;
+        };
+        const directMs = numberValue(value.retryAfterMs);
+        if (directMs !== undefined) return boundRetryAfterMs(directMs);
+        const directSeconds = numberValue(value.retry_after ?? value.retryAfter);
+        if (directSeconds !== undefined) return boundRetryAfterMs(directSeconds * 1_000);
+        const header = value.headers?.get?.('Retry-After');
+        if (header) {
+            const seconds = Number(header);
+            const parsed = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(header) - Date.now();
+            if (Number.isFinite(parsed)) return boundRetryAfterMs(parsed);
+        }
+        current = value.cause ?? value.data;
+    }
+    return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function boundRetryAfterMs(value: number): number {
+    return Math.min(15 * 60_000, Math.max(1_000, Math.ceil(value)));
 }

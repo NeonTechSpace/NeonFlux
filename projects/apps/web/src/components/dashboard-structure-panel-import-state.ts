@@ -2,23 +2,29 @@ import { useState } from 'react';
 
 import {
     applyDashboardStructureImportRunRouteData,
-    confirmDashboardStructureImportRunRouteData,
-    createDashboardStructureDryRunRouteData,
+    approveDashboardStructurePlanRouteData,
+    controlDashboardStructureImportExecutionRouteData,
+    createDashboardStructurePlanRouteData,
     importDashboardStructureBackupRouteData,
     preflightDashboardStructureImportRunRouteData,
     readDashboardStructureImportActionPageRouteData,
-    retryDashboardStructureImportRunRouteData,
+    readDashboardStructureImportDecisionPageRouteData,
+    createDashboardStructureRecoveryPlanRouteData,
 } from '../server/dashboard-structure-route-data.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type {
+    DashboardStructureImportRun,
+    DashboardStructureRoleMappingConflict,
+} from '../server/dashboard-structure.server.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { formatStatus } from './dashboard-structure-panel-format.js';
 import { toApplyErrorStatus, toErrorStatus, toRunActionStatus } from './dashboard-structure-panel-status.js';
 import type { ActionPageState, PanelStatus } from './dashboard-structure-panel-types.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
 
 export function useDashboardStructureImportState({
     guildId,
-    importMode,
+    policy,
     importJson,
     refreshAuditEvents,
     refreshSettings,
@@ -26,7 +32,7 @@ export function useDashboardStructureImportState({
     setStatus,
 }: {
     guildId: string;
-    importMode: 'merge' | 'replace';
+    policy: DashboardStructurePolicy;
     importJson: string;
     refreshAuditEvents: () => Promise<void>;
     refreshSettings: (options?: { resetBackups?: boolean }) => Promise<void>;
@@ -34,11 +40,20 @@ export function useDashboardStructureImportState({
     setStatus: (status: PanelStatus | undefined) => void;
 }) {
     const [actionPagesByRunId, setActionPagesByRunId] = useState<Partial<Record<string, ActionPageState>>>({});
-    const [confirmationByRunId, setConfirmationByRunId] = useState<Record<string, string>>({});
-    const [applyConfirmationByRunId, setApplyConfirmationByRunId] = useState<Record<string, string>>({});
+    const [decisionPagesByRunId, setDecisionPagesByRunId] = useState<
+        Partial<Record<string, { decisions: DashboardStructureImportRun['decisions']; nextCursor?: number }>>
+    >({});
     const [deleteConfirmationByRunId, setDeleteConfirmationByRunId] = useState<Record<string, string>>({});
     const [preflightByRunId, setPreflightByRunId] = useState<Record<string, DashboardStructurePreflightReport>>({});
+    const [preflightDigestByRunId, setPreflightDigestByRunId] = useState<Partial<Record<string, string>>>({});
     const [restoreShortcutBackupId, setRestoreShortcutBackupId] = useState<string | undefined>();
+    const [roleMappingConflicts, setRoleMappingConflicts] = useState<DashboardStructureRoleMappingConflict[]>([]);
+    const [roleMappings, setRoleMappings] = useState<Record<string, string>>({});
+
+    function clearRoleMappings(): void {
+        setRoleMappingConflicts([]);
+        setRoleMappings({});
+    }
 
     async function createDryRunFromBackupId({
         backupId,
@@ -72,8 +87,8 @@ export function useDashboardStructureImportState({
                 tone: 'success',
                 message:
                     intent === 'restore'
-                        ? `Restore dry-run created with ${result.importRun.actionCount} planned changes. Review it before applying.`
-                        : `Dry-run created from backup with ${result.importRun.actionCount} planned changes.`,
+                        ? `Restore plan created with ${result.importRun.actionCount} planned changes. Review it before queueing.`
+                        : `Deployment plan created from backup with ${result.importRun.actionCount} planned changes.`,
             });
             await refreshSettings();
             await refreshAuditEvents();
@@ -82,26 +97,25 @@ export function useDashboardStructureImportState({
         }
     }
 
-    async function confirmImportRun(run: DashboardStructureImportRun): Promise<void> {
+    async function approvePlan(run: DashboardStructureImportRun): Promise<void> {
         setStatus(undefined);
-        setBusyAction(`confirm:${run.id}`);
+        setBusyAction(`approval:${run.id}`);
 
         try {
-            const result = await confirmDashboardStructureImportRunRouteData({
-                data: { guildId, importRunId: run.id, confirmationText: confirmationByRunId[run.id] ?? '' },
+            const result = await approveDashboardStructurePlanRouteData({
+                data: { guildId, importRunId: run.id, planDigest: run.planDigest },
             });
 
-            if (result.type !== 'confirmed') {
+            if (result.type !== 'approved') {
                 setStatus(toRunActionStatus(result));
                 return;
             }
 
-            setConfirmationByRunId((current) => ({ ...current, [run.id]: '' }));
             setActionPagesByRunId((current) => ({
                 ...current,
                 [result.importRun.id]: { actions: result.importRun.actions },
             }));
-            setStatus({ tone: 'success', message: 'Dry-run confirmed. No server changes were applied.' });
+            setStatus({ tone: 'success', message: 'Reviewed plan approved. No server changes were applied.' });
             await refreshSettings();
             await refreshAuditEvents();
         } finally {
@@ -125,7 +139,7 @@ export function useDashboardStructureImportState({
                         : result.type === 'not-preflightable'
                           ? {
                                 tone: 'error',
-                                message: `This dry-run is ${formatStatus(result.status)} and cannot be preflighted.`,
+                                message: `This plan is ${formatStatus(result.status)} and cannot be checked.`,
                             }
                           : toErrorStatus(result.type)
                 );
@@ -133,6 +147,9 @@ export function useDashboardStructureImportState({
             }
 
             setPreflightByRunId((current) => ({ ...current, [run.id]: result.report }));
+            if (result.preflightDigest) {
+                setPreflightDigestByRunId((current) => ({ ...current, [run.id]: result.preflightDigest! }));
+            }
             setStatus({
                 tone: 'neutral',
                 message: `Preflight checked ${result.report.summary.total} planned changes. No server changes were applied.`,
@@ -153,49 +170,134 @@ export function useDashboardStructureImportState({
                 data: {
                     guildId,
                     importRunId: run.id,
-                    confirmationText: applyConfirmationByRunId[run.id] ?? '',
-                    ...(deleteConfirmationByRunId[run.id]
-                        ? { destructiveConfirmationText: deleteConfirmationByRunId[run.id] }
-                        : {}),
+                    planDigest: run.planDigest,
+                    preflightDigest: preflightDigestByRunId[run.id] ?? run.preflight?.digest ?? '',
+                    destructiveConfirmationText: deleteConfirmationByRunId[run.id],
                 },
             });
 
-            if (result.type !== 'applied' && result.type !== 'failed') {
+            if (result.type !== 'queued') {
                 setStatus(toApplyErrorStatus(result));
                 return;
             }
 
-            setRestoreShortcutBackupId(result.restorePointBackupId);
-            setApplyConfirmationByRunId((current) => ({ ...current, [run.id]: '' }));
             setDeleteConfirmationByRunId((current) => ({ ...current, [run.id]: '' }));
-            setActionPagesByRunId((current) => ({
-                ...current,
-                [result.importRun.id]: { actions: result.importRun.actions },
-            }));
             setStatus({
-                tone: result.type === 'applied' ? 'success' : 'error',
-                message:
-                    result.type === 'applied'
-                        ? `Applied ${result.importRun.actionCount} server layout updates.`
-                        : 'Server blueprint apply finished with failures. Review action statuses before retrying.',
+                tone: 'success',
+                message: 'Deployment queued. Progress will update while the bot applies and verifies the plan.',
             });
-            await refreshSettings({ resetBackups: Boolean(result.restorePointBackupId) });
+            await refreshSettings();
             await refreshAuditEvents();
         } finally {
             setBusyAction(undefined);
         }
     }
 
-    async function createDryRun(): Promise<void> {
+    async function controlExecution(
+        run: DashboardStructureImportRun,
+        request: 'pause' | 'resume' | 'cancel'
+    ): Promise<void> {
+        if (!run.execution) return;
         setStatus(undefined);
-        setBusyAction('dry-run');
+        setBusyAction(`control:${run.id}`);
+        try {
+            const result = await controlDashboardStructureImportExecutionRouteData({
+                data: { guildId, runId: run.id, executionId: run.execution.id, request },
+            });
+            if (result.type !== 'execution-updated') {
+                setStatus(toErrorStatus(result.type));
+                return;
+            }
+            setStatus({ tone: 'neutral', message: `Deployment ${result.status.replaceAll('_', ' ')}.` });
+            await refreshSettings();
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    async function loadRunDecisions(run: DashboardStructureImportRun): Promise<void> {
+        setBusyAction(`decisions:${run.id}`);
+        try {
+            const current = decisionPagesByRunId[run.id];
+            const result = await readDashboardStructureImportDecisionPageRouteData({
+                data: {
+                    guildId,
+                    importRunId: run.id,
+                    ...(current?.nextCursor !== undefined ? { cursor: current.nextCursor } : {}),
+                    limit: 50,
+                },
+            });
+            if (result.type !== 'decision-page') {
+                setStatus(toErrorStatus(result.type));
+                return;
+            }
+            setDecisionPagesByRunId((pages) => ({
+                ...pages,
+                [run.id]: {
+                    decisions: [...(pages[run.id]?.decisions ?? []), ...result.decisions],
+                    ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
+                },
+            }));
+        } finally {
+            setBusyAction(undefined);
+        }
+    }
+
+    async function createPlan(): Promise<void> {
+        setStatus(undefined);
+        setBusyAction('plan');
 
         try {
-            const result = await createDashboardStructureDryRunRouteData({
-                data: { guildId, backupJson: importJson, importMode },
+            const mappingsByType = Object.fromEntries(
+                (['role', 'category', 'channel'] as const).map((targetType) => [
+                    targetType,
+                    Object.fromEntries(
+                        Object.entries(roleMappings).filter(([sourceId]) =>
+                            roleMappingConflicts.some(
+                                (conflict) =>
+                                    conflict.targetType === targetType && conflict.sourceIds.includes(sourceId)
+                            )
+                        )
+                    ),
+                ])
+            ) as Record<'role' | 'category' | 'channel', Record<string, string>>;
+            const result = await createDashboardStructurePlanRouteData({
+                data: {
+                    guildId,
+                    backupJson: importJson,
+                    policy,
+                    ...(Object.keys(mappingsByType.role).length > 0 ? { roleMappings: mappingsByType.role } : {}),
+                    ...(Object.keys(mappingsByType.category).length > 0
+                        ? { categoryMappings: mappingsByType.category }
+                        : {}),
+                    ...(Object.keys(mappingsByType.channel).length > 0
+                        ? { channelMappings: mappingsByType.channel }
+                        : {}),
+                },
             });
 
-            if (result.type !== 'dry-run-created') {
+            if (result.type !== 'plan-created') {
+                if (result.type === 'mapping-required') {
+                    setRoleMappingConflicts(result.conflicts);
+                    setRoleMappings((current) => {
+                        const acceptedMappings = result.conflicts.flatMap((conflict) =>
+                            conflict.sourceIds.flatMap((sourceId) => {
+                                const targetId = current[sourceId];
+                                return targetId && conflict.candidateTargetIds.includes(targetId)
+                                    ? ([[sourceId, targetId]] as const)
+                                    : [];
+                            })
+                        );
+
+                        return Object.fromEntries(acceptedMappings);
+                    });
+                    setStatus({
+                        tone: 'neutral',
+                        message:
+                            'Choose which existing role matches each ambiguous source role, then create the plan again.',
+                    });
+                    return;
+                }
                 setStatus(
                     result.type === 'invalid-input'
                         ? { tone: 'error', message: result.message }
@@ -204,16 +306,15 @@ export function useDashboardStructureImportState({
                 return;
             }
 
+            setRoleMappingConflicts([]);
+            setRoleMappings({});
             setActionPagesByRunId((current) => ({
                 ...current,
                 [result.importRun.id]: { actions: result.importRun.actions },
             }));
             setStatus({
                 tone: 'success',
-                message:
-                    importMode === 'replace'
-                        ? `Reset-first dry-run created with ${result.importRun.actionCount} planned changes. Review deletes before applying.`
-                        : `Merge dry-run created with ${result.importRun.actionCount} planned changes.`,
+                message: `${formatPolicyLabel(policy)} plan created with ${result.importRun.actionCount} mutation steps. Review the complete scope before approval.`,
             });
             await refreshSettings();
             await refreshAuditEvents();
@@ -262,18 +363,20 @@ export function useDashboardStructureImportState({
         }
     }
 
-    async function retryImportRun(run: DashboardStructureImportRun): Promise<void> {
+    async function createRecoveryPlan(run: DashboardStructureImportRun): Promise<void> {
         setStatus(undefined);
-        setBusyAction(`retry:${run.id}`);
+        setBusyAction(`recovery:${run.id}`);
 
         try {
-            const result = await retryDashboardStructureImportRunRouteData({ data: { guildId, importRunId: run.id } });
+            const result = await createDashboardStructureRecoveryPlanRouteData({
+                data: { guildId, importRunId: run.id },
+            });
 
-            if (result.type !== 'retry-created') {
+            if (result.type !== 'recovery-plan-created') {
                 setStatus(
                     result.type === 'invalid-input'
                         ? { tone: 'error', message: result.message }
-                        : result.type === 'not-retryable'
+                        : result.type === 'not-recoverable'
                           ? {
                                 tone: 'error',
                                 message: `This run is ${formatStatus(result.status)} and cannot be retried.`,
@@ -289,7 +392,7 @@ export function useDashboardStructureImportState({
             }));
             setStatus({
                 tone: 'success',
-                message: `Reconciliation dry-run created with ${result.importRun.actionCount} live change${
+                message: `Recovery plan created with ${result.importRun.actionCount} live change${
                     result.importRun.actionCount === 1 ? '' : 's'
                 }.`,
             });
@@ -301,20 +404,29 @@ export function useDashboardStructureImportState({
 
     return {
         actionPagesByRunId,
-        applyConfirmationByRunId,
         applyImportRun,
-        confirmationByRunId,
-        confirmImportRun,
-        createDryRun,
+        clearRoleMappings,
+        controlExecution,
+        approvePlan,
+        createPlan,
         createDryRunFromBackupId,
         deleteConfirmationByRunId,
+        decisionPagesByRunId,
         loadRunActions,
+        loadRunDecisions,
         preflightByRunId,
         preflightImportRun,
         restoreShortcutBackupId,
-        retryImportRun,
-        setApplyConfirmationByRunId,
-        setConfirmationByRunId,
+        roleMappingConflicts,
+        roleMappings,
+        createRecoveryPlan,
         setDeleteConfirmationByRunId,
+        setRoleMappings,
     };
+}
+
+function formatPolicyLabel(policy: DashboardStructurePolicy): string {
+    if (policy === 'synchronize') return 'Match blueprint';
+    if (policy === 'rebuild') return 'Reset and rebuild';
+    return 'Merge additions only';
 }

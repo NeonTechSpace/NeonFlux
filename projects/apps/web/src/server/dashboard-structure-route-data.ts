@@ -15,17 +15,21 @@ import type {
     DashboardStructureBackupJsonResult,
     DashboardStructureBackupSettingsInput,
     DashboardStructureBackupSettingsResult,
-    DashboardStructureConfirmInput,
-    DashboardStructureConfirmResult,
+    DashboardStructureApprovalInput,
+    DashboardStructureApprovalResult,
     DashboardStructureCurrentExportResult,
     DashboardStructureDriftInput,
     DashboardStructureDriftResult,
-    DashboardStructureDryRunInput,
-    DashboardStructureDryRunResult,
-    DashboardStructureRetryInput,
-    DashboardStructureRetryResult,
+    DashboardStructurePlanInput,
+    DashboardStructurePlanResult,
+    DashboardStructureRecoveryInput,
+    DashboardStructureRecoveryResult,
     DashboardStructureSettingsResult,
 } from './dashboard-structure.server.js';
+import type {
+    DashboardStructureDecisionPageInput,
+    DashboardStructureDecisionPageResult,
+} from './dashboard-structure-plan-persistence.server.js';
 import type {
     DashboardStructurePreflightInput,
     DashboardStructurePreflightResult,
@@ -33,6 +37,8 @@ import type {
 import type {
     DashboardStructureApplyInput,
     DashboardStructureApplyResult,
+    DashboardStructureExecutionControlInput,
+    DashboardStructureExecutionControlResult,
 } from './dashboard-structure-apply.server.js';
 
 type DashboardGuildRouteInput = {
@@ -149,37 +155,37 @@ export const saveDashboardStructureBackupSettingsRouteData = createServerFn({ me
         return saveDashboardStructureBackupSettings(getRequest(), data);
     });
 
-export const createDashboardStructureDryRunRouteData = createServerFn({ method: 'POST' })
-    .validator(validateDashboardStructureDryRunInput)
-    .handler(async ({ data }): Promise<DashboardStructureDryRunResult> => {
+export const createDashboardStructurePlanRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardStructurePlanInput)
+    .handler(async ({ data }): Promise<DashboardStructurePlanResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { createDashboardStructureImportDryRun } = await import('./dashboard-structure.server.js');
+        const { createDashboardStructureImportPlan } = await import('./dashboard-structure.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return createDashboardStructureImportDryRun(getRequest(), data);
+        return createDashboardStructureImportPlan(getRequest(), data);
     });
 
-export const confirmDashboardStructureImportRunRouteData = createServerFn({ method: 'POST' })
-    .validator(validateDashboardStructureConfirmInput)
-    .handler(async ({ data }): Promise<DashboardStructureConfirmResult> => {
+export const approveDashboardStructurePlanRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardStructureApprovalInput)
+    .handler(async ({ data }): Promise<DashboardStructureApprovalResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { confirmDashboardStructureImportRun } = await import('./dashboard-structure.server.js');
+        const { approveDashboardStructurePlan } = await import('./dashboard-structure.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return confirmDashboardStructureImportRun(getRequest(), data);
+        return approveDashboardStructurePlan(getRequest(), data);
     });
 
-export const retryDashboardStructureImportRunRouteData = createServerFn({ method: 'POST' })
-    .validator(validateDashboardStructureRetryInput)
-    .handler(async ({ data }): Promise<DashboardStructureRetryResult> => {
+export const createDashboardStructureRecoveryPlanRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardStructureRecoveryInput)
+    .handler(async ({ data }): Promise<DashboardStructureRecoveryResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { retryDashboardStructureImportRun } = await import('./dashboard-structure.server.js');
+        const { createDashboardStructureRecoveryPlan } = await import('./dashboard-structure.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return retryDashboardStructureImportRun(getRequest(), data);
+        return createDashboardStructureRecoveryPlan(getRequest(), data);
     });
 
 export const readDashboardStructureImportActionPageRouteData = createServerFn({ method: 'GET' })
@@ -191,6 +197,16 @@ export const readDashboardStructureImportActionPageRouteData = createServerFn({ 
         setResponseHeader('Cache-Control', 'no-store');
 
         return readDashboardStructureImportActionPage(getRequest(), data);
+    });
+
+export const readDashboardStructureImportDecisionPageRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardStructureDecisionPageInput)
+    .handler(async ({ data }): Promise<DashboardStructureDecisionPageResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { readDashboardStructureImportDecisionPage } =
+            await import('./dashboard-structure-plan-persistence.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return readDashboardStructureImportDecisionPage(getRequest(), data);
     });
 
 export const preflightDashboardStructureImportRunRouteData = createServerFn({ method: 'POST' })
@@ -215,6 +231,15 @@ export const applyDashboardStructureImportRunRouteData = createServerFn({ method
         return applyDashboardStructureImportRun(getRequest(), data);
     });
 
+export const controlDashboardStructureImportExecutionRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardStructureExecutionControlInput)
+    .handler(async ({ data }): Promise<DashboardStructureExecutionControlResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { controlDashboardStructureImportExecution } = await import('./dashboard-structure-apply.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return controlDashboardStructureImportExecution(getRequest(), data);
+    });
+
 function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteInput {
     if (!input || typeof input !== 'object') return { guildId: '' };
 
@@ -223,15 +248,20 @@ function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteIn
     };
 }
 
-function validateDashboardStructureDryRunInput(input: unknown): DashboardStructureDryRunInput {
-    if (!input || typeof input !== 'object') return { guildId: '', backupJson: '' };
+function validateDashboardStructurePlanInput(input: unknown): DashboardStructurePlanInput {
+    if (!input || typeof input !== 'object') {
+        return { guildId: '', backupJson: '', policy: '' as DashboardStructurePlanInput['policy'] };
+    }
 
     const payload = input as Record<string, unknown>;
 
     return {
         guildId: readString(payload.guildId),
         backupJson: readString(payload.backupJson),
-        importMode: payload.importMode === 'replace' ? 'replace' : 'merge',
+        policy: readString(payload.policy) as DashboardStructurePlanInput['policy'],
+        roleMappings: readStringMap(payload.roleMappings),
+        categoryMappings: readStringMap(payload.categoryMappings),
+        channelMappings: readStringMap(payload.channelMappings),
     };
 }
 
@@ -313,19 +343,19 @@ function validateDashboardStructureBackupSettingsInput(input: unknown): Dashboar
     };
 }
 
-function validateDashboardStructureConfirmInput(input: unknown): DashboardStructureConfirmInput {
-    if (!input || typeof input !== 'object') return { guildId: '', importRunId: '', confirmationText: '' };
+function validateDashboardStructureApprovalInput(input: unknown): DashboardStructureApprovalInput {
+    if (!input || typeof input !== 'object') return { guildId: '', importRunId: '', planDigest: '' };
 
     const payload = input as Record<string, unknown>;
 
     return {
         guildId: readString(payload.guildId),
         importRunId: readString(payload.importRunId),
-        confirmationText: readString(payload.confirmationText),
+        planDigest: readString(payload.planDigest),
     };
 }
 
-function validateDashboardStructureRetryInput(input: unknown): DashboardStructureRetryInput {
+function validateDashboardStructureRecoveryInput(input: unknown): DashboardStructureRecoveryInput {
     if (!input || typeof input !== 'object') return { guildId: '', importRunId: '' };
 
     const payload = input as Record<string, unknown>;
@@ -350,6 +380,16 @@ function validateDashboardStructureActionPageInput(input: unknown): DashboardStr
     };
 }
 
+function validateDashboardStructureDecisionPageInput(input: unknown): DashboardStructureDecisionPageInput {
+    const payload = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+    return {
+        guildId: readString(payload.guildId),
+        importRunId: readString(payload.importRunId),
+        cursor: typeof payload.cursor === 'number' ? payload.cursor : undefined,
+        limit: typeof payload.limit === 'number' ? payload.limit : undefined,
+    };
+}
+
 function validateDashboardStructurePreflightInput(input: unknown): DashboardStructurePreflightInput {
     if (!input || typeof input !== 'object') return { guildId: '', importRunId: '' };
 
@@ -362,18 +402,43 @@ function validateDashboardStructurePreflightInput(input: unknown): DashboardStru
 }
 
 function validateDashboardStructureApplyInput(input: unknown): DashboardStructureApplyInput {
-    if (!input || typeof input !== 'object') return { guildId: '', importRunId: '', confirmationText: '' };
+    if (!input || typeof input !== 'object') {
+        return { guildId: '', importRunId: '', planDigest: '', preflightDigest: '' };
+    }
 
     const payload = input as Record<string, unknown>;
 
     return {
         guildId: readString(payload.guildId),
         importRunId: readString(payload.importRunId),
-        confirmationText: readString(payload.confirmationText),
-        destructiveConfirmationText: readString(payload.destructiveConfirmationText),
+        planDigest: readString(payload.planDigest),
+        preflightDigest: readString(payload.preflightDigest),
+        destructiveConfirmationText: readString(payload.destructiveConfirmationText) || undefined,
+    };
+}
+
+function validateDashboardStructureExecutionControlInput(input: unknown): DashboardStructureExecutionControlInput {
+    const payload = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+    const request = payload.request;
+    return {
+        guildId: readString(payload.guildId),
+        runId: readString(payload.runId),
+        executionId: readString(payload.executionId),
+        request: request === 'pause' || request === 'resume' || request === 'cancel' ? request : 'pause',
     };
 }
 
 function readString(value: unknown): string {
     return typeof value === 'string' ? value : '';
+}
+
+function readStringMap(value: unknown): Record<string, string> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+    const entries = Object.entries(value).filter(
+        (entry): entry is [string, string] =>
+            Boolean(entry[0].trim()) && typeof entry[1] === 'string' && Boolean(entry[1].trim())
+    );
+
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
