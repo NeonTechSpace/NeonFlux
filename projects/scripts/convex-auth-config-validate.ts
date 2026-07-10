@@ -4,32 +4,26 @@ import { loadConvexConfig, loadLocalEnv } from '../packages/config/src/env.js';
 import { parseNeonFluxJwksDataUri } from '../packages/convex/src/jwt.js';
 import { assertNoArgs } from './script-args.js';
 
-const requiredConvexAuthConfigEnvNames = [
-    'NEONFLUX_AUTH_JWT_ISSUER',
-    'NEONFLUX_AUTH_JWT_AUDIENCE',
-    'NEONFLUX_AUTH_JWT_JWKS',
-] as const;
-const forbiddenConvexAuthConfigEnvNames = ['NEONFLUX_AUTH_JWT_PRIVATE_KEY'] as const;
-
-type ConvexAuthConfigValidationEnvironment = Partial<
-    Pick<
-        NodeJS.ProcessEnv,
-        | 'NEONFLUX_AUTH_JWT_AUDIENCE'
-        | 'NEONFLUX_AUTH_JWT_ISSUER'
-        | 'NEONFLUX_AUTH_JWT_JWKS'
-        | 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'
-    >
->;
+const providerKinds = ['bot', 'web', 'user'] as const;
+const requiredNames = providerKinds.flatMap((kind) => [
+    `NEONFLUX_${kind.toUpperCase()}_AUTH_JWT_ISSUER`,
+    `NEONFLUX_${kind.toUpperCase()}_AUTH_JWT_AUDIENCE`,
+    `NEONFLUX_${kind.toUpperCase()}_AUTH_JWT_JWKS`,
+]);
+const forbiddenNames = providerKinds.map((kind) => `NEONFLUX_${kind.toUpperCase()}_AUTH_JWT_PRIVATE_KEY`);
 
 export type ConvexAuthConfigValidation = {
-    audience: string;
-    issuer: string;
-    jwksDescription: string;
+    providers: Array<{
+        audience: string;
+        issuer: string;
+        jwksDescription: string;
+        kind: (typeof providerKinds)[number];
+    }>;
 };
 
-export function validateConvexAuthConfigEnv(env: ConvexAuthConfigValidationEnvironment): ConvexAuthConfigValidation {
-    const missing = requiredConvexAuthConfigEnvNames.filter((name) => !optionalValue(env[name]));
-    const forbiddenPresent = forbiddenConvexAuthConfigEnvNames.filter((name) => optionalValue(env[name]));
+export function validateConvexAuthConfigEnv(env: NodeJS.ProcessEnv): ConvexAuthConfigValidation {
+    const missing = requiredNames.filter((name) => !optionalValue(env[name]));
+    const forbiddenPresent = forbiddenNames.filter((name) => optionalValue(env[name]));
 
     if (missing.length > 0 || forbiddenPresent.length > 0) {
         throw new Error(
@@ -44,57 +38,50 @@ export function validateConvexAuthConfigEnv(env: ConvexAuthConfigValidationEnvir
     }
 
     const config = loadConvexConfig(env);
+    const providers = providerKinds.map((kind) => {
+        const prefix = `${kind}AuthJwt` as const;
+        const environmentPrefix = `NEONFLUX_${kind.toUpperCase()}_AUTH_JWT`;
+        const audience = requireConfigValue(config[`${prefix}Audience`], `${environmentPrefix}_AUDIENCE`);
+        const issuer = requireConfigValue(config[`${prefix}Issuer`], `${environmentPrefix}_ISSUER`);
+        const jwks = requireConfigValue(config[`${prefix}Jwks`], `${environmentPrefix}_JWKS`);
 
-    return {
-        audience: requireConfigValue(config.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
-        issuer: requireConfigValue(config.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
-        jwksDescription: describeJwksConfig(requireConfigValue(config.authJwtJwks, 'NEONFLUX_AUTH_JWT_JWKS')),
-    };
+        return { audience, issuer, jwksDescription: describeJwksConfig(jwks, `${environmentPrefix}_JWKS`), kind };
+    });
+
+    if (new Set(providers.map(({ issuer }) => issuer)).size !== providers.length) {
+        throw new Error('Bot, web, and user Convex JWT issuers must be distinct');
+    }
+
+    return { providers };
 }
 
 export function formatConvexAuthConfigValidation(validation: ConvexAuthConfigValidation): string {
     return [
         'Convex auth config is ready.',
-        `Issuer: ${validation.issuer}`,
-        `Audience: ${validation.audience}`,
-        `JWKS: ${validation.jwksDescription}`,
-        'NEONFLUX_AUTH_JWT_PRIVATE_KEY is not present.',
+        ...validation.providers.flatMap(({ audience, issuer, jwksDescription, kind }) => [
+            `${kind}: issuer=${issuer}`,
+            `${kind}: audience=${audience}`,
+            `${kind}: JWKS=${jwksDescription}`,
+        ]),
+        'No Convex JWT private key is present.',
     ].join('\n');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     try {
-        main();
+        assertNoArgs();
+        loadLocalEnv();
+        process.stdout.write(`${formatConvexAuthConfigValidation(validateConvexAuthConfigEnv(process.env))}\n`);
     } catch (error: unknown) {
-        process.stderr.write(`${formatErrorMessage(error)}\n`);
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exitCode = 1;
     }
 }
 
-function main(): void {
-    assertNoArgs();
-    loadLocalEnv();
-
-    const validation = validateConvexAuthConfigEnv(toConvexPublicAuthConfigEnv(process.env));
-    process.stdout.write(`${formatConvexAuthConfigValidation(validation)}\n`);
-}
-
-function toConvexPublicAuthConfigEnv(env: NodeJS.ProcessEnv): ConvexAuthConfigValidationEnvironment {
-    return {
-        NEONFLUX_AUTH_JWT_AUDIENCE: env.NEONFLUX_AUTH_JWT_AUDIENCE,
-        NEONFLUX_AUTH_JWT_ISSUER: env.NEONFLUX_AUTH_JWT_ISSUER,
-        NEONFLUX_AUTH_JWT_JWKS: env.NEONFLUX_AUTH_JWT_JWKS,
-    };
-}
-
-function describeJwksConfig(value: string): string {
+function describeJwksConfig(value: string, name: string): string {
     const url = new URL(value);
-
-    if (url.protocol !== 'data:') {
-        return url.toString();
-    }
-
-    const jwks = parseNeonFluxJwksDataUri(value, 'NEONFLUX_AUTH_JWT_JWKS');
+    if (url.protocol !== 'data:') return url.toString();
+    const jwks = parseNeonFluxJwksDataUri(value, name);
     return `inline data URI (${String(jwks.keys.length)} key${jwks.keys.length === 1 ? '' : 's'})`;
 }
 
@@ -107,8 +94,4 @@ function requireConfigValue(value: string | undefined, name: string): string {
     const normalized = optionalValue(value);
     if (!normalized) throw new Error(`${name} is required`);
     return normalized;
-}
-
-function formatErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

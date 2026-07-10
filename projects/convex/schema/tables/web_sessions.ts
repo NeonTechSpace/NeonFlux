@@ -12,4 +12,6 @@ export const webSessionsTable = defineTable({
 })
     .index('by_session_id', ['id'])
     .index('by_expires_at', ['expiresAt'])
-    .index('by_fluxer_user_id', ['fluxerUserId']);
+    .index('by_revoked_at', ['revokedAt'])
+    .index('by_fluxer_user_id', ['fluxerUserId'])
+    .index('by_fluxer_user_id_revoked_at_expires_at', ['fluxerUserId', 'revokedAt', 'expiresAt']);

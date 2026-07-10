@@ -17,7 +17,11 @@ type SdkMessage = {
     channelId: string;
     guildId: string | null;
     reactions?: SdkMessageReactions;
-    edit(options: { content?: string; embeds?: MessageSendOptions['embeds'] }): Promise<{
+    edit(options: {
+        allowedMentions?: MessageSendOptions['allowedMentions'];
+        content?: string;
+        embeds?: MessageSendOptions['embeds'];
+    }): Promise<{
         id: string;
         channelId: string;
         guildId: string | null;
@@ -69,12 +73,17 @@ type FetchManyMessagesOptions = {
 
 export function createMessagePlatform(client: FluxerBot['client']) {
     return {
-        send: (input: { channelId: string; content?: string; embeds?: MessageSendOptions['embeds'] }) =>
-            sendFluxerChannelMessage({ client, ...input }),
+        send: (input: {
+            allowedMentions?: MessageSendOptions['allowedMentions'];
+            channelId: string;
+            content?: string;
+            embeds?: MessageSendOptions['embeds'];
+        }) => sendFluxerChannelMessage({ client, ...input }),
         fetch: (input: { channelId: string; messageId: string }) => fetchMessage(client, input),
         fetchMany: (input: { channelId: string; limit: number; before?: string; after?: string; around?: string }) =>
             fetchManyMessages(client, input),
         edit: (input: {
+            allowedMentions?: MessageSendOptions['allowedMentions'];
             channelId: string;
             messageId: string;
             content?: string;
@@ -162,7 +171,13 @@ async function fetchManyMessages(
 
 async function editMessage(
     client: FluxerBot['client'],
-    input: { channelId: string; messageId: string; content?: string; embeds?: MessageSendOptions['embeds'] }
+    input: {
+        allowedMentions?: MessageSendOptions['allowedMentions'];
+        channelId: string;
+        messageId: string;
+        content?: string;
+        embeds?: MessageSendOptions['embeds'];
+    }
 ): Promise<Result<FluxerSentMessage, FluxerPlatformError>> {
     const payloadResult = normalizeMessageEditPayload(input);
 
@@ -379,9 +394,17 @@ async function fetchSdkMessageValue(client: FluxerBot['client'], input: { channe
 }
 
 function normalizeMessageEditPayload(input: {
+    allowedMentions?: MessageSendOptions['allowedMentions'];
     content?: string;
     embeds?: MessageSendOptions['embeds'];
-}): Result<{ content?: string; embeds?: MessageSendOptions['embeds'] }, FluxerPlatformError> {
+}): Result<
+    {
+        allowedMentions?: MessageSendOptions['allowedMentions'];
+        content?: string;
+        embeds?: MessageSendOptions['embeds'];
+    },
+    FluxerPlatformError
+> {
     const content = input.content?.trim();
     const embeds = input.embeds;
 
@@ -390,6 +413,7 @@ function normalizeMessageEditPayload(input: {
     }
 
     return ok({
+        ...(input.allowedMentions === undefined ? {} : { allowedMentions: input.allowedMentions }),
         ...(input.content === undefined ? {} : { content: content ?? '' }),
         ...(embeds === undefined ? {} : { embeds }),
     });

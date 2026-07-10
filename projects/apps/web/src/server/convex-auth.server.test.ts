@@ -142,22 +142,22 @@ describe('loadWebConvexJwtSignerConfig', () => {
             loadWebConvexJwtSignerConfig({
                 appEnv: 'production',
                 convex: {
-                    authJwtAudience: 'neonflux-convex',
-                    authJwtIssuer: 'https://neonflux.example/auth',
+                    userAuthJwtAudience: 'neonflux-convex-user',
+                    userAuthJwtIssuer: 'https://neonflux.example/user',
                 },
                 guildDefconOverride: 'auto',
                 logLevel: 'info',
                 nodeEnv: 'test',
             })
-        ).toThrow('NEONFLUX_AUTH_JWT_PRIVATE_KEY is required');
+        ).toThrow('NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY is required');
     });
 });
 
 function createConvexConfig() {
     return {
-        authJwtAudience: jwtConfig.audience,
-        authJwtIssuer: jwtConfig.issuer,
-        authJwtPrivateKey: jwtConfig.privateKeyPem,
+        userAuthJwtAudience: jwtConfig.audience,
+        userAuthJwtIssuer: jwtConfig.issuer,
+        userAuthJwtPrivateKey: jwtConfig.privateKeyPem,
     };
 }
 
@@ -167,8 +167,8 @@ function createJwtConfig(): NeonFluxJwtSignerConfig {
     });
 
     return {
-        audience: 'neonflux-convex',
-        issuer: 'https://neonflux.example/auth',
+        audience: 'neonflux-convex-user',
+        issuer: 'https://neonflux.example/user',
         privateKeyPem: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     };
 }

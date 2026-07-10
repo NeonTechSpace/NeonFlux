@@ -21,7 +21,7 @@ NeonFlux is designed as a Docker Compose stack with two app services. Convex is 
 
 Both bot and web connect to Convex for durable runtime state. The bot owns deployment behavior bootstrap, including instance mode and public web URL, then writes it through the Convex-backed database boundary.
 
-The web service keeps OAuth and session secrets in env, but reads deployment behavior from Convex. Both services also need the public `NEONFLUX_AUTH_JWT_JWKS` value so the Convex runtime auth configuration is complete.
+The web service keeps OAuth and session secrets in env, but reads deployment behavior from Convex. Bot, web-service, and user Convex JWTs use separate issuer/audience/key tuples: the bot receives only the bot private key, the web runtime receives the web-service and user private keys, and Convex receives all three public JWKS values.
 
 ## Local development
 

@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import convexPlugin from '@convex-dev/eslint-plugin';
+import neverthrow from '@ninoseki/eslint-plugin-neverthrow';
 import vitest from '@vitest/eslint-plugin';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import n from 'eslint-plugin-n';
@@ -57,6 +58,15 @@ export default defineConfig([
     ...tseslint.configs.strictTypeChecked,
     ...tseslint.configs.stylisticTypeChecked,
     {
+        files: ['**/*.{ts,tsx}'],
+        plugins: {
+            neverthrow,
+        },
+        rules: {
+            'neverthrow/must-use-result': 'error',
+        },
+    },
+    {
         files: ['**/convex/**/*.ts'],
         plugins: {
             '@convex-dev': convexEslintPlugin,
@@ -106,6 +116,7 @@ export default defineConfig([
         files: ['**/*.{test,spec}.ts'],
         rules: {
             'n/no-extraneous-import': 'off',
+            'neverthrow/must-use-result': 'off',
         },
     },
     {

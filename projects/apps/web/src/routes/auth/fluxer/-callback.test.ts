@@ -104,7 +104,7 @@ describe('/auth/fluxer/callback', () => {
         expect(setCookies.some((cookie) => cookie.startsWith(`${SESSION_COOKIE_NAME}=`))).toBe(true);
     });
 
-    it('returns 400 and clears the state cookie when callback state is invalid', async () => {
+    it('returns 400 without clearing the legitimate state cookie when callback state is invalid', async () => {
         vi.stubEnv('APP_ENV', 'development');
 
         const response = await handleFluxerCallbackRequest(
@@ -113,9 +113,7 @@ describe('/auth/fluxer/callback', () => {
 
         expect(response.status).toBe(400);
         expect(await response.text()).toBe('Invalid Fluxer OAuth callback.');
-        expect(getSetCookieHeaders(response)).toEqual([
-            `${FLUXER_OAUTH_STATE_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/auth/fluxer; Max-Age=0`,
-        ]);
+        expect(getSetCookieHeaders(response)).toEqual([]);
     });
 
     it('redirects denied authorization back to the homepage and clears the state cookie', async () => {

@@ -56,13 +56,21 @@ export function DashboardPostingTemplateControls({
     );
 
     const saveMutation = useMutation({
-        mutationFn: (payload: { name: string; content?: string; embeds: unknown[] }) =>
+        mutationFn: (payload: {
+            name: string;
+            content?: string;
+            embeds: unknown[];
+            template?: DashboardMessageTemplate;
+        }) =>
             saveDashboardPostingTemplateRouteData({
                 data: {
                     guildId,
                     name: payload.name,
                     ...(payload.content ? { content: payload.content } : {}),
                     embeds: payload.embeds,
+                    ...(payload.template
+                        ? { expectedUpdatedAt: payload.template.updatedAt, templateId: payload.template.id }
+                        : {}),
                 },
             }),
         onSuccess: async (result) => {
@@ -76,6 +84,17 @@ export function DashboardPostingTemplateControls({
 
                 case 'invalid-template':
                     onMessage({ type: 'error', text: result.message });
+                    return;
+
+                case 'template-conflict':
+                    onMessage({
+                        type: 'warning',
+                        text:
+                            result.field === 'name'
+                                ? 'That template name is already in use.'
+                                : 'This template changed elsewhere. Reload it before saving.',
+                    });
+                    await invalidateTemplateQueries(queryClient, guildId);
                     return;
 
                 case 'auth-required':
@@ -99,11 +118,12 @@ export function DashboardPostingTemplateControls({
     });
 
     const deleteMutation = useMutation({
-        mutationFn: (templateId: string) =>
+        mutationFn: (template: DashboardMessageTemplate) =>
             deleteDashboardPostingTemplateRouteData({
                 data: {
                     guildId,
-                    templateId,
+                    expectedUpdatedAt: template.updatedAt,
+                    templateId: template.id,
                 },
             }),
         onSuccess: async (result) => {
@@ -120,6 +140,11 @@ export function DashboardPostingTemplateControls({
 
                 case 'not-found':
                     onMessage({ type: 'error', text: 'Template no longer exists.' });
+                    await invalidateTemplateQueries(queryClient, guildId);
+                    return;
+
+                case 'template-conflict':
+                    onMessage({ type: 'warning', text: 'This template changed elsewhere. Reload it before deleting.' });
                     await invalidateTemplateQueries(queryClient, guildId);
                     return;
 
@@ -158,6 +183,7 @@ export function DashboardPostingTemplateControls({
             name,
             ...(trimmedContent ? { content: trimmedContent } : {}),
             embeds,
+            ...(selectedTemplate ? { template: selectedTemplate } : {}),
         });
     }
 
@@ -168,6 +194,7 @@ export function DashboardPostingTemplateControls({
         }
 
         onApplyTemplate(selectedTemplate);
+        setTemplateName(selectedTemplate.name);
     }
 
     return (
@@ -182,9 +209,14 @@ export function DashboardPostingTemplateControls({
                     <span>Saved templates</span>
                     <select
                         value={selectedTemplateId}
-                        onChange={(event) => setSelectedTemplateId(event.currentTarget.value)}
+                        onChange={(event) => {
+                            const nextTemplateId = event.currentTarget.value;
+                            setSelectedTemplateId(nextTemplateId);
+                            const nextTemplate = templates.find((template) => template.id === nextTemplateId);
+                            setTemplateName(nextTemplate?.name ?? '');
+                        }}
                         className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                        disabled={templatesQuery.isPending || templates.length === 0}>
+                        disabled={templatesQuery.isPending || templatesQuery.isError || templates.length === 0}>
                         <option value=''>
                             {templatesQuery.isPending
                                 ? 'Loading templates...'
@@ -204,14 +236,24 @@ export function DashboardPostingTemplateControls({
                     <button
                         type='button'
                         onClick={applySelectedTemplate}
-                        disabled={!selectedTemplate || deleteMutation.isPending || saveMutation.isPending}
+                        disabled={
+                            templatesQuery.isError ||
+                            !selectedTemplate ||
+                            deleteMutation.isPending ||
+                            saveMutation.isPending
+                        }
                         className='inline-flex min-h-10 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-neutral-500 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:text-neutral-500'>
                         Apply
                     </button>
                     <button
                         type='button'
-                        onClick={() => selectedTemplate && deleteMutation.mutate(selectedTemplate.id)}
-                        disabled={!selectedTemplate || deleteMutation.isPending || saveMutation.isPending}
+                        onClick={() => selectedTemplate && deleteMutation.mutate(selectedTemplate)}
+                        disabled={
+                            templatesQuery.isError ||
+                            !selectedTemplate ||
+                            deleteMutation.isPending ||
+                            saveMutation.isPending
+                        }
                         className='inline-flex min-h-10 items-center rounded-md border border-rose-800/70 px-3 text-sm font-semibold text-rose-200 transition hover:border-rose-500 focus:ring-2 focus:ring-rose-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:text-neutral-500'>
                         Delete
                     </button>
@@ -232,12 +274,17 @@ export function DashboardPostingTemplateControls({
                     <button
                         type='button'
                         onClick={saveCurrentTemplate}
-                        disabled={saveMutation.isPending || deleteMutation.isPending}
+                        disabled={templatesQuery.isError || saveMutation.isPending || deleteMutation.isPending}
                         className='inline-flex min-h-10 items-center rounded-md bg-neutral-100 px-3 text-sm font-semibold text-neutral-950 transition hover:bg-white focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
                         {saveMutation.isPending ? 'Saving...' : 'Save current'}
                     </button>
                 </div>
             </div>
+            {templatesQuery.isError ? (
+                <p role='alert' className='text-sm text-rose-300'>
+                    Templates could not be loaded. Reload them before saving or deleting.
+                </p>
+            ) : null}
         </section>
     );
 }

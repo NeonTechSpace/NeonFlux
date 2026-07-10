@@ -1,6 +1,7 @@
 import type { DashboardGuild } from '@neonflux/core';
 
 export const MANAGE_SERVER_PERMISSION_BIT = 0x20n;
+export const ADMINISTRATOR_PERMISSION_BIT = 0x8n;
 
 export type FluxerGuildPermissions = string | number | bigint | readonly string[];
 
@@ -19,7 +20,7 @@ export function hasManageServerPermission(permissions: FluxerGuildPermissions): 
             return hasPermissionBit(permissions);
 
         case 'number':
-            return hasPermissionBit(BigInt(permissions));
+            return Number.isSafeInteger(permissions) && permissions >= 0 && hasPermissionBit(BigInt(permissions));
 
         case 'string':
             return isManageServerPermissionName(permissions) || parsePermissionNumber(permissions);
@@ -64,7 +65,14 @@ function buildFluxerGuildIconUrl(guildId: string, iconHash: string): string {
 }
 
 function hasPermissionBit(permissions: bigint): boolean {
-    return (permissions & MANAGE_SERVER_PERMISSION_BIT) === MANAGE_SERVER_PERMISSION_BIT;
+    if (permissions < 0n) {
+        return false;
+    }
+
+    return (
+        (permissions & MANAGE_SERVER_PERMISSION_BIT) === MANAGE_SERVER_PERMISSION_BIT ||
+        (permissions & ADMINISTRATOR_PERMISSION_BIT) === ADMINISTRATOR_PERMISSION_BIT
+    );
 }
 
 function parsePermissionNumber(permissions: string): boolean {
@@ -77,5 +85,5 @@ function parsePermissionNumber(permissions: string): boolean {
 
 function isManageServerPermissionName(permission: string): boolean {
     const normalized = permission.trim().toUpperCase().replaceAll(' ', '_');
-    return normalized === 'MANAGE_SERVER' || normalized === 'MANAGE_GUILD';
+    return normalized === 'ADMINISTRATOR' || normalized === 'MANAGE_SERVER' || normalized === 'MANAGE_GUILD';
 }

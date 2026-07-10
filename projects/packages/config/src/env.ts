@@ -27,10 +27,18 @@ const rawEnv = type({
     'FLUXER_OAUTH_REDIRECT_URL?': 'string',
     'FLUXER_TOKEN_ENCRYPTION_KEY?': 'string',
     'SESSION_SECRET?': 'string',
-    'NEONFLUX_AUTH_JWT_AUDIENCE?': 'string',
-    'NEONFLUX_AUTH_JWT_ISSUER?': 'string',
-    'NEONFLUX_AUTH_JWT_JWKS?': 'string',
-    'NEONFLUX_AUTH_JWT_PRIVATE_KEY?': 'string',
+    'NEONFLUX_BOT_AUTH_JWT_AUDIENCE?': 'string',
+    'NEONFLUX_BOT_AUTH_JWT_ISSUER?': 'string',
+    'NEONFLUX_BOT_AUTH_JWT_JWKS?': 'string',
+    'NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY?': 'string',
+    'NEONFLUX_USER_AUTH_JWT_AUDIENCE?': 'string',
+    'NEONFLUX_USER_AUTH_JWT_ISSUER?': 'string',
+    'NEONFLUX_USER_AUTH_JWT_JWKS?': 'string',
+    'NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY?': 'string',
+    'NEONFLUX_WEB_AUTH_JWT_AUDIENCE?': 'string',
+    'NEONFLUX_WEB_AUTH_JWT_ISSUER?': 'string',
+    'NEONFLUX_WEB_AUTH_JWT_JWKS?': 'string',
+    'NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY?': 'string',
     'PUBLIC_WEB_URL?': 'string',
     'VITE_CONVEX_URL?': 'string',
     'GUILD_DEFCON_OVERRIDE?': guildDefconOverride,
@@ -48,24 +56,40 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type AppMode = { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' };
 
 export type ConvexConfig = {
-    authJwtAudience?: string;
-    authJwtIssuer?: string;
-    authJwtJwks?: string;
-    authJwtPrivateKey?: string;
+    botAuthJwtAudience?: string;
+    botAuthJwtIssuer?: string;
+    botAuthJwtJwks?: string;
+    botAuthJwtPrivateKey?: string;
     deployKey?: string;
     deployment?: string;
     publicUrl?: string;
+    userAuthJwtAudience?: string;
+    userAuthJwtIssuer?: string;
+    userAuthJwtJwks?: string;
+    userAuthJwtPrivateKey?: string;
     url?: string;
+    webAuthJwtAudience?: string;
+    webAuthJwtIssuer?: string;
+    webAuthJwtJwks?: string;
+    webAuthJwtPrivateKey?: string;
 };
 
 export type RequiredConvexConfig = {
-    authJwtAudience: string;
-    authJwtIssuer: string;
-    authJwtJwks: string;
-    authJwtPrivateKey: string;
+    botAuthJwtAudience: string;
+    botAuthJwtIssuer: string;
+    botAuthJwtJwks: string;
+    botAuthJwtPrivateKey: string;
     deployment: string;
     publicUrl: string;
+    userAuthJwtAudience: string;
+    userAuthJwtIssuer: string;
+    userAuthJwtJwks: string;
+    userAuthJwtPrivateKey: string;
     url: string;
+    webAuthJwtAudience: string;
+    webAuthJwtIssuer: string;
+    webAuthJwtJwks: string;
+    webAuthJwtPrivateKey: string;
 };
 
 export type RuntimeConfig = {
@@ -150,13 +174,21 @@ export function requireConvexConfig(env: NodeJS.ProcessEnv = process.env): Requi
     const config = loadConvexConfig(env);
 
     return {
-        authJwtAudience: requireConfigValue(config.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
-        authJwtIssuer: requireConfigValue(config.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
-        authJwtJwks: requireConfigValue(config.authJwtJwks, 'NEONFLUX_AUTH_JWT_JWKS'),
-        authJwtPrivateKey: requireConfigValue(config.authJwtPrivateKey, 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'),
+        botAuthJwtAudience: requireConfigValue(config.botAuthJwtAudience, 'NEONFLUX_BOT_AUTH_JWT_AUDIENCE'),
+        botAuthJwtIssuer: requireConfigValue(config.botAuthJwtIssuer, 'NEONFLUX_BOT_AUTH_JWT_ISSUER'),
+        botAuthJwtJwks: requireConfigValue(config.botAuthJwtJwks, 'NEONFLUX_BOT_AUTH_JWT_JWKS'),
+        botAuthJwtPrivateKey: requireConfigValue(config.botAuthJwtPrivateKey, 'NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY'),
         deployment: requireConfigValue(config.deployment, 'CONVEX_DEPLOYMENT'),
         publicUrl: requireConfigValue(config.publicUrl, 'VITE_CONVEX_URL'),
+        userAuthJwtAudience: requireConfigValue(config.userAuthJwtAudience, 'NEONFLUX_USER_AUTH_JWT_AUDIENCE'),
+        userAuthJwtIssuer: requireConfigValue(config.userAuthJwtIssuer, 'NEONFLUX_USER_AUTH_JWT_ISSUER'),
+        userAuthJwtJwks: requireConfigValue(config.userAuthJwtJwks, 'NEONFLUX_USER_AUTH_JWT_JWKS'),
+        userAuthJwtPrivateKey: requireConfigValue(config.userAuthJwtPrivateKey, 'NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY'),
         url: requireConfigValue(config.url, 'CONVEX_URL'),
+        webAuthJwtAudience: requireConfigValue(config.webAuthJwtAudience, 'NEONFLUX_WEB_AUTH_JWT_AUDIENCE'),
+        webAuthJwtIssuer: requireConfigValue(config.webAuthJwtIssuer, 'NEONFLUX_WEB_AUTH_JWT_ISSUER'),
+        webAuthJwtJwks: requireConfigValue(config.webAuthJwtJwks, 'NEONFLUX_WEB_AUTH_JWT_JWKS'),
+        webAuthJwtPrivateKey: requireConfigValue(config.webAuthJwtPrivateKey, 'NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY'),
     };
 }
 
@@ -255,24 +287,49 @@ function createRuntimeConfig(parsed: ParsedEnv): RuntimeConfig {
 }
 
 function createConvexConfig(parsed: ParsedEnv): ConvexConfig {
-    const authJwtAudience = optionalValue(parsed.NEONFLUX_AUTH_JWT_AUDIENCE);
-    const authJwtIssuer = optionalNeonFluxJwtIssuer(parsed.NEONFLUX_AUTH_JWT_ISSUER);
-    const authJwtJwks = optionalJwksConfig(parsed.NEONFLUX_AUTH_JWT_JWKS, 'NEONFLUX_AUTH_JWT_JWKS');
-    const authJwtPrivateKey = optionalValue(parsed.NEONFLUX_AUTH_JWT_PRIVATE_KEY);
+    const botAuthJwtAudience = optionalValue(parsed.NEONFLUX_BOT_AUTH_JWT_AUDIENCE);
+    const botAuthJwtIssuer = optionalNeonFluxJwtIssuer(
+        parsed.NEONFLUX_BOT_AUTH_JWT_ISSUER,
+        'NEONFLUX_BOT_AUTH_JWT_ISSUER'
+    );
+    const botAuthJwtJwks = optionalJwksConfig(parsed.NEONFLUX_BOT_AUTH_JWT_JWKS, 'NEONFLUX_BOT_AUTH_JWT_JWKS');
+    const botAuthJwtPrivateKey = optionalValue(parsed.NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY);
+    const userAuthJwtAudience = optionalValue(parsed.NEONFLUX_USER_AUTH_JWT_AUDIENCE);
+    const userAuthJwtIssuer = optionalNeonFluxJwtIssuer(
+        parsed.NEONFLUX_USER_AUTH_JWT_ISSUER,
+        'NEONFLUX_USER_AUTH_JWT_ISSUER'
+    );
+    const userAuthJwtJwks = optionalJwksConfig(parsed.NEONFLUX_USER_AUTH_JWT_JWKS, 'NEONFLUX_USER_AUTH_JWT_JWKS');
+    const userAuthJwtPrivateKey = optionalValue(parsed.NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY);
+    const webAuthJwtAudience = optionalValue(parsed.NEONFLUX_WEB_AUTH_JWT_AUDIENCE);
+    const webAuthJwtIssuer = optionalNeonFluxJwtIssuer(
+        parsed.NEONFLUX_WEB_AUTH_JWT_ISSUER,
+        'NEONFLUX_WEB_AUTH_JWT_ISSUER'
+    );
+    const webAuthJwtJwks = optionalJwksConfig(parsed.NEONFLUX_WEB_AUTH_JWT_JWKS, 'NEONFLUX_WEB_AUTH_JWT_JWKS');
+    const webAuthJwtPrivateKey = optionalValue(parsed.NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY);
     const deployKey = optionalValue(parsed.CONVEX_DEPLOY_KEY);
     const deployment = optionalValue(parsed.CONVEX_DEPLOYMENT);
     const publicUrl = optionalHttpUrl(parsed.VITE_CONVEX_URL, 'VITE_CONVEX_URL');
     const url = optionalHttpUrl(parsed.CONVEX_URL, 'CONVEX_URL');
 
     return {
-        ...(authJwtAudience ? { authJwtAudience } : {}),
-        ...(authJwtIssuer ? { authJwtIssuer } : {}),
-        ...(authJwtJwks ? { authJwtJwks } : {}),
-        ...(authJwtPrivateKey ? { authJwtPrivateKey } : {}),
+        ...(botAuthJwtAudience ? { botAuthJwtAudience } : {}),
+        ...(botAuthJwtIssuer ? { botAuthJwtIssuer } : {}),
+        ...(botAuthJwtJwks ? { botAuthJwtJwks } : {}),
+        ...(botAuthJwtPrivateKey ? { botAuthJwtPrivateKey } : {}),
         ...(deployKey ? { deployKey } : {}),
         ...(deployment ? { deployment } : {}),
         ...(publicUrl ? { publicUrl } : {}),
+        ...(userAuthJwtAudience ? { userAuthJwtAudience } : {}),
+        ...(userAuthJwtIssuer ? { userAuthJwtIssuer } : {}),
+        ...(userAuthJwtJwks ? { userAuthJwtJwks } : {}),
+        ...(userAuthJwtPrivateKey ? { userAuthJwtPrivateKey } : {}),
         ...(url ? { url } : {}),
+        ...(webAuthJwtAudience ? { webAuthJwtAudience } : {}),
+        ...(webAuthJwtIssuer ? { webAuthJwtIssuer } : {}),
+        ...(webAuthJwtJwks ? { webAuthJwtJwks } : {}),
+        ...(webAuthJwtPrivateKey ? { webAuthJwtPrivateKey } : {}),
     };
 }
 
@@ -291,17 +348,17 @@ function optionalHttpUrl(value: string | undefined, name: string): string | unde
     return parseHttpUrl(normalizedValue, name).toString();
 }
 
-function optionalNeonFluxJwtIssuer(value: string | undefined): string | undefined {
+function optionalNeonFluxJwtIssuer(value: string | undefined, name: string): string | undefined {
     const normalizedValue = optionalValue(value);
 
     if (!normalizedValue) {
         return undefined;
     }
 
-    const url = parseHttpUrl(normalizedValue, 'NEONFLUX_AUTH_JWT_ISSUER');
+    const url = parseHttpUrl(normalizedValue, name);
 
     if (url.hostname.toLowerCase().endsWith('fluxer.app')) {
-        throw new Error('NEONFLUX_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host');
+        throw new Error(`${name} must be a NeonFlux issuer, not a Fluxer OAuth host`);
     }
 
     return url.toString();

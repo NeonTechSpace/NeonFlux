@@ -12,6 +12,7 @@ import {
     findReactionRoleMessageWithOptions,
     hasActiveReactionRoleMemberLease,
     hasOtherActiveReactionRoleAssignment,
+    isReactionRoleGuildRunnable,
     listPendingReactionRoleReconciliationItems,
     markReactionRoleOperationNeedsAttention,
     markReactionRoleOperationSending,
@@ -53,6 +54,9 @@ export async function runNextReactionRoleOperation(
     });
     if (claim.isErr()) return { status: 'deferred', operationId: 'unknown', errorCode: 'database_error' };
     if (!claim.value) return { status: 'idle' };
+    const runnable = await isReactionRoleGuildRunnable(context.db, { guildId: claim.value.guildId });
+    if (runnable.isErr()) return defer(context, claim.value, leaseId, now, 'database_error');
+    if (!runnable.value) return attention(context, claim.value, leaseId, now, 'guild_out_of_scope');
     return processOperation(context, claim.value, leaseId, now);
 }
 
@@ -181,6 +185,8 @@ async function reconcileLockedItem(
     leaseOwner: string,
     now: Date
 ): Promise<ReactionRoleOperationRunResult | null> {
+    const scopeFailure = await ensureOperationScope(context, operation, leaseId, now);
+    if (scopeFailure) return scopeFailure;
     const platform = createFluxerPlatform(context.client);
     const member = await platform.members.read({ guildId: operation.guildId, userId: item.userId });
     if (member.isErr() && member.error.type !== 'not-found') {
@@ -223,7 +229,7 @@ async function reconcileLockedItem(
             }
         }
     }
-    if (operation.externalMessageId) {
+    if (operation.externalMessageId && !operation.idempotencyKey.startsWith('gateway-message-deleted:')) {
         if (!(await renewUserLease(context, operation, item, userLeaseId, leaseOwner))) {
             return defer(context, operation, leaseId, now, 'user_lease_lost');
         }
@@ -257,6 +263,8 @@ async function renewUserLease(
     leaseId: string,
     leaseOwner: string
 ) {
+    const runnable = await isReactionRoleGuildRunnable(context.db, { guildId: operation.guildId });
+    if (runnable.isErr() || !runnable.value) return false;
     const leaseNow = new Date();
     const renewed = await renewReactionRoleUserLease(context.db, {
         guildId: operation.guildId,
@@ -278,10 +286,13 @@ async function processPublish(
     const platform = createFluxerPlatform(context.client);
     let current = operation;
     if (!current.externalMessageId) {
+        const scopeFailure = await ensureOperationScope(context, current, leaseId, now);
+        if (scopeFailure) return scopeFailure;
         const sending = await markReactionRoleOperationSending(context.db, { leaseId, now, operationId: current.id });
         if (sending.isErr() || !sending.value) return defer(context, current, leaseId, now, 'database_error');
         current = sending.value;
         const sent = await platform.messages.send({
+            allowedMentions: { parse: [] },
             channelId: current.channelId,
             ...(current.desiredConfig.messageContent ? { content: current.desiredConfig.messageContent } : {}),
             ...(current.desiredConfig.messageEmbeds.length > 0
@@ -321,6 +332,8 @@ async function processSave(
     now: Date
 ): Promise<ReactionRoleOperationRunResult> {
     if (!operation.externalMessageId) return attention(context, operation, leaseId, now, 'message_missing');
+    const scopeFailure = await ensureOperationScope(context, operation, leaseId, now);
+    if (scopeFailure) return scopeFailure;
     const platform = createFluxerPlatform(context.client);
     const current = await findReactionRoleMessageWithOptions(context.db, {
         guildId: operation.guildId,
@@ -328,6 +341,7 @@ async function processSave(
     });
     if (current.isErr()) return defer(context, operation, leaseId, now, 'database_error');
     const edited = await platform.messages.edit({
+        allowedMentions: { parse: [] },
         channelId: operation.channelId,
         content: operation.desiredConfig.messageContent ?? '',
         embeds: operation.desiredConfig.messageEmbeds as Parameters<typeof platform.messages.edit>[0]['embeds'],
@@ -340,6 +354,8 @@ async function processSave(
     const desiredEmojiKeys = new Set(operation.desiredConfig.options.map((option) => option.emojiKey));
     for (const option of current.value.options) {
         if (desiredEmojiKeys.has(option.emojiKey)) continue;
+        const cleanupScopeFailure = await ensureOperationScope(context, operation, leaseId, now);
+        if (cleanupScopeFailure) return cleanupScopeFailure;
         const removed = await platform.messages.removeReactionEmoji({
             channelId: operation.channelId,
             emoji: option.emojiKey,
@@ -361,7 +377,9 @@ async function processDelete(
     leaseId: string,
     now: Date
 ): Promise<ReactionRoleOperationRunResult> {
-    if (operation.externalMessageId) {
+    if (operation.externalMessageId && !operation.idempotencyKey.startsWith('gateway-message-deleted:')) {
+        const scopeFailure = await ensureOperationScope(context, operation, leaseId, now);
+        if (scopeFailure) return scopeFailure;
         const deleted = await createFluxerPlatform(context.client).messages.delete({
             channelId: operation.channelId,
             messageId: operation.externalMessageId,
@@ -375,9 +393,10 @@ async function processDelete(
         now,
         operationId: operation.id,
     });
-    return completed.isOk() && completed.value
+    if (completed.isErr()) return defer(context, operation, leaseId, now, 'database_error');
+    return completed.value
         ? { status: 'completed', operationId: operation.id }
-        : defer(context, operation, leaseId, now, 'database_error');
+        : defer(context, operation, leaseId, now, 'cleanup_progress', 0);
 }
 
 async function seedReactions(
@@ -389,6 +408,8 @@ async function seedReactions(
     if (!operation.externalMessageId) return attention(context, operation, leaseId, now, 'message_missing');
     const messages = createFluxerPlatform(context.client).messages;
     for (const option of operation.desiredConfig.options) {
+        const scopeFailure = await ensureOperationScope(context, operation, leaseId, now);
+        if (scopeFailure) return scopeFailure;
         const result = await messages.react({
             channelId: operation.channelId,
             emoji: option.emojiKey,
@@ -398,6 +419,17 @@ async function seedReactions(
             return handlePlatformFailure(context, operation, leaseId, now, result.error, 'reaction_seed_failed');
     }
     return null;
+}
+
+async function ensureOperationScope(
+    context: BotFeatureHandlerContext,
+    operation: ReactionRoleOperationRecord,
+    leaseId: string,
+    now: Date
+): Promise<ReactionRoleOperationRunResult | null> {
+    const runnable = await isReactionRoleGuildRunnable(context.db, { guildId: operation.guildId });
+    if (runnable.isErr()) return defer(context, operation, leaseId, now, 'database_error');
+    return runnable.value ? null : attention(context, operation, leaseId, now, 'guild_out_of_scope');
 }
 
 async function handlePlatformFailure(

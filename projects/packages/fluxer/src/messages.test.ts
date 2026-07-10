@@ -61,6 +61,23 @@ describe('sendFluxerChannelMessage', () => {
         });
     });
 
+    it('passes an explicit allowed-mentions policy to the SDK', async () => {
+        const sendMock = createSendMock();
+
+        const result = await sendFluxerChannelMessage({
+            allowedMentions: { parse: [] },
+            client: createClient(sendMock),
+            channelId: 'channel-1',
+            content: '@everyone',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(sendMock).toHaveBeenCalledWith('channel-1', {
+            allowedMentions: { parse: [] },
+            content: '@everyone',
+        });
+    });
+
     it('sends embeds without content', async () => {
         const sendMock = createSendMock();
         const embeds: NonNullable<MessageSendOptions['embeds']> = [

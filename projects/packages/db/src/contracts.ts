@@ -197,7 +197,7 @@ export type PostedMessageRecord = {
     updatedAt: Date;
 };
 
-export type PostingRepositoryError = GuildFeatureRepositoryError;
+export type PostingRepositoryError = GuildFeatureRepositoryError | { type: 'conflict'; field: 'name' | 'updatedAt' };
 
 export type GuildCommandPermissionRuleTargetType = 'category' | 'command';
 

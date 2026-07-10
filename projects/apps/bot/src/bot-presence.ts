@@ -24,6 +24,8 @@ const CONTEXTLESS_MENTION_REPLIES = [
 ] as const;
 const CONTEXTLESS_MENTION_COOLDOWN_REPLY = "We've been here before... back to ignoring I suppose";
 const CONTEXTLESS_MENTION_COOLDOWN_MS = 5 * 60 * 1000;
+const CONTEXTLESS_MENTION_STATE_TTL_MS = 15 * 60 * 1000;
+const CONTEXTLESS_MENTION_STATE_MAX_ENTRIES = 10_000;
 const contextlessMentionStateByActor = new Map<string, ContextlessMentionState>();
 
 export type BotPresenceIntent =
@@ -35,6 +37,7 @@ export type BotPresenceIntent =
 type ContextlessMentionState = {
     replyCount: number;
     cooldownUntil?: number;
+    expiresAt: number;
 };
 
 export async function getBotPresenceIntent(
@@ -160,37 +163,84 @@ function parsePingCommandPrefix(content: string): string | undefined {
 }
 
 function isContextlessMentionCoolingDown(event: BotMessageCreatedEvent, nowMs: number): boolean {
-    const state = contextlessMentionStateByActor.get(createContextlessMentionStateKey(event));
+    const state = readContextlessMentionState(createContextlessMentionStateKey(event), nowMs);
 
     return state?.cooldownUntil !== undefined && nowMs < state.cooldownUntil;
 }
 
 function getContextlessMentionReplyAndAdvance(event: BotMessageCreatedEvent, nowMs: number): string {
     const key = createContextlessMentionStateKey(event);
-    const state = contextlessMentionStateByActor.get(key) ?? { replyCount: 0 };
+    const state = readContextlessMentionState(key, nowMs) ?? { expiresAt: nowMs, replyCount: 0 };
 
     if (state.replyCount < CONTEXTLESS_MENTION_REPLIES.length) {
         const reply = CONTEXTLESS_MENTION_REPLIES[state.replyCount] ?? CONTEXTLESS_MENTION_COOLDOWN_REPLY;
         const replyCount = state.replyCount + 1;
 
-        contextlessMentionStateByActor.set(key, {
-            replyCount,
-            ...(replyCount >= CONTEXTLESS_MENTION_REPLIES.length
-                ? { cooldownUntil: nowMs + CONTEXTLESS_MENTION_COOLDOWN_MS }
-                : {}),
-        });
+        writeContextlessMentionState(
+            key,
+            {
+                expiresAt: nowMs + CONTEXTLESS_MENTION_STATE_TTL_MS,
+                replyCount,
+                ...(replyCount >= CONTEXTLESS_MENTION_REPLIES.length
+                    ? { cooldownUntil: nowMs + CONTEXTLESS_MENTION_COOLDOWN_MS }
+                    : {}),
+            },
+            nowMs
+        );
 
         return reply;
     }
 
-    contextlessMentionStateByActor.set(key, {
-        replyCount: state.replyCount,
-        cooldownUntil: nowMs + CONTEXTLESS_MENTION_COOLDOWN_MS,
-    });
+    writeContextlessMentionState(
+        key,
+        {
+            expiresAt: nowMs + CONTEXTLESS_MENTION_STATE_TTL_MS,
+            replyCount: state.replyCount,
+            cooldownUntil: nowMs + CONTEXTLESS_MENTION_COOLDOWN_MS,
+        },
+        nowMs
+    );
 
     return CONTEXTLESS_MENTION_COOLDOWN_REPLY;
 }
 
 function createContextlessMentionStateKey(event: BotMessageCreatedEvent): string {
     return `${event.guildId ?? 'dm'}:${event.authorId}`;
+}
+
+function readContextlessMentionState(key: string, nowMs: number): ContextlessMentionState | undefined {
+    const state = contextlessMentionStateByActor.get(key);
+
+    if (!state) {
+        return undefined;
+    }
+
+    if (state.expiresAt <= nowMs) {
+        contextlessMentionStateByActor.delete(key);
+        return undefined;
+    }
+
+    contextlessMentionStateByActor.delete(key);
+    contextlessMentionStateByActor.set(key, state);
+    return state;
+}
+
+function writeContextlessMentionState(key: string, state: ContextlessMentionState, nowMs: number): void {
+    contextlessMentionStateByActor.delete(key);
+
+    if (contextlessMentionStateByActor.size >= CONTEXTLESS_MENTION_STATE_MAX_ENTRIES) {
+        for (const [candidateKey, candidate] of contextlessMentionStateByActor) {
+            if (candidate.expiresAt <= nowMs) {
+                contextlessMentionStateByActor.delete(candidateKey);
+            }
+        }
+    }
+
+    while (contextlessMentionStateByActor.size >= CONTEXTLESS_MENTION_STATE_MAX_ENTRIES) {
+        const oldestKey = contextlessMentionStateByActor.keys().next().value;
+        if (!oldestKey) break;
+        contextlessMentionStateByActor.delete(oldestKey);
+    }
+
+    contextlessMentionStateByActor.set(key, state);
 }

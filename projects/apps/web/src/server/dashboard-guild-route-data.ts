@@ -49,6 +49,7 @@ type DashboardPostMessageRouteInput = {
     channelId: string;
     content?: string;
     embeds?: unknown[];
+    requestKey: string;
 };
 
 type DashboardAuditEventsRouteInput = {
@@ -288,7 +289,7 @@ function validateDashboardCommandPrefixUpdateRouteInput(input: unknown): Dashboa
 
 function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMessageRouteInput {
     if (!input || typeof input !== 'object') {
-        return { guildId: '', channelId: '' };
+        return { guildId: '', channelId: '', requestKey: '' };
     }
 
     const payload = input as Record<string, unknown>;
@@ -296,12 +297,14 @@ function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMe
     const channelId = payload.channelId;
     const content = payload.content;
     const embeds = payload.embeds;
+    const requestKey = payload.requestKey;
 
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         channelId: typeof channelId === 'string' ? channelId : '',
         ...(typeof content === 'string' ? { content } : {}),
         ...(Array.isArray(embeds) ? { embeds } : {}),
+        requestKey: typeof requestKey === 'string' ? requestKey : '',
     };
 }
 

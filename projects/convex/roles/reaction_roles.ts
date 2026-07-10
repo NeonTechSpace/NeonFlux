@@ -30,6 +30,7 @@ export {
 export {
     listReactionRoleOperationsByGuildId,
     requestReactionRoleDeleteOperation,
+    requestReactionRoleExternalMessageDeleted,
     requestReactionRolePublishOperation,
     retryReactionRoleOperation,
     requestReactionRoleSaveOperation,
@@ -60,8 +61,10 @@ export {
     hasActiveReactionRoleMemberLease,
     loadReactionRoleMemberReconciliation,
     requestReactionRoleMemberTransition,
+    retryBlockedReactionRoleMemberStates,
 } from './reaction_role_member_states.js';
 export { maintainReactionRoleState } from './reaction_role_maintenance.js';
+export { isReactionRoleGuildRunnable } from './reaction_role_scope.js';
 export {
     acquireReactionRoleUserLease,
     hasOtherActiveReactionRoleAssignment,

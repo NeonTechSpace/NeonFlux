@@ -85,6 +85,8 @@ export async function readNeonFluxIdentity(ctx: NeonFluxAuthContext): Promise<Ne
 }
 
 function readUserIdentity(identity: UserIdentity): NeonFluxConvexUserIdentity | null {
+    if (!matchesIdentityIssuer(identity, process.env.NEONFLUX_USER_AUTH_JWT_ISSUER)) return null;
+
     const fluxerUserId = readStringClaim(identity, 'fluxerUserId');
     const sessionId = readStringClaim(identity, 'sessionId');
     const manageableGuildIds = readStringArrayClaim(identity, 'manageableGuildIds') ?? [];
@@ -110,12 +112,33 @@ function readServiceIdentity(identity: UserIdentity): NeonFluxConvexServiceIdent
         return null;
     }
 
+    const expectedIssuer =
+        serviceName === 'bot' ? process.env.NEONFLUX_BOT_AUTH_JWT_ISSUER : process.env.NEONFLUX_WEB_AUTH_JWT_ISSUER;
+
+    if (!matchesIdentityIssuer(identity, expectedIssuer)) return null;
+
     return {
         kind: 'service',
         serviceName,
         subject: identity.subject,
         tokenIdentifier: identity.tokenIdentifier,
     };
+}
+
+function matchesIdentityIssuer(identity: UserIdentity, expectedIssuer: string | undefined): boolean {
+    const normalizedExpectedIssuer = normalizeIssuer(expectedIssuer);
+    return Boolean(normalizedExpectedIssuer && identity.issuer === normalizedExpectedIssuer);
+}
+
+function normalizeIssuer(value: string | undefined): string | undefined {
+    const normalized = value?.trim();
+    if (!normalized) return undefined;
+
+    try {
+        return new URL(normalized).toString();
+    } catch {
+        return undefined;
+    }
 }
 
 function readStringClaim(identity: UserIdentity, name: string): string | undefined {

@@ -226,8 +226,10 @@ export const deleteBotInstallation = mutation({
         await requireNeonFluxService(ctx, allowedMutationServices);
         const guildId = normalizeRequiredGuildId(args.guildId);
         const installation = await findBotInstallationDocument(ctx, guildId);
+        const now = new Date().toISOString();
 
         await clearGuildGrowthCurrentState(ctx, guildId);
+        await disableGuildStructureScheduling(ctx, guildId, now);
 
         if (!installation) {
             return null;
@@ -263,6 +265,30 @@ async function findBotInstallationDocument(
         .query('botInstallations')
         .withIndex('by_guild_id', (query) => query.eq('guildId', guildId))
         .unique();
+}
+
+async function disableGuildStructureScheduling(ctx: CoreMutationCtx, guildId: string, now: string): Promise<void> {
+    const settings = await ctx.db
+        .query('structureBackupSettings')
+        .withIndex('by_guild', (query) => query.eq('guildId', guildId))
+        .unique();
+
+    if (!settings) return;
+
+    await ctx.db.patch('structureBackupSettings', settings._id, {
+        backupLeaseExpiresAt: undefined,
+        backupLeaseId: undefined,
+        backupLeaseOwner: undefined,
+        backupLeaseStartedAt: undefined,
+        driftLeaseExpiresAt: undefined,
+        driftLeaseId: undefined,
+        driftLeaseOwner: undefined,
+        driftLeaseStartedAt: undefined,
+        enabled: false,
+        nextBackupAt: undefined,
+        nextDriftCheckAt: undefined,
+        updatedAt: now,
+    });
 }
 
 async function upsertGuildDocument(ctx: CoreMutationCtx, guildId: string, now: string): Promise<StoredGuildDocument> {

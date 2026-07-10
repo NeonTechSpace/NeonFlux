@@ -16,6 +16,7 @@ import {
 } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import { toDashboardStructureSnapshot } from './dashboard-structure-diff.js';
+import { readImportMode } from './dashboard-structure-apply-plan.js';
 import { preflightDashboardStructureImportPlan } from './dashboard-structure-preflight.js';
 import type {
     DashboardStructurePreflightInputAction,
@@ -81,6 +82,7 @@ export async function preflightDashboardStructureImportRun(
         importRunResult.value.actions.map(toPreflightAction),
         {
             idMap: readApplySourceTargetMap(importRunResult.value.plan),
+            importMode: readImportMode(importRunResult.value.plan),
             sourceGuildId: readRequestedGuildId(importRunResult.value.plan),
         }
     );

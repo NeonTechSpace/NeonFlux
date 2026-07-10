@@ -10,6 +10,7 @@ import {
     type StoredReactionRoleOperation,
 } from './reaction_role_operation_model.js';
 import { desiredConfigValidator, operationRecordValidator } from './reaction_roles_validators.js';
+import { isGuildRunnable } from './reaction_role_scope.js';
 
 const webService = ['web'] as const;
 const readableServices = ['bot', 'web'] as const;
@@ -75,6 +76,9 @@ export const requestReactionRoleDeleteOperation = mutation({
     returns: requestResultValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, webService);
+        const existing = await findIdempotentOperation(ctx, args.guildId, args.idempotencyKey);
+        const repeated = mapRepeatedOperation(existing, args.requestHash);
+        if (repeated) return repeated;
         const message = await findMessage(ctx, args.guildId, args.messageId);
         if (!message) {
             return { type: 'not-found' as const };
@@ -102,6 +106,77 @@ export const requestReactionRoleDeleteOperation = mutation({
             },
             type: 'delete',
         });
+    },
+});
+
+export const requestReactionRoleExternalMessageDeleted = mutation({
+    args: { guildId: v.string(), messageId: v.string() },
+    returns: v.boolean(),
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, ['bot'] as const);
+        const guildId = args.guildId.trim();
+        const externalMessageId = args.messageId.trim();
+        if (!(await isGuildRunnable(ctx, guildId))) return false;
+        const message = await findMessage(ctx, guildId, externalMessageId);
+        if (!message) return false;
+
+        const idempotencyKey = `gateway-message-deleted:${externalMessageId}`;
+        if (await findIdempotentOperation(ctx, guildId, idempotencyKey)) return true;
+        const now = new Date().toISOString();
+        if (message.pendingOperationId) {
+            const pending = await ctx.db.get('reactionRoleOperations', message.pendingOperationId);
+            if (pending?.type === 'delete') return true;
+            if (pending) {
+                await ctx.db.patch('reactionRoleOperations', pending._id, {
+                    completedAt: now,
+                    errorCode: 'external_message_deleted',
+                    leaseExpiresAt: undefined,
+                    leaseId: undefined,
+                    leaseOwner: undefined,
+                    status: 'cancelled',
+                    updatedAt: now,
+                });
+            }
+        }
+        const options = await ctx.db
+            .query('reactionRoleOptions')
+            .withIndex('by_message_position', (query) => query.eq('reactionRoleMessageId', message._id))
+            .take(30);
+        const document = buildOperationDocument({
+            actorMetadata: { source: 'gateway_message_deleted' },
+            actorUserId: 'system',
+            channelId: message.channelId,
+            desiredConfig: {
+                enabled: false,
+                generateOverview: message.generateOverview,
+                ...(message.messageContent ? { messageContent: message.messageContent } : {}),
+                messageEmbeds: message.messageEmbeds,
+                mode: message.mode === 'exclusive' ? 'exclusive' : 'normal',
+                options: options.map((option) => ({
+                    emojiKey: option.emojiKey,
+                    position: option.position,
+                    roleId: option.roleId,
+                })),
+            },
+            expectedRevision: message.revision ?? 1,
+            externalMessageId,
+            guildId,
+            idempotencyKey,
+            now,
+            reactionRoleMessageId: message._id,
+            requestHash: idempotencyKey,
+            type: 'delete',
+        });
+        const operationId = await ctx.db.insert('reactionRoleOperations', toOperationInsert(document));
+        await ctx.db.patch('reactionRoleMessages', message._id, {
+            enabled: false,
+            lifecycle: 'deleting',
+            pendingOperationId: operationId,
+            staleAt: now,
+            updatedAt: now,
+        });
+        await markDashboardLiveAreasChangedInMutation(ctx, { areas: ['reaction_roles'], guildId, now });
+        return true;
     },
 });
 

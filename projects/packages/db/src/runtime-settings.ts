@@ -61,7 +61,17 @@ export async function findGuildCommandSettingsByGuildId(
 
 export async function upsertGuildCommandPrefix(
     db: CommandSettingsDb,
-    input: { guildId: string; prefix: string }
+    input: {
+        audit?: {
+            action: string;
+            actorUserId?: string;
+            feature: string;
+            metadata?: Record<string, unknown>;
+            targetId?: string;
+        };
+        guildId: string;
+        prefix: string;
+    }
 ): Promise<Result<GuildCommandSettingsRecord, GuildCommandSettingsRepositoryError>> {
     const prefix = normalizeCommandPrefix(input.prefix);
 
@@ -88,6 +98,17 @@ export async function upsertGuildCommandPrefix(
 
     try {
         const setting = await db.client.mutation(api.feature_settings.upsertGuildFeatureSetting, {
+            ...(input.audit
+                ? {
+                      audit: {
+                          ...input.audit,
+                          metadata: {
+                              ...input.audit.metadata,
+                              prefix: prefix.value,
+                          },
+                      },
+                  }
+                : {}),
             config: { prefix: prefix.value },
             enabled: true,
             feature: GUILD_COMMAND_SETTINGS_FEATURE,

@@ -1,5 +1,6 @@
 import { v, type GenericId } from 'convex/values';
 
+import { internal } from '../_generated/api.js';
 import { requireNeonFluxService } from '../auth.js';
 import {
     decideFluxerOAuthRefreshLeaseClaim,
@@ -16,7 +17,7 @@ import {
     type FluxerOAuthTokenRecord,
     type WebSessionRecord,
 } from './auth_store_model.js';
-import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 type AuthStoreQueryCtx = QueryCtx;
 type AuthStoreMutationCtx = MutationCtx;
 
@@ -49,6 +50,10 @@ type StoredFluxerOAuthTokenDocument = {
 };
 
 const allowedAuthStoreServices = ['web'] as const;
+export const AUTH_STATE_RETENTION_GRACE_MS = 24 * 60 * 60 * 1_000;
+export const OAUTH_REFRESH_LEASE_DURATION_MS = 60_000;
+export const OAUTH_REFRESH_MAXIMUM_COOLDOWN_MS = 30_000;
+const authCleanupBatchSize = 100;
 
 const encryptedOAuthTokenPayloadValidator = v.object({
     authTag: v.string(),
@@ -255,10 +260,8 @@ export const claimFluxerOAuthTokenRefreshLease = mutation({
     args: {
         expectedGeneration: v.number(),
         fluxerUserId: v.string(),
-        leaseExpiresAt: v.string(),
         leaseId: v.string(),
         leaseOwner: v.string(),
-        now: v.string(),
     },
     returns: fluxerOAuthRefreshLeaseClaimValidator,
     handler: async (ctx: AuthStoreMutationCtx, args) => {
@@ -267,12 +270,12 @@ export const claimFluxerOAuthTokenRefreshLease = mutation({
         const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
         const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
         const leaseOwner = unwrap(normalizeRequiredString(args.leaseOwner, 'missing-lease-owner'));
-        const now = unwrap(normalizeTimestamp(args.now));
-        const leaseExpiresAt = unwrap(normalizeFutureTimestamp(args.leaseExpiresAt, Date.parse(now))).isoString;
+        const nowMs = Date.now();
+        const leaseExpiresAt = new Date(nowMs + OAUTH_REFRESH_LEASE_DURATION_MS).toISOString();
         const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
         const decision = decideFluxerOAuthRefreshLeaseClaim(tokenSet, {
             expectedGeneration,
-            nowMs: Date.parse(now),
+            nowMs,
         });
 
         if (decision.status !== 'claimable') {
@@ -354,11 +357,10 @@ export const completeFluxerOAuthTokenRefresh = mutation({
 
 export const recordFluxerOAuthTokenRefreshFailure = mutation({
     args: {
+        cooldownMs: v.number(),
         expectedGeneration: v.number(),
         fluxerUserId: v.string(),
         leaseId: v.string(),
-        now: v.string(),
-        retryAt: v.string(),
     },
     returns: fluxerOAuthRefreshMutationStatusValidator,
     handler: async (ctx: AuthStoreMutationCtx, args) => {
@@ -366,8 +368,13 @@ export const recordFluxerOAuthTokenRefreshFailure = mutation({
         const fluxerUserId = unwrap(normalizeRequiredString(args.fluxerUserId, 'missing-fluxer-user-id'));
         const expectedGeneration = unwrap(normalizeCredentialGeneration(args.expectedGeneration));
         const leaseId = unwrap(normalizeRequiredString(args.leaseId, 'missing-lease-id'));
-        const now = unwrap(normalizeTimestamp(args.now));
-        const retryAt = unwrap(normalizeFutureTimestamp(args.retryAt, Date.parse(now))).isoString;
+        if (!Number.isSafeInteger(args.cooldownMs) || args.cooldownMs < 0) {
+            throw new Error('invalid-expiry');
+        }
+
+        const retryAt = new Date(
+            Date.now() + Math.min(args.cooldownMs, OAUTH_REFRESH_MAXIMUM_COOLDOWN_MS)
+        ).toISOString();
         const tokenSet = await findFluxerOAuthTokenDocument(ctx, fluxerUserId);
 
         if (!matchesFluxerOAuthRefreshLease(tokenSet, { expectedGeneration, leaseId })) {
@@ -387,6 +394,70 @@ export const recordFluxerOAuthTokenRefreshFailure = mutation({
         });
 
         return { status: 'applied' as const };
+    },
+});
+
+export const pruneAuthStateBatch = internalMutation({
+    args: {
+        cursor: v.optional(v.string()),
+        phase: v.optional(v.union(v.literal('sessions'), v.literal('tokens'))),
+    },
+    returns: v.null(),
+    handler: async (ctx: AuthStoreMutationCtx, args) => {
+        const cutoff = new Date(Date.now() - AUTH_STATE_RETENTION_GRACE_MS).toISOString();
+        const phase = args.phase ?? 'sessions';
+
+        if (phase === 'tokens') {
+            const tokenPage = await ctx.db.query('fluxerOauthTokens').paginate({
+                cursor: args.cursor ?? null,
+                numItems: authCleanupBatchSize,
+            });
+
+            for (const tokenSet of tokenPage.page) {
+                if (Date.parse(tokenSet.updatedAt) > Date.parse(cutoff)) continue;
+
+                const siblingSession = await ctx.db
+                    .query('webSessions')
+                    .withIndex('by_fluxer_user_id', (query) => query.eq('fluxerUserId', tokenSet.fluxerUserId))
+                    .first();
+
+                if (!siblingSession) {
+                    await ctx.db.delete('fluxerOauthTokens', tokenSet._id);
+                }
+            }
+
+            if (!tokenPage.isDone) {
+                await ctx.scheduler.runAfter(0, internal.auth.auth_store.pruneAuthStateBatch, {
+                    cursor: tokenPage.continueCursor,
+                    phase: 'tokens',
+                });
+            }
+
+            return null;
+        }
+
+        const expiredSessions = await ctx.db
+            .query('webSessions')
+            .withIndex('by_expires_at', (query) => query.lt('expiresAt', cutoff))
+            .take(authCleanupBatchSize);
+        const revokedSessions = await ctx.db
+            .query('webSessions')
+            .withIndex('by_revoked_at', (query) => query.gt('revokedAt', '').lt('revokedAt', cutoff))
+            .take(authCleanupBatchSize);
+        const sessionsToDelete = new Map(
+            [...expiredSessions, ...revokedSessions].map((session) => [session._id, session] as const)
+        );
+        const sessionBatch = [...sessionsToDelete.values()].slice(0, authCleanupBatchSize);
+
+        for (const session of sessionBatch) {
+            await ctx.db.delete('webSessions', session._id);
+        }
+
+        await ctx.scheduler.runAfter(0, internal.auth.auth_store.pruneAuthStateBatch, {
+            phase: sessionBatch.length === authCleanupBatchSize ? 'sessions' : 'tokens',
+        });
+
+        return null;
     },
 });
 

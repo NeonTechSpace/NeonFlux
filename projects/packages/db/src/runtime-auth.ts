@@ -158,17 +158,11 @@ export async function claimFluxerOAuthTokenRefreshLease(
     input: {
         expectedGeneration: number;
         fluxerUserId: string;
-        leaseExpiresAt: Date;
         leaseId: string;
         leaseOwner: string;
-        now: Date;
     }
 ): Promise<Result<FluxerOAuthRefreshLeaseClaim, FluxerOAuthTokenRepositoryError>> {
-    if (
-        !isValidCredentialGeneration(input.expectedGeneration) ||
-        !isValidDate(input.leaseExpiresAt) ||
-        !isValidDate(input.now)
-    ) {
+    if (!isValidCredentialGeneration(input.expectedGeneration)) {
         return err('database-error');
     }
 
@@ -176,10 +170,8 @@ export async function claimFluxerOAuthTokenRefreshLease(
         const claim = await db.client.mutation(api.auth_store.claimFluxerOAuthTokenRefreshLease, {
             expectedGeneration: input.expectedGeneration,
             fluxerUserId: input.fluxerUserId,
-            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
             leaseId: input.leaseId,
             leaseOwner: input.leaseOwner,
-            now: input.now.toISOString(),
         });
 
         switch (claim.status) {
@@ -237,17 +229,16 @@ export async function completeFluxerOAuthTokenRefresh(
 export async function recordFluxerOAuthTokenRefreshFailure(
     db: FluxerOAuthTokenDb,
     input: {
+        cooldownMs: number;
         expectedGeneration: number;
         fluxerUserId: string;
         leaseId: string;
-        now: Date;
-        retryAt: Date;
     }
 ): Promise<Result<FluxerOAuthRefreshMutationStatus, FluxerOAuthTokenRepositoryError>> {
     if (
         !isValidCredentialGeneration(input.expectedGeneration) ||
-        !isValidDate(input.now) ||
-        !isValidDate(input.retryAt)
+        !Number.isSafeInteger(input.cooldownMs) ||
+        input.cooldownMs < 0
     ) {
         return err('database-error');
     }
@@ -255,11 +246,10 @@ export async function recordFluxerOAuthTokenRefreshFailure(
     try {
         return ok(
             await db.client.mutation(api.auth_store.recordFluxerOAuthTokenRefreshFailure, {
+                cooldownMs: input.cooldownMs,
                 expectedGeneration: input.expectedGeneration,
                 fluxerUserId: input.fluxerUserId,
                 leaseId: input.leaseId,
-                now: input.now.toISOString(),
-                retryAt: input.retryAt.toISOString(),
             })
         );
     } catch (error) {

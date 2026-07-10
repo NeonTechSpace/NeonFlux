@@ -987,6 +987,55 @@ describe('dashboard structure preflight', () => {
             message: 'The target can be deleted after destructive approval.',
         });
     });
+
+    it('accepts same-guild replace delete-before-create targets and recreated role overwrites', () => {
+        const snapshot = createSnapshot();
+        const report = preflightDashboardStructureImportPlan(
+            snapshot,
+            [
+                {
+                    id: 'delete-role',
+                    actionType: 'delete',
+                    targetType: 'role',
+                    targetId: 'role-1',
+                    details: { before: snapshot.roles[0] },
+                },
+                {
+                    id: 'delete-channel',
+                    actionType: 'delete',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    details: { before: snapshot.channels[0] },
+                },
+                {
+                    id: 'create-role',
+                    actionType: 'create',
+                    targetType: 'role',
+                    targetId: 'role-1',
+                    details: { after: snapshot.roles[0] },
+                },
+                {
+                    id: 'create-channel',
+                    actionType: 'create',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    details: {
+                        after: {
+                            ...snapshot.channels[0],
+                            permissionOverwrites: [{ id: 'role-1', type: 0, allow: '1024', deny: '0' }],
+                        },
+                    },
+                },
+            ],
+            {
+                allowDestructiveDeletes: true,
+                importMode: 'replace',
+                sourceGuildId: snapshot.guildId,
+            }
+        );
+
+        expect(report.actions.map((action) => action.status)).toStrictEqual(['ready', 'ready', 'ready', 'ready']);
+    });
 });
 
 function createSnapshot(): DashboardStructureSnapshot {

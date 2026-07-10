@@ -33,7 +33,17 @@ async function main(): Promise<void> {
         );
     }
 
-    const database = await createConvexServiceDb(config, { serviceName: 'web' });
+    const database = await createConvexServiceDb(
+        {
+            authJwtAudience: config.webAuthJwtAudience,
+            authJwtIssuer: config.webAuthJwtIssuer,
+            authJwtPrivateKey: config.webAuthJwtPrivateKey,
+            deployment: config.deployment,
+            publicUrl: config.publicUrl,
+            url: config.url,
+        },
+        { serviceName: 'web' }
+    );
     let totalPatched = 0;
     let batches = 0;
     let shouldContinue = true;

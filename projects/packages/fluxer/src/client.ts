@@ -124,6 +124,10 @@ type FluxerBotGuildsReadyEventHandler = (event: FluxerBotGuildsReadyEvent) => vo
 type FluxerBotEventHandler<TEvent> = (event: TEvent) => void | Promise<void>;
 
 const BOT_PRESENCE_STATUS = 'online';
+const BOT_HANDLER_DRAIN_TIMEOUT_MS = 10_000;
+const BOT_READY_TIMEOUT_MS = 30_000;
+const CHANNEL_CACHE_LIMIT = 5_000;
+const USER_CACHE_LIMIT = 10_000;
 
 function createBotPresence(customStatusText: string) {
     return {
@@ -139,9 +143,41 @@ export function createFluxerBot(
     logger: AppLogger,
     lifecycleHandlers: FluxerBotLifecycleHandlers = {}
 ) {
-    const client = new Client({ waitForGuilds: true });
+    const client = new Client({
+        waitForGuilds: true,
+        cache: {
+            channels: CHANNEL_CACHE_LIMIT,
+            guilds: config.instanceMode === 'single' ? 1 : 0,
+            messages: 0,
+            users: USER_CACHE_LIMIT,
+        },
+    });
     const configuredCustomStatusText = normalizeConfiguredCustomStatusText(config.customStatusText);
     const voiceStateCache: VoiceStateCache = new Map();
+    const inFlightHandlers = new Set<Promise<void>>();
+    let acceptingHandlers = true;
+    let resolveReady: (() => void) | undefined;
+    let rejectReady: ((error: unknown) => void) | undefined;
+    const readyPromise = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+    });
+
+    function runLifecycleHandler<TEvent>(
+        handlerLogger: AppLogger,
+        errorEvent: string,
+        handler: FluxerBotEventHandler<TEvent> | undefined,
+        event: TEvent,
+        createLogContext: (event: TEvent) => Record<string, unknown> = createGenericLogContext
+    ): void {
+        if (!acceptingHandlers) return;
+
+        const pending = executeLifecycleHandler(handlerLogger, errorEvent, handler, event, createLogContext);
+        inFlightHandlers.add(pending);
+        void pending.finally(() => {
+            inFlightHandlers.delete(pending);
+        });
+    }
 
     client.once(Events.Ready, () => {
         logger.info('fluxer.ready', {
@@ -150,31 +186,43 @@ export function createFluxerBot(
         if (configuredCustomStatusText) {
             applyBotPresence(logger, client, configuredCustomStatusText);
         }
-        void runCurrentGuildSync(logger, lifecycleHandlers.guildsReady, client);
+        const pending = runCurrentGuildSync(lifecycleHandlers.guildsReady, client);
+        inFlightHandlers.add(pending);
+        void pending
+            .then(
+                () => resolveReady?.(),
+                (error: unknown) => {
+                    logger.error('fluxer.guilds_ready_handler_failed');
+                    rejectReady?.(error);
+                }
+            )
+            .finally(() => {
+                inFlightHandlers.delete(pending);
+            });
     });
 
     client.on(Events.GuildCreate, (guild) => {
         voiceStateCache.delete(guild.id);
-        void runLifecycleHandler(logger, 'fluxer.guild_created_handler_failed', lifecycleHandlers.guildCreated, {
+        runLifecycleHandler(logger, 'fluxer.guild_created_handler_failed', lifecycleHandlers.guildCreated, {
             guildId: guild.id,
         });
     });
 
     client.on(Events.GuildDelete, (guild) => {
         voiceStateCache.delete(guild.id);
-        void runLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
+        runLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
             guildId: guild.id,
         });
     });
 
     client.on(Events.GuildUpdate, (_oldGuild, newGuild) => {
-        void runLifecycleHandler(logger, 'fluxer.guild_updated_handler_failed', lifecycleHandlers.guildUpdated, {
+        runLifecycleHandler(logger, 'fluxer.guild_updated_handler_failed', lifecycleHandlers.guildUpdated, {
             guildId: newGuild.id,
         });
     });
 
     client.on(Events.MessageCreate, (message) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.message_created_handler_failed',
             lifecycleHandlers.messageCreated,
@@ -184,7 +232,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageUpdate, (oldMessage, newMessage) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.message_updated_handler_failed',
             lifecycleHandlers.messageUpdated,
@@ -194,7 +242,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageDelete, (message) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.message_deleted_handler_failed',
             lifecycleHandlers.messageDeleted,
@@ -204,7 +252,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageReactionAdd, (reaction, user, messageId, channelId, _emoji, userId) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.reaction_added_handler_failed',
             lifecycleHandlers.reactionAdded,
@@ -213,7 +261,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageReactionRemove, (reaction, user, messageId, channelId, _emoji, userId) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.reaction_removed_handler_failed',
             lifecycleHandlers.reactionRemoved,
@@ -222,7 +270,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildMemberAdd, (member) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.member_joined_handler_failed',
             lifecycleHandlers.memberJoined,
@@ -231,7 +279,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildMemberUpdate, (_oldMember, newMember) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.member_updated_handler_failed',
             lifecycleHandlers.memberUpdated,
@@ -240,7 +288,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildMemberRemove, (member) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.member_left_handler_failed',
             lifecycleHandlers.memberLeft,
@@ -249,7 +297,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildBanAdd, (ban) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.ban_added_handler_failed',
             lifecycleHandlers.banAdded,
@@ -258,7 +306,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildBanRemove, (ban) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.ban_removed_handler_failed',
             lifecycleHandlers.banRemoved,
@@ -267,7 +315,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildRoleCreate, (event) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.role_created_handler_failed',
             lifecycleHandlers.roleCreated,
@@ -276,7 +324,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildRoleUpdate, (event) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.role_updated_handler_failed',
             lifecycleHandlers.roleUpdated,
@@ -285,7 +333,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.GuildRoleDelete, (event) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.role_deleted_handler_failed',
             lifecycleHandlers.roleDeleted,
@@ -294,7 +342,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.ChannelCreate, (channel) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.channel_created_handler_failed',
             lifecycleHandlers.channelCreated,
@@ -303,7 +351,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.ChannelUpdate, (_oldChannel, newChannel) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.channel_updated_handler_failed',
             lifecycleHandlers.channelUpdated,
@@ -312,7 +360,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.ChannelDelete, (channel) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.channel_deleted_handler_failed',
             lifecycleHandlers.channelDeleted,
@@ -325,7 +373,7 @@ export function createFluxerBot(
     });
 
     client.on(Events.VoiceStateUpdate, (event) => {
-        void runLifecycleHandler(
+        runLifecycleHandler(
             logger,
             'fluxer.voice_state_updated_handler_failed',
             lifecycleHandlers.voiceStateUpdated,
@@ -342,9 +390,21 @@ export function createFluxerBot(
             }
 
             await client.login(config.fluxerBotToken);
+            await waitForReady(readyPromise, BOT_READY_TIMEOUT_MS);
             return true;
         },
+        stopIntake(): void {
+            acceptingHandlers = false;
+        },
         async stop(): Promise<void> {
+            acceptingHandlers = false;
+            const drained = await drainInFlightHandlers(inFlightHandlers, BOT_HANDLER_DRAIN_TIMEOUT_MS);
+            if (!drained) {
+                logger.warn('fluxer.handler_drain_timeout', {
+                    inFlightHandlerCount: inFlightHandlers.size,
+                    timeoutMs: BOT_HANDLER_DRAIN_TIMEOUT_MS,
+                });
+            }
             await client.destroy();
         },
     };
@@ -377,7 +437,6 @@ function normalizeConfiguredCustomStatusText(customStatusText: string | undefine
 }
 
 async function runCurrentGuildSync(
-    logger: AppLogger,
     handler: FluxerBotGuildsReadyEventHandler | undefined,
     client: Client
 ): Promise<void> {
@@ -385,22 +444,9 @@ async function runCurrentGuildSync(
         return;
     }
 
-    try {
-        const guilds = await client.user?.fetchGuilds();
-
-        if (!guilds) {
-            logger.error('fluxer.guilds_ready_fetch_failed', {
-                reason: 'bot-user-unavailable',
-            });
-            return;
-        }
-
-        await handler({
-            guildIds: guilds.map((guild) => guild.id),
-        });
-    } catch {
-        logger.error('fluxer.guilds_ready_fetch_failed');
-    }
+    await handler({
+        guildIds: [...client.guilds.keys()].sort(),
+    });
 }
 
 function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {
@@ -491,7 +537,7 @@ function normalizeChannelEvent(channel: Channel): FluxerBotChannelEvent {
     };
 }
 
-async function runLifecycleHandler<TEvent>(
+async function executeLifecycleHandler<TEvent>(
     logger: AppLogger,
     logEvent: string,
     handler: FluxerBotEventHandler<TEvent> | undefined,
@@ -506,6 +552,33 @@ async function runLifecycleHandler<TEvent>(
         await handler(event);
     } catch {
         logger.error(logEvent, getLogContext(event));
+    }
+}
+
+async function drainInFlightHandlers(inFlightHandlers: Set<Promise<void>>, timeoutMs: number): Promise<boolean> {
+    if (inFlightHandlers.size === 0) return true;
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutResult = new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+    });
+    const drainResult = Promise.allSettled([...inFlightHandlers]).then(() => true as const);
+    const drained = await Promise.race([drainResult, timeoutResult]);
+
+    if (timeout) clearTimeout(timeout);
+    return drained;
+}
+
+async function waitForReady(readyPromise: Promise<void>, timeoutMs: number): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutResult = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('Fluxer bot readiness timed out.')), timeoutMs);
+    });
+
+    try {
+        await Promise.race([readyPromise, timeoutResult]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
     }
 }
 

@@ -36,6 +36,12 @@ export type BotInstallationReconciliationResult = {
 
 export type BotInstallationSyncError = 'database-error';
 
+export type BotInstallationReconciliationRetryOptions = {
+    baseDelayMs?: number;
+    maxAttempts?: number;
+    sleep?: (delayMs: number) => Promise<void>;
+};
+
 export async function recordBotInstallationEvent(
     db: BotInstallationDatabase,
     mode: AppMode,
@@ -142,6 +148,25 @@ export async function reconcileBotInstallations(
     });
 }
 
+export async function reconcileBotInstallationsWithRetry(
+    db: BotInstallationDatabase,
+    mode: AppMode,
+    input: { guildIds: readonly string[] },
+    options: BotInstallationReconciliationRetryOptions = {}
+): Promise<Result<BotInstallationReconciliationResult, BotInstallationSyncError>> {
+    const maxAttempts = normalizeRetryAttempts(options.maxAttempts);
+    const baseDelayMs = normalizeRetryDelay(options.baseDelayMs);
+    const sleep = options.sleep ?? wait;
+    let result = await reconcileBotInstallations(db, mode, input);
+
+    for (let attempt = 2; result.isErr() && attempt <= maxAttempts; attempt += 1) {
+        await sleep(baseDelayMs * 2 ** (attempt - 2));
+        result = await reconcileBotInstallations(db, mode, input);
+    }
+
+    return result;
+}
+
 function normalizeGuildId(guildId: string | null | undefined): string | undefined {
     const normalizedGuildId = guildId?.trim();
 
@@ -169,11 +194,25 @@ function shouldRemoveInstalledGuild(
 ): boolean {
     switch (mode.instanceMode) {
         case 'single':
-            return installedGuildId === mode.singleGuildId && !currentGuildIds.has(installedGuildId);
+            return !currentGuildIds.has(installedGuildId);
 
         case 'multi':
             return !currentGuildIds.has(installedGuildId);
     }
+}
+
+function normalizeRetryAttempts(value: number | undefined): number {
+    return Number.isInteger(value) && value !== undefined && value > 0 ? Math.min(value, 10) : 4;
+}
+
+function normalizeRetryDelay(value: number | undefined): number {
+    return Number.isFinite(value) && value !== undefined && value >= 0 ? Math.min(value, 30_000) : 250;
+}
+
+function wait(delayMs: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, delayMs);
+    });
 }
 
 function mapRepositoryError(errorValue: BotInstallationRepositoryError): Result<never, BotInstallationSyncError> {

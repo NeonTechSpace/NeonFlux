@@ -1,10 +1,5 @@
-import {
-    deleteMessageTemplate,
-    listMessageTemplatesByGuildId,
-    recordBotActionEvent,
-    upsertMessageTemplate,
-} from '@neonflux/db';
-import type { BotActionEventRecord, MessageTemplateRecord } from '@neonflux/db';
+import { deleteMessageTemplate, listMessageTemplatesByGuildId, upsertMessageTemplate } from '@neonflux/db';
+import type { MessageTemplateRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
@@ -55,7 +50,6 @@ vi.mock('@neonflux/db', async (importActual) => {
         ...actual,
         deleteMessageTemplate: vi.fn(),
         listMessageTemplatesByGuildId: vi.fn(),
-        recordBotActionEvent: vi.fn(),
         upsertMessageTemplate: vi.fn(),
     };
 });
@@ -92,7 +86,6 @@ describe('dashboard posting templates', () => {
         vi.mocked(listMessageTemplatesByGuildId).mockResolvedValue(ok([createTemplateRecord()]));
         vi.mocked(upsertMessageTemplate).mockResolvedValue(ok(createTemplateRecord()));
         vi.mocked(deleteMessageTemplate).mockResolvedValue(ok(createTemplateRecord()));
-        vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createAuditEventRecord()));
     });
 
     afterEach(() => {
@@ -135,6 +128,16 @@ describe('dashboard posting templates', () => {
         expect(upsertMessageTemplate).toHaveBeenCalledWith(
             {},
             {
+                audit: {
+                    action: 'template.saved',
+                    actorUserId: 'actor-1',
+                    feature: 'posting',
+                    metadata: {
+                        actorDisplayName: 'Neonsy',
+                        actorUsername: 'neonsy',
+                        source: 'dashboard',
+                    },
+                },
                 guildId: 'guild-1',
                 name: 'Release update',
                 content: 'Ship it',
@@ -142,28 +145,12 @@ describe('dashboard posting templates', () => {
                 createdByUserId: 'actor-1',
             }
         );
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                guildId: 'guild-1',
-                feature: 'posting',
-                action: 'template.saved',
-                actorUserId: 'actor-1',
-                targetId: 'template-1',
-                metadata: expect.objectContaining({
-                    templateName: 'Release update',
-                    embedCount: 1,
-                    source: 'dashboard',
-                    actorUsername: 'neonsy',
-                    actorDisplayName: 'Neonsy',
-                }),
-            })
-        );
     });
 
     it('deletes templates and records dashboard audit metadata', async () => {
         await expect(
             deleteDashboardMessageTemplate(request, {
+                expectedUpdatedAt: '2026-06-26T00:00:00.000Z',
                 guildId: 'guild-1',
                 templateId: 'template-1',
             })
@@ -171,16 +158,23 @@ describe('dashboard posting templates', () => {
             type: 'deleted',
             templateId: 'template-1',
         });
-        expect(deleteMessageTemplate).toHaveBeenCalledWith({}, { guildId: 'guild-1', templateId: 'template-1' });
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
+        expect(deleteMessageTemplate).toHaveBeenCalledWith(
             {},
-            expect.objectContaining({
+            {
+                audit: {
+                    action: 'template.deleted',
+                    actorUserId: 'actor-1',
+                    feature: 'posting',
+                    metadata: {
+                        actorDisplayName: 'Neonsy',
+                        actorUsername: 'neonsy',
+                        source: 'dashboard',
+                    },
+                },
+                expectedUpdatedAt: '2026-06-26T00:00:00.000Z',
                 guildId: 'guild-1',
-                feature: 'posting',
-                action: 'template.deleted',
-                actorUserId: 'actor-1',
-                targetId: 'template-1',
-            })
+                templateId: 'template-1',
+            }
         );
     });
 
@@ -195,7 +189,6 @@ describe('dashboard posting templates', () => {
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
         expect(upsertMessageTemplate).not.toHaveBeenCalled();
-        expect(recordBotActionEvent).not.toHaveBeenCalled();
     });
 
     it('returns a validation result for empty template payloads', async () => {
@@ -210,7 +203,6 @@ describe('dashboard posting templates', () => {
             type: 'invalid-template',
             message: 'Add message content or at least one embed before saving.',
         });
-        expect(recordBotActionEvent).not.toHaveBeenCalled();
     });
 });
 
@@ -226,20 +218,6 @@ function createTemplateRecord(overrides: Partial<MessageTemplateRecord> = {}): M
         createdByUserId: 'actor-1',
         createdAt: timestamp,
         updatedAt: timestamp,
-        ...overrides,
-    };
-}
-
-function createAuditEventRecord(overrides: Partial<BotActionEventRecord> = {}): BotActionEventRecord {
-    return {
-        id: 'audit-event-1',
-        guildId: 'guild-1',
-        feature: 'posting',
-        action: 'template.saved',
-        actorUserId: 'actor-1',
-        targetId: 'template-1',
-        metadata: {},
-        createdAt: new Date('2026-06-26T00:00:00.000Z'),
         ...overrides,
     };
 }

@@ -10,7 +10,11 @@ import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDb } from './db.server.js';
 import { encryptFluxerToken } from './fluxer-token-crypto.js';
-import { createClearFluxerOAuthStateCookie, validateFluxerOAuthCallbackState } from './oauth-state.js';
+import {
+    createClearFluxerOAuthStateCookie,
+    validateFluxerOAuthCallbackBinding,
+    validateFluxerOAuthCallbackState,
+} from './oauth-state.js';
 import {
     createSessionCookie,
     createSessionId as createDefaultSessionId,
@@ -23,11 +27,20 @@ const rootPath = '/';
 export async function handleFluxerCallbackRequest(request: Request): Promise<Response> {
     const config = loadWebConfig();
     const url = new URL(request.url);
-    const stateResult = validateFluxerOAuthCallbackState({
+    const stateBindingResult = validateFluxerOAuthCallbackBinding({
         request,
         url,
     });
-    const headers = createCallbackHeaders(config.appEnv);
+    const headers = createCallbackHeaders();
+
+    if (stateBindingResult.isErr()) {
+        return new Response('Invalid Fluxer OAuth callback.', {
+            status: 400,
+            headers,
+        });
+    }
+
+    headers.append('Set-Cookie', createClearFluxerOAuthStateCookie(config.appEnv));
 
     if (url.searchParams.get('error') === 'access_denied') {
         headers.set('Location', rootPath);
@@ -37,6 +50,8 @@ export async function handleFluxerCallbackRequest(request: Request): Promise<Res
             headers,
         });
     }
+
+    const stateResult = validateFluxerOAuthCallbackState({ request, url });
 
     if (stateResult.isErr()) {
         return new Response('Invalid Fluxer OAuth callback.', {
@@ -187,14 +202,10 @@ async function persistDefaultFluxerOAuthTokenSet(input: {
     });
 }
 
-function createCallbackHeaders(appEnv: 'development' | 'production'): Headers {
-    const headers = new Headers({
+function createCallbackHeaders(): Headers {
+    return new Headers({
         'Content-Type': 'text/plain; charset=utf-8',
     });
-
-    headers.append('Set-Cookie', createClearFluxerOAuthStateCookie(appEnv));
-
-    return headers;
 }
 
 function requireConfigValue(value: string | undefined, name: string): string {

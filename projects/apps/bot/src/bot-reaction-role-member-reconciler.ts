@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 import {
     acquireReactionRoleUserLease,
+    blockReactionRoleMemberState,
     claimNextReactionRoleMemberState,
     completeReactionRoleMemberState,
     deferReactionRoleMemberState,
     hasOtherActiveReactionRoleAssignment,
+    isReactionRoleGuildRunnable,
     loadReactionRoleMemberReconciliation,
     releaseReactionRoleUserLease,
     renewReactionRoleUserLease,
@@ -19,7 +21,6 @@ import { filterBotManageableRoleIds } from './bot-role-safety.js';
 const memberLeaseTtlMs = 3 * 60_000;
 const userLeaseTtlMs = 15 * 60_000;
 const retryDelayMs = 5_000;
-const blockedRetryDelayMs = 60 * 60_000;
 
 export type ReactionRoleMemberReconcileResult =
     | { status: 'idle' }
@@ -40,6 +41,9 @@ export async function runNextReactionRoleMemberReconciliation(
     });
     if (claim.isErr()) return { status: 'deferred', stateId: 'unknown', errorCode: 'database_error' };
     if (!claim.value) return { status: 'idle' };
+    const runnable = await isReactionRoleGuildRunnable(context.db, { guildId: claim.value.guildId });
+    if (runnable.isErr()) return deferState(context, claim.value, leaseId, now, 'database_error');
+    if (!runnable.value) return blockState(context, claim.value, leaseId, now, 'guild_out_of_scope');
     const userLease = await acquireReactionRoleUserLease(context.db, {
         guildId: claim.value.guildId,
         leaseExpiresAt: new Date(now.getTime() + userLeaseTtlMs),
@@ -189,6 +193,8 @@ async function renewUserLease(
     leaseId: string,
     leaseOwner: string
 ) {
+    const runnable = await isReactionRoleGuildRunnable(context.db, { guildId: state.guildId });
+    if (runnable.isErr() || !runnable.value) return false;
     const leaseNow = new Date();
     const renewed = await renewReactionRoleUserLease(context.db, {
         guildId: state.guildId,
@@ -258,5 +264,11 @@ async function blockState(
     now: Date,
     errorCode: string
 ): Promise<ReactionRoleMemberReconcileResult> {
-    return deferState(context, state, leaseId, now, errorCode, blockedRetryDelayMs);
+    await blockReactionRoleMemberState(context.db, {
+        errorCode,
+        leaseId,
+        now,
+        stateId: state.id,
+    });
+    return { status: 'blocked', stateId: state.id, errorCode };
 }

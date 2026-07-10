@@ -38,6 +38,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
     const [embedJson, setEmbedJson] = useState('');
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
+    const [deliveryUncertain, setDeliveryUncertain] = useState(false);
     const previewEmbedsResult = getActiveEmbeds({
         mode: embedMode,
         draft: embedDraft,
@@ -64,18 +65,26 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     });
 
     const mutation = useMutation({
-        mutationFn: (payload: { channelId: string; channelLabel: string; content?: string; embeds: unknown[] }) =>
+        mutationFn: (payload: {
+            channelId: string;
+            channelLabel: string;
+            content?: string;
+            embeds: unknown[];
+            requestKey: string;
+        }) =>
             postDashboardMessageRouteData({
                 data: {
                     guildId,
                     channelId: payload.channelId,
                     ...(payload.content ? { content: payload.content } : {}),
                     embeds: payload.embeds,
+                    requestKey: payload.requestKey,
                 },
             }),
         onSuccess: async (result, payload) => {
             switch (result.type) {
                 case 'sent':
+                    setDeliveryUncertain(false);
                     setContent('');
                     setEmbedDraft(createEmptyDashboardEmbedDraft());
                     setEmbedJson('');
@@ -85,13 +94,11 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     });
                     return;
 
-                case 'sent-with-record-error':
+                case 'delivery-unknown':
+                    setDeliveryUncertain(true);
                     setFormMessage({
                         type: 'warning',
-                        text: 'Message sent, but NeonFlux could not record the posting audit trail.',
-                    });
-                    await queryClient.invalidateQueries({
-                        queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
+                        text: 'Delivery could not be confirmed. Check the channel before starting another attempt.',
                     });
                     return;
 
@@ -111,10 +118,6 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     setFormMessage({ type: 'error', text: 'Dashboard posting is not configured for this deployment.' });
                     return;
 
-                case 'send-failed':
-                    setFormMessage({ type: 'error', text: 'Fluxer could not send this message.' });
-                    return;
-
                 case 'deployment-config-not-found':
                 case 'database-error':
                 case 'guild-lookup-failed':
@@ -123,12 +126,24 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             }
         },
         onError: () => {
-            setFormMessage({ type: 'error', text: 'Could not post this message. Try again.' });
+            setDeliveryUncertain(true);
+            setFormMessage({
+                type: 'warning',
+                text: 'Delivery could not be confirmed. Check the channel before starting another attempt.',
+            });
         },
     });
 
     function submitMessage(event: FormEvent<HTMLFormElement>): void {
         event.preventDefault();
+
+        if (deliveryUncertain) {
+            setFormMessage({
+                type: 'warning',
+                text: 'Check the channel, then explicitly start a new attempt if the message is absent.',
+            });
+            return;
+        }
 
         const parsedEmbeds = getActiveEmbeds({
             mode: embedMode,
@@ -159,6 +174,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             channelLabel: getPostingChannelLabel(channelsQuery.data ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
             embeds: parsedEmbeds.embeds,
+            requestKey: crypto.randomUUID(),
         });
     }
 
@@ -275,10 +291,21 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 <div className='flex flex-wrap items-center gap-3'>
                     <button
                         type='submit'
-                        disabled={mutation.isPending}
+                        disabled={mutation.isPending || deliveryUncertain}
                         className='inline-flex min-h-10 items-center rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
                         {mutation.isPending ? 'Sending...' : 'Send message'}
                     </button>
+                    {deliveryUncertain ? (
+                        <button
+                            type='button'
+                            onClick={() => {
+                                setDeliveryUncertain(false);
+                                setFormMessage({ type: 'warning', text: 'A new posting attempt is ready.' });
+                            }}
+                            className='inline-flex min-h-10 items-center rounded-md border border-amber-700 px-4 text-sm font-semibold text-amber-100 transition hover:border-amber-400 focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
+                            Start new attempt
+                        </button>
+                    ) : null}
                     <span role='status' className={getFormMessageClassName(formMessage?.type)}>
                         {formMessage?.text}
                     </span>

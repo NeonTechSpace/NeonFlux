@@ -2,7 +2,6 @@ import { generateKeyPairSync } from 'node:crypto';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createNeonFluxJwksDataUri } from '@neonflux/convex/jwt';
 import { isConvexRuntimeDb } from '@neonflux/db';
 
 import { closeWebDb, getWebDb } from './db.server.js';
@@ -53,25 +52,17 @@ describe('getWebDb', () => {
 });
 
 function stubConvexEnv(): void {
-    const audience = 'neonflux-convex';
-    const issuer = 'https://neonflux.example';
+    const audience = 'neonflux-convex-web';
+    const issuer = 'https://neonflux.example/web';
     const privateKeyPem = createPrivateKeyPem();
 
     vi.stubEnv('APP_ENV', 'production');
     vi.stubEnv('CONVEX_DEPLOYMENT', 'dev:neonflux');
     vi.stubEnv('CONVEX_URL', 'https://neonflux.convex.cloud');
     vi.stubEnv('VITE_CONVEX_URL', 'https://neonflux.convex.cloud');
-    vi.stubEnv('NEONFLUX_AUTH_JWT_AUDIENCE', audience);
-    vi.stubEnv('NEONFLUX_AUTH_JWT_ISSUER', issuer);
-    vi.stubEnv(
-        'NEONFLUX_AUTH_JWT_JWKS',
-        createNeonFluxJwksDataUri({
-            audience,
-            issuer,
-            privateKeyPem,
-        })
-    );
-    vi.stubEnv('NEONFLUX_AUTH_JWT_PRIVATE_KEY', privateKeyPem);
+    vi.stubEnv('NEONFLUX_WEB_AUTH_JWT_AUDIENCE', audience);
+    vi.stubEnv('NEONFLUX_WEB_AUTH_JWT_ISSUER', issuer);
+    vi.stubEnv('NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY', privateKeyPem);
 }
 
 function createPrivateKeyPem(): string {

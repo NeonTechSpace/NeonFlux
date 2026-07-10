@@ -17,7 +17,7 @@ import {
     structureScheduledDriftStatuses,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
-import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
+import { readFluxerGuildStructure } from '@neonflux/fluxer';
 import type * as Fluxer from '@neonflux/fluxer';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,11 +48,12 @@ vi.mock('@neonflux/fluxer', async (importActual) => {
 
     return {
         ...actual,
-        readFluxerBotGuildStructure: vi.fn(),
+        readFluxerGuildStructure: vi.fn(),
     };
 });
 
 describe('runDueStructureBackups', () => {
+    const client = {} as Fluxer.FluxerBot['client'];
     beforeEach(() => {
         vi.mocked(claimDueStructureBackupSetting).mockImplementation((_db, input) =>
             Promise.resolve(ok(createBackupSettings(input.guildId)))
@@ -80,15 +81,15 @@ describe('runDueStructureBackups', () => {
         vi.mocked(listDueStructureBackupSettings).mockResolvedValue(
             ok([createBackupSettings('guild-success'), createBackupSettings('guild-failed')])
         );
-        vi.mocked(readFluxerBotGuildStructure)
+        vi.mocked(readFluxerGuildStructure)
             .mockResolvedValueOnce(ok(createFluxerStructure('guild-success')))
-            .mockResolvedValueOnce(err({ type: 'login-failed', error: new Error('No guild.') }));
+            .mockResolvedValueOnce(err({ type: 'unavailable-or-not-found' }));
         vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
 
         const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -116,7 +117,7 @@ describe('runDueStructureBackups', () => {
                 guildId: 'guild-failed',
                 source: structureBackupSources.scheduled,
                 status: structureBackupStatuses.failed,
-                errorMessage: 'Structure read failed: login-failed',
+                errorMessage: 'Structure read failed: unavailable-or-not-found',
             })
         );
     });
@@ -127,20 +128,20 @@ describe('runDueStructureBackups', () => {
                 ok(Array.from({ length: 25 }, (_, index) => createBackupSettings(`guild-${String(index)}`)))
             )
             .mockResolvedValueOnce(ok([createBackupSettings('guild-25')]));
-        vi.mocked(readFluxerBotGuildStructure).mockImplementation(({ guildId }) =>
+        vi.mocked(readFluxerGuildStructure).mockImplementation(({ guildId }) =>
             Promise.resolve(ok(createFluxerStructure(guildId)))
         );
         vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
         });
 
         expect(listDueStructureBackupSettings).toHaveBeenCalledTimes(2);
-        expect(readFluxerBotGuildStructure).toHaveBeenCalledTimes(26);
+        expect(readFluxerGuildStructure).toHaveBeenCalledTimes(26);
         expect(createStructureBackup).toHaveBeenCalledTimes(26);
         expect(clearStructureBackupSettingLease).toHaveBeenCalledTimes(26);
     });
@@ -150,7 +151,7 @@ describe('runDueStructureBackups', () => {
         vi.mocked(claimDueStructureBackupSetting).mockResolvedValueOnce(ok(null));
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -165,7 +166,7 @@ describe('runDueStructureBackups', () => {
         });
         expect(typeof claimInput?.leaseId).toBe('string');
         expect(typeof claimInput?.leaseOwner).toBe('string');
-        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+        expect(readFluxerGuildStructure).not.toHaveBeenCalled();
         expect(createStructureBackup).not.toHaveBeenCalled();
         expect(clearStructureBackupSettingLease).not.toHaveBeenCalled();
     });
@@ -179,7 +180,7 @@ describe('runDueStructureBackups', () => {
         );
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -205,7 +206,7 @@ describe('runDueStructureBackups', () => {
             guildId: 'guild-1',
             hasMore: true,
         });
-        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+        expect(readFluxerGuildStructure).not.toHaveBeenCalled();
     });
 
     it('passes retention audit context but does not log no-op prune passes', async () => {
@@ -217,7 +218,7 @@ describe('runDueStructureBackups', () => {
         );
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -245,7 +246,7 @@ describe('runDueStructureBackups', () => {
         vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -266,10 +267,10 @@ describe('runDueStructureBackups', () => {
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
             ok(createBaselineBackup({ guildId: 'guild-drift', roleName: 'Old Member' }))
         );
-        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-drift')));
+        vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-drift')));
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -311,10 +312,10 @@ describe('runDueStructureBackups', () => {
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
             ok(createBaselineBackup({ guildId: 'guild-clean' }))
         );
-        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-clean')));
+        vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-clean')));
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -338,12 +339,12 @@ describe('runDueStructureBackups', () => {
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId)
             .mockResolvedValueOnce(err({ type: 'not-found' }))
             .mockResolvedValueOnce(ok(createBaselineBackup({ guildId: 'guild-failed' })));
-        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(
-            err({ type: 'login-failed', error: new Error('No guild.') })
+        vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(
+            err({ type: 'fetch-failed', error: new Error('No guild.') })
         );
 
         await runDueStructureBackups({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -364,7 +365,7 @@ describe('runDueStructureBackups', () => {
             {},
             expect.objectContaining({
                 audit: expectedFailedAudit,
-                errorMessage: 'Structure read failed: login-failed',
+                errorMessage: 'Structure read failed: fetch-failed',
                 guildId: 'guild-failed',
                 status: structureScheduledDriftStatuses.failed,
             })
@@ -383,7 +384,7 @@ describe('runDueStructureBackups', () => {
         );
 
         const scheduler = startStructureBackupScheduler({
-            botToken: 'bot-token',
+            client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
             now: new Date('2026-07-06T00:00:00.000Z'),
@@ -394,7 +395,7 @@ describe('runDueStructureBackups', () => {
         expect(listDueStructureBackupSettings).toHaveBeenCalledOnce();
 
         finishLookup?.();
-        scheduler.stop();
+        await scheduler.stop();
     });
 });
 

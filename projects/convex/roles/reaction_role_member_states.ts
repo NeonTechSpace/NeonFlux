@@ -1,6 +1,7 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
+import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import type { Doc } from '../_generated/dataModel.js';
 import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 import {
@@ -20,6 +21,7 @@ import {
     shouldReopenReactionRoleFinalization,
     shouldUseDesiredConfigForTransition,
 } from './reaction_role_member_state_model.js';
+import { isGuildRunnable } from './reaction_role_scope.js';
 
 const botService = ['bot'] as const;
 const transitionResultValidator = v.union(
@@ -44,6 +46,7 @@ export const requestReactionRoleMemberTransition = mutation({
     returns: transitionResultValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, botService);
+        if (!(await isGuildRunnable(ctx, args.guildId))) return { type: 'ignored' as const };
         const message = await findMessage(ctx, args.guildId, args.messageId);
         if (!message?.enabled || message.staleAt) {
             return { type: 'ignored' as const };
@@ -277,7 +280,63 @@ export const blockReactionRoleMemberState = mutation({
             status: 'blocked',
             updatedAt: args.now,
         });
+        const message = await ctx.db.get('reactionRoleMessages', state.reactionRoleMessageId);
+        if (message && !message.pendingOperationId) {
+            await ctx.db.patch('reactionRoleMessages', state.reactionRoleMessageId, {
+                lifecycle: 'needs_attention',
+                updatedAt: args.now,
+            });
+        }
+        await markDashboardLiveAreasChangedInMutation(ctx, {
+            areas: ['reaction_roles'],
+            guildId: state.guildId,
+            now: args.now,
+        });
         return true;
+    },
+});
+
+export const retryBlockedReactionRoleMemberStates = mutation({
+    args: { guildId: v.string(), messageId: v.string() },
+    returns: v.object({ hasMore: v.boolean(), retriedCount: v.number() }),
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, ['web'] as const);
+        const message = await findMessage(ctx, args.guildId, args.messageId);
+        if (!message) return { hasMore: false, retriedCount: 0 };
+        const now = new Date().toISOString();
+        const blocked = await ctx.db
+            .query('reactionRoleMemberStates')
+            .withIndex('by_message_status', (query) =>
+                query.eq('reactionRoleMessageId', message._id).eq('status', 'blocked')
+            )
+            .take(100);
+        for (const state of blocked) {
+            await ctx.db.patch('reactionRoleMemberStates', state._id, {
+                errorCode: undefined,
+                nextAttemptAt: undefined,
+                revision: state.revision + 1,
+                status: 'pending',
+                updatedAt: now,
+            });
+        }
+        const hasMore =
+            (await ctx.db
+                .query('reactionRoleMemberStates')
+                .withIndex('by_message_status', (query) =>
+                    query.eq('reactionRoleMessageId', message._id).eq('status', 'blocked')
+                )
+                .first()) !== null;
+        if (!hasMore && !message.pendingOperationId) {
+            await ctx.db.patch('reactionRoleMessages', message._id, { lifecycle: 'ready', updatedAt: now });
+        }
+        if (blocked.length > 0) {
+            await markDashboardLiveAreasChangedInMutation(ctx, {
+                areas: ['reaction_roles'],
+                guildId: message.guildId,
+                now,
+            });
+        }
+        return { hasMore, retriedCount: blocked.length };
     },
 });
 
@@ -365,6 +424,18 @@ async function findClaimCandidate(ctx: MutationCtx, now: string) {
 
 async function findReadyCandidate(ctx: MutationCtx, candidates: Array<Doc<'reactionRoleMemberStates'>>, now: string) {
     for (const candidate of candidates) {
+        if (!(await isGuildRunnable(ctx, candidate.guildId))) {
+            await ctx.db.patch('reactionRoleMemberStates', candidate._id, {
+                errorCode: 'guild_out_of_scope',
+                leaseExpiresAt: undefined,
+                leaseId: undefined,
+                leaseOwner: undefined,
+                nextAttemptAt: undefined,
+                status: 'blocked',
+                updatedAt: now,
+            });
+            continue;
+        }
         const message = await ctx.db.get('reactionRoleMessages', candidate.reactionRoleMessageId);
         if (!message) {
             const assignments = await listAssignments(ctx, candidate.guildId, candidate.messageId, candidate.userId);

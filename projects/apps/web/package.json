@@ -64,6 +64,7 @@
     "devDependencies": {
         "@babel/core": "^8.0.1",
         "@eslint-react/eslint-plugin": "^5.9.0",
+        "@ninoseki/eslint-plugin-neverthrow": "0.2.0",
         "@rolldown/plugin-babel": "^0.2.3",
         "@tanstack/devtools-vite": "0.8.0",
         "@tanstack/eslint-config": "0.4.0",

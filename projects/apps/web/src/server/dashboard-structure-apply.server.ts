@@ -129,6 +129,7 @@ export async function applyDashboardStructureImportRun(
             ...readApplySourceTargetMap(importRunResult.value.plan),
             ...readMatchedRoleSourceTargetMap(importRunResult.value.actions),
         },
+        importMode: readImportMode(importRunResult.value.plan),
         sourceGuildId: readRequestedGuildId(importRunResult.value.plan),
     });
 
@@ -280,7 +281,12 @@ async function runApplyPreflight(
     botToken: string,
     guildId: string,
     actions: StructureImportActionRecord[],
-    options: { allowDestructiveDeletes?: boolean; idMap?: Record<string, string>; sourceGuildId?: string } = {}
+    options: {
+        allowDestructiveDeletes?: boolean;
+        idMap?: Record<string, string>;
+        importMode?: 'merge' | 'replace';
+        sourceGuildId?: string;
+    } = {}
 ): Promise<
     | { type: 'ready'; snapshot: DashboardStructureSnapshot }
     | { type: 'structure-read-failed' }

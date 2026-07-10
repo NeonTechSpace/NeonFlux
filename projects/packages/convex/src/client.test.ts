@@ -122,15 +122,31 @@ describe('createNeonFluxConvexHttpClient', () => {
         );
     });
 
-    it('surfaces HTTP status and response body when the target rejects a request', async () => {
-        stubFetch(new Response('NoAuthProvider', { status: 401 }));
+    it('surfaces HTTP status without exposing a rejected response body', async () => {
+        stubFetch(new Response('private proxy response', { status: 401 }));
         const client = createNeonFluxConvexHttpClient({
             authTokenProvider: () => Promise.resolve('service-jwt'),
             url: 'https://neonflux-test.convex.cloud',
         });
 
         await expect(client.query(api.core.readDeploymentConfig, {})).rejects.toThrow(
-            `Convex query ${getFunctionName(api.core.readDeploymentConfig)} returned HTTP 401: NoAuthProvider`
+            `Convex query ${getFunctionName(api.core.readDeploymentConfig)} returned HTTP 401.`
+        );
+    });
+
+    it('does not expose arbitrary Convex error text', async () => {
+        stubFetch(
+            new Response(JSON.stringify({ errorMessage: 'private record contents: secret', status: 'error' }), {
+                status: 560,
+            })
+        );
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider: () => Promise.resolve('service-jwt'),
+            url: 'https://neonflux-test.convex.cloud',
+        });
+
+        await expect(client.query(api.core.readDeploymentConfig, {})).rejects.toThrow(
+            `Convex query ${getFunctionName(api.core.readDeploymentConfig)} failed: unknown-error.`
         );
     });
 });

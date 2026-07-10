@@ -1,31 +1,19 @@
 import { createNeonFluxJwksDataUri, parseNeonFluxJwksDataUri } from '../packages/convex/src/jwt.js';
 
-const defaultAudience = 'neonflux-convex';
-const defaultIssuer = 'http://localhost:3000/auth';
+export type ConvexAuthProviderKind = 'bot' | 'user' | 'web';
 
-type ConvexJwksEnvironment = Partial<
-    Pick<NodeJS.ProcessEnv, 'NEONFLUX_AUTH_JWT_AUDIENCE' | 'NEONFLUX_AUTH_JWT_ISSUER' | 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'>
->;
-
-export function createConvexAuthJwksDataUriFromEnv(env: ConvexJwksEnvironment = process.env): string {
-    const privateKeyPem = optionalValue(env.NEONFLUX_AUTH_JWT_PRIVATE_KEY);
-
-    if (!privateKeyPem) {
-        throw new Error('NEONFLUX_AUTH_JWT_PRIVATE_KEY is required to generate NEONFLUX_AUTH_JWT_JWKS');
-    }
-
-    const jwksDataUri = createNeonFluxJwksDataUri({
-        audience: optionalValue(env.NEONFLUX_AUTH_JWT_AUDIENCE) ?? defaultAudience,
-        issuer: optionalValue(env.NEONFLUX_AUTH_JWT_ISSUER) ?? defaultIssuer,
-        privateKeyPem,
-    });
-
-    parseNeonFluxJwksDataUri(jwksDataUri, 'generated NEONFLUX_AUTH_JWT_JWKS');
-
+export function createConvexAuthJwksDataUriFromEnv(env: NodeJS.ProcessEnv, provider: ConvexAuthProviderKind): string {
+    const prefix = `NEONFLUX_${provider.toUpperCase()}_AUTH_JWT`;
+    const privateKeyPem = requireValue(env[`${prefix}_PRIVATE_KEY`], `${prefix}_PRIVATE_KEY`);
+    const audience = requireValue(env[`${prefix}_AUDIENCE`], `${prefix}_AUDIENCE`);
+    const issuer = requireValue(env[`${prefix}_ISSUER`], `${prefix}_ISSUER`);
+    const jwksDataUri = createNeonFluxJwksDataUri({ audience, issuer, privateKeyPem });
+    parseNeonFluxJwksDataUri(jwksDataUri, `generated ${prefix}_JWKS`);
     return jwksDataUri;
 }
 
-function optionalValue(value: string | undefined): string | undefined {
-    const trimmed = value?.trim();
-    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+function requireValue(value: string | undefined, name: string): string {
+    const normalized = value?.trim();
+    if (!normalized) throw new Error(`${name} is required`);
+    return normalized;
 }

@@ -1,6 +1,7 @@
 // @ts-check
 
 import eslintReact from '@eslint-react/eslint-plugin';
+import neverthrow from '@ninoseki/eslint-plugin-neverthrow';
 import queryPlugin from '@tanstack/eslint-plugin-query';
 import routerPlugin from '@tanstack/eslint-plugin-router';
 import vitest from '@vitest/eslint-plugin';
@@ -34,6 +35,21 @@ export default [
     ...queryPlugin.configs['flat/recommended'],
     ...tanstackConfig,
     {
+        files: ['**/*.{ts,tsx}'],
+        plugins: {
+            neverthrow,
+        },
+        languageOptions: {
+            parserOptions: {
+                project: './tsconfig.json',
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        rules: {
+            'neverthrow/must-use-result': 'error',
+        },
+    },
+    {
         ...vitest.configs.env,
         files: testFiles,
     },
@@ -44,6 +60,12 @@ export default [
     {
         ...testingLibrary.configs['flat/react'],
         files: testFiles,
+    },
+    {
+        files: testFiles,
+        rules: {
+            'neverthrow/must-use-result': 'off',
+        },
     },
     {
         rules: {

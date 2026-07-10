@@ -86,7 +86,6 @@ export const completeReactionRoleDeleteOperation = mutation({
         const message = await ctx.db.get('reactionRoleMessages', operation.reactionRoleMessageId);
         if (message?.pendingOperationId !== operation._id) return null;
 
-        await recordCompletionAudit(ctx, operation, 'message.deleted', args.now);
         const options = await ctx.db
             .query('reactionRoleOptions')
             .withIndex('by_message_position', (query) => query.eq('reactionRoleMessageId', message._id))
@@ -95,15 +94,17 @@ export const completeReactionRoleDeleteOperation = mutation({
         const memberStates = await ctx.db
             .query('reactionRoleMemberStates')
             .withIndex('by_message_status', (query) => query.eq('reactionRoleMessageId', message._id))
-            .take(500);
+            .take(100);
         for (const state of memberStates) await ctx.db.delete('reactionRoleMemberStates', state._id);
         const remainingAssignments = await ctx.db
             .query('reactionRoleAssignments')
             .withIndex('by_guild_message_user', (query) =>
                 query.eq('guildId', operation.guildId).eq('messageId', message.messageId)
             )
-            .take(500);
+            .take(100);
         for (const assignment of remainingAssignments) await ctx.db.delete('reactionRoleAssignments', assignment._id);
+        if (memberStates.length === 100 || remainingAssignments.length === 100) return null;
+        await recordCompletionAudit(ctx, operation, 'message.deleted', args.now);
         await ctx.db.delete('reactionRoleMessages', message._id);
         const completed = await finishOperation(ctx, operation, args.now);
         return toOperationRecord(completed);

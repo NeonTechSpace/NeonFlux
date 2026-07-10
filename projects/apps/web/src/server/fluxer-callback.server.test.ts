@@ -218,7 +218,7 @@ describe('handleFluxerCallbackRequest', () => {
 
         expect(response.status).toBe(400);
         expect(await response.text()).toBe('Invalid Fluxer OAuth callback.');
-        expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
+        expect(getSetCookieHeaders(response)).toEqual([]);
         expect(fetchCalled).toBe(false);
         expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
         expect(createWebSession).not.toHaveBeenCalled();
@@ -243,6 +243,23 @@ describe('handleFluxerCallbackRequest', () => {
         expect(await response.text()).toBe('');
         expect(getSetCookieHeaders(response)).toEqual([createDevelopmentClearCookie()]);
         expect(fetchCalled).toBe(false);
+        expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
+        expect(createWebSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unbound authorization denial without consuming the legitimate flow', async () => {
+        stubMinimalEnv();
+
+        const response = await handleFluxerCallbackRequest(
+            createCallbackRequest(
+                'http://localhost:3000/auth/fluxer/callback?error=access_denied&state=attacker-state',
+                'legitimate-state'
+            )
+        );
+
+        expect(response.status).toBe(400);
+        expect(response.headers.get('Location')).toBeNull();
+        expect(getSetCookieHeaders(response)).toEqual([]);
         expect(upsertFluxerOAuthTokenSet).not.toHaveBeenCalled();
         expect(createWebSession).not.toHaveBeenCalled();
     });

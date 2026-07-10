@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { toDashboardGuild } from './permissions.js';
+import { hasManageServerPermission, toDashboardGuild } from './permissions.js';
 
 describe('toDashboardGuild', () => {
     it('maps guild icon hashes to Fluxer icon URLs', () => {
@@ -28,5 +28,20 @@ describe('toDashboardGuild', () => {
                 permissions: '32',
             }).iconUrl
         ).toBe('https://fluxerusercontent.com/icons/1514728169414852609/a_guild-icon-hash.gif?size=80');
+    });
+});
+
+describe('hasManageServerPermission', () => {
+    it('recognizes Administrator as implying Manage Server', () => {
+        expect(hasManageServerPermission(8)).toBe(true);
+        expect(hasManageServerPermission('8')).toBe(true);
+        expect(hasManageServerPermission(['ADMINISTRATOR'])).toBe(true);
+    });
+
+    it('rejects unsafe numeric permission values', () => {
+        expect(hasManageServerPermission(-1)).toBe(false);
+        expect(hasManageServerPermission(Number.POSITIVE_INFINITY)).toBe(false);
+        expect(hasManageServerPermission(Number.MAX_SAFE_INTEGER + 1)).toBe(false);
+        expect(hasManageServerPermission('-1')).toBe(false);
     });
 });

@@ -1,8 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 
-import type { RequiredConvexConfig } from '@neonflux/config/env';
 import { api } from '@neonflux/convex-api';
-import { createNeonFluxJwksDataUri, verifyNeonFluxJwt } from '@neonflux/convex/jwt';
+import { verifyNeonFluxJwt } from '@neonflux/convex/jwt';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -11,6 +10,7 @@ import {
     createConvexServiceAuthToken,
     createConvexServiceAuthTokenProvider,
     createConvexServiceDb,
+    type ConvexServiceRuntimeConfig,
 } from './convex.js';
 import { createRuntimeDb, isConvexRuntimeDb } from './service.js';
 
@@ -215,7 +215,7 @@ describe('Convex service database', () => {
         const database = await createRuntimeDb(
             {
                 appEnv: 'production',
-                convex: createConfig(),
+                convex: createWebRuntimeConfig(createConfig()),
                 guildDefconOverride: 'auto',
                 logLevel: 'info',
                 nodeEnv: 'production',
@@ -246,7 +246,7 @@ describe('Convex service database', () => {
     });
 });
 
-function createJwtSignerConfig(config: RequiredConvexConfig) {
+function createJwtSignerConfig(config: ConvexServiceRuntimeConfig) {
     return {
         audience: config.authJwtAudience,
         issuer: config.authJwtIssuer,
@@ -284,7 +284,7 @@ function stubSuccessfulConvexQueries(): string[] {
     return authorizationTokens;
 }
 
-function createConfig(): RequiredConvexConfig {
+function createConfig(): ConvexServiceRuntimeConfig {
     const { privateKey } = generateKeyPairSync('rsa', {
         modulusLength: 2048,
     });
@@ -293,14 +293,20 @@ function createConfig(): RequiredConvexConfig {
     return {
         authJwtAudience: 'neonflux-convex',
         authJwtIssuer: 'https://neonflux.example/auth',
-        authJwtJwks: createNeonFluxJwksDataUri({
-            audience: 'neonflux-convex',
-            issuer: 'https://neonflux.example/auth',
-            privateKeyPem,
-        }),
         authJwtPrivateKey: privateKeyPem,
         deployment: 'team:neonflux-test',
         publicUrl: 'https://neonflux-test.convex.cloud',
         url: 'https://neonflux-test.convex.cloud',
+    };
+}
+
+function createWebRuntimeConfig(config: ConvexServiceRuntimeConfig) {
+    return {
+        deployment: config.deployment,
+        publicUrl: config.publicUrl,
+        url: config.url,
+        webAuthJwtAudience: config.authJwtAudience,
+        webAuthJwtIssuer: config.authJwtIssuer,
+        webAuthJwtPrivateKey: config.authJwtPrivateKey,
     };
 }

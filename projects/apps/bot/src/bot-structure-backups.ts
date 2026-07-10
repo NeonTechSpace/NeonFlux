@@ -22,7 +22,8 @@ import {
     countFluxerGuildStructurePlanChanges,
     diffFluxerGuildStructureSnapshot,
     normalizeFluxerGuildStructureSnapshot,
-    readFluxerBotGuildStructure,
+    readFluxerGuildStructure,
+    type FluxerBot,
     summarizeFluxerGuildStructurePlanFields,
     toFluxerGuildStructureSnapshot,
     type FluxerGuildStructure,
@@ -30,11 +31,11 @@ import {
 import { randomUUID } from 'node:crypto';
 
 type StructureBackupScheduler = {
-    stop(): void;
+    stop(): Promise<void>;
 };
 
 type RunDueStructureBackupsInput = {
-    botToken: string;
+    client: FluxerBot['client'];
     database: RuntimeDbClient;
     leaseOwner?: string;
     logger: AppLogger;
@@ -51,17 +52,14 @@ const structureDriftBatchLimit = 25;
 const structureDriftPreviewLimit = 100;
 
 export function startStructureBackupScheduler(input: RunDueStructureBackupsInput): StructureBackupScheduler {
-    let running = false;
+    let running: Promise<void> | undefined;
     const leaseOwner = input.leaseOwner ?? `structure-backup-scheduler:${randomUUID()}`;
     const runOnce = async () => {
         if (running) return;
-        running = true;
-
-        try {
-            await runDueStructureBackups({ ...input, leaseOwner });
-        } finally {
-            running = false;
-        }
+        running = runDueStructureBackups({ ...input, leaseOwner }).finally(() => {
+            running = undefined;
+        });
+        await running;
     };
     const interval = setInterval(() => {
         void runOnce();
@@ -70,21 +68,22 @@ export function startStructureBackupScheduler(input: RunDueStructureBackupsInput
     void runOnce();
 
     return {
-        stop() {
+        async stop() {
             clearInterval(interval);
+            await running;
         },
     };
 }
 
 export async function runDueStructureBackups({
-    botToken,
+    client,
     database,
     leaseOwner = `structure-backup-run:${randomUUID()}`,
     logger,
     now = new Date(),
 }: RunDueStructureBackupsInput): Promise<void> {
     await runDueStructureBackupRetention({ database, logger, now });
-    await runDueStructureDriftMonitoring({ botToken, database, leaseOwner, logger, now });
+    await runDueStructureDriftMonitoring({ client, database, leaseOwner, logger, now });
 
     const processedGuildIds = new Set<string>();
 
@@ -120,8 +119,8 @@ export async function runDueStructureBackups({
             if (!claimResult.value) continue;
 
             try {
-                const structureResult = await readFluxerBotGuildStructure({
-                    botToken,
+                const structureResult = await readFluxerGuildStructure({
+                    client,
                     guildId: settings.guildId,
                 });
 
@@ -188,13 +187,13 @@ export async function runDueStructureBackups({
 }
 
 async function runDueStructureDriftMonitoring({
-    botToken,
+    client,
     database,
     leaseOwner,
     logger,
     now,
 }: Required<
-    Pick<RunDueStructureBackupsInput, 'botToken' | 'database' | 'leaseOwner' | 'logger' | 'now'>
+    Pick<RunDueStructureBackupsInput, 'client' | 'database' | 'leaseOwner' | 'logger' | 'now'>
 >): Promise<void> {
     const processedGuildIds = new Set<string>();
 
@@ -233,7 +232,7 @@ async function runDueStructureDriftMonitoring({
             if (!claimResult.value) continue;
 
             try {
-                await checkScheduledStructureDrift({ botToken, database, guildId: settings.guildId, logger, now });
+                await checkScheduledStructureDrift({ client, database, guildId: settings.guildId, logger, now });
             } finally {
                 const clearResult = await clearStructureDriftSettingLease(database.db, {
                     guildId: settings.guildId,
@@ -261,7 +260,7 @@ async function runDueStructureDriftMonitoring({
 }
 
 async function checkScheduledStructureDrift(input: {
-    botToken: string;
+    client: FluxerBot['client'];
     database: RuntimeDbClient;
     guildId: string;
     logger: AppLogger;
@@ -289,8 +288,8 @@ async function checkScheduledStructureDrift(input: {
         return;
     }
 
-    const structureResult = await readFluxerBotGuildStructure({
-        botToken: input.botToken,
+    const structureResult = await readFluxerGuildStructure({
+        client: input.client,
         guildId: input.guildId,
     });
 

@@ -1,9 +1,11 @@
 import {
     acquireReactionRoleUserLease,
+    blockReactionRoleMemberState,
     claimNextReactionRoleMemberState,
     completeReactionRoleMemberState,
     deferReactionRoleMemberState,
     hasOtherActiveReactionRoleAssignment,
+    isReactionRoleGuildRunnable,
     loadReactionRoleMemberReconciliation,
     releaseReactionRoleUserLease,
     renewReactionRoleUserLease,
@@ -30,10 +32,12 @@ const removeReaction = vi.fn();
 vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
     acquireReactionRoleUserLease: vi.fn(),
+    blockReactionRoleMemberState: vi.fn(),
     claimNextReactionRoleMemberState: vi.fn(),
     completeReactionRoleMemberState: vi.fn(),
     deferReactionRoleMemberState: vi.fn(),
     hasOtherActiveReactionRoleAssignment: vi.fn(),
+    isReactionRoleGuildRunnable: vi.fn(),
     loadReactionRoleMemberReconciliation: vi.fn(),
     releaseReactionRoleUserLease: vi.fn(),
     renewReactionRoleUserLease: vi.fn(),
@@ -58,6 +62,8 @@ describe('reaction-role member reconciler', () => {
         addRole.mockResolvedValue(ok(undefined));
         removeReaction.mockResolvedValue(ok(undefined));
         vi.mocked(acquireReactionRoleUserLease).mockResolvedValue(ok(true));
+        vi.mocked(blockReactionRoleMemberState).mockResolvedValue(ok(true));
+        vi.mocked(isReactionRoleGuildRunnable).mockResolvedValue(ok(true));
         vi.mocked(renewReactionRoleUserLease).mockResolvedValue(ok(true));
         vi.mocked(releaseReactionRoleUserLease).mockResolvedValue(ok(true));
         vi.mocked(hasOtherActiveReactionRoleAssignment).mockResolvedValue(ok(false));
@@ -155,6 +161,42 @@ describe('reaction-role member reconciler', () => {
         expect(readMember).not.toHaveBeenCalled();
         expect(removeRole).not.toHaveBeenCalled();
         expect(addRole).not.toHaveBeenCalled();
+    });
+
+    it('blocks permanent hierarchy failures until an administrator retries', async () => {
+        const state = createState();
+        vi.mocked(claimNextReactionRoleMemberState).mockResolvedValue(ok(state));
+        vi.mocked(loadReactionRoleMemberReconciliation).mockResolvedValue(
+            ok({
+                assignments: [createAssignment({ emojiKey: '✅', roleId: 'role-new', desiredState: 'present' })],
+                message: createMessage(),
+                options: [createOption()],
+                state,
+            })
+        );
+        readMember.mockResolvedValue(ok({ guildId: 'guild-1', userId: 'user-1', roleIds: [] }));
+        vi.mocked(filterBotManageableRoleIds).mockResolvedValue(ok([]));
+
+        const result = await runNextReactionRoleMemberReconciliation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toStrictEqual({ status: 'blocked', stateId: 'state-1', errorCode: 'role_hierarchy_blocked' });
+        expect(blockReactionRoleMemberState).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ errorCode: 'role_hierarchy_blocked', stateId: 'state-1' })
+        );
+        expect(deferReactionRoleMemberState).not.toHaveBeenCalled();
+        expect(addRole).not.toHaveBeenCalled();
+    });
+
+    it('blocks an out-of-scope member claim before platform work', async () => {
+        vi.mocked(claimNextReactionRoleMemberState).mockResolvedValue(ok(createState()));
+        vi.mocked(isReactionRoleGuildRunnable).mockResolvedValue(ok(false));
+
+        const result = await runNextReactionRoleMemberReconciliation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ status: 'blocked', errorCode: 'guild_out_of_scope' });
+        expect(blockReactionRoleMemberState).toHaveBeenCalled();
+        expect(createFluxerPlatform).not.toHaveBeenCalled();
     });
 });
 

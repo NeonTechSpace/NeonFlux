@@ -1,4 +1,3 @@
-import type { RequiredConvexConfig } from '@neonflux/config/env';
 import { createNeonFluxConvexHttpClient } from '@neonflux/convex/client';
 import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 
@@ -7,6 +6,15 @@ export const CONVEX_SERVICE_AUTH_REFRESH_SKEW_SECONDS = 60;
 export const CONVEX_SERVICE_AUTH_SIGNING_RETRY_DELAY_MS = 5_000;
 
 export type ConvexDbServiceName = 'bot' | 'web';
+
+export type ConvexServiceRuntimeConfig = {
+    authJwtAudience: string;
+    authJwtIssuer: string;
+    authJwtPrivateKey: string;
+    deployment: string;
+    publicUrl: string;
+    url: string;
+};
 
 export type ConvexServiceDbOptions = {
     expiresInSeconds?: number;
@@ -48,7 +56,7 @@ export class ConvexServiceAuthTokenRefreshError extends Error {
 }
 
 export function createConvexServiceAuthToken(
-    config: RequiredConvexConfig,
+    config: ConvexServiceRuntimeConfig,
     options: ConvexServiceDbOptions
 ): Promise<string> {
     const expiresInSeconds = readServiceAuthTokenLifetimeSeconds(options.expiresInSeconds);
@@ -57,7 +65,7 @@ export function createConvexServiceAuthToken(
 }
 
 export function createConvexServiceAuthTokenProvider(
-    config: RequiredConvexConfig,
+    config: ConvexServiceRuntimeConfig,
     options: ConvexServiceDbOptions
 ): ConvexServiceAuthTokenProvider {
     const expiresInSeconds = readServiceAuthTokenLifetimeSeconds(options.expiresInSeconds);
@@ -128,7 +136,7 @@ export function createConvexServiceAuthTokenProvider(
 }
 
 function signConvexServiceAuthToken(
-    config: RequiredConvexConfig,
+    config: ConvexServiceRuntimeConfig,
     serviceName: ConvexDbServiceName,
     expiresInSeconds: number,
     now: Date
@@ -158,7 +166,7 @@ function readServiceAuthTokenLifetimeSeconds(value: number | undefined): number 
 }
 
 export function createConvexServiceDb(
-    config: RequiredConvexConfig,
+    config: ConvexServiceRuntimeConfig,
     options: ConvexServiceDbOptions
 ): Promise<ConvexServiceDbClient> {
     const authTokenProvider = createConvexServiceAuthTokenProvider(config, options);

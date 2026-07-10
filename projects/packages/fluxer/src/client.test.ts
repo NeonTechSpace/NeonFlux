@@ -107,7 +107,7 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('syncs current bot guilds after the ready event exposes the bot user', async () => {
+    it('awaits current guild sync from the complete gateway cache without replacing guild state', async () => {
         const guildsReady = vi.fn<(event: { guildIds: string[] }) => void>();
         const logger = createLogger();
         const bot = createFluxerBot(
@@ -120,33 +120,74 @@ describe('createFluxerBot lifecycle handlers', () => {
                 guildsReady,
             }
         );
-        const fetchGuilds = vi.fn().mockResolvedValue([createGuild('guild-1'), createGuild('guild-2')]);
         const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => undefined);
+        const cachedGuild = createGuild('guild-1', {
+            members: new Map([['member-1', { id: 'member-1' }]]),
+        });
 
-        vi.spyOn(bot.client, 'login').mockResolvedValue('bot-user');
-        Object.defineProperty(bot.client, 'user', {
-            configurable: true,
-            value: {
-                fetchGuilds,
-            },
+        bot.client.guilds.set('guild-2', createGuild('guild-2'));
+        bot.client.guilds.set('guild-1', cachedGuild);
+        vi.spyOn(bot.client, 'login').mockImplementation(() => {
+            bot.client.emit(Events.Ready);
+            return Promise.resolve('bot-user');
         });
 
         await bot.start();
-
-        expect(guildsReady).not.toHaveBeenCalled();
-
-        bot.client.emit(Events.Ready);
-        await settleAsyncHandler();
 
         expect(logger.info).toHaveBeenCalledWith('fluxer.ready', {
             instanceMode: 'multi',
         });
         expect(sendToGateway).not.toHaveBeenCalled();
         expect(logger.info).not.toHaveBeenCalledWith('fluxer.presence_updated', expect.anything());
-        expect(fetchGuilds).toHaveBeenCalledTimes(1);
         expect(guildsReady).toHaveBeenCalledWith({
             guildIds: ['guild-1', 'guild-2'],
         });
+        expect(bot.client.guilds.get('guild-1')).toBe(cachedGuild);
+    });
+
+    it('bounds traffic-driven caches while retaining the configured guild scope', () => {
+        const multiBot = createFluxerBot(createConfig(), createLogger());
+        const singleBot = createFluxerBot({ instanceMode: 'single' }, createLogger());
+
+        expect(multiBot.client.options.cache).toStrictEqual({
+            channels: 5_000,
+            guilds: 0,
+            messages: 0,
+            users: 10_000,
+        });
+        expect(singleBot.client.options.cache?.guilds).toBe(1);
+    });
+
+    it('drains accepted lifecycle handlers before destroying the gateway client', async () => {
+        const handlerStarted = Promise.withResolvers<undefined>();
+        const handlerRelease = Promise.withResolvers<undefined>();
+        const handlerFinished = vi.fn();
+        const bot = createFluxerBot({ ...createConfig(), fluxerBotToken: 'bot-token' }, createLogger(), {
+            async guildCreated() {
+                handlerStarted.resolve(undefined);
+                await handlerRelease.promise;
+                handlerFinished();
+            },
+        });
+        vi.spyOn(bot.client, 'login').mockImplementation(() => {
+            bot.client.emit(Events.Ready);
+            return Promise.resolve('bot-user');
+        });
+        const destroy = vi.spyOn(bot.client, 'destroy').mockResolvedValue();
+
+        await bot.start();
+        bot.client.emit(Events.GuildCreate, createGuild('guild-1'));
+        await handlerStarted.promise;
+        const stopping = bot.stop();
+
+        await Promise.resolve();
+        expect(destroy).not.toHaveBeenCalled();
+
+        handlerRelease.resolve(undefined);
+        await stopping;
+
+        expect(handlerFinished).toHaveBeenCalledOnce();
+        expect(destroy).toHaveBeenCalledOnce();
     });
 
     it('does not push a custom status when no custom status text is configured', () => {

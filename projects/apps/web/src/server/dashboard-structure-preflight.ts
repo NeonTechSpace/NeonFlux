@@ -48,6 +48,7 @@ export type DashboardStructurePreflightReport = {
 export type DashboardStructurePreflightOptions = {
     allowDestructiveDeletes?: boolean;
     idMap?: Record<string, string>;
+    importMode?: 'merge' | 'replace';
     sourceGuildId?: string;
 };
 
@@ -164,7 +165,10 @@ function preflightCreateAction(
         return toPreflightAction(action, 'invalid-plan', 'The create action does not contain a valid target.');
     }
 
-    if (findCurrentItem(current, targetType, action.targetId)) {
+    if (
+        findCurrentItem(current, targetType, action.targetId) &&
+        !isSameGuildReplaceCreate(current, action, targetType, actions, options)
+    ) {
         return toPreflightAction(action, 'stale', 'The create target already exists in the current server layout.');
     }
 
@@ -691,7 +695,7 @@ function validatePermissionOverwriteTargets(
     for (const overwrite of overwrites) {
         if (overwrite.type === 1) continue;
 
-        if (deletedRoleIds.has(overwrite.id)) {
+        if (deletedRoleIds.has(overwrite.id) && !isSameGuildReplaceRole(current, actions, overwrite.id, options)) {
             return {
                 status: 'invalid-plan',
                 message: 'A permission overwrite references a role that is deleted by this import plan.',
@@ -707,6 +711,40 @@ function validatePermissionOverwriteTargets(
     }
 
     return undefined;
+}
+
+function isSameGuildReplaceCreate(
+    current: DashboardStructureSnapshot,
+    action: DashboardStructurePreflightInputAction,
+    targetType: TargetType,
+    actions: DashboardStructurePreflightInputAction[],
+    options: DashboardStructurePreflightOptions
+): boolean {
+    return (
+        options.importMode === 'replace' &&
+        options.sourceGuildId === current.guildId &&
+        actions.some(
+            (candidate) =>
+                candidate.actionType === 'delete' &&
+                candidate.targetType === targetType &&
+                candidate.targetId === action.targetId
+        )
+    );
+}
+
+function isSameGuildReplaceRole(
+    current: DashboardStructureSnapshot,
+    actions: DashboardStructurePreflightInputAction[],
+    roleId: string,
+    options: DashboardStructurePreflightOptions
+): boolean {
+    return (
+        options.importMode === 'replace' &&
+        options.sourceGuildId === current.guildId &&
+        actions.some(
+            (action) => action.actionType === 'create' && action.targetType === 'role' && action.targetId === roleId
+        )
+    );
 }
 
 function validateLayoutChanges(

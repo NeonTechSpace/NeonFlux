@@ -23,6 +23,10 @@ export type FluxerOAuthCallbackState = {
     state: string;
 };
 
+export type FluxerOAuthCallbackBinding = {
+    state: string;
+};
+
 export type ValidateFluxerOAuthCallbackStateInput = {
     request: Request;
     url: URL;
@@ -75,12 +79,25 @@ export function validateFluxerOAuthCallbackState({
     url,
 }: ValidateFluxerOAuthCallbackStateInput): Result<FluxerOAuthCallbackState, FluxerOAuthCallbackStateError> {
     const code = url.searchParams.get('code')?.trim();
-    const callbackState = url.searchParams.get('state');
-    const cookieState = readFluxerOAuthStateCookie(request);
+    const bindingResult = validateFluxerOAuthCallbackBinding({ request, url });
+
+    if (bindingResult.isErr()) {
+        return err(bindingResult.error);
+    }
 
     if (!code) {
         return err('missing-code');
     }
+
+    return ok({ code, state: bindingResult.value.state });
+}
+
+export function validateFluxerOAuthCallbackBinding({
+    request,
+    url,
+}: ValidateFluxerOAuthCallbackStateInput): Result<FluxerOAuthCallbackBinding, FluxerOAuthCallbackStateError> {
+    const callbackState = url.searchParams.get('state');
+    const cookieState = readFluxerOAuthStateCookie(request);
 
     if (!callbackState || callbackState.trim().length === 0) {
         return err('missing-callback-state');
@@ -94,7 +111,7 @@ export function validateFluxerOAuthCallbackState({
         return err('state-mismatch');
     }
 
-    return ok({ code, state: callbackState });
+    return ok({ state: callbackState });
 }
 
 function createFluxerOAuthStateCookieHeader(state: string, appEnv: AppEnv, maxAgeSeconds: number): string {

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     reconcileBotInstallations,
+    reconcileBotInstallationsWithRetry,
     recordBotInstallationEvent,
     removeBotInstallationEvent,
 } from './bot-installation-sync.js';
@@ -147,13 +148,15 @@ describe('reconcileBotInstallations', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             status: 'reconciled',
             recordedGuildIds: ['target'],
-            removedGuildIds: [],
+            removedGuildIds: ['other'],
         });
         expect(upsertBotInstallationMock).toHaveBeenCalledTimes(1);
         expect(upsertBotInstallationMock).toHaveBeenCalledWith(testDb, {
             guildId: 'target',
         });
-        expect(deleteBotInstallationMock).not.toHaveBeenCalled();
+        expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
+            guildId: 'other',
+        });
     });
 
     it('removes the configured single guild when it is no longer present', async () => {
@@ -167,7 +170,7 @@ describe('reconcileBotInstallations', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             status: 'reconciled',
             recordedGuildIds: [],
-            removedGuildIds: ['target'],
+            removedGuildIds: ['target', 'other'],
         });
         expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
             guildId: 'target',
@@ -183,6 +186,26 @@ describe('reconcileBotInstallations', () => {
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toBe('database-error');
+    });
+
+    it('retries transient reconciliation failures with bounded backoff', async () => {
+        const sleep = vi.fn().mockResolvedValue(undefined);
+        upsertBotInstallationMock
+            .mockResolvedValueOnce(err('database-error'))
+            .mockResolvedValueOnce(err('database-error'))
+            .mockResolvedValueOnce(ok(createInstallation('guild-1')));
+
+        const result = await reconcileBotInstallationsWithRetry(
+            testDb,
+            createMultiMode(),
+            { guildIds: ['guild-1'] },
+            { baseDelayMs: 10, maxAttempts: 3, sleep }
+        );
+
+        expect(result.isOk()).toBe(true);
+        expect(sleep).toHaveBeenNthCalledWith(1, 10);
+        expect(sleep).toHaveBeenNthCalledWith(2, 20);
+        expect(upsertBotInstallationMock).toHaveBeenCalledTimes(3);
     });
 });
 

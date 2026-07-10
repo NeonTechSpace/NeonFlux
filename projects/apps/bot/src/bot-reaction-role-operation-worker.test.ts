@@ -1,10 +1,12 @@
 import {
     acquireReactionRoleUserLease,
     claimNextReactionRoleOperation,
+    completeReactionRoleDeleteOperation,
     completeReactionRolePublishOperation,
     completeReactionRoleReconciliationItem,
     deferReactionRoleOperation,
     hasOtherActiveReactionRoleAssignment,
+    isReactionRoleGuildRunnable,
     listPendingReactionRoleReconciliationItems,
     markReactionRoleOperationNeedsAttention,
     markReactionRoleOperationSending,
@@ -33,10 +35,12 @@ vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
     acquireReactionRoleUserLease: vi.fn(),
     claimNextReactionRoleOperation: vi.fn(),
+    completeReactionRoleDeleteOperation: vi.fn(),
     completeReactionRolePublishOperation: vi.fn(),
     completeReactionRoleReconciliationItem: vi.fn(),
     deferReactionRoleOperation: vi.fn(),
     hasOtherActiveReactionRoleAssignment: vi.fn(),
+    isReactionRoleGuildRunnable: vi.fn(),
     listPendingReactionRoleReconciliationItems: vi.fn(),
     markReactionRoleOperationNeedsAttention: vi.fn(),
     markReactionRoleOperationSending: vi.fn(),
@@ -66,11 +70,13 @@ describe('reaction-role operation worker', () => {
         vi.mocked(renewReactionRoleUserLease).mockResolvedValue(ok(true));
         vi.mocked(releaseReactionRoleUserLease).mockResolvedValue(ok(true));
         vi.mocked(hasOtherActiveReactionRoleAssignment).mockResolvedValue(ok(false));
+        vi.mocked(isReactionRoleGuildRunnable).mockResolvedValue(ok(true));
         vi.mocked(completeReactionRoleReconciliationItem).mockResolvedValue(ok(true));
         vi.mocked(deferReactionRoleOperation).mockResolvedValue(ok(true));
         vi.mocked(markReactionRoleOperationNeedsAttention).mockResolvedValue(ok(true));
         vi.mocked(filterBotManageableRoleIds).mockResolvedValue(ok(['role-1']));
         vi.mocked(completeReactionRolePublishOperation).mockResolvedValue(ok(null));
+        vi.mocked(completeReactionRoleDeleteOperation).mockResolvedValue(ok(null));
         vi.mocked(recordReactionRoleOperationExternalMessage).mockResolvedValue(ok(null));
     });
 
@@ -175,6 +181,42 @@ describe('reaction-role operation worker', () => {
 
         expect(result).toMatchObject({ status: 'needs_attention', errorCode: 'external_not_found' });
         expect(deferReactionRoleOperation).not.toHaveBeenCalled();
+    });
+
+    it('terminates an out-of-scope claim before platform work', async () => {
+        vi.mocked(claimNextReactionRoleOperation).mockResolvedValue(ok(createOperation()));
+        vi.mocked(isReactionRoleGuildRunnable).mockResolvedValue(ok(false));
+
+        const result = await runNextReactionRoleOperation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ status: 'needs_attention', errorCode: 'guild_out_of_scope' });
+        expect(markReactionRoleOperationNeedsAttention).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ errorCode: 'guild_out_of_scope' })
+        );
+        expect(createFluxerPlatform).not.toHaveBeenCalled();
+    });
+
+    it('keeps a delete tombstone retryable while bounded child cleanup continues', async () => {
+        vi.mocked(claimNextReactionRoleOperation).mockResolvedValue(
+            ok({
+                ...createOperation(),
+                externalMessageId: 'message-1',
+                idempotencyKey: 'gateway-message-deleted:message-1',
+                reactionRoleMessageId: 'menu-1',
+                stage: 'message',
+                type: 'delete',
+            })
+        );
+
+        const result = await runNextReactionRoleOperation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ status: 'deferred', errorCode: 'cleanup_progress' });
+        expect(deferReactionRoleOperation).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ errorCode: 'cleanup_progress' })
+        );
+        expect(createFluxerPlatform).not.toHaveBeenCalled();
     });
 });
 

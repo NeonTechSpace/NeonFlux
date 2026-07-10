@@ -29,6 +29,23 @@ export type NeonFluxConvexHttpClient = {
     ): Promise<FunctionReturnType<Query>>;
 };
 
+const safeConvexErrorCodes = new Set([
+    'invalid-access-token',
+    'invalid-defcon-level',
+    'invalid-expiry',
+    'invalid-refresh-token',
+    'invalid-target-type',
+    'missing-category',
+    'missing-feature',
+    'missing-fluxer-user-id',
+    'missing-guild-id',
+    'missing-input',
+    'missing-scopes',
+    'missing-session-id',
+    'missing-target-id',
+    'missing-token-type',
+]);
+
 export function createNeonFluxConvexHttpClient(config: NeonFluxConvexClientConfig): NeonFluxConvexHttpClient {
     return {
         mutation: async <Mutation extends NeonFluxConvexMutationReference>(
@@ -67,7 +84,7 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
     const body = await response.text();
 
     if (!response.ok && response.status !== 560) {
-        throw new Error(`Convex ${operation} ${path} returned HTTP ${String(response.status)}: ${body}`);
+        throw new Error(`Convex ${operation} ${path} returned HTTP ${String(response.status)}.`);
     }
 
     const payload = parseConvexHttpJson(body, operation, path);
@@ -77,10 +94,10 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
     }
 
     if (payload.status === 'error') {
-        throw new Error(`Convex ${operation} ${path} failed: ${formatConvexErrorMessage(payload.errorMessage)}`);
+        throw new Error(`Convex ${operation} ${path} failed: ${readSafeConvexErrorCode(payload.errorMessage)}.`);
     }
 
-    throw new Error(`Convex ${operation} ${path} returned an unexpected payload: ${body}`);
+    throw new Error(`Convex ${operation} ${path} returned an unexpected payload.`);
 }
 
 function readOptionalArgs<FuncRef extends NeonFluxConvexFunctionReference>(
@@ -96,11 +113,11 @@ function parseConvexHttpJson(body: string, operation: 'mutation' | 'query', path
         if (isRecord(payload)) {
             return payload;
         }
-    } catch (error) {
-        throw new Error(`Convex ${operation} ${path} returned non-JSON content: ${body}`, { cause: error });
+    } catch {
+        throw new Error(`Convex ${operation} ${path} returned non-JSON content.`);
     }
 
-    throw new Error(`Convex ${operation} ${path} returned a non-object payload: ${body}`);
+    throw new Error(`Convex ${operation} ${path} returned a non-object payload.`);
 }
 
 function readJsonValue(value: unknown, operation: 'mutation' | 'query', path: string): JSONValue {
@@ -111,8 +128,8 @@ function readJsonValue(value: unknown, operation: 'mutation' | 'query', path: st
     throw new Error(`Convex ${operation} ${path} returned a non-JSON value.`);
 }
 
-function formatConvexErrorMessage(value: unknown): string {
-    return typeof value === 'string' && value.length > 0 ? value : 'unknown error';
+function readSafeConvexErrorCode(value: unknown): string {
+    return typeof value === 'string' && safeConvexErrorCodes.has(value) ? value : 'unknown-error';
 }
 
 function isJsonValue(value: unknown): value is JSONValue {

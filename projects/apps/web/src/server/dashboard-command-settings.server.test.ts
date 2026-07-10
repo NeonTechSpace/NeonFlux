@@ -1,6 +1,6 @@
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
-import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
-import type { BotActionEventRecord, GuildCommandSettingsRecord } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
+import type { GuildCommandSettingsRecord } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
@@ -49,7 +49,6 @@ vi.mock('@neonflux/db', async (importActual) => {
     return {
         ...actual,
         findGuildCommandSettingsByGuildId: vi.fn(),
-        recordBotActionEvent: vi.fn(),
         upsertGuildCommandPrefix: vi.fn(),
     };
 });
@@ -77,7 +76,6 @@ describe('dashboard command settings', () => {
             })
         );
         vi.mocked(findGuildCommandSettingsByGuildId).mockResolvedValue(err('not-found'));
-        vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createBotActionEventRecord()));
         vi.mocked(upsertGuildCommandPrefix).mockResolvedValue(ok(createCommandSettingsRecord('?')));
     });
 
@@ -130,21 +128,23 @@ describe('dashboard command settings', () => {
         const result = await updateDashboardGuildCommandPrefix(request, { guildId: 'guild-1', prefix: '?1' });
 
         expect(loadDashboardGuildPageData).toHaveBeenCalledWith(request, 'guild-1');
-        expect(upsertGuildCommandPrefix).toHaveBeenCalledWith({}, { guildId: 'guild-1', prefix: '?1' });
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
+        expect(upsertGuildCommandPrefix).toHaveBeenCalledWith(
             {},
             {
-                guildId: 'guild-1',
-                feature: 'settings',
-                action: 'command_prefix.updated',
-                actorUserId: 'actor-1',
-                targetId: 'settings.prefix',
-                metadata: {
-                    prefix: '?1',
-                    source: 'dashboard',
-                    actorUsername: 'neonsy',
-                    actorDisplayName: 'Neonsy',
+                audit: {
+                    action: 'command_prefix.updated',
+                    actorUserId: 'actor-1',
+                    feature: 'settings',
+                    metadata: {
+                        actorDisplayName: 'Neonsy',
+                        actorUsername: 'neonsy',
+                        prefix: '?1',
+                        source: 'dashboard',
+                    },
+                    targetId: 'settings.prefix',
                 },
+                guildId: 'guild-1',
+                prefix: '?1',
             }
         );
         expect(result).toStrictEqual({
@@ -169,7 +169,6 @@ describe('dashboard command settings', () => {
             type: 'not-found',
         });
         expect(upsertGuildCommandPrefix).not.toHaveBeenCalled();
-        expect(recordBotActionEvent).not.toHaveBeenCalled();
     });
 
     it('does not write when the dashboard actor cannot be resolved', async () => {
@@ -181,17 +180,6 @@ describe('dashboard command settings', () => {
             type: 'auth-required',
         });
         expect(upsertGuildCommandPrefix).not.toHaveBeenCalled();
-        expect(recordBotActionEvent).not.toHaveBeenCalled();
-    });
-
-    it('returns database-error when the audit event cannot be recorded', async () => {
-        vi.mocked(recordBotActionEvent).mockResolvedValueOnce(err({ type: 'database-error' }));
-
-        await expect(
-            updateDashboardGuildCommandPrefix(request, { guildId: 'guild-1', prefix: '?' })
-        ).resolves.toStrictEqual({
-            type: 'database-error',
-        });
     });
 
     it('returns a clear validation error for invalid prefixes', async () => {
@@ -224,20 +212,6 @@ function createGuildPageData() {
             id: 'guild-1',
             name: 'Guild One',
         },
-    };
-}
-
-function createBotActionEventRecord(overrides: Partial<BotActionEventRecord> = {}): BotActionEventRecord {
-    return {
-        id: 'audit-event-1',
-        guildId: 'guild-1',
-        feature: 'settings',
-        action: 'command_prefix.updated',
-        actorUserId: 'actor-1',
-        targetId: 'settings.prefix',
-        metadata: {},
-        createdAt: new Date('2026-06-24T00:00:00.000Z'),
-        ...overrides,
     };
 }
 

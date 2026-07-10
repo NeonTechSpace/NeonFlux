@@ -9,11 +9,13 @@ import {
     type StoredReactionRoleOperation,
 } from './reaction_role_operation_model.js';
 import { operationRecordValidator, reconciliationItemRecordValidator } from './reaction_roles_validators.js';
+import { isGuildRunnable } from './reaction_role_scope.js';
 
 const botService = ['bot'] as const;
 const operationOrNullValidator = v.union(operationRecordValidator, v.null());
 const progressCodes = new Set([
     'member_transition_active',
+    'cleanup_progress',
     'reconciliation_progress',
     'snapshot_complete',
     'snapshot_progress',
@@ -408,10 +410,15 @@ async function findClaimCandidate(ctx: MutationCtx, now: string) {
         .query('reactionRoleOperations')
         .withIndex('by_status_lease_expiry', (query) => query.eq('status', 'running').lt('leaseExpiresAt', now))
         .take(25);
-    const candidate = [...queued, ...waiting, ...running].sort(
+    const candidates = [...queued, ...waiting, ...running].sort(
         (left, right) => left.updatedAt.localeCompare(right.updatedAt) || left._creationTime - right._creationTime
-    )[0];
-    return (candidate as StoredReactionRoleOperation | undefined) ?? null;
+    );
+    for (const candidate of candidates) {
+        const operation = candidate as StoredReactionRoleOperation;
+        if (await isGuildRunnable(ctx, operation.guildId)) return operation;
+        await markAttention(ctx, operation, 'guild_out_of_scope', now);
+    }
+    return null;
 }
 
 async function requireLeasedOperation(ctx: MutationCtx, id: string, leaseId: string) {

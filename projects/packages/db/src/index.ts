@@ -138,6 +138,8 @@ export {
     syncGuildInviteSnapshots,
 } from './runtime-growth-overview.js';
 export {
+    beginDashboardPostingOperation,
+    completeDashboardPostingOperation,
     deleteMessageTemplate,
     findMessageTemplateByName,
     listMessageTemplatesByGuildId,
@@ -168,6 +170,7 @@ export {
     markReactionRoleOperationSending,
     recordReactionRoleOperationExternalMessage,
     requestReactionRoleDeleteOperation,
+    requestReactionRoleExternalMessageDeleted,
     requestReactionRolePublishOperation,
     requestReactionRoleSaveOperation,
     retryReactionRoleOperation,
@@ -179,8 +182,10 @@ export {
     completeReactionRoleMemberState,
     deferReactionRoleMemberState,
     hasActiveReactionRoleMemberLease,
+    isReactionRoleGuildRunnable,
     loadReactionRoleMemberReconciliation,
     requestReactionRoleMemberTransition,
+    retryBlockedReactionRoleMemberStates,
 } from './runtime-reaction-role-members.js';
 export {
     acquireReactionRoleUserLease,
@@ -221,5 +226,5 @@ export {
     updateStructureImportActionStatus,
     updateStructureImportRunStatus,
 } from './runtime-structure.js';
-export { createRuntimeDb, isConvexRuntimeDb, isRequiredConvexConfig } from './service.js';
+export { createRuntimeDb, isConvexRuntimeDb, readConvexServiceRuntimeConfig } from './service.js';
 export type { RuntimeDbClient } from './service.js';

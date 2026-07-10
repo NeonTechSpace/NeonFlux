@@ -9,6 +9,7 @@ import {
     deleteDashboardReactionRoleMessageRouteData,
     readDashboardReactionRolesSettingsRouteData,
     retryDashboardReactionRoleOperationRouteData,
+    retryDashboardReactionRoleMembersRouteData,
 } from '../server/dashboard-reaction-roles-route-data.js';
 import type {
     DashboardReactionRoleEmoji,
@@ -101,6 +102,24 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         },
         onError: () => setPanelMessage({ type: 'error', text: 'Could not retry this operation.' }),
     });
+    const retryMembersMutation = useMutation({
+        mutationFn: async (messageId: string) =>
+            retryDashboardReactionRoleMembersRouteData({ data: { guildId, messageId } }),
+        onSuccess: async (result) => {
+            setPanelMessage(
+                result.type === 'member-retry-queued'
+                    ? {
+                          type: 'warning',
+                          text: result.hasMore
+                              ? `Queued ${result.retriedCount} blocked assignments. Retry again to queue the remaining assignments.`
+                              : 'Blocked role assignments were queued after the administrator correction.',
+                      }
+                    : { type: 'error', text: 'Could not retry blocked role assignments.' }
+            );
+            await invalidateSettings();
+        },
+        onError: () => setPanelMessage({ type: 'error', text: 'Could not retry blocked role assignments.' }),
+    });
 
     function retryOperation(operation: DashboardReactionRoleOperation): void {
         const unknownPublish = operation.errorCode === 'unknown_publish_outcome';
@@ -191,6 +210,7 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
                         if (confirmed) deleteMutation.mutate(message);
                     }}
                     onRetry={retryOperation}
+                    onRetryMembers={(message) => retryMembersMutation.mutate(message.messageId)}
                 />
             ) : (
                 <ReactionRoleEditor
@@ -216,6 +236,7 @@ function ReactionRoleOverview({
     onEdit,
     onDelete,
     onRetry,
+    onRetryMembers,
 }: {
     messages: DashboardReactionRoleMessage[];
     operations: DashboardReactionRoleOperation[];
@@ -224,6 +245,7 @@ function ReactionRoleOverview({
     onEdit: (message: DashboardReactionRoleMessage) => void;
     onDelete: (message: DashboardReactionRoleMessage) => void;
     onRetry: (operation: DashboardReactionRoleOperation) => void;
+    onRetryMembers: (message: DashboardReactionRoleMessage) => void;
 }) {
     const pendingPublishes = operations.filter(
         (operation) => operation.type === 'publish' && operation.status !== 'succeeded'
@@ -299,6 +321,20 @@ function ReactionRoleOverview({
                             operation={operations.find((operation) => operation.id === message.pendingOperationId)}
                             onRetry={onRetry}
                         />
+                    ) : null}
+                    {message.lifecycle === 'needs_attention' && !message.pendingOperationId ? (
+                        <div className='mt-3 rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-200'>
+                            <p className='font-medium'>Role assignment needs administrator attention</p>
+                            <p className='mt-1 text-xs opacity-80'>
+                                Correct the bot permission or role hierarchy, then retry the blocked assignment.
+                            </p>
+                            <button
+                                type='button'
+                                onClick={() => onRetryMembers(message)}
+                                className='mt-2 min-h-9 rounded-md border border-current px-3 text-xs font-semibold'>
+                                Retry blocked assignments
+                            </button>
+                        </div>
                     ) : null}
                 </article>
             ))}

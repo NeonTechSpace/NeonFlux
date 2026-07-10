@@ -7,6 +7,7 @@ import { readFluxerGuildStructure } from './guild-structure.js';
 export * from './message-reaction-emojis.js';
 
 export type SendFluxerChannelMessageInput = {
+    allowedMentions?: MessageSendOptions['allowedMentions'];
     client: FluxerBot['client'];
     channelId: string;
     content?: string;
@@ -26,6 +27,7 @@ export type SendFluxerBotGuildChannelMessageInput = Omit<SendFluxerGuildChannelM
 };
 
 export type EditFluxerChannelMessageInput = {
+    allowedMentions?: MessageSendOptions['allowedMentions'];
     client: FluxerBot['client'];
     channelId: string;
     messageId: string;
@@ -180,6 +182,7 @@ export async function sendFluxerBotChannelMessage(
         await client.login(botToken);
 
         return await sendFluxerChannelMessage({
+            ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
             channelId: input.channelId,
             ...(input.content ? { content: input.content } : {}),
@@ -207,6 +210,7 @@ export async function sendFluxerBotGuildChannelMessage(
         await client.login(botToken);
 
         return await sendFluxerGuildChannelMessage({
+            ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
             guildId: input.guildId,
             channelId: input.channelId,
@@ -235,6 +239,7 @@ export async function editFluxerBotGuildChannelMessage(
         await client.login(botToken);
 
         return await editFluxerGuildChannelMessage({
+            ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
             guildId: input.guildId,
             channelId: input.channelId,
@@ -473,6 +478,10 @@ export async function sendFluxerChannelMessage(
 
     const payload: MessageSendOptions = {};
 
+    if (input.allowedMentions) {
+        payload.allowedMentions = input.allowedMentions;
+    }
+
     if (content) {
         payload.content = content;
     }
@@ -515,6 +524,10 @@ export async function editFluxerChannelMessage(
     }
 
     const payload: MessageSendOptions = {};
+
+    if (input.allowedMentions) {
+        payload.allowedMentions = input.allowedMentions;
+    }
 
     if (content) {
         payload.content = content;

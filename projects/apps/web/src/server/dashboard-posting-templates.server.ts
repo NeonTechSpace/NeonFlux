@@ -1,11 +1,6 @@
 import '@tanstack/react-start/server-only';
 
-import {
-    deleteMessageTemplate,
-    listMessageTemplatesByGuildId,
-    recordBotActionEvent,
-    upsertMessageTemplate,
-} from '@neonflux/db';
+import { deleteMessageTemplate, listMessageTemplatesByGuildId, upsertMessageTemplate } from '@neonflux/db';
 import type { MessageTemplateRecord, PostingRepositoryError } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
@@ -40,10 +35,12 @@ export type DashboardMessageTemplatesResult =
     | DashboardPostingTemplateErrorResult;
 
 export type DashboardMessageTemplateSaveInput = {
+    expectedUpdatedAt?: string;
     guildId: string;
     name: string;
     content?: string;
     embeds?: DashboardPostingJsonValue[];
+    templateId?: string;
 };
 
 export type DashboardMessageTemplateSaveResult =
@@ -55,9 +52,11 @@ export type DashboardMessageTemplateSaveResult =
           type: 'invalid-template';
           message: string;
       }
+    | { type: 'template-conflict'; field: 'name' | 'updatedAt' }
     | DashboardPostingTemplateErrorResult;
 
 export type DashboardMessageTemplateDeleteInput = {
+    expectedUpdatedAt: string;
     guildId: string;
     templateId: string;
 };
@@ -67,6 +66,7 @@ export type DashboardMessageTemplateDeleteResult =
           type: 'deleted';
           templateId: string;
       }
+    | { type: 'template-conflict'; field: 'updatedAt' }
     | DashboardPostingTemplateErrorResult;
 
 type DashboardPostingTemplateErrorResult =
@@ -132,24 +132,26 @@ export async function saveDashboardMessageTemplate(
 
     const database = await getWebDb();
     const templateResult = await upsertMessageTemplate(database.db, {
+        audit: {
+            action: templateSavedAction,
+            actorUserId: actorResult.actorUserId,
+            feature: postingTemplatesFeature,
+            metadata: {
+                source: 'dashboard',
+                ...actorResult.metadata,
+            },
+        },
         guildId: guildPageData.guild.id,
         name: input.name,
         content: input.content,
         embeds: input.embeds ?? [],
         createdByUserId: actorResult.actorUserId,
+        ...(input.expectedUpdatedAt ? { expectedUpdatedAt: input.expectedUpdatedAt } : {}),
+        ...(input.templateId ? { templateId: input.templateId } : {}),
     });
 
     if (templateResult.isErr()) {
         return mapTemplateWriteError(templateResult.error);
-    }
-
-    const auditResult = await recordTemplateAudit(database.db, guildPageData.guild.id, actorResult, {
-        action: templateSavedAction,
-        template: templateResult.value,
-    });
-
-    if (auditResult === 'database-error') {
-        return { type: 'database-error' };
     }
 
     return {
@@ -176,21 +178,26 @@ export async function deleteDashboardMessageTemplate(
 
     const database = await getWebDb();
     const deleteResult = await deleteMessageTemplate(database.db, {
+        audit: {
+            action: templateDeletedAction,
+            actorUserId: actorResult.actorUserId,
+            feature: postingTemplatesFeature,
+            metadata: {
+                source: 'dashboard',
+                ...actorResult.metadata,
+            },
+        },
+        expectedUpdatedAt: input.expectedUpdatedAt,
         guildId: guildPageData.guild.id,
         templateId: input.templateId,
     });
 
     if (deleteResult.isErr()) {
+        if (deleteResult.error.type === 'conflict') {
+            return { field: 'updatedAt', type: 'template-conflict' };
+        }
+
         return mapPostingRepositoryError(deleteResult.error);
-    }
-
-    const auditResult = await recordTemplateAudit(database.db, guildPageData.guild.id, actorResult, {
-        action: templateDeletedAction,
-        template: deleteResult.value,
-    });
-
-    if (auditResult === 'database-error') {
-        return { type: 'database-error' };
     }
 
     return {
@@ -226,34 +233,6 @@ async function resolvePostingTemplateActor(request: Request): Promise<PostingTem
             ...(currentUserResult.value.globalName ? { actorDisplayName: currentUserResult.value.globalName } : {}),
         },
     };
-}
-
-async function recordTemplateAudit(
-    db: Parameters<typeof recordBotActionEvent>[0],
-    guildId: string,
-    actor: Extract<PostingTemplateActor, { type: 'actor' }>,
-    input: {
-        action: string;
-        template: MessageTemplateRecord;
-    }
-): Promise<'recorded' | 'database-error'> {
-    const result = await recordBotActionEvent(db, {
-        guildId,
-        feature: postingTemplatesFeature,
-        action: input.action,
-        actorUserId: actor.actorUserId,
-        targetId: input.template.id,
-        metadata: {
-            templateId: input.template.id,
-            templateName: input.template.name,
-            contentLength: input.template.content?.length ?? 0,
-            embedCount: Array.isArray(input.template.embeds) ? input.template.embeds.length : 0,
-            source: 'dashboard',
-            ...actor.metadata,
-        },
-    });
-
-    return result.isOk() ? 'recorded' : 'database-error';
 }
 
 function toDashboardMessageTemplate(template: MessageTemplateRecord): DashboardMessageTemplate {
@@ -317,6 +296,10 @@ function mapTemplateWriteError(errorValue: PostingRepositoryError): DashboardMes
         };
     }
 
+    if (errorValue.type === 'conflict') {
+        return { field: errorValue.field, type: 'template-conflict' };
+    }
+
     return mapPostingRepositoryError(errorValue);
 }
 
@@ -325,6 +308,7 @@ function mapPostingRepositoryError(errorValue: PostingRepositoryError): Dashboar
         case 'not-found':
             return { type: 'not-found' };
 
+        case 'conflict':
         case 'missing-input':
         case 'invalid-value':
         case 'invalid-status-transition':

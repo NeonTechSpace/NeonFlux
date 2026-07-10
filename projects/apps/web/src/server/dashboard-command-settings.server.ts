@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only';
 
 import { COMMAND_PREFIX_INVALID_MESSAGE } from '@neonflux/core/command-prefix';
-import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
 import type { GuildCommandSettingsRepositoryError } from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
@@ -143,26 +143,23 @@ async function updateCommandPrefixForAuthorizedGuild(
     }
 
     const database = await getWebDb();
-    const updateResult = await upsertGuildCommandPrefix(database.db, { guildId, prefix });
-
-    if (updateResult.isOk()) {
-        const auditResult = await recordBotActionEvent(database.db, {
-            guildId,
-            feature: commandSettingsFeature,
+    const updateResult = await upsertGuildCommandPrefix(database.db, {
+        audit: {
             action: commandPrefixUpdatedAction,
             actorUserId: actorResult.actorUserId,
-            targetId: 'settings.prefix',
+            feature: commandSettingsFeature,
             metadata: {
-                prefix: updateResult.value.prefix,
+                prefix,
                 source: 'dashboard',
                 ...actorResult.metadata,
             },
-        });
+            targetId: 'settings.prefix',
+        },
+        guildId,
+        prefix,
+    });
 
-        if (auditResult.isErr()) {
-            return { type: 'database-error' };
-        }
-
+    if (updateResult.isOk()) {
         return {
             type: 'updated',
             commandSettings: {

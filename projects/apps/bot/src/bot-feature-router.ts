@@ -14,7 +14,7 @@ import type {
 } from './bot-feature-types.js';
 import { trackGrowthOverviewEvent, type BotGrowthMemberEvent } from './bot-growth-tracking.js';
 import { routeMessageCreatedEvent } from './bot-message-created-router.js';
-import { routeReactionRoleEvent } from './bot-reaction-roles.js';
+import { routeReactionRoleEvent, routeReactionRoleMessageDeleted } from './bot-reaction-roles.js';
 import { recordObservedStructureEvent } from './bot-structure-observer.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
@@ -59,16 +59,31 @@ export async function routeBotFeatureEvent(
             case 'channel.deleted':
                 return await routeStructureEvent(context, event);
             case 'message.updated':
-            case 'message.deleted':
             case 'member.updated':
             case 'ban.added':
             case 'ban.removed':
             case 'voice_state.updated':
                 return routeIgnoredEvent(context, event);
+            case 'message.deleted':
+                return await routeReactionRoleDeletedEvent(context, event);
         }
     } catch {
         return err('handler-error');
     }
+}
+
+async function routeReactionRoleDeletedEvent(
+    context: BotFeatureHandlerContext,
+    event: Extract<BotFeatureEvent, { type: 'message.deleted' }>
+): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
+    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
+        return ok({ eventType: event.type, status: 'ignored', reason: 'guild-not-processable' });
+    }
+    const result = await routeReactionRoleMessageDeleted(context, event);
+    if (result.isErr()) return err(result.error);
+    return result.value.status === 'applied'
+        ? handledActionResult(event.type, result.value.action)
+        : ok({ eventType: event.type, status: 'ignored', reason: result.value.reason });
 }
 
 async function routeGrowthTrackingEvent(

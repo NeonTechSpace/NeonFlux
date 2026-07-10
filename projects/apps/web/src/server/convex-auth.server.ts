@@ -82,9 +82,9 @@ export function loadWebConvexJwtSignerConfig(config: WebConfig = loadWebConfig()
     const convex = config.convex;
 
     return {
-        audience: requireConfigValue(convex?.authJwtAudience, 'NEONFLUX_AUTH_JWT_AUDIENCE'),
-        issuer: requireConfigValue(convex?.authJwtIssuer, 'NEONFLUX_AUTH_JWT_ISSUER'),
-        privateKeyPem: requireConfigValue(convex?.authJwtPrivateKey, 'NEONFLUX_AUTH_JWT_PRIVATE_KEY'),
+        audience: requireConfigValue(convex?.userAuthJwtAudience, 'NEONFLUX_USER_AUTH_JWT_AUDIENCE'),
+        issuer: requireConfigValue(convex?.userAuthJwtIssuer, 'NEONFLUX_USER_AUTH_JWT_ISSUER'),
+        privateKeyPem: requireConfigValue(convex?.userAuthJwtPrivateKey, 'NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY'),
     };
 }
 

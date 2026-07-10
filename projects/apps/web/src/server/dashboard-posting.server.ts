@@ -1,7 +1,13 @@
 import '@tanstack/react-start/server-only';
 
+import { createHash } from 'node:crypto';
+
 import { loadWebConfig } from '@neonflux/config';
-import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import {
+    beginDashboardPostingOperation,
+    completeDashboardPostingOperation,
+    listBotActionEventPageByGuildId,
+} from '@neonflux/db';
 import type { BotActionEventSearchScope } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
@@ -19,6 +25,7 @@ export type DashboardPostMessageInput = {
     channelId: string;
     content?: string;
     embeds?: unknown[];
+    requestKey: string;
 };
 
 type DashboardPostedMessage = {
@@ -45,10 +52,6 @@ export type DashboardPostMessageResult =
           message: DashboardPostedMessage;
       }
     | {
-          type: 'sent-with-record-error';
-          message: DashboardPostedMessage;
-      }
-    | {
           type: 'invalid-message';
           message: string;
       }
@@ -58,7 +61,7 @@ export type DashboardPostMessageResult =
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' }
     | { type: 'bot-token-missing' }
-    | { type: 'send-failed' };
+    | { type: 'delivery-unknown' };
 
 export type DashboardAuditEvent = {
     id: string;
@@ -120,9 +123,6 @@ type DashboardAuditEventsInput = {
     searchOffsetMinutes?: number;
 };
 
-const dashboardPostingPurpose = 'dashboard';
-const dashboardPostingFeature = 'posting';
-const dashboardMessageSentAction = 'message.sent';
 const postableChannelTypes = new Set([0, 5]);
 const dashboardAuditPageSize = 40;
 
@@ -149,10 +149,51 @@ export async function postDashboardGuildMessage(
     }
 
     const payload = payloadResult.payload;
+    const requestKey = input.requestKey.trim();
+
+    if (!requestKey || requestKey.length > 128) {
+        return { type: 'invalid-message', message: 'Start a new posting attempt and try again.' };
+    }
+
     const botToken = loadWebConfig().fluxerBotToken;
 
     if (!botToken) {
         return { type: 'bot-token-missing' };
+    }
+
+    const [actorProfile, channelName] = await Promise.all([
+        resolveAuthenticatedActorProfile(authContextResult.value),
+        resolveDashboardPostingChannelName({
+            botToken,
+            guildId: guildPageData.guild.id,
+            channelId: payload.channelId,
+        }),
+    ]);
+    const database = await getWebDb();
+    const payloadHash = hashDashboardPostingPayload(payload);
+    const beginResult = await beginDashboardPostingOperation(database.db, {
+        actorUserId: authContextResult.value.fluxerUserId,
+        guildId: guildPageData.guild.id,
+        payloadHash,
+        requestKey,
+        requestedChannelId: payload.channelId,
+    });
+
+    if (beginResult.isErr()) {
+        return { type: 'database-error' };
+    }
+
+    if (!beginResult.value.shouldSend) {
+        return beginResult.value.status === 'sent' && beginResult.value.messageId && beginResult.value.sentChannelId
+            ? {
+                  type: 'sent',
+                  message: {
+                      channelId: beginResult.value.sentChannelId,
+                      guildId: guildPageData.guild.id,
+                      id: beginResult.value.messageId,
+                  },
+              }
+            : { type: 'delivery-unknown' };
     }
 
     const sendResult = await sendFluxerBotGuildChannelMessage({
@@ -166,7 +207,7 @@ export async function postDashboardGuildMessage(
     });
 
     if (sendResult.isErr()) {
-        return { type: 'send-failed' };
+        return { type: 'delivery-unknown' };
     }
 
     const sentMessage: DashboardPostedMessage = {
@@ -174,48 +215,41 @@ export async function postDashboardGuildMessage(
         guildId: guildPageData.guild.id,
         channelId: sendResult.value.channelId,
     };
-    const actorProfile = await resolveAuthenticatedActorProfile(authContextResult.value);
-    const channelName = await resolveDashboardPostingChannelName({
-        botToken,
-        guildId: sentMessage.guildId,
-        channelId: sentMessage.channelId,
-    });
-    const database = await getWebDb();
-    const postedMessageResult = await recordPostedMessage(database.db, {
-        guildId: sentMessage.guildId,
-        channelId: sentMessage.channelId,
-        messageId: sentMessage.id,
-        createdByUserId: authContextResult.value.fluxerUserId,
-        purpose: dashboardPostingPurpose,
-    });
-    const auditEventResult = await recordBotActionEvent(database.db, {
-        guildId: sentMessage.guildId,
-        feature: dashboardPostingFeature,
-        action: dashboardMessageSentAction,
+    const completionResult = await completeDashboardPostingOperation(database.db, {
         actorUserId: authContextResult.value.fluxerUserId,
-        targetId: sentMessage.id,
-        metadata: {
-            channelId: sentMessage.channelId,
+        auditMetadata: {
             ...(channelName ? { channelName } : {}),
             ...toDashboardAuditActorMetadata(actorProfile),
-            messageId: sentMessage.id,
             contentLength: payload.content?.length ?? 0,
             embedCount: payload.embeds.length,
-            source: 'dashboard',
         },
+        guildId: sentMessage.guildId,
+        messageId: sentMessage.id,
+        payloadHash,
+        requestKey,
+        sentChannelId: sentMessage.channelId,
     });
 
-    if (postedMessageResult.isErr() || auditEventResult.isErr()) {
-        return {
-            type: 'sent-with-record-error',
-            message: sentMessage,
-        };
+    if (completionResult.isErr()) {
+        return { type: 'delivery-unknown' };
     }
 
     return {
         type: 'sent',
         message: sentMessage,
     };
+}
+
+function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): string {
+    return createHash('sha256')
+        .update(
+            JSON.stringify({
+                channelId: payload.channelId,
+                content: payload.content ?? null,
+                embeds: payload.embeds,
+            })
+        )
+        .digest('hex');
 }
 
 async function resolveDashboardPostingChannelName(input: {

@@ -160,6 +160,10 @@ export type DashboardReactionRoleRetryResult =
     | { type: 'confirmation-required' }
     | DashboardReactionRolesErrorResult;
 
+export type DashboardReactionRoleMemberRetryResult =
+    | { type: 'member-retry-queued'; hasMore: boolean; retriedCount: number }
+    | DashboardReactionRolesErrorResult;
+
 export type DashboardReactionRoleMutationErrorResult =
     | { type: 'invalid-input'; field: string }
     | DashboardReactionRolesErrorResult;

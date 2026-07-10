@@ -73,7 +73,7 @@ export function useDashboardLiveInvalidation({
         }
 
         const client = createDashboardLiveClient(convexUrl);
-        const knownVersions = new Map<DashboardLiveArea, number>();
+        const knownSignals = new Map<DashboardLiveArea, string>();
         let hasBaseline = false;
 
         client.setAuth(fetchDashboardConvexToken);
@@ -102,10 +102,11 @@ export function useDashboardLiveInvalidation({
                     continue;
                 }
 
-                const previousVersion = knownVersions.get(state.area);
-                knownVersions.set(state.area, state.version);
+                const signal = `${state.version}:${state.updatedAt}`;
+                const previousSignal = knownSignals.get(state.area);
+                knownSignals.set(state.area, signal);
 
-                if (hasBaseline && previousVersion !== undefined && previousVersion !== state.version) {
+                if (!hasBaseline || (previousSignal !== undefined && previousSignal !== signal)) {
                     changedAreas.push(state.area);
                 }
             }

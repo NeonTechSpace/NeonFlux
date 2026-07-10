@@ -71,6 +71,16 @@ export async function requestReactionRoleDeleteOperation(
     return requestOperation(db, api.reaction_roles.requestReactionRoleDeleteOperation, input);
 }
 
+export async function requestReactionRoleExternalMessageDeleted(
+    db: ConvexDatabase,
+    input: { guildId: string; messageId: string }
+): DbResult<boolean> {
+    return mutateBoolean(db, api.reaction_roles.requestReactionRoleExternalMessageDeleted, {
+        guildId: input.guildId.trim(),
+        messageId: input.messageId.trim(),
+    });
+}
+
 export async function listReactionRoleOperationsByGuildId(
     db: ConvexDatabase,
     input: { guildId: string; limit?: number }

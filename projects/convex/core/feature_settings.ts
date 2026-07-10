@@ -1,6 +1,7 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
+import { recordBotActionEventInMutation } from './events.js';
 import {
     buildGuildFeatureSettingDocument,
     normalizeAfterFeature,
@@ -41,6 +42,13 @@ const guildFeatureSettingIdentityArgs = {
     feature: v.string(),
     guildId: v.string(),
 };
+const auditInputValidator = v.object({
+    action: v.string(),
+    actorUserId: v.optional(v.string()),
+    feature: v.string(),
+    metadata: v.optional(v.any()),
+    targetId: v.optional(v.string()),
+});
 
 export const readGuildFeatureSetting = query({
     args: guildFeatureSettingIdentityArgs,
@@ -84,6 +92,7 @@ export const listGuildFeatureSettingsByGuildId = query({
 
 export const upsertGuildFeatureSetting = mutation({
     args: {
+        audit: v.optional(auditInputValidator),
         config: v.optional(v.any()),
         createdAt: v.optional(v.string()),
         enabled: v.optional(v.boolean()),
@@ -110,17 +119,28 @@ export const upsertGuildFeatureSetting = mutation({
             )
         );
 
+        let record;
+
         if (existingSetting) {
             await ctx.db.patch('guildFeatureSettings', existingSetting._id, {
                 config: document.config,
                 enabled: document.enabled,
                 updatedAt: document.updatedAt,
             });
-            return toGuildFeatureSettingRecord({ ...document, _id: existingSetting._id });
+            record = toGuildFeatureSettingRecord({ ...document, _id: existingSetting._id });
         } else {
             const id = await ctx.db.insert('guildFeatureSettings', document);
-            return toGuildFeatureSettingRecord({ ...document, _id: id });
+            record = toGuildFeatureSettingRecord({ ...document, _id: id });
         }
+
+        if (args.audit) {
+            await recordBotActionEventInMutation(ctx, {
+                ...args.audit,
+                guildId,
+            });
+        }
+
+        return record;
     },
 });
 

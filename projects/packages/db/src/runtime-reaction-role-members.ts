@@ -64,6 +64,18 @@ export async function requestReactionRoleMemberTransition(
     }
 }
 
+export async function isReactionRoleGuildRunnable(db: ConvexDatabase, input: { guildId: string }): DbResult<boolean> {
+    try {
+        return ok(
+            await db.client.query(api.reaction_roles.isReactionRoleGuildRunnable, {
+                guildId: input.guildId.trim(),
+            })
+        );
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function claimNextReactionRoleMemberState(
     db: ConvexDatabase,
     input: { leaseExpiresAt: Date; leaseId: string; leaseOwner: string; now: Date }
@@ -137,6 +149,22 @@ export async function blockReactionRoleMemberState(
         now: input.now.toISOString(),
         stateId: input.stateId.trim(),
     });
+}
+
+export async function retryBlockedReactionRoleMemberStates(
+    db: ConvexDatabase,
+    input: { guildId: string; messageId: string }
+): DbResult<{ hasMore: boolean; retriedCount: number }> {
+    try {
+        return ok(
+            await db.client.mutation(api.reaction_roles.retryBlockedReactionRoleMemberStates, {
+                guildId: input.guildId.trim(),
+                messageId: input.messageId.trim(),
+            })
+        );
+    } catch {
+        return err({ type: 'database-error' });
+    }
 }
 
 export async function hasActiveReactionRoleMemberLease(

@@ -137,10 +137,8 @@ describe('Convex auth-store database functions', () => {
         const claim = await claimFluxerOAuthTokenRefreshLease(db, {
             expectedGeneration: 1,
             fluxerUserId: tokenSet.fluxerUserId,
-            leaseExpiresAt: new Date('2026-07-03T08:00:15.000Z'),
             leaseId: 'lease-1',
             leaseOwner: 'web-1',
-            now: new Date('2026-07-03T08:00:00.000Z'),
         });
         const completed = await completeFluxerOAuthTokenRefresh(db, {
             accessToken: encryptedToken,
@@ -153,11 +151,10 @@ describe('Convex auth-store database functions', () => {
             tokenType: tokenSet.tokenType,
         });
         const failure = await recordFluxerOAuthTokenRefreshFailure(db, {
+            cooldownMs: 5_000,
             expectedGeneration: 1,
             fluxerUserId: tokenSet.fluxerUserId,
             leaseId: 'lease-1',
-            now: new Date('2026-07-03T08:00:00.000Z'),
-            retryAt: new Date('2026-07-03T08:00:05.000Z'),
         });
         const invalidated = await invalidateFluxerOAuthTokenSet(db, {
             expectedGeneration: 1,
@@ -184,10 +181,8 @@ describe('Convex auth-store database functions', () => {
         expect(db.client.mutationCalls[1]?.args).toStrictEqual({
             expectedGeneration: 1,
             fluxerUserId: tokenSet.fluxerUserId,
-            leaseExpiresAt: '2026-07-03T08:00:15.000Z',
             leaseId: 'lease-1',
             leaseOwner: 'web-1',
-            now: '2026-07-03T08:00:00.000Z',
         });
     });
 
@@ -226,10 +221,8 @@ describe('Convex auth-store database functions', () => {
         const result = await claimFluxerOAuthTokenRefreshLease(db, {
             expectedGeneration: 1,
             fluxerUserId: tokenSet.fluxerUserId,
-            leaseExpiresAt: new Date('2026-07-03T08:00:15.000Z'),
             leaseId: 'lease-2',
             leaseOwner: 'web-2',
-            now: new Date('2026-07-03T08:00:00.000Z'),
         });
 
         expect(result._unsafeUnwrap()).toStrictEqual({

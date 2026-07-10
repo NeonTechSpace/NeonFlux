@@ -6,6 +6,7 @@ import {
     requestReactionRoleDeleteOperation,
     requestReactionRolePublishOperation,
     retryReactionRoleOperation,
+    retryBlockedReactionRoleMemberStates,
 } from '@neonflux/db';
 
 import { getWebDb } from './db.server.js';
@@ -26,6 +27,7 @@ import {
 import type {
     DashboardReactionRoleMessageDeleteInput,
     DashboardReactionRoleMessageDeleteResult,
+    DashboardReactionRoleMemberRetryResult,
     DashboardReactionRolePublishInput,
     DashboardReactionRolePublishResult,
     DashboardReactionRoleRetryResult,
@@ -154,4 +156,17 @@ export async function retryDashboardReactionRoleOperation(
         return { type: 'operation-accepted', operation: toDashboardReactionRoleOperation(result.value.operation) };
     }
     return result.value.type === 'confirmation-required' ? { type: 'confirmation-required' } : { type: 'not-found' };
+}
+
+export async function retryDashboardReactionRoleMembers(
+    request: Request,
+    input: { guildId: string; messageId: string }
+): Promise<DashboardReactionRoleMemberRetryResult> {
+    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const result = await retryBlockedReactionRoleMemberStates((await getWebDb()).db, {
+        guildId: guildPageData.guild.id,
+        messageId: input.messageId,
+    });
+    return result.isErr() ? { type: 'database-error' } : { type: 'member-retry-queued', ...result.value };
 }

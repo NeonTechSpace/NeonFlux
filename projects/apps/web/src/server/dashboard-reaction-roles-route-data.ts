@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 
 import type {
     DashboardReactionRoleMessageDeleteResult,
+    DashboardReactionRoleMemberRetryResult,
     DashboardReactionRoleMessageSaveResult,
     DashboardReactionRolePublishResult,
     DashboardReactionRoleRetryResult,
@@ -107,6 +108,15 @@ export const retryDashboardReactionRoleOperationRouteData = createServerFn({ met
         const { retryDashboardReactionRoleOperation } = await import('./dashboard-reaction-roles.server.js');
         setResponseHeader('Cache-Control', 'no-store');
         return retryDashboardReactionRoleOperation(getRequest(), data);
+    });
+
+export const retryDashboardReactionRoleMembersRouteData = createServerFn({ method: 'POST' })
+    .validator(validateReactionRoleMemberRetryRouteInput)
+    .handler(async ({ data }): Promise<DashboardReactionRoleMemberRetryResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { retryDashboardReactionRoleMembers } = await import('./dashboard-reaction-roles.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return retryDashboardReactionRoleMembers(getRequest(), data);
     });
 
 function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteInput {
@@ -253,5 +263,13 @@ function validateReactionRoleRetryRouteInput(input: unknown) {
         confirmUnknownPublishAbsent: payload.confirmUnknownPublishAbsent === true,
         guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
         operationId: typeof payload.operationId === 'string' ? payload.operationId : '',
+    };
+}
+
+function validateReactionRoleMemberRetryRouteInput(input: unknown) {
+    const payload = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
+    return {
+        guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
+        messageId: typeof payload.messageId === 'string' ? payload.messageId : '',
     };
 }

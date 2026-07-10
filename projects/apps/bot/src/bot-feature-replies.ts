@@ -16,6 +16,7 @@ export async function sendBotFeatureReply(
     action: BotFeatureRouteHandledAction
 ): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
     const result = await sendFluxerChannelMessage({
+        allowedMentions: { parse: [] },
         client: context.client,
         channelId: event.channelId,
         content,

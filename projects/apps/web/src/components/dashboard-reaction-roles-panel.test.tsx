@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     readDashboardReactionRolesSettingsRouteData,
+    retryDashboardReactionRoleMembersRouteData,
     retryDashboardReactionRoleOperationRouteData,
 } from '../server/dashboard-reaction-roles-route-data.js';
 import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
@@ -15,6 +16,7 @@ vi.mock('../server/dashboard-reaction-roles-route-data.js', () => ({
     publishDashboardReactionRoleMessageRouteData: vi.fn(),
     readDashboardReactionRolesSettingsRouteData: vi.fn(),
     retryDashboardReactionRoleOperationRouteData: vi.fn(),
+    retryDashboardReactionRoleMembersRouteData: vi.fn(),
     saveDashboardReactionRoleMessageRouteData: vi.fn(),
 }));
 
@@ -74,6 +76,49 @@ describe('reaction-role operation status', () => {
                     guildId: 'guild-1',
                     operationId: 'operation-1',
                 },
+            })
+        );
+    });
+
+    it('exposes retry for terminal member-assignment failures', async () => {
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue({
+            channels: [],
+            emojiReadStatus: 'available',
+            emojis: [],
+            messages: [
+                {
+                    id: 'menu-1',
+                    channelId: 'channel-1',
+                    messageId: 'message-1',
+                    mode: 'normal',
+                    source: 'dashboard',
+                    messageContent: 'Choose',
+                    messageEmbeds: [],
+                    generateOverview: false,
+                    enabled: true,
+                    lifecycle: 'needs_attention',
+                    revision: 1,
+                    updatedAt: '2026-07-10T08:00:00.000Z',
+                    options: [],
+                },
+            ],
+            operations: [],
+            roles: [],
+            structureReadStatus: 'available',
+            type: 'settings',
+        });
+        vi.mocked(retryDashboardReactionRoleMembersRouteData).mockResolvedValue({
+            type: 'member-retry-queued',
+            hasMore: false,
+            retriedCount: 1,
+        });
+        renderPanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: /retry blocked assignments/i }));
+
+        await waitFor(() =>
+            expect(retryDashboardReactionRoleMembersRouteData).toHaveBeenCalledWith({
+                data: { guildId: 'guild-1', messageId: 'message-1' },
             })
         );
     });

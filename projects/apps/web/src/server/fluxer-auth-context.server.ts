@@ -114,6 +114,9 @@ export async function readAuthenticatedFluxerContext(
             tokenSet,
         });
     } else {
+        // The Neverthrow rule cannot follow assignment to an already-declared variable;
+        // credentialResult is handled immediately below.
+        // eslint-disable-next-line neverthrow/must-use-result
         credentialResult = readStoredFluxerCredential(tokenSet, tokenEncryptionKey, Date.now());
     }
 
@@ -155,14 +158,11 @@ async function refreshFluxerCredentialWithLease(
     input: RefreshInput
 ): Promise<Result<FluxerCredential, AuthenticatedFluxerContextError>> {
     const leaseId = randomUUID();
-    const now = new Date();
     const claimResult = await claimFluxerOAuthTokenRefreshLease(input.db, {
         expectedGeneration: input.tokenSet.credentialGeneration,
         fluxerUserId: input.fluxerUserId,
-        leaseExpiresAt: new Date(now.getTime() + refreshLeaseDurationMs),
         leaseId,
         leaseOwner: refreshLeaseOwner,
-        now,
     });
 
     if (claimResult.isErr()) {
@@ -292,14 +292,11 @@ async function invalidateTerminalRefreshCredential(
 }
 
 async function recordRefreshFailure(input: ClaimedRefresh, cooldownMs: number): Promise<void> {
-    const now = new Date();
-
     await recordFluxerOAuthTokenRefreshFailure(input.db, {
+        cooldownMs,
         expectedGeneration: input.tokenSet.credentialGeneration,
         fluxerUserId: input.fluxerUserId,
         leaseId: input.leaseId,
-        now,
-        retryAt: new Date(now.getTime() + cooldownMs),
     });
 }
 

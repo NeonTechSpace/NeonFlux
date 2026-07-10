@@ -64,12 +64,16 @@ function validateDashboardPostingTemplateSaveInput(input: unknown): DashboardMes
     const name = payload.name;
     const content = payload.content;
     const embeds = payload.embeds;
+    const expectedUpdatedAt = payload.expectedUpdatedAt;
+    const templateId = payload.templateId;
 
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         name: typeof name === 'string' ? name : '',
         ...(typeof content === 'string' ? { content } : {}),
         ...(Array.isArray(embeds) ? { embeds: toSerializableJsonArray(embeds) } : {}),
+        ...(typeof expectedUpdatedAt === 'string' ? { expectedUpdatedAt } : {}),
+        ...(typeof templateId === 'string' ? { templateId } : {}),
     };
 }
 
@@ -109,14 +113,16 @@ function toSerializableJsonValue(value: unknown): DashboardPostingJsonValue | un
 
 function validateDashboardPostingTemplateDeleteInput(input: unknown): DashboardMessageTemplateDeleteInput {
     if (!input || typeof input !== 'object') {
-        return { guildId: '', templateId: '' };
+        return { expectedUpdatedAt: '', guildId: '', templateId: '' };
     }
 
     const payload = input as Record<string, unknown>;
     const guildId = payload.guildId;
     const templateId = payload.templateId;
+    const expectedUpdatedAt = payload.expectedUpdatedAt;
 
     return {
+        expectedUpdatedAt: typeof expectedUpdatedAt === 'string' ? expectedUpdatedAt : '',
         guildId: typeof guildId === 'string' ? guildId : '',
         templateId: typeof templateId === 'string' ? templateId : '',
     };

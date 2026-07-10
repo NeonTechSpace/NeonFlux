@@ -47,7 +47,11 @@ describe('Convex posting database functions', () => {
         });
         const listed = await listMessageTemplatesByGuildId(db, { guildId: 'guild-1', limit: 25 });
         const found = await findMessageTemplateByName(db, { guildId: 'guild-1', name: 'Launch' });
-        const deleted = await deleteMessageTemplate(db, { guildId: 'guild-1', templateId: 'template-1' });
+        const deleted = await deleteMessageTemplate(db, {
+            expectedUpdatedAt: template.updatedAt,
+            guildId: 'guild-1',
+            templateId: 'template-1',
+        });
 
         expect(upserted._unsafeUnwrap()).toStrictEqual(toTemplateRecord(template));
         expect(listed._unsafeUnwrap()).toStrictEqual([toTemplateRecord(template)]);
@@ -108,6 +112,7 @@ describe('Convex posting database functions', () => {
             messageId: 'message-1',
         });
         const missingDeleteTemplateId = await deleteMessageTemplate(db, {
+            expectedUpdatedAt: template.updatedAt,
             guildId: 'guild-1',
             templateId: ' ',
         });
@@ -145,6 +150,26 @@ describe('Convex posting database functions', () => {
 
         expect(missing._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
         expect(failedRecord._unsafeUnwrapErr()).toStrictEqual({ type: 'database-error' });
+    });
+
+    it('preserves template name and revision conflicts from Convex', async () => {
+        const db = createConvexDb({
+            mutationErrors: [new Error('template-name-conflict'), new Error('template-version-conflict')],
+        });
+
+        const duplicateName = await upsertMessageTemplate(db, {
+            content: 'duplicate',
+            guildId: 'guild-1',
+            name: 'Launch',
+        });
+        const staleDelete = await deleteMessageTemplate(db, {
+            expectedUpdatedAt: template.updatedAt,
+            guildId: 'guild-1',
+            templateId: 'template-1',
+        });
+
+        expect(duplicateName._unsafeUnwrapErr()).toStrictEqual({ field: 'name', type: 'conflict' });
+        expect(staleDelete._unsafeUnwrapErr()).toStrictEqual({ field: 'updatedAt', type: 'conflict' });
     });
 });
 

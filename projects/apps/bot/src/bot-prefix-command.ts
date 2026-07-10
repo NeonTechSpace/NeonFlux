@@ -4,7 +4,7 @@ import {
     normalizeCommandPrefix,
 } from '@neonflux/core/command-prefix';
 import { DEFCON_FEATURE_CATEGORY } from '@neonflux/core/defcon';
-import { findGuildCommandSettingsByGuildId, recordBotActionEvent, upsertGuildCommandPrefix } from '@neonflux/db';
+import { findGuildCommandSettingsByGuildId, upsertGuildCommandPrefix } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import { authorizeBotCommand } from './bot-command-authorization.js';
@@ -90,6 +90,15 @@ export async function routePrefixChangeCommand(
     }
 
     const upsertResult = await upsertGuildCommandPrefix(context.db, {
+        audit: {
+            action: PREFIX_COMMAND_AUDIT_ACTION,
+            actorUserId: event.authorId,
+            feature: PREFIX_COMMAND_AUDIT_FEATURE,
+            metadata: {
+                source: 'bot-command',
+            },
+            targetId: 'settings.prefix',
+        },
         guildId: event.guildId,
         prefix: prefixResult.value,
     });
@@ -104,22 +113,6 @@ export async function routePrefixChangeCommand(
             case 'database-error':
                 return err('database-error');
         }
-    }
-
-    const auditResult = await recordBotActionEvent(context.db, {
-        guildId: event.guildId,
-        feature: PREFIX_COMMAND_AUDIT_FEATURE,
-        action: PREFIX_COMMAND_AUDIT_ACTION,
-        actorUserId: event.authorId,
-        targetId: 'settings.prefix',
-        metadata: {
-            prefix: upsertResult.value.prefix,
-            source: 'bot-command',
-        },
-    });
-
-    if (auditResult.isErr()) {
-        return err('database-error');
     }
 
     return sendBotFeatureReply(

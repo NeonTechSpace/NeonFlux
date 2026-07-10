@@ -117,6 +117,7 @@ export type BotFeatureRouteHandledAction =
     | 'command.ping'
     | 'commands.prefix_change'
     | 'event.reaction_roles.transition_queued'
+    | 'event.reaction_roles.external_delete_cleanup_queued'
     | 'event.import_export.structure_observed';
 
 export type BotFeatureRouteResult =

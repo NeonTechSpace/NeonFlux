@@ -463,10 +463,17 @@ export const listDueStructureBackupSettings = query({
             .withIndex('by_enabled_next_backup', (index) => index.eq('enabled', true).lte('nextBackupAt', now))
             .take(Math.min(limit * 4, 100));
 
-        return settings
-            .filter((setting) => !hasActiveBackupLease(setting, now))
-            .slice(0, limit)
-            .map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+        const dueSettings = [];
+
+        for (const setting of settings) {
+            if (!hasActiveBackupLease(setting, now) && (await isGuildInEffectiveBotScope(ctx, setting.guildId))) {
+                dueSettings.push(toStructureBackupSettingsRecord(setting, setting.guildId));
+            }
+
+            if (dueSettings.length >= limit) break;
+        }
+
+        return dueSettings;
     },
 });
 
@@ -484,10 +491,21 @@ export const listDueStructureDriftSettings = query({
             .withIndex('by_enabled_next_drift_check', (index) => index.eq('enabled', true))
             .take(Math.min(limit * 4, 100));
 
-        return settings
-            .filter((setting) => isDriftDue(setting, now) && !hasActiveDriftLease(setting, now))
-            .slice(0, limit)
-            .map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+        const dueSettings = [];
+
+        for (const setting of settings) {
+            if (
+                isDriftDue(setting, now) &&
+                !hasActiveDriftLease(setting, now) &&
+                (await isGuildInEffectiveBotScope(ctx, setting.guildId))
+            ) {
+                dueSettings.push(toStructureBackupSettingsRecord(setting, setting.guildId));
+            }
+
+            if (dueSettings.length >= limit) break;
+        }
+
+        return dueSettings;
     },
 });
 
@@ -588,7 +606,7 @@ export const claimDueStructureBackupSetting = mutation({
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        await requireGuildDocument(ctx, guildId);
+        if (!(await isGuildInEffectiveBotScope(ctx, guildId))) return null;
 
         const now = normalizeTimestamp(args.now);
         if (!now) throw new Error('now-invalid-value');
@@ -653,7 +671,7 @@ export const claimDueStructureDriftSetting = mutation({
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        await requireGuildDocument(ctx, guildId);
+        if (!(await isGuildInEffectiveBotScope(ctx, guildId))) return null;
 
         const now = normalizeTimestamp(args.now);
         if (!now) throw new Error('now-invalid-value');
@@ -1145,6 +1163,29 @@ function assertUniqueActionSequences(sequences: number[]): void {
 
     if (uniqueSequences.size !== sequences.length) {
         throw new Error('structure-import-action-sequence-duplicate');
+    }
+}
+
+async function isGuildInEffectiveBotScope(
+    ctx: StructureQueryCtx | StructureMutationCtx,
+    guildId: string
+): Promise<boolean> {
+    const [deploymentConfig, installation] = await Promise.all([
+        ctx.db.query('deploymentConfig').withIndex('by_config_id').unique(),
+        ctx.db
+            .query('botInstallations')
+            .withIndex('by_guild_id', (index) => index.eq('guildId', guildId))
+            .unique(),
+    ]);
+
+    if (!deploymentConfig || !installation) return false;
+
+    switch (deploymentConfig.instanceMode) {
+        case 'single':
+            return deploymentConfig.singleGuildId === guildId;
+
+        case 'multi':
+            return true;
     }
 }
 

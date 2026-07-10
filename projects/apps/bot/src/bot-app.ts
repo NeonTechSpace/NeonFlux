@@ -1,4 +1,4 @@
-import type { AppConfig } from '@neonflux/config';
+import type { AppConfig, AppMode } from '@neonflux/config';
 import { resolveEffectiveGuildDefcon } from '@neonflux/core/defcon';
 import type { AppLogger } from '@neonflux/core/logging';
 import type { RuntimeDbClient } from '@neonflux/db';
@@ -16,7 +16,7 @@ import {
     type BotFeatureRouteError,
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
-import { reconcileBotInstallations } from './bot-installation-sync.js';
+import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
@@ -32,11 +32,14 @@ export type CreateBotAppInput = {
     database: RuntimeDbClient;
 };
 
+const INSTALLATION_REPAIR_INTERVAL_MS = 5 * 60 * 1000;
+
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
     let bot: FluxerBot | undefined;
     let databaseClosed = false;
+    let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let reactionRoleScheduler: { stop(): Promise<void> } | undefined;
-    let structureBackupScheduler: { stop(): void } | undefined;
+    let structureBackupScheduler: { stop(): Promise<void> } | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
         if (databaseClosed) {
@@ -104,7 +107,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                         });
                     },
                     async guildsReady(event) {
-                        const result = await reconcileBotInstallations(database.db, deploymentMode, {
+                        const result = await reconcileBotInstallationsWithRetry(database.db, deploymentMode, {
                             guildIds: event.guildIds,
                         });
 
@@ -112,7 +115,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             logger.error('bot.installation_reconcile_failed', {
                                 error: result.error,
                             });
-                            return;
+                            throw new Error(`Bot installation reconciliation failed: ${result.error}`);
                         }
 
                         if (config.appEnv === 'development') {
@@ -282,12 +285,18 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             }
 
             if (config.fluxerBotToken) {
+                installationRepairScheduler = startInstallationRepairScheduler({
+                    bot,
+                    database,
+                    logger,
+                    mode: deploymentMode,
+                });
                 reactionRoleScheduler = startReactionRoleScheduler({
                     context: createFeatureHandlerContext(),
                     logger,
                 });
                 structureBackupScheduler = startStructureBackupScheduler({
-                    botToken: config.fluxerBotToken,
+                    client: bot.client,
                     database,
                     logger,
                 });
@@ -296,10 +305,44 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             return true;
         },
         async stop() {
+            bot?.stopIntake();
+            await installationRepairScheduler?.stop();
             await reactionRoleScheduler?.stop();
-            structureBackupScheduler?.stop();
+            await structureBackupScheduler?.stop();
             await bot?.stop();
             await closeDatabaseOnce();
+        },
+    };
+}
+
+function startInstallationRepairScheduler(input: {
+    bot: FluxerBot;
+    database: RuntimeDbClient;
+    logger: AppLogger;
+    mode: AppMode;
+}): { stop(): Promise<void> } {
+    let running: Promise<void> | undefined;
+    const repair = () => {
+        if (running) return;
+
+        running = (async () => {
+            const result = await reconcileBotInstallationsWithRetry(input.database.db, input.mode, {
+                guildIds: [...input.bot.client.guilds.keys()],
+            });
+
+            if (result.isErr()) {
+                input.logger.error('bot.installation_periodic_reconcile_failed', { error: result.error });
+            }
+        })().finally(() => {
+            running = undefined;
+        });
+    };
+    const interval = setInterval(repair, INSTALLATION_REPAIR_INTERVAL_MS);
+
+    return {
+        async stop() {
+            clearInterval(interval);
+            await running;
         },
     };
 }

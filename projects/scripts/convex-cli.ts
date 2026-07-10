@@ -73,7 +73,9 @@ export function normalizeConvexCliArgs(args: readonly string[]): string[] {
 export function createConvexCliChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     const childEnv = { ...env };
 
-    delete childEnv.NEONFLUX_AUTH_JWT_PRIVATE_KEY;
+    delete childEnv.NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY;
+    delete childEnv.NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY;
+    delete childEnv.NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY;
 
     return childEnv;
 }
@@ -96,7 +98,7 @@ export function assertConvexCliAuthConfigReady(args: readonly string[], env: Nod
             [
                 `Convex ${command} requires deploy/codegen auth config before invoking the Convex CLI.`,
                 formatErrorMessage(error),
-                'Next: set a stable NeonFlux issuer, set public NEONFLUX_AUTH_JWT_JWKS from pnpm --silent generate:convex-jwks, run pnpm convex:validate-auth-config, then rerun this command.',
+                'Next: configure distinct bot, web, and user public JWT providers, run pnpm convex:validate-auth-config, then rerun this command.',
                 'Use pnpm convex:check-auth-env -- --compare-deploy-env before deploy to verify the linked target env too.',
             ].join('\n'),
             { cause: error }

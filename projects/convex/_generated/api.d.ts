@@ -48,6 +48,7 @@ import type * as roles_reaction_role_operation_completion from "../roles/reactio
 import type * as roles_reaction_role_operation_model from "../roles/reaction_role_operation_model.js";
 import type * as roles_reaction_role_operation_requests from "../roles/reaction_role_operation_requests.js";
 import type * as roles_reaction_role_operation_worker from "../roles/reaction_role_operation_worker.js";
+import type * as roles_reaction_role_scope from "../roles/reaction_role_scope.js";
 import type * as roles_reaction_role_user_leases from "../roles/reaction_role_user_leases.js";
 import type * as roles_reaction_roles from "../roles/reaction_roles.js";
 import type * as roles_reaction_roles_model from "../roles/reaction_roles_model.js";
@@ -61,6 +62,7 @@ import type * as schema_structure from "../schema/structure.js";
 import type * as schema_tables_bot_action_events from "../schema/tables/bot_action_events.js";
 import type * as schema_tables_bot_installations from "../schema/tables/bot_installations.js";
 import type * as schema_tables_dashboard_live_states from "../schema/tables/dashboard_live_states.js";
+import type * as schema_tables_dashboard_posting_operations from "../schema/tables/dashboard_posting_operations.js";
 import type * as schema_tables_deployment_config from "../schema/tables/deployment_config.js";
 import type * as schema_tables_fluxer_oauth_tokens from "../schema/tables/fluxer_oauth_tokens.js";
 import type * as schema_tables_guild_command_permission_rules from "../schema/tables/guild_command_permission_rules.js";
@@ -140,6 +142,7 @@ declare const fullApi: ApiFromModules<{
   "roles/reaction_role_operation_model": typeof roles_reaction_role_operation_model;
   "roles/reaction_role_operation_requests": typeof roles_reaction_role_operation_requests;
   "roles/reaction_role_operation_worker": typeof roles_reaction_role_operation_worker;
+  "roles/reaction_role_scope": typeof roles_reaction_role_scope;
   "roles/reaction_role_user_leases": typeof roles_reaction_role_user_leases;
   "roles/reaction_roles": typeof roles_reaction_roles;
   "roles/reaction_roles_model": typeof roles_reaction_roles_model;
@@ -153,6 +156,7 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/bot_action_events": typeof schema_tables_bot_action_events;
   "schema/tables/bot_installations": typeof schema_tables_bot_installations;
   "schema/tables/dashboard_live_states": typeof schema_tables_dashboard_live_states;
+  "schema/tables/dashboard_posting_operations": typeof schema_tables_dashboard_posting_operations;
   "schema/tables/deployment_config": typeof schema_tables_deployment_config;
   "schema/tables/fluxer_oauth_tokens": typeof schema_tables_fluxer_oauth_tokens;
   "schema/tables/guild_command_permission_rules": typeof schema_tables_guild_command_permission_rules;

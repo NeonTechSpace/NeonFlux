@@ -1,6 +1,10 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { listBotActionEventPageByGuildId, recordBotActionEvent, recordPostedMessage } from '@neonflux/db';
+import {
+    beginDashboardPostingOperation,
+    completeDashboardPostingOperation,
+    listBotActionEventPageByGuildId,
+} from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
@@ -58,8 +62,8 @@ vi.mock('@neonflux/db', async (importActual) => {
     return {
         ...actual,
         listBotActionEventPageByGuildId: vi.fn(),
-        recordBotActionEvent: vi.fn(),
-        recordPostedMessage: vi.fn(),
+        beginDashboardPostingOperation: vi.fn(),
+        completeDashboardPostingOperation: vi.fn(),
     };
 });
 
@@ -109,8 +113,8 @@ describe('dashboard posting', () => {
                 channelId: 'channel-1',
             })
         );
-        vi.mocked(recordPostedMessage).mockResolvedValue(ok(createPostedMessageRecord()));
-        vi.mocked(recordBotActionEvent).mockResolvedValue(ok(createBotActionEventRecord()));
+        vi.mocked(beginDashboardPostingOperation).mockResolvedValue(ok({ shouldSend: true, status: 'unknown' }));
+        vi.mocked(completeDashboardPostingOperation).mockResolvedValue(ok(createPostedMessageRecord()));
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValue(
             ok({
                 records: [createBotActionEventRecord()],
@@ -181,6 +185,7 @@ describe('dashboard posting', () => {
             guildId: 'guild-1',
             channelId: 'channel-1',
             content: 'hello',
+            requestKey: 'request-1',
         });
 
         expect(result).toStrictEqual({ type: 'auth-required' });
@@ -195,6 +200,7 @@ describe('dashboard posting', () => {
                 guildId: 'guild-1',
                 channelId: 'channel-1',
                 content: 'hello',
+                requestKey: 'request-1',
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
 
@@ -209,6 +215,7 @@ describe('dashboard posting', () => {
                 guildId: 'guild-1',
                 channelId: 'channel-1',
                 content: 'hello',
+                requestKey: 'request-1',
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
         expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
@@ -220,6 +227,7 @@ describe('dashboard posting', () => {
             channelId: 'channel-1',
             content: '   ',
             embeds: [],
+            requestKey: 'request-1',
         });
 
         expect(result).toStrictEqual({
@@ -236,24 +244,26 @@ describe('dashboard posting', () => {
             guildId: 'guild-1',
             channelId: 'channel-1',
             content: 'hello',
+            requestKey: 'request-1',
         });
 
         expect(result).toStrictEqual({ type: 'bot-token-missing' });
         expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
     });
 
-    it('maps Fluxer send failures without recording trace rows', async () => {
+    it('reports an unknown outcome when Fluxer cannot confirm delivery', async () => {
         vi.mocked(sendFluxerBotGuildChannelMessage).mockResolvedValueOnce(err({ type: 'send-failed', error: 'nope' }));
 
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
             channelId: 'channel-1',
             content: 'hello',
+            requestKey: 'request-1',
         });
 
-        expect(result).toStrictEqual({ type: 'send-failed' });
-        expect(recordPostedMessage).not.toHaveBeenCalled();
-        expect(recordBotActionEvent).not.toHaveBeenCalled();
+        expect(result).toStrictEqual({ type: 'delivery-unknown' });
+        expect(beginDashboardPostingOperation).toHaveBeenCalled();
+        expect(completeDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
     it('sends authorized dashboard messages and records posting traceability', async () => {
@@ -262,6 +272,7 @@ describe('dashboard posting', () => {
             channelId: ' channel-1 ',
             content: ' hello ',
             embeds: [{ title: 'NeonFlux' }],
+            requestKey: 'request-1',
         });
 
         expect(result).toStrictEqual({
@@ -279,55 +290,70 @@ describe('dashboard posting', () => {
             content: 'hello',
             embeds: [{ title: 'NeonFlux' }],
         });
-        expect(recordPostedMessage).toHaveBeenCalledWith(
+        expect(beginDashboardPostingOperation).toHaveBeenCalledWith(
             {},
-            {
-                guildId: 'guild-1',
-                channelId: 'channel-1',
-                messageId: 'message-1',
-                createdByUserId: 'actor-1',
-                purpose: 'dashboard',
-            }
-        );
-        expect(recordBotActionEvent).toHaveBeenCalledWith(
-            {},
-            {
-                guildId: 'guild-1',
-                feature: 'posting',
-                action: 'message.sent',
+            expect.objectContaining({
                 actorUserId: 'actor-1',
-                targetId: 'message-1',
-                metadata: {
-                    channelId: 'channel-1',
+                guildId: 'guild-1',
+                requestKey: 'request-1',
+                requestedChannelId: 'channel-1',
+            })
+        );
+        expect(completeDashboardPostingOperation).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                actorUserId: 'actor-1',
+                guildId: 'guild-1',
+                messageId: 'message-1',
+                requestKey: 'request-1',
+                sentChannelId: 'channel-1',
+                auditMetadata: {
                     channelName: 'general',
                     actorUsername: 'neonsy',
                     actorDisplayName: 'Neonsy',
-                    messageId: 'message-1',
                     contentLength: 5,
                     embedCount: 1,
-                    source: 'dashboard',
                 },
-            }
+            })
         );
     });
 
-    it('returns sent-with-record-error when the message sends but trace recording fails', async () => {
-        vi.mocked(recordBotActionEvent).mockResolvedValueOnce(err({ type: 'database-error' }));
+    it('replays a completed request without sending a duplicate message', async () => {
+        vi.mocked(beginDashboardPostingOperation).mockResolvedValueOnce(
+            ok({
+                messageId: 'message-existing',
+                sentChannelId: 'channel-1',
+                shouldSend: false,
+                status: 'sent',
+            })
+        );
+
+        const result = await postDashboardGuildMessage(request, {
+            channelId: 'channel-1',
+            content: 'hello',
+            guildId: 'guild-1',
+            requestKey: 'request-1',
+        });
+
+        expect(result).toStrictEqual({
+            message: { channelId: 'channel-1', guildId: 'guild-1', id: 'message-existing' },
+            type: 'sent',
+        });
+        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
+        expect(completeDashboardPostingOperation).not.toHaveBeenCalled();
+    });
+
+    it('reports an unknown outcome when durable completion fails after delivery', async () => {
+        vi.mocked(completeDashboardPostingOperation).mockResolvedValueOnce(err({ type: 'database-error' }));
 
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
             channelId: 'channel-1',
             content: 'hello',
+            requestKey: 'request-1',
         });
 
-        expect(result).toStrictEqual({
-            type: 'sent-with-record-error',
-            message: {
-                id: 'message-1',
-                guildId: 'guild-1',
-                channelId: 'channel-1',
-            },
-        });
+        expect(result).toStrictEqual({ type: 'delivery-unknown' });
     });
 
     it('loads audit events only through the authorized guild scope', async () => {

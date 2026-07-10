@@ -36,6 +36,16 @@ type BotActionEventDocumentPage = {
 const allowedEventServices = ['bot', 'web'] as const;
 const searchScanLimit = 1000;
 
+export type BotActionEventMutationInput = {
+    action: string;
+    actorUserId?: string;
+    createdAt?: string;
+    feature: string;
+    guildId?: string | null;
+    metadata?: unknown;
+    targetId?: string;
+};
+
 const botActionEventRecordValidator = v.object({
     action: v.string(),
     actorUserId: v.union(v.string(), v.null()),
@@ -74,23 +84,26 @@ export const recordBotActionEvent = mutation({
     returns: botActionEventRecordValidator,
     handler: async (ctx: EventsMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedEventServices);
-        const document = unwrap(buildBotActionEventDocument(args, new Date().toISOString()));
-
-        const id = await ctx.db.insert('botActionEvents', document);
-        const sortKey = buildBotActionEventSortKey({ createdAt: document.createdAt, id });
-        await ctx.db.patch('botActionEvents', id, { sortKey });
-
-        if (document.guildId) {
-            await markDashboardLiveAreasChangedInMutation(ctx, {
-                areas: dashboardLiveAreasForBotActionFeature(document.feature),
-                guildId: document.guildId,
-                now: document.createdAt,
-            });
-        }
-
-        return toBotActionEventRecord({ ...document, _id: id, sortKey });
+        return recordBotActionEventInMutation(ctx, args);
     },
 });
+
+export async function recordBotActionEventInMutation(ctx: EventsMutationCtx, input: BotActionEventMutationInput) {
+    const document = unwrap(buildBotActionEventDocument(input, new Date().toISOString()));
+    const id = await ctx.db.insert('botActionEvents', document);
+    const sortKey = buildBotActionEventSortKey({ createdAt: document.createdAt, id });
+    await ctx.db.patch('botActionEvents', id, { sortKey });
+
+    if (document.guildId) {
+        await markDashboardLiveAreasChangedInMutation(ctx, {
+            areas: dashboardLiveAreasForBotActionFeature(document.feature),
+            guildId: document.guildId,
+            now: document.createdAt,
+        });
+    }
+
+    return toBotActionEventRecord({ ...document, _id: id, sortKey });
+}
 
 export const listBotActionEventsByGuildId = query({
     args: listByGuildArgs,

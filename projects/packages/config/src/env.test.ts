@@ -185,10 +185,10 @@ describe('loadConvexConfig', () => {
             CONVEX_DEPLOYMENT: '   ',
             CONVEX_DEPLOY_KEY: '',
             CONVEX_URL: '   ',
-            NEONFLUX_AUTH_JWT_AUDIENCE: '',
-            NEONFLUX_AUTH_JWT_ISSUER: '   ',
-            NEONFLUX_AUTH_JWT_JWKS: '   ',
-            NEONFLUX_AUTH_JWT_PRIVATE_KEY: '',
+            NEONFLUX_USER_AUTH_JWT_AUDIENCE: '',
+            NEONFLUX_USER_AUTH_JWT_ISSUER: '   ',
+            NEONFLUX_USER_AUTH_JWT_JWKS: '   ',
+            NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY: '',
             VITE_CONVEX_URL: '   ',
         });
 
@@ -201,18 +201,18 @@ describe('loadConvexConfig', () => {
             CONVEX_DEPLOYMENT: ' team:neonflux-prod ',
             CONVEX_DEPLOY_KEY: ' deploy-key ',
             CONVEX_URL: ' https://neonflux.convex.cloud ',
-            NEONFLUX_AUTH_JWT_AUDIENCE: ' neonflux-convex ',
-            NEONFLUX_AUTH_JWT_ISSUER: ' https://neonflux.example/auth ',
-            NEONFLUX_AUTH_JWT_JWKS: ` ${jwks} `,
-            NEONFLUX_AUTH_JWT_PRIVATE_KEY: ' -----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY----- ',
+            NEONFLUX_USER_AUTH_JWT_AUDIENCE: ' neonflux-convex-user ',
+            NEONFLUX_USER_AUTH_JWT_ISSUER: ' https://neonflux.example/user ',
+            NEONFLUX_USER_AUTH_JWT_JWKS: ` ${jwks} `,
+            NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY: ' -----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY----- ',
             VITE_CONVEX_URL: ' https://neonflux.convex.cloud ',
         });
 
         expect(config).toEqual({
-            authJwtAudience: 'neonflux-convex',
-            authJwtIssuer: 'https://neonflux.example/auth',
-            authJwtJwks: jwks,
-            authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+            userAuthJwtAudience: 'neonflux-convex-user',
+            userAuthJwtIssuer: 'https://neonflux.example/user',
+            userAuthJwtJwks: jwks,
+            userAuthJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
             deployKey: 'deploy-key',
             deployment: 'team:neonflux-prod',
             publicUrl: 'https://neonflux.convex.cloud/',
@@ -227,75 +227,47 @@ describe('loadConvexConfig', () => {
         expect(() => loadConvexConfig({ VITE_CONVEX_URL: 'ssh://convex.example' })).toThrow(
             'VITE_CONVEX_URL must be a valid HTTP or HTTPS URL'
         );
-        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_ISSUER: 'auth.example' })).toThrow(
-            'NEONFLUX_AUTH_JWT_ISSUER must be a valid HTTP or HTTPS URL'
+        expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_ISSUER: 'auth.example' })).toThrow(
+            'NEONFLUX_USER_AUTH_JWT_ISSUER must be a valid HTTP or HTTPS URL'
         );
-        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_ISSUER: 'https://web.fluxer.app' })).toThrow(
-            'NEONFLUX_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host'
+        expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_ISSUER: 'https://web.fluxer.app' })).toThrow(
+            'NEONFLUX_USER_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host'
         );
-        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_JWKS: 'not-a-url' })).toThrow(
-            'NEONFLUX_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+        expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_JWKS: 'not-a-url' })).toThrow(
+            'NEONFLUX_USER_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
         );
-        expect(() => loadConvexConfig({ NEONFLUX_AUTH_JWT_JWKS: 'file:///tmp/jwks.json' })).toThrow(
-            'NEONFLUX_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+        expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_JWKS: 'file:///tmp/jwks.json' })).toThrow(
+            'NEONFLUX_USER_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
         );
         expect(() =>
             loadConvexConfig({
-                NEONFLUX_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
+                NEONFLUX_USER_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
                     JSON.stringify({ keys: [{ d: 'private', kid: 'test' }] })
                 )}`,
             })
-        ).toThrow('NEONFLUX_AUTH_JWT_JWKS exposes private JWK parameter "d"');
+        ).toThrow('NEONFLUX_USER_AUTH_JWT_JWKS exposes private JWK parameter "d"');
         expect(() =>
             loadConvexConfig({
-                NEONFLUX_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
+                NEONFLUX_USER_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
                     JSON.stringify({ keys: [{ alg: 'RS256', e: 'AQAB', kid: 'test', kty: 'RSA', use: 'sig' }] })
                 )}`,
             })
-        ).toThrow('NEONFLUX_AUTH_JWT_JWKS key at index 0 must include public RSA parameter "n"');
+        ).toThrow('NEONFLUX_USER_AUTH_JWT_JWKS key at index 0 must include public RSA parameter "n"');
     });
 });
 
 describe('requireConvexConfig', () => {
     it('requires every Convex cutover value', () => {
-        expect(() => requireConvexConfig({})).toThrow('NEONFLUX_AUTH_JWT_AUDIENCE is required');
-        expect(() =>
-            requireConvexConfig({
-                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
-            })
-        ).toThrow('NEONFLUX_AUTH_JWT_ISSUER is required');
-        expect(() =>
-            requireConvexConfig({
-                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
-                NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
-            })
-        ).toThrow('NEONFLUX_AUTH_JWT_JWKS is required');
-        expect(() =>
-            requireConvexConfig({
-                NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
-                NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
-                NEONFLUX_AUTH_JWT_JWKS: publicJwksDataUri(),
-            })
-        ).toThrow('NEONFLUX_AUTH_JWT_PRIVATE_KEY is required');
+        expect(() => requireConvexConfig({})).toThrow('NEONFLUX_BOT_AUTH_JWT_AUDIENCE is required');
     });
 
     it('returns strict Convex config when all cutover values are present', () => {
-        const jwks = publicJwksDataUri();
-        const config = requireConvexConfig({
-            CONVEX_DEPLOYMENT: 'team:neonflux-prod',
-            CONVEX_URL: 'https://neonflux.convex.cloud',
-            NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
-            NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
-            NEONFLUX_AUTH_JWT_JWKS: jwks,
-            NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
-            VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
-        });
+        const config = requireConvexConfig(createCompleteConvexEnv());
 
-        expect(config).toEqual({
-            authJwtAudience: 'neonflux-convex',
-            authJwtIssuer: 'https://neonflux.example/auth',
-            authJwtJwks: jwks,
-            authJwtPrivateKey: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+        expect(config).toMatchObject({
+            botAuthJwtAudience: 'neonflux-convex-bot',
+            userAuthJwtAudience: 'neonflux-convex-user',
+            webAuthJwtAudience: 'neonflux-convex-web',
             deployment: 'team:neonflux-prod',
             publicUrl: 'https://neonflux.convex.cloud/',
             url: 'https://neonflux.convex.cloud/',
@@ -323,8 +295,9 @@ describe('loadRuntimeConfig', () => {
         });
 
         expect(config.convex).toMatchObject({
-            authJwtAudience: 'neonflux-convex',
-            authJwtIssuer: 'https://neonflux.example/auth',
+            botAuthJwtAudience: 'neonflux-convex-bot',
+            userAuthJwtAudience: 'neonflux-convex-user',
+            webAuthJwtAudience: 'neonflux-convex-web',
             deployment: 'team:neonflux-prod',
             publicUrl: 'https://neonflux.convex.cloud/',
             url: 'https://neonflux.convex.cloud/',
@@ -377,10 +350,18 @@ function createCompleteConvexEnv(): NodeJS.ProcessEnv {
         CONVEX_DEPLOYMENT: 'team:neonflux-prod',
         CONVEX_DEPLOY_KEY: 'deploy-key',
         CONVEX_URL: 'https://neonflux.convex.cloud',
-        NEONFLUX_AUTH_JWT_AUDIENCE: 'neonflux-convex',
-        NEONFLUX_AUTH_JWT_ISSUER: 'https://neonflux.example/auth',
-        NEONFLUX_AUTH_JWT_JWKS: publicJwksDataUri(),
-        NEONFLUX_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+        NEONFLUX_BOT_AUTH_JWT_AUDIENCE: 'neonflux-convex-bot',
+        NEONFLUX_BOT_AUTH_JWT_ISSUER: 'https://neonflux.example/bot',
+        NEONFLUX_BOT_AUTH_JWT_JWKS: publicJwksDataUri(),
+        NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+        NEONFLUX_WEB_AUTH_JWT_AUDIENCE: 'neonflux-convex-web',
+        NEONFLUX_WEB_AUTH_JWT_ISSUER: 'https://neonflux.example/web',
+        NEONFLUX_WEB_AUTH_JWT_JWKS: publicJwksDataUri(),
+        NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+        NEONFLUX_USER_AUTH_JWT_AUDIENCE: 'neonflux-convex-user',
+        NEONFLUX_USER_AUTH_JWT_ISSUER: 'https://neonflux.example/user',
+        NEONFLUX_USER_AUTH_JWT_JWKS: publicJwksDataUri(),
+        NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
         VITE_CONVEX_URL: 'https://neonflux.convex.cloud',
     };
 }
