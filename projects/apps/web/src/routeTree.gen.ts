@@ -53,7 +53,12 @@ import { Route as DashboardGuildIdSystemDocumentationRouteImport } from './route
 import { Route as DashboardGuildIdSystemDeploymentRouteImport } from './routes/dashboard/$guildId/system/deployment'
 import { Route as DashboardGuildIdSystemConvexDashboardDataRouteImport } from './routes/dashboard/$guildId/system/convex-dashboard-data'
 import { Route as DashboardGuildIdSystemBotInstallationSyncRouteImport } from './routes/dashboard/$guildId/system/bot-installation-sync'
+import { Route as DashboardGuildIdStructureRunsRouteImport } from './routes/dashboard/$guildId/structure/runs'
 import { Route as DashboardGuildIdStructureImportExportRouteImport } from './routes/dashboard/$guildId/structure/import-export'
+import { Route as DashboardGuildIdStructureDeployRouteImport } from './routes/dashboard/$guildId/structure/deploy'
+import { Route as DashboardGuildIdStructureCurrentRouteImport } from './routes/dashboard/$guildId/structure/current'
+import { Route as DashboardGuildIdStructureCompareRouteImport } from './routes/dashboard/$guildId/structure/compare'
+import { Route as DashboardGuildIdStructureBackupsRouteImport } from './routes/dashboard/$guildId/structure/backups'
 import { Route as DashboardGuildIdServerBlueprintImportExportRouteImport } from './routes/dashboard/$guildId/server-blueprint/import-export'
 import { Route as DashboardGuildIdModerationPolicyRouteImport } from './routes/dashboard/$guildId/moderation/policy'
 import { Route as DashboardGuildIdModerationCasesRouteImport } from './routes/dashboard/$guildId/moderation/cases'
@@ -323,10 +328,40 @@ const DashboardGuildIdSystemBotInstallationSyncRoute =
     path: '/bot-installation-sync',
     getParentRoute: () => DashboardGuildIdSystemRoute,
   } as any)
+const DashboardGuildIdStructureRunsRoute =
+  DashboardGuildIdStructureRunsRouteImport.update({
+    id: '/runs',
+    path: '/runs',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
 const DashboardGuildIdStructureImportExportRoute =
   DashboardGuildIdStructureImportExportRouteImport.update({
     id: '/import-export',
     path: '/import-export',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdStructureDeployRoute =
+  DashboardGuildIdStructureDeployRouteImport.update({
+    id: '/deploy',
+    path: '/deploy',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdStructureCurrentRoute =
+  DashboardGuildIdStructureCurrentRouteImport.update({
+    id: '/current',
+    path: '/current',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdStructureCompareRoute =
+  DashboardGuildIdStructureCompareRouteImport.update({
+    id: '/compare',
+    path: '/compare',
+    getParentRoute: () => DashboardGuildIdStructureRoute,
+  } as any)
+const DashboardGuildIdStructureBackupsRoute =
+  DashboardGuildIdStructureBackupsRouteImport.update({
+    id: '/backups',
+    path: '/backups',
     getParentRoute: () => DashboardGuildIdStructureRoute,
   } as any)
 const DashboardGuildIdServerBlueprintImportExportRoute =
@@ -541,7 +576,12 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
   '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
   '/dashboard/$guildId/server-blueprint/import-export': typeof DashboardGuildIdServerBlueprintImportExportRoute
+  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
+  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
+  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
+  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
   '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
   '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
@@ -600,7 +640,12 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
   '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
   '/dashboard/$guildId/server-blueprint/import-export': typeof DashboardGuildIdServerBlueprintImportExportRoute
+  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
+  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
+  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
+  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
   '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
   '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
@@ -674,7 +719,12 @@ export interface FileRoutesById {
   '/dashboard/$guildId/moderation/cases': typeof DashboardGuildIdModerationCasesRoute
   '/dashboard/$guildId/moderation/policy': typeof DashboardGuildIdModerationPolicyRoute
   '/dashboard/$guildId/server-blueprint/import-export': typeof DashboardGuildIdServerBlueprintImportExportRoute
+  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
+  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
+  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
+  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
+  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
   '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
   '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
@@ -749,7 +799,12 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/moderation/cases'
     | '/dashboard/$guildId/moderation/policy'
     | '/dashboard/$guildId/server-blueprint/import-export'
+    | '/dashboard/$guildId/structure/backups'
+    | '/dashboard/$guildId/structure/compare'
+    | '/dashboard/$guildId/structure/current'
+    | '/dashboard/$guildId/structure/deploy'
     | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
     | '/dashboard/$guildId/system/convex-dashboard-data'
     | '/dashboard/$guildId/system/deployment'
@@ -808,7 +863,12 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/moderation/cases'
     | '/dashboard/$guildId/moderation/policy'
     | '/dashboard/$guildId/server-blueprint/import-export'
+    | '/dashboard/$guildId/structure/backups'
+    | '/dashboard/$guildId/structure/compare'
+    | '/dashboard/$guildId/structure/current'
+    | '/dashboard/$guildId/structure/deploy'
     | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
     | '/dashboard/$guildId/system/convex-dashboard-data'
     | '/dashboard/$guildId/system/deployment'
@@ -881,7 +941,12 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/moderation/cases'
     | '/dashboard/$guildId/moderation/policy'
     | '/dashboard/$guildId/server-blueprint/import-export'
+    | '/dashboard/$guildId/structure/backups'
+    | '/dashboard/$guildId/structure/compare'
+    | '/dashboard/$guildId/structure/current'
+    | '/dashboard/$guildId/structure/deploy'
     | '/dashboard/$guildId/structure/import-export'
+    | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
     | '/dashboard/$guildId/system/convex-dashboard-data'
     | '/dashboard/$guildId/system/deployment'
@@ -1220,11 +1285,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdSystemBotInstallationSyncRouteImport
       parentRoute: typeof DashboardGuildIdSystemRoute
     }
+    '/dashboard/$guildId/structure/runs': {
+      id: '/dashboard/$guildId/structure/runs'
+      path: '/runs'
+      fullPath: '/dashboard/$guildId/structure/runs'
+      preLoaderRoute: typeof DashboardGuildIdStructureRunsRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
     '/dashboard/$guildId/structure/import-export': {
       id: '/dashboard/$guildId/structure/import-export'
       path: '/import-export'
       fullPath: '/dashboard/$guildId/structure/import-export'
       preLoaderRoute: typeof DashboardGuildIdStructureImportExportRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/structure/deploy': {
+      id: '/dashboard/$guildId/structure/deploy'
+      path: '/deploy'
+      fullPath: '/dashboard/$guildId/structure/deploy'
+      preLoaderRoute: typeof DashboardGuildIdStructureDeployRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/structure/current': {
+      id: '/dashboard/$guildId/structure/current'
+      path: '/current'
+      fullPath: '/dashboard/$guildId/structure/current'
+      preLoaderRoute: typeof DashboardGuildIdStructureCurrentRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/structure/compare': {
+      id: '/dashboard/$guildId/structure/compare'
+      path: '/compare'
+      fullPath: '/dashboard/$guildId/structure/compare'
+      preLoaderRoute: typeof DashboardGuildIdStructureCompareRouteImport
+      parentRoute: typeof DashboardGuildIdStructureRoute
+    }
+    '/dashboard/$guildId/structure/backups': {
+      id: '/dashboard/$guildId/structure/backups'
+      path: '/backups'
+      fullPath: '/dashboard/$guildId/structure/backups'
+      preLoaderRoute: typeof DashboardGuildIdStructureBackupsRouteImport
       parentRoute: typeof DashboardGuildIdStructureRoute
     }
     '/dashboard/$guildId/server-blueprint/import-export': {
@@ -1601,14 +1701,27 @@ const DashboardGuildIdServerBlueprintRouteWithChildren =
   )
 
 interface DashboardGuildIdStructureRouteChildren {
+  DashboardGuildIdStructureBackupsRoute: typeof DashboardGuildIdStructureBackupsRoute
+  DashboardGuildIdStructureCompareRoute: typeof DashboardGuildIdStructureCompareRoute
+  DashboardGuildIdStructureCurrentRoute: typeof DashboardGuildIdStructureCurrentRoute
+  DashboardGuildIdStructureDeployRoute: typeof DashboardGuildIdStructureDeployRoute
   DashboardGuildIdStructureImportExportRoute: typeof DashboardGuildIdStructureImportExportRoute
+  DashboardGuildIdStructureRunsRoute: typeof DashboardGuildIdStructureRunsRoute
   DashboardGuildIdStructureIndexRoute: typeof DashboardGuildIdStructureIndexRoute
 }
 
 const DashboardGuildIdStructureRouteChildren: DashboardGuildIdStructureRouteChildren =
   {
+    DashboardGuildIdStructureBackupsRoute:
+      DashboardGuildIdStructureBackupsRoute,
+    DashboardGuildIdStructureCompareRoute:
+      DashboardGuildIdStructureCompareRoute,
+    DashboardGuildIdStructureCurrentRoute:
+      DashboardGuildIdStructureCurrentRoute,
+    DashboardGuildIdStructureDeployRoute: DashboardGuildIdStructureDeployRoute,
     DashboardGuildIdStructureImportExportRoute:
       DashboardGuildIdStructureImportExportRoute,
+    DashboardGuildIdStructureRunsRoute: DashboardGuildIdStructureRunsRoute,
     DashboardGuildIdStructureIndexRoute: DashboardGuildIdStructureIndexRoute,
   }
 

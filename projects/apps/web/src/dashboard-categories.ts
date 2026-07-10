@@ -80,7 +80,6 @@ export type DashboardSubNavigationTo =
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/events/logging-destinations'
-    | '/dashboard/$guildId/structure/import-export'
     | '/dashboard/$guildId/system/bot-installation-sync'
     | '/dashboard/$guildId/system/convex-dashboard-data'
     | '/dashboard/$guildId/system/deployment'
@@ -398,18 +397,10 @@ export const dashboardNavigationSettings = [
         label: 'Server Blueprint',
         path: 'structure',
         to: '/dashboard/$guildId/structure',
-        description: 'Import, export, dry-run, and apply supported server layout changes.',
+        description: 'Inspect, compare, back up, and safely deploy server layout changes.',
         icon: GitBranch,
         status: 'active',
-        items: [
-            implemented(
-                'import-export',
-                'Import / Export',
-                'Import, export, dry-run, and apply server layout.',
-                '/dashboard/$guildId/structure/import-export',
-                GitBranch
-            ),
-        ],
+        items: [],
     },
     {
         id: 'system',

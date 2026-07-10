@@ -7,7 +7,7 @@ const createRoute = createFileRoute('/dashboard/$guildId/server-blueprint/');
 export const Route = createRoute({
     beforeLoad: ({ params }) => {
         throw redirect({
-            to: '/dashboard/$guildId/structure/import-export',
+            to: '/dashboard/$guildId/structure/current',
             params: {
                 guildId: getGuildIdParam(params),
             },

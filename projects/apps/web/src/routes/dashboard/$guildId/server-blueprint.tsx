@@ -1,16 +1,7 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
-
-import { getGuildIdParam } from '../../../server/dashboard-guild-route-data.js';
+import { Outlet, createFileRoute } from '@tanstack/react-router';
 
 const createRoute = createFileRoute('/dashboard/$guildId/server-blueprint');
 
 export const Route = createRoute({
-    beforeLoad: ({ params }) => {
-        throw redirect({
-            to: '/dashboard/$guildId/structure/import-export',
-            params: {
-                guildId: getGuildIdParam(params),
-            },
-        });
-    },
+    component: Outlet,
 });

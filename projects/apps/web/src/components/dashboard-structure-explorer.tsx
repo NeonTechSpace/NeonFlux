@@ -1,5 +1,5 @@
 import { FileTree, useFileTree, useFileTreeSelection } from '@pierre/trees/react';
-import { Eye, FileJson, GitCompareArrows, Loader2 } from 'lucide-react';
+import { GitCompareArrows } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -126,25 +126,90 @@ export function DashboardStructureExplorer({
 
     return (
         <section
-            className='rounded-md border border-neutral-800 bg-neutral-950/60'
+            className='@container/blueprint-explorer min-w-0 overflow-hidden rounded-md border border-neutral-800 bg-neutral-950/75'
             aria-label='Server blueprint explorer'>
-            <div className='flex flex-wrap items-start justify-between gap-3 border-b border-neutral-800 px-3 py-3'>
-                <div>
-                    <p className='text-sm font-semibold text-white'>Blueprint explorer</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-400'>
-                        Inspect loaded roles, categories, channels, and review overlays.
-                    </p>
+            <div className='border-b border-neutral-800'>
+                <div className='grid min-w-0 items-stretch @min-[46rem]/blueprint-explorer:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]'>
+                    <SnapshotIdentity detail={source.detail} label={source.label} slot='Source' />
+                    <div className='hidden items-center justify-center border-x border-neutral-800 px-3 text-neutral-500 @min-[46rem]/blueprint-explorer:flex'>
+                        <GitCompareArrows className='size-4' aria-hidden='true' />
+                    </div>
+                    <SnapshotIdentity detail={comparisonTarget.detail} label={comparisonTarget.label} slot='Target' />
                 </div>
-                <div className='flex flex-wrap gap-2'>
-                    <div className='inline-flex min-h-9 overflow-hidden rounded-md border border-neutral-700'>
+
+                <div className='flex min-w-0 flex-wrap items-end gap-x-5 gap-y-3 border-t border-neutral-800 px-3 py-2.5'>
+                    <label className='min-w-[11rem] text-xs font-medium text-neutral-400'>
+                        Load source
+                        <select
+                            aria-label='Load blueprint source'
+                            value=''
+                            onChange={(event) => {
+                                const action = event.currentTarget.value;
+                                if (action === 'live') onLoadLive();
+                                if (action === 'import-json') onInspectImportJson();
+                                if (action === 'requested-final' && selectedRun) {
+                                    onInspectRequestedFinalState(selectedRun);
+                                }
+                            }}
+                            disabled={Boolean(busyAction)}
+                            className='mt-1 block h-9 w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 text-sm text-neutral-100 transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 disabled:cursor-not-allowed disabled:text-neutral-600'>
+                            <option value=''>{isLiveBusy ? 'Loading live layout' : 'Choose source'}</option>
+                            <option value='live'>{isLiveBusy ? 'Loading live layout' : 'Live layout'}</option>
+                            <option value='import-json'>Import JSON</option>
+                            {canInspectRequestedFinalState ? (
+                                <option value='requested-final'>Requested final state</option>
+                            ) : null}
+                        </select>
+                    </label>
+
+                    <label className='min-w-[12rem] text-xs font-medium text-neutral-400'>
+                        Compare with
+                        <select
+                            aria-label='Choose comparison target'
+                            value=''
+                            onChange={(event) => {
+                                const action = event.currentTarget.value;
+                                if (!action) return;
+
+                                setViewMode('diff');
+                                if (action === 'live') onCompareLive();
+                                if (action === 'import-json') onCompareImportJson();
+                                if (action === 'drift-baseline') onCompareDriftBaseline();
+                                if (action === 'requested-final' && selectedRun) {
+                                    onCompareRequestedFinalState(selectedRun);
+                                }
+                            }}
+                            disabled={Boolean(busyAction) || !canCompare}
+                            className='mt-1 block h-9 w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 text-sm text-neutral-100 transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 disabled:cursor-not-allowed disabled:text-neutral-600'>
+                            <option value=''>
+                                {isCompareLiveBusy
+                                    ? 'Comparing live layout'
+                                    : isCompareBaselineBusy
+                                      ? 'Comparing drift baseline'
+                                      : 'Choose target'}
+                            </option>
+                            <option value='live'>{isCompareLiveBusy ? 'Comparing live layout' : 'Live layout'}</option>
+                            <option value='import-json'>Import JSON</option>
+                            {canCompareDriftBaseline ? (
+                                <option value='drift-baseline'>
+                                    {isCompareBaselineBusy ? 'Comparing drift baseline' : 'Drift baseline'}
+                                </option>
+                            ) : null}
+                            {canInspectRequestedFinalState ? (
+                                <option value='requested-final'>Requested final state</option>
+                            ) : null}
+                        </select>
+                    </label>
+
+                    <div className='ml-auto flex min-h-9 items-end gap-4' aria-label='Explorer view'>
                         <button
                             type='button'
                             aria-pressed={viewMode === 'tree'}
                             onClick={() => setViewMode('tree')}
-                            className={`px-3 text-xs font-semibold transition ${
+                            className={`h-9 border-b-2 px-1 text-xs font-semibold transition ${
                                 viewMode === 'tree'
-                                    ? 'bg-neutral-800 text-white'
-                                    : 'text-neutral-300 hover:bg-neutral-900 hover:text-white'
+                                    ? 'border-sky-400 text-white'
+                                    : 'border-transparent text-neutral-400 hover:text-white'
                             }`}>
                             Tree
                         </button>
@@ -153,96 +218,14 @@ export function DashboardStructureExplorer({
                             aria-pressed={viewMode === 'diff'}
                             onClick={() => setViewMode('diff')}
                             disabled={!canCompare}
-                            className={`border-l border-neutral-700 px-3 text-xs font-semibold transition ${
+                            className={`h-9 border-b-2 px-1 text-xs font-semibold transition ${
                                 viewMode === 'diff'
-                                    ? 'bg-neutral-800 text-white'
-                                    : 'text-neutral-300 hover:bg-neutral-900 hover:text-white'
+                                    ? 'border-sky-400 text-white'
+                                    : 'border-transparent text-neutral-400 hover:text-white'
                             } disabled:cursor-not-allowed disabled:text-neutral-600`}>
                             JSON diff
                         </button>
                     </div>
-                    <button
-                        type='button'
-                        onClick={onLoadLive}
-                        disabled={Boolean(busyAction)}
-                        className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        {isLiveBusy ? <Loader2 className='size-3.5 animate-spin' /> : <Eye className='size-3.5' />}
-                        {isLiveBusy ? 'Loading live' : 'Load live'}
-                    </button>
-                    <button
-                        type='button'
-                        onClick={onInspectImportJson}
-                        disabled={Boolean(busyAction)}
-                        className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        <FileJson className='size-3.5' />
-                        Inspect import JSON
-                    </button>
-                    <button
-                        type='button'
-                        onClick={() => {
-                            setViewMode('diff');
-                            onCompareImportJson();
-                        }}
-                        disabled={Boolean(busyAction) || !canCompare}
-                        className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        <GitCompareArrows className='size-3.5' />
-                        Compare import JSON
-                    </button>
-                    <button
-                        type='button'
-                        onClick={() => {
-                            setViewMode('diff');
-                            onCompareLive();
-                        }}
-                        disabled={Boolean(busyAction) || !canCompare}
-                        className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        {isCompareLiveBusy ? (
-                            <Loader2 className='size-3.5 animate-spin' />
-                        ) : (
-                            <GitCompareArrows className='size-3.5' />
-                        )}
-                        {isCompareLiveBusy ? 'Comparing live' : 'Compare live'}
-                    </button>
-                    {canCompareDriftBaseline ? (
-                        <button
-                            type='button'
-                            onClick={() => {
-                                setViewMode('diff');
-                                onCompareDriftBaseline();
-                            }}
-                            disabled={Boolean(busyAction) || !canCompare}
-                            className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                            {isCompareBaselineBusy ? (
-                                <Loader2 className='size-3.5 animate-spin' />
-                            ) : (
-                                <GitCompareArrows className='size-3.5' />
-                            )}
-                            {isCompareBaselineBusy ? 'Comparing baseline' : 'Compare drift baseline'}
-                        </button>
-                    ) : null}
-                    {canInspectRequestedFinalState && selectedRun ? (
-                        <>
-                            <button
-                                type='button'
-                                onClick={() => onInspectRequestedFinalState(selectedRun)}
-                                disabled={Boolean(busyAction)}
-                                className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                                <Eye className='size-3.5' />
-                                Inspect requested final state
-                            </button>
-                            <button
-                                type='button'
-                                onClick={() => {
-                                    setViewMode('diff');
-                                    onCompareRequestedFinalState(selectedRun);
-                                }}
-                                disabled={Boolean(busyAction) || !canCompare}
-                                className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                                <GitCompareArrows className='size-3.5' />
-                                Compare requested final state
-                            </button>
-                        </>
-                    ) : null}
                 </div>
             </div>
 
@@ -253,13 +236,14 @@ export function DashboardStructureExplorer({
                     source={source}
                 />
             ) : (
-                <div className='grid gap-0 divide-y divide-neutral-800 lg:grid-cols-[minmax(18rem,0.9fr)_minmax(0,1fr)] lg:divide-x lg:divide-y-0'>
-                    <div className='space-y-3 p-3'>
-                        <ExplorerSourceControls
+                <div
+                    data-testid='blueprint-explorer-workbench'
+                    className='grid min-w-0 divide-y divide-neutral-800 @min-[48rem]/blueprint-explorer:grid-cols-[minmax(17rem,0.82fr)_minmax(0,1.18fr)] @min-[48rem]/blueprint-explorer:divide-x @min-[48rem]/blueprint-explorer:divide-y-0'>
+                    <div className='min-w-0 space-y-3 p-3'>
+                        <ExplorerOverlayControl
                             drift={drift}
                             overlayMode={overlayMode}
                             runs={runs}
-                            source={source}
                             onOverlayModeChange={onOverlayModeChange}
                         />
 
@@ -307,53 +291,57 @@ export function DashboardStructureExplorer({
                         )}
                     </div>
 
-                    <DashboardStructureExplorerDetails metadata={selectedMetadata} source={source} />
+                    <div className='min-w-0 @min-[48rem]/blueprint-explorer:max-h-[34rem] @min-[48rem]/blueprint-explorer:overflow-y-auto'>
+                        <DashboardStructureExplorerDetails metadata={selectedMetadata} source={source} />
+                    </div>
                 </div>
             )}
         </section>
     );
 }
 
-function ExplorerSourceControls({
+function SnapshotIdentity({ detail, label, slot }: { detail?: string; label: string; slot: 'Source' | 'Target' }) {
+    return (
+        <div className='min-w-0 px-3 py-3'>
+            <p className='text-xs font-medium text-neutral-500'>{slot}</p>
+            <p className='mt-1 truncate text-sm font-semibold text-neutral-100'>{label}</p>
+            {detail ? <p className='mt-0.5 truncate text-xs text-neutral-500'>{detail}</p> : null}
+        </div>
+    );
+}
+
+function ExplorerOverlayControl({
     drift,
     overlayMode,
     runs,
-    source,
     onOverlayModeChange,
 }: {
     drift: DriftState | undefined;
     overlayMode: DashboardStructureExplorerOverlayMode;
     runs: DashboardStructureImportRun[];
-    source: DashboardStructureExplorerSource;
     onOverlayModeChange: (mode: DashboardStructureExplorerOverlayMode) => void;
 }) {
     return (
-        <div className='grid gap-2 sm:grid-cols-2'>
-            <div className='rounded-md border border-neutral-800 bg-neutral-950 p-2'>
-                <p className='text-xs font-medium text-neutral-500 uppercase'>Source</p>
-                <p className='mt-1 text-sm font-semibold text-neutral-100'>{source.label}</p>
-                {source.detail ? <p className='mt-1 text-xs text-neutral-500'>{source.detail}</p> : null}
-            </div>
-            <label className='block rounded-md border border-neutral-800 bg-neutral-950 p-2 text-xs font-medium text-neutral-300'>
-                Overlay
-                <select
-                    value={overlayMode}
-                    onChange={(event) =>
-                        onOverlayModeChange(event.currentTarget.value as DashboardStructureExplorerOverlayMode)
-                    }
-                    className='mt-1 h-9 w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 text-sm text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'>
-                    <option value='none'>None</option>
-                    <option value='drift' disabled={!drift}>
-                        Latest drift
+        <label className='flex min-w-0 items-center justify-between gap-3 border-b border-neutral-800 pb-3 text-xs font-medium text-neutral-400'>
+            Review layer
+            <select
+                aria-label='Review layer'
+                value={overlayMode}
+                onChange={(event) =>
+                    onOverlayModeChange(event.currentTarget.value as DashboardStructureExplorerOverlayMode)
+                }
+                className='h-9 max-w-[16rem] min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-2 text-sm text-white transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30'>
+                <option value='none'>No review layer</option>
+                <option value='drift' disabled={!drift}>
+                    Latest drift
+                </option>
+                {runs.map((run) => (
+                    <option key={run.id} value={`run:${run.id}`}>
+                        Dry-run {formatDate(run.createdAt)}
                     </option>
-                    {runs.map((run) => (
-                        <option key={run.id} value={`run:${run.id}`}>
-                            Dry-run {formatDate(run.createdAt)}
-                        </option>
-                    ))}
-                </select>
-            </label>
-        </div>
+                ))}
+            </select>
+        </label>
     );
 }
 

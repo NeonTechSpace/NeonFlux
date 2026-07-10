@@ -41,7 +41,7 @@ describe('dashboard categories', () => {
         expect(getDefaultDashboardSubNavigationTo('insights')).toBe('/dashboard/$guildId/insights/growth-tracking');
         expect(getDefaultDashboardSubNavigationTo('general')).toBe('/dashboard/$guildId/general/bot-presence');
         expect(getDefaultDashboardSubNavigationTo('events')).toBe('/dashboard/$guildId/events/audit-events');
-        expect(getDefaultDashboardSubNavigationTo('structure')).toBe('/dashboard/$guildId/structure/import-export');
+        expect(getDefaultDashboardSubNavigationTo('structure')).toBeUndefined();
         expect(getDefaultDashboardSubNavigationTo('system')).toBe('/dashboard/$guildId/system/bot-installation-sync');
     });
 
@@ -62,9 +62,9 @@ describe('dashboard categories', () => {
         });
         expect(getDashboardNavigationEntry('structure')).toMatchObject({
             type: 'direct',
-            defaultSubNavigationTo: '/dashboard/$guildId/structure/import-export',
-            linkTo: '/dashboard/$guildId/structure/import-export',
+            linkTo: '/dashboard/$guildId/structure',
         });
+        expect(getDashboardNavigationEntry('structure')).not.toHaveProperty('defaultSubNavigationTo');
         expect(getDashboardNavigationEntry('overview')).toMatchObject({
             type: 'direct',
             linkTo: '/dashboard/$guildId',
@@ -83,7 +83,6 @@ describe('dashboard categories', () => {
             'access.reaction-roles',
             'general.command-prefix',
             'events.audit-events',
-            'structure.import-export',
         ]);
     });
 });

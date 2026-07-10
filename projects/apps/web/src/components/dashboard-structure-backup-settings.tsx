@@ -1,5 +1,16 @@
+import { useForm } from '@tanstack/react-form';
+import { type } from 'arktype';
+
 import type { DashboardStructureBackupSettings as DashboardStructureBackupSettingsRecord } from '../server/dashboard-structure.server.js';
 import { formatDate } from './dashboard-structure-panel-format.js';
+
+const backupSettingsSchema = type({
+    enabled: 'boolean',
+    cadenceWeeks: 'number.integer',
+    retentionDays: 'number.integer',
+});
+
+export type DashboardStructureBackupSettingsValue = typeof backupSettingsSchema.infer;
 
 export function DashboardStructureBackupSettings({
     settings,
@@ -7,9 +18,6 @@ export function DashboardStructureBackupSettings({
     cadenceWeeks,
     retentionDays,
     busy,
-    onEnabledChange,
-    onCadenceWeeksChange,
-    onRetentionDaysChange,
     onSave,
 }: {
     settings: DashboardStructureBackupSettingsRecord;
@@ -20,79 +28,135 @@ export function DashboardStructureBackupSettings({
     onEnabledChange: (enabled: boolean) => void;
     onCadenceWeeksChange: (weeks: number) => void;
     onRetentionDaysChange: (days: number) => void;
-    onSave: () => void;
+    onSave: (value: DashboardStructureBackupSettingsValue) => void;
 }) {
+    const form = useForm({
+        defaultValues: {
+            enabled,
+            cadenceWeeks,
+            retentionDays,
+        },
+        validators: {
+            onSubmit: backupSettingsSchema,
+        },
+        onSubmit: ({ value }) => onSave(value),
+    });
+
     return (
-        <div
+        <form
             id='server-blueprint-backup-settings'
-            className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'>
-            <div className='flex flex-wrap items-start justify-between gap-3'>
+            onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void form.handleSubmit();
+            }}>
+            <div className='flex flex-wrap items-start justify-between gap-4'>
                 <div>
-                    <p className='text-sm font-semibold text-white'>Automatic backups</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-400'>
-                        Opt-in scheduled backups. Minimum cadence is 1 week.
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Automatic backups</p>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                        The shortest supported cadence is one week.
                     </p>
                 </div>
-                <label className='flex items-center gap-2 text-sm font-medium text-neutral-200'>
-                    <input
-                        type='checkbox'
-                        checked={enabled}
-                        onChange={(event) => onEnabledChange(event.currentTarget.checked)}
-                        className='size-4 rounded border-neutral-600 bg-neutral-950'
-                    />
-                    Enabled
-                </label>
+                <form.Field name='enabled'>
+                    {(field) => (
+                        <label className='flex items-center gap-2 text-sm font-medium text-[var(--dash-text)]'>
+                            <input
+                                type='checkbox'
+                                checked={field.state.value}
+                                onBlur={field.handleBlur}
+                                onChange={(event) => field.handleChange(event.currentTarget.checked)}
+                                className='size-4 rounded border-[var(--dash-border-strong)] bg-[var(--dash-bg)]'
+                            />
+                            Enabled
+                        </label>
+                    )}
+                </form.Field>
             </div>
-            <div className='mt-3 flex flex-wrap items-end gap-3'>
-                <label className='block text-xs font-semibold text-neutral-300'>
-                    Cadence
-                    <span className='mt-1 flex items-center gap-2'>
-                        <input
-                            type='number'
-                            min={1}
-                            step={1}
-                            value={cadenceWeeks}
-                            onChange={(event) =>
-                                onCadenceWeeksChange(Math.max(1, Number.parseInt(event.currentTarget.value, 10) || 1))
-                            }
-                            className='h-10 w-20 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                        />
-                        <span className='text-sm text-neutral-400'>week{cadenceWeeks === 1 ? '' : 's'}</span>
-                    </span>
-                </label>
-                <label className='block text-xs font-semibold text-neutral-300'>
-                    Retention
-                    <span className='mt-1 flex items-center gap-2'>
-                        <input
-                            type='number'
-                            min={1}
-                            max={180}
-                            step={1}
-                            value={retentionDays}
-                            onChange={(event) =>
-                                onRetentionDaysChange(
-                                    Math.min(180, Math.max(1, Number.parseInt(event.currentTarget.value, 10) || 1))
-                                )
-                            }
-                            className='h-10 w-20 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                        />
-                        <span className='text-sm text-neutral-400'>days</span>
-                    </span>
-                </label>
-                <button
-                    type='button'
-                    onClick={onSave}
-                    disabled={busy}
-                    className='min-h-10 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                    {busy ? 'Saving' : 'Save'}
-                </button>
+            <div className='mt-4 flex flex-wrap items-start gap-5'>
+                <form.Field
+                    name='cadenceWeeks'
+                    validators={{
+                        onChange: ({ value }) =>
+                            Number.isInteger(value) && value >= 1 ? undefined : 'Cadence must be at least one week.',
+                    }}>
+                    {(field) => (
+                        <label className='block text-xs font-semibold text-[var(--dash-text-muted)]'>
+                            Cadence
+                            <span className='mt-1 flex items-center gap-2'>
+                                <input
+                                    type='number'
+                                    min={1}
+                                    step={1}
+                                    value={field.state.value}
+                                    onBlur={field.handleBlur}
+                                    onChange={(event) =>
+                                        field.handleChange(Number.parseInt(event.currentTarget.value, 10) || 1)
+                                    }
+                                    className={numberInputClass}
+                                />
+                                <span className='text-sm font-normal text-[var(--dash-text-muted)]'>
+                                    week{field.state.value === 1 ? '' : 's'}
+                                </span>
+                            </span>
+                            <FieldError errors={field.state.meta.errors} />
+                        </label>
+                    )}
+                </form.Field>
+                <form.Field
+                    name='retentionDays'
+                    validators={{
+                        onChange: ({ value }) =>
+                            Number.isInteger(value) && value >= 1 && value <= 180
+                                ? undefined
+                                : 'Retention must be between 1 and 180 days.',
+                    }}>
+                    {(field) => (
+                        <label className='block text-xs font-semibold text-[var(--dash-text-muted)]'>
+                            Retention
+                            <span className='mt-1 flex items-center gap-2'>
+                                <input
+                                    type='number'
+                                    min={1}
+                                    max={180}
+                                    step={1}
+                                    value={field.state.value}
+                                    onBlur={field.handleBlur}
+                                    onChange={(event) =>
+                                        field.handleChange(Number.parseInt(event.currentTarget.value, 10) || 1)
+                                    }
+                                    className={numberInputClass}
+                                />
+                                <span className='text-sm font-normal text-[var(--dash-text-muted)]'>days</span>
+                            </span>
+                            <FieldError errors={field.state.meta.errors} />
+                        </label>
+                    )}
+                </form.Field>
+                <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+                    {([canSubmit, isSubmitting]) => (
+                        <button
+                            type='submit'
+                            disabled={busy || isSubmitting || !canSubmit}
+                            className='mt-5 min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)]'>
+                            {busy || isSubmitting ? 'Saving' : 'Save'}
+                        </button>
+                    )}
+                </form.Subscribe>
             </div>
-            <p className='mt-3 text-xs leading-5 text-neutral-500'>
+            <p className='mt-4 text-xs leading-5 text-[var(--dash-text-subtle)]'>
                 {settings.nextBackupAt
-                    ? `Next scheduled backup: ${formatDate(settings.nextBackupAt)}.`
+                    ? `Next scheduled backup ${formatDate(settings.nextBackupAt)}.`
                     : 'No scheduled backup is queued.'}{' '}
-                Backups are automatically removed after {retentionDays} day{retentionDays === 1 ? '' : 's'}.
+                Stored versions are removed after the selected retention period.
             </p>
-        </div>
+        </form>
     );
 }
+
+function FieldError({ errors }: { errors: unknown[] }) {
+    const message = errors.find((error): error is string => typeof error === 'string');
+    return message ? <span className='mt-1 block font-normal text-[var(--dash-danger)]'>{message}</span> : null;
+}
+
+const numberInputClass =
+    'h-10 w-20 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] bg-[var(--dash-bg)] px-3 text-sm text-[var(--dash-text)] outline-none focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]';

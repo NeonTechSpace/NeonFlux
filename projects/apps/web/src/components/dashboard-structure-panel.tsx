@@ -1,5 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Link, Outlet } from '@tanstack/react-router';
+import { motion } from 'motion/react';
+import { createContext, use, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { getDashboardAuditEventsBaseQueryKey, getDashboardStructureSettingsQueryKey } from '../dashboard-query-keys.js';
 import {
@@ -16,6 +19,7 @@ import {
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
+import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { isBackupPageStateFresh } from './dashboard-structure-panel-backup-state.js';
 import { downloadJsonFile } from './dashboard-structure-panel-download.js';
@@ -26,8 +30,102 @@ import { DashboardStructureLoading } from './dashboard-structure-panel-shared.js
 import { countPlanChanges, toDriftErrorStatus, toErrorStatus } from './dashboard-structure-panel-status.js';
 import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 import { DashboardStructurePanelView } from './dashboard-structure-panel-view.js';
+import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
+import type {
+    DashboardStructurePanelViewProps,
+    DashboardStructureSurface,
+} from './dashboard-structure-panel-view.js';
+
+const structureLiveArea = ['import_export', 'structure'] as const;
+const DashboardStructureWorkspaceContext = createContext<DashboardStructurePanelViewProps | undefined>(undefined);
+
+const blueprintNavigation = [
+    { id: 'current', label: 'Current', to: '/dashboard/$guildId/structure/current' },
+    { id: 'backups', label: 'Backups', to: '/dashboard/$guildId/structure/backups' },
+    { id: 'compare', label: 'Compare', to: '/dashboard/$guildId/structure/compare' },
+    { id: 'deploy', label: 'Deploy', to: '/dashboard/$guildId/structure/deploy' },
+    { id: 'runs', label: 'Runs', to: '/dashboard/$guildId/structure/runs' },
+] as const;
+
+export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
+    useDashboardLiveInvalidation({
+        guildId,
+        areas: structureLiveArea,
+    });
+
+    return (
+        <DashboardStructureController guildId={guildId}>
+            {(workspace) => (
+                <DashboardStructureWorkspaceContext value={workspace}>
+                    <section className='min-w-0' aria-labelledby='server-blueprint-title'>
+                        <header className='sticky top-0 z-10 border-b border-[var(--dash-border)] bg-[rgba(7,8,11,0.94)] px-1 backdrop-blur-md'>
+                            <div className='flex min-h-14 items-center justify-between gap-5'>
+                                <h2
+                                    id='server-blueprint-title'
+                                    className='text-xl font-semibold tracking-tight text-[var(--dash-text)]'>
+                                    Server Blueprint
+                                </h2>
+                                <p className='hidden text-sm text-[var(--dash-text-muted)] 2xl:block'>
+                                    Capture versions, understand differences, and apply reviewed changes.
+                                </p>
+                            </div>
+                            <nav className='flex min-w-0 gap-6 overflow-x-auto' aria-label='Server Blueprint tools'>
+                                {blueprintNavigation.map((item) => (
+                                    <Link
+                                        key={item.id}
+                                        to={item.to}
+                                        params={{ guildId }}
+                                        className='relative shrink-0 py-3 text-sm font-medium text-[var(--dash-text-muted)] transition-colors hover:text-[var(--dash-text)] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)]'
+                                        activeProps={{ className: 'text-[var(--dash-text)]' }}>
+                                        {({ isActive }) => (
+                                            <>
+                                                {item.label}
+                                                {isActive ? (
+                                                    <motion.span
+                                                        layoutId='server-blueprint-active-tool'
+                                                        className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
+                                                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                                                    />
+                                                ) : null}
+                                            </>
+                                        )}
+                                    </Link>
+                                ))}
+                            </nav>
+                        </header>
+                        <div className='pt-5'>
+                            <Outlet />
+                        </div>
+                    </section>
+                </DashboardStructureWorkspaceContext>
+            )}
+        </DashboardStructureController>
+    );
+}
+
+export function DashboardStructureRouteSurface({ surface }: { surface: DashboardStructureSurface }) {
+    const workspace = use(DashboardStructureWorkspaceContext);
+
+    if (!workspace) throw new Error('Server Blueprint surface rendered outside its workspace.');
+
+    return <DashboardStructurePanelView {...workspace} surface={surface} />;
+}
 
 export function DashboardStructurePanel({ guildId }: { guildId: string }) {
+    return (
+        <DashboardStructureController guildId={guildId}>
+            {(workspace) => <DashboardStructurePanelView {...workspace} surface='all' />}
+        </DashboardStructureController>
+    );
+}
+
+function DashboardStructureController({
+    guildId,
+    children,
+}: {
+    guildId: string;
+    children: (workspace: DashboardStructurePanelViewProps) => ReactNode;
+}) {
     const queryClient = useQueryClient();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
@@ -132,11 +230,11 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
         }
     }
 
-    async function saveBackupSettings(): Promise<void> {
+    async function saveBackupSettings(draft?: DashboardStructureBackupSettingsValue): Promise<void> {
         const settings = settingsQuery.data?.backupSettings;
-        const enabled = backupEnabled ?? settings?.enabled ?? false;
-        const cadenceWeeks = backupCadenceWeeks ?? settings?.cadenceWeeks ?? 1;
-        const retentionDays = backupRetentionDays ?? settings?.retentionDays ?? 180;
+        const enabled = draft?.enabled ?? backupEnabled ?? settings?.enabled ?? false;
+        const cadenceWeeks = draft?.cadenceWeeks ?? backupCadenceWeeks ?? settings?.cadenceWeeks ?? 1;
+        const retentionDays = draft?.retentionDays ?? backupRetentionDays ?? settings?.retentionDays ?? 180;
 
         setStatus(undefined);
         setBusyAction('backup-settings');
@@ -416,78 +514,74 @@ export function DashboardStructurePanel({ guildId }: { guildId: string }) {
                   ...(settingsQuery.data.backupNextCursor ? { nextCursor: settingsQuery.data.backupNextCursor } : {}),
               };
 
-    return (
-        <DashboardStructurePanelView
-            applyConfirmationByRunId={imports.applyConfirmationByRunId}
-            backupJson={backupJson}
-            backupPage={backupPage}
-            backupSettings={backupSettings}
-            busyAction={busyAction}
-            cadenceDraft={cadenceDraft}
-            confirmationByRunId={imports.confirmationByRunId}
-            deleteConfirmBackupId={deleteConfirmBackupId}
-            deleteConfirmationByRunId={imports.deleteConfirmationByRunId}
-            driftState={driftState}
-            editingBackupId={editingBackupId}
-            editingBackupName={editingBackupName}
-            enabledDraft={enabledDraft}
-            explorer={explorer}
-            replaceImportMode={replaceImportMode}
-            importJson={importJson}
-            importRuns={importRuns}
-            latestRun={latestRun}
-            observedState={settingsQuery.data.observedState}
-            preflightByRunId={imports.preflightByRunId}
-            restoreShortcutBackupId={imports.restoreShortcutBackupId}
-            retentionDraft={retentionDraft}
-            status={status}
-            onApplyConfirmationChange={(runId, confirmation) =>
-                imports.setApplyConfirmationByRunId((current) => ({ ...current, [runId]: confirmation }))
-            }
-            onApplyRun={(run) => void imports.applyImportRun(run)}
-            onBackupCadenceWeeksChange={setBackupCadenceWeeks}
-            onBackupDelete={(backup) => void deleteBackup(backup)}
-            onBackupDownload={(backup) => void loadBackupJson(backup, 'download')}
-            onBackupEnabledChange={setBackupEnabled}
-            onBackupImport={(backup) => void importBackup(backup)}
-            onBackupInspect={(backup) => void loadBackupJson(backup, 'inspect')}
-            onBackupRename={(backup) => void renameBackup(backup)}
-            onBackupRenameNameChange={setEditingBackupName}
-            onBackupRetentionDaysChange={setBackupRetentionDays}
-            onBeginBackupRename={(backup) => {
+    return children({
+        applyConfirmationByRunId: imports.applyConfirmationByRunId,
+        backupJson,
+        backupPage,
+        backupSettings,
+        busyAction,
+        cadenceDraft,
+        confirmationByRunId: imports.confirmationByRunId,
+        deleteConfirmBackupId,
+        deleteConfirmationByRunId: imports.deleteConfirmationByRunId,
+        driftState,
+        editingBackupId,
+        editingBackupName,
+        enabledDraft,
+        explorer,
+        replaceImportMode,
+        importJson,
+        importRuns,
+        latestRun,
+        observedState: settingsQuery.data.observedState,
+        preflightByRunId: imports.preflightByRunId,
+        restoreShortcutBackupId: imports.restoreShortcutBackupId,
+        retentionDraft,
+        status,
+        onApplyConfirmationChange: (runId, confirmation) =>
+            imports.setApplyConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
+        onApplyRun: (run) => void imports.applyImportRun(run),
+        onBackupCadenceWeeksChange: setBackupCadenceWeeks,
+        onBackupDelete: (backup) => void deleteBackup(backup),
+        onBackupDownload: (backup) => void loadBackupJson(backup, 'download'),
+        onBackupEnabledChange: setBackupEnabled,
+        onBackupImport: (backup) => void importBackup(backup),
+        onBackupInspect: (backup) => void loadBackupJson(backup, 'inspect'),
+        onBackupRename: (backup) => void renameBackup(backup),
+        onBackupRenameNameChange: setEditingBackupName,
+        onBackupRetentionDaysChange: setBackupRetentionDays,
+        onBeginBackupRename: (backup) => {
                 setEditingBackupId(backup.id);
                 setEditingBackupName(backup.name);
                 setDeleteConfirmBackupId(undefined);
-            }}
-            onCancelBackupDelete={() => setDeleteConfirmBackupId(undefined)}
-            onCancelBackupRename={() => {
+            },
+        onCancelBackupDelete: () => setDeleteConfirmBackupId(undefined),
+        onCancelBackupRename: () => {
                 setEditingBackupId(undefined);
                 setEditingBackupName('');
-            }}
-            onCheckBackupDrift={(backup) => void checkDrift(backup)}
-            onCheckLatestDrift={() => void checkDrift()}
-            onConfirmRun={(run) => void imports.confirmImportRun(run)}
-            onCreateBackup={() => void createBackup()}
-            onCreateDryRun={() => void imports.createDryRun()}
-            onCreateRestoreDryRun={(backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' })}
-            onDeleteConfirmationChange={(runId, confirmation) =>
-                imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation }))
-            }
-            onDownloadCurrentStructure={() => void downloadCurrentStructure()}
-            onDriftCreateDryRun={(backup) => void importBackup(backup)}
-            onImportJsonChange={setImportJson}
-            onReplaceImportModeChange={setReplaceImportMode}
-            onImportStructureFile={importStructureFile}
-            onLoadMoreBackups={() => void loadMoreBackups()}
-            onLoadRunActions={(run) => void imports.loadRunActions(run)}
-            onPreflightRun={(run) => void imports.preflightImportRun(run)}
-            onConfirmationChange={(runId, confirmation) =>
-                imports.setConfirmationByRunId((current) => ({ ...current, [runId]: confirmation }))
-            }
-            onRetryRun={(run) => void imports.retryImportRun(run)}
-            onReviewScheduledDrift={(baselineBackupId) => void reviewScheduledDrift(baselineBackupId)}
-            onSaveBackupSettings={() => void saveBackupSettings()}
-            onSetBackupJsonAsImportJson={() => setImportJson(backupJson)}
-        />
-    );
+            },
+        onCheckBackupDrift: (backup) => void checkDrift(backup),
+        onCheckLatestDrift: () => void checkDrift(),
+        onConfirmRun: (run) => void imports.confirmImportRun(run),
+        onCreateBackup: () => void createBackup(),
+        onCreateDryRun: () => void imports.createDryRun(),
+        onCreateRestoreDryRun: (backupId) =>
+            void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
+        onDeleteConfirmationChange: (runId, confirmation) =>
+            imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
+        onDownloadCurrentStructure: () => void downloadCurrentStructure(),
+        onDriftCreateDryRun: (backup) => void importBackup(backup),
+        onImportJsonChange: setImportJson,
+        onReplaceImportModeChange: setReplaceImportMode,
+        onImportStructureFile: importStructureFile,
+        onLoadMoreBackups: () => void loadMoreBackups(),
+        onLoadRunActions: (run) => void imports.loadRunActions(run),
+        onPreflightRun: (run) => void imports.preflightImportRun(run),
+        onConfirmationChange: (runId, confirmation) =>
+            imports.setConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
+        onRetryRun: (run) => void imports.retryImportRun(run),
+        onReviewScheduledDrift: (baselineBackupId) => void reviewScheduledDrift(baselineBackupId),
+        onSaveBackupSettings: (value) => void saveBackupSettings(value),
+        onSetBackupJsonAsImportJson: () => setImportJson(backupJson),
+    });
 }

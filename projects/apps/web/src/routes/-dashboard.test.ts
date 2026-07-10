@@ -57,7 +57,12 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/import-export'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/backups'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/compare'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/current'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/deploy'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/import-export'");
+        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/runs'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/system'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/system/bot-installation-sync'");
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/invites'");
@@ -65,6 +70,22 @@ describe('/dashboard', () => {
         expect(routeTree).toContain("fullPath: '/dashboard/$guildId/logging'");
         expect(routeTree).toContain("fullPath: '/dashboard/'");
         expect(routeTree).not.toContain("fullPath: '/profile-builder'");
+    });
+
+    it('keeps legacy Blueprint paths on the canonical focused surfaces', () => {
+        const structureIndexRoute = readWebSourceFile('src/routes/dashboard/$guildId/structure/index.tsx');
+        const structureLegacyRoute = readWebSourceFile('src/routes/dashboard/$guildId/structure/import-export.tsx');
+        const blueprintLayoutRoute = readWebSourceFile('src/routes/dashboard/$guildId/server-blueprint.tsx');
+        const blueprintIndexRoute = readWebSourceFile('src/routes/dashboard/$guildId/server-blueprint/index.tsx');
+        const blueprintLegacyRoute = readWebSourceFile(
+            'src/routes/dashboard/$guildId/server-blueprint/import-export.tsx'
+        );
+
+        expect(structureIndexRoute).toContain('getDefaultDashboardStructureTo()');
+        expect(structureLegacyRoute).toContain("to: '/dashboard/$guildId/structure/deploy'");
+        expect(blueprintLayoutRoute).toContain('component: Outlet');
+        expect(blueprintIndexRoute).toContain("to: '/dashboard/$guildId/structure/current'");
+        expect(blueprintLegacyRoute).toContain("to: '/dashboard/$guildId/structure/deploy'");
     });
 
     it('keeps auth-bearing dashboard pending paths from rendering dashboard chrome', () => {

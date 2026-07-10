@@ -13,24 +13,26 @@ export function DashboardStructureExplorerDetails({
 }) {
     if (!metadata) {
         return (
-            <div className='p-3'>
+            <aside className='p-4' aria-label='Blueprint inspector'>
                 <p className='text-sm font-semibold text-white'>Select an item</p>
-                <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                <p className='mt-1 max-w-md text-xs leading-5 text-neutral-400'>
                     Choose a role, category, channel, or planned action to inspect details.
                 </p>
-            </div>
+            </aside>
         );
     }
 
     return (
-        <div className='space-y-4 p-3'>
-            <div>
-                <p className='text-xs font-medium text-neutral-500 uppercase'>{formatStatus(metadata.kind)}</p>
-                <h5 className='mt-1 text-base font-semibold text-white'>{metadata.label}</h5>
-                <p className='mt-1 text-xs text-neutral-500'>{source.label}</p>
-            </div>
+        <aside className='min-w-0 p-4' aria-label='Blueprint inspector'>
+            <header className='border-b border-neutral-800 pb-3'>
+                <div className='flex min-w-0 items-baseline gap-2'>
+                    <h5 className='min-w-0 truncate text-base font-semibold text-white'>{metadata.label}</h5>
+                    <span className='shrink-0 text-xs text-neutral-500'>{formatStatus(metadata.kind)}</span>
+                </div>
+                <p className='mt-1 truncate text-xs text-neutral-500'>{source.label}</p>
+            </header>
 
-            <div className='grid gap-2 sm:grid-cols-2'>
+            <dl className='mt-1 divide-y divide-neutral-800'>
                 {metadata.id ? <DetailValue label='ID' value={metadata.id} /> : null}
                 {metadata.entityKey ? <DetailValue label='Entity key' value={metadata.entityKey} /> : null}
                 {metadata.parentId ? <DetailValue label='Parent' value={metadata.parentId} /> : null}
@@ -56,45 +58,46 @@ export function DashboardStructureExplorerDetails({
                         />
                     </>
                 ) : null}
-            </div>
+            </dl>
 
             {metadata.badges.length > 0 ? (
-                <div>
-                    <p className='text-xs font-medium text-neutral-500 uppercase'>Badges</p>
-                    <div className='mt-2 flex flex-wrap gap-2'>
+                <section className='border-t border-neutral-800 py-3' aria-label='Change markers'>
+                    <p className='text-xs font-medium text-neutral-500'>Change markers</p>
+                    <div className='mt-2 flex flex-wrap gap-x-4 gap-y-2'>
                         {metadata.badges.map((badge) => (
                             <span
                                 key={badge}
-                                className={`rounded-md border px-2 py-1 text-xs font-semibold ${badgeClassName(badge)}`}>
+                                className={`inline-flex items-center gap-1.5 text-xs ${badgeClassName(badge)}`}>
+                                <span className='size-1.5 rounded-full bg-current' aria-hidden='true' />
                                 {formatStatus(badge)}
                             </span>
                         ))}
                     </div>
-                </div>
+                </section>
             ) : null}
 
             {metadata.risks.length > 0 ? (
-                <div className='rounded-md border border-amber-400/25 bg-amber-400/10 p-3'>
-                    <p className='text-xs font-semibold text-amber-100'>Risk flags</p>
-                    <ul className='mt-2 space-y-1 text-xs leading-5 text-neutral-200'>
+                <section className='border-l-2 border-amber-400/60 bg-amber-400/5 px-3 py-2.5' aria-label='Risks'>
+                    <p className='text-xs font-semibold text-amber-100'>Needs attention</p>
+                    <ul className='mt-1.5 space-y-1 text-xs leading-5 text-neutral-200'>
                         {metadata.risks.map((risk) => (
                             <li key={risk}>{risk}</li>
                         ))}
                     </ul>
-                </div>
+                </section>
             ) : null}
 
             {metadata.actions.length > 0 ? (
-                <div>
-                    <p className='text-xs font-medium text-neutral-500 uppercase'>Related actions</p>
-                    <div className='mt-2 space-y-2'>
+                <section className='mt-4 border-t border-neutral-800 pt-3'>
+                    <p className='text-xs font-medium text-neutral-500'>Related actions</p>
+                    <div className='mt-1 divide-y divide-neutral-800'>
                         {metadata.actions.map((action) => (
                             <ActionDetails key={action.id} action={action} />
                         ))}
                     </div>
-                </div>
+                </section>
             ) : null}
-        </div>
+        </aside>
     );
 }
 
@@ -102,7 +105,7 @@ function ActionDetails({ action }: { action: DashboardStructureExplorerAction })
     const changes = readActionChanges(action);
 
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950 p-3'>
+        <article className='py-3'>
             <div className='flex flex-wrap items-start justify-between gap-2'>
                 <div>
                     <p className='text-sm font-semibold text-neutral-100'>
@@ -116,41 +119,43 @@ function ActionDetails({ action }: { action: DashboardStructureExplorerAction })
                 <p className='mt-2 text-xs leading-5 text-amber-100'>{action.preflightMessage}</p>
             ) : null}
             {changes.length > 0 ? (
-                <dl className='mt-3 space-y-2'>
+                <dl className='mt-3 divide-y divide-neutral-800 border-y border-neutral-800'>
                     {changes.map((change) => (
-                        <div key={change.field} className='rounded-md border border-neutral-800 bg-neutral-900/60 p-2'>
+                        <div
+                            key={change.field}
+                            className='grid gap-2 py-2 @min-[32rem]/blueprint-explorer:grid-cols-[8rem_minmax(0,1fr)]'>
                             <dt className='text-xs font-semibold text-neutral-200'>{formatStatus(change.field)}</dt>
-                            <dd className='mt-1 grid gap-2 text-xs text-neutral-400 sm:grid-cols-2'>
-                                <span>Before: {formatUnknown(change.before)}</span>
-                                <span>After: {formatUnknown(change.after)}</span>
+                            <dd className='grid min-w-0 gap-2 text-xs text-neutral-400 @min-[42rem]/blueprint-explorer:grid-cols-2'>
+                                <span className='min-w-0 break-words'>Before: {formatUnknown(change.before)}</span>
+                                <span className='min-w-0 break-words'>After: {formatUnknown(change.after)}</span>
                             </dd>
                         </div>
                     ))}
                 </dl>
             ) : null}
-        </div>
+        </article>
     );
 }
 
 function DetailValue({ label, value }: { label: string; value: string }) {
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950 p-2'>
-            <p className='text-xs font-medium text-neutral-500 uppercase'>{label}</p>
-            <p className='mt-1 text-sm break-all text-neutral-200'>{value}</p>
+        <div className='grid gap-2 py-2 @min-[30rem]/blueprint-explorer:grid-cols-[8rem_minmax(0,1fr)]'>
+            <dt className='text-xs font-medium text-neutral-500'>{label}</dt>
+            <dd className='min-w-0 font-mono text-xs break-all text-neutral-200'>{value}</dd>
         </div>
     );
 }
 
 function badgeClassName(badge: string): string {
     if (badge === 'blocked' || badge === 'failed' || badge === 'invalid' || badge === 'unsupported') {
-        return 'border-rose-400/30 bg-rose-400/10 text-rose-100';
+        return 'text-rose-200';
     }
     if (badge === 'delete' || badge === 'destructive' || badge === 'permissions') {
-        return 'border-amber-400/30 bg-amber-400/10 text-amber-100';
+        return 'text-amber-200';
     }
-    if (badge === 'create') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-100';
+    if (badge === 'create') return 'text-emerald-200';
 
-    return 'border-sky-400/30 bg-sky-400/10 text-sky-100';
+    return 'text-sky-200';
 }
 
 function readActionChanges(action: DashboardStructureExplorerAction): Array<{

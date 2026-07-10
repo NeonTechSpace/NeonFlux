@@ -284,7 +284,7 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
 
         await waitFor(() => expect(downloadDashboardStructureExportRouteData).toHaveBeenCalled());
         expect(downloadDashboardStructureExportRouteData).toHaveBeenCalledWith({ data: { guildId: 'guild-1' } });
@@ -330,11 +330,11 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         expect(await screen.findByText('Live server blueprint loaded in explorer.')).toBeTruthy();
 
         fireEvent.change(screen.getByLabelText('Import JSON dry-run'), { target: { value: '{' } });
-        fireEvent.click(screen.getAllByRole('button', { name: 'Inspect import JSON' })[0]);
+        fireEvent.click(screen.getByRole('button', { name: 'Inspect source' }));
 
         expect(await screen.findByText('Import JSON could not be parsed as a server blueprint.')).toBeTruthy();
         expect(screen.getAllByText('Live server layout').length).toBeGreaterThan(0);
@@ -351,18 +351,18 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
         fireEvent.change(screen.getByLabelText('Import JSON dry-run'), {
             target: { value: createStructureJson({ channelName: 'announcements' }) },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Compare import JSON' }));
+        fireEvent.change(screen.getByLabelText('Choose comparison target'), { target: { value: 'import-json' } });
 
         expect(await screen.findByText('Import JSON comparison loaded.')).toBeTruthy();
         expect(screen.getByTestId('mock-json-diff').textContent).toContain('Import JSON.json');
 
         fireEvent.change(screen.getByLabelText('Import JSON dry-run'), { target: { value: '{' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Compare import JSON' }));
+        fireEvent.change(screen.getByLabelText('Choose comparison target'), { target: { value: 'import-json' } });
 
         expect(await screen.findByText('Import JSON could not be parsed as a server blueprint.')).toBeTruthy();
         expect(screen.getByTestId('mock-json-diff').textContent).toContain('Import JSON.json');
@@ -388,9 +388,9 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
-        fireEvent.click(screen.getByRole('button', { name: 'Compare live' }));
+        fireEvent.change(screen.getByLabelText('Choose comparison target'), { target: { value: 'live' } });
 
         await waitFor(() => expect(downloadDashboardStructureExportRouteData).toHaveBeenCalledTimes(2));
         expect(click).not.toHaveBeenCalled();
@@ -419,11 +419,13 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
         fireEvent.click(screen.getByRole('button', { name: 'Check latest' }));
         await screen.findByText('2 drift changes found');
-        fireEvent.click(screen.getByRole('button', { name: 'Compare drift baseline' }));
+        fireEvent.change(screen.getByLabelText('Choose comparison target'), {
+            target: { value: 'drift-baseline' },
+        });
 
         await waitFor(() => expect(readDashboardStructureBackupJsonRouteData).toHaveBeenCalled());
         expect(readDashboardStructureBackupJsonRouteData).toHaveBeenCalledWith({
@@ -446,7 +448,7 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
         fireEvent.click(screen.getByRole('button', { name: 'Check latest' }));
         await screen.findByText('2 drift changes found');
@@ -476,7 +478,7 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
         fireEvent.click(await screen.findByRole('button', { name: 'Load actions' }));
 
@@ -509,10 +511,12 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Load live' }));
+        fireEvent.change(await screen.findByLabelText('Load blueprint source'), { target: { value: 'live' } });
         await screen.findByText('Live server blueprint loaded in explorer.');
-        fireEvent.change(screen.getByLabelText('Overlay'), { target: { value: 'run:run-1' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Compare requested final state' }));
+        fireEvent.change(screen.getByLabelText('Review layer'), { target: { value: 'run:run-1' } });
+        fireEvent.change(screen.getByLabelText('Choose comparison target'), {
+            target: { value: 'requested-final' },
+        });
 
         expect(
             await screen.findByText(
@@ -522,7 +526,7 @@ describe('DashboardStructurePanel', () => {
         expect(screen.getByTestId('mock-json-diff').textContent).toContain('Requested final state.json');
 
         fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Inspect requested final state' }));
+        fireEvent.change(screen.getByLabelText('Load blueprint source'), { target: { value: 'requested-final' } });
 
         expect(
             await screen.findByText(
@@ -872,7 +876,7 @@ describe('DashboardStructurePanel', () => {
 
         renderStructurePanel();
 
-        expect(await screen.findByText('Original backup')).toBeTruthy();
+        expect((await screen.findAllByText('Original backup')).length).toBeGreaterThan(0);
         fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
         expect(await screen.findByText('Loaded older backup')).toBeTruthy();
 
@@ -882,8 +886,8 @@ describe('DashboardStructurePanel', () => {
         });
         fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
 
-        expect(await screen.findByText('Restore point before apply')).toBeTruthy();
-        expect(screen.getByText('Restore point')).toBeTruthy();
+        expect((await screen.findAllByText('Restore point before apply')).length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Restore point').length).toBeGreaterThan(0);
     });
 
     it('shows restore shortcut errors without replacing the local import run on failure', async () => {

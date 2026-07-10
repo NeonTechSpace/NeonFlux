@@ -76,7 +76,7 @@ describe('DashboardStructureExplorer', () => {
         }
     });
 
-    it('prompts for loading a snapshot and exposes load actions', () => {
+    it('prompts for loading a snapshot and exposes focused source actions', () => {
         const onLoadLive = vi.fn();
         const onInspectImportJson = vi.fn();
 
@@ -87,11 +87,35 @@ describe('DashboardStructureExplorer', () => {
         });
 
         expect(screen.getByText('No blueprint loaded')).toBeTruthy();
-        fireEvent.click(screen.getByRole('button', { name: 'Load live' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Inspect import JSON' }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Load blueprint source' }), {
+            target: { value: 'live' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Load blueprint source' }), {
+            target: { value: 'import-json' },
+        });
 
         expect(onLoadLive).toHaveBeenCalledOnce();
         expect(onInspectImportJson).toHaveBeenCalledOnce();
+    });
+
+    it('uses a named container and presents source and target as one comparison toolbar', () => {
+        renderExplorer({
+            comparisonTarget: { label: 'Nightly backup', detail: 'Jul 9, 2026', type: 'backup' },
+            source: {
+                label: 'Live server layout',
+                detail: 'Loaded just now',
+                snapshot: createExplorerSnapshot(),
+                type: 'live',
+            },
+        });
+
+        expect(screen.getByLabelText('Server blueprint explorer').className).toContain('@container/blueprint-explorer');
+        expect(screen.getByTestId('blueprint-explorer-workbench').className).toContain(
+            '@min-[48rem]/blueprint-explorer:grid-cols-'
+        );
+        expect(screen.getByText('Source')).toBeTruthy();
+        expect(screen.getByText('Target')).toBeTruthy();
+        expect(screen.getByText('Nightly backup')).toBeTruthy();
     });
 
     it('renders loaded hierarchy and default details', () => {
@@ -130,8 +154,8 @@ describe('DashboardStructureExplorer', () => {
         fireEvent.click(screen.getByRole('button', { name: 'JSON diff' }));
 
         expect(screen.getByText('Choose a comparison target to render a JSON diff.')).toBeTruthy();
-        expect(screen.getByText('Live server layout')).toBeTruthy();
-        expect(screen.getByText('No comparison')).toBeTruthy();
+        expect(screen.getAllByText('Live server layout').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('No comparison').length).toBeGreaterThan(0);
     });
 
     it('renders a raw JSON diff for a selected comparison target', () => {
@@ -234,9 +258,10 @@ describe('DashboardStructureExplorer', () => {
             onCompareLive,
         });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Compare import JSON' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Compare live' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Compare drift baseline' }));
+        const targetSelect = screen.getByRole('combobox', { name: 'Choose comparison target' });
+        fireEvent.change(targetSelect, { target: { value: 'import-json' } });
+        fireEvent.change(targetSelect, { target: { value: 'live' } });
+        fireEvent.change(targetSelect, { target: { value: 'drift-baseline' } });
 
         expect(onCompareImportJson).toHaveBeenCalledOnce();
         expect(onCompareLive).toHaveBeenCalledOnce();
@@ -262,8 +287,12 @@ describe('DashboardStructureExplorer', () => {
             onInspectRequestedFinalState,
         });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Inspect requested final state' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Compare requested final state' }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Load blueprint source' }), {
+            target: { value: 'requested-final' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Choose comparison target' }), {
+            target: { value: 'requested-final' },
+        });
 
         expect(onInspectRequestedFinalState).toHaveBeenCalledWith(runWithSnapshot);
         expect(onCompareRequestedFinalState).toHaveBeenCalledWith(runWithSnapshot);
@@ -282,8 +311,7 @@ describe('DashboardStructureExplorer', () => {
             },
         });
 
-        expect(screen.queryByRole('button', { name: 'Inspect requested final state' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Compare requested final state' })).toBeNull();
+        expect(screen.queryByRole('option', { name: 'Requested final state' })).toBeNull();
     });
 
     it('shows capped drift copy and risk details for selected drift targets', () => {
