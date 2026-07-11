@@ -157,7 +157,7 @@ describe('Convex structure database functions', () => {
             guildId: ' guild-1 ',
             plan: importRun.plan,
             planDigest: ' plan-digest ',
-            planVersion: 2,
+            planVersion: 3,
             policy: 'synchronize',
             requestedSnapshotDigest: ' snapshot-digest ',
             sourceBackupId: ' backup-1 ',

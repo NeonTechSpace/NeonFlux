@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { isDashboardStructurePolicy } from './dashboard-structure-v2.js';
-import type { DashboardStructurePolicy } from './dashboard-structure-v2.js';
+import { isDashboardStructurePolicy } from './dashboard-structure-contracts.js';
+import type { DashboardStructurePolicy } from './dashboard-structure-contracts.js';
 
 export function readStructurePolicy(plan: Record<string, unknown>): DashboardStructurePolicy | undefined {
     return isDashboardStructurePolicy(plan.policy) ? plan.policy : undefined;

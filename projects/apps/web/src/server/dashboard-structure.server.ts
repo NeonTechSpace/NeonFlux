@@ -41,7 +41,6 @@ import type {
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { getWebDb } from './db.server.js';
-import { orderDashboardStructureImportActions } from './dashboard-structure-action-order.js';
 import {
     readPersistedCategoryMappings,
     readPersistedChannelMappings,
@@ -74,14 +73,14 @@ import {
     createEmptyDecisionSummary,
     dashboardStructureExecutionPhases,
     isDashboardStructurePolicy,
-} from './dashboard-structure-v2.js';
+} from './dashboard-structure-contracts.js';
 import type {
     DashboardStructureDecisionSummary,
     DashboardStructureExecutionProgress,
     DashboardStructurePersistedPreflight,
     DashboardStructurePolicy,
     DashboardStructureReviewDecision,
-} from './dashboard-structure-v2.js';
+} from './dashboard-structure-contracts.js';
 
 const dashboardImportActionInlineLimit = 100;
 const dashboardBackupPageSize = 50;
@@ -164,6 +163,7 @@ export type DashboardStructureImportRun = {
     updatedAt: string;
     summary: DashboardStructurePlan['summary'];
     actionCount: number;
+    executionActionCount: number;
     actions: DashboardStructureImportAction[];
     requestedSnapshot?: DashboardStructureSnapshot;
     requestedSnapshotStoredAt?: string;
@@ -951,13 +951,13 @@ export async function createDashboardStructureRecoveryPlan(
     const sourceRun = recoverySource.run;
     const sourceExecution = recoverySource.execution;
     const requestedSnapshot = readRequestedSnapshot(sourceRun.plan);
-    if (!requestedSnapshot) return { type: 'invalid-input', message: 'This run has no v2 source snapshot.' };
+    if (!requestedSnapshot) return { type: 'invalid-input', message: 'This run has no source snapshot.' };
     const botToken = loadWebConfig().fluxerBotToken;
     if (!botToken) return { type: 'bot-token-missing' };
     const currentResult = await readFluxerBotGuildStructure({ botToken, guildId: context.guild.id });
     if (currentResult.isErr()) return { type: 'structure-read-failed' };
     if (!readPolicy(sourceRun.plan)) {
-        return { type: 'invalid-input', message: 'This run is not a Server Blueprint v2 plan.' };
+        return { type: 'invalid-input', message: 'This run is not a current Server Blueprint plan.' };
     }
     const policy: DashboardStructurePolicy = 'synchronize';
     const roleMappings = readPersistedRoleMappings(sourceRun.plan);
@@ -1128,7 +1128,7 @@ async function persistStructureImportPlan(
     const runResult = await createStructureImportRun(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,
-        planVersion: 2,
+        planVersion: 3,
         policy: options.policy,
         planDigest,
         deleteActionCount,
@@ -1136,6 +1136,9 @@ async function persistStructureImportPlan(
         requestedSnapshotDigest,
         plan: toJsonRecord({
             summary: plan.summary,
+            executionActionCount: plan.executionActions.length,
+            executionActions: plan.executionActions,
+            knownTargetKinds: plan.knownTargetKinds,
             sourceTargetMap: plan.sourceTargetMap,
             roleProjection: plan.roleProjection,
             ...(options.roleMappings && Object.keys(options.roleMappings).length > 0
@@ -1154,7 +1157,7 @@ async function persistStructureImportPlan(
             requestedSnapshotVersion: 1,
             source: options.source ?? 'dashboard-json',
             ...(options.planMetadata ?? {}),
-            planVersion: 2,
+            planVersion: 3,
             policy: options.policy,
             planDigest,
             decisionSummary: summarizeDashboardStructureReviewDecisions(reviewDecisions),
@@ -1173,10 +1176,9 @@ async function persistStructureImportPlan(
         return { type: 'database-error' };
     }
 
-    const orderedActions = orderDashboardStructureImportActions(plan.actions, options.policy);
     const actionRecords = await recordActionBatches(
         runResult.value.id,
-        orderedActions.map((action, index) => ({
+        plan.executionActions.map((action, index) => ({
             actionType: action.actionType,
             targetType: action.targetType,
             ...(action.targetId ? { targetId: action.targetId } : {}),
@@ -1476,10 +1478,12 @@ function toDashboardImportRun(
     const requestedSnapshot = readRequestedSnapshot(record.plan);
     const requestedSnapshotStoredAt = readRequestedSnapshotStoredAt(record.plan);
     const policy = readPolicy(record.plan);
-    if (!policy || record.plan.planVersion !== 2) throw new Error('invalid-server-blueprint-v2-plan');
+    if (!policy || record.plan.planVersion !== 3) throw new Error('invalid-server-blueprint-v3-plan');
     const decisionSummary = readDecisionSummary(record.plan);
     const planDigest = typeof record.plan.planDigest === 'string' ? record.plan.planDigest : '';
-    if (!planDigest) throw new Error('invalid-server-blueprint-v2-digest');
+    if (!planDigest) throw new Error('invalid-server-blueprint-v3-digest');
+    const actionCount = summary.creates + summary.updates + summary.deletes;
+    const executionActionCount = readExecutionActionCount(record.plan);
 
     return {
         id: record.id,
@@ -1488,8 +1492,9 @@ function toDashboardImportRun(
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
         summary,
-        actionCount: readActionCount(summary, actions),
-        actions: shouldInlineImportActions(summary, actions) ? actions.map(toDashboardImportAction) : [],
+        actionCount,
+        executionActionCount,
+        actions: shouldInlineImportActions(executionActionCount, actions) ? actions.map(toDashboardImportAction) : [],
         ...(requestedSnapshot ? { requestedSnapshot } : {}),
         ...(requestedSnapshot && requestedSnapshotStoredAt ? { requestedSnapshotStoredAt } : {}),
         policy,
@@ -1523,6 +1528,7 @@ function toDashboardExecution(record: StructureImportExecutionRecord): Dashboard
     const phase = record.phase;
     return {
         id: record.id,
+        protocolVersion: record.protocolVersion,
         status: record.status,
         phase,
         completedActions: record.appliedActions + record.failedActions + record.skippedActions,
@@ -1539,19 +1545,20 @@ function toDashboardExecution(record: StructureImportExecutionRecord): Dashboard
     };
 }
 
-function readActionCount(summary: DashboardStructurePlan['summary'], actions: StructureImportActionRecord[]): number {
-    const summarizedCount = summary.creates + summary.updates + summary.deletes;
-
-    return summarizedCount > 0 ? summarizedCount : actions.length;
+function shouldInlineImportActions(executionActionCount: number, actions: StructureImportActionRecord[]): boolean {
+    return (
+        actions.length > 0 &&
+        actions.length === executionActionCount &&
+        actions.length <= dashboardImportActionInlineLimit
+    );
 }
 
-function shouldInlineImportActions(
-    summary: DashboardStructurePlan['summary'],
-    actions: StructureImportActionRecord[]
-): boolean {
-    const actionCount = readActionCount(summary, actions);
-
-    return actions.length > 0 && actions.length === actionCount && actions.length <= dashboardImportActionInlineLimit;
+function readExecutionActionCount(plan: Record<string, unknown>): number {
+    const count = plan.executionActionCount;
+    if (!Number.isInteger(count) || typeof count !== 'number' || count < 0) {
+        throw new Error('invalid-server-blueprint-v3-execution-count');
+    }
+    return count;
 }
 
 function toDashboardImportAction(record: StructureImportActionRecord): DashboardStructureImportAction {
@@ -1629,7 +1636,7 @@ function readPolicy(plan: Record<string, unknown>): DashboardStructurePolicy | u
 }
 
 function readDecisionSummary(plan: Record<string, unknown>): DashboardStructureDecisionSummary {
-    if (!isObject(plan.decisionSummary)) throw new Error('invalid-server-blueprint-v2-decision-summary');
+    if (!isObject(plan.decisionSummary)) throw new Error('invalid-server-blueprint-decision-summary');
     const summary = createEmptyDecisionSummary();
     for (const classification of Object.keys(summary) as Array<keyof DashboardStructureDecisionSummary>) {
         summary[classification] = readNonNegativeNumber(plan.decisionSummary[classification]);

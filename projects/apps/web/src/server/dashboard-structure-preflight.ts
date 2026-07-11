@@ -1,7 +1,7 @@
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
-import type { DashboardStructurePolicy } from './dashboard-structure-v2.js';
+import type { DashboardStructurePolicy } from './dashboard-structure-contracts.js';
 import { isObject, stableValueKey } from './dashboard-structure-preflight-utils.js';
 
 type DashboardStructurePreflightActionStatus =
@@ -86,8 +86,19 @@ export function prependDashboardStructureProjectionBlocker(
 export type DashboardStructurePreflightOptions = {
     allowDestructiveDeletes?: boolean;
     idMap?: Record<string, string>;
+    knownTargetIds?: readonly string[];
+    policy: DashboardStructurePolicy;
+    sourceIds?: readonly string[];
+    sourceGuildId?: string;
+};
+
+type DashboardStructurePreflightContext = {
+    allowDestructiveDeletes?: boolean;
+    idMap: Readonly<Record<string, string>>;
+    knownTargetIds: ReadonlySet<string>;
     policy: DashboardStructurePolicy;
     sourceGuildId?: string;
+    sourceIds: ReadonlySet<string>;
 };
 
 type DashboardStructureChannelOrderEntry = {
@@ -110,7 +121,8 @@ export function preflightDashboardStructureImportPlan(
     actions: DashboardStructurePreflightInputAction[],
     options: DashboardStructurePreflightOptions = { policy: 'synchronize' }
 ): DashboardStructurePreflightReport {
-    const preflightActions = actions.map((action) => preflightAction(current, action, actions, options));
+    const context = createPreflightContext(options);
+    const preflightActions = actions.map((action) => preflightAction(current, action, actions, context));
 
     return {
         summary: {
@@ -126,11 +138,26 @@ export function preflightDashboardStructureImportPlan(
     };
 }
 
+function createPreflightContext(options: DashboardStructurePreflightOptions): DashboardStructurePreflightContext {
+    const idMap = options.idMap ?? {};
+
+    return {
+        ...(options.allowDestructiveDeletes === undefined
+            ? {}
+            : { allowDestructiveDeletes: options.allowDestructiveDeletes }),
+        idMap,
+        knownTargetIds: new Set(options.knownTargetIds ?? []),
+        policy: options.policy,
+        ...(options.sourceGuildId ? { sourceGuildId: options.sourceGuildId } : {}),
+        sourceIds: new Set([...(options.sourceIds ?? []), ...Object.keys(idMap)]),
+    };
+}
+
 function preflightAction(
     current: DashboardStructureSnapshot,
     action: DashboardStructurePreflightInputAction,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     if (action.targetType === 'role-order') {
         return preflightRoleOrderAction(current, action, actions, options);
@@ -141,7 +168,7 @@ function preflightAction(
 
     const targetType = normalizeTargetType(action.targetType);
 
-    if (!targetType || !action.targetId) {
+    if (!targetType || !isCanonicalReferenceId(action.targetId)) {
         return toPreflightAction(action, 'invalid-plan', 'The dry-run action is missing a valid target.');
     }
 
@@ -161,7 +188,7 @@ function preflightChannelOrderAction(
     current: DashboardStructureSnapshot,
     action: DashboardStructurePreflightInputAction,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const channels = action.details.after;
     if (action.actionType !== 'update' || action.targetId !== 'channel-order' || !Array.isArray(channels)) {
@@ -172,7 +199,17 @@ function preflightChannelOrderAction(
     if (action.details.before !== undefined && !before) {
         return toPreflightAction(action, 'invalid-plan', 'The reviewed channel-order baseline is malformed.');
     }
-    if (before && !sameChannelOrder(before, normalizeDashboardStructureChannelOrder(current), options.idMap)) {
+    const baselineComparison = before
+        ? compareChannelOrderBaseline(before, normalizeDashboardStructureChannelOrder(current), current, options)
+        : 'same';
+    if (baselineComparison === 'mapping-required') {
+        return toPreflightAction(
+            action,
+            'mapping-required',
+            'The reviewed channel-order baseline contains a reference that cannot be mapped safely.'
+        );
+    }
+    if (baselineComparison === 'different') {
         return toPreflightAction(
             action,
             'stale',
@@ -184,9 +221,8 @@ function preflightChannelOrderAction(
     for (const channel of channels) {
         if (
             !isObject(channel) ||
-            typeof channel.sourceId !== 'string' ||
-            !channel.sourceId.trim() ||
-            (channel.parentSourceId !== null && typeof channel.parentSourceId !== 'string') ||
+            !isCanonicalReferenceId(channel.sourceId) ||
+            (channel.parentSourceId !== null && !isCanonicalReferenceId(channel.parentSourceId)) ||
             typeof channel.position !== 'number' ||
             !Number.isInteger(channel.position) ||
             channel.position < 0 ||
@@ -200,28 +236,14 @@ function preflightChannelOrderAction(
         }
         sourceIds.add(channel.sourceId);
 
-        const targetId = options.idMap?.[channel.sourceId] ?? channel.sourceId;
-        const exists = [...current.categories, ...current.channels].some((candidate) => candidate.id === targetId);
-        const willBeCreated = actions.some(
-            (candidate) =>
-                candidate.actionType === 'create' &&
-                (candidate.targetType === 'category' || candidate.targetType === 'channel') &&
-                candidate.targetId === channel.sourceId
-        );
-        if (!exists && !willBeCreated) {
+        const target = resolveStructureReference(current, actions, channel.sourceId, 'channel-or-category', options);
+        if (target.type === 'unresolved') {
             return toPreflightAction(action, 'mapping-required', 'A channel-order target cannot be mapped safely.');
         }
 
         if (channel.parentSourceId) {
-            const parentTargetId = options.idMap?.[channel.parentSourceId] ?? channel.parentSourceId;
-            const parentExists = current.categories.some((candidate) => candidate.id === parentTargetId);
-            const parentWillBeCreated = actions.some(
-                (candidate) =>
-                    candidate.actionType === 'create' &&
-                    candidate.targetType === 'category' &&
-                    candidate.targetId === channel.parentSourceId
-            );
-            if (!parentExists && !parentWillBeCreated) {
+            const parent = resolveStructureReference(current, actions, channel.parentSourceId, 'category', options);
+            if (parent.type === 'unresolved') {
                 return toPreflightAction(action, 'mapping-required', 'A channel-order parent cannot be mapped safely.');
             }
         }
@@ -268,17 +290,16 @@ function readChannelOrderProjection(value: unknown): DashboardStructureChannelOr
     const entries = value.flatMap((channel) => {
         if (
             !isObject(channel) ||
-            typeof channel.sourceId !== 'string' ||
-            !channel.sourceId.trim() ||
-            (channel.parentSourceId !== null && typeof channel.parentSourceId !== 'string') ||
+            !isCanonicalReferenceId(channel.sourceId) ||
+            (channel.parentSourceId !== null && !isCanonicalReferenceId(channel.parentSourceId)) ||
             typeof channel.position !== 'number' ||
             !Number.isInteger(channel.position) ||
             channel.position < 0
         ) {
             return [];
         }
-        const sourceId = channel.sourceId.trim();
-        const parentSourceId = channel.parentSourceId?.trim() || null;
+        const sourceId = channel.sourceId;
+        const parentSourceId = channel.parentSourceId;
         const siblingKey = `${parentSourceId ?? ''}:${channel.position}`;
         if (sourceIds.has(sourceId) || siblingPositions.has(siblingKey)) return [];
         sourceIds.add(sourceId);
@@ -305,21 +326,42 @@ function readChannelOrderProjection(value: unknown): DashboardStructureChannelOr
     return entries.sort(compareChannelOrderEntries);
 }
 
-function sameChannelOrder(
+function compareChannelOrderBaseline(
     expected: DashboardStructureChannelOrderEntry[],
     actual: DashboardStructureChannelOrderEntry[],
-    idMap: Record<string, string> | undefined
-): boolean {
-    if (expected.length !== actual.length) return false;
-    const resolved = expected
-        .map((channel) => ({
-            sourceId: idMap?.[channel.sourceId] ?? channel.sourceId,
-            parentSourceId: channel.parentSourceId ? (idMap?.[channel.parentSourceId] ?? channel.parentSourceId) : null,
-            position: channel.position,
-        }))
-        .sort(compareChannelOrderEntries);
+    current: DashboardStructureSnapshot,
+    options: DashboardStructurePreflightContext
+): 'same' | 'different' | 'mapping-required' {
+    if (expected.length !== actual.length) return 'different';
+    const resolved: DashboardStructureChannelOrderEntry[] = [];
+    for (const channel of expected) {
+        if (
+            !options.knownTargetIds.has(channel.sourceId) ||
+            !currentContainsReferenceTarget(current, channel.sourceId, 'channel-or-category')
+        ) {
+            return 'mapping-required';
+        }
 
-    return stableValueKey(resolved) === stableValueKey(actual);
+        let parentTargetId: string | null = null;
+        if (channel.parentSourceId) {
+            if (
+                !options.knownTargetIds.has(channel.parentSourceId) ||
+                !currentContainsReferenceTarget(current, channel.parentSourceId, 'category')
+            ) {
+                return 'mapping-required';
+            }
+            parentTargetId = channel.parentSourceId;
+        }
+
+        resolved.push({
+            sourceId: channel.sourceId,
+            parentSourceId: parentTargetId,
+            position: channel.position,
+        });
+    }
+    resolved.sort(compareChannelOrderEntries);
+
+    return stableValueKey(resolved) === stableValueKey(actual) ? 'same' : 'different';
 }
 
 function compareChannelOrderEntries(
@@ -337,7 +379,7 @@ function preflightRoleOrderAction(
     current: DashboardStructureSnapshot,
     action: DashboardStructurePreflightInputAction,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const roles = action.details.after;
     if (action.actionType !== 'update' || action.targetId !== 'role-order' || !Array.isArray(roles)) {
@@ -348,8 +390,7 @@ function preflightRoleOrderAction(
     for (const role of roles) {
         if (
             !isObject(role) ||
-            typeof role.sourceId !== 'string' ||
-            !role.sourceId.trim() ||
+            !isCanonicalReferenceId(role.sourceId) ||
             !Number.isInteger(role.position) ||
             typeof role.position !== 'number' ||
             role.position <= 0 ||
@@ -359,15 +400,8 @@ function preflightRoleOrderAction(
         }
         sourceIds.add(role.sourceId);
 
-        const targetId = options.idMap?.[role.sourceId] ?? role.sourceId;
-        const exists = current.roles.some((candidate) => candidate.id === targetId);
-        const willBeCreated = actions.some(
-            (candidate) =>
-                candidate.actionType === 'create' &&
-                candidate.targetType === 'role' &&
-                candidate.targetId === role.sourceId
-        );
-        if (!exists && !willBeCreated) {
+        const target = resolveStructureReference(current, actions, role.sourceId, 'role', options);
+        if (target.type === 'unresolved') {
             return toPreflightAction(action, 'mapping-required', 'A role-order target cannot be mapped safely.');
         }
     }
@@ -380,7 +414,7 @@ function preflightCreateAction(
     action: DashboardStructurePreflightInputAction,
     targetType: TargetType,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const after = normalizeCreateTarget(action.details.after);
 
@@ -399,7 +433,7 @@ function preflightCreateAction(
         return toPreflightAction(action, 'unsupported', 'Protected bot, integration, and default roles are ignored.');
     }
 
-    const mappedTargetId = action.targetId ? options.idMap?.[action.targetId] : undefined;
+    const mappedTargetId = action.targetId ? options.idMap[action.targetId] : undefined;
 
     if (mappedTargetId) {
         return preflightMappedCreateRepairAction(current, action, targetType, actions, after, mappedTargetId, options);
@@ -419,7 +453,7 @@ function preflightMappedCreateRepairAction(
     actions: DashboardStructurePreflightInputAction[],
     after: Record<string, unknown>,
     mappedTargetId: string,
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const mappedItem = findCurrentItem(current, targetType, mappedTargetId);
 
@@ -469,8 +503,22 @@ function preflightMappedCreateRepairAction(
         return toPreflightAction(action, 'unsupported', `Channel type ${after.type} is not supported for repair.`);
     }
 
-    const expectedParentId = typeof after.parentId === 'string' && after.parentId.trim() ? after.parentId.trim() : null;
-    const mappedParentId = expectedParentId ? (options.idMap?.[expectedParentId] ?? expectedParentId) : null;
+    const expectedParentId = readOptionalReferenceId(after.parentId);
+    if (expectedParentId === undefined) {
+        return toPreflightAction(action, 'invalid-plan', 'The mapped create repair target has an invalid parent.');
+    }
+    let mappedParentId: string | null = null;
+    if (expectedParentId) {
+        const parent = resolveStructureReference(current, actions, expectedParentId, 'category', options, false);
+        if (parent.type !== 'resolved') {
+            return toPreflightAction(
+                action,
+                'mapping-required',
+                'The mapped create repair parent cannot be mapped to an existing category.'
+            );
+        }
+        mappedParentId = parent.targetId;
+    }
 
     if (mappedChannel.name !== after.name.trim()) {
         return toPreflightAction(action, 'stale', 'The previously created retry target was renamed after creation.');
@@ -551,7 +599,7 @@ function preflightChannelCreateAction(
     targetType: TargetType,
     actions: DashboardStructurePreflightInputAction[],
     after: Record<string, unknown>,
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     if (typeof after.name !== 'string' || !after.name.trim() || typeof after.type !== 'number') {
         return toPreflightAction(action, 'invalid-plan', 'The channel create target is missing required fields.');
@@ -591,13 +639,17 @@ function preflightChannelCreateAction(
         return toPreflightAction(action, overwriteValidation.status, overwriteValidation.message);
     }
 
-    const parentId = typeof after.parentId === 'string' && after.parentId.trim() ? after.parentId.trim() : null;
+    const parentId = readOptionalReferenceId(after.parentId);
+
+    if (parentId === undefined) {
+        return toPreflightAction(action, 'invalid-plan', 'The channel create target has an invalid parent category.');
+    }
 
     if (targetType === 'category' && parentId) {
         return toPreflightAction(action, 'invalid-plan', 'Categories cannot have parent categories.');
     }
 
-    if (parentId && !isResolvableCategoryId(current, actions, parentId, options)) {
+    if (parentId && resolveStructureReference(current, actions, parentId, 'category', options).type === 'unresolved') {
         return toPreflightAction(
             action,
             'mapping-required',
@@ -616,7 +668,7 @@ function preflightDeleteAction(
     current: DashboardStructureSnapshot,
     action: DashboardStructurePreflightInputAction,
     targetType: TargetType,
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const currentItem = findCurrentItem(current, targetType, action.targetId);
 
@@ -659,7 +711,7 @@ function preflightUpdateAction(
     action: DashboardStructurePreflightInputAction,
     targetType: TargetType,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): DashboardStructurePreflightAction {
     const targetId = action.targetId;
 
@@ -840,20 +892,81 @@ function isRolePositionBlockedByBotHierarchy(
     return true;
 }
 
-function isResolvableCategoryId(
+type StructureReferenceTargetType = TargetType | 'channel-or-category';
+type StructureReferenceResolution =
+    | { type: 'resolved'; targetId: string }
+    | { type: 'planned-create' }
+    | { type: 'unresolved' };
+
+function resolveStructureReference(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
-    parentId: string,
-    options: DashboardStructurePreflightOptions
-): boolean {
-    return (
-        current.categories.some((category) => category.id === parentId) ||
-        current.categories.some((category) => category.id === options.idMap?.[parentId]) ||
-        actions.some(
-            (action) =>
-                action.actionType === 'create' && action.targetType === 'category' && action.targetId === parentId
-        )
+    referenceId: string,
+    targetType: StructureReferenceTargetType,
+    options: DashboardStructurePreflightContext,
+    allowPlannedCreate = true
+): StructureReferenceResolution {
+    if (!isCanonicalReferenceId(referenceId)) return { type: 'unresolved' };
+
+    if (
+        targetType === 'role' &&
+        options.sourceGuildId === referenceId &&
+        current.guildId &&
+        options.knownTargetIds.has(current.guildId)
+    ) {
+        return { type: 'resolved', targetId: current.guildId };
+    }
+
+    const plannedCreate = actions.some(
+        (action) =>
+            action.actionType === 'create' &&
+            action.targetId === referenceId &&
+            matchesReferenceTargetType(action.targetType, targetType)
     );
+    const isImportedReference =
+        options.sourceIds.has(referenceId) || Object.hasOwn(options.idMap, referenceId) || plannedCreate;
+
+    if (isImportedReference) {
+        const mappedTargetId = options.idMap[referenceId];
+        if (mappedTargetId) {
+            return options.knownTargetIds.has(mappedTargetId) &&
+                currentContainsReferenceTarget(current, mappedTargetId, targetType)
+                ? { type: 'resolved', targetId: mappedTargetId }
+                : { type: 'unresolved' };
+        }
+
+        return allowPlannedCreate && plannedCreate ? { type: 'planned-create' } : { type: 'unresolved' };
+    }
+
+    return options.knownTargetIds.has(referenceId) && currentContainsReferenceTarget(current, referenceId, targetType)
+        ? { type: 'resolved', targetId: referenceId }
+        : { type: 'unresolved' };
+}
+
+function matchesReferenceTargetType(actionTargetType: string, expected: StructureReferenceTargetType): boolean {
+    return expected === 'channel-or-category'
+        ? actionTargetType === 'channel' || actionTargetType === 'category'
+        : actionTargetType === expected;
+}
+
+function currentContainsReferenceTarget(
+    current: DashboardStructureSnapshot,
+    targetId: string,
+    targetType: StructureReferenceTargetType
+): boolean {
+    switch (targetType) {
+        case 'role':
+            return current.guildId === targetId || current.roles.some((role) => role.id === targetId);
+        case 'category':
+            return current.categories.some((category) => category.id === targetId);
+        case 'channel':
+            return current.channels.some((channel) => channel.id === targetId);
+        case 'channel-or-category':
+            return (
+                current.categories.some((category) => category.id === targetId) ||
+                current.channels.some((channel) => channel.id === targetId)
+            );
+    }
 }
 
 function isSupportedChannelType(type: number): type is 0 | 2 | 4 | 998 {
@@ -871,7 +984,7 @@ function validatePermissionOverwriteChanges(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
     changes: Array<{ field: string; before: unknown; after: unknown }>,
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): { status: 'mapping-required' | 'invalid-plan'; message: string } | undefined {
     for (const change of changes) {
         if (change.field !== 'permissionOverwrites') continue;
@@ -898,7 +1011,7 @@ function validatePermissionOverwriteTargets(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
     overwrites: readonly PermissionOverwrite[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): { status: 'mapping-required' | 'invalid-plan'; message: string } | undefined {
     const duplicateKey = findDuplicateOverwriteKey(overwrites);
 
@@ -916,21 +1029,24 @@ function validatePermissionOverwriteTargets(
     );
 
     for (const overwrite of overwrites) {
+        // Member overwrite IDs identify users, not Blueprint-managed structure objects.
         if (overwrite.type === 1) continue;
 
-        if (deletedRoleIds.has(overwrite.id) && !isSameGuildReplaceRole(current, actions, overwrite.id, options)) {
+        const role = resolveStructureReference(current, actions, overwrite.id, 'role', options);
+        if (role.type === 'unresolved') {
+            return {
+                status: 'mapping-required',
+                message: 'A permission overwrite role target must exist or be created in this import plan.',
+            };
+        }
+        if (role.type === 'planned-create') continue;
+
+        if (deletedRoleIds.has(role.targetId)) {
             return {
                 status: 'invalid-plan',
                 message: 'A permission overwrite references a role that is deleted by this import plan.',
             };
         }
-
-        if (isResolvableRoleOverwriteId(current, actions, overwrite.id, options)) continue;
-
-        return {
-            status: 'mapping-required',
-            message: 'A permission overwrite role target must exist or be created in this import plan.',
-        };
     }
 
     return undefined;
@@ -941,7 +1057,7 @@ function isSameGuildReplaceCreate(
     action: DashboardStructurePreflightInputAction,
     targetType: TargetType,
     actions: DashboardStructurePreflightInputAction[],
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): boolean {
     return (
         options.policy === 'rebuild' &&
@@ -955,28 +1071,13 @@ function isSameGuildReplaceCreate(
     );
 }
 
-function isSameGuildReplaceRole(
-    current: DashboardStructureSnapshot,
-    actions: DashboardStructurePreflightInputAction[],
-    roleId: string,
-    options: DashboardStructurePreflightOptions
-): boolean {
-    return (
-        options.policy === 'rebuild' &&
-        options.sourceGuildId === current.guildId &&
-        actions.some(
-            (action) => action.actionType === 'create' && action.targetType === 'role' && action.targetId === roleId
-        )
-    );
-}
-
 function validateLayoutChanges(
     current: DashboardStructureSnapshot,
     actions: DashboardStructurePreflightInputAction[],
     targetType: TargetType,
     targetId: string,
     changes: Array<{ field: string; before: unknown; after: unknown }>,
-    options: DashboardStructurePreflightOptions
+    options: DashboardStructurePreflightContext
 ): { status: 'mapping-required' | 'unsupported' | 'invalid-plan'; message: string } | undefined {
     for (const change of changes) {
         if (change.field === 'position' && !isValidPosition(change.after)) {
@@ -992,10 +1093,10 @@ function validateLayoutChanges(
             return { status: 'invalid-plan', message: 'Categories cannot have parent categories.' };
         }
         if (change.after === null || change.after === undefined) continue;
-        if (typeof change.after !== 'string' || !change.after.trim()) {
+        if (!isCanonicalReferenceId(change.after)) {
             return { status: 'invalid-plan', message: 'The channel parent update is invalid.' };
         }
-        if (!isResolvableCategoryId(current, actions, change.after, options)) {
+        if (resolveStructureReference(current, actions, change.after, 'category', options).type === 'unresolved') {
             return {
                 status: 'mapping-required',
                 message: 'The channel parent category must exist or be created earlier in this import plan.',
@@ -1006,23 +1107,6 @@ function validateLayoutChanges(
     return undefined;
 }
 
-function isResolvableRoleOverwriteId(
-    current: DashboardStructureSnapshot,
-    actions: DashboardStructurePreflightInputAction[],
-    roleId: string,
-    options: DashboardStructurePreflightOptions
-): boolean {
-    return (
-        current.guildId === roleId ||
-        options.sourceGuildId === roleId ||
-        current.roles.some((role) => role.id === options.idMap?.[roleId]) ||
-        current.roles.some((role) => role.id === roleId) ||
-        actions.some(
-            (action) => action.actionType === 'create' && action.targetType === 'role' && action.targetId === roleId
-        )
-    );
-}
-
 function normalizePermissionOverwrites(value: unknown): PermissionOverwrite[] | undefined {
     if (!Array.isArray(value)) return undefined;
 
@@ -1031,8 +1115,7 @@ function normalizePermissionOverwrites(value: unknown): PermissionOverwrite[] | 
     for (const overwrite of value) {
         if (
             !isObject(overwrite) ||
-            typeof overwrite.id !== 'string' ||
-            !overwrite.id.trim() ||
+            !isCanonicalReferenceId(overwrite.id) ||
             (overwrite.type !== 0 && overwrite.type !== 1) ||
             typeof overwrite.allow !== 'string' ||
             typeof overwrite.deny !== 'string'
@@ -1041,7 +1124,7 @@ function normalizePermissionOverwrites(value: unknown): PermissionOverwrite[] | 
         }
 
         overwrites.push({
-            id: overwrite.id.trim(),
+            id: overwrite.id,
             type: overwrite.type,
             allow: overwrite.allow,
             deny: overwrite.deny,
@@ -1066,6 +1149,15 @@ function findDuplicateOverwriteKey(overwrites: readonly PermissionOverwrite[]): 
 
 function isValidPosition(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function readOptionalReferenceId(value: unknown): string | null | undefined {
+    if (value === null || value === undefined) return null;
+    return isCanonicalReferenceId(value) ? value : undefined;
+}
+
+function isCanonicalReferenceId(value: unknown): value is string {
+    return typeof value === 'string' && Boolean(value) && value === value.trim();
 }
 
 function normalizeTargetType(targetType: string): TargetType | undefined {

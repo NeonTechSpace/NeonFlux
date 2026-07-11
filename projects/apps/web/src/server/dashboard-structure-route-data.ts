@@ -53,7 +53,13 @@ export const readDashboardStructureSettingsRouteData = createServerFn({ method: 
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return loadDashboardStructureSettings(getRequest(), data.guildId);
+        try {
+            return await loadDashboardStructureSettings(getRequest(), data.guildId);
+        } catch (error) {
+            const { ConvexRuntimeContractError } = await import('@neonflux/db');
+            if (error instanceof ConvexRuntimeContractError) return { type: 'backend-incompatible' };
+            throw error;
+        }
     });
 
 export const exportDashboardStructureRouteData = createServerFn({ method: 'POST' })

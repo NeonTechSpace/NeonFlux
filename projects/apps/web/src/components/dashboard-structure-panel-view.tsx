@@ -8,7 +8,7 @@ import type {
     DashboardStructureRoleMappingConflict,
 } from '../server/dashboard-structure.server.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
-import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureBackupHistory as BackupHistory } from './dashboard-structure-backup-history.js';
 import { DashboardStructureBackupSettings as BackupSettings } from './dashboard-structure-backup-settings.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
@@ -406,7 +406,7 @@ function DeploySurface({
             {workspace.executionProgressIssue ? (
                 <ExecutionProgressIssue
                     code={workspace.executionProgressIssue.code}
-                    message='Live progress could not refresh. The last confirmed state remains visible.'
+                    message={formatExecutionProgressIssue(workspace.executionProgressIssue.code)}
                     retryLabel='Retry progress'
                     onRetry={workspace.onRetryExecutionProgress}
                 />
@@ -623,8 +623,9 @@ function RunsSurface({
                                     {formatDate(run.createdAt)}
                                 </span>
                                 <span className='text-sm text-[var(--dash-text)]'>
-                                    {run.actionCount} actions · {run.summary.creates} create · {run.summary.updates}{' '}
-                                    update · {run.summary.deletes} delete
+                                    {run.actionCount} changes · {run.executionActionCount} execution steps ·{' '}
+                                    {run.summary.creates} create · {run.summary.updates} update · {run.summary.deletes}{' '}
+                                    delete
                                 </span>
                                 <span className='text-sm text-[var(--dash-text-muted)]'>{formatRunStatus(run)}</span>
                                 <span className='text-sm font-medium text-[var(--dash-primary)]'>
@@ -651,7 +652,9 @@ function RunsSurface({
                                     {workspace.executionProgressIssue?.runId === run.id ? (
                                         <ExecutionProgressIssue
                                             code={workspace.executionProgressIssue.code}
-                                            message='Live progress could not refresh. The last confirmed state remains visible.'
+                                            message={formatExecutionProgressIssue(
+                                                workspace.executionProgressIssue.code
+                                            )}
                                             retryLabel='Retry progress'
                                             onRetry={workspace.onRetryExecutionProgress}
                                         />
@@ -709,6 +712,16 @@ function ExecutionProgressIssue({
             </button>
         </div>
     );
+}
+
+function formatExecutionProgressIssue(code: string): string {
+    if (code === 'BLUEPRINT_EXECUTION_PROTOCOL_INCOMPATIBLE') {
+        return 'This deployment was created by a different Blueprint protocol. Its last confirmed state remains visible, but this build will not resume or control it.';
+    }
+    if (code === 'BLUEPRINT_PROGRESS_BACKEND_INCOMPATIBLE') {
+        return 'Deployment progress is unavailable because the Convex backend does not match this NeonFlux build. Deploy the matching backend before continuing.';
+    }
+    return 'Deployment progress could not refresh. The last confirmed state remains visible.';
 }
 
 const primaryButtonClass =

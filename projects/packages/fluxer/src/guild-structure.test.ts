@@ -326,19 +326,10 @@ describe('readFluxerBotGuildStructure', () => {
         vi.restoreAllMocks();
     });
 
-    it('logs in with the bot token, reads guild structure, and destroys the temporary client', async () => {
+    it('uses authenticated bounded REST without opening the gateway and destroys the temporary client', async () => {
         const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
         const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
-        const login = vi.spyOn(Client.prototype, 'login').mockImplementation(function (this: FluxerClient) {
-            Object.defineProperty(this, 'guilds', {
-                configurable: true,
-                value: {
-                    fetch: fetchGuild,
-                },
-            });
-
-            return Promise.resolve('session-id');
-        });
+        const { get, login } = mockBotStructureRestClient(fetchGuild, Promise.resolve({ id: 'bot-user-1' }));
         const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
 
         const result = await readFluxerBotGuildStructure({
@@ -347,7 +338,8 @@ describe('readFluxerBotGuildStructure', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(login).toHaveBeenCalledWith('bot-token');
+        expect(login).not.toHaveBeenCalled();
+        expect(get).toHaveBeenCalledWith('/users/@me', { auth: true });
         expect(fetchGuild).toHaveBeenCalledWith('guild-1');
         expect(destroy).toHaveBeenCalledOnce();
         expect(result._unsafeUnwrap().channels).toStrictEqual([
@@ -378,9 +370,10 @@ describe('readFluxerBotGuildStructure', () => {
         expect(login).not.toHaveBeenCalled();
     });
 
-    it('maps login failures and destroys the temporary client', async () => {
+    it('maps REST authentication failures and destroys the temporary client', async () => {
         const loginError = new Error('bad token');
-        vi.spyOn(Client.prototype, 'login').mockRejectedValue(loginError);
+        const fetchGuild = createFetchGuildMock(Promise.resolve(createGuild()));
+        const { login } = mockBotStructureRestClient(fetchGuild, Promise.reject(loginError));
         const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
 
         const result = await readFluxerBotGuildStructure({
@@ -393,6 +386,8 @@ describe('readFluxerBotGuildStructure', () => {
             type: 'login-failed',
             error: loginError,
         } satisfies ReadFluxerBotGuildStructureError);
+        expect(login).not.toHaveBeenCalled();
+        expect(fetchGuild).not.toHaveBeenCalled();
         expect(destroy).toHaveBeenCalledOnce();
     });
 });
@@ -404,6 +399,19 @@ function createClient(fetchGuild: FetchGuildMock, userId?: string): ReadFluxerGu
             fetch: fetchGuild,
         },
     } as unknown as FluxerClient;
+}
+
+function mockBotStructureRestClient(fetchGuild: FetchGuildMock, authenticatedUser: Promise<unknown>) {
+    const probe = new Client();
+    const guildFetchPrototype = Object.getPrototypeOf(probe.guilds) as {
+        fetch: (guildId: string) => Promise<Guild | null>;
+    };
+    const restPrototype = Object.getPrototypeOf(probe.rest) as {
+        get: (path: string, options?: unknown) => Promise<unknown>;
+    };
+    vi.spyOn(guildFetchPrototype, 'fetch').mockImplementation(fetchGuild);
+    const get = vi.spyOn(restPrototype, 'get').mockReturnValue(authenticatedUser);
+    return { get, login: vi.spyOn(Client.prototype, 'login') };
 }
 
 type FetchGuildMock = ReturnType<typeof vi.fn<(guildId: string) => Promise<Guild | null>>>;

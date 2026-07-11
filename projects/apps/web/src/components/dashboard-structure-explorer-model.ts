@@ -455,8 +455,6 @@ function risksForActions(actions: DashboardStructureExplorerAction[]): string[] 
         }
         if (fields.includes('type')) risks.add('Channel type changes are blocked.');
         if (isEveryonePositionAction(action)) risks.add('@everyone cannot be moved.');
-        if (typeof action.details.createdId === 'string')
-            risks.add('Retry can repair a partial create instead of duplicating it.');
         if (action.status === 'failed') risks.add('Last apply attempt failed for this action.');
         if (action.preflightMessage) risks.add(action.preflightMessage);
     }

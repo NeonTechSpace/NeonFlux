@@ -1,4 +1,4 @@
-import type { DashboardStructureExecutionProgress } from '../server/dashboard-structure-v2.js';
+import type { DashboardStructureExecutionProgress } from '../server/dashboard-structure-contracts.js';
 
 const terminalExecutionStatuses = new Set<DashboardStructureExecutionProgress['status']>([
     'succeeded',
@@ -18,12 +18,41 @@ export function mergeDashboardStructureExecutionProgress(
     incoming: DashboardStructureExecutionProgress | null
 ): DashboardStructureExecutionProgress | null {
     if (!previous) return incoming;
-    if (!incoming || incoming.id !== previous.id) return previous;
-    if (isTerminalDashboardStructureExecution(previous) && !isTerminalDashboardStructureExecution(incoming)) {
+    if (!incoming) return previous;
+    if (incoming.id !== previous.id) {
+        const previousCreatedAt = Date.parse(previous.createdAt);
+        const incomingCreatedAt = Date.parse(incoming.createdAt);
+        return Number.isFinite(previousCreatedAt) &&
+            Number.isFinite(incomingCreatedAt) &&
+            incomingCreatedAt > previousCreatedAt
+            ? incoming
+            : previous;
+    }
+    if (incoming.protocolVersion !== previous.protocolVersion) return previous;
+    if (
+        incoming.completedActions < previous.completedActions ||
+        incoming.failedActions < previous.failedActions ||
+        incoming.totalActions < previous.totalActions
+    ) {
         return previous;
     }
 
-    return Date.parse(incoming.updatedAt) >= Date.parse(previous.updatedAt) ? incoming : previous;
+    const previousUpdatedAt = Date.parse(previous.updatedAt);
+    const incomingUpdatedAt = Date.parse(incoming.updatedAt);
+    if (!Number.isFinite(incomingUpdatedAt)) return previous;
+    if (Number.isFinite(previousUpdatedAt) && incomingUpdatedAt < previousUpdatedAt) return previous;
+    if (isTerminalDashboardStructureExecution(previous) && !isTerminalDashboardStructureExecution(incoming)) {
+        return previous;
+    }
+    if (
+        incomingUpdatedAt === previousUpdatedAt &&
+        isTerminalDashboardStructureExecution(previous) &&
+        isTerminalDashboardStructureExecution(incoming)
+    ) {
+        return previous;
+    }
+
+    return incoming;
 }
 
 export class DashboardStructureRequestError extends Error {

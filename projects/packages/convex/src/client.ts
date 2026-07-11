@@ -14,6 +14,10 @@ export type NeonFluxConvexClientConfig = {
     url: string;
 };
 
+export type NeonFluxConvexRequestOptions = {
+    signal?: AbortSignal;
+};
+
 export type NeonFluxConvexQueryReference = FunctionReference<'query'>;
 export type NeonFluxConvexMutationReference = FunctionReference<'mutation'>;
 export type NeonFluxConvexFunctionReference = NeonFluxConvexMutationReference | NeonFluxConvexQueryReference;
@@ -25,7 +29,8 @@ export type NeonFluxConvexHttpClient = {
     ): Promise<FunctionReturnType<Mutation>>;
     query<Query extends NeonFluxConvexQueryReference>(
         reference: Query,
-        ...args: OptionalRestArgs<Query>
+        args: FunctionArgs<Query>,
+        options?: NeonFluxConvexRequestOptions
     ): Promise<FunctionReturnType<Query>>;
 };
 
@@ -55,8 +60,9 @@ export function createNeonFluxConvexHttpClient(config: NeonFluxConvexClientConfi
             callConvexFunction(config, 'mutation', reference, readOptionalArgs(args)),
         query: async <Query extends NeonFluxConvexQueryReference>(
             reference: Query,
-            ...args: OptionalRestArgs<Query>
-        ): Promise<FunctionReturnType<Query>> => callConvexFunction(config, 'query', reference, readOptionalArgs(args)),
+            args: FunctionArgs<Query>,
+            options?: NeonFluxConvexRequestOptions
+        ): Promise<FunctionReturnType<Query>> => callConvexFunction(config, 'query', reference, args, options),
     };
 }
 
@@ -64,10 +70,15 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
     config: NeonFluxConvexClientConfig,
     operation: 'mutation' | 'query',
     reference: FuncRef,
-    args: FunctionArgs<FuncRef>
+    args: FunctionArgs<FuncRef>,
+    options?: NeonFluxConvexRequestOptions
 ): Promise<FunctionReturnType<FuncRef>> {
     const path = getFunctionName(reference);
-    const authToken = await config.authTokenProvider?.();
+    options?.signal?.throwIfAborted();
+    const authToken = config.authTokenProvider
+        ? await settleWithAbort(config.authTokenProvider(), options?.signal)
+        : undefined;
+    options?.signal?.throwIfAborted();
     const response = await fetch(new URL(`/api/${operation}`, config.url), {
         body: JSON.stringify({
             args: [convexToJson(args)],
@@ -80,6 +91,7 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
             'Convex-Client': 'neonflux-runtime-server',
         },
         method: 'POST',
+        ...(options?.signal ? { signal: options.signal } : {}),
     });
     const body = await response.text();
 
@@ -98,6 +110,38 @@ async function callConvexFunction<FuncRef extends NeonFluxConvexFunctionReferenc
     }
 
     throw new Error(`Convex ${operation} ${path} returned an unexpected payload.`);
+}
+
+function settleWithAbort<T>(request: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    if (!signal) return request;
+    signal.throwIfAborted();
+
+    return new Promise<T>((resolve, reject) => {
+        let settled = false;
+
+        const cleanup = () => signal.removeEventListener('abort', handleAbort);
+        const settle = (callback: () => void) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback();
+        };
+        const handleAbort = () =>
+            settle(() => {
+                const reason: unknown = signal.reason;
+                reject(reason instanceof Error ? reason : new DOMException('Convex request aborted.', 'AbortError'));
+            });
+
+        signal.addEventListener('abort', handleAbort, { once: true });
+        void request.then(
+            (value) => settle(() => resolve(value)),
+            (error: unknown) =>
+                settle(() =>
+                    reject(error instanceof Error ? error : new Error('Convex authentication token request failed.'))
+                )
+        );
+        if (signal.aborted) handleAbort();
+    });
 }
 
 function readOptionalArgs<FuncRef extends NeonFluxConvexFunctionReference>(

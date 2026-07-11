@@ -20,7 +20,7 @@ import type { StructureBusyAction } from './dashboard-structure-import-history.j
 import { formatStatus } from './dashboard-structure-panel-format.js';
 import { toApplyErrorStatus, toErrorStatus, toRunActionStatus } from './dashboard-structure-panel-status.js';
 import type { ActionPageState, PanelStatus } from './dashboard-structure-panel-types.js';
-import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 
 export function useDashboardStructureImportState({
     guildId,
@@ -314,7 +314,7 @@ export function useDashboardStructureImportState({
             }));
             setStatus({
                 tone: 'success',
-                message: `${formatPolicyLabel(policy)} plan created with ${result.importRun.actionCount} mutation steps. Review the complete scope before approval.`,
+                message: `${formatPolicyLabel(policy)} plan created with ${result.importRun.actionCount} changes across ${result.importRun.executionActionCount} execution steps. Review the complete scope before approval.`,
             });
             await refreshSettings();
             await refreshAuditEvents();

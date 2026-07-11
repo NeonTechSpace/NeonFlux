@@ -4,7 +4,7 @@ import {
 } from '../server/dashboard-structure-preflight.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
-import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-v2.js';
+import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-contracts.js';
 
 export function DashboardStructureApplyControls({
     run,

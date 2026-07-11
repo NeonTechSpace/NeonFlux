@@ -1,11 +1,12 @@
 import { useState } from 'react';
 
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
 } from '../server/dashboard-structure.server.js';
-import { formatDashboardStructureExecutionPhase } from '../server/dashboard-structure-v2.js';
+import { formatDashboardStructureExecutionPhase } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureApplyControls } from './dashboard-structure-apply-controls.js';
 import {
     DashboardStructureActionInspector,
@@ -144,7 +145,7 @@ function ImportRunCard({
                     <p className='mt-1 text-xs text-neutral-500'>{formatStatus(run.status)}</p>
                 </div>
                 <p className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-300'>
-                    {run.actionCount} changes
+                    {run.actionCount} changes · {run.executionActionCount} execution steps
                 </p>
             </div>
             <p className='mt-3 text-sm text-neutral-300'>
@@ -166,7 +167,7 @@ function ImportRunCard({
             {run.verification ? <VerificationResult verification={run.verification} /> : null}
             <DashboardStructureActionPreview
                 actions={run.actions}
-                actionCount={run.actionCount}
+                actionCount={run.executionActionCount}
                 isLoading={isActionBusy}
                 onLoad={() => onLoadActions(run)}
                 onInspectAction={(action) => {
@@ -324,12 +325,14 @@ function ExecutionProgress({
 }) {
     const percent =
         execution.totalActions > 0 ? Math.round((execution.completedActions / execution.totalActions) * 100) : 0;
+    const hasCompatibleProtocol = execution.protocolVersion === STRUCTURE_EXECUTION_PROTOCOL_VERSION;
+    const controlsDisabled = busy || !hasCompatibleProtocol;
     return (
         <div className='mt-3 rounded-md border border-sky-400/30 bg-sky-950/20 p-3' role='status'>
             <div className='flex items-center justify-between gap-3 text-xs'>
                 <strong className='text-sky-100'>{execution.status.replaceAll('_', ' ')}</strong>
                 <span className='text-neutral-300'>
-                    {execution.completedActions} / {execution.totalActions}
+                    {execution.completedActions} / {execution.totalActions} steps
                 </span>
             </div>
             <progress
@@ -355,11 +358,16 @@ function ExecutionProgress({
                     {execution.failedActions} failed{execution.errorType ? ` · ${execution.errorType}` : ''}
                 </p>
             ) : null}
+            {!hasCompatibleProtocol ? (
+                <p className='mt-2 text-xs text-amber-200'>
+                    Deployment controls are disabled because this deployment uses a different Blueprint protocol.
+                </p>
+            ) : null}
             <div className='mt-3 flex flex-wrap gap-2'>
                 {['running', 'waiting_rate_limit'].includes(execution.status) ? (
                     <button
                         type='button'
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         onClick={() => onControl('pause')}
                         className='rounded border border-sky-400/40 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50'>
                         Pause deployment
@@ -368,7 +376,7 @@ function ExecutionProgress({
                 {execution.status === 'paused' ? (
                     <button
                         type='button'
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         onClick={() => onControl('resume')}
                         className='rounded border border-sky-400/40 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50'>
                         Resume deployment
@@ -377,7 +385,7 @@ function ExecutionProgress({
                 {['queued', 'paused'].includes(execution.status) ? (
                     <button
                         type='button'
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         onClick={() => onControl('cancel')}
                         className='rounded border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:opacity-50'>
                         Cancel {execution.status === 'queued' ? 'queued' : 'paused'} deployment

@@ -13,6 +13,7 @@ import {
     type ConvexServiceRuntimeConfig,
 } from './convex.js';
 import { createRuntimeDb, isConvexRuntimeDb } from './service.js';
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from './runtime-contract.js';
 
 describe('Convex service database', () => {
     afterEach(() => {
@@ -198,6 +199,9 @@ describe('Convex service database', () => {
     });
 
     it('selects Convex runtime without DATABASE_URL when cutover config is complete', async () => {
+        stubSuccessfulConvexQueries({
+            structureExecutionProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+        });
         const database = await createRuntimeDb(
             {
                 appEnv: 'production',
@@ -240,7 +244,13 @@ function createJwtSignerConfig(config: ConvexServiceRuntimeConfig) {
     };
 }
 
-function stubSuccessfulConvexQueries(): string[] {
+function stubSuccessfulConvexQueries(
+    value: Record<string, unknown> = {
+        instanceMode: 'multi',
+        ownerIds: [],
+        publicWebUrl: null,
+    }
+): string[] {
     const authorizationTokens: string[] = [];
     const fetch = vi.fn((_input: URL | RequestInfo, init?: RequestInit) => {
         const authorization = new Headers(init?.headers).get('Authorization');
@@ -255,11 +265,7 @@ function stubSuccessfulConvexQueries(): string[] {
             new Response(
                 JSON.stringify({
                     status: 'success',
-                    value: {
-                        instanceMode: 'multi',
-                        ownerIds: [],
-                        publicWebUrl: null,
-                    },
+                    value,
                 })
             )
         );

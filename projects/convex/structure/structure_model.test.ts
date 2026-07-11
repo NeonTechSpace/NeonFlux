@@ -18,7 +18,13 @@ import {
     isStructureBackupRetentionEligible,
     isStructureImportDecisionLedgerComplete,
     resolveExpiredStructureImportControl,
+    resolveStructureAttemptCompletionStatus,
+    resolveStructureExecutionReferenceAuthority,
     resolveStructureExecutionIdMap,
+    validateStructureExecutionAttemptIdMapTransition,
+    validateStructureExecutionCheckpointIdMap,
+    validateStructureExecutionIdMapTransition,
+    validateStructureExecutionProgressTransition,
     validateStructureImportDecisionSequences,
     toStructureBackupRecord,
     toStructureImportActionRecord,
@@ -35,6 +41,11 @@ describe('structure model', () => {
     it('seeds executions with every resolved source-to-target match and leaves creates unresolved', () => {
         expect(
             resolveStructureExecutionIdMap({
+                knownTargetKinds: {
+                    'target-category': 'category',
+                    'target-channel': 'channel',
+                    'target-role': 'role',
+                },
                 sourceTargetMap: {
                     'source-category': 'target-category',
                     'source-channel': 'target-channel',
@@ -51,9 +62,186 @@ describe('structure model', () => {
 
     it('rejects malformed execution source-to-target maps', () => {
         expect(() => resolveStructureExecutionIdMap({})).toThrow('structure-plan-source-target-map-invalid');
-        expect(() => resolveStructureExecutionIdMap({ sourceTargetMap: { source: 42 } })).toThrow(
+        expect(() => resolveStructureExecutionIdMap({ knownTargetKinds: {}, sourceTargetMap: { source: 42 } })).toThrow(
             'structure-plan-source-target-map-invalid'
         );
+        expect(() =>
+            resolveStructureExecutionIdMap({ knownTargetKinds: { target: 'guild' }, sourceTargetMap: {} })
+        ).toThrow('structure-plan-known-target-kinds-invalid');
+    });
+
+    it('keeps destination identity authority separate from unresolved creates', () => {
+        expect(
+            resolveStructureExecutionReferenceAuthority({
+                knownTargetKinds: {
+                    'guild-1': 'role',
+                    'retained-category': 'category',
+                    'target-category': 'category',
+                },
+                sourceTargetMap: {
+                    'created-channel': null,
+                    'matched-category': 'target-category',
+                },
+            })
+        ).toStrictEqual({
+            idMap: { 'matched-category': 'target-category' },
+            knownTargetKinds: {
+                'guild-1': 'role',
+                'retained-category': 'category',
+                'target-category': 'category',
+            },
+        });
+    });
+
+    it('allows only monotonic create-id extensions of an execution map', () => {
+        const plan = {
+            knownTargetKinds: { 'guild-1': 'role', 'target-role': 'role' },
+            sourceTargetMap: {
+                'source-created': null,
+                'source-matched': 'target-role',
+            },
+        };
+
+        expect(
+            validateStructureExecutionIdMapTransition({
+                next: { 'source-created': 'created-role', 'source-matched': 'target-role' },
+                plan,
+                previous: { 'source-matched': 'target-role' },
+            })
+        ).toStrictEqual({ 'source-created': 'created-role', 'source-matched': 'target-role' });
+        expect(() =>
+            validateStructureExecutionIdMapTransition({
+                next: { 'source-matched': 'different-role' },
+                plan,
+                previous: { 'source-matched': 'target-role' },
+            })
+        ).toThrow('structure-execution-id-map-regression');
+        expect(() =>
+            validateStructureExecutionIdMapTransition({
+                next: { 'unknown-source': 'created-role', 'source-matched': 'target-role' },
+                plan,
+                previous: { 'source-matched': 'target-role' },
+            })
+        ).toThrow('structure-execution-id-map-unknown-source');
+    });
+
+    it('lets an applied recreate replace only its deleted source mapping with the provider id', () => {
+        const plan = {
+            knownTargetKinds: { 'guild-1': 'role', 'old-channel': 'channel' },
+            sourceTargetMap: { 'source-channel': 'old-channel' },
+        };
+
+        expect(
+            validateStructureExecutionAttemptIdMapTransition({
+                action: { actionType: 'create', targetId: 'source-channel' },
+                attemptState: 'started',
+                createdId: 'new-channel',
+                next: { 'source-channel': 'new-channel' },
+                plan,
+                previous: { 'source-channel': 'old-channel' },
+                resultState: 'applied',
+            })
+        ).toStrictEqual({ 'source-channel': 'new-channel' });
+        expect(
+            validateStructureExecutionCheckpointIdMap({
+                next: { 'source-channel': 'new-channel' },
+                plan,
+                previous: { 'source-channel': 'new-channel' },
+            })
+        ).toStrictEqual({ 'source-channel': 'new-channel' });
+        expect(() =>
+            validateStructureExecutionCheckpointIdMap({
+                next: { 'source-channel': 'new-channel' },
+                plan,
+                previous: { 'source-channel': 'old-channel' },
+            })
+        ).toThrow('structure-execution-id-map-regression');
+    });
+
+    it('does not let pause or cancel hide a hard or unknown terminal action result', () => {
+        expect(
+            resolveStructureAttemptCompletionStatus({
+                controlRequest: 'pause',
+                executionStatus: 'pause_requested',
+                requestedStatus: 'partially_applied',
+            })
+        ).toBe('partially_applied');
+        expect(
+            resolveStructureAttemptCompletionStatus({
+                controlRequest: 'cancel',
+                executionStatus: 'pause_requested',
+                requestedStatus: 'outcome_unknown',
+            })
+        ).toBe('outcome_unknown');
+        expect(
+            resolveStructureAttemptCompletionStatus({
+                controlRequest: 'pause',
+                executionStatus: 'pause_requested',
+                requestedStatus: 'running',
+            })
+        ).toBe('paused');
+        expect(
+            resolveStructureAttemptCompletionStatus({
+                controlRequest: 'cancel',
+                executionStatus: 'pause_requested',
+                requestedStatus: 'waiting_rate_limit',
+            })
+        ).toBe('cancelled');
+    });
+
+    it('keeps execution counters and the action cursor as one monotonic state', () => {
+        const previous = {
+            appliedActions: 2,
+            completedMutationSteps: 2,
+            failedActions: 1,
+            nextActionSequence: 3,
+            skippedActions: 0,
+            totalActions: 5,
+            totalMutationSteps: 5,
+        };
+
+        expect(() =>
+            validateStructureExecutionProgressTransition({
+                next: {
+                    appliedActions: 3,
+                    completedMutationSteps: 3,
+                    failedActions: 1,
+                    nextActionSequence: 4,
+                    notStartedActions: 1,
+                    skippedActions: 0,
+                    totalMutationSteps: 5,
+                },
+                previous,
+            })
+        ).not.toThrow();
+        expect(() =>
+            validateStructureExecutionProgressTransition({
+                next: {
+                    appliedActions: 3,
+                    completedMutationSteps: 3,
+                    failedActions: 1,
+                    nextActionSequence: 3,
+                    notStartedActions: 2,
+                    skippedActions: 0,
+                    totalMutationSteps: 5,
+                },
+                previous,
+            })
+        ).toThrow('structure-execution-progress-invalid');
+        expect(() =>
+            validateStructureExecutionProgressTransition({
+                next: {
+                    appliedActions: 1,
+                    completedMutationSteps: 1,
+                    failedActions: 2,
+                    nextActionSequence: 3,
+                    notStartedActions: 2,
+                    skippedActions: 0,
+                    totalMutationSteps: 5,
+                },
+                previous,
+            })
+        ).toThrow('structure-execution-progress-regression');
     });
 
     it('builds backups with defaults and validates structure shape', () => {
@@ -256,7 +444,7 @@ describe('structure model', () => {
         ).toBe(false);
     });
 
-    it('builds clean v2 import runs', () => {
+    it('builds clean v3 import runs', () => {
         const run = unwrap(
             buildStructureImportRunDocument(
                 {
@@ -265,7 +453,7 @@ describe('structure model', () => {
                     guildId: 'guild-1',
                     plan: { summary: { creates: 1 } },
                     planDigest: 'plan-digest',
-                    planVersion: 2,
+                    planVersion: 3,
                     policy: 'merge',
                     requestedSnapshotDigest: 'snapshot-digest',
                     sourceBackupId: 'backup-1',

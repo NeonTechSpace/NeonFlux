@@ -10,6 +10,7 @@ export type DashboardStructureErrorResult =
     | { type: 'auth-required' }
     | { type: 'not-found' }
     | { type: 'deployment-config-not-found' }
+    | { type: 'backend-incompatible' }
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' };
 

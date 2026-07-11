@@ -1114,6 +1114,67 @@ describe('guild structure diff', () => {
         ]);
     });
 
+    it('makes retained merge category and channel order references explicit destination identities', () => {
+        const category = (id: string, name: string, position: number) => ({
+            id,
+            name,
+            type: 4,
+            parentId: null,
+            position,
+            permissionOverwrites: [],
+        });
+        const channel = (id: string, name: string, parentId: string, position: number) => ({
+            id,
+            name,
+            type: 0,
+            parentId,
+            position,
+            permissionOverwrites: [],
+        });
+        const current = toFluxerGuildStructureSnapshot({
+            guildId: 'target-guild',
+            guildName: 'Target',
+            roles: [],
+            categories: [category('retained-category', 'Retained', 0), category('target-category', 'Imported', 1)],
+            channels: [
+                channel('retained-channel', 'retained', 'retained-category', 0),
+                channel('target-channel', 'imported', 'target-category', 0),
+            ],
+        });
+        const requested = toFluxerGuildStructureSnapshot({
+            guildId: 'source-guild',
+            guildName: 'Source',
+            roles: [],
+            categories: [category('source-category', 'Imported', 0)],
+            channels: [channel('source-channel', 'imported', 'source-category', 0)],
+        });
+
+        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
+        const orderAction = plan.actions.find((action) => action.targetType === 'channel-order');
+
+        expect(plan.sourceTargetMap).toStrictEqual({
+            'source-category': 'target-category',
+            'source-channel': 'target-channel',
+        });
+        expect(plan.knownTargetKinds).toStrictEqual({
+            'retained-category': 'category',
+            'retained-channel': 'channel',
+            'target-category': 'category',
+            'target-channel': 'channel',
+            'target-guild': 'role',
+        });
+        expect(orderAction?.details.after).toEqual(
+            expect.arrayContaining([
+                { sourceId: 'retained-category', parentSourceId: null, position: 1 },
+                {
+                    sourceId: 'retained-channel',
+                    parentSourceId: 'retained-category',
+                    position: 0,
+                },
+            ])
+        );
+    });
+
     it('preserves target protected-role overwrites while diffing addressable overwrites', () => {
         const role = (id: string, name: string, protectedRole = false) => ({
             id,

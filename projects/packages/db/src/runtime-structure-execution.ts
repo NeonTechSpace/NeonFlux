@@ -16,6 +16,11 @@ import type {
 } from './contracts-structure.js';
 import type { ConvexDatabase } from './convex.js';
 import {
+    assertConvexRuntimeContract,
+    ConvexRuntimeContractError,
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+} from './runtime-contract.js';
+import {
     arrayValue,
     recordValue,
     toAction,
@@ -189,6 +194,7 @@ export async function enqueueStructureImportExecution(
                     ...(input.audit ? { audit: input.audit } : {}),
                     now: input.now.toISOString(),
                     preflightDigest: input.preflightDigest,
+                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                     runId: input.runId as Id<'structureImportRuns'>,
                 })
             )
@@ -208,19 +214,56 @@ export async function claimNextStructureImportExecution(
             leaseId: input.leaseId,
             leaseOwner: input.leaseOwner,
             now: input.now.toISOString(),
+            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
         });
         if (claimValue === null) return ok(null);
         const claim = recordValue(claimValue);
-        if (claim.run === null || claim.run === undefined) return ok(null);
+        if (claim.kind === 'protocol_mismatch') {
+            return ok({
+                executionId: requiredString(claim.executionId),
+                executionProtocolVersion: requiredPositiveInteger(claim.executionProtocolVersion),
+                guildId: requiredString(claim.guildId),
+                kind: 'protocol_mismatch',
+                mayHaveExternalEffects: requiredBoolean(claim.mayHaveExternalEffects),
+                requiredProtocolVersion: requiredPositiveInteger(claim.requiredProtocolVersion),
+                status: requiredString(claim.status),
+            });
+        }
+        if (claim.kind !== 'claimed') throw new Error('invalid-structure-execution-claim-kind');
         return ok({
+            kind: 'claimed',
             execution: toExecution(claim.execution),
             run: toRun(claim.run),
             actions: arrayValue(claim.actions).map(toAction),
             attempts: arrayValue(claim.attempts).map(toAttempt),
         });
     } catch {
+        try {
+            await assertConvexRuntimeContract(db);
+        } catch (error) {
+            if (error instanceof ConvexRuntimeContractError && error.reason === 'version-mismatch') {
+                return err({ type: 'backend-incompatible' });
+            }
+        }
         return err({ type: 'database-error' });
     }
+}
+
+function requiredString(value: unknown): string {
+    if (typeof value !== 'string') throw new Error('invalid-string');
+    return value;
+}
+
+function requiredBoolean(value: unknown): boolean {
+    if (typeof value !== 'boolean') throw new Error('invalid-boolean');
+    return value;
+}
+
+function requiredPositiveInteger(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+        throw new Error('invalid-positive-integer');
+    }
+    return value;
 }
 
 export async function renewStructureImportExecutionLease(
@@ -234,6 +277,7 @@ export async function renewStructureImportExecutionLease(
             leaseId: input.leaseId,
             leaseOwner: input.leaseOwner,
             now: input.now.toISOString(),
+            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
         });
         return ok(record ? toExecution(record) : null);
     } catch {
@@ -249,6 +293,7 @@ export async function requestStructureImportExecutionControl(
         const record = await db.client.mutation(api.structure.requestStructureImportExecutionControl, {
             executionId: input.executionId as Id<'structureImportExecutions'>,
             now: input.now.toISOString(),
+            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
             request: input.request,
         });
         return record ? ok(toExecution(record)) : err({ type: 'not-found' });
@@ -268,6 +313,7 @@ export async function ensureStructureImportRestorePoint(
                 leaseId: input.leaseId,
                 leaseOwner: input.leaseOwner,
                 now: input.now.toISOString(),
+                protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                 structureJson: JSON.stringify(input.structure),
             })
         );
@@ -310,6 +356,7 @@ export async function checkpointStructureImportExecution(
                     idMapJson: JSON.stringify(idMap),
                     executionId: executionId as Id<'structureImportExecutions'>,
                     now: now.toISOString(),
+                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                     ...(retryAt ? { retryAt: retryAt.toISOString() } : {}),
                 })
             )
@@ -319,7 +366,7 @@ export async function checkpointStructureImportExecution(
     }
 }
 
-export async function startStructureImportActionAttempt(
+export async function prepareStructureImportActionAttempt(
     db: StructureDb,
     input: {
         actionId: string;
@@ -334,11 +381,12 @@ export async function startStructureImportActionAttempt(
     try {
         return ok(
             toAttempt(
-                await db.client.mutation(api.structure.startStructureImportActionAttempt, {
+                await db.client.mutation(api.structure.prepareStructureImportActionAttempt, {
                     ...input,
                     actionId: input.actionId as Id<'structureImportActions'>,
                     executionId: input.executionId as Id<'structureImportExecutions'>,
                     now: input.now.toISOString(),
+                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                 })
             )
         );
@@ -347,28 +395,27 @@ export async function startStructureImportActionAttempt(
     }
 }
 
-export async function completeStructureImportActionAttempt(
+export async function startStructureImportActionAttempt(
     db: StructureDb,
     input: {
         attemptId: string;
-        createdId?: string;
-        errorType?: string;
         leaseId: string;
         leaseOwner: string;
         now: Date;
-        retryAt?: Date;
-        state: 'applied' | 'failed' | 'unknown';
     }
 ): Promise<Result<StructureImportActionAttemptRecord, StructureImportExportRepositoryError>> {
     try {
-        const { retryAt, now, attemptId, ...fields } = input;
-        const record = await db.client.mutation(api.structure.completeStructureImportActionAttempt, {
-            ...fields,
-            attemptId: attemptId as Id<'structureImportActionAttempts'>,
-            now: now.toISOString(),
-            ...(retryAt ? { retryAt: retryAt.toISOString() } : {}),
-        });
-        return record ? ok(toAttempt(record)) : err({ type: 'not-found' });
+        return ok(
+            toAttempt(
+                await db.client.mutation(api.structure.startStructureImportActionAttempt, {
+                    attemptId: input.attemptId as Id<'structureImportActionAttempts'>,
+                    leaseId: input.leaseId,
+                    leaseOwner: input.leaseOwner,
+                    now: input.now.toISOString(),
+                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+                })
+            )
+        );
     } catch {
         return err({ type: 'database-error' });
     }
@@ -392,11 +439,25 @@ export async function completeAndCheckpointStructureImportActionAttempt(
         nextActionSequence: number;
         notStartedActions: number;
         now: Date;
-        phase: 'preparing' | 'create' | 'update' | 'delete' | 'channel_order' | 'role_order';
+        phase:
+            | 'preparing'
+            | 'create'
+            | 'update'
+            | 'delete'
+            | 'channel_order'
+            | 'role_order'
+            | 'waiting_rate_limit'
+            | 'complete';
         retryAt?: Date;
         skippedActions: number;
         state: 'applied' | 'failed' | 'unknown';
-        status: 'running' | 'pause_requested';
+        status:
+            | 'running'
+            | 'pause_requested'
+            | 'waiting_rate_limit'
+            | 'partially_applied'
+            | 'failed_before_mutation'
+            | 'outcome_unknown';
         totalMutationSteps: number;
     }
 ): Promise<
@@ -412,6 +473,7 @@ export async function completeAndCheckpointStructureImportActionAttempt(
             attemptId: attemptId as Id<'structureImportActionAttempts'>,
             idMapJson: JSON.stringify(idMap),
             now: now.toISOString(),
+            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
             ...(retryAt ? { retryAt: retryAt.toISOString() } : {}),
         });
         return ok({ attempt: toAttempt(result.attempt), execution: toExecution(result.execution) });
@@ -448,6 +510,7 @@ export async function finalizeStructureImportExecution(
                     ...fields,
                     executionId: input.executionId as Id<'structureImportExecutions'>,
                     now: input.now.toISOString(),
+                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                     ...(verificationResult ? { verificationResultJson: JSON.stringify(verificationResult) } : {}),
                 })
             )

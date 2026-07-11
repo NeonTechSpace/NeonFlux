@@ -27,8 +27,10 @@ import {
     buildCategoryIdentity,
     buildChannelIdentity,
     buildCompleteSourceTargetMap,
+    buildKnownTargetKinds,
     projectRoles,
 } from './guild-structure-identity.js';
+import { buildFluxerGuildStructureExecutionActions } from './guild-structure-execution-plan.js';
 
 export {
     FluxerGuildStructureAmbiguousIdentityError,
@@ -92,6 +94,7 @@ export function diffFluxerGuildStructureSnapshot(
     );
     const currentCategoryById = new Map(current.categories.map((category) => [category.id, category]));
     const currentChannelById = new Map(current.channels.map((channel) => [channel.id, channel]));
+    const knownTargetKinds = buildKnownTargetKinds(current);
     const sourceTargetMap = buildCompleteSourceTargetMap(requested, roleIdentity, categoryIdentity, channelIdentity);
     const blockers = findUnsupportedChannelChanges(current, requested, categoryIdentity, channelIdentity);
     const blockedSourceIds = new Set(blockers.map((blocker) => blocker.sourceId));
@@ -158,6 +161,7 @@ export function diffFluxerGuildStructureSnapshot(
         ...(channelOrderAction ? [channelOrderAction] : []),
         ...(roleOrderAction ? [roleOrderAction] : []),
     ];
+    const executionActions = buildFluxerGuildStructureExecutionActions(actions, options.policy);
     const decisions = buildDecisions({
         current,
         requested,
@@ -179,13 +183,22 @@ export function diffFluxerGuildStructureSnapshot(
         preservedProtectedOverwriteIds,
         blockedSourceIds,
     });
-    const fingerprintInput = createFingerprintInput(options.policy, sourceTargetMap, projectedSnapshot, decisions);
+    const fingerprintInput = createFingerprintInput(
+        options.policy,
+        knownTargetKinds,
+        sourceTargetMap,
+        projectedSnapshot,
+        decisions,
+        executionActions
+    );
 
     return {
-        version: 2,
+        version: 3,
         policy: options.policy,
         summary: summarizeActions(actions),
         actions,
+        executionActions,
+        knownTargetKinds,
         sourceTargetMap,
         roleProjection: roleResult.projection,
         projectedSnapshot,
@@ -199,6 +212,7 @@ function createRebuildPlan(
     current: FluxerGuildStructureSnapshot,
     requested: FluxerGuildStructureSnapshot
 ): FluxerGuildStructurePlan {
+    const knownTargetKinds = buildKnownTargetKinds(current);
     const roleResult = projectRoles(current, requested, 'rebuild', false);
     const ignoredProtectedRoleIds = findUnmappedProtectedRoleIds(
         current.roles,
@@ -240,6 +254,7 @@ function createRebuildPlan(
         ...(channelOrderAction ? [channelOrderAction] : []),
         ...(roleOrderAction ? [roleOrderAction] : []),
     ];
+    const executionActions = buildFluxerGuildStructureExecutionActions(actions, 'rebuild');
     const sourceTargetMap = buildCompleteSourceTargetMap(
         requested,
         roleResult.identity,
@@ -258,13 +273,22 @@ function createRebuildPlan(
         preservedProtectedOverwriteIds: new Set(),
         blockedSourceIds: new Set(),
     });
-    const fingerprintInput = createFingerprintInput('rebuild', sourceTargetMap, projectedSnapshot, decisions);
+    const fingerprintInput = createFingerprintInput(
+        'rebuild',
+        knownTargetKinds,
+        sourceTargetMap,
+        projectedSnapshot,
+        decisions,
+        executionActions
+    );
 
     return {
-        version: 2,
+        version: 3,
         policy: 'rebuild',
         summary: summarizeActions(actions),
         actions,
+        executionActions,
+        knownTargetKinds,
         sourceTargetMap,
         roleProjection: roleResult.projection,
         projectedSnapshot,

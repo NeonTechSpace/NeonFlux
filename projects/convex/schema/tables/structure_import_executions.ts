@@ -36,6 +36,7 @@ export const structureImportExecutionsTable = defineTable({
         v.literal('complete')
     ),
     preflightDigest: v.string(),
+    protocolVersion: v.number(),
     retryAt: optionalTimestamp,
     restorePointBackupId: optionalString,
     runId: v.id('structureImportRuns'),
@@ -62,5 +63,6 @@ export const structureImportExecutionsTable = defineTable({
     verificationStatus: v.optional(v.union(v.literal('matched'), v.literal('mismatch'), v.literal('read_failed'))),
 })
     .index('by_status_retry', ['status', 'retryAt'])
+    .index('by_status_protocol_retry', ['status', 'protocolVersion', 'retryAt'])
     .index('by_guild_status', ['guildId', 'status'])
     .index('by_run_created', ['runId', 'createdAt']);

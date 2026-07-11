@@ -26,6 +26,7 @@
 - Model durable data before changing schema: ownership, authority, lifecycle, cardinality, retention/deletion, access paths, concurrency, and recovery. Each table owns one durable concept.
 - Use guild-scoped generic settings only for small configuration. Give workflows, records, logs, approvals, counters, leases, and user data dedicated tables.
 - For external side effects, make partial failure, idempotency, retries, rate limits, concurrency, crash recovery, and reconciliation explicit. Do not claim cross-system atomicity.
+- Changes to Blueprint persisted action-ledger or normalization semantics, reference or ID-map transitions, provider outcome or replay classification, enqueue, claim, attempt, checkpoint, control, finalization, or progress semantics must bump the shared execution protocol in `convex/runtime_contract_model.ts`, `packages/db/src/runtime-contract.ts`, and `apps/web/src/dashboard-structure-execution-protocol.ts`. Persist the protocol on every execution and fence every execution boundary against it. Mixed backend, consumer, browser, or durable-row versions must fail closed. Do not add compatibility branches.
 - Do not reintroduce startup migrations, application Postgres bootstrap, source-export tooling, or import/smoke scripts in application or Docker paths.
 
 ## Security and observability

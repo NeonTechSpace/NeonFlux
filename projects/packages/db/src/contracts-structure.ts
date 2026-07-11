@@ -217,6 +217,7 @@ export type StructureImportExecutionRecord = {
     runId: string;
     guildId: string;
     preflightDigest: string;
+    protocolVersion: number;
     status: StructureImportExecutionStatus;
     nextActionSequence: number;
     notStartedActions: number;
@@ -263,12 +264,25 @@ export type StructureImportActionAttemptRecord = {
     updatedAt: Date;
 };
 
-export type StructureImportExecutionClaimRecord = {
-    execution: StructureImportExecutionRecord;
-    run: StructureImportRunRecord;
-    actions: StructureImportActionRecord[];
-    attempts: StructureImportActionAttemptRecord[];
+export type StructureImportExecutionProtocolMismatchRecord = {
+    executionId: string;
+    executionProtocolVersion: number;
+    guildId: string;
+    kind: 'protocol_mismatch';
+    mayHaveExternalEffects: boolean;
+    requiredProtocolVersion: number;
+    status: string;
 };
+
+export type StructureImportExecutionClaimRecord =
+    | {
+          kind: 'claimed';
+          execution: StructureImportExecutionRecord;
+          run: StructureImportRunRecord;
+          actions: StructureImportActionRecord[];
+          attempts: StructureImportActionAttemptRecord[];
+      }
+    | StructureImportExecutionProtocolMismatchRecord;
 
 export type StructureImportDecisionRecord = {
     id: string;
@@ -305,7 +319,7 @@ export type StructureImportActionPageRecord = {
     nextCursor: string | null;
 };
 
-export type StructureImportExportRepositoryError = GuildFeatureRepositoryError;
+export type StructureImportExportRepositoryError = GuildFeatureRepositoryError | { type: 'backend-incompatible' };
 
 export type StructureImportRunWithActionsRecord = StructureImportRunRecord & {
     actions: StructureImportActionRecord[];

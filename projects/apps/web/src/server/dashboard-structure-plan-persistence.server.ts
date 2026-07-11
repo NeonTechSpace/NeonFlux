@@ -11,8 +11,11 @@ import { structurePlanDigest } from './dashboard-structure-apply-plan.js';
 import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import type { DashboardStructurePlan, DashboardStructureSnapshot } from './dashboard-structure-diff.js';
-import { createEmptyDecisionSummary } from './dashboard-structure-v2.js';
-import type { DashboardStructureDecisionSummary, DashboardStructureReviewDecision } from './dashboard-structure-v2.js';
+import { createEmptyDecisionSummary } from './dashboard-structure-contracts.js';
+import type {
+    DashboardStructureDecisionSummary,
+    DashboardStructureReviewDecision,
+} from './dashboard-structure-contracts.js';
 
 export type DashboardStructureDecisionPageInput = {
     cursor?: number;
@@ -30,7 +33,7 @@ export function createDashboardStructurePlanDigests(
     plan: DashboardStructurePlan,
     requested: DashboardStructureSnapshot
 ) {
-    const deleteActions = plan.actions.filter((action) => action.actionType === 'delete');
+    const deleteActions = plan.executionActions.filter((action) => action.actionType === 'delete');
     return {
         planDigest: structurePlanDigest(plan.fingerprintInput),
         requestedSnapshotDigest: structurePlanDigest(requested),

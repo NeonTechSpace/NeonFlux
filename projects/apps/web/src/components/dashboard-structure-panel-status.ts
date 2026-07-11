@@ -51,6 +51,10 @@ export function toDriftErrorStatus(type: string): PanelStatus {
 export function toErrorStatus(type: string): PanelStatus {
     const messages: Record<string, string> = {
         'auth-required': 'Sign in again before changing server blueprint data.',
+        'backend-incompatible':
+            'The Convex backend does not match this NeonFlux build. Deploy the matching backend before using Server Blueprint.',
+        'execution-protocol-incompatible':
+            'This deployment was created by a different Blueprint protocol and cannot be controlled by this build. Use the matching build or reset development data.',
         'bot-token-missing': 'The web service needs FLUXER_BOT_TOKEN to read server layout.',
         'restore-point-failed': 'Apply was not started because NeonFlux could not save a restore point.',
         'structure-read-failed': 'NeonFlux could not read this server layout.',

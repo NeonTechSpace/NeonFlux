@@ -97,6 +97,59 @@ describe('createNeonFluxConvexHttpClient', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('aborts an in-flight Convex request through the client boundary', async () => {
+        const fetch = vi.fn(
+            (_input: URL | RequestInfo, init?: RequestInit) =>
+                new Promise<Response>((_resolve, reject) => {
+                    init?.signal?.addEventListener(
+                        'abort',
+                        () => {
+                            const reason: unknown = init.signal?.reason;
+                            reject(reason instanceof Error ? reason : new Error('Convex request aborted.'));
+                        },
+                        { once: true }
+                    );
+                })
+        );
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider: () => Promise.resolve('service-jwt'),
+            url: 'https://neonflux-test.convex.cloud',
+        });
+        const controller = new AbortController();
+
+        vi.stubGlobal('fetch', fetch);
+
+        const request = client.query(api.core.readDeploymentConfig, {}, { signal: controller.signal });
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+        controller.abort(new DOMException('request cancelled', 'AbortError'));
+
+        await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+        expect(fetch.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+    });
+
+    it('settles an aborted query when service-token acquisition never resolves', async () => {
+        const fetch = vi.fn();
+        const authTokenProvider = vi.fn(() => new Promise<string>(() => undefined));
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider,
+            url: 'https://neonflux-test.convex.cloud',
+        });
+        const controller = new AbortController();
+        const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+        vi.stubGlobal('fetch', fetch);
+
+        const request = client.query(api.core.readDeploymentConfig, {}, { signal: controller.signal });
+        await vi.waitFor(() => expect(authTokenProvider).toHaveBeenCalledOnce());
+
+        controller.abort(new DOMException('request cancelled', 'AbortError'));
+
+        await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+        expect(fetch).not.toHaveBeenCalled();
+        expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
     it('surfaces Convex error payloads from mutations', async () => {
         stubFetch(
             new Response(

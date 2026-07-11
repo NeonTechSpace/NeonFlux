@@ -4,6 +4,7 @@ import {
     findLatestStructureImportExecution,
     findStructureImportRunWithActionsByGuildId,
     requestStructureImportExecutionControl,
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { ok } from 'neverthrow';
@@ -14,7 +15,7 @@ import {
     applyDashboardStructureImportRun,
     controlDashboardStructureImportExecution,
 } from './dashboard-structure-apply.server.js';
-import { getDashboardStructureDeleteApprovalText } from './dashboard-structure-v2.js';
+import { getDashboardStructureDeleteApprovalText } from './dashboard-structure-contracts.js';
 import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 
 vi.mock('@neonflux/db', async (importActual) => ({
@@ -109,6 +110,26 @@ describe('Server Blueprint enqueue boundary', () => {
         expect(result).toEqual({ type: 'not-controllable', status: 'running' });
         expect(requestStructureImportExecutionControl).not.toHaveBeenCalled();
     });
+
+    it('rejects control of a durable execution created by another protocol', async () => {
+        vi.mocked(findLatestStructureImportExecution).mockResolvedValue(
+            ok({ ...createExecution('paused'), protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION + 1 } as never)
+        );
+
+        const result = await controlDashboardStructureImportExecution(request, {
+            guildId: 'guild-1',
+            runId: 'run-1',
+            executionId: 'execution-1',
+            request: 'resume',
+        });
+
+        expect(result).toEqual({
+            type: 'execution-protocol-incompatible',
+            executionProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION + 1,
+            requiredProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+        });
+        expect(requestStructureImportExecutionControl).not.toHaveBeenCalled();
+    });
 });
 
 function createRun(actions: Array<{ actionType: string }>) {
@@ -146,6 +167,7 @@ function createExecution(status: string) {
         id: 'execution-1',
         runId: 'run-1',
         guildId: 'guild-1',
+        protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
         status,
         totalActions: 0,
         createdAt: now,

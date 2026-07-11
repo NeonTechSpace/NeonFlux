@@ -28,6 +28,7 @@ import {
     normalizeRequiredGuildId,
     STRUCTURE_BACKUP_SOURCE,
     STRUCTURE_BACKUP_STATUS,
+    STRUCTURE_IMPORT_RUN_STATUS,
     toStructureBackupRecord,
     toStructureBackupSettingsRecord,
     toStructureBackupSummaryRecord,
@@ -873,6 +874,9 @@ export const recordStructureImportAction = mutation({
     handler: async (ctx: StructureMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedStructureServices);
         const run = await requireRun(ctx, args.runId);
+        if (run.status !== STRUCTURE_IMPORT_RUN_STATUS.building) {
+            throw new Error('structure-import-action-ledger-immutable');
+        }
 
         await assertAvailableImportActionSequence(ctx, run._id, args.sequence);
 
@@ -893,6 +897,9 @@ export const recordStructureImportActionsBatch = mutation({
         }
 
         const run = await requireRun(ctx, args.runId);
+        if (run.status !== STRUCTURE_IMPORT_RUN_STATUS.building) {
+            throw new Error('structure-import-action-ledger-immutable');
+        }
         assertUniqueActionSequences(args.actions.map((action) => action.sequence));
         await assertAvailableImportActionSequences(
             ctx,

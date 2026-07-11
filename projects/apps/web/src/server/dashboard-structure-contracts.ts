@@ -53,6 +53,7 @@ type DashboardStructureExecutionStatus =
 
 export type DashboardStructureExecutionProgress = {
     id: string;
+    protocolVersion: number;
     status: DashboardStructureExecutionStatus;
     phase: StructureImportExecutionPhase;
     completedActions: number;

@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 
 import { query } from '../_generated/server.js';
 import { requireGuildAccess } from '../auth.js';
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 
 const executionProgressValidator = v.object({
     appliedActions: v.number(),
@@ -17,6 +18,7 @@ const executionProgressValidator = v.object({
     nextActionSequence: v.number(),
     notStartedActions: v.number(),
     phase: v.string(),
+    protocolVersion: v.number(),
     retryAt: v.optional(v.string()),
     skippedActions: v.number(),
     startedAt: v.optional(v.string()),
@@ -27,7 +29,11 @@ const executionProgressValidator = v.object({
 });
 
 export const findStructureImportExecutionProgressForGuild = query({
-    args: { guildId: v.string(), runId: v.id('structureImportRuns') },
+    args: {
+        guildId: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
+        runId: v.id('structureImportRuns'),
+    },
     returns: v.union(v.null(), executionProgressValidator),
     handler: async (ctx, args) => {
         await requireGuildAccess(ctx, args.guildId);
@@ -53,6 +59,7 @@ export const findStructureImportExecutionProgressForGuild = query({
             nextActionSequence: execution.nextActionSequence,
             notStartedActions: execution.notStartedActions,
             phase: execution.phase,
+            protocolVersion: execution.protocolVersion,
             ...(execution.retryAt ? { retryAt: execution.retryAt } : {}),
             skippedActions: execution.skippedActions,
             ...(execution.startedAt ? { startedAt: execution.startedAt } : {}),

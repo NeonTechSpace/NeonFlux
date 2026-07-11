@@ -6,6 +6,7 @@ import {
     findLatestStructureImportExecution,
     findStructureImportRunWithActionsByGuildId,
     structureAuditActions,
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
     structureImportRunStatuses,
     requestStructureImportExecutionControl,
 } from '@neonflux/db';
@@ -13,7 +14,7 @@ import {
 import { getWebDb } from './db.server.js';
 import { createStructureAuditInput, loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
-import { getDashboardStructureDeleteApprovalText } from './dashboard-structure-v2.js';
+import { getDashboardStructureDeleteApprovalText } from './dashboard-structure-contracts.js';
 
 export type DashboardStructureApplyInput = {
     guildId: string;
@@ -48,6 +49,11 @@ export type DashboardStructureExecutionControlInput = {
 
 export type DashboardStructureExecutionControlResult =
     | { type: 'execution-updated'; executionId: string; status: string; updatedAt: string }
+    | {
+          type: 'execution-protocol-incompatible';
+          executionProtocolVersion: number;
+          requiredProtocolVersion: number;
+      }
     | { type: 'invalid-input'; message: string }
     | { type: 'not-controllable'; status: string }
     | DashboardStructureErrorResult;
@@ -151,6 +157,13 @@ export async function controlDashboardStructureImportExecution(
     });
     if (latest.isErr()) return mapRepositoryError(latest.error);
     if (!latest.value || latest.value.id !== input.executionId) return { type: 'not-found' };
+    if (latest.value.protocolVersion !== STRUCTURE_EXECUTION_PROTOCOL_VERSION) {
+        return {
+            type: 'execution-protocol-incompatible',
+            executionProtocolVersion: latest.value.protocolVersion,
+            requiredProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+        };
+    }
 
     const allowed =
         (input.request === 'pause' && ['running', 'waiting_rate_limit'].includes(latest.value.status)) ||

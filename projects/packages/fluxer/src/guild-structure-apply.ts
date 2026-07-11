@@ -1,8 +1,27 @@
-import { Client } from '@fluxerjs/core';
+import type { Client } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 import { createChannelPlatform, createRolePlatform } from './platform-guild-operations.js';
 import type { FluxerPlatformError } from './platform-shared.js';
+import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
+import {
+    createStructureReferenceMapping,
+    normalizeRequestedChannelPositions,
+    normalizeRequestedRolePositions,
+    resolveStructureReference,
+    simulateFluxerBotGuildStructureActionAuthority,
+    type ApplyFluxerBotGuildStructureChannelOrderInput,
+    type ApplyFluxerBotGuildStructureRoleOrderInput,
+    type StructureActionAuthoritySnapshot,
+    type StructureActionReferenceValidationFailure,
+    type StructureReferenceMapping,
+    type StructureTargetKind,
+} from './guild-structure-apply-validation.js';
+
+export type {
+    ApplyFluxerBotGuildStructureChannelOrderInput,
+    ApplyFluxerBotGuildStructureRoleOrderInput,
+} from './guild-structure-apply-validation.js';
 
 const LINK_CHANNEL_TYPE = 998;
 export const DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS = 750;
@@ -10,6 +29,7 @@ export const DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS = 750;
 export type ApplyFluxerBotGuildStructureUpdateInput = {
     botToken: string;
     guildId: string;
+    knownTargetIds?: readonly string[];
     targetType: string;
     targetId: string;
     changes: Array<{ field: string; before?: unknown; after: unknown }>;
@@ -24,6 +44,8 @@ export type ApplyFluxerBotGuildStructureActionInput = {
     changes?: Array<{ field: string; before?: unknown; after: unknown }>;
     after?: unknown;
     idMap?: Record<string, string>;
+    knownTargetIds?: readonly string[];
+    knownTargetKinds?: Readonly<Record<string, StructureTargetKind>>;
     sourceGuildId?: string;
 };
 
@@ -33,21 +55,9 @@ export type ApplyFluxerBotGuildStructureActionResult = {
 
 export type ApplyFluxerBotGuildStructureBatchActionInput = Omit<
     ApplyFluxerBotGuildStructureActionInput,
-    'botToken' | 'guildId' | 'idMap' | 'sourceGuildId'
+    'botToken' | 'guildId' | 'idMap' | 'knownTargetIds' | 'knownTargetKinds' | 'sourceGuildId'
 > & {
     id: string;
-};
-
-export type ApplyFluxerBotGuildStructureRoleOrderInput = {
-    sourceId: string;
-    position: number;
-    hierarchyRank?: number;
-};
-
-export type ApplyFluxerBotGuildStructureChannelOrderInput = {
-    sourceId: string;
-    parentSourceId: string | null;
-    position: number;
 };
 
 export type ApplyFluxerBotGuildStructureBatchInput = {
@@ -56,18 +66,15 @@ export type ApplyFluxerBotGuildStructureBatchInput = {
     actions: ApplyFluxerBotGuildStructureBatchActionInput[];
     beforeMutation?: () => Promise<boolean>;
     beforeAction?: (action: ApplyFluxerBotGuildStructureBatchActionInput) => Promise<boolean>;
-    channelOrder?: ApplyFluxerBotGuildStructureChannelOrderInput[];
-    channelOrderActionId?: string;
     idMap?: Record<string, string>;
+    knownTargetKinds: Readonly<Record<string, StructureTargetKind>>;
     operationDelayMs?: number;
+    referenceIdMap?: Record<string, string>;
     onActionResult?: (
         result: ApplyFluxerBotGuildStructureBatchResult['actions'][number],
         idMap: Readonly<Record<string, string>>
     ) => Promise<boolean>;
-    roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
-    roleOrderActionId?: string;
     sourceGuildId?: string;
-    stopAfterDeleteFailures?: boolean;
 };
 
 export type ApplyFluxerBotGuildStructureBatchResult = {
@@ -75,39 +82,29 @@ export type ApplyFluxerBotGuildStructureBatchResult = {
         id: string;
         status: 'applied' | 'failed';
         createdId?: string;
-        errorCauseType?: string;
         errorType?: string;
+        mutationOutcome?: 'not-applied' | 'unknown';
         retryAfterMs?: number;
     }>;
     idMap: Record<string, string>;
-    channelOrder?: {
-        status: 'applied' | 'failed';
-        errorType?: string;
-        retryAfterMs?: number;
-    };
-    roleOrder?: {
-        status: 'applied' | 'failed';
-        errorType?: string;
-        retryAfterMs?: number;
-    };
 };
 
 export type ApplyFluxerBotGuildStructureUpdateError =
     | FluxerPlatformError
     | { type: 'apply-lease-lost' }
     | { type: 'missing-input'; field: 'botToken' | 'guildId' | 'targetId' | 'name' | 'after' }
-    | { type: 'invalid-value'; field: string }
+    | { type: 'invalid-value'; field: string; actionId?: string }
+    | { type: 'structure-order-mapping-missing' | 'structure-order-plan-invalid'; actionId?: string }
+    | { type: 'structure-reference-kind-mismatch'; field: 'parentId' | 'targetId'; actionId?: string }
+    | {
+          type: 'structure-reference-mapping-missing';
+          field: 'parentId' | 'permissionOverwrites' | 'targetId';
+          actionId?: string;
+      }
     | { type: 'unsupported-action'; reason: string }
     | { type: 'login-failed'; error: unknown };
 
-type PartialCreateError = {
-    type: 'partial-create-failed';
-    createdId: string;
-    causeType: ApplyFluxerBotGuildStructureUpdateError['type'];
-    retryAfterMs?: number;
-};
-
-export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError | PartialCreateError;
+export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError;
 type ApplyNormalizedActionError = ApplyFluxerBotGuildStructureActionError;
 type StructureApplyRateLimiter = {
     waitBeforeMutation: () => Promise<boolean>;
@@ -122,10 +119,6 @@ export async function applyFluxerBotGuildStructureUpdate(
     });
 
     if (result.isOk()) return ok(undefined);
-    if (result.error.type === 'partial-create-failed') {
-        return err({ type: 'operation-failed', error: new Error('Unexpected partial create failure during update.') });
-    }
-
     return err(result.error);
 }
 
@@ -138,14 +131,10 @@ export async function applyFluxerBotGuildStructureAction(
         return err(normalized.error);
     }
 
-    const client = new Client({ gatewayDebug: false });
+    const client = createFluxerGuildStructureRestClient(normalized.value.botToken);
 
     try {
-        await client.login(normalized.value.botToken);
-
         return await applyNormalizedAction(client, normalized.value, createStructureApplyRateLimiter(0));
-    } catch (error) {
-        return err({ type: 'login-failed', error });
     } finally {
         await client.destroy().catch(() => undefined);
     }
@@ -160,92 +149,98 @@ export async function applyFluxerBotGuildStructureActions(
     if (!botToken) return err({ type: 'missing-input', field: 'botToken' });
     if (!guildId) return err({ type: 'missing-input', field: 'guildId' });
 
-    const client = new Client({ gatewayDebug: false });
+    const authorityProgression = simulateFluxerBotGuildStructureActionAuthority<ApplyNormalizedActionError>({
+        actions: input.actions,
+        guildId,
+        ...((input.referenceIdMap ?? input.idMap) ? { idMap: input.referenceIdMap ?? input.idMap } : {}),
+        knownTargetKinds: input.knownTargetKinds,
+        ...(input.sourceGuildId ? { sourceGuildId: input.sourceGuildId } : {}),
+        visitAction: (action, authority) => {
+            const normalized = normalizeStructureActionInput({
+                ...action,
+                botToken,
+                guildId,
+                idMap: authority.idMap,
+                knownTargetIds: Object.keys(authority.knownTargetKinds),
+                knownTargetKinds: authority.knownTargetKinds,
+                ...(input.sourceGuildId ? { sourceGuildId: input.sourceGuildId } : {}),
+            });
+            return normalized.isErr() ? normalized.error : undefined;
+        },
+    });
+    if (!authorityProgression.ok) {
+        if (authorityProgression.failure.type === 'visitor') {
+            return err({ ...authorityProgression.failure.error, actionId: authorityProgression.actionId });
+        }
+        return err(
+            toApplyReferenceValidationError({
+                ok: false,
+                actionId: authorityProgression.actionId,
+                ...authorityProgression.failure.error,
+            })
+        );
+    }
+
+    const client = createFluxerGuildStructureRestClient(botToken);
     const idMap: Record<string, string> = { ...(input.idMap ?? {}) };
     const actions: ApplyFluxerBotGuildStructureBatchResult['actions'] = [];
     const rateLimiter = createStructureApplyRateLimiter(input.operationDelayMs, input.beforeMutation);
 
     try {
-        await client.login(botToken);
-
-        let deleteFailed = false;
-        let leaseLost = false;
-
-        for (const action of input.actions) {
-            if (leaseLost) {
-                const failedResult = { id: action.id, status: 'failed' as const, errorType: 'apply-lease-lost' };
-                actions.push(failedResult);
-                await input.onActionResult?.(failedResult, idMap);
-                continue;
-            }
-
-            if (input.stopAfterDeleteFailures === true && deleteFailed && action.actionType !== 'delete') {
+        for (const [actionIndex, action] of input.actions.entries()) {
+            if (input.beforeAction && !(await input.beforeAction(action))) {
                 const failedResult = {
                     id: action.id,
                     status: 'failed' as const,
-                    errorType: 'rebuild-delete-failed',
+                    errorType: 'apply-lease-lost',
+                    mutationOutcome: 'not-applied' as const,
                 };
                 actions.push(failedResult);
-                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
-                continue;
-            }
-
-            if (input.beforeAction && !(await input.beforeAction(action))) {
-                leaseLost = true;
-                const failedResult = { id: action.id, status: 'failed' as const, errorType: 'apply-lease-lost' };
-                actions.push(failedResult);
                 await input.onActionResult?.(failedResult, idMap);
-                continue;
+                break;
             }
 
+            const symbolicAuthority = authorityProgression.steps[actionIndex];
+            if (!symbolicAuthority) {
+                return err({ type: 'invalid-value', field: `${action.id}.authority`, actionId: action.id });
+            }
+            const authority = materializeStructureActionAuthority(symbolicAuthority, idMap);
             const normalized = normalizeStructureActionInput({
                 ...action,
                 botToken,
                 guildId,
-                idMap,
+                idMap: authority.idMap,
+                knownTargetIds: Object.keys(authority.knownTargetKinds),
+                knownTargetKinds: authority.knownTargetKinds,
                 ...(input.sourceGuildId ? { sourceGuildId: input.sourceGuildId } : {}),
             });
 
             if (normalized.isErr()) {
-                const failedResult = { id: action.id, status: 'failed' as const, errorType: normalized.error.type };
+                const failedResult = {
+                    id: action.id,
+                    status: 'failed' as const,
+                    errorType: normalized.error.type,
+                    mutationOutcome: 'not-applied' as const,
+                };
                 actions.push(failedResult);
-                if (action.actionType === 'delete') deleteFailed = true;
-                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
-                continue;
+                await input.onActionResult?.(failedResult, idMap);
+                break;
             }
 
             const result = await applyNormalizedAction(client, normalized.value, rateLimiter);
 
             if (result.isErr()) {
-                if (result.error.type === 'apply-lease-lost') leaseLost = true;
-                if (action.actionType === 'delete') deleteFailed = true;
-
-                if (action.targetId && result.error.type === 'partial-create-failed') {
-                    if (result.error.causeType === 'apply-lease-lost') leaseLost = true;
-                    idMap[action.targetId] = result.error.createdId;
-                    const failedResult = {
-                        id: action.id,
-                        status: 'failed',
-                        createdId: result.error.createdId,
-                        errorType: result.error.type,
-                        errorCauseType: result.error.causeType,
-                        ...(result.error.retryAfterMs === undefined ? {} : { retryAfterMs: result.error.retryAfterMs }),
-                    } as const;
-                    actions.push(failedResult);
-                    if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
-                    continue;
-                }
-
                 const retryAfterMs = readApplyRetryAfterMs(result.error);
                 const failedResult = {
                     id: action.id,
                     status: 'failed' as const,
                     errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
+                    mutationOutcome: classifyApplyMutationFailure(result.error),
                     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
                 };
                 actions.push(failedResult);
-                if (input.onActionResult && !(await input.onActionResult(failedResult, idMap))) leaseLost = true;
-                continue;
+                await input.onActionResult?.(failedResult, idMap);
+                break;
             }
 
             if (action.targetId && result.value.createdId) {
@@ -258,240 +253,16 @@ export async function applyFluxerBotGuildStructureActions(
                 ...(result.value.createdId ? { createdId: result.value.createdId } : {}),
             };
             actions.push(appliedResult);
-            if (input.onActionResult && !(await input.onActionResult(appliedResult, idMap))) leaseLost = true;
-        }
-
-        const shouldApplyOrder = actions.every((action) => action.status === 'applied');
-        const channelOrderSyntheticAction = input.channelOrderActionId
-            ? { id: input.channelOrderActionId, actionType: 'update', targetType: 'channel-order' }
-            : undefined;
-        if (
-            channelOrderSyntheticAction &&
-            input.beforeAction &&
-            !(await input.beforeAction(channelOrderSyntheticAction))
-        ) {
-            leaseLost = true;
-        }
-        const channelOrder = await applyRequestedChannelOrder(client, {
-            guildId,
-            idMap,
-            rateLimiter,
-            ...(input.channelOrder ? { channelOrder: input.channelOrder } : {}),
-            shouldApply: shouldApplyOrder && !leaseLost,
-        });
-        if (channelOrderSyntheticAction && channelOrder && input.onActionResult) {
-            const result = {
-                id: channelOrderSyntheticAction.id,
-                status: channelOrder.status,
-                ...(channelOrder.errorType ? { errorType: channelOrder.errorType } : {}),
-                ...(channelOrder.retryAfterMs === undefined ? {} : { retryAfterMs: channelOrder.retryAfterMs }),
-            };
-            if (!(await input.onActionResult(result, idMap))) leaseLost = true;
-        }
-        const roleOrderSyntheticAction = input.roleOrderActionId
-            ? { id: input.roleOrderActionId, actionType: 'update', targetType: 'role-order' }
-            : undefined;
-        if (roleOrderSyntheticAction && input.beforeAction && !(await input.beforeAction(roleOrderSyntheticAction))) {
-            leaseLost = true;
-        }
-        const roleOrder = await applyRequestedRoleOrder(client, {
-            guildId,
-            idMap,
-            rateLimiter,
-            ...(input.roleOrder ? { roleOrder: input.roleOrder } : {}),
-            shouldApply: shouldApplyOrder && !leaseLost,
-        });
-        if (roleOrderSyntheticAction && roleOrder && input.onActionResult) {
-            const result = {
-                id: roleOrderSyntheticAction.id,
-                status: roleOrder.status,
-                ...(roleOrder.errorType ? { errorType: roleOrder.errorType } : {}),
-                ...(roleOrder.retryAfterMs === undefined ? {} : { retryAfterMs: roleOrder.retryAfterMs }),
-            };
-            if (!(await input.onActionResult(result, idMap))) leaseLost = true;
-        }
-
-        if (channelOrder || roleOrder) {
-            return ok({
-                actions,
-                idMap,
-                ...(channelOrder ? { channelOrder } : {}),
-                ...(roleOrder ? { roleOrder } : {}),
-            });
+            if (input.onActionResult && !(await input.onActionResult(appliedResult, idMap))) break;
         }
 
         return ok({ actions, idMap });
-    } catch (error) {
-        return err({ type: 'login-failed', error });
     } finally {
         await client.destroy().catch(() => undefined);
     }
 }
 
-async function applyRequestedChannelOrder(
-    client: Client,
-    input: {
-        guildId: string;
-        idMap: Record<string, string>;
-        rateLimiter: StructureApplyRateLimiter;
-        channelOrder?: ApplyFluxerBotGuildStructureChannelOrderInput[];
-        shouldApply: boolean;
-    }
-): Promise<ApplyFluxerBotGuildStructureBatchResult['channelOrder'] | undefined> {
-    if (!input.shouldApply || !input.channelOrder || input.channelOrder.length === 0) return undefined;
-
-    const normalized = normalizeRequestedChannelPositions(input.channelOrder, input.idMap);
-    if (!normalized.ok) return { status: 'failed', errorType: normalized.errorType };
-    if (normalized.positions.length === 0) return undefined;
-
-    if (!(await input.rateLimiter.waitBeforeMutation())) return { status: 'failed', errorType: 'apply-lease-lost' };
-    const result = await createChannelPlatform(client).setPositions({
-        guildId: input.guildId,
-        positions: normalized.positions,
-    });
-
-    if (result.isOk()) return { status: 'applied' };
-    const retryAfterMs = readApplyRetryAfterMs(result.error);
-    return {
-        status: 'failed',
-        errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
-        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-    };
-}
-
-function normalizeRequestedChannelPositions(
-    channelOrder: ApplyFluxerBotGuildStructureChannelOrderInput[],
-    idMap: Record<string, string>
-): StructureOrderNormalizationResult<Array<{ channelId: string; parentId: string | null; position: number }>> {
-    const grouped = new Map<string, ApplyFluxerBotGuildStructureChannelOrderInput[]>();
-    const seenSourceIds = new Set<string>();
-    for (const channel of channelOrder) {
-        if (
-            typeof channel.sourceId !== 'string' ||
-            !channel.sourceId.trim() ||
-            (channel.parentSourceId !== null &&
-                (typeof channel.parentSourceId !== 'string' || !channel.parentSourceId.trim())) ||
-            !Number.isInteger(channel.position) ||
-            channel.position < 0
-        ) {
-            return { ok: false, errorType: 'structure-order-plan-invalid' };
-        }
-        const sourceId = channel.sourceId.trim();
-        if (seenSourceIds.has(sourceId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
-        seenSourceIds.add(sourceId);
-        const parentSourceId = channel.parentSourceId === null ? '' : channel.parentSourceId.trim();
-        grouped.set(parentSourceId, [...(grouped.get(parentSourceId) ?? []), channel]);
-    }
-    const seenTargetIds = new Set<string>();
-
-    const positions: Array<{ channelId: string; parentId: string | null; position: number }> = [];
-    for (const [parentSourceId, channels] of [...grouped.entries()].sort(([left], [right]) =>
-        left === '' ? -1 : right === '' ? 1 : left.localeCompare(right)
-    )) {
-        const parentId = parentSourceId ? idMap[parentSourceId] : null;
-        if (parentSourceId && !parentId) return { ok: false, errorType: 'structure-order-mapping-missing' };
-        const resolvedParentId = parentId ?? null;
-        for (const [position, channel] of [...channels]
-            .sort((left, right) => left.position - right.position || left.sourceId.localeCompare(right.sourceId))
-            .entries()) {
-            const sourceId = channel.sourceId.trim();
-            const channelId = idMap[sourceId];
-            if (!channelId) return { ok: false, errorType: 'structure-order-mapping-missing' };
-            if (seenTargetIds.has(channelId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
-            seenTargetIds.add(channelId);
-            positions.push({ channelId, parentId: resolvedParentId, position });
-        }
-    }
-    return { ok: true, positions };
-}
-
-async function applyRequestedRoleOrder(
-    client: Client,
-    input: {
-        guildId: string;
-        idMap: Record<string, string>;
-        rateLimiter: StructureApplyRateLimiter;
-        roleOrder?: ApplyFluxerBotGuildStructureRoleOrderInput[];
-        shouldApply: boolean;
-    }
-): Promise<ApplyFluxerBotGuildStructureBatchResult['roleOrder'] | undefined> {
-    if (!input.shouldApply || !input.roleOrder || input.roleOrder.length === 0) return undefined;
-
-    const normalized = normalizeRequestedRolePositions(input.roleOrder, input.idMap);
-    if (!normalized.ok) return { status: 'failed', errorType: normalized.errorType };
-    if (normalized.positions.length === 0) return undefined;
-
-    if (!(await input.rateLimiter.waitBeforeMutation())) return { status: 'failed', errorType: 'apply-lease-lost' };
-    const result = await createRolePlatform(client).setPositions({
-        guildId: input.guildId,
-        positions: normalized.positions,
-    });
-
-    if (result.isOk()) return { status: 'applied' };
-    const retryAfterMs = readApplyRetryAfterMs(result.error);
-    return {
-        status: 'failed',
-        errorType: isRateLimitedApplyError(result.error) ? 'rate-limited' : result.error.type,
-        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-    };
-}
-
-function normalizeRequestedRolePositions(
-    roleOrder: ApplyFluxerBotGuildStructureRoleOrderInput[],
-    idMap: Record<string, string>
-): StructureOrderNormalizationResult<Array<{ roleId: string; position: number }>> {
-    const seenTargetIds = new Set<string>();
-    const seenSourceIds = new Set<string>();
-    const positions: Array<{ roleId: string; position: number }> = [];
-    for (const role of roleOrder) {
-        if (
-            typeof role.sourceId !== 'string' ||
-            !role.sourceId.trim() ||
-            !Number.isInteger(role.position) ||
-            role.position <= 0 ||
-            (role.hierarchyRank !== undefined && (!Number.isInteger(role.hierarchyRank) || role.hierarchyRank < 0))
-        ) {
-            return { ok: false, errorType: 'structure-order-plan-invalid' };
-        }
-        const sourceId = role.sourceId.trim();
-        if (seenSourceIds.has(sourceId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
-        seenSourceIds.add(sourceId);
-    }
-    for (const role of [...roleOrder].sort(compareRequestedRoleOrder)) {
-        const sourceId = role.sourceId.trim();
-        const targetId = idMap[sourceId];
-        if (!targetId) return { ok: false, errorType: 'structure-order-mapping-missing' };
-        if (seenTargetIds.has(targetId)) return { ok: false, errorType: 'structure-order-plan-invalid' };
-        seenTargetIds.add(targetId);
-        positions.push({ roleId: targetId, position: role.position });
-    }
-    return { ok: true, positions };
-}
-
-type StructureOrderNormalizationResult<T> =
-    | { ok: true; positions: T }
-    | { ok: false; errorType: 'structure-order-mapping-missing' | 'structure-order-plan-invalid' };
-
-function compareRequestedRoleOrder(
-    left: ApplyFluxerBotGuildStructureRoleOrderInput,
-    right: ApplyFluxerBotGuildStructureRoleOrderInput
-): number {
-    if (left.hierarchyRank !== undefined && right.hierarchyRank !== undefined) {
-        return left.hierarchyRank - right.hierarchyRank;
-    }
-    if (left.hierarchyRank !== undefined) return -1;
-    if (right.hierarchyRank !== undefined) return 1;
-
-    return right.position - left.position || left.sourceId.localeCompare(right.sourceId);
-}
-
 type NormalizedStructureActionInput =
-    | {
-          botToken: string;
-          guildId: string;
-          actionType: 'noop';
-          createdId: string;
-      }
     | {
           botToken: string;
           guildId: string;
@@ -510,6 +281,20 @@ type NormalizedStructureActionInput =
           parentId?: string | null;
           permissionOverwrites?: PermissionOverwriteReplacement;
           position?: number;
+      }
+    | {
+          botToken: string;
+          guildId: string;
+          actionType: 'update';
+          targetType: 'channel-order';
+          positions: Array<{ channelId: string; parentId: string | null; position: number }>;
+      }
+    | {
+          botToken: string;
+          guildId: string;
+          actionType: 'update';
+          targetType: 'role-order';
+          positions: Array<{ roleId: string; position: number }>;
       }
     | {
           botToken: string;
@@ -540,7 +325,6 @@ type NormalizedStructureActionInput =
           channelType: 0 | 2 | 4 | 998;
           url?: string | null;
           parentId?: string | null;
-          permissionOverwrites: PermissionOverwrite[];
           position?: number;
       };
 
@@ -595,8 +379,6 @@ async function applyNormalizedAction(
     rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyNormalizedActionError>> {
     switch (input.actionType) {
-        case 'noop':
-            return ok({ createdId: input.createdId });
         case 'create':
             return await applyCreate(client, input, rateLimiter);
         case 'delete':
@@ -609,12 +391,14 @@ async function applyNormalizedAction(
 function normalizeStructureDeleteInput(
     input: ApplyFluxerBotGuildStructureActionInput & { botToken: string; guildId: string }
 ): Result<Extract<NormalizedStructureActionInput, { actionType: 'delete' }>, ApplyFluxerBotGuildStructureActionError> {
-    const targetId = input.targetId?.trim() ?? '';
+    const targetIdInput = input.targetId?.trim() ?? '';
 
-    if (!targetId) return err({ type: 'missing-input', field: 'targetId' });
+    if (!targetIdInput) return err({ type: 'missing-input', field: 'targetId' });
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category deletes are supported.' });
     }
+    const targetId = resolveStructureReference(targetIdInput, createStructureReferenceMapping(input));
+    if (!targetId) return err({ type: 'structure-reference-mapping-missing', field: 'targetId' });
     if (input.targetType === 'role' && targetId === input.guildId) {
         return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be deleted.' });
     }
@@ -631,12 +415,50 @@ function normalizeStructureDeleteInput(
 function normalizeStructureUpdateInput(
     input: ApplyFluxerBotGuildStructureActionInput & { botToken: string; guildId: string }
 ): Result<Extract<NormalizedStructureActionInput, { actionType: 'update' }>, ApplyFluxerBotGuildStructureActionError> {
-    const targetId = input.targetId?.trim() ?? '';
+    const referenceMapping = createStructureReferenceMapping(input);
+    if (input.targetType === 'channel-order') {
+        if (!Array.isArray(input.after) || input.after.length === 0)
+            return err({ type: 'structure-order-plan-invalid' });
+        const normalized = normalizeRequestedChannelPositions(
+            input.after as ApplyFluxerBotGuildStructureChannelOrderInput[],
+            referenceMapping
+        );
+        return normalized.ok
+            ? ok({
+                  botToken: input.botToken,
+                  guildId: input.guildId,
+                  actionType: 'update',
+                  targetType: 'channel-order',
+                  positions: normalized.positions,
+              })
+            : err({ type: normalized.errorType });
+    }
+    if (input.targetType === 'role-order') {
+        if (!Array.isArray(input.after) || input.after.length === 0)
+            return err({ type: 'structure-order-plan-invalid' });
+        const normalized = normalizeRequestedRolePositions(
+            input.after as ApplyFluxerBotGuildStructureRoleOrderInput[],
+            referenceMapping
+        );
+        return normalized.ok
+            ? ok({
+                  botToken: input.botToken,
+                  guildId: input.guildId,
+                  actionType: 'update',
+                  targetType: 'role-order',
+                  positions: normalized.positions,
+              })
+            : err({ type: normalized.errorType });
+    }
 
-    if (!targetId) return err({ type: 'missing-input', field: 'targetId' });
+    const targetIdInput = input.targetId?.trim() ?? '';
+
+    if (!targetIdInput) return err({ type: 'missing-input', field: 'targetId' });
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category updates are supported.' });
     }
+    const targetId = resolveStructureReference(targetIdInput, referenceMapping);
+    if (!targetId) return err({ type: 'structure-reference-mapping-missing', field: 'targetId' });
     if (input.targetType === 'role' && targetId === input.guildId) {
         return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be updated.' });
     }
@@ -671,7 +493,7 @@ function normalizeStructureUpdateInput(
     }
 
     const name = typeof nameChanges[0]?.after === 'string' ? nameChanges[0].after.trim() : undefined;
-    const parentIdResult = normalizeChannelParentUpdate(input.targetType, parentChanges[0], input.idMap ?? {});
+    const parentIdResult = normalizeChannelParentUpdate(input.targetType, parentChanges[0], referenceMapping);
     const positionResult = normalizeChannelPositionUpdate(positionChanges[0]);
 
     if (nameChanges.length === 1 && !name) return err({ type: 'missing-input', field: 'name' });
@@ -680,17 +502,22 @@ function normalizeStructureUpdateInput(
 
     const permissionOverwriteReplacement = normalizePermissionOverwriteReplacement(
         permissionOverwriteChanges[0],
-        createPermissionOverwriteMapping(input.guildId, input.idMap ?? {}, input.sourceGuildId)
+        referenceMapping
     );
+    if (permissionOverwriteReplacement.isErr()) return err(permissionOverwriteReplacement.error);
 
-    if (permissionOverwriteChanges.length === 1 && !permissionOverwriteReplacement) {
-        return err({ type: 'invalid-value', field: 'permissionOverwrites' });
-    }
+    const providerMutationCount =
+        (name ? 1 : 0) +
+        (parentIdResult.value !== undefined || positionResult.value !== undefined ? 1 : 0) +
+        (permissionOverwriteReplacement.value
+            ? countPermissionOverwriteMutations(permissionOverwriteReplacement.value)
+            : 0);
+    if (providerMutationCount !== 1) return err({ type: 'invalid-value', field: 'changes' });
 
     if (
         !name &&
         parentIdResult.value === undefined &&
-        !permissionOverwriteReplacement &&
+        !permissionOverwriteReplacement.value &&
         positionResult.value === undefined
     ) {
         return err({
@@ -707,7 +534,7 @@ function normalizeStructureUpdateInput(
         targetId,
         ...(name ? { name } : {}),
         ...(parentIdResult.value !== undefined ? { parentId: parentIdResult.value } : {}),
-        ...(permissionOverwriteReplacement ? { permissionOverwrites: permissionOverwriteReplacement } : {}),
+        ...(permissionOverwriteReplacement.value ? { permissionOverwrites: permissionOverwriteReplacement.value } : {}),
         ...(positionResult.value !== undefined ? { position: positionResult.value } : {}),
     });
 }
@@ -772,10 +599,12 @@ function normalizeStructureRoleUpdateInput(
         }
     }
 
-    if (Object.keys(role).length === 0) {
+    const roleMutationCount =
+        (role.position !== undefined ? 1 : 0) + (Object.keys(role).some((field) => field !== 'position') ? 1 : 0);
+    if (roleMutationCount !== 1) {
         return err({
-            type: 'unsupported-action',
-            reason: 'Only role name, position, permissions, color, hoist, and mentionable updates are supported.',
+            type: 'invalid-value',
+            field: 'changes',
         });
     }
 
@@ -791,12 +620,10 @@ function normalizeStructureRoleUpdateInput(
 
 function normalizeStructureCreateInput(
     input: ApplyFluxerBotGuildStructureActionInput & { botToken: string; guildId: string }
-): Result<
-    Extract<NormalizedStructureActionInput, { actionType: 'create' | 'noop' | 'update' }>,
-    ApplyFluxerBotGuildStructureActionError
-> {
+): Result<Extract<NormalizedStructureActionInput, { actionType: 'create' }>, ApplyFluxerBotGuildStructureActionError> {
     const after = input.after;
     const sourceId = input.targetId?.trim() ?? '';
+    const referenceMapping = createStructureReferenceMapping(input);
 
     if (!sourceId) return err({ type: 'missing-input', field: 'targetId' });
     if (!isObject(after)) return err({ type: 'missing-input', field: 'after' });
@@ -804,6 +631,7 @@ function normalizeStructureCreateInput(
 
     const name = after.name.trim();
     const mappedCreatedId = input.idMap?.[sourceId];
+    if (mappedCreatedId) return err({ type: 'invalid-value', field: 'targetId' });
 
     if (input.targetType === 'role') {
         if (isProtectedRolePayload(after) || isDefaultRolePayload(after) || sourceId === input.guildId) {
@@ -823,15 +651,6 @@ function normalizeStructureCreateInput(
             normalizeRolePosition(after.position) === undefined
         ) {
             return err({ type: 'invalid-value', field: 'position' });
-        }
-
-        if (mappedCreatedId) {
-            return ok({
-                botToken: input.botToken,
-                guildId: input.guildId,
-                actionType: 'noop',
-                createdId: mappedCreatedId,
-            });
         }
 
         return ok({
@@ -856,12 +675,9 @@ function normalizeStructureCreateInput(
     if (input.targetType === 'category' && channelType !== 4) return err({ type: 'invalid-value', field: 'type' });
     if (input.targetType === 'channel' && channelType === 4) return err({ type: 'invalid-value', field: 'type' });
 
-    const permissionOverwrites = normalizePermissionOverwrites(
-        after.permissionOverwrites,
-        createPermissionOverwriteMapping(input.guildId, input.idMap ?? {}, input.sourceGuildId)
-    );
-
-    if (!permissionOverwrites) return err({ type: 'invalid-value', field: 'permissionOverwrites' });
+    const permissionOverwrites = normalizePermissionOverwrites(after.permissionOverwrites, referenceMapping);
+    if (permissionOverwrites.isErr()) return err(permissionOverwrites.error);
+    if (permissionOverwrites.value.length > 0) return err({ type: 'invalid-value', field: 'permissionOverwrites' });
 
     const position = normalizeChannelPosition(after.position);
     if (after.position !== undefined && after.position !== null && position === undefined) {
@@ -872,28 +688,12 @@ function normalizeStructureCreateInput(
         return err({ type: 'invalid-value', field: 'url' });
     }
 
-    if (mappedCreatedId) {
-        if (permissionOverwrites.length === 0) {
-            return ok({
-                botToken: input.botToken,
-                guildId: input.guildId,
-                actionType: 'noop',
-                createdId: mappedCreatedId,
-            });
-        }
-
-        return ok({
-            botToken: input.botToken,
-            guildId: input.guildId,
-            actionType: 'update',
-            targetType: input.targetType,
-            targetId: mappedCreatedId,
-            permissionOverwrites: {
-                before: [],
-                after: permissionOverwrites,
-            },
-        });
-    }
+    const parentId = normalizeOptionalStructureReference(
+        typeof after.parentId === 'string' ? after.parentId : null,
+        referenceMapping,
+        'parentId'
+    );
+    if (parentId.isErr()) return err(parentId.error);
 
     return ok({
         botToken: input.botToken,
@@ -904,8 +704,7 @@ function normalizeStructureCreateInput(
         name,
         channelType,
         ...(url !== undefined ? { url } : {}),
-        parentId: mapOptionalId(typeof after.parentId === 'string' ? after.parentId : null, input.idMap ?? {}),
-        permissionOverwrites,
+        parentId: parentId.value,
         ...(position !== undefined ? { position } : {}),
     });
 }
@@ -927,6 +726,22 @@ async function applyUpdate(
     input: Extract<NormalizedStructureActionInput, { actionType: 'update' }>,
     rateLimiter: StructureApplyRateLimiter
 ): Promise<Result<ApplyFluxerBotGuildStructureActionResult, ApplyFluxerBotGuildStructureActionError>> {
+    if (input.targetType === 'channel-order') {
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
+        const result = await createChannelPlatform(client).setPositions({
+            guildId: input.guildId,
+            positions: input.positions,
+        });
+        return result.isOk() ? ok({}) : err(result.error);
+    }
+    if (input.targetType === 'role-order') {
+        if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
+        const result = await createRolePlatform(client).setPositions({
+            guildId: input.guildId,
+            positions: input.positions,
+        });
+        return result.isOk() ? ok({}) : err(result.error);
+    }
     if (input.targetType === 'role') {
         if (!(await rateLimiter.waitBeforeMutation())) return err({ type: 'apply-lease-lost' });
         const result = await createRolePlatform(client).edit({
@@ -999,28 +814,6 @@ async function applyCreate(
 
     if (result.isErr()) return err(result.error);
 
-    if (input.permissionOverwrites.length > 0) {
-        const overwriteResult = await applyPermissionOverwrites(
-            channelPlatform,
-            result.value.id,
-            {
-                before: [],
-                after: input.permissionOverwrites,
-            },
-            rateLimiter
-        );
-
-        if (overwriteResult.isErr()) {
-            const retryAfterMs = readApplyRetryAfterMs(overwriteResult.error);
-            return err({
-                type: 'partial-create-failed',
-                createdId: result.value.id,
-                causeType: overwriteResult.error.type,
-                ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-            });
-        }
-    }
-
     return ok({ createdId: result.value.id });
 }
 
@@ -1040,7 +833,8 @@ async function applyDelete(
                   channelId: input.targetId,
               });
 
-    return result.isOk() ? ok({}) : err(result.error);
+    if (result.isOk() || result.error.type === 'not-found') return ok({});
+    return err(result.error);
 }
 
 function normalizeChannelType(value: unknown): 0 | 2 | 4 | 998 | undefined {
@@ -1080,7 +874,7 @@ function normalizeChannelPositionUpdate(
 function normalizeChannelParentUpdate(
     targetType: string,
     change: { field: string; before?: unknown; after: unknown } | undefined,
-    idMap: Record<string, string>
+    mapping: StructureReferenceMapping
 ): Result<string | null | undefined, ApplyFluxerBotGuildStructureActionError> {
     if (!change) return ok(undefined);
     if (targetType === 'category') {
@@ -1090,7 +884,7 @@ function normalizeChannelParentUpdate(
     if (change.after === null || change.after === undefined) return ok(null);
     if (typeof change.after !== 'string') return err({ type: 'invalid-value', field: 'parentId' });
 
-    return ok(mapOptionalId(change.after, idMap));
+    return normalizeOptionalStructureReference(change.after, mapping, 'parentId');
 }
 
 function normalizeRoleVisuals(
@@ -1114,37 +908,26 @@ function normalizeRoleVisuals(
     };
 }
 
-function createPermissionOverwriteMapping(
-    guildId: string,
-    idMap: Record<string, string>,
-    sourceGuildId?: string
-): { guildId: string; sourceGuildId?: string; idMap: Record<string, string> } {
-    return {
-        guildId,
-        idMap,
-        ...(sourceGuildId ? { sourceGuildId } : {}),
-    };
-}
-
 function normalizePermissionOverwriteReplacement(
     change: { field: string; before?: unknown; after: unknown } | undefined,
-    mapping: { guildId: string; sourceGuildId?: string; idMap: Record<string, string> }
-): PermissionOverwriteReplacement | undefined {
-    if (!change) return undefined;
+    mapping: StructureReferenceMapping
+): Result<PermissionOverwriteReplacement | undefined, ApplyFluxerBotGuildStructureActionError> {
+    if (!change) return ok(undefined);
 
-    const before = normalizePermissionOverwrites(change.before, createPermissionOverwriteMapping(mapping.guildId, {}));
+    const before = normalizePermissionOverwrites(change.before, mapping);
     const after = normalizePermissionOverwrites(change.after, mapping);
 
-    if (!before || !after) return undefined;
+    if (before.isErr()) return err(before.error);
+    if (after.isErr()) return err(after.error);
 
-    return { before, after };
+    return ok({ before: before.value, after: after.value });
 }
 
 function normalizePermissionOverwrites(
     value: unknown,
-    mapping: { guildId: string; sourceGuildId?: string; idMap: Record<string, string> }
-): PermissionOverwrite[] | undefined {
-    if (!Array.isArray(value)) return undefined;
+    mapping: StructureReferenceMapping
+): Result<PermissionOverwrite[], ApplyFluxerBotGuildStructureActionError> {
+    if (!Array.isArray(value)) return err({ type: 'invalid-value', field: 'permissionOverwrites' });
 
     const overwrites: PermissionOverwrite[] = [];
 
@@ -1157,18 +940,21 @@ function normalizePermissionOverwrites(
             typeof overwrite.allow !== 'string' ||
             typeof overwrite.deny !== 'string'
         ) {
-            return undefined;
+            return err({ type: 'invalid-value', field: 'permissionOverwrites' });
         }
 
+        const id = mapPermissionOverwriteId(overwrite.id.trim(), overwrite.type, mapping);
+        if (!id) return err({ type: 'structure-reference-mapping-missing', field: 'permissionOverwrites' });
+
         overwrites.push({
-            id: mapPermissionOverwriteId(overwrite.id.trim(), overwrite.type, mapping),
+            id,
             type: overwrite.type,
             allow: overwrite.allow,
             deny: overwrite.deny,
         });
     }
 
-    return overwrites;
+    return ok(overwrites);
 }
 
 async function applyPermissionOverwrites(
@@ -1189,7 +975,9 @@ async function applyPermissionOverwrites(
             overwriteId: before.id,
         });
 
-        if (deleteResult.isErr()) return err(deleteResult.error);
+        // DELETE is convergent: if the provider says the overwrite is already
+        // absent, this execution step has reached its intended state.
+        if (deleteResult.isErr() && deleteResult.error.type !== 'not-found') return err(deleteResult.error);
     }
 
     for (const after of replacement.after) {
@@ -1212,15 +1000,10 @@ async function applyPermissionOverwrites(
     return ok(undefined);
 }
 
-function mapPermissionOverwriteId(
-    id: string,
-    type: 0 | 1,
-    mapping: { guildId: string; sourceGuildId?: string; idMap: Record<string, string> }
-): string {
+function mapPermissionOverwriteId(id: string, type: 0 | 1, mapping: StructureReferenceMapping): string | undefined {
     if (type === 1) return id;
     if (mapping.sourceGuildId && id === mapping.sourceGuildId) return mapping.guildId;
-
-    return mapping.idMap[id] ?? id;
+    return resolveStructureReference(id, mapping);
 }
 
 function permissionOverwriteKey(overwrite: PermissionOverwrite): string {
@@ -1231,10 +1014,25 @@ function stablePermissionOverwriteKey(overwrite: PermissionOverwrite): string {
     return `${String(overwrite.type)}:${overwrite.id}:${overwrite.allow}:${overwrite.deny}`;
 }
 
-function mapOptionalId(value: string | null, idMap: Record<string, string>): string | null {
-    if (!value) return null;
+function countPermissionOverwriteMutations(replacement: PermissionOverwriteReplacement): number {
+    const beforeByKey = new Map(replacement.before.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
+    const afterByKey = new Map(replacement.after.map((overwrite) => [permissionOverwriteKey(overwrite), overwrite]));
+    const deletes = replacement.before.filter((overwrite) => !afterByKey.has(permissionOverwriteKey(overwrite))).length;
+    const upserts = replacement.after.filter((overwrite) => {
+        const before = beforeByKey.get(permissionOverwriteKey(overwrite));
+        return !before || stablePermissionOverwriteKey(before) !== stablePermissionOverwriteKey(overwrite);
+    }).length;
+    return deletes + upserts;
+}
 
-    return idMap[value] ?? value;
+function normalizeOptionalStructureReference(
+    value: string | null,
+    mapping: StructureReferenceMapping,
+    field: 'parentId'
+): Result<string | null, ApplyFluxerBotGuildStructureActionError> {
+    if (!value) return ok(null);
+    const mapped = resolveStructureReference(value, mapping);
+    return mapped ? ok(mapped) : err({ type: 'structure-reference-mapping-missing', field });
 }
 
 function createStructureApplyRateLimiter(
@@ -1257,21 +1055,75 @@ function createStructureApplyRateLimiter(
     };
 }
 
+function materializeStructureActionAuthority(
+    authority: StructureActionAuthoritySnapshot,
+    executionIdMap: Readonly<Record<string, string>>
+): StructureActionAuthoritySnapshot {
+    const materializeTargetId = (targetId: string) => executionIdMap[targetId] ?? targetId;
+    return {
+        idMap: Object.fromEntries(
+            Object.entries(authority.idMap).map(([sourceId, targetId]) => [sourceId, materializeTargetId(targetId)])
+        ),
+        knownTargetKinds: Object.fromEntries(
+            Object.entries(authority.knownTargetKinds).map(([targetId, kind]) => [materializeTargetId(targetId), kind])
+        ),
+    };
+}
+
+function toApplyReferenceValidationError(
+    failure: StructureActionReferenceValidationFailure
+): ApplyFluxerBotGuildStructureActionError {
+    if (failure.errorType === 'invalid-value') {
+        return {
+            type: failure.errorType,
+            actionId: failure.actionId,
+            field: `${failure.actionId}.${failure.field ?? 'references'}`,
+        };
+    }
+    if (failure.errorType === 'structure-reference-mapping-missing') {
+        return {
+            type: failure.errorType,
+            actionId: failure.actionId,
+            field:
+                failure.field === 'parentId' || failure.field === 'permissionOverwrites' ? failure.field : 'targetId',
+        };
+    }
+    if (failure.errorType === 'structure-reference-kind-mismatch') {
+        return {
+            type: failure.errorType,
+            actionId: failure.actionId,
+            field: failure.field === 'parentId' ? 'parentId' : 'targetId',
+        };
+    }
+    return { type: failure.errorType, actionId: failure.actionId };
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
 function isRateLimitedApplyError(error: ApplyFluxerBotGuildStructureActionError): boolean {
-    if (error.type !== 'operation-failed') return false;
+    return error.type === 'operation-failed' && readApplyErrorStatus(error.error) === 429;
+}
+
+function classifyApplyMutationFailure(error: ApplyFluxerBotGuildStructureActionError): 'not-applied' | 'unknown' {
+    if (error.type !== 'operation-failed') return 'not-applied';
+    const status = readApplyErrorStatus(error.error);
+    if (status === 408 || status === 499) return 'unknown';
+    return status !== undefined && status >= 400 && status < 500 ? 'not-applied' : 'unknown';
+}
+
+function readApplyErrorStatus(error: unknown): number | undefined {
     const visited = new Set<object>();
-    let current: unknown = error.error;
+    let current: unknown = error;
     while (typeof current === 'object' && current !== null && !visited.has(current)) {
         visited.add(current);
         const value = current as { cause?: unknown; status?: unknown; statusCode?: unknown };
-        if (value.status === 429 || value.statusCode === 429) return true;
+        const status = value.status ?? value.statusCode;
+        if (typeof status === 'number') return status;
         current = value.cause;
     }
-    return false;
+    return undefined;
 }
 
 function readApplyRetryAfterMs(error: ApplyFluxerBotGuildStructureActionError): number | undefined {

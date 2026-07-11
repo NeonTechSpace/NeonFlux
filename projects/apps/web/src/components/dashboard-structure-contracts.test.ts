@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
     formatDashboardStructureExecutionPhase,
     getDashboardStructureDeleteApprovalText,
-} from '../server/dashboard-structure-v2.js';
+} from '../server/dashboard-structure-contracts.js';
 
-describe('Server Blueprint v2 panel contracts', () => {
+describe('Server Blueprint panel contracts', () => {
     it('binds destructive confirmation to run, count, and delete manifest', () => {
         expect(getDashboardStructureDeleteApprovalText('run-7', 12, 'abcdef0123456789')).toBe(
             'DELETE run-7 12 abcdef012345'

@@ -319,9 +319,19 @@ function compareProjectedChannels(left: FluxerGuildChannel, right: FluxerGuildCh
 
 export function createFingerprintInput(
     policy: FluxerGuildStructurePolicy,
+    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>,
     sourceTargetMap: Record<string, string | null>,
     projectedSnapshot: FluxerGuildStructureSnapshot,
-    decisions: FluxerGuildStructureDecision[]
+    decisions: FluxerGuildStructureDecision[],
+    executionActions: FluxerGuildStructurePlannedAction[]
 ): FluxerGuildStructurePlanFingerprintInput {
-    return { version: 2, policy, sourceTargetMap, projectedSnapshot, decisions };
+    return {
+        version: 3,
+        policy,
+        knownTargetKinds,
+        sourceTargetMap,
+        projectedSnapshot,
+        decisions,
+        executionActions,
+    };
 }

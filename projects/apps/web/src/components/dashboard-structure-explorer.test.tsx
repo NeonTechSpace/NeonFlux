@@ -538,6 +538,7 @@ function createImportRun(overrides: Partial<DashboardStructureImportRun> = {}): 
             channels: 1,
         },
         actionCount: 1,
+        executionActionCount: 1,
         actions: [],
         policy: 'synchronize',
         decisionSummary: {

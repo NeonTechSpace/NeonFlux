@@ -1,5 +1,7 @@
-import { Client, type Guild, type GuildChannel, type Role } from '@fluxerjs/core';
+import type { Client, Guild, GuildChannel, Role } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
+
+import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
 
 const GUILD_CATEGORY_CHANNEL_TYPE = 4;
 
@@ -46,6 +48,7 @@ export type FluxerGuildStructure = {
 };
 
 export type ReadFluxerGuildStructureInput = {
+    botUserId?: string;
     client: Client;
     guildId: string;
 };
@@ -80,12 +83,13 @@ export async function readFluxerBotGuildStructure(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false });
+    const client = createFluxerGuildStructureRestClient(botToken);
 
     try {
-        await client.login(botToken);
+        const botUserId = await readAuthenticatedBotUserId(client);
 
         return await readFluxerGuildStructure({
+            botUserId,
             client,
             guildId: input.guildId,
         });
@@ -125,7 +129,8 @@ export async function readFluxerGuildStructure(
         input.client,
         guildResult.value,
         structureResult.value.roles,
-        structureResult.value.rawRoles
+        structureResult.value.rawRoles,
+        input.botUserId
     );
 
     if (botHighestRolePositionResult.isErr()) {
@@ -226,9 +231,10 @@ async function readBotHighestRolePosition(
     client: Client,
     guild: Guild,
     roles: Role[],
-    rawRoles?: unknown[]
+    rawRoles?: unknown[],
+    authenticatedBotUserId?: string
 ): Promise<Result<FluxerBotHighestRole | undefined, Extract<ReadFluxerGuildStructureError, { type: 'fetch-failed' }>>> {
-    const botUserId = readClientUserId(client);
+    const botUserId = authenticatedBotUserId ?? readClientUserId(client);
     const fetchMember = readGuildFetchMember(guild);
 
     if (!botUserId || !fetchMember) {
@@ -264,6 +270,14 @@ async function readBotHighestRolePosition(
     } catch (error) {
         return err({ type: 'fetch-failed', error });
     }
+}
+
+async function readAuthenticatedBotUserId(client: Client): Promise<string> {
+    const user = await client.rest.get<unknown>('/users/@me', { auth: true });
+    if (!isObject(user) || typeof user.id !== 'string' || !user.id.trim()) {
+        throw new Error('Invalid authenticated bot user response.');
+    }
+    return user.id.trim();
 }
 
 function readClientUserId(client: Client): string | undefined {

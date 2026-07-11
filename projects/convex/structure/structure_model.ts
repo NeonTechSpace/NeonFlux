@@ -160,7 +160,7 @@ export type StructureImportActionInput = {
 };
 
 export type StructureImportActionDocument = {
-    actionType: 'create' | 'update' | 'delete' | 'noop';
+    actionType: 'create' | 'update' | 'delete';
     createdAt: string;
     details: Record<string, unknown>;
     runId: GenericId<'structureImportRuns'>;
@@ -641,7 +641,7 @@ export function buildStructureImportRunDocument(
     if (!requestedSnapshotDigest.ok) return requestedSnapshotDigest;
     if (!policy) return { error: { field: 'policy', type: 'invalid-value' }, ok: false };
     if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
-    if (input.planVersion !== 2) return { error: { field: 'planVersion', type: 'invalid-value' }, ok: false };
+    if (input.planVersion !== 3) return { error: { field: 'planVersion', type: 'invalid-value' }, ok: false };
     if (!plan) return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
     if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
@@ -658,7 +658,7 @@ export function buildStructureImportRunDocument(
             deleteActionCount,
             ...(deleteSetDigest ? { deleteSetDigest } : {}),
             planDigest: planDigest.value,
-            planVersion: 2,
+            planVersion: 3,
             policy,
             plan,
             requestedSnapshotDigest: requestedSnapshotDigest.value,
@@ -964,6 +964,33 @@ export function resolveExpiredStructureImportControl(controlRequest: unknown): '
     return controlRequest === 'cancel' ? 'cancelled' : 'paused';
 }
 
+export function resolveStructureAttemptCompletionStatus(input: {
+    controlRequest: unknown;
+    executionStatus: string;
+    requestedStatus:
+        | 'running'
+        | 'pause_requested'
+        | 'waiting_rate_limit'
+        | 'partially_applied'
+        | 'failed_before_mutation'
+        | 'outcome_unknown';
+}):
+    | 'running'
+    | 'pause_requested'
+    | 'waiting_rate_limit'
+    | 'partially_applied'
+    | 'failed_before_mutation'
+    | 'outcome_unknown'
+    | 'paused'
+    | 'cancelled' {
+    const requestedTerminal =
+        input.requestedStatus === 'partially_applied' ||
+        input.requestedStatus === 'failed_before_mutation' ||
+        input.requestedStatus === 'outcome_unknown';
+    if (requestedTerminal || input.executionStatus !== 'pause_requested') return input.requestedStatus;
+    return input.controlRequest === 'cancel' ? 'cancelled' : 'paused';
+}
+
 export function validateStructureImportDecisionSequences(
     sequences: readonly number[],
     existingSequences: readonly number[] = [],
@@ -1103,7 +1130,7 @@ function normalizeImportRunStatus(value: string | null | undefined): StructureIm
 }
 
 function normalizeImportActionType(value: string): StructureImportActionDocument['actionType'] | undefined {
-    return value === 'create' || value === 'update' || value === 'delete' || value === 'noop' ? value : undefined;
+    return value === 'create' || value === 'update' || value === 'delete' ? value : undefined;
 }
 
 function normalizeImportTargetType(value: string): StructureImportActionDocument['targetType'] | undefined {
@@ -1181,18 +1208,312 @@ function readTargetChangeCounts(value: unknown): Record<string, number> {
     );
 }
 
-export function resolveStructureExecutionIdMap(plan: unknown): Record<string, string> {
-    const sourceTargetMap = normalizeRecord(normalizeRecord(plan)?.sourceTargetMap);
+export function resolveStructureExecutionReferenceAuthority(plan: unknown): {
+    idMap: Record<string, string>;
+    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
+} {
+    const planRecord = normalizeRecord(plan);
+    const sourceTargetMap = normalizeRecord(planRecord?.sourceTargetMap);
+    const knownTargetKinds = normalizeRecord(planRecord?.knownTargetKinds);
     if (!sourceTargetMap) throw new Error('structure-plan-source-target-map-invalid');
+    if (!knownTargetKinds) throw new Error('structure-plan-known-target-kinds-invalid');
 
     const resolved: Record<string, string> = {};
-    for (const [sourceId, targetId] of Object.entries(sourceTargetMap)) {
-        if (!sourceId.trim()) throw new Error('structure-plan-source-target-map-invalid');
-        if (targetId === null) continue;
-        if (typeof targetId !== 'string' || !targetId.trim()) {
+    const resolvedTargetIds = new Set<string>();
+    for (const [sourceIdValue, targetIdValue] of Object.entries(sourceTargetMap)) {
+        const sourceId = sourceIdValue.trim();
+        if (!sourceId || sourceId !== sourceIdValue) {
             throw new Error('structure-plan-source-target-map-invalid');
         }
-        resolved[sourceId] = targetId;
+        if (targetIdValue === null) continue;
+        if (typeof targetIdValue !== 'string' || !targetIdValue.trim() || targetIdValue !== targetIdValue.trim()) {
+            throw new Error('structure-plan-source-target-map-invalid');
+        }
+        if (resolvedTargetIds.has(targetIdValue)) throw new Error('structure-plan-source-target-map-invalid');
+        resolved[sourceId] = targetIdValue;
+        resolvedTargetIds.add(targetIdValue);
     }
-    return resolved;
+
+    const knownTargetIdSet = new Set(Object.keys(knownTargetKinds));
+    if (Object.values(resolved).some((targetId) => !knownTargetIdSet.has(targetId))) {
+        throw new Error('structure-plan-source-target-map-invalid');
+    }
+
+    const normalizedTargetKinds: Record<string, 'role' | 'category' | 'channel'> = {};
+    for (const [id, kind] of Object.entries(knownTargetKinds)) {
+        if (!id.trim() || id !== id.trim() || (kind !== 'role' && kind !== 'category' && kind !== 'channel')) {
+            throw new Error('structure-plan-known-target-kinds-invalid');
+        }
+        normalizedTargetKinds[id] = kind;
+    }
+    const targetIds = Object.keys(normalizedTargetKinds);
+    if (
+        !targetIds.every((id, index) => [...targetIds].sort((left, right) => left.localeCompare(right))[index] === id)
+    ) {
+        throw new Error('structure-plan-known-target-kinds-invalid');
+    }
+
+    return {
+        idMap: resolved,
+        knownTargetKinds: normalizedTargetKinds,
+    };
+}
+
+export function resolveStructureExecutionIdMap(plan: unknown): Record<string, string> {
+    return resolveStructureExecutionReferenceAuthority(plan).idMap;
+}
+
+export function validateStructureExecutionIdMapTransition(input: {
+    next: unknown;
+    plan: unknown;
+    previous: unknown;
+}): Record<string, string> {
+    const sourceTargetMap = normalizeRecord(normalizeRecord(input.plan)?.sourceTargetMap);
+    const previous = normalizeStructureExecutionIdMap(input.previous);
+    const next = normalizeStructureExecutionIdMap(input.next);
+    const initial = resolveStructureExecutionIdMap(input.plan);
+    if (!sourceTargetMap) throw new Error('structure-plan-source-target-map-invalid');
+
+    for (const sourceId of Object.keys(initial)) {
+        if (!Object.hasOwn(previous, sourceId) || !Object.hasOwn(next, sourceId)) {
+            throw new Error('structure-execution-id-map-conflict');
+        }
+    }
+    validateStructureExecutionIdMapEntries(previous, sourceTargetMap);
+    for (const [sourceId, targetId] of Object.entries(previous)) {
+        if (next[sourceId] !== targetId) throw new Error('structure-execution-id-map-regression');
+    }
+    validateStructureExecutionIdMapEntries(next, sourceTargetMap);
+
+    return next;
+}
+
+function validateStructureExecutionIdMapEntries(
+    idMap: Record<string, string>,
+    sourceTargetMap: Record<string, unknown>
+): void {
+    const targetIds = new Set<string>();
+    for (const [sourceId, targetId] of Object.entries(idMap)) {
+        if (!Object.hasOwn(sourceTargetMap, sourceId)) throw new Error('structure-execution-id-map-unknown-source');
+        if (targetIds.has(targetId)) throw new Error('structure-execution-id-map-conflict');
+        targetIds.add(targetId);
+    }
+}
+
+export function validateStructureExecutionCheckpointIdMap(input: {
+    next: unknown;
+    plan: unknown;
+    previous: unknown;
+}): Record<string, string> {
+    const previous = normalizeStructureExecutionIdMap(input.previous);
+    const next = validateStructureExecutionIdMapTransition(input);
+    if (stableJson(previous) !== stableJson(next)) throw new Error('structure-execution-id-map-checkpoint-change');
+    return next;
+}
+
+export function validateStructureExecutionAttemptIdMapTransition(input: {
+    action: { actionType: string; targetId?: string };
+    attemptState: string;
+    createdId?: string;
+    next: unknown;
+    plan: unknown;
+    previous: unknown;
+    resultState: 'applied' | 'failed' | 'unknown';
+}): Record<string, string> {
+    const previous = normalizeStructureExecutionIdMap(input.previous);
+    validateStructureExecutionIdMapTransition({ ...input, next: previous, previous });
+    const next = normalizeStructureExecutionIdMap(input.next);
+    if (
+        input.attemptState === 'started' &&
+        input.resultState === 'applied' &&
+        input.action.actionType === 'create' &&
+        typeof input.action.targetId === 'string' &&
+        input.action.targetId.length > 0 &&
+        typeof input.createdId === 'string' &&
+        input.createdId.length > 0
+    ) {
+        const sourceTargetMap = normalizeRecord(normalizeRecord(input.plan)?.sourceTargetMap);
+        const knownTargetKinds = resolveStructureExecutionReferenceAuthority(input.plan).knownTargetKinds;
+        const changedSources = new Set([...Object.keys(previous), ...Object.keys(next)]);
+        for (const sourceId of [...changedSources]) {
+            if (previous[sourceId] === next[sourceId]) changedSources.delete(sourceId);
+        }
+        const targetIds = Object.values(next);
+        if (
+            !sourceTargetMap ||
+            !Object.hasOwn(sourceTargetMap, input.action.targetId) ||
+            changedSources.size !== 1 ||
+            !changedSources.has(input.action.targetId) ||
+            next[input.action.targetId] !== input.createdId ||
+            previous[input.action.targetId] === input.createdId ||
+            Object.hasOwn(knownTargetKinds, input.createdId) ||
+            new Set(targetIds).size !== targetIds.length
+        ) {
+            throw new Error('structure-execution-create-id-map-invalid');
+        }
+        return next;
+    }
+    validateStructureExecutionIdMapTransition({ ...input, next, previous });
+    if (input.createdId !== undefined || stableJson(previous) !== stableJson(next)) {
+        throw new Error('structure-execution-id-map-attempt-change');
+    }
+    return next;
+}
+
+export function validateStructureExecutionProgressTransition(input: {
+    next: {
+        appliedActions: number;
+        completedMutationSteps: number;
+        failedActions: number;
+        nextActionSequence: number;
+        notStartedActions: number;
+        skippedActions: number;
+        totalMutationSteps: number;
+    };
+    previous: {
+        appliedActions: number;
+        completedMutationSteps: number;
+        failedActions: number;
+        nextActionSequence: number;
+        skippedActions: number;
+        totalActions: number;
+        totalMutationSteps: number;
+    };
+}): void {
+    const { next, previous } = input;
+    if (
+        [
+            next.appliedActions,
+            next.completedMutationSteps,
+            next.failedActions,
+            next.nextActionSequence,
+            next.notStartedActions,
+            next.skippedActions,
+            next.totalMutationSteps,
+        ].some((value) => !Number.isInteger(value) || value < 0) ||
+        next.nextActionSequence > previous.totalActions ||
+        next.completedMutationSteps > next.totalMutationSteps ||
+        next.totalMutationSteps !== previous.totalMutationSteps ||
+        previous.totalMutationSteps !== previous.totalActions ||
+        next.completedMutationSteps !== next.appliedActions ||
+        next.appliedActions + next.failedActions + next.skippedActions !== next.nextActionSequence ||
+        next.notStartedActions !== previous.totalActions - next.nextActionSequence
+    ) {
+        throw new Error('structure-execution-progress-invalid');
+    }
+    if (
+        next.appliedActions < previous.appliedActions ||
+        next.completedMutationSteps < previous.completedMutationSteps ||
+        next.failedActions < previous.failedActions ||
+        next.nextActionSequence < previous.nextActionSequence ||
+        next.skippedActions < previous.skippedActions
+    ) {
+        throw new Error('structure-execution-progress-regression');
+    }
+}
+
+export function validateStructureExecutionActionLedger(
+    plan: unknown,
+    actions: ReadonlyArray<{
+        actionType: string;
+        details: unknown;
+        sequence: number;
+        targetId?: string;
+        targetType: string;
+    }>
+): { deleteActionCount: number; deleteSetKeys: string[] } {
+    const planRecord = normalizeRecord(plan);
+    const fingerprintInput = normalizeRecord(planRecord?.fingerprintInput);
+    const reviewedActions = planRecord?.executionActions;
+    const fingerprintActions = fingerprintInput?.executionActions;
+    if (!Array.isArray(reviewedActions) || !Array.isArray(fingerprintActions)) {
+        throw new Error('structure-execution-action-ledger-invalid');
+    }
+    if (stableJson(reviewedActions) !== stableJson(fingerprintActions) || reviewedActions.length !== actions.length) {
+        throw new Error('structure-execution-action-ledger-invalid');
+    }
+    const deleteSetKeys: string[] = [];
+    for (const [sequence, reviewedValue] of reviewedActions.entries()) {
+        const reviewed = normalizeRecord(reviewedValue);
+        const action = actions[sequence];
+        const reviewedDetails = normalizeRecord(reviewed?.details);
+        const execution = normalizeRecord(reviewedDetails?.execution);
+        if (
+            !reviewed ||
+            !reviewedDetails ||
+            !execution ||
+            action?.sequence !== sequence ||
+            (reviewed.actionType !== 'create' &&
+                reviewed.actionType !== 'update' &&
+                reviewed.actionType !== 'delete') ||
+            typeof reviewed.targetType !== 'string' ||
+            typeof reviewed.targetId !== 'string' ||
+            typeof reviewed.label !== 'string' ||
+            reviewedDetails.label !== reviewed.label ||
+            reviewedDetails.mutationSteps !== 1 ||
+            typeof execution.groupId !== 'string' ||
+            !execution.groupId ||
+            typeof execution.operation !== 'string' ||
+            !execution.operation ||
+            !Number.isInteger(execution.step) ||
+            !Number.isInteger(execution.stepCount) ||
+            (execution.step as number) < 1 ||
+            (execution.stepCount as number) < (execution.step as number) ||
+            stableJson({
+                actionType: reviewed.actionType,
+                details: reviewedDetails,
+                targetId: reviewed.targetId,
+                targetType: reviewed.targetType,
+            }) !==
+                stableJson({
+                    actionType: action.actionType,
+                    details: action.details,
+                    targetId: action.targetId,
+                    targetType: action.targetType,
+                })
+        ) {
+            throw new Error('structure-execution-action-ledger-invalid');
+        }
+        if (reviewed.actionType === 'delete') {
+            deleteSetKeys.push(`${reviewed.targetType}:${reviewed.targetId}`);
+        }
+    }
+    return { deleteActionCount: deleteSetKeys.length, deleteSetKeys: deleteSetKeys.sort() };
+}
+
+function stableJson(value: unknown): string {
+    return JSON.stringify(canonicalJsonValue(value));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalJsonValue);
+    const record = normalizeRecord(value);
+    if (!record) return value;
+    return Object.fromEntries(
+        Object.entries(record)
+            .filter(([, item]) => item !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, item]) => [key, canonicalJsonValue(item)])
+    );
+}
+
+function normalizeStructureExecutionIdMap(value: unknown): Record<string, string> {
+    const record = normalizeRecord(value);
+    if (!record) throw new Error('structure-execution-id-map-invalid');
+
+    const normalized: Record<string, string> = {};
+    for (const [sourceIdValue, targetIdValue] of Object.entries(record)) {
+        const sourceId = sourceIdValue.trim();
+        if (
+            !sourceId ||
+            sourceId !== sourceIdValue ||
+            typeof targetIdValue !== 'string' ||
+            !targetIdValue.trim() ||
+            targetIdValue !== targetIdValue.trim()
+        ) {
+            throw new Error('structure-execution-id-map-invalid');
+        }
+        normalized[sourceId] = targetIdValue;
+    }
+    return normalized;
 }

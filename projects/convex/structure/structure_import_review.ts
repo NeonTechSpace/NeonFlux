@@ -4,7 +4,10 @@ import { mutation, query, type MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { structureExecutionLiveAreas } from '../core/dashboard_live_model.js';
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { auditInputValidator, recordStructureAuditInMutation } from './structure.js';
+import { assertStructureExecutionRunLedger } from './structure_import_execution_ledger.js';
+import { assertCurrentStructureExecutionProtocol } from './structure_import_execution_protocol.js';
 import {
     isStructureImportDecisionLedgerComplete,
     resolveStructureExecutionIdMap,
@@ -291,6 +294,7 @@ export const enqueueStructureImportExecution = mutation({
         audit: v.optional(auditInputValidator),
         now: v.string(),
         preflightDigest: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
         runId: v.id('structureImportRuns'),
     },
     returns: v.any(),
@@ -321,21 +325,18 @@ export const enqueueStructureImportExecution = mutation({
         ) {
             throw new Error('structure-execution-review-stale');
         }
-        if (await findActiveGuildExecution(ctx, run.guildId)) throw new Error('structure-guild-execution-active');
+        const activeExecution = await findActiveGuildExecution(ctx, run.guildId);
+        if (activeExecution) {
+            assertCurrentStructureExecutionProtocol(activeExecution);
+            throw new Error('structure-guild-execution-active');
+        }
         const plannedActions = await ctx.db
             .query('structureImportActions')
             .withIndex('by_run_sequence', (q) => q.eq('runId', args.runId))
             .collect();
+        await assertStructureExecutionRunLedger(run, plannedActions);
         const totalActions = plannedActions.length;
-        const totalMutationSteps = plannedActions.reduce((total, action) => {
-            const declared = objectValue(action.details)?.mutationSteps;
-            return (
-                total +
-                (typeof declared === 'number' && Number.isInteger(declared) && declared >= 0
-                    ? declared
-                    : estimateActionMutationSteps(action))
-            );
-        }, 0);
+        const totalMutationSteps = totalActions;
         const document = {
             appliedActions: 0,
             completedMutationSteps: 0,
@@ -347,6 +348,7 @@ export const enqueueStructureImportExecution = mutation({
             notStartedActions: totalActions,
             phase: 'queued' as const,
             preflightDigest: preflight.preflightDigest,
+            protocolVersion: args.protocolVersion,
             runId: args.runId,
             status: 'queued' as const,
             skippedActions: 0,
@@ -377,57 +379,6 @@ async function latestPreflight(ctx: MutationCtx, runId: GenericId<'structureImpo
         .withIndex('by_run_checked', (q) => q.eq('runId', runId))
         .order('desc')
         .first();
-}
-
-function estimateActionMutationSteps(action: { actionType: string; details: unknown; targetType: string }): number {
-    if (action.actionType === 'noop') return 0;
-    if (action.targetType === 'channel-order' || action.targetType === 'role-order') return 1;
-    if (action.actionType === 'create') {
-        const after = objectValue(action.details)?.after;
-        const overwrites = objectValue(after)?.permissionOverwrites;
-        return 1 + (Array.isArray(overwrites) ? overwrites.length : 0);
-    }
-    if (action.actionType !== 'update' || action.targetType === 'role') return 1;
-    const changes = objectValue(action.details)?.changes;
-    if (!Array.isArray(changes)) return 1;
-    let steps = changes.some((change) => {
-        const field = objectValue(change)?.field;
-        return field === 'name' || field === 'parentId' || field === 'position';
-    })
-        ? 1
-        : 0;
-    const overwriteChange = changes.map(objectValue).find((change) => change?.field === 'permissionOverwrites');
-    const before = Array.isArray(overwriteChange?.before)
-        ? overwriteChange.before
-              .map(objectValue)
-              .filter((overwrite): overwrite is Record<string, unknown> => overwrite !== undefined)
-        : [];
-    const after = Array.isArray(overwriteChange?.after)
-        ? overwriteChange.after
-              .map(objectValue)
-              .filter((overwrite): overwrite is Record<string, unknown> => overwrite !== undefined)
-        : [];
-    const afterIds = new Set(
-        after.map((overwrite) => overwrite.id).filter((id): id is string => typeof id === 'string')
-    );
-    steps += before.filter((overwrite) => typeof overwrite.id === 'string' && !afterIds.has(overwrite.id)).length;
-    steps += after.filter((overwrite) => {
-        if (typeof overwrite.id !== 'string') return false;
-        const previous = before.find((candidate) => candidate.id === overwrite.id);
-        return (
-            !previous ||
-            previous.allow !== overwrite.allow ||
-            previous.deny !== overwrite.deny ||
-            previous.type !== overwrite.type
-        );
-    }).length;
-    return steps;
-}
-
-function objectValue(value: unknown): Record<string, unknown> | undefined {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : undefined;
 }
 
 async function findActiveGuildExecution(ctx: MutationCtx, guildId: string) {

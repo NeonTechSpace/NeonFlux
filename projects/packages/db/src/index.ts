@@ -89,6 +89,7 @@ export type {
     StructureImportActionAttemptRecord,
     StructureImportApprovalRecord,
     StructureImportExecutionClaimRecord,
+    StructureImportExecutionProtocolMismatchRecord,
     StructureImportExecutionRecord,
     StructureImportExecutionPhase,
     StructureImportExecutionStatus,
@@ -239,7 +240,6 @@ export {
     approveStructureImportPlan,
     checkpointStructureImportExecution,
     claimNextStructureImportExecution,
-    completeStructureImportActionAttempt,
     completeAndCheckpointStructureImportActionAttempt,
     enqueueStructureImportExecution,
     ensureStructureImportRestorePoint,
@@ -247,6 +247,7 @@ export {
     findLatestStructureImportApproval,
     findLatestStructureImportExecution,
     findLatestStructureImportPreflight,
+    prepareStructureImportActionAttempt,
     recordStructureImportPreflight,
     recordStructureImportDecisionsBatch,
     listStructureImportDecisionsPage,
@@ -256,5 +257,10 @@ export {
     transitionStructureImportPlanState,
 } from './runtime-structure-execution.js';
 export type { StructureAuditInput } from './runtime-structure-execution.js';
+export {
+    assertConvexRuntimeContract,
+    ConvexRuntimeContractError,
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+} from './runtime-contract.js';
 export { createRuntimeDb, isConvexRuntimeDb, readConvexServiceRuntimeConfig } from './service.js';
 export type { RuntimeDbClient } from './service.js';

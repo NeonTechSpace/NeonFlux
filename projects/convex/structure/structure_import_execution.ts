@@ -4,13 +4,27 @@ import { mutation, type MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { structureExecutionLiveAreas } from '../core/dashboard_live_model.js';
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { recordStructureAuditInMutation } from './structure.js';
-import { structureImportTerminalNotification } from './structure_import_terminal.js';
+import {
+    buildStructureImportExecutionPausedPatch,
+    finalizeStructureImportExecutionInMutation,
+    resolveStructureImportExecutionFinalizationStatus,
+} from './structure_import_execution_terminal_mutation.js';
+import { assertStructureExecutionRunLedger } from './structure_import_execution_ledger.js';
+import {
+    assertCurrentStructureExecutionProtocol,
+    findCurrentQueuedOrWaitingStructureExecution,
+    findRunnableStructureExecutionProtocolMismatch,
+    listCurrentStructureExecutionReclaimCandidates,
+} from './structure_import_execution_protocol.js';
 import {
     buildBackupSortCursor,
     buildStructureBackupDocument,
     classifyStructureImportExecutionReclaim,
     resolveExpiredStructureImportControl,
+    validateStructureExecutionCheckpointIdMap,
+    validateStructureExecutionProgressTransition,
 } from './structure_model.js';
 
 const terminalStatuses = [
@@ -23,74 +37,22 @@ const terminalStatuses = [
 ] as const;
 
 export const claimNextStructureImportExecution = mutation({
-    args: { leaseExpiresAt: v.string(), leaseId: v.string(), leaseOwner: v.string(), now: v.string() },
+    args: {
+        leaseExpiresAt: v.string(),
+        leaseId: v.string(),
+        leaseOwner: v.string(),
+        now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
+    },
     returns: v.any(),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
-        const queued = await ctx.db
-            .query('structureImportExecutions')
-            .withIndex('by_status_retry', (q) => q.eq('status', 'queued'))
-            .first();
-        const waiting = queued
-            ? null
-            : await ctx.db
-                  .query('structureImportExecutions')
-                  .withIndex('by_status_retry', (q) => q.eq('status', 'waiting_rate_limit').lte('retryAt', args.now))
-                  .first();
-        let execution = queued ?? waiting;
+        let execution = await findCurrentQueuedOrWaitingStructureExecution(ctx, args.now);
         if (!execution) {
             for (const status of ['running', 'pause_requested', 'verifying'] as const) {
-                const candidates = await ctx.db
-                    .query('structureImportExecutions')
-                    .withIndex('by_status_retry', (q) => q.eq('status', status))
-                    .collect();
+                const candidates = await listCurrentStructureExecutionReclaimCandidates(ctx, status);
                 for (const candidate of candidates) {
-                    if (
-                        candidate.status === 'pause_requested' &&
-                        candidate.leaseExpiresAt &&
-                        candidate.leaseExpiresAt <= args.now
-                    ) {
-                        const cancelled =
-                            resolveExpiredStructureImportControl(candidate.controlRequest) === 'cancelled';
-                        const controlPatch = cancelled
-                            ? {
-                                  completedAt: args.now,
-                                  controlRequest: undefined,
-                                  leaseExpiresAt: undefined,
-                                  leaseId: undefined,
-                                  leaseOwner: undefined,
-                                  phase: 'complete' as const,
-                                  status: 'cancelled' as const,
-                                  updatedAt: args.now,
-                              }
-                            : {
-                                  controlRequest: undefined,
-                                  leaseExpiresAt: undefined,
-                                  leaseId: undefined,
-                                  leaseOwner: undefined,
-                                  phase: 'paused' as const,
-                                  status: 'paused' as const,
-                                  updatedAt: args.now,
-                              };
-                        await ctx.db.patch('structureImportExecutions', candidate._id, controlPatch);
-                        await markDashboardLiveAreasChangedInMutation(ctx, {
-                            areas: structureExecutionLiveAreas,
-                            guildId: candidate.guildId,
-                            now: args.now,
-                        });
-                        await recordStructureAuditInMutation(
-                            ctx,
-                            candidate.guildId,
-                            {
-                                action: cancelled
-                                    ? 'structure.import_execution_cancelled'
-                                    : 'structure.import_execution_paused',
-                            },
-                            args.now,
-                            String(candidate._id)
-                        );
-                        continue;
-                    }
+                    assertCurrentStructureExecutionProtocol(candidate);
                     const startedAttempt = await ctx.db
                         .query('structureImportActionAttempts')
                         .withIndex('by_execution_state', (q) =>
@@ -104,16 +66,35 @@ export const claimNextStructureImportExecution = mutation({
                     });
                     if (reclaim === 'active') continue;
                     if (reclaim === 'outcome_unknown') {
-                        await ctx.db.patch('structureImportExecutions', candidate._id, {
-                            completedAt: args.now,
+                        await finalizeStructureImportExecutionInMutation(ctx, {
+                            execution: candidate,
                             errorType: 'expired-lease-with-started-attempt',
+                            now: args.now,
+                            status: 'outcome_unknown',
+                        });
+                        continue;
+                    }
+                    if (candidate.status === 'pause_requested') {
+                        const cancelled =
+                            resolveExpiredStructureImportControl(candidate.controlRequest) === 'cancelled';
+                        if (cancelled) {
+                            await finalizeStructureImportExecutionInMutation(ctx, {
+                                execution: candidate,
+                                now: args.now,
+                                status: 'cancelled',
+                            });
+                            continue;
+                        }
+                        const controlPatch = {
+                            controlRequest: undefined,
                             leaseExpiresAt: undefined,
                             leaseId: undefined,
                             leaseOwner: undefined,
-                            phase: 'complete',
-                            status: 'outcome_unknown',
+                            phase: 'paused' as const,
+                            status: 'paused' as const,
                             updatedAt: args.now,
-                        });
+                        };
+                        await ctx.db.patch('structureImportExecutions', candidate._id, controlPatch);
                         await markDashboardLiveAreasChangedInMutation(ctx, {
                             areas: structureExecutionLiveAreas,
                             guildId: candidate.guildId,
@@ -122,7 +103,7 @@ export const claimNextStructureImportExecution = mutation({
                         await recordStructureAuditInMutation(
                             ctx,
                             candidate.guildId,
-                            { action: 'structure.import_execution_outcome_unknown' },
+                            { action: 'structure.import_execution_paused' },
                             args.now,
                             String(candidate._id)
                         );
@@ -134,14 +115,28 @@ export const claimNextStructureImportExecution = mutation({
                 if (execution) break;
             }
         }
-        if (!execution) return null;
+        if (!execution) return findRunnableStructureExecutionProtocolMismatch(ctx, args.now);
+        assertCurrentStructureExecutionProtocol(execution);
+        const run = await ctx.db.get('structureImportRuns', execution.runId);
+        if (!run) throw new Error('structure-run-not-found');
+        const actions = await ctx.db
+            .query('structureImportActions')
+            .withIndex('by_run_sequence', (q) => q.eq('runId', execution.runId))
+            .order('asc')
+            .collect();
+        await assertStructureExecutionRunLedger(run, actions);
+        if (execution.totalActions !== actions.length || execution.totalMutationSteps !== actions.length) {
+            throw new Error('structure-execution-action-count-invalid');
+        }
         const patch = {
+            errorType: undefined,
             heartbeatAt: args.now,
             leaseExpiresAt: args.leaseExpiresAt,
             leaseId: args.leaseId,
             leaseOwner: args.leaseOwner,
             controlRequest: undefined,
             phase: 'preparing' as const,
+            retryAt: undefined,
             startedAt: execution.startedAt ?? args.now,
             status: 'running' as const,
             updatedAt: args.now,
@@ -152,17 +147,17 @@ export const claimNextStructureImportExecution = mutation({
             guildId: execution.guildId,
             now: args.now,
         });
-        const run = await ctx.db.get('structureImportRuns', execution.runId);
-        const actions = await ctx.db
-            .query('structureImportActions')
-            .withIndex('by_run_sequence', (q) => q.eq('runId', execution.runId))
-            .order('asc')
-            .collect();
         const attempts = await ctx.db
             .query('structureImportActionAttempts')
             .withIndex('by_execution_state', (q) => q.eq('executionId', execution._id))
             .collect();
-        return { execution: { ...execution, ...patch, id: execution._id }, run, actions, attempts };
+        return {
+            kind: 'claimed' as const,
+            execution: { ...execution, ...patch, id: execution._id },
+            run,
+            actions,
+            attempts,
+        };
     },
 });
 
@@ -173,11 +168,13 @@ export const renewStructureImportExecutionLease = mutation({
         leaseId: v.string(),
         leaseOwner: v.string(),
         now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
     },
     returns: v.any(),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const execution = await ctx.db.get('structureImportExecutions', args.executionId);
+        if (execution) assertCurrentStructureExecutionProtocol(execution);
         if (
             execution?.leaseId !== args.leaseId ||
             execution.leaseOwner !== args.leaseOwner ||
@@ -202,6 +199,7 @@ export const ensureStructureImportRestorePoint = mutation({
         leaseId: v.string(),
         leaseOwner: v.string(),
         now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
         structureJson: v.string(),
     },
     returns: v.object({ backupId: v.string() }),
@@ -236,6 +234,7 @@ export const requestStructureImportExecutionControl = mutation({
     args: {
         executionId: v.id('structureImportExecutions'),
         now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
         request: v.union(v.literal('pause'), v.literal('resume'), v.literal('cancel')),
     },
     returns: v.any(),
@@ -243,6 +242,7 @@ export const requestStructureImportExecutionControl = mutation({
         await requireNeonFluxService(ctx, ['web']);
         const execution = await ctx.db.get('structureImportExecutions', args.executionId);
         if (!execution) return null;
+        assertCurrentStructureExecutionProtocol(execution);
         if (terminalStatuses.includes(execution.status as never)) return { ...execution, id: execution._id };
         let status: 'queued' | 'pause_requested' | 'paused' | 'cancelled';
         let controlRequest: 'pause' | 'cancel' | undefined;
@@ -259,17 +259,16 @@ export const requestStructureImportExecutionControl = mutation({
         } else {
             throw new Error('structure-execution-control-invalid');
         }
+        if (status === 'cancelled') {
+            const patch = await finalizeStructureImportExecutionInMutation(ctx, {
+                execution,
+                now: args.now,
+                status,
+            });
+            return { ...execution, ...patch, id: execution._id };
+        }
         const patch = {
             ...(controlRequest ? { controlRequest } : { controlRequest: undefined }),
-            ...(status === 'cancelled'
-                ? {
-                      completedAt: args.now,
-                      leaseExpiresAt: undefined,
-                      leaseId: undefined,
-                      leaseOwner: undefined,
-                      phase: 'complete' as const,
-                  }
-                : {}),
             status,
             updatedAt: args.now,
         };
@@ -292,14 +291,6 @@ export const requestStructureImportExecutionControl = mutation({
                 ctx,
                 execution.guildId,
                 { action: 'structure.import_execution_resumed' },
-                args.now,
-                String(execution._id)
-            );
-        if (status === 'cancelled')
-            await recordStructureAuditInMutation(
-                ctx,
-                execution.guildId,
-                { action: 'structure.import_execution_cancelled' },
                 args.now,
                 String(execution._id)
             );
@@ -337,6 +328,7 @@ export const checkpointStructureImportExecution = mutation({
             v.literal('complete')
         ),
         retryAt: v.optional(v.string()),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
         restorePointBackupId: v.optional(v.string()),
         status: v.union(
             v.literal('running'),
@@ -356,25 +348,10 @@ export const checkpointStructureImportExecution = mutation({
             'pause_requested',
             'verifying',
         ]);
-        if (
-            args.nextActionSequence < execution.nextActionSequence ||
-            args.nextActionSequence > execution.totalActions
-        ) {
-            throw new Error('structure-execution-cursor-invalid');
-        }
-        if (
-            [args.appliedActions, args.failedActions, args.skippedActions, args.completedMutationSteps].some(
-                (value) => !Number.isInteger(value) || value < 0
-            )
-        ) {
-            throw new Error('structure-execution-progress-invalid');
-        }
-        if (
-            args.completedMutationSteps > args.totalMutationSteps ||
-            args.totalMutationSteps !== execution.totalMutationSteps
-        ) {
-            throw new Error('structure-execution-mutation-progress-invalid');
-        }
+        validateStructureExecutionProgressTransition({
+            next: args,
+            previous: execution,
+        });
         if (
             execution.restorePointBackupId &&
             args.restorePointBackupId &&
@@ -387,6 +364,13 @@ export const checkpointStructureImportExecution = mutation({
         }
         if (execution.status === 'verifying' && args.status !== 'verifying')
             throw new Error('structure-execution-verification-fence');
+        const run = await ctx.db.get('structureImportRuns', execution.runId);
+        if (!run) throw new Error('structure-run-not-found');
+        const idMap = validateStructureExecutionCheckpointIdMap({
+            next: parseJsonRecord(args.idMapJson, 'structure-execution-id-map-invalid'),
+            plan: run.plan,
+            previous: execution.idMap,
+        });
         const patch = {
             appliedActions: args.appliedActions,
             completedMutationSteps: args.completedMutationSteps,
@@ -395,7 +379,7 @@ export const checkpointStructureImportExecution = mutation({
             ...(args.currentActionLabel ? { currentActionLabel: args.currentActionLabel } : {}),
             ...(args.errorType ? { errorType: args.errorType } : {}),
             failedActions: args.failedActions,
-            idMap: parseJsonRecord(args.idMapJson, 'structure-execution-id-map-invalid'),
+            idMap,
             nextActionSequence: args.nextActionSequence,
             notStartedActions: args.notStartedActions,
             phase: args.phase,
@@ -430,6 +414,7 @@ export const finalizeStructureImportExecution = mutation({
         leaseId: v.string(),
         leaseOwner: v.string(),
         now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
         restorePointBackupId: v.optional(v.string()),
         status: v.union(
             v.literal('succeeded'),
@@ -450,17 +435,36 @@ export const finalizeStructureImportExecution = mutation({
             'pause_requested',
             'verifying',
         ]);
-        const patch = {
-            completedAt: args.now,
+        const resolvedStatus = resolveStructureImportExecutionFinalizationStatus({
+            ...(execution.controlRequest ? { controlRequest: execution.controlRequest } : {}),
+            executionStatus: execution.status,
+            requestedStatus: args.status,
+        });
+        if (resolvedStatus === 'paused') {
+            const patch = buildStructureImportExecutionPausedPatch(args.now);
+            await ctx.db.patch('structureImportExecutions', execution._id, patch);
+            await markDashboardLiveAreasChangedInMutation(ctx, {
+                areas: structureExecutionLiveAreas,
+                guildId: execution.guildId,
+                now: args.now,
+            });
+            await recordStructureAuditInMutation(
+                ctx,
+                execution.guildId,
+                { action: 'structure.import_execution_paused' },
+                args.now,
+                String(execution._id)
+            );
+            return { ...execution, ...patch, id: execution._id };
+        }
+        const preservesVerificationResult = resolvedStatus === 'succeeded' || resolvedStatus === 'needs_reconciliation';
+        const patch = await finalizeStructureImportExecutionInMutation(ctx, {
+            execution,
+            now: args.now,
+            status: resolvedStatus,
             ...(args.errorType ? { errorType: args.errorType } : {}),
             ...(args.restorePointBackupId ? { restorePointBackupId: args.restorePointBackupId } : {}),
-            status: args.status,
-            leaseExpiresAt: undefined,
-            leaseId: undefined,
-            leaseOwner: undefined,
-            phase: 'complete' as const,
-            updatedAt: args.now,
-            ...(args.verificationResultJson
+            ...(preservesVerificationResult && args.verificationResultJson
                 ? {
                       verificationResult: parseJsonRecord(
                           args.verificationResultJson,
@@ -468,30 +472,10 @@ export const finalizeStructureImportExecution = mutation({
                       ),
                   }
                 : {}),
-            ...(args.verificationStatus ? { verificationStatus: args.verificationStatus } : {}),
-        };
-        await ctx.db.patch('structureImportExecutions', execution._id, patch);
-        await markDashboardLiveAreasChangedInMutation(ctx, {
-            areas: structureExecutionLiveAreas,
-            guildId: execution.guildId,
-            now: args.now,
+            ...(preservesVerificationResult && args.verificationStatus
+                ? { verificationStatus: args.verificationStatus }
+                : {}),
         });
-        const notification = structureImportTerminalNotification(args.status);
-        if (notification.canonicalDestination === 'structure') {
-            await markDashboardLiveAreasChangedInMutation(ctx, {
-                areas: ['structure'],
-                guildId: execution.guildId,
-                now: args.now,
-            });
-        } else {
-            await recordStructureAuditInMutation(
-                ctx,
-                execution.guildId,
-                { action: notification.auditAction },
-                args.now,
-                String(execution._id)
-            );
-        }
         return { ...execution, ...patch, id: execution._id };
     },
 });
@@ -505,6 +489,7 @@ export async function requireExecutionLease(
     allowedStatuses: readonly string[]
 ) {
     const execution = await ctx.db.get('structureImportExecutions', executionId);
+    if (execution) assertCurrentStructureExecutionProtocol(execution);
     if (
         execution?.leaseId !== leaseId ||
         execution.leaseOwner !== leaseOwner ||

@@ -6,6 +6,7 @@ import {
     type ConvexServiceDbClient,
     type ConvexServiceRuntimeConfig,
 } from './convex.js';
+import { assertConvexRuntimeContract } from './runtime-contract.js';
 
 export type RuntimeDbClient = ConvexServiceDbClient;
 
@@ -15,7 +16,17 @@ export async function createRuntimeDb(
 ): Promise<RuntimeDbClient> {
     const serviceConfig = readConvexServiceRuntimeConfig(config.convex, options.serviceName);
 
-    if (serviceConfig) return createConvexServiceDb(serviceConfig, { serviceName: options.serviceName });
+    if (serviceConfig) {
+        const client = await createConvexServiceDb(serviceConfig, { serviceName: options.serviceName });
+
+        try {
+            await assertConvexRuntimeContract(client);
+            return client;
+        } catch (error) {
+            await client.close();
+            throw error;
+        }
+    }
 
     throw new Error('Complete Convex config is required');
 }

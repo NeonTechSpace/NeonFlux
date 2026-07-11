@@ -13,7 +13,10 @@ import {
     getDashboardStructureExecutionProgressBaseQueryKey,
     getDashboardStructureSettingsQueryKey,
 } from '../dashboard-query-keys.js';
+import { createDashboardRequestDeadline } from '../dashboard-request-deadline.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
+
+const dashboardConvexTokenTimeoutMs = 8_000;
 
 type DashboardLiveState = {
     area: DashboardLiveArea;
@@ -77,7 +80,7 @@ export function useDashboardLiveInvalidation({
         const knownSignals = new Map<DashboardLiveArea, string>();
         let hasBaseline = false;
 
-        client.setAuth(fetchDashboardConvexToken);
+        client.setAuth(() => fetchDashboardConvexToken());
         const watch = client.watchQuery(api.dashboard_live.listDashboardLiveStates, {
             areas: [...visibleAreas],
             guildId,
@@ -139,18 +142,25 @@ function createDashboardLiveClient(url: string): DashboardLiveClient {
     });
 }
 
-export async function fetchDashboardConvexToken(): Promise<string | null> {
-    const response = await fetch('/auth/convex/token', {
-        cache: 'no-store',
-        credentials: 'same-origin',
-    });
+export async function fetchDashboardConvexToken(signal?: AbortSignal): Promise<string | null> {
+    const deadline = createDashboardRequestDeadline(signal, dashboardConvexTokenTimeoutMs);
 
-    if (!response.ok) {
-        return null;
+    try {
+        const response = await fetch('/auth/convex/token', {
+            cache: 'no-store',
+            credentials: 'same-origin',
+            signal: deadline.signal,
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const body = (await response.json()) as { token?: unknown };
+        return typeof body.token === 'string' && body.token.length > 0 ? body.token : null;
+    } finally {
+        deadline.dispose();
     }
-
-    const body = (await response.json()) as { token?: unknown };
-    return typeof body.token === 'string' && body.token.length > 0 ? body.token : null;
 }
 
 export function readDashboardConvexUrl(): string | undefined {

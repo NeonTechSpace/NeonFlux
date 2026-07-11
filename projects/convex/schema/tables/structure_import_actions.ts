@@ -4,7 +4,7 @@ import { v } from 'convex/values';
 import { jsonValue, optionalString, timestamp } from '../shared.js';
 
 export const structureImportActionsTable = defineTable({
-    actionType: v.union(v.literal('create'), v.literal('update'), v.literal('delete'), v.literal('noop')),
+    actionType: v.union(v.literal('create'), v.literal('update'), v.literal('delete')),
     createdAt: timestamp,
     details: jsonValue,
     runId: v.id('structureImportRuns'),

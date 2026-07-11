@@ -15,6 +15,7 @@ export function toExecution(input: unknown): StructureImportExecutionRecord {
         runId: stringValue(record.runId),
         guildId: stringValue(record.guildId),
         preflightDigest: stringValue(record.preflightDigest),
+        protocolVersion: positiveIntegerValue(record.protocolVersion),
         status: literalValue(record.status, [
             'queued',
             'running',
@@ -197,6 +198,12 @@ function nullableString(value: unknown): string | null {
 function numberValue(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('invalid-number');
     return value;
+}
+
+function positiveIntegerValue(value: unknown): number {
+    const parsed = numberValue(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error('invalid-positive-integer');
+    return parsed;
 }
 
 function nullableNumber(value: unknown): number | null {

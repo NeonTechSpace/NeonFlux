@@ -30,7 +30,40 @@ function snapshot(input: Partial<FluxerGuildStructureSnapshot> = {}): FluxerGuil
     return { version: 1, guildId: 'guild', roles: [], categories: [], channels: [], ...input };
 }
 
-describe('guild structure v2 plan', () => {
+describe('guild structure v3 plan', () => {
+    it('binds every policy fingerprint to the complete deterministic destination identity', () => {
+        const current = snapshot({
+            guildId: 'target-guild',
+            roles: [role('z-role'), role('target-guild', '@everyone', 0), role('a-role')],
+            categories: [
+                {
+                    id: 'm-category',
+                    name: 'Category',
+                    type: 4,
+                    parentId: null,
+                    position: 0,
+                    permissionOverwrites: [],
+                },
+            ],
+            channels: [channel('b-channel')],
+        });
+        const requested = snapshot({ guildId: 'source-guild' });
+        const expected = {
+            'a-role': 'role',
+            'b-channel': 'channel',
+            'm-category': 'category',
+            'target-guild': 'role',
+            'z-role': 'role',
+        };
+
+        for (const policy of ['merge', 'synchronize', 'rebuild'] as const) {
+            const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy });
+
+            expect(plan.knownTargetKinds).toStrictEqual(expected);
+            expect(plan.fingerprintInput.knownTargetKinds).toStrictEqual(expected);
+        }
+    });
+
     it('classifies unmatched live objects according to an explicit policy', () => {
         const current = snapshot({ roles: [role('kept'), role('extra')] });
         const requested = snapshot({ roles: [role('kept')] });
@@ -58,7 +91,7 @@ describe('guild structure v2 plan', () => {
         const requested = snapshot({ roles: [role('member')] });
         const first = diffFluxerGuildStructureSnapshot(requested, requested, { policy: 'synchronize' });
 
-        expect(first.version).toBe(2);
+        expect(first.version).toBe(3);
         expect(first.sourceTargetMap).toStrictEqual({ member: 'member' });
         expect(first.decisions).toContainEqual({
             targetType: 'role',

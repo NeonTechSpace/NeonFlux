@@ -25,6 +25,7 @@
     },
     "scripts": {
         "dev:clear": "node -e \"console.clear()\"",
+        "dev": "pnpm dev:clear && pnpm build:runtime-packages && pnpm convex:dev:once && concurrently --kill-others-on-fail --names convex,bot,web \"pnpm convex:dev\" \"pnpm --filter @neonflux/bot dev\" \"pnpm --filter neonflux-web dev\"",
         "build:runtime-packages": "pnpm -r --filter @neonflux/config --filter @neonflux/convex --filter @neonflux/core --filter @neonflux/fluxer --filter @neonflux/db build",
         "dev:bot": "pnpm dev:clear && pnpm build:runtime-packages && pnpm --filter @neonflux/bot dev",
         "dev:bot:smoke": "tsx scripts/dev-bot-smoke.ts",
@@ -65,6 +66,7 @@
         "@ninoseki/eslint-plugin-neverthrow": "0.2.0",
         "@types/node": "^25.9.3",
         "@vitest/eslint-plugin": "^1.6.20",
+        "concurrently": "^10.0.3",
         "convex": "^1.30.0",
         "eslint": "^10.5.0",
         "eslint-config-prettier": "^10.1.8",

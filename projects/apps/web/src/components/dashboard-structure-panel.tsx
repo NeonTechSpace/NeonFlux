@@ -13,7 +13,7 @@ import {
     saveDashboardStructureBackupSettingsRouteData,
 } from '../server/dashboard-structure-route-data.js';
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
-import type { DashboardStructurePolicy } from '../server/dashboard-structure-v2.js';
+import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
@@ -404,11 +404,16 @@ function DashboardStructureController({
     if (!settingsQuery.data && settingsQuery.isPending) return <DashboardStructureLoading />;
 
     if (!settingsQuery.data) {
+        const diagnosticCode = readDashboardStructureDiagnosticCode(settingsQuery.error);
         return (
             <DashboardStructureErrorState
                 title='Server Blueprint could not load'
-                message='The dashboard did not receive Blueprint data. Retry the read; this does not queue or apply a deployment.'
-                diagnosticCode={readDashboardStructureDiagnosticCode(settingsQuery.error)}
+                message={
+                    diagnosticCode === 'BLUEPRINT_LOAD_BACKEND_INCOMPATIBLE'
+                        ? 'The Convex backend does not match this NeonFlux build. Deploy the matching backend before using Server Blueprint.'
+                        : 'The dashboard did not receive Blueprint data. Retry the read; this does not queue or apply a deployment.'
+                }
+                diagnosticCode={diagnosticCode}
                 onRetry={() => {
                     retrySettings();
                 }}

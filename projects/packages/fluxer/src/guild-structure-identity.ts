@@ -63,6 +63,19 @@ export function buildCompleteSourceTargetMap(
     return Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right)));
 }
 
+export function buildKnownTargetKinds(
+    current: FluxerGuildStructureSnapshot
+): Record<string, 'role' | 'category' | 'channel'> {
+    return Object.fromEntries(
+        [
+            ...(current.guildId ? ([[current.guildId, 'role']] as const) : []),
+            ...current.roles.map((role) => [role.id, 'role'] as const),
+            ...current.categories.map((category) => [category.id, 'category'] as const),
+            ...current.channels.map((channel) => [channel.id, 'channel'] as const),
+        ].sort(([left], [right]) => left.localeCompare(right))
+    );
+}
+
 export function projectRoles(
     current: FluxerGuildStructureSnapshot,
     requested: FluxerGuildStructureSnapshot,

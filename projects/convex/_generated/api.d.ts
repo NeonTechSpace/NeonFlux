@@ -53,6 +53,8 @@ import type * as roles_reaction_role_user_leases from "../roles/reaction_role_us
 import type * as roles_reaction_roles from "../roles/reaction_roles.js";
 import type * as roles_reaction_roles_model from "../roles/reaction_roles_model.js";
 import type * as roles_reaction_roles_validators from "../roles/reaction_roles_validators.js";
+import type * as runtime from "../runtime.js";
+import type * as runtime_contract_model from "../runtime_contract_model.js";
 import type * as schema_core from "../schema/core.js";
 import type * as schema_growth from "../schema/growth.js";
 import type * as schema_posting from "../schema/posting.js";
@@ -101,6 +103,9 @@ import type * as structure_structure from "../structure/structure.js";
 import type * as structure_structure_execution from "../structure/structure_execution.js";
 import type * as structure_structure_import_attempts from "../structure/structure_import_attempts.js";
 import type * as structure_structure_import_execution from "../structure/structure_import_execution.js";
+import type * as structure_structure_import_execution_ledger from "../structure/structure_import_execution_ledger.js";
+import type * as structure_structure_import_execution_protocol from "../structure/structure_import_execution_protocol.js";
+import type * as structure_structure_import_execution_terminal_mutation from "../structure/structure_import_execution_terminal_mutation.js";
 import type * as structure_structure_import_progress from "../structure/structure_import_progress.js";
 import type * as structure_structure_import_review from "../structure/structure_import_review.js";
 import type * as structure_structure_import_terminal from "../structure/structure_import_terminal.js";
@@ -158,6 +163,8 @@ declare const fullApi: ApiFromModules<{
   "roles/reaction_roles": typeof roles_reaction_roles;
   "roles/reaction_roles_model": typeof roles_reaction_roles_model;
   "roles/reaction_roles_validators": typeof roles_reaction_roles_validators;
+  runtime: typeof runtime;
+  runtime_contract_model: typeof runtime_contract_model;
   "schema/core": typeof schema_core;
   "schema/growth": typeof schema_growth;
   "schema/posting": typeof schema_posting;
@@ -206,6 +213,9 @@ declare const fullApi: ApiFromModules<{
   "structure/structure_execution": typeof structure_structure_execution;
   "structure/structure_import_attempts": typeof structure_structure_import_attempts;
   "structure/structure_import_execution": typeof structure_structure_import_execution;
+  "structure/structure_import_execution_ledger": typeof structure_structure_import_execution_ledger;
+  "structure/structure_import_execution_protocol": typeof structure_structure_import_execution_protocol;
+  "structure/structure_import_execution_terminal_mutation": typeof structure_structure_import_execution_terminal_mutation;
   "structure/structure_import_progress": typeof structure_structure_import_progress;
   "structure/structure_import_review": typeof structure_structure_import_review;
   "structure/structure_import_terminal": typeof structure_structure_import_terminal;

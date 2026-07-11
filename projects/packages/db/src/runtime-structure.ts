@@ -584,7 +584,7 @@ export async function createStructureImportRun(
         guildId: string;
         plan?: Record<string, unknown>;
         planDigest: string;
-        planVersion: 2;
+        planVersion: 3;
         policy: 'merge' | 'synchronize' | 'rebuild';
         requestedSnapshotDigest: string;
         sourceBackupId?: string;

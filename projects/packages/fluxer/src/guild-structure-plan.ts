@@ -50,11 +50,13 @@ export type FluxerGuildStructurePlanBlocker = {
 };
 
 export type FluxerGuildStructurePlanFingerprintInput = {
-    version: 2;
+    version: 3;
     policy: FluxerGuildStructurePolicy;
+    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
     sourceTargetMap: Record<string, string | null>;
     projectedSnapshot: FluxerGuildStructureSnapshot;
     decisions: FluxerGuildStructureDecision[];
+    executionActions: FluxerGuildStructurePlannedAction[];
 };
 
 export type FluxerGuildStructurePlanSummary = {
@@ -67,10 +69,12 @@ export type FluxerGuildStructurePlanSummary = {
 };
 
 export type FluxerGuildStructurePlan = {
-    version: 2;
+    version: 3;
     policy: FluxerGuildStructurePolicy;
     summary: FluxerGuildStructurePlanSummary;
     actions: FluxerGuildStructurePlannedAction[];
+    executionActions: FluxerGuildStructurePlannedAction[];
+    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
     sourceTargetMap: Record<string, string | null>;
     roleProjection: FluxerGuildStructureRoleProjection;
     projectedSnapshot: FluxerGuildStructureSnapshot;

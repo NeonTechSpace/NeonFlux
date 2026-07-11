@@ -7,27 +7,44 @@ import {
     completeAndCheckpointStructureImportActionAttempt,
     ensureStructureImportRestorePoint,
     finalizeStructureImportExecution,
+    prepareStructureImportActionAttempt,
     renewStructureImportExecutionLease,
     startStructureImportActionAttempt,
     type RuntimeDbClient,
     type StructureImportActionAttemptRecord,
     type StructureImportExecutionPhase,
+    type StructureImportExecutionProtocolMismatchRecord,
 } from '@neonflux/db';
 import {
     applyFluxerBotGuildStructureActions,
-    normalizeFluxerGuildStructureSnapshot,
+    deriveFluxerBotGuildStructureCursorAuthority,
     readFluxerBotGuildStructure,
     toFluxerGuildStructureSnapshot,
 } from '@neonflux/fluxer';
 
+import { verifyProjectedStructureSnapshot } from './bot-structure-import-verification.js';
+import {
+    readResolvedStructureSourceTargetMap,
+    readStructureTargetKinds,
+    toStructureApplyAction,
+} from './bot-structure-import-actions.js';
+
 const leaseTtlMs = 3 * 60_000;
+const workerFailureBackoffMinMs = 2_000;
+const workerFailureBackoffMaxMs = 60_000;
+
+type StructureImportWorkerRunResult =
+    | 'idle'
+    | 'progressed'
+    | { kind: 'backend_incompatible' }
+    | StructureImportExecutionProtocolMismatchRecord;
 
 export async function runNextStructureImportExecution(input: {
     botToken: string;
     database: RuntimeDbClient;
     leaseOwner: string;
     now?: Date;
-}): Promise<'idle' | 'progressed'> {
+}): Promise<StructureImportWorkerRunResult> {
     const now = input.now ?? new Date();
     const leaseId = randomUUID();
     const claim = await claimNextStructureImportExecution(input.database.db, {
@@ -36,46 +53,75 @@ export async function runNextStructureImportExecution(input: {
         leaseOwner: input.leaseOwner,
         now,
     });
-    if (claim.isErr() || !claim.value) return 'idle';
+    if (claim.isErr()) {
+        if (claim.error.type === 'backend-incompatible') return { kind: 'backend_incompatible' };
+        throw new Error('structure-import-execution-claim-failed');
+    }
+    if (!claim.value) return 'idle';
+    if (claim.value.kind === 'protocol_mismatch') return claim.value;
     const { execution, run, actions } = claim.value;
-    const attempts = new Map<string, StructureImportActionAttemptRecord>();
+    const pendingAttempts = new Map<string, StructureImportActionAttemptRecord>();
     const attemptCounts = new Map<string, number>();
     for (const attempt of claim.value.attempts) {
         attemptCounts.set(attempt.actionId, Math.max(attemptCounts.get(attempt.actionId) ?? 0, attempt.attempt));
+        const pending = pendingAttempts.get(attempt.actionId);
+        if (attempt.state === 'pending' && (!pending || attempt.attempt > pending.attempt)) {
+            pendingAttempts.set(attempt.actionId, attempt);
+        }
     }
     let activeAttempt: StructureImportActionAttemptRecord | undefined;
     let activeAttemptActionId: string | undefined;
-    let activeAttemptMutationSteps = 0;
+    let activeAttemptStarted = false;
     let currentActionId: string | undefined;
     const state: {
         controlRequest: 'pause' | 'cancel' | null;
         controlStatus: string;
+        atomicCompletionFailed: boolean;
+        knownPartialMutation: boolean;
         leaseActive: boolean;
         outcomeUnknown: boolean;
+        persistenceFailure?: string;
         rateLimited?: { retryAfterMs: number };
-        retryExhausted: boolean;
+        terminalPersisted: boolean;
     } = {
         controlRequest: null,
         controlStatus: 'running',
+        atomicCompletionFailed: false,
+        knownPartialMutation: execution.appliedActions > 0,
         leaseActive: true,
         outcomeUnknown: false,
-        retryExhausted: false,
+        terminalPersisted: false,
     };
     let appliedActions = execution.appliedActions;
     let failedActions = execution.failedActions;
     let completedMutationSteps = execution.completedMutationSteps;
     let latestIdMap = execution.idMap;
     let nextActionSequence = execution.nextActionSequence;
-    const executableActions = actions.filter(
-        (action) =>
-            action.sequence >= execution.nextActionSequence &&
-            action.targetType !== 'channel-order' &&
-            action.targetType !== 'role-order'
-    );
-    const channelOrder = readOrder(actions, 'channel-order');
-    const roleOrder = readOrder(actions, 'role-order');
-    const channelOrderActionId = actions.find((action) => action.targetType === 'channel-order')?.id;
-    const roleOrderActionId = actions.find((action) => action.targetType === 'role-order')?.id;
+    const executableActions = actions.filter((action) => action.sequence >= execution.nextActionSequence);
+    const knownTargetKinds = readStructureTargetKinds(run.plan.knownTargetKinds);
+    const initialIdMap = readResolvedStructureSourceTargetMap(run.plan.sourceTargetMap);
+    const sourceGuildId = typeof run.plan.requestedGuildId === 'string' ? run.plan.requestedGuildId : undefined;
+    const referenceValidation = deriveFluxerBotGuildStructureCursorAuthority({
+        actions: actions.map(toStructureApplyAction),
+        cursor: execution.nextActionSequence,
+        executionIdMap: execution.idMap,
+        guildId: execution.guildId,
+        initialIdMap,
+        knownTargetKinds,
+        ...(sourceGuildId ? { sourceGuildId } : {}),
+    });
+    if (!referenceValidation.ok) {
+        await finalizeStructureImportExecution(input.database.db, {
+            errorType: `${referenceValidation.errorType}:${referenceValidation.actionId}`,
+            executionId: execution.id,
+            leaseId,
+            leaseOwner: input.leaseOwner,
+            now: new Date(),
+            ...(execution.restorePointBackupId ? { restorePointBackupId: execution.restorePointBackupId } : {}),
+            status: execution.appliedActions > 0 ? 'partially_applied' : 'failed_before_mutation',
+        });
+        return 'progressed';
+    }
     let restorePointBackupId = execution.restorePointBackupId;
     if (!restorePointBackupId) {
         const restoreSnapshot = await readFluxerBotGuildStructure({
@@ -113,167 +159,323 @@ export async function runNextStructureImportExecution(input: {
         }
         restorePointBackupId = restorePoint.value.backupId;
     }
-    const result = await applyFluxerBotGuildStructureActions({
-        botToken: input.botToken,
-        guildId: execution.guildId,
-        actions: executableActions.map((action) => {
-            const changes = readChanges(action.details.changes);
-            return {
-                id: action.id,
-                actionType: action.actionType,
-                targetType: action.targetType,
-                targetId: action.targetId ?? '',
-                after: action.details.after,
-                ...(changes ? { changes } : {}),
-            };
-        }),
-        idMap: execution.idMap,
-        ...(channelOrder ? { channelOrder } : {}),
-        ...(channelOrder && channelOrderActionId ? { channelOrderActionId } : {}),
-        ...(roleOrder ? { roleOrder } : {}),
-        ...(roleOrder && roleOrderActionId ? { roleOrderActionId } : {}),
-        beforeAction: async (action) => {
-            if (activeAttempt) {
-                state.outcomeUnknown = true;
-                return false;
-            }
-            const renewed = await renewStructureImportExecutionLease(input.database.db, {
-                executionId: execution.id,
-                leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
-                leaseId,
-                leaseOwner: input.leaseOwner,
-                now: new Date(),
-            });
-            state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
-            state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
-            state.leaseActive = state.controlStatus === 'running';
-            if (!state.leaseActive) return false;
-            currentActionId = action.id;
-            const persistedAction = actions.find((candidate) => candidate.id === action.id);
-            const phaseCheckpoint = await checkpointStructureImportExecution(input.database.db, {
-                appliedActions,
-                completedMutationSteps,
-                currentActionDomain: persistedAction?.targetType ?? action.targetType,
-                currentActionId: action.id,
-                ...(typeof persistedAction?.details.label === 'string'
-                    ? { currentActionLabel: persistedAction.details.label }
-                    : {}),
-                executionId: execution.id,
-                failedActions,
-                idMap: latestIdMap,
-                leaseId,
-                leaseOwner: input.leaseOwner,
-                nextActionSequence,
-                notStartedActions: Math.max(0, actions.length - nextActionSequence),
-                now: new Date(),
-                phase: executionPhaseForAction(action.actionType, action.targetType),
-                skippedActions: 0,
-                status: 'running',
-                totalMutationSteps: execution.totalMutationSteps,
-            });
-            return phaseCheckpoint.isOk();
-        },
-        beforeMutation: async () => {
-            const renewed = await renewStructureImportExecutionLease(input.database.db, {
-                executionId: execution.id,
-                leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
-                leaseId,
-                leaseOwner: input.leaseOwner,
-                now: new Date(),
-            });
-            state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
-            state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
-            state.leaseActive = state.controlStatus === 'running';
-            if (!state.leaseActive || !currentActionId) return false;
-            if (activeAttempt) {
-                if (activeAttemptActionId !== currentActionId) return false;
-                activeAttemptMutationSteps += 1;
+    let result: Awaited<ReturnType<typeof applyFluxerBotGuildStructureActions>>;
+    try {
+        result = await applyFluxerBotGuildStructureActions({
+            botToken: input.botToken,
+            guildId: execution.guildId,
+            actions: executableActions.map(toStructureApplyAction),
+            idMap: latestIdMap,
+            knownTargetKinds: referenceValidation.knownTargetKinds,
+            referenceIdMap: referenceValidation.idMap,
+            ...(sourceGuildId ? { sourceGuildId } : {}),
+            beforeAction: async (action) => {
+                if (activeAttempt) {
+                    if (activeAttemptStarted) state.outcomeUnknown = true;
+                    else state.persistenceFailure = 'attempt-not-completed';
+                    return false;
+                }
+                const renewed = await renewStructureImportExecutionLease(input.database.db, {
+                    executionId: execution.id,
+                    leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
+                    leaseId,
+                    leaseOwner: input.leaseOwner,
+                    now: new Date(),
+                });
+                state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
+                state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
+                state.leaseActive = state.controlStatus === 'running';
+                if (!state.leaseActive) return false;
+                const persistedAction = actions.find((candidate) => candidate.id === action.id);
+                if (persistedAction?.sequence !== nextActionSequence) {
+                    state.persistenceFailure = 'structure-execution-action-sequence-invalid';
+                    return false;
+                }
+                currentActionId = action.id;
+                const phaseCheckpoint = await checkpointStructureImportExecution(input.database.db, {
+                    appliedActions,
+                    completedMutationSteps,
+                    currentActionDomain: persistedAction.targetType,
+                    currentActionId: action.id,
+                    ...(typeof persistedAction.details.label === 'string'
+                        ? { currentActionLabel: persistedAction.details.label }
+                        : {}),
+                    executionId: execution.id,
+                    failedActions,
+                    idMap: latestIdMap,
+                    leaseId,
+                    leaseOwner: input.leaseOwner,
+                    nextActionSequence,
+                    notStartedActions: Math.max(0, actions.length - nextActionSequence),
+                    now: new Date(),
+                    phase: executionPhaseForAction(action.actionType, action.targetType),
+                    skippedActions: 0,
+                    status: 'running',
+                    totalMutationSteps: execution.totalMutationSteps,
+                });
+                if (phaseCheckpoint.isErr()) {
+                    state.persistenceFailure = 'action-phase-checkpoint-failed';
+                    return false;
+                }
+
+                const pending = pendingAttempts.get(action.id);
+                if (pending) {
+                    activeAttempt = pending;
+                    activeAttemptActionId = action.id;
+                    activeAttemptStarted = false;
+                    pendingAttempts.delete(action.id);
+                    return true;
+                }
+
+                const attempt = (attemptCounts.get(action.id) ?? 0) + 1;
+                const prepared = await prepareStructureImportActionAttempt(input.database.db, {
+                    actionId: action.id,
+                    attempt,
+                    executionId: execution.id,
+                    leaseId,
+                    leaseOwner: input.leaseOwner,
+                    now: new Date(),
+                    requestKey: `${execution.id}:${action.id}:${String(attempt)}`,
+                });
+                if (prepared.isErr()) {
+                    state.persistenceFailure = 'attempt-prepare-failed';
+                    return false;
+                }
+                attemptCounts.set(action.id, attempt);
+                activeAttempt = prepared.value;
+                activeAttemptActionId = action.id;
+                activeAttemptStarted = false;
                 return true;
-            }
-            const attempt = (attemptCounts.get(currentActionId) ?? 0) + 1;
-            if (attempt > 5) {
-                state.retryExhausted = true;
-                return false;
-            }
-            attemptCounts.set(currentActionId, attempt);
-            const started = await startStructureImportActionAttempt(input.database.db, {
-                actionId: currentActionId,
-                attempt,
+            },
+            beforeMutation: async () => {
+                const renewed = await renewStructureImportExecutionLease(input.database.db, {
+                    executionId: execution.id,
+                    leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
+                    leaseId,
+                    leaseOwner: input.leaseOwner,
+                    now: new Date(),
+                });
+                state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
+                state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
+                state.leaseActive = state.controlStatus === 'running';
+                if (
+                    !state.leaseActive ||
+                    !currentActionId ||
+                    !activeAttempt ||
+                    activeAttemptActionId !== currentActionId
+                ) {
+                    return false;
+                }
+                if (!activeAttemptStarted) {
+                    const started = await startStructureImportActionAttempt(input.database.db, {
+                        attemptId: activeAttempt.id,
+                        leaseId,
+                        leaseOwner: input.leaseOwner,
+                        now: new Date(),
+                    });
+                    if (started.isErr()) {
+                        state.persistenceFailure = 'attempt-start-failed';
+                        return false;
+                    }
+                    activeAttempt = started.value;
+                    activeAttemptStarted = true;
+                }
+                return true;
+            },
+            onActionResult: async (actionResult, idMap) => {
+                const action = actions.find((candidate) => candidate.id === actionResult.id);
+                const attempt = activeAttempt;
+                const attemptStarted = activeAttemptStarted;
+                const isRateLimited = actionResult.errorType === 'rate-limited';
+                const isLeaseLost = actionResult.errorType === 'apply-lease-lost';
+                const isOutcomeUnknown = actionResult.status === 'failed' && actionResult.mutationOutcome === 'unknown';
+                const isHardFailure =
+                    actionResult.status === 'failed' && !isRateLimited && !isLeaseLost && !isOutcomeUnknown;
+
+                if (action?.sequence !== nextActionSequence) {
+                    if (attemptStarted) state.outcomeUnknown = true;
+                    else state.persistenceFailure = 'action-result-sequence-invalid';
+                    return false;
+                }
+                if (actionResult.status === 'applied') {
+                    if (!attemptStarted) {
+                        state.persistenceFailure = 'action-applied-without-started-attempt';
+                        return false;
+                    }
+                    appliedActions += 1;
+                    completedMutationSteps += 1;
+                    nextActionSequence = action.sequence + 1;
+                } else if (isHardFailure) {
+                    failedActions += 1;
+                    nextActionSequence = action.sequence + 1;
+                }
+                if (actionResult.status === 'applied') state.knownPartialMutation = true;
+                if (isRateLimited) {
+                    state.rateLimited = {
+                        retryAfterMs: actionResult.retryAfterMs ?? fallbackRetryAfterMs(action.targetType),
+                    };
+                }
+                if (isLeaseLost) state.leaseActive = false;
+                latestIdMap = { ...idMap };
+
+                if (!attempt) {
+                    activeAttempt = undefined;
+                    activeAttemptActionId = undefined;
+                    activeAttemptStarted = false;
+                    return false;
+                }
+                const errorType = isOutcomeUnknown
+                    ? `mutation-outcome-unknown:${actionResult.errorType ?? 'operation-failed'}`
+                    : actionResult.errorType;
+                const requestedStatus = isOutcomeUnknown
+                    ? ('outcome_unknown' as const)
+                    : isHardFailure
+                      ? appliedActions > 0
+                          ? ('partially_applied' as const)
+                          : ('failed_before_mutation' as const)
+                      : isRateLimited
+                        ? ('waiting_rate_limit' as const)
+                        : state.controlStatus === 'pause_requested'
+                          ? ('pause_requested' as const)
+                          : ('running' as const);
+                const progress = {
+                    appliedActions,
+                    completedMutationSteps,
+                    currentActionDomain: action.targetType,
+                    currentActionId: action.id,
+                    ...(typeof action.details.label === 'string' ? { currentActionLabel: action.details.label } : {}),
+                    failedActions,
+                    idMap: latestIdMap,
+                    leaseId,
+                    leaseOwner: input.leaseOwner,
+                    nextActionSequence,
+                    notStartedActions: Math.max(0, actions.length - nextActionSequence),
+                    now: new Date(),
+                    phase:
+                        requestedStatus === 'waiting_rate_limit'
+                            ? ('waiting_rate_limit' as const)
+                            : requestedStatus === 'partially_applied' ||
+                                requestedStatus === 'failed_before_mutation' ||
+                                requestedStatus === 'outcome_unknown'
+                              ? ('complete' as const)
+                              : executionPhaseForAction(action.actionType, action.targetType),
+                    skippedActions: 0,
+                    status: requestedStatus,
+                    totalMutationSteps: execution.totalMutationSteps,
+                };
+                const persisted = await completeAndCheckpointStructureImportActionAttempt(input.database.db, {
+                    ...progress,
+                    attemptId: attempt.id,
+                    ...(actionResult.createdId ? { createdId: actionResult.createdId } : {}),
+                    ...(errorType ? { errorType } : {}),
+                    ...(isRateLimited && state.rateLimited
+                        ? { retryAt: new Date(Date.now() + state.rateLimited.retryAfterMs) }
+                        : {}),
+                    state: actionResult.status === 'applied' ? 'applied' : isOutcomeUnknown ? 'unknown' : 'failed',
+                });
+                if (persisted.isErr()) {
+                    if (attemptStarted) state.outcomeUnknown = true;
+                    else {
+                        state.atomicCompletionFailed = true;
+                        state.persistenceFailure = 'local-action-result-persistence-failed';
+                    }
+                } else {
+                    state.controlStatus = persisted.value.execution.status;
+                    state.controlRequest = persisted.value.execution.controlRequest;
+                    state.leaseActive = persisted.value.execution.status === 'running';
+                    state.terminalPersisted = [
+                        'partially_applied',
+                        'failed_before_mutation',
+                        'outcome_unknown',
+                        'cancelled',
+                    ].includes(persisted.value.execution.status);
+                }
+                activeAttempt = undefined;
+                activeAttemptActionId = undefined;
+                activeAttemptStarted = false;
+                return (
+                    persisted.isOk() &&
+                    actionResult.status === 'applied' &&
+                    persisted.value.execution.status === 'running'
+                );
+            },
+        });
+    } catch {
+        const attempt = activeAttempt;
+        const action = currentActionId ? actions.find((candidate) => candidate.id === currentActionId) : undefined;
+        if (attempt && action?.sequence === nextActionSequence) {
+            const providerOutcomeUnknown = attempt.state === 'started';
+            const caughtFailedActions = providerOutcomeUnknown ? failedActions : failedActions + 1;
+            const caughtNextActionSequence = providerOutcomeUnknown ? nextActionSequence : action.sequence + 1;
+            const persisted = await completeAndCheckpointStructureImportActionAttempt(input.database.db, {
+                appliedActions,
+                attemptId: attempt.id,
+                completedMutationSteps,
+                currentActionDomain: action.targetType,
+                currentActionId: action.id,
+                ...(typeof action.details.label === 'string' ? { currentActionLabel: action.details.label } : {}),
+                errorType: providerOutcomeUnknown ? 'mutation-callback-outcome-unknown' : 'mutation-callback-failed',
+                failedActions: caughtFailedActions,
+                idMap: latestIdMap,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                nextActionSequence: caughtNextActionSequence,
+                notStartedActions: Math.max(0, actions.length - caughtNextActionSequence),
+                now: new Date(),
+                phase: 'complete',
+                skippedActions: 0,
+                state: providerOutcomeUnknown ? 'unknown' : 'failed',
+                status: providerOutcomeUnknown
+                    ? 'outcome_unknown'
+                    : appliedActions > 0
+                      ? 'partially_applied'
+                      : 'failed_before_mutation',
+                totalMutationSteps: execution.totalMutationSteps,
+            });
+            if (persisted.isOk()) return 'progressed';
+        }
+        if (activeAttempt?.state === 'started') {
+            await finalizeStructureImportExecution(input.database.db, {
+                errorType: 'mutation-callback-outcome-unknown',
                 executionId: execution.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                requestKey: `${execution.id}:${currentActionId}:${String(attempt)}`,
+                restorePointBackupId,
+                status: 'outcome_unknown',
             });
-            if (started.isErr()) return false;
-            activeAttempt = started.value;
-            activeAttemptActionId = currentActionId;
-            activeAttemptMutationSteps = 1;
-            attempts.set(currentActionId, started.value);
-            return state.leaseActive;
-        },
-        onActionResult: async (actionResult, idMap) => {
-            const attempt = activeAttempt ?? attempts.get(actionResult.id);
-            if (attempt) completedMutationSteps += activeAttemptMutationSteps;
-            activeAttempt = undefined;
-            activeAttemptActionId = undefined;
-            activeAttemptMutationSteps = 0;
-            attempts.delete(actionResult.id);
-            if (actionResult.status === 'applied') appliedActions += 1;
-            else if (actionResult.errorType !== 'rate-limited' && actionResult.errorType !== 'apply-lease-lost') {
-                if (actionResult.createdId) appliedActions += 1;
-                failedActions += 1;
-            }
-            latestIdMap = { ...idMap };
-            const action = actions.find((candidate) => candidate.id === actionResult.id);
-            const isRateLimited = actionResult.errorType === 'rate-limited';
-            const isLeaseLost = actionResult.errorType === 'apply-lease-lost';
-            nextActionSequence =
-                isRateLimited || isLeaseLost
-                    ? Math.min(nextActionSequence, action?.sequence ?? nextActionSequence)
-                    : (action?.sequence ?? nextActionSequence) + 1;
-            if (isRateLimited)
-                state.rateLimited = {
-                    retryAfterMs: actionResult.retryAfterMs ?? fallbackRetryAfterMs(action?.targetType),
-                };
-            if (isLeaseLost) state.leaseActive = false;
-            const progress = {
-                appliedActions,
-                completedMutationSteps,
-                ...(action ? { currentActionDomain: action.targetType, currentActionId: action.id } : {}),
-                ...(typeof action?.details.label === 'string' ? { currentActionLabel: action.details.label } : {}),
-                failedActions,
-                idMap: latestIdMap,
-                leaseId,
-                leaseOwner: input.leaseOwner,
-                nextActionSequence,
-                notStartedActions: Math.max(0, actions.length - nextActionSequence),
-                now: new Date(),
-                phase: executionPhaseForAction(action?.actionType, action?.targetType),
-                skippedActions: 0,
-                status: state.controlStatus === 'pause_requested' ? ('pause_requested' as const) : ('running' as const),
-                totalMutationSteps: execution.totalMutationSteps,
-            };
-            const persisted = attempt
-                ? await completeAndCheckpointStructureImportActionAttempt(input.database.db, {
-                      ...progress,
-                      attemptId: attempt.id,
-                      ...(actionResult.createdId ? { createdId: actionResult.createdId } : {}),
-                      ...(actionResult.errorType ? { errorType: actionResult.errorType } : {}),
-                      ...(isRateLimited && state.rateLimited
-                          ? { retryAt: new Date(Date.now() + state.rateLimited.retryAfterMs) }
-                          : {}),
-                      state: actionResult.status === 'applied' ? 'applied' : 'failed',
-                  })
-                : await checkpointStructureImportExecution(input.database.db, {
-                      ...progress,
-                      executionId: execution.id,
-                  });
-            if (persisted.isErr() && attempt) state.outcomeUnknown = true;
-            return persisted.isOk() && !isRateLimited && !isLeaseLost;
-        },
-        stopAfterDeleteFailures: run.policy === 'rebuild',
-    });
+        }
+        return 'progressed';
+    }
+    if (state.terminalPersisted || state.controlStatus === 'cancelled' || state.controlStatus === 'paused') {
+        return 'progressed';
+    }
+    if (state.atomicCompletionFailed) return 'progressed';
+    if (state.outcomeUnknown) {
+        await finalizeStructureImportExecution(input.database.db, {
+            errorType: 'mutation-result-persistence-failed',
+            executionId: execution.id,
+            leaseId,
+            leaseOwner: input.leaseOwner,
+            now: new Date(),
+            restorePointBackupId,
+            status: 'outcome_unknown',
+        });
+        return 'progressed';
+    }
+    const terminalErrorType = state.persistenceFailure;
+    if (terminalErrorType) {
+        await finalizeStructureImportExecution(input.database.db, {
+            errorType: terminalErrorType,
+            executionId: execution.id,
+            leaseId,
+            leaseOwner: input.leaseOwner,
+            now: new Date(),
+            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
+            restorePointBackupId,
+        });
+        return 'progressed';
+    }
     if (state.controlStatus === 'pause_requested') {
         if (state.controlRequest === 'cancel') {
             await finalizeStructureImportExecution(input.database.db, {
@@ -304,65 +506,34 @@ export async function runNextStructureImportExecution(input: {
         });
         return 'progressed';
     }
-    if (state.controlStatus === 'cancelled') return 'progressed';
-    if (state.outcomeUnknown) {
-        await finalizeStructureImportExecution(input.database.db, {
-            errorType: 'mutation-result-persistence-failed',
-            executionId: execution.id,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            now: new Date(),
-            restorePointBackupId,
-            status: 'outcome_unknown',
-        });
-        return 'progressed';
-    }
-    if (state.rateLimited) {
-        await checkpointStructureImportExecution(input.database.db, {
-            appliedActions,
-            completedMutationSteps,
-            errorType: 'rate-limited',
-            executionId: execution.id,
-            failedActions,
-            idMap: latestIdMap,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            nextActionSequence,
-            notStartedActions: Math.max(0, actions.length - nextActionSequence),
-            now: new Date(),
-            phase: 'waiting_rate_limit',
-            retryAt: new Date(Date.now() + state.rateLimited.retryAfterMs),
-            skippedActions: 0,
-            status: 'waiting_rate_limit',
-            totalMutationSteps: execution.totalMutationSteps,
-        });
-        return 'progressed';
-    }
-    if (result.isErr() || !state.leaseActive || state.retryExhausted) {
+    if (state.rateLimited) return 'progressed';
+    if (result.isErr() || !state.leaseActive) {
         await finalizeStructureImportExecution(input.database.db, {
             errorType: result.isErr() ? result.error.type : 'execution-control-requested',
             executionId: execution.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            status: appliedActions > 0 ? 'partially_applied' : 'failed_before_mutation',
+            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
             restorePointBackupId,
         });
         return 'progressed';
     }
     latestIdMap = result.value.idMap;
-    if (result.value.actions.some((action) => action.status === 'failed')) {
+    const unhandledFailure = result.value.actions.find((action) => action.status === 'failed');
+    if (unhandledFailure || nextActionSequence !== actions.length || failedActions > 0) {
         await finalizeStructureImportExecution(input.database.db, {
+            errorType: unhandledFailure?.errorType ?? 'structure-execution-incomplete',
             executionId: execution.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            status: appliedActions > 0 ? 'partially_applied' : 'failed_before_mutation',
+            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
             restorePointBackupId,
         });
         return 'progressed';
     }
-    await checkpointStructureImportExecution(input.database.db, {
+    const verificationCheckpoint = await checkpointStructureImportExecution(input.database.db, {
         appliedActions,
         completedMutationSteps,
         executionId: execution.id,
@@ -370,7 +541,7 @@ export async function runNextStructureImportExecution(input: {
         idMap: latestIdMap,
         leaseId,
         leaseOwner: input.leaseOwner,
-        nextActionSequence: actions.length,
+        nextActionSequence,
         notStartedActions: 0,
         now: new Date(),
         phase: 'verifying',
@@ -378,7 +549,13 @@ export async function runNextStructureImportExecution(input: {
         status: 'verifying',
         totalMutationSteps: execution.totalMutationSteps,
     });
-    const verification = await verifyProjectedSnapshot(input.botToken, execution.guildId, run.plan, latestIdMap);
+    if (verificationCheckpoint.isErr()) return 'progressed';
+    const verification = await verifyProjectedStructureSnapshot(
+        input.botToken,
+        execution.guildId,
+        run.plan,
+        latestIdMap
+    );
     await finalizeStructureImportExecution(input.database.db, {
         executionId: execution.id,
         leaseId,
@@ -400,13 +577,50 @@ export function startStructureImportExecutionWorker(input: {
 }) {
     const leaseOwner = `structure-import-worker:${randomUUID()}`;
     let running: Promise<void> | undefined;
+    let reportedProtocolMismatchKey: string | undefined;
+    let disabled = false;
+    let failureCount = 0;
+    let nextAttemptAt = 0;
     const run = () => {
-        if (running) return;
+        if (disabled || running || Date.now() < nextAttemptAt) return;
         running = runNextStructureImportExecution({ ...input, leaseOwner })
-            .then(() => undefined)
+            .then((result) => {
+                failureCount = 0;
+                nextAttemptAt = 0;
+                if (typeof result === 'string') {
+                    reportedProtocolMismatchKey = undefined;
+                    return;
+                }
+                if (result.kind === 'backend_incompatible') {
+                    disabled = true;
+                    clearInterval(interval);
+                    input.logger.error('structure_import.backend_incompatible', {
+                        action: 'worker_disabled',
+                    });
+                    return;
+                }
+                const mismatchKey = `${result.executionId}:${String(result.executionProtocolVersion)}:${String(result.requiredProtocolVersion)}`;
+                if (mismatchKey === reportedProtocolMismatchKey) return;
+                reportedProtocolMismatchKey = mismatchKey;
+                input.logger.error('structure_import.execution_protocol_mismatch', {
+                    executionId: result.executionId,
+                    executionProtocolVersion: result.executionProtocolVersion,
+                    guildId: result.guildId,
+                    mayHaveExternalEffects: result.mayHaveExternalEffects,
+                    requiredProtocolVersion: result.requiredProtocolVersion,
+                    status: result.status,
+                });
+            })
             .catch((error: unknown) => {
+                failureCount += 1;
+                const retryAfterMs = Math.min(
+                    workerFailureBackoffMaxMs,
+                    workerFailureBackoffMinMs * 2 ** Math.min(failureCount - 1, 20)
+                );
+                nextAttemptAt = Date.now() + retryAfterMs;
                 input.logger.error('structure_import.worker_failed', {
                     error: error instanceof Error ? error.message : String(error),
+                    retryAfterMs,
                 });
             })
             .finally(() => {
@@ -423,26 +637,6 @@ export function startStructureImportExecutionWorker(input: {
     };
 }
 
-function readChanges(value: unknown) {
-    if (!Array.isArray(value)) return undefined;
-    return value.flatMap((change) =>
-        isObject(change) && typeof change.field === 'string'
-            ? [
-                  {
-                      field: change.field,
-                      ...(change.before !== undefined ? { before: change.before } : {}),
-                      after: change.after,
-                  },
-              ]
-            : []
-    );
-}
-
-function readOrder(actions: Array<{ targetType: string; details: Record<string, unknown> }>, targetType: string) {
-    const value = actions.find((action) => action.targetType === targetType)?.details.after;
-    return Array.isArray(value) ? (value as never[]) : undefined;
-}
-
 function fallbackRetryAfterMs(targetType: string | undefined): number {
     return targetType === 'role' || targetType === 'role-order' ? 60_000 : 10_000;
 }
@@ -457,74 +651,4 @@ function executionPhaseForAction(
     if (targetType === 'channel-order') return 'channel_order';
     if (targetType === 'role-order') return 'role_order';
     return actionType === 'create' || actionType === 'update' || actionType === 'delete' ? actionType : 'preparing';
-}
-
-async function verifyProjectedSnapshot(
-    botToken: string,
-    guildId: string,
-    plan: Record<string, unknown>,
-    idMap: Record<string, string>
-): Promise<{
-    status: 'matched' | 'mismatch' | 'read_failed';
-    expectedFingerprint?: string;
-    actualFingerprint?: string;
-}> {
-    const projected = normalizeFluxerGuildStructureSnapshot(plan.projectedSnapshot);
-    if (projected.type !== 'valid') return { status: 'mismatch' };
-    const current = await readFluxerBotGuildStructure({ botToken, guildId });
-    if (current.isErr()) return { status: 'read_failed' };
-    const actual = toFluxerGuildStructureSnapshot(current.value);
-    const expectedFingerprint = stableKey(resolveSnapshotIds(projected.snapshot, idMap, guildId));
-    const actualFingerprint = stableKey({
-        roles: actual.roles,
-        categories: actual.categories,
-        channels: actual.channels,
-    });
-    return expectedFingerprint === actualFingerprint
-        ? { status: 'matched', expectedFingerprint, actualFingerprint }
-        : { status: 'mismatch', expectedFingerprint, actualFingerprint };
-}
-
-function resolveSnapshotIds(snapshot: Record<string, unknown>, idMap: Record<string, string>, guildId: string) {
-    const sourceGuildId = typeof snapshot.guildId === 'string' ? snapshot.guildId : undefined;
-    const roles = Array.isArray(snapshot.roles) ? snapshot.roles : [];
-    const categories = Array.isArray(snapshot.categories) ? snapshot.categories : [];
-    const channels = Array.isArray(snapshot.channels) ? snapshot.channels : [];
-    const resolveItems = (items: unknown[]) =>
-        items.map((item) => {
-            if (!isObject(item) || typeof item.id !== 'string') return item;
-            const permissionOverwrites = Array.isArray(item.permissionOverwrites)
-                ? item.permissionOverwrites.map((overwrite: unknown) =>
-                      isObject(overwrite) && typeof overwrite.id === 'string' && overwrite.type === 0
-                          ? {
-                                ...overwrite,
-                                id: overwrite.id === sourceGuildId ? guildId : (idMap[overwrite.id] ?? overwrite.id),
-                            }
-                          : overwrite
-                  )
-                : undefined;
-            return {
-                ...item,
-                id: idMap[item.id] ?? (item.name === '@everyone' ? guildId : item.id),
-                ...(typeof item.parentId === 'string' ? { parentId: idMap[item.parentId] ?? item.parentId } : {}),
-                ...(permissionOverwrites ? { permissionOverwrites } : {}),
-            };
-        });
-    return { roles: resolveItems(roles), categories: resolveItems(categories), channels: resolveItems(channels) };
-}
-
-function stableKey(value: unknown): string {
-    if (Array.isArray(value)) return JSON.stringify(value.map(stableKey).sort());
-    if (isObject(value))
-        return JSON.stringify(
-            Object.entries(value)
-                .filter(([key]) => !['exportedAt', 'guildId', 'guildName'].includes(key))
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, item]) => [key, stableKey(item)])
-        );
-    return JSON.stringify(value);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
 }
