@@ -2,7 +2,7 @@ import type { Engine, ISourceOptions } from '@tsparticles/engine';
 import Particles, { ParticlesProvider } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 
-const particleColors = ['#00e5ff', '#22d3ee', '#ffea00', '#facc15', '#ff2bd6', '#ff4fd8'];
+const particleColors = ['#5ad7ff', '#78defe', '#9d8cff'];
 
 const dashboardParticleOptions = {
     autoPlay: true,
@@ -21,34 +21,29 @@ const dashboardParticleOptions = {
             value: particleColors,
         },
         links: {
-            color: {
-                value: '#ffffff',
-            },
-            distance: 218,
-            enable: true,
-            opacity: 0.58,
-            width: 1,
+            enable: false,
         },
         move: {
             direction: 'none',
             enable: true,
             outModes: {
-                default: 'bounce',
+                default: 'out',
             },
-            random: false,
-            speed: 0.38,
+            random: true,
+            speed: 0.18,
             straight: false,
         },
         number: {
             density: {
-                enable: true,
-                height: 1080,
-                width: 1920,
+                enable: false,
             },
-            value: 132,
+            value: 52,
         },
         opacity: {
-            value: 0.64,
+            value: {
+                max: 0.46,
+                min: 0.16,
+            },
         },
         paint: {
             color: {
@@ -63,8 +58,8 @@ const dashboardParticleOptions = {
         },
         size: {
             value: {
-                max: 3.6,
-                min: 1.75,
+                max: 2.4,
+                min: 1,
             },
         },
     },
@@ -80,8 +75,8 @@ export function DashboardParticleField({ blurEnabled }: { blurEnabled: boolean }
                 id='dashboard-particle-field'
                 className={
                     blurEnabled
-                        ? 'fixed -inset-[14dvh] hidden opacity-80 blur-[3px] md:block'
-                        : 'fixed -inset-[14dvh] hidden opacity-80 md:block'
+                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden blur-[2px] md:block'
+                        : 'dashboard-particle-field fixed -inset-[14dvh] hidden md:block'
                 }
                 style={{
                     height: '128dvh',

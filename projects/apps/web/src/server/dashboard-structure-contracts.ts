@@ -110,6 +110,14 @@ export function formatDashboardStructureExecutionPhase(phase: DashboardStructure
     }
 }
 
+export function formatDashboardStructureExecutionState(execution: DashboardStructureExecutionProgress): string {
+    if (execution.status === 'pause_requested') {
+        return 'Pause requested; finishing the current Fluxer request';
+    }
+
+    return formatDashboardStructureExecutionPhase(execution.phase);
+}
+
 export function createEmptyDecisionSummary(): DashboardStructureDecisionSummary {
     return {
         'no-op': 0,

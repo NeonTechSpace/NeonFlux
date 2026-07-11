@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +30,7 @@ describe('DashboardAuditEventsPanel', () => {
             renderedPanel.unmount();
         }
         vi.clearAllMocks();
+        window.history.replaceState({}, '', '/');
     });
 
     it('renders Server Blueprint import-run targets and metadata without message labels', async () => {
@@ -60,7 +61,12 @@ describe('DashboardAuditEventsPanel', () => {
 
         renderAuditPanel();
 
-        expect(await screen.findByText('structure.import_applied')).toBeTruthy();
+        const action = await screen.findByText('structure.import_applied');
+        const eventDetails = screen.getByRole<HTMLDetailsElement>('listitem');
+
+        expect(eventDetails.open).toBe(false);
+        fireEvent.click(action);
+        expect(eventDetails.open).toBe(true);
         expect(screen.getByText('Import run')).toBeTruthy();
         expect(screen.getByText('run-1')).toBeTruthy();
         expect(screen.getByText('Actions')).toBeTruthy();
@@ -111,6 +117,62 @@ describe('DashboardAuditEventsPanel', () => {
         expect(screen.getByText('Retention deleted')).toBeTruthy();
         expect(screen.getByText('2')).toBeTruthy();
         expect(within(screen.getByRole('list', { name: 'Dashboard audit events' })).queryByText('Message')).toBeNull();
+    });
+
+    it('restores valid URL filters and keeps filter changes shareable', async () => {
+        window.history.replaceState(
+            {},
+            '',
+            '/dashboard/guild-1/events/audit-events?q=operator&scope=actor&retained=value'
+        );
+        vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValue({
+            type: 'events',
+            auditEvents: [],
+        });
+        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
+            type: 'channels',
+            channels: [],
+        });
+
+        renderAuditPanel();
+
+        const searchInput = await screen.findByLabelText('Search events');
+        const scopeSelect = screen.getByLabelText('Search in');
+
+        await waitFor(() => {
+            expect((searchInput as HTMLInputElement).value).toBe('operator');
+            expect((scopeSelect as HTMLSelectElement).value).toBe('actor');
+        });
+        await waitFor(() =>
+            expect(readDashboardAuditEventsRouteData).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    guildId: 'guild-1',
+                    search: 'operator',
+                    searchScope: 'actor',
+                }),
+            })
+        );
+
+        fireEvent.change(searchInput, { target: { value: 'message.sent' } });
+        fireEvent.change(scopeSelect, { target: { value: 'event' } });
+
+        await waitFor(() => {
+            const url = new URL(window.location.href);
+
+            expect(url.searchParams.get('q')).toBe('message.sent');
+            expect(url.searchParams.get('scope')).toBe('event');
+            expect(url.searchParams.get('retained')).toBe('value');
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+        await waitFor(() => {
+            const url = new URL(window.location.href);
+
+            expect(url.searchParams.has('q')).toBe(false);
+            expect(url.searchParams.has('scope')).toBe(false);
+            expect(url.searchParams.get('retained')).toBe('value');
+        });
     });
 });
 

@@ -22,6 +22,7 @@ import type {
 } from './dashboard-embed-builder.js';
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
+import { DashboardStatus, DashboardSurface } from './dashboard-ui.js';
 
 type PostingFormMessage = {
     type: 'error' | 'success' | 'warning';
@@ -179,15 +180,20 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     }
 
     return (
-        <article className='rounded-lg border border-neutral-800 bg-neutral-900 p-4' aria-busy={mutation.isPending}>
-            <div>
-                <h2 className='text-lg font-semibold text-white'>Posting</h2>
-                <p className='mt-2 text-sm leading-6 text-neutral-400'>
-                    Send plain text or Fluxer embed payloads as NeonFlux.
-                </p>
-            </div>
+        <form
+            className='grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]'
+            onSubmit={submitMessage}
+            aria-busy={mutation.isPending}>
+            <DashboardSurface as='section' className='space-y-5' aria-labelledby='message-composer-heading'>
+                <div className='border-b border-[var(--dash-border)] pb-4'>
+                    <h3 id='message-composer-heading' className='text-base font-semibold text-[var(--dash-text)]'>
+                        Compose message
+                    </h3>
+                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                        Choose the destination, write the message, and review the Fluxer preview before sending.
+                    </p>
+                </div>
 
-            <form className='mt-4 flex flex-col gap-3' onSubmit={submitMessage}>
                 <DashboardChannelPicker
                     channels={channelsQuery.data ?? []}
                     hasError={channelsQuery.isError}
@@ -211,7 +217,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     }}
                 />
 
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                     <span>Message content</span>
                     <textarea
                         value={content}
@@ -219,17 +225,18 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                             setContent(event.currentTarget.value);
                             setFormMessage(undefined);
                         }}
-                        className='min-h-28 w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                        className={fieldClassName}
+                        placeholder='Write the message NeonFlux should send.'
                     />
                 </label>
 
                 <fieldset className='space-y-3'>
-                    <legend className='text-sm font-medium text-neutral-200'>Embed mode</legend>
-                    <div className='flex flex-wrap gap-2' role='radiogroup' aria-label='Embed mode'>
+                    <legend className='text-sm font-medium text-[var(--dash-text)]'>Embed editor</legend>
+                    <div className='flex flex-wrap gap-2' role='radiogroup' aria-label='Embed editor'>
                         <EmbedModeOption
                             mode='builder'
                             currentMode={embedMode}
-                            label='Builder'
+                            label='Visual builder'
                             onChange={(mode) => {
                                 setEmbedMode(mode);
                                 setFormMessage(undefined);
@@ -256,7 +263,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         }}
                     />
                 ) : (
-                    <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                    <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                         <span>Embed JSON</span>
                         <textarea
                             value={embedJson}
@@ -264,7 +271,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                                 setEmbedJson(event.currentTarget.value);
                                 setFormMessage(undefined);
                             }}
-                            className='min-h-32 w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                            className={`${fieldClassName} min-h-48 font-mono text-sm`}
                             placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
                             spellCheck={false}
                         />
@@ -285,33 +292,45 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     }}
                     onMessage={setFormMessage}
                 />
+            </DashboardSurface>
 
+            <aside className='min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start' aria-label='Preview and delivery'>
                 <DashboardPostingPreview content={content} embeds={previewEmbeds} />
-
-                <div className='flex flex-wrap items-center gap-3'>
-                    <button
-                        type='submit'
-                        disabled={mutation.isPending || deliveryUncertain}
-                        className='inline-flex min-h-10 items-center rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        {mutation.isPending ? 'Sending...' : 'Send message'}
-                    </button>
-                    {deliveryUncertain ? (
+                <DashboardSurface as='section' tone='raised' padding='compact' aria-label='Message delivery'>
+                    <div className='flex flex-wrap items-center gap-3'>
                         <button
-                            type='button'
-                            onClick={() => {
-                                setDeliveryUncertain(false);
-                                setFormMessage({ type: 'warning', text: 'A new posting attempt is ready.' });
-                            }}
-                            className='inline-flex min-h-10 items-center rounded-md border border-amber-700 px-4 text-sm font-semibold text-amber-100 transition hover:border-amber-400 focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none'>
-                            Start new attempt
+                            type='submit'
+                            disabled={mutation.isPending || deliveryUncertain}
+                            className={primaryButtonClassName}>
+                            {mutation.isPending ? 'Sending…' : 'Send message'}
                         </button>
-                    ) : null}
-                    <span role='status' className={getFormMessageClassName(formMessage?.type)}>
-                        {formMessage?.text}
-                    </span>
-                </div>
-            </form>
-        </article>
+                        {deliveryUncertain ? (
+                            <button
+                                type='button'
+                                onClick={() => {
+                                    setDeliveryUncertain(false);
+                                    setFormMessage({ type: 'warning', text: 'A new posting attempt is ready.' });
+                                }}
+                                className={warningButtonClassName}>
+                                Start new attempt
+                            </button>
+                        ) : null}
+                    </div>
+                    {formMessage ? (
+                        <div className='mt-3'>
+                            <DashboardStatus tone={getFormMessageTone(formMessage.type)}>
+                                {formMessage.text}
+                            </DashboardStatus>
+                        </div>
+                    ) : (
+                        <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>
+                            Sending is immediate. If delivery cannot be confirmed, NeonFlux stops before another attempt
+                            can begin.
+                        </p>
+                    )}
+                </DashboardSurface>
+            </aside>
+        </form>
     );
 }
 
@@ -330,8 +349,8 @@ function EmbedModeOption({
         <label
             className={
                 currentMode === mode
-                    ? 'inline-flex min-h-9 items-center rounded-md border border-sky-400 bg-sky-400/10 px-3 text-sm font-semibold text-sky-100'
-                    : 'inline-flex min-h-9 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-200 transition hover:border-neutral-500'
+                    ? 'inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-primary-ring)] px-3 text-sm font-semibold text-[var(--dash-text)]'
+                    : 'inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
             }>
             <span>{label}</span>
             <span className='sr-only'>
@@ -397,18 +416,22 @@ function getActiveEmbeds({
     };
 }
 
-function getFormMessageClassName(type: PostingFormMessage['type'] | undefined): string {
+function getFormMessageTone(type: PostingFormMessage['type']): 'danger' | 'success' | 'warning' {
     switch (type) {
         case 'success':
-            return 'text-sm text-emerald-300';
+            return 'success';
 
         case 'warning':
-            return 'text-sm text-amber-300';
+            return 'warning';
 
         case 'error':
-            return 'text-sm text-rose-300';
-
-        case undefined:
-            return 'text-sm text-neutral-400';
+            return 'danger';
     }
 }
+
+const fieldClassName =
+    'min-h-28 w-full resize-y rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-base text-[var(--dash-text)] outline-none transition placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]';
+const primaryButtonClassName =
+    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-muted)] disabled:text-[var(--dash-text-disabled)]';
+const warningButtonClassName =
+    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] border border-amber-400/50 px-4 text-sm font-semibold text-amber-100 transition hover:border-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300';

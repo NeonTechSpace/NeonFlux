@@ -36,9 +36,12 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
                 <DashboardShell>
                     <header className='flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[var(--dash-border)] pb-5'>
                         <div className='min-w-0'>
-                            <h1 className='text-3xl font-semibold text-[var(--dash-text)] [text-shadow:0_2px_18px_rgba(0,0,0,0.72)]'>
+                            <h1 className='text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>
                                 Choose server
                             </h1>
+                            <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                                Open a server you can manage with this Fluxer account.
+                            </p>
                         </div>
                         <div className='flex shrink-0 items-center gap-2'>
                             {viewModel.botInviteUrl ? (
@@ -87,12 +90,12 @@ function DashboardNoManageableServers({ botInviteUrl }: { botInviteUrl?: string 
             <div className='flex shrink-0 justify-end'>
                 <DashboardDisplayControls variant='inline' />
             </div>
-            <section className='dashboard-glass-panel mx-auto grid min-h-[24rem] max-w-3xl place-items-center p-8 text-center'>
+            <section className='dashboard-surface mx-auto grid min-h-[24rem] max-w-3xl place-items-center p-8 text-center'>
                 <div className='max-w-xl'>
-                    <div className='mx-auto grid size-14 place-items-center rounded-full border border-[rgba(56,189,248,0.32)] bg-[rgba(56,189,248,0.12)] text-[var(--dash-primary)] shadow-[0_0_32px_rgba(56,189,248,0.2)]'>
+                    <div className='mx-auto grid size-14 place-items-center rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-[var(--dash-primary)]'>
                         <Server className='size-6' aria-hidden='true' />
                     </div>
-                    <h1 className='mt-5 text-3xl font-semibold tracking-tight text-[var(--dash-text)] [text-shadow:0_2px_18px_rgba(0,0,0,0.72)]'>
+                    <h1 className='mt-5 text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>
                         No servers available
                     </h1>
                     <p className='mt-3 text-[0.98rem] leading-7 text-[var(--dash-text-muted)]'>
@@ -136,21 +139,14 @@ function DashboardGuildItem({ guild, mode }: { guild: DashboardViewModelGuild; m
                 preload='intent'
                 state={withDashboardGuildPreview(preview)}
                 aria-label={`Open ${guild.name} dashboard`}
-                className='group relative flex min-h-[6.75rem] items-center gap-3 overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(148,163,184,0.28)] bg-[linear-gradient(135deg,rgba(8,13,25,0.9),rgba(12,18,30,0.86)_56%,rgba(32,15,41,0.66))] p-3 shadow-[var(--dash-shadow-surface)] transition hover:border-[var(--dash-border-interactive)] hover:bg-[linear-gradient(135deg,rgba(10,18,32,0.96),rgba(18,25,40,0.9)_56%,rgba(42,18,54,0.74))] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                <span
-                    className='absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(34,211,238,0.86),rgba(167,139,250,0.56),rgba(250,204,21,0.48))]'
-                    aria-hidden='true'
-                />
+                className='dashboard-surface group flex min-h-[6.75rem] items-center gap-3 p-3 transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
                 <div className='flex min-w-0 flex-1 items-center gap-3'>
                     <DashboardGuildIcon guild={guild} />
                     <div className='min-w-0 flex-1'>
                         <h3 className='truncate text-lg font-semibold text-[var(--dash-text)]'>{guild.name}</h3>
-                        <p className='mt-1 max-w-full truncate font-mono text-[0.72rem] text-[var(--dash-text-subtle)]'>
-                            {guild.id}
-                        </p>
                     </div>
                 </div>
-                <span className='grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[rgba(56,189,248,0.22)] bg-[rgba(56,189,248,0.08)] text-[var(--dash-primary)] opacity-80 transition group-hover:border-[rgba(56,189,248,0.54)] group-hover:bg-[rgba(56,189,248,0.14)] group-hover:opacity-100'>
+                <span className='grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] transition group-hover:border-[var(--dash-primary)]'>
                     <ArrowUpRight className='size-4' aria-hidden='true' />
                 </span>
             </Link>

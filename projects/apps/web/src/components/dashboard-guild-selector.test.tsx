@@ -24,7 +24,7 @@ describe('DashboardGuildSelector', () => {
         });
     });
 
-    it('renders the configured invite action before manageable guilds', () => {
+    it('renders the configured invite action with manageable guilds', () => {
         renderGuildSelector(
             <DashboardGuildSelector
                 guilds={createGuilds()}
@@ -36,14 +36,13 @@ describe('DashboardGuildSelector', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Show server picker' }));
 
-        const inviteLinks = screen.getAllByRole('link', { name: 'Invite bot' });
+        const inviteLink = screen.getByRole('link', { name: 'Invite bot' });
 
-        expect(inviteLinks.length).toBeGreaterThan(0);
-        expect(inviteLinks[0]?.getAttribute('href')).toBe(
+        expect(inviteLink.getAttribute('href')).toBe(
             'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
         );
         expect(screen.queryByRole('link', { name: 'Guild One' })).toBeNull();
-        expect(screen.getAllByRole('link', { name: 'Guild Two' }).length).toBeGreaterThan(0);
+        expect(screen.getByRole('link', { name: 'Guild Two' })).toBeDefined();
     });
 
     it('hides the invite action when no invite URL is configured', () => {
@@ -70,12 +69,12 @@ describe('DashboardGuildSelector', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Show server picker' }));
 
         expect(screen.queryByRole('link', { name: 'Guild One' })).toBeNull();
-        expect(screen.getAllByRole('link', { name: 'Guild Two' })[0]?.getAttribute('href')).toBe(
+        expect(screen.getByRole('link', { name: 'Guild Two' }).getAttribute('href')).toBe(
             '/dashboard/guild-2/access/autoroles'
         );
     });
 
-    it('opens the mobile server menu and can sort guilds by name', () => {
+    it('opens the compact picker and can sort guilds by name', () => {
         renderGuildSelector(
             <DashboardGuildSelector
                 guilds={[
@@ -87,18 +86,15 @@ describe('DashboardGuildSelector', () => {
             />
         );
 
-        const expandButton = screen.getByRole('button', { name: 'Expand servers' });
+        const expandButton = screen.getByRole('button', { name: 'Show server picker' });
         expect(expandButton.getAttribute('aria-expanded')).toBe('false');
 
         fireEvent.click(expandButton);
 
-        const collapseButton = screen.getByRole('button', { name: 'Collapse servers' });
+        const collapseButton = screen.getByRole('button', { name: 'Hide server picker' });
         expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
 
-        const sortButton = screen.getAllByRole('button', { name: 'Sort servers by name' }).at(0);
-        if (!sortButton) {
-            throw new Error('Expected a sort servers button.');
-        }
+        const sortButton = screen.getByRole('button', { name: 'Sort servers by name' });
 
         fireEvent.click(sortButton);
 
@@ -119,13 +115,14 @@ describe('DashboardGuildSelector', () => {
             .filter((text): text is 'Alpha Guild' | 'Zulu Guild' => Boolean(text));
 
         expect(guildNames.slice(0, 1)).toStrictEqual(['Alpha Guild']);
-        expect(screen.getAllByRole('button', { name: 'Use recent server order' }).length).toBeGreaterThan(0);
+        expect(screen.getByRole('button', { name: 'Use recent server order' })).toBeDefined();
     });
 
-    it('persists desktop visibility and sort order while keeping mobile menu initially closed', () => {
+    it('filters manageable guilds without leaking server identifiers', () => {
         const guilds = [
             { id: 'guild-z', name: 'Zulu Guild' },
             { id: 'guild-a', name: 'Alpha Guild' },
+            { id: 'guild-b', name: 'Beta Guild' },
         ];
 
         renderGuildSelector(
@@ -133,43 +130,13 @@ describe('DashboardGuildSelector', () => {
         );
 
         fireEvent.click(screen.getByRole('button', { name: 'Show server picker' }));
-        const desktopSortButton = screen.getAllByRole('button', { name: 'Sort servers by name' }).at(0);
-        if (!desktopSortButton) {
-            throw new Error('Expected a desktop sort servers button.');
-        }
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search servers' }), {
+            target: { value: 'beta' },
+        });
 
-        fireEvent.click(desktopSortButton);
-
-        for (const renderedSelector of renderedSelectors.splice(0)) {
-            renderedSelector.unmount();
-        }
-
-        renderGuildSelector(
-            <DashboardGuildSelector guilds={guilds} activeGuildId='guild-z' pathname='/dashboard/guild-z' />
-        );
-
-        expect(screen.getByRole('button', { name: 'Hide server picker' }).getAttribute('aria-expanded')).toBe('true');
-        expect(screen.getByRole('button', { name: 'Expand servers' }).getAttribute('aria-expanded')).toBe('false');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Expand servers' }));
-
-        const guildNames = screen
-            .getAllByRole('link')
-            .map((link) => link.textContent)
-            .filter((text): text is string => Boolean(text))
-            .map((text) => {
-                if (text.includes('Alpha Guild')) {
-                    return 'Alpha Guild';
-                }
-                if (text.includes('Zulu Guild')) {
-                    return 'Zulu Guild';
-                }
-
-                return undefined;
-            })
-            .filter((text): text is 'Alpha Guild' | 'Zulu Guild' => Boolean(text));
-
-        expect(guildNames.slice(0, 1)).toStrictEqual(['Alpha Guild']);
+        expect(screen.getByRole('link', { name: 'Beta Guild' })).toBeDefined();
+        expect(screen.queryByRole('link', { name: 'Alpha Guild' })).toBeNull();
+        expect(screen.queryByText('guild-b')).toBeNull();
     });
 });
 

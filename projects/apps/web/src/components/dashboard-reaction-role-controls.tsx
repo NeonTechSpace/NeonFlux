@@ -7,6 +7,7 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { GripVertical, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type {
@@ -53,7 +54,7 @@ export function ReactionRoleOptionList({
     return (
         <div className='mt-3'>
             {options.length === 0 ? (
-                <p className='text-sm text-neutral-500'>No options yet. Add up to 30.</p>
+                <p className='text-sm text-[var(--dash-text-muted)]'>No options yet. Add up to 30.</p>
             ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext
@@ -98,24 +99,25 @@ function SortableReactionRoleOption({
             }}
             className={
                 isDragging
-                    ? 'flex items-center gap-3 rounded-md border border-sky-400 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 shadow-lg shadow-sky-950/40'
-                    : 'flex items-center gap-3 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100'
+                    ? 'flex items-center gap-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-surface-raised)] px-3 py-2 text-sm text-[var(--dash-text)] shadow-[var(--dash-shadow-popover)]'
+                    : 'flex items-center gap-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)] px-3 py-2 text-sm text-[var(--dash-text)]'
             }>
             <button
                 type='button'
                 {...attributes}
                 {...listeners}
-                className='cursor-grab rounded border border-neutral-700 px-2 py-1 font-mono text-xs text-neutral-400 active:cursor-grabbing'
+                className='grid size-8 cursor-grab place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] text-[var(--dash-text-muted)] active:cursor-grabbing'
                 aria-label={`Drag ${option.emojiLabel} option`}>
-                ::
+                <GripVertical className='size-4' aria-hidden='true' />
             </button>
             <span className='text-base'>{option.emojiLabel}</span>
             <RoleSwatch color={role?.color ?? 0} />
             <span className='min-w-0 flex-1 truncate'>@{role?.name ?? option.roleId}</span>
             <button
                 type='button'
-                className='text-xs font-semibold text-neutral-400 hover:text-rose-200'
+                className='inline-flex min-h-8 items-center gap-1 rounded-[var(--dash-radius-control)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] hover:bg-rose-400/10 hover:text-rose-100'
                 onClick={onRemove}>
+                <X className='size-3.5' aria-hidden='true' />
                 Remove
             </button>
         </div>
@@ -135,15 +137,15 @@ export function EmojiPicker({
     const matches = useMemo(() => matchEmojis(emojis, query).slice(0, 12), [emojis, query]);
 
     return (
-        <label className='min-w-52 flex-1 space-y-2 text-sm font-medium text-neutral-200'>
+        <label className='min-w-52 flex-1 space-y-2 text-sm font-medium text-[var(--dash-text)]'>
             <span>Emoji</span>
             <input
                 value={selected ? selected.label : query}
                 onChange={(event) => setQuery(event.currentTarget.value)}
-                className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                className={pickerInputClassName}
                 placeholder='Search emoji'
             />
-            <div className='grid max-h-36 grid-cols-4 gap-1 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950 p-1'>
+            <div className='grid max-h-36 grid-cols-4 gap-1 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)] p-1'>
                 {matches.map((emoji) => (
                     <button
                         key={emoji.key}
@@ -152,7 +154,7 @@ export function EmojiPicker({
                             onSelect(emoji);
                             setQuery('');
                         }}
-                        className='min-h-9 rounded text-sm text-neutral-100 transition hover:bg-neutral-800'>
+                        className='min-h-9 rounded text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'>
                         {emoji.custom ? emoji.label : emoji.key}
                     </button>
                 ))}
@@ -174,15 +176,15 @@ export function RolePicker({
     const matches = useMemo(() => matchRoles(roles, query).slice(0, 8), [roles, query]);
 
     return (
-        <label className='min-w-64 flex-1 space-y-2 text-sm font-medium text-neutral-200'>
+        <label className='min-w-64 flex-1 space-y-2 text-sm font-medium text-[var(--dash-text)]'>
             <span>Role</span>
             <input
                 value={selected ? `@${selected.name}` : query}
                 onChange={(event) => setQuery(event.currentTarget.value)}
-                className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                className={pickerInputClassName}
                 placeholder='Search roles'
             />
-            <div className='max-h-36 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950'>
+            <div className='max-h-36 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)]'>
                 {matches.map((role) => (
                     <button
                         key={role.id}
@@ -191,7 +193,7 @@ export function RolePicker({
                             onSelect(role);
                             setQuery('');
                         }}
-                        className='flex min-h-9 w-full items-center gap-2 px-3 text-left text-sm text-neutral-100 transition hover:bg-neutral-800'>
+                        className='flex min-h-9 w-full items-center gap-2 px-3 text-left text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'>
                         <RoleSwatch color={role.color} />
                         <span className='truncate'>@{role.name}</span>
                     </button>
@@ -214,17 +216,18 @@ export function SegmentedControl({
 }) {
     return (
         <fieldset className='space-y-2'>
-            <legend className='text-sm font-medium text-neutral-200'>{label}</legend>
+            <legend className='text-sm font-medium text-[var(--dash-text)]'>{label}</legend>
             <div className='flex flex-wrap gap-2'>
                 {options.map((option) => (
                     <button
                         key={option.value}
                         type='button'
+                        aria-pressed={value === option.value}
                         onClick={() => onChange(option.value)}
                         className={
                             value === option.value
-                                ? 'min-h-9 rounded-md border border-sky-400 bg-sky-400/10 px-3 text-sm font-semibold text-sky-100'
-                                : 'min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-200 transition hover:border-neutral-500'
+                                ? 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-primary-ring)] px-3 text-sm font-semibold text-[var(--dash-text)]'
+                                : 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
                         }>
                         {option.label}
                     </button>
@@ -242,6 +245,9 @@ function RoleSwatch({ color }: { color: number }) {
         />
     );
 }
+
+const pickerInputClassName =
+    'min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 text-base text-[var(--dash-text)] outline-none placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]';
 
 function matchEmojis(emojis: DashboardReactionRoleEmoji[], query: string): DashboardReactionRoleEmoji[] {
     const normalizedQuery = normalizeSearchText(query);

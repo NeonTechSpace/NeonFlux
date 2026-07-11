@@ -62,9 +62,11 @@ export function DashboardChannelPicker({
                     role='listbox'>
                     {matchedChannels.length > 0 ? (
                         matchedChannels.map((channel) => (
-                            <li key={channel.id} role='option' aria-selected={selectedChannelId === channel.id}>
+                            <li key={channel.id} role='none'>
                                 <button
                                     type='button'
+                                    role='option'
+                                    aria-selected={selectedChannelId === channel.id}
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => onSelect(channel)}
                                     className='flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--dash-radius-control)] px-3 text-left text-sm text-[var(--dash-text)] transition hover:bg-[rgba(56,189,248,0.14)] focus:bg-[rgba(56,189,248,0.14)] focus:outline-none'>
@@ -76,7 +78,13 @@ export function DashboardChannelPicker({
                             </li>
                         ))
                     ) : (
-                        <li className='px-3 py-3 text-sm text-[var(--dash-text-muted)]'>No matching channels.</li>
+                        <li
+                            role='option'
+                            aria-selected='false'
+                            aria-disabled='true'
+                            className='px-3 py-3 text-sm text-[var(--dash-text-muted)]'>
+                            No matching channels.
+                        </li>
                     )}
                 </ul>
             ) : null}

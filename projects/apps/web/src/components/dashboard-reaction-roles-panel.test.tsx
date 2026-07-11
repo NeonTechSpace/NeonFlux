@@ -2,14 +2,17 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    deleteDashboardReactionRoleMessageRouteData,
     readDashboardReactionRolesSettingsRouteData,
     retryDashboardReactionRoleMembersRouteData,
     retryDashboardReactionRoleOperationRouteData,
 } from '../server/dashboard-reaction-roles-route-data.js';
 import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
+
+let unmountPanel: (() => void) | undefined;
 
 vi.mock('../server/dashboard-reaction-roles-route-data.js', () => ({
     deleteDashboardReactionRoleMessageRouteData: vi.fn(),
@@ -21,6 +24,8 @@ vi.mock('../server/dashboard-reaction-roles-route-data.js', () => ({
 }));
 
 describe('reaction-role operation status', () => {
+    afterEach(() => unmountPanel?.());
+
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue({
@@ -61,14 +66,16 @@ describe('reaction-role operation status', () => {
     });
 
     it('requires explicit orphan confirmation before retrying an uncertain publish', async () => {
-        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
         renderPanel();
 
         expect((await screen.findByText('Needs administrator attention')).textContent).toContain('Needs');
         expect(screen.getByText(/will not retry automatically/i).textContent).toContain('will not retry');
-        fireEvent.click(screen.getByRole('button', { name: /removed any orphan/i }));
+        fireEvent.click(screen.getByRole('button', { name: /verify channel, then retry/i }));
 
-        expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Confirm that you checked'));
+        expect(retryDashboardReactionRoleOperationRouteData).not.toHaveBeenCalled();
+        expect(screen.getByText(/select the retry action again/i)).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: /confirm channel is clear/i }));
+
         await waitFor(() =>
             expect(retryDashboardReactionRoleOperationRouteData).toHaveBeenCalledWith({
                 data: {
@@ -122,13 +129,54 @@ describe('reaction-role operation status', () => {
             })
         );
     });
+
+    it('reenables delete after a rejected cleanup request', async () => {
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue({
+            channels: [],
+            emojiReadStatus: 'available',
+            emojis: [],
+            messages: [
+                {
+                    id: 'menu-1',
+                    channelId: 'channel-1',
+                    messageId: 'message-1',
+                    mode: 'normal',
+                    source: 'dashboard',
+                    messageContent: 'Choose',
+                    messageEmbeds: [],
+                    generateOverview: false,
+                    enabled: true,
+                    lifecycle: 'ready',
+                    revision: 1,
+                    updatedAt: '2026-07-10T08:00:00.000Z',
+                    options: [],
+                },
+            ],
+            operations: [],
+            roles: [],
+            structureReadStatus: 'available',
+            type: 'settings',
+        });
+        vi.mocked(deleteDashboardReactionRoleMessageRouteData).mockRejectedValue(new Error('offline'));
+        renderPanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+        expect(await screen.findByText('Could not delete that reaction-role menu.')).toBeTruthy();
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'Delete' }).hasAttribute('disabled')).toBe(false)
+        );
+    });
 });
 
 function renderPanel() {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(
+    const view = render(
         <QueryClientProvider client={queryClient}>
             <DashboardReactionRolesPanel guildId='guild-1' />
         </QueryClientProvider>
     );
+    unmountPanel = view.unmount;
+    return view;
 }

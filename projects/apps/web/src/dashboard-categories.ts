@@ -42,6 +42,18 @@ export type DashboardCategoryId =
     | 'structure'
     | 'system';
 
+export type DashboardNavigationJobId =
+    | 'overview'
+    | 'create-deliver'
+    | 'members-access'
+    | 'community'
+    | 'safety-support'
+    | 'insights-activity'
+    | 'blueprint'
+    | 'settings';
+
+export type DashboardCapabilityScope = 'guild' | 'account' | 'platform';
+
 type DashboardCategoryTo =
     | '/dashboard/$guildId'
     | '/dashboard/$guildId/messaging'
@@ -99,6 +111,9 @@ export type DashboardCategoryDefinition = {
 
 export type DashboardSubNavigationItem = {
     id: string;
+    categoryId: DashboardCategoryId;
+    navigationJobId: DashboardNavigationJobId;
+    scope: DashboardCapabilityScope;
     label: string;
     description: string;
     to: DashboardSubNavigationTo;
@@ -107,20 +122,30 @@ export type DashboardSubNavigationItem = {
     status: 'implemented' | 'placeholder';
 };
 
+export type DashboardNavigationJobDefinition = {
+    id: DashboardNavigationJobId;
+    label: string;
+    description: string;
+    icon: LucideIcon;
+    routeCategoryIds: readonly DashboardCategoryId[];
+};
+
+type DashboardSubNavigationSetting = Omit<DashboardSubNavigationItem, 'categoryId' | 'navigationJobId' | 'scope'>;
+
 type DashboardNavigationCategorySetting = DashboardCategoryDefinition & {
-    items: readonly DashboardSubNavigationItem[];
+    items: readonly DashboardSubNavigationSetting[];
 };
 
 export type DashboardNavigationEntry =
     | {
-          category: DashboardCategoryDefinition;
+          category: DashboardNavigationJobDefinition;
           defaultSubNavigationTo?: DashboardSubNavigationTo;
           linkTo: DashboardCategoryTo | DashboardSubNavigationTo;
           subNavigation: readonly DashboardSubNavigationItem[];
           type: 'direct';
       }
     | {
-          category: DashboardCategoryDefinition;
+          category: DashboardNavigationJobDefinition;
           defaultSubNavigationTo: DashboardSubNavigationTo;
           linkTo: DashboardSubNavigationTo;
           subNavigation: readonly DashboardSubNavigationItem[];
@@ -457,29 +482,110 @@ const dashboardNavigationSettings = [
     },
 ] as const satisfies readonly DashboardNavigationCategorySetting[];
 
+const dashboardNavigationJobs = [
+    {
+        id: 'overview',
+        label: 'Overview',
+        description: 'Server pulse, attention, and recent activity.',
+        icon: BarChart3,
+        routeCategoryIds: ['overview'],
+    },
+    {
+        id: 'create-deliver',
+        label: 'Create & Deliver',
+        description: 'Compose messages and manage outbound delivery.',
+        icon: MessageSquareText,
+        routeCategoryIds: ['messaging'],
+    },
+    {
+        id: 'members-access',
+        label: 'Members & Access',
+        description: 'Member roles, verification, and effective access.',
+        icon: ShieldCheck,
+        routeCategoryIds: ['access'],
+    },
+    {
+        id: 'community',
+        label: 'Community',
+        description: 'Member programs and participation workflows.',
+        icon: UsersRound,
+        routeCategoryIds: ['community'],
+    },
+    {
+        id: 'safety-support',
+        label: 'Safety & Support',
+        description: 'Moderation, policy, cases, and member support.',
+        icon: Bot,
+        routeCategoryIds: ['moderation', 'community'],
+    },
+    {
+        id: 'insights-activity',
+        label: 'Insights & Activity',
+        description: 'Growth, attribution, audit events, and logging.',
+        icon: ChartNoAxesCombined,
+        routeCategoryIds: ['insights', 'events'],
+    },
+    {
+        id: 'blueprint',
+        label: 'Server Blueprint',
+        description: 'Inspect, compare, back up, and safely deploy server layout changes.',
+        icon: GitBranch,
+        routeCategoryIds: ['structure'],
+    },
+    {
+        id: 'settings',
+        label: 'Settings',
+        description: 'Bot behavior and guild-owned integration settings.',
+        icon: Settings2,
+        routeCategoryIds: ['general', 'system'],
+    },
+] as const satisfies readonly DashboardNavigationJobDefinition[];
+
 export const dashboardCategories = dashboardNavigationSettings.map(({ items: _items, ...category }) => category);
 
-export const dashboardNavigationEntries = dashboardNavigationSettings.map((setting): DashboardNavigationEntry => {
-    const { items, ...category } = setting;
-    const defaultSubNavigationTo = items.at(0)?.to;
+export const dashboardCapabilities = dashboardNavigationSettings.flatMap((setting) =>
+    setting.items.map(
+        (item): DashboardSubNavigationItem => ({
+            ...item,
+            categoryId: setting.id,
+            navigationJobId: getCapabilityNavigationJobId(setting.id, item.id),
+            scope: getCapabilityScope(setting.id, item.id),
+        })
+    )
+);
 
-    if (items.length > 1 && defaultSubNavigationTo) {
-        return {
-            category,
-            defaultSubNavigationTo,
-            linkTo: defaultSubNavigationTo,
-            subNavigation: items,
-            type: 'group',
-        };
+export const dashboardNavigationEntries = dashboardNavigationJobs.flatMap((job): DashboardNavigationEntry[] => {
+    const availableItems = dashboardCapabilities.filter(
+        (item) => item.navigationJobId === job.id && item.scope === 'guild' && item.status === 'implemented'
+    );
+    const defaultSubNavigationTo = availableItems.at(0)?.to;
+    const directCategory = getDirectNavigationCategory(job.id);
+
+    if (!directCategory && availableItems.length === 0) {
+        return [];
     }
 
-    return {
-        category,
-        ...(defaultSubNavigationTo ? { defaultSubNavigationTo } : {}),
-        linkTo: defaultSubNavigationTo ?? category.to,
-        subNavigation: items,
-        type: 'direct',
-    };
+    if (availableItems.length > 1 && defaultSubNavigationTo) {
+        return [
+            {
+                category: job,
+                defaultSubNavigationTo,
+                linkTo: defaultSubNavigationTo,
+                subNavigation: availableItems,
+                type: 'group',
+            },
+        ];
+    }
+
+    return [
+        {
+            category: job,
+            ...(defaultSubNavigationTo ? { defaultSubNavigationTo } : {}),
+            linkTo: defaultSubNavigationTo ?? directCategory?.to ?? '/dashboard/$guildId',
+            subNavigation: availableItems,
+            type: 'direct',
+        },
+    ];
 });
 
 export function getDashboardCategory(id: DashboardCategoryId): DashboardCategoryDefinition {
@@ -493,7 +599,7 @@ export function getDashboardCategory(id: DashboardCategoryId): DashboardCategory
 }
 
 export function getDashboardCategorySubNavigation(id: DashboardCategoryId): readonly DashboardSubNavigationItem[] {
-    return getDashboardNavigationSetting(id).items;
+    return dashboardCapabilities.filter((item) => item.categoryId === id);
 }
 
 export function getDashboardSubNavigationItem(id: DashboardCategoryId, itemId: string): DashboardSubNavigationItem {
@@ -507,7 +613,11 @@ export function getDashboardSubNavigationItem(id: DashboardCategoryId, itemId: s
 }
 
 function getDefaultDashboardSubNavigationTo(id: DashboardCategoryId): DashboardSubNavigationTo | undefined {
-    return getDashboardCategorySubNavigation(id).at(0)?.to;
+    const items = getDashboardCategorySubNavigation(id);
+
+    // Existing category index routes remain compatible while preferring a surface that
+    // users can actually operate when one is available.
+    return items.find((item) => item.status === 'implemented')?.to ?? items.at(0)?.to;
 }
 
 export function getRequiredDefaultDashboardSubNavigationTo(id: DashboardCategoryId): DashboardSubNavigationTo {
@@ -538,7 +648,9 @@ export function getDashboardCategoryIdFromPathname(guildId: string, pathname: st
 }
 
 export function getDashboardNavigationEntry(id: DashboardCategoryId): DashboardNavigationEntry {
-    const entry = dashboardNavigationEntries.find((candidate) => candidate.category.id === id);
+    const entry = dashboardNavigationEntries.find((candidate) =>
+        candidate.category.routeCategoryIds.some((categoryId) => categoryId === id)
+    );
 
     if (!entry) {
         throw new Error(`Unknown dashboard navigation entry: ${id}`);
@@ -547,28 +659,69 @@ export function getDashboardNavigationEntry(id: DashboardCategoryId): DashboardN
     return entry;
 }
 
-function getDashboardNavigationSetting(id: DashboardCategoryId): DashboardNavigationCategorySetting {
-    const setting = dashboardNavigationSettings.find((candidate) => candidate.id === id);
-
-    if (!setting) {
-        throw new Error(`Unknown dashboard category: ${id}`);
+function getDirectNavigationCategory(jobId: DashboardNavigationJobId): DashboardCategoryDefinition | undefined {
+    switch (jobId) {
+        case 'overview':
+            return getDashboardCategory('overview');
+        case 'blueprint':
+            return getDashboardCategory('structure');
+        default:
+            return undefined;
     }
-
-    return setting;
 }
 
-function implemented(...input: SubNavigationInput): DashboardSubNavigationItem {
+function getCapabilityNavigationJobId(categoryId: DashboardCategoryId, itemId: string): DashboardNavigationJobId {
+    switch (categoryId) {
+        case 'messaging':
+            return 'create-deliver';
+        case 'access':
+            return 'members-access';
+        case 'community':
+            return itemId === 'tickets' ? 'safety-support' : 'community';
+        case 'moderation':
+            return 'safety-support';
+        case 'insights':
+        case 'events':
+            return 'insights-activity';
+        case 'general':
+        case 'system':
+            return 'settings';
+        case 'overview':
+            return 'overview';
+        case 'structure':
+            return 'blueprint';
+    }
+}
+
+function getCapabilityScope(categoryId: DashboardCategoryId, itemId: string): DashboardCapabilityScope {
+    if (categoryId !== 'system') {
+        return 'guild';
+    }
+
+    switch (itemId) {
+        case 'oauth-sessions':
+            return 'account';
+        case 'convex-dashboard-data':
+        case 'deployment':
+        case 'documentation':
+            return 'platform';
+        default:
+            return 'guild';
+    }
+}
+
+function implemented(...input: SubNavigationInput): DashboardSubNavigationSetting {
     return subNavigationItem(input, true);
 }
 
-function placeholder(...input: SubNavigationInput): DashboardSubNavigationItem {
+function placeholder(...input: SubNavigationInput): DashboardSubNavigationSetting {
     return subNavigationItem(input, false);
 }
 
 function subNavigationItem(
     [id, label, description, to, icon]: SubNavigationInput,
     isImplemented: boolean
-): DashboardSubNavigationItem {
+): DashboardSubNavigationSetting {
     return {
         id,
         label,

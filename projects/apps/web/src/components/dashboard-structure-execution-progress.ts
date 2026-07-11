@@ -68,6 +68,11 @@ type ProgressTransportHealth = {
     runId: string;
 };
 
+export type DashboardStructureProgressTransport = {
+    mode: 'idle' | 'live' | 'polling' | 'reconnecting' | 'incompatible' | 'unavailable';
+    confirmedAt?: number;
+};
+
 export function useDashboardStructureExecutionProgress({
     guildId,
     runId,
@@ -202,7 +207,8 @@ export function useDashboardStructureExecutionProgress({
 
     useEffect(() => {
         const currentHealth = [liveHealth, pollHealth].filter(
-            (health): health is ProgressTransportHealth => health?.runId === runId
+            (health): health is ProgressTransportHealth =>
+                health !== undefined && runId !== undefined && health.runId === runId
         );
         if (currentHealth.length === 0) return undefined;
 
@@ -333,9 +339,31 @@ export function useDashboardStructureExecutionProgress({
                 undefined
             )?.code;
 
+    const effectiveIssueCode = runId && !convexUrl ? 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE' : issueCode;
+    const liveHealthy =
+        isCurrentTransportHealth(liveHealth, runId) && !isExpiredTransportHealth(liveHealth, runId, healthCheckedAt);
+    const pollHealthy =
+        isCurrentTransportHealth(pollHealth, runId) && !isExpiredTransportHealth(pollHealth, runId, healthCheckedAt);
+    const confirmedAt = Math.max(liveHealthy ? liveHealth.confirmedAt : 0, pollHealthy ? pollHealth.confirmedAt : 0);
+    const transport: DashboardStructureProgressTransport = {
+        mode: !runId
+            ? 'idle'
+            : isProgressProtocolIncompatibility(effectiveIssueCode ?? '')
+              ? 'incompatible'
+              : liveHealthy
+                ? 'live'
+                : pollHealthy
+                  ? 'polling'
+                  : !convexUrl
+                    ? 'unavailable'
+                    : 'reconnecting',
+        ...(confirmedAt > 0 ? { confirmedAt } : {}),
+    };
+
     return {
         execution,
-        issueCode: runId && !convexUrl ? 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE' : issueCode,
+        issueCode: effectiveIssueCode,
+        transport,
         retry: () => {
             const tokenRequest = progressTokenRequestRef.current;
             progressTokenRequestRef.current = undefined;

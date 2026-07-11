@@ -8,15 +8,18 @@ import type {
     DashboardStructureRoleMappingConflict,
 } from '../server/dashboard-structure.server.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
+import { formatDashboardStructureExecutionState } from '../server/dashboard-structure-contracts.js';
 import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureBackupHistory as BackupHistory } from './dashboard-structure-backup-history.js';
 import { DashboardStructureBackupSettings as BackupSettings } from './dashboard-structure-backup-settings.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
 import { DashboardStructureBackupStatus as BackupStatus } from './dashboard-structure-backup-status.js';
 import { DashboardStructureDriftPanel as DriftPanel } from './dashboard-structure-drift-panel.js';
+import { getDashboardStructureDeployStage } from './dashboard-structure-deploy-stage.js';
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
+import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 import type { DashboardStructureExplorerPanelState } from './dashboard-structure-panel-explorer-state.js';
 import { formatDate, formatObservedState } from './dashboard-structure-panel-format.js';
 import { RestorePointShortcutNotice, StatusMessage } from './dashboard-structure-panel-shared.js';
@@ -346,7 +349,7 @@ function DeploySurface({
     workspace: DashboardStructurePanelViewProps;
     forceSourceDetails: boolean;
 }) {
-    const stage = getDeployStage(workspace.latestRun);
+    const stage = getDashboardStructureDeployStage(workspace.latestRun);
 
     return (
         <section aria-labelledby='blueprint-deploy-heading' className='mx-auto max-w-[76rem]'>
@@ -359,26 +362,23 @@ function DeploySurface({
                 </p>
             </div>
             <ol className='grid border-b border-[var(--dash-border)] md:grid-cols-4' aria-label='Deployment stages'>
-                {[
-                    'Source',
-                    'Review',
-                    'Safety check',
-                    stage === 4 && workspace.latestRun?.status === 'failed' ? 'Recover' : 'Apply',
-                ].map((label, index) => (
-                    <li
-                        key={label}
-                        aria-current={stage === index + 1 ? 'step' : undefined}
-                        className={`border-b-2 px-1 py-4 text-sm ${
-                            stage === index + 1
-                                ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
-                                : index + 1 < stage
-                                  ? 'border-transparent text-[var(--dash-text-muted)]'
-                                  : 'border-transparent text-[var(--dash-text-subtle)]'
-                        }`}>
-                        <span className='mr-2 font-mono text-xs'>{index + 1}</span>
-                        {label}
-                    </li>
-                ))}
+                {['Source', 'Review', 'Safety check', getBlueprintApplyStageLabel(workspace.latestRun)].map(
+                    (label, index) => (
+                        <li
+                            key={label}
+                            aria-current={stage === index + 1 ? 'step' : undefined}
+                            className={`border-b-2 px-1 py-4 text-sm ${
+                                stage === index + 1
+                                    ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
+                                    : index + 1 < stage
+                                      ? 'border-transparent text-[var(--dash-text-muted)]'
+                                      : 'border-transparent text-[var(--dash-text-subtle)]'
+                            }`}>
+                            <span className='mr-2 font-mono text-xs'>{index + 1}</span>
+                            {label}
+                        </li>
+                    )
+                )}
             </ol>
 
             {stage === 1 || forceSourceDetails ? (
@@ -402,6 +402,14 @@ function DeploySurface({
                         onRecoveryPlan={workspace.onRecoveryPlan}
                     />
                 </div>
+            ) : null}
+            {stage === 4 && canStartNewBlueprintDeployment(workspace.latestRun) ? (
+                <details className='mt-6 border-y border-[var(--dash-border)]'>
+                    <summary className='cursor-pointer list-none py-4 text-sm font-semibold text-[var(--dash-primary)] marker:hidden'>
+                        Start a new deployment
+                    </summary>
+                    <DeploySource workspace={workspace} forceDetailsOpen={false} />
+                </details>
             ) : null}
             {workspace.executionProgressIssue ? (
                 <ExecutionProgressIssue
@@ -607,17 +615,17 @@ function RunsSurface({
             {workspace.importRuns.length === 0 ? (
                 <p className='py-10 text-sm text-[var(--dash-text-muted)]'>No deployment plans yet.</p>
             ) : (
-                <div role='table' aria-label='Deployment runs'>
+                <div role='list' aria-label='Deployment runs'>
                     <div
-                        role='row'
+                        aria-hidden='true'
                         className='hidden grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] gap-4 border-b border-[var(--dash-border)] px-2 py-2 text-xs text-[var(--dash-text-subtle)] md:grid'>
-                        <span role='columnheader'>Started</span>
-                        <span role='columnheader'>Planned changes</span>
-                        <span role='columnheader'>State</span>
-                        <span role='columnheader'>Action</span>
+                        <span>Started</span>
+                        <span>Planned changes</span>
+                        <span>State</span>
+                        <span>Action</span>
                     </div>
                     {workspace.importRuns.map((run) => (
-                        <details key={run.id} className='group border-b border-[var(--dash-border)]'>
+                        <details key={run.id} role='listitem' className='group border-b border-[var(--dash-border)]'>
                             <summary className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'>
                                 <span className='text-sm text-[var(--dash-text-muted)]'>
                                     {formatDate(run.createdAt)}
@@ -669,22 +677,55 @@ function RunsSurface({
     );
 }
 
-function getDeployStage(run: DashboardStructureImportRun | undefined): 1 | 2 | 3 | 4 {
-    if (!run) return 1;
-    if (run.status === 'building' || run.status === 'needs_mapping' || run.status === 'review_ready') return 2;
-    if (run.status === 'approved') return 3;
-    return 4;
-}
-
 function formatRunStatus(run: DashboardStructureImportRun): string {
+    if (run.execution) {
+        switch (run.execution.status) {
+            case 'succeeded':
+                return 'Applied and verified';
+            case 'partially_applied':
+                return 'Partially applied';
+            case 'failed_before_mutation':
+                return 'Stopped before server changes';
+            case 'needs_reconciliation':
+                return 'Reconciliation required';
+            case 'outcome_unknown':
+                return 'Server outcome unknown';
+            case 'cancelled':
+                return 'Cancelled';
+            default:
+                return formatDashboardStructureExecutionState(run.execution);
+        }
+    }
+
     switch (run.status) {
         case 'review_ready':
             return 'Waiting for review';
         case 'approved':
             return 'Waiting for safety check';
         default:
-            return run.execution?.status.replaceAll('_', ' ') ?? run.status.replaceAll('_', ' ');
+            return run.status.replaceAll('_', ' ');
     }
+}
+
+function requiresBlueprintRecovery(run: DashboardStructureImportRun | undefined): boolean {
+    if (!run) return false;
+    if (run.recoveryAvailable) return true;
+    if (!run.execution) return run.status === 'failed';
+
+    return ['partially_applied', 'needs_reconciliation', 'outcome_unknown'].includes(run.execution.status);
+}
+
+function getBlueprintApplyStageLabel(run: DashboardStructureImportRun | undefined): string {
+    if (run?.execution?.status === 'failed_before_mutation') return 'Retry';
+    if (requiresBlueprintRecovery(run)) return 'Recover';
+    if (run?.execution?.status === 'succeeded') return 'Complete';
+    return 'Apply';
+}
+
+function canStartNewBlueprintDeployment(run: DashboardStructureImportRun | undefined): boolean {
+    if (!run?.execution) return false;
+
+    return ['succeeded', 'failed_before_mutation', 'cancelled'].includes(run.execution.status);
 }
 
 function ExecutionProgressIssue({
@@ -698,18 +739,28 @@ function ExecutionProgressIssue({
     retryLabel: string;
     onRetry: () => void;
 }) {
+    const retryable =
+        code !== 'BLUEPRINT_EXECUTION_PROTOCOL_INCOMPATIBLE' &&
+        code !== 'BLUEPRINT_PROGRESS_BACKEND_INCOMPATIBLE' &&
+        code !== 'BLUEPRINT_LOAD_BACKEND_INCOMPATIBLE';
+
     return (
         <div className='mt-4 flex flex-wrap items-center justify-between gap-3 border border-amber-400/30 bg-amber-950/20 p-3'>
             <div>
                 <p className='text-xs text-amber-100'>{message}</p>
-                <p className='mt-1 font-mono text-[11px] text-neutral-500'>Diagnostic: {code}</p>
+                <details className='mt-1 text-[11px] text-[var(--dash-text-subtle)]'>
+                    <summary className='cursor-pointer'>Technical details</summary>
+                    <code className='mt-1 block'>{code}</code>
+                </details>
             </div>
-            <button
-                type='button'
-                onClick={onRetry}
-                className='rounded border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100'>
-                {retryLabel}
-            </button>
+            {retryable ? (
+                <button
+                    type='button'
+                    onClick={onRetry}
+                    className='rounded border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100'>
+                    {retryLabel}
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -742,6 +793,7 @@ export type DashboardStructurePanelViewProps = {
     editingBackupName: string;
     enabledDraft: boolean;
     executionProgressIssue: { code: string; runId: string } | undefined;
+    executionTransport: DashboardStructureProgressTransport;
     explorer: DashboardStructureExplorerPanelState;
     importJson: string;
     importRuns: DashboardStructureImportRun[];

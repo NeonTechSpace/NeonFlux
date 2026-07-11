@@ -13,6 +13,7 @@ import {
     readDashboardCommandSettingsRouteData,
     updateDashboardCommandPrefixRouteData,
 } from '../server/dashboard-guild-route-data.js';
+import { DashboardStatus, DashboardSurface, DashboardToolbar } from './dashboard-ui.js';
 
 type CommandPrefixFormState = {
     draftPrefix: string;
@@ -67,7 +68,7 @@ export function DashboardCommandPrefixSettingsPanel({
     const externalChangeMessage =
         draftIsDirty && liveCommandSettings.prefix !== formState.draftBasePrefix
             ? {
-                  type: 'success' as const,
+                  type: 'warning' as const,
                   text: `Command prefix changed elsewhere to ${liveCommandSettings.prefix}.`,
               }
             : undefined;
@@ -180,26 +181,27 @@ export function DashboardCommandPrefixSettingsPanel({
     }
 
     return (
-        <article
-            className='relative overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(56,189,248,0.34)] bg-[rgba(7,10,16,0.9)] p-4 shadow-[var(--dash-shadow-surface)] md:bg-[linear-gradient(135deg,rgba(56,189,248,0.12),rgba(167,139,250,0.08)_42%,rgba(7,10,16,0.88)_100%)] md:backdrop-blur-md'
+        <DashboardSurface
+            as='section'
+            aria-label='Command prefix setting'
             aria-busy={commandSettingsQuery.isFetching || undefined}>
-            <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(0,229,255,0.8),rgba(255,43,214,0.52),rgba(255,234,0,0.34))]' />
-            <div className='flex flex-wrap items-start justify-between gap-3'>
+            <DashboardToolbar
+                summary={
+                    liveCommandSettings.prefix === DEFAULT_COMMAND_PREFIX ? (
+                        <span className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 py-1 font-semibold text-[var(--dash-text-muted)]'>
+                            Default prefix
+                        </span>
+                    ) : undefined
+                }>
                 <div>
-                    <h2 className='text-xl font-semibold text-[var(--dash-text)]'>Command prefix</h2>
-                    <p className='mt-2 text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>
-                        Current prefix:{' '}
-                        <code className='rounded-[var(--dash-radius-control)] border border-[rgba(56,189,248,0.28)] bg-[rgba(2,6,23,0.72)] px-1.5 py-0.5 text-sm font-semibold text-[var(--dash-primary)]'>
-                            {liveCommandSettings.prefix}
-                        </code>
+                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>
+                        Current prefix
                     </p>
+                    <code className='mt-1 block text-2xl font-semibold text-[var(--dash-primary)]'>
+                        {liveCommandSettings.prefix}
+                    </code>
                 </div>
-                {liveCommandSettings.prefix === DEFAULT_COMMAND_PREFIX ? (
-                    <span className='rounded-[var(--dash-radius-control)] border border-[rgba(167,139,250,0.4)] bg-[rgba(167,139,250,0.12)] px-2 py-1 text-xs font-semibold text-violet-100'>
-                        Default
-                    </span>
-                ) : null}
-            </div>
+            </DashboardToolbar>
 
             <form className='mt-4 flex flex-col gap-3' onSubmit={submitPrefixUpdate}>
                 <label className='space-y-2 text-sm font-semibold text-[var(--dash-text)]'>
@@ -222,7 +224,9 @@ export function DashboardCommandPrefixSettingsPanel({
                         maxLength={6}
                         inputMode='text'
                         autoComplete='off'
-                        aria-describedby='command-prefix-help command-prefix-message'
+                        aria-describedby={
+                            displayedFormMessage ? 'command-prefix-help command-prefix-message' : 'command-prefix-help'
+                        }
                     />
                 </label>
                 <p id='command-prefix-help' className='text-xs leading-5 text-[var(--dash-text-muted)]'>
@@ -232,24 +236,52 @@ export function DashboardCommandPrefixSettingsPanel({
                     <button
                         type='submit'
                         disabled={!canSubmit}
-                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-neutral-950 transition hover:bg-sky-300 focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'>
+                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'>
                         {mutation.isPending ? 'Saving...' : 'Save prefix'}
                     </button>
-                    <span
-                        id='command-prefix-message'
-                        role='status'
-                        className={
-                            displayedFormMessage?.type === 'success' ? 'text-sm text-cyan-200' : 'text-sm text-rose-200'
-                        }>
-                        {displayedFormMessage?.text}
-                    </span>
                 </div>
+                {displayedFormMessage ? (
+                    <div id='command-prefix-message'>
+                        <DashboardStatus
+                            tone={getPrefixMessageTone(displayedFormMessage.type)}
+                            actions={
+                                displayedFormMessage.type === 'warning' ? (
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            setFormState({
+                                                draftPrefix: liveCommandSettings.prefix,
+                                                draftBasePrefix: liveCommandSettings.prefix,
+                                            })
+                                        }
+                                        className='min-h-9 rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                                        Use current prefix
+                                    </button>
+                                ) : undefined
+                            }>
+                            {displayedFormMessage.text}
+                        </DashboardStatus>
+                    </div>
+                ) : null}
                 {commandSettingsQuery.isError ? (
-                    <p className='text-sm text-rose-200'>Could not refresh this setting.</p>
+                    <DashboardStatus tone='danger'>
+                        Could not refresh this setting. The last confirmed value is shown.
+                    </DashboardStatus>
                 ) : null}
             </form>
-        </article>
+        </DashboardSurface>
     );
+}
+
+function getPrefixMessageTone(type: 'error' | 'success' | 'warning'): 'danger' | 'success' | 'warning' {
+    switch (type) {
+        case 'error':
+            return 'danger';
+        case 'success':
+            return 'success';
+        case 'warning':
+            return 'warning';
+    }
 }
 
 function validateDashboardCommandPrefix(

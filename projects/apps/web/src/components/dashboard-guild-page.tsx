@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from '@tanstack/react-router';
+import { Outlet } from '@tanstack/react-router';
 import { createContext, use } from 'react';
 import type { ReactNode } from 'react';
 
@@ -11,9 +11,7 @@ import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-da
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
-import { DashboardDisplayControls } from './dashboard-display-controls.js';
 import { DashboardFeaturePlaceholder } from './dashboard-feature-placeholder.js';
-import { DashboardGuildSelector } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
@@ -88,15 +86,62 @@ export function DashboardGuildPendingPage({
     activeCategoryId?: DashboardCategoryId;
 }) {
     if (!preview) {
-        return null;
+        return <DashboardGuildColdLoadingShell activeCategoryId={activeCategoryId} />;
     }
 
     return (
-        <DashboardGuildFrame guild={preview} manageableGuilds={[preview]} mode={preview.mode} isLoading>
-            <DashboardCategoryLayout guildId={guildId} activeCategoryId={activeCategoryId}>
-                <DashboardPendingCategory activeCategoryId={activeCategoryId} />
-            </DashboardCategoryLayout>
+        <DashboardGuildFrame
+            guild={preview}
+            manageableGuilds={[preview]}
+            guildId={guildId}
+            activeCategoryId={activeCategoryId}
+            mode={preview.mode}
+            isLoading>
+            <DashboardPendingCategory activeCategoryId={activeCategoryId} />
         </DashboardGuildFrame>
+    );
+}
+
+function DashboardGuildColdLoadingShell({ activeCategoryId }: { activeCategoryId: DashboardCategoryId }) {
+    return (
+        <DashboardShell>
+            <div className='flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden md:flex-row md:gap-4'>
+                <header
+                    className='flex min-h-14 shrink-0 items-center gap-3 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(8,13,21,0.92)] p-2 md:hidden'
+                    aria-label='Loading dashboard navigation'>
+                    <span className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
+                    <span className='h-3 w-32 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
+                </header>
+                <aside
+                    className='hidden h-full min-h-0 w-[4.5rem] shrink-0 flex-col rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,11,18,0.9)] p-2 md:flex xl:w-64 xl:p-3'
+                    aria-label='Loading dashboard navigation'>
+                    <div className='flex min-h-12 items-center justify-center gap-3 border-b border-[var(--dash-border)] pb-3 xl:justify-start'>
+                        <span className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
+                        <span className='hidden h-3 w-28 animate-pulse rounded-full bg-[var(--dash-surface-raised)] xl:block' />
+                    </div>
+                    <div className='space-y-2 py-4'>
+                        {Array.from({ length: 6 }, (_, index) => (
+                            <div
+                                key={index}
+                                className='mx-auto h-11 w-11 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] xl:mx-0 xl:w-full'
+                            />
+                        ))}
+                    </div>
+                </aside>
+                <div className='min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pb-8 md:pr-2'>
+                    <section className='min-h-full space-y-4' aria-label='Loading dashboard'>
+                        <div className='border-b border-[var(--dash-border)] px-1 pb-3'>
+                            <span role='status' className='sr-only'>
+                                Loading dashboard
+                            </span>
+                            <div className='h-7 w-48 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
+                            <div className='mt-2 h-4 w-80 max-w-full animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
+                        </div>
+                        <DashboardCategoryLoading categoryId={activeCategoryId} />
+                    </section>
+                </div>
+            </div>
+        </DashboardShell>
     );
 }
 
@@ -197,13 +242,11 @@ function DashboardGuildView({
         <DashboardGuildFrame
             guild={data.guild}
             manageableGuilds={data.manageableGuilds ?? [data.guild]}
+            guildId={data.guild.id}
+            activeCategoryId={activeCategoryId}
             mode={data.mode}
             botInviteUrl={data.botInviteUrl}>
-            <DashboardGuildDataContext value={data}>
-                <DashboardCategoryLayout guildId={data.guild.id} activeCategoryId={activeCategoryId}>
-                    {children}
-                </DashboardCategoryLayout>
-            </DashboardGuildDataContext>
+            <DashboardGuildDataContext value={data}>{children}</DashboardGuildDataContext>
         </DashboardGuildFrame>
     );
 }
@@ -211,6 +254,8 @@ function DashboardGuildView({
 function DashboardGuildFrame({
     guild,
     manageableGuilds,
+    guildId,
+    activeCategoryId,
     mode,
     botInviteUrl,
     isLoading = false,
@@ -218,47 +263,28 @@ function DashboardGuildFrame({
 }: {
     guild: DashboardGuildShellGuild;
     manageableGuilds: DashboardGuildShellGuild[];
+    guildId: string;
+    activeCategoryId: DashboardCategoryId;
     mode: 'single' | 'multi';
     botInviteUrl?: string;
     isLoading?: boolean;
     children: ReactNode;
 }) {
-    const pathname = useLocation({ select: (location) => location.pathname });
-    const guildSelector =
-        mode === 'multi' ? (
-            <DashboardGuildSelector
-                guilds={manageableGuilds}
-                activeGuildId={guild.id}
-                pathname={pathname}
-                botInviteUrl={botInviteUrl}
-            />
-        ) : undefined;
-
     return (
         <DashboardShell>
-            <DashboardDisplayControls />
-            <div className='flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden'>
-                <DashboardGuildHeader guild={guild} isLoading={isLoading} guildSelector={guildSelector} />
-                <div className='min-h-0 min-w-0 flex-1 overflow-hidden'>{children}</div>
+            <div className='flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden md:flex-row md:gap-4'>
+                <DashboardCategoryNavigation
+                    guild={guild}
+                    guilds={manageableGuilds}
+                    guildId={guildId}
+                    activeCategoryId={activeCategoryId}
+                    mode={mode}
+                    botInviteUrl={botInviteUrl}
+                    isLoading={isLoading}
+                />
+                <div className='min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pb-8 md:pr-2'>{children}</div>
             </div>
         </DashboardShell>
-    );
-}
-
-function DashboardCategoryLayout({
-    guildId,
-    activeCategoryId,
-    children,
-}: {
-    guildId: string;
-    activeCategoryId: DashboardCategoryId;
-    children: ReactNode;
-}) {
-    return (
-        <div className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] gap-5 overflow-hidden xl:grid-cols-[15rem_minmax(0,1fr)]'>
-            <DashboardCategoryNavigation guildId={guildId} activeCategoryId={activeCategoryId} />
-            <main className='min-h-0 min-w-0 overflow-y-auto pr-1 pb-8 xl:pr-3'>{children}</main>
-        </div>
     );
 }
 
@@ -326,80 +352,4 @@ function DashboardCategoryLoading({ categoryId }: { categoryId: DashboardCategor
             ) : null}
         </div>
     );
-}
-
-function DashboardGuildHeader({
-    guild,
-    isLoading = false,
-    guildSelector,
-}: {
-    guild: { id: string; name: string; iconUrl?: string };
-    isLoading?: boolean;
-    guildSelector?: ReactNode;
-}) {
-    return (
-        <header className='shrink-0 border-b border-[var(--dash-border)] px-1 pt-1 pb-4 lg:pr-24'>
-            <div
-                className={
-                    guildSelector
-                        ? 'grid min-w-0 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(18rem,1fr)] lg:items-center'
-                        : 'grid min-w-0 gap-4 lg:grid-cols-[minmax(0,20rem)] lg:items-center'
-                }>
-                <div className='flex min-w-0 items-center gap-3 sm:gap-4'>
-                    <DashboardGuildAvatar guild={guild} />
-                    <div className='w-56 max-w-[calc(100vw-7rem)] min-w-0 shrink text-center sm:w-64 lg:w-64'>
-                        <h1 className='block truncate text-center text-[1.7rem] leading-tight font-semibold text-[var(--dash-text)] [text-shadow:0_2px_16px_rgba(0,0,0,0.76)]'>
-                            {guild.name}
-                        </h1>
-                        <p className='mt-1 block truncate text-center font-mono text-[0.8rem] font-medium text-[var(--dash-text-muted)] [text-shadow:0_1px_10px_rgba(0,0,0,0.72)]'>
-                            {guild.id}
-                        </p>
-                    </div>
-                </div>
-                {guildSelector ? <div className='min-w-0'>{guildSelector}</div> : null}
-                {isLoading ? (
-                    <span
-                        role='status'
-                        className='inline-flex min-h-9 shrink-0 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] lg:col-start-2'>
-                        Loading settings
-                    </span>
-                ) : null}
-            </div>
-        </header>
-    );
-}
-
-function DashboardGuildAvatar({ guild }: { guild: { name: string; iconUrl?: string } }) {
-    const fallbackLabel = getGuildFallbackLabel(guild.name);
-
-    if (guild.iconUrl) {
-        return (
-            <img
-                src={guild.iconUrl}
-                alt={`${guild.name} icon`}
-                className='size-12 shrink-0 rounded-full bg-[var(--dash-surface-raised)] object-cover'
-                loading='lazy'
-                referrerPolicy='no-referrer'
-            />
-        );
-    }
-
-    return (
-        <span
-            className='grid size-12 shrink-0 place-items-center rounded-full bg-[var(--dash-surface-raised)] text-base font-semibold text-[var(--dash-text)]'
-            aria-hidden='true'>
-            {fallbackLabel}
-        </span>
-    );
-}
-
-function getGuildFallbackLabel(name: string): string {
-    const letters = name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part.at(0)?.toUpperCase())
-        .join('');
-
-    return letters || '?';
 }

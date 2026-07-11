@@ -32,6 +32,8 @@ export function DashboardPostingTemplateControls({
     const queryClient = useQueryClient();
     const [templateName, setTemplateName] = useState('');
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    const [deleteConfirmTemplateId, setDeleteConfirmTemplateId] = useState('');
+    const [applyConfirmTemplateId, setApplyConfirmTemplateId] = useState('');
 
     const templatesQuery = useQuery({
         queryKey: getDashboardPostingTemplatesQueryKey(guildId),
@@ -130,6 +132,7 @@ export function DashboardPostingTemplateControls({
             switch (result.type) {
                 case 'deleted':
                     setSelectedTemplateId('');
+                    setDeleteConfirmTemplateId('');
                     onMessage({ type: 'success', text: 'Template deleted.' });
                     await invalidateTemplateQueries(queryClient, guildId);
                     return;
@@ -193,19 +196,50 @@ export function DashboardPostingTemplateControls({
             return;
         }
 
+        const composerHasContent = Boolean(content.trim() || embeds.length > 0 || payloadError);
+        if (composerHasContent && applyConfirmTemplateId !== selectedTemplate.id) {
+            setApplyConfirmTemplateId(selectedTemplate.id);
+            onMessage({
+                type: 'warning',
+                text: `Replace the current message with ${selectedTemplate.name}? Select replace again to confirm.`,
+            });
+            return;
+        }
+
+        setApplyConfirmTemplateId('');
         onApplyTemplate(selectedTemplate);
         setTemplateName(selectedTemplate.name);
     }
 
+    function deleteSelectedTemplate(): void {
+        if (!selectedTemplate) {
+            onMessage({ type: 'error', text: 'Choose a template first.' });
+            return;
+        }
+
+        if (deleteConfirmTemplateId !== selectedTemplate.id) {
+            setDeleteConfirmTemplateId(selectedTemplate.id);
+            onMessage({
+                type: 'warning',
+                text: `Delete ${selectedTemplate.name}? This removes the saved template, not any messages already sent.`,
+            });
+            return;
+        }
+
+        deleteMutation.mutate(selectedTemplate);
+    }
+
     return (
-        <section className='space-y-3 border-t border-neutral-800 pt-4' aria-label='Posting templates'>
+        <section className='space-y-3 border-t border-[var(--dash-border)] pt-5' aria-label='Posting templates'>
             <div>
-                <h3 className='text-sm font-semibold text-white'>Templates</h3>
-                <p className='mt-1 text-xs text-neutral-500'>Save and reuse dashboard-only message payloads.</p>
+                <h3 className='text-sm font-semibold text-[var(--dash-text)]'>Templates</h3>
+                <p className='mt-1 text-xs text-[var(--dash-text-muted)]'>
+                    Save and reuse dashboard-only message payloads.
+                </p>
             </div>
 
             <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                     <span>Saved templates</span>
                     <select
                         value={selectedTemplateId}
@@ -214,8 +248,10 @@ export function DashboardPostingTemplateControls({
                             setSelectedTemplateId(nextTemplateId);
                             const nextTemplate = templates.find((template) => template.id === nextTemplateId);
                             setTemplateName(nextTemplate?.name ?? '');
+                            setDeleteConfirmTemplateId('');
+                            setApplyConfirmTemplateId('');
                         }}
-                        className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white transition outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                        className={fieldClassName}
                         disabled={templatesQuery.isPending || templatesQuery.isError || templates.length === 0}>
                         <option value=''>
                             {templatesQuery.isPending
@@ -242,31 +278,49 @@ export function DashboardPostingTemplateControls({
                             deleteMutation.isPending ||
                             saveMutation.isPending
                         }
-                        className='inline-flex min-h-10 items-center rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-neutral-500 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        Apply
+                        className={secondaryButtonClassName}>
+                        {applyConfirmTemplateId === selectedTemplate?.id ? 'Confirm replace' : 'Apply'}
                     </button>
+                    {applyConfirmTemplateId === selectedTemplate?.id ? (
+                        <button
+                            type='button'
+                            onClick={() => setApplyConfirmTemplateId('')}
+                            className={secondaryButtonClassName}>
+                            Cancel replace
+                        </button>
+                    ) : null}
                     <button
                         type='button'
-                        onClick={() => selectedTemplate && deleteMutation.mutate(selectedTemplate)}
+                        onClick={deleteSelectedTemplate}
                         disabled={
                             templatesQuery.isError ||
                             !selectedTemplate ||
                             deleteMutation.isPending ||
                             saveMutation.isPending
                         }
-                        className='inline-flex min-h-10 items-center rounded-md border border-rose-800/70 px-3 text-sm font-semibold text-rose-200 transition hover:border-rose-500 focus:ring-2 focus:ring-rose-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        Delete
+                        className={dangerButtonClassName}>
+                        {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id
+                            ? 'Confirm delete'
+                            : 'Delete'}
                     </button>
+                    {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id ? (
+                        <button
+                            type='button'
+                            onClick={() => setDeleteConfirmTemplateId('')}
+                            className={secondaryButtonClassName}>
+                            Cancel
+                        </button>
+                    ) : null}
                 </div>
             </div>
 
             <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
-                <label className='space-y-2 text-sm font-medium text-neutral-200'>
+                <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
                     <span>Template name</span>
                     <input
                         value={templateName}
                         onChange={(event) => setTemplateName(event.currentTarget.value)}
-                        className='min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                        className={fieldClassName}
                         placeholder='Release update'
                     />
                 </label>
@@ -275,8 +329,8 @@ export function DashboardPostingTemplateControls({
                         type='button'
                         onClick={saveCurrentTemplate}
                         disabled={templatesQuery.isError || saveMutation.isPending || deleteMutation.isPending}
-                        className='inline-flex min-h-10 items-center rounded-md bg-neutral-100 px-3 text-sm font-semibold text-neutral-950 transition hover:bg-white focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        {saveMutation.isPending ? 'Saving...' : 'Save current'}
+                        className={secondaryButtonClassName}>
+                        {saveMutation.isPending ? 'Saving…' : 'Save current'}
                     </button>
                 </div>
             </div>
@@ -288,6 +342,13 @@ export function DashboardPostingTemplateControls({
         </section>
     );
 }
+
+const fieldClassName =
+    'min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-sm text-[var(--dash-text)] outline-none transition placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)]';
+const secondaryButtonClassName =
+    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
+const dangerButtonClassName =
+    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-rose-400/45 px-3 text-sm font-semibold text-rose-100 transition hover:border-rose-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 
 async function invalidateTemplateQueries(queryClient: ReturnType<typeof useQueryClient>, guildId: string) {
     await Promise.all([

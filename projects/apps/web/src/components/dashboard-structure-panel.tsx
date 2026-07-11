@@ -26,7 +26,10 @@ import { useDashboardStructureExplorerState } from './dashboard-structure-panel-
 import { formatBackupSource, formatCounts, formatDate } from './dashboard-structure-panel-format.js';
 import { useDashboardStructureImportState } from './dashboard-structure-panel-import-state.js';
 import { DashboardStructureLoading } from './dashboard-structure-panel-shared.js';
-import { readDashboardStructureDiagnosticCode } from './dashboard-structure-progress.js';
+import {
+    isTerminalDashboardStructureExecution,
+    readDashboardStructureDiagnosticCode,
+} from './dashboard-structure-progress.js';
 import { toErrorStatus } from './dashboard-structure-panel-status.js';
 import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 import { DashboardStructurePanelView } from './dashboard-structure-panel-view.js';
@@ -56,7 +59,13 @@ export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
             <DashboardStructureController guildId={guildId}>
                 {(workspace) => (
                     <DashboardStructureWorkspaceContext value={workspace}>
-                        <DashboardStructureWorkspaceShell guildId={guildId}>
+                        <DashboardStructureWorkspaceShell
+                            guildId={guildId}
+                            activeRun={workspace.importRuns.find(
+                                (run) => run.execution && !isTerminalDashboardStructureExecution(run.execution)
+                            )}
+                            executionProgressIssue={workspace.executionProgressIssue}
+                            executionTransport={workspace.executionTransport}>
                             <DashboardStructureWorkspaceOutlet />
                         </DashboardStructureWorkspaceShell>
                     </DashboardStructureWorkspaceContext>
@@ -461,6 +470,7 @@ function DashboardStructureController({
                       runId: activeExecutionRun.id,
                   }
                 : undefined,
+        executionTransport: executionProgress.transport,
         explorer,
         structurePolicy,
         importJson,

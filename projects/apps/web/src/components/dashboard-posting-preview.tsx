@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
 
+import { DashboardSurface } from './dashboard-ui.js';
+
 type DashboardPostingPreviewProps = {
     content: string;
     embeds: unknown[];
@@ -11,16 +13,26 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
     const previewEmbedItems = toPreviewEmbedItems(previewEmbeds);
 
     return (
-        <section
-            className='space-y-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'
-            aria-label='Message preview'>
-            <h3 className='text-sm font-semibold text-neutral-200'>Preview</h3>
+        <DashboardSurface as='section' tone='raised' className='space-y-4' aria-label='Message preview'>
+            <div className='border-b border-[var(--dash-border)] pb-3'>
+                <p className='text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
+                    Fluxer preview
+                </p>
+                <h3 className='mt-1 text-base font-semibold text-[var(--dash-text)]'>What members will see</h3>
+            </div>
             {!trimmedContent && previewEmbedItems.length === 0 ? (
-                <p className='text-sm leading-6 text-neutral-500'>Nothing to preview.</p>
+                <div className='grid min-h-48 place-items-center rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] bg-[var(--dash-bg)] px-6 text-center'>
+                    <div>
+                        <p className='text-sm font-medium text-[var(--dash-text)]'>The preview is empty</p>
+                        <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                            Add message content or configure an embed in the editor.
+                        </p>
+                    </div>
+                </div>
             ) : (
-                <div className='space-y-3'>
+                <div className='space-y-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[#0b0d12] p-3'>
                     {trimmedContent ? (
-                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-neutral-100'>
+                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#f5f7fb]'>
                             {trimmedContent}
                         </p>
                     ) : null}
@@ -29,7 +41,7 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
                     ))}
                 </div>
             )}
-        </section>
+        </DashboardSurface>
     );
 }
 
@@ -53,7 +65,7 @@ function DashboardEmbedPreview({ embed }: { embed: Record<string, unknown> }) {
     };
 
     return (
-        <article className='max-w-xl rounded-md border border-neutral-800 bg-neutral-900 p-4' style={embedStyle}>
+        <article className='max-w-xl rounded-md border border-[#252a34] bg-[#151820] p-4' style={embedStyle}>
             <div className='flex gap-4'>
                 <div className='min-w-0 flex-1 space-y-2'>
                     {authorName ? (
@@ -67,24 +79,24 @@ function DashboardEmbedPreview({ embed }: { embed: Record<string, unknown> }) {
                                     referrerPolicy='no-referrer'
                                 />
                             ) : null}
-                            <span className='truncate text-xs font-semibold text-neutral-200'>{authorName}</span>
+                            <span className='truncate text-xs font-semibold text-[#d8dee9]'>{authorName}</span>
                         </div>
                     ) : null}
                     {title ? (
                         titleUrl ? (
                             <a
                                 href={titleUrl}
-                                className='block text-sm font-semibold break-words text-sky-300 hover:text-sky-200'
+                                className='block text-sm font-semibold break-words text-[#5ad7ff] hover:text-[#91e5ff]'
                                 target='_blank'
                                 rel='noreferrer'>
                                 {title}
                             </a>
                         ) : (
-                            <h4 className='text-sm font-semibold break-words text-white'>{title}</h4>
+                            <h4 className='text-sm font-semibold break-words text-[#f6f8fb]'>{title}</h4>
                         )
                     ) : null}
                     {description ? (
-                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-neutral-200'>
+                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#d8dee9]'>
                             {description}
                         </p>
                     ) : null}
@@ -109,7 +121,7 @@ function DashboardEmbedPreview({ embed }: { embed: Record<string, unknown> }) {
                 />
             ) : null}
             {footerText || timestamp ? (
-                <div className='mt-3 flex min-w-0 flex-wrap items-center gap-2 text-xs text-neutral-400'>
+                <div className='mt-3 flex min-w-0 flex-wrap items-center gap-2 text-xs text-[#8f9bab]'>
                     {footerIconUrl ? (
                         <img
                             src={footerIconUrl}

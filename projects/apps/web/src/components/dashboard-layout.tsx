@@ -1,16 +1,24 @@
 import { Link } from '@tanstack/react-router';
+import { MotionConfig } from 'motion/react';
 import type { ReactNode } from 'react';
 
 import { DashboardAmbientSurface } from './dashboard-ambient-surface.js';
+import { useDashboardDisplayPreferences } from './dashboard-display-preferences-store.js';
 
 export function DashboardShell({ children }: { children: ReactNode }) {
+    const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
+
     return (
-        <main className='dashboard-theme h-dvh overflow-hidden px-3 py-4 text-neutral-100 sm:px-5 lg:px-6'>
-            <DashboardAmbientSurface />
-            <div className='relative z-10 mx-auto flex h-full w-full max-w-[1540px] min-w-0 flex-col gap-5 overflow-hidden'>
-                {children}
-            </div>
-        </main>
+        <MotionConfig reducedMotion={reducedEffectsEnabled ? 'always' : 'user'}>
+            <main
+                className='dashboard-theme h-dvh overflow-hidden px-3 py-4 text-[var(--dash-text)] sm:px-5 lg:px-6'
+                data-reduce-effects={reducedEffectsEnabled}>
+                <DashboardAmbientSurface />
+                <div className='relative z-10 mx-auto flex h-full w-full max-w-[1800px] min-w-0 flex-col gap-5 overflow-hidden'>
+                    {children}
+                </div>
+            </main>
+        </MotionConfig>
     );
 }
 
@@ -30,9 +38,9 @@ export function DashboardStatusSection({
     return (
         <section className='max-w-2xl space-y-5'>
             <div className='space-y-2'>
-                <p className='text-sm font-medium tracking-wide text-sky-300 uppercase'>{eyebrow}</p>
-                <h1 className='text-3xl font-semibold text-white'>{title}</h1>
-                <p className='text-sm leading-6 text-neutral-300'>{body}</p>
+                <p className='text-sm font-medium tracking-wide text-[var(--dash-primary)] uppercase'>{eyebrow}</p>
+                <h1 className='text-3xl font-semibold text-[var(--dash-text)]'>{title}</h1>
+                <p className='text-sm leading-6 text-[var(--dash-text-muted)]'>{body}</p>
             </div>
             <DashboardStatusAction actionTo={actionTo}>{actionLabel}</DashboardStatusAction>
         </section>
@@ -40,8 +48,7 @@ export function DashboardStatusSection({
 }
 
 function DashboardStatusAction({ actionTo, children }: { actionTo: string; children: ReactNode }) {
-    const className =
-        'inline-flex min-h-10 items-center rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-neutral-950 focus:outline-none';
+    const className = 'dashboard-primary-button inline-flex min-h-10 items-center px-4 focus-visible:outline-none';
 
     switch (actionTo) {
         case '/dashboard':

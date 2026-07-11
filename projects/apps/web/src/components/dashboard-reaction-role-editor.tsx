@@ -23,12 +23,20 @@ import {
 import type { DashboardEmbedDraft } from './dashboard-embed-builder.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import {
+    getReactionRoleEditorMessageTone,
+    getReactionRoleSaveErrorMessage,
+    reactionRoleEditorFieldClassName,
+    reactionRolePrimaryButtonClassName,
+    reactionRoleSecondaryButtonClassName,
+} from './dashboard-reaction-role-editor-ui.js';
+import {
     EmojiPicker,
     ReactionRoleOptionList,
     RolePicker,
     SegmentedControl,
 } from './dashboard-reaction-role-controls.js';
 import type { ReactionRoleBuilderOption } from './dashboard-reaction-role-controls.js';
+import { DashboardStatus } from './dashboard-ui.js';
 
 type ReactionRoleEditorMode = { type: 'create' } | { type: 'edit'; message: DashboardReactionRoleMessage };
 type ReactionRoleMessageType = 'plain' | 'embed';
@@ -131,7 +139,10 @@ export function ReactionRoleEditor({
 
             setEditorMessage({
                 type: 'error',
-                text: getSaveErrorMessage(result.type, result.type === 'invalid-input' ? result.message : undefined),
+                text: getReactionRoleSaveErrorMessage(
+                    result.type,
+                    result.type === 'invalid-input' ? result.message : undefined
+                ),
             });
         },
         onError: () => setEditorMessage({ type: 'error', text: 'Could not save this reaction-role menu.' }),
@@ -208,156 +219,179 @@ export function ReactionRoleEditor({
 
     return (
         <form
-            className='space-y-6 p-4'
+            className='grid min-w-0 gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]'
             aria-label={editorMode.type === 'edit' ? 'Edit reaction-role menu' : 'Create reaction-role menu'}
             onSubmit={submit}
             aria-busy={saveMutation.isPending}>
-            <div className='flex flex-wrap items-start justify-between gap-3'>
+            <div className='flex flex-wrap items-start justify-between gap-3 xl:col-span-2'>
                 <div>
-                    <h4 className='text-base font-semibold text-white'>
+                    <h4 className='text-base font-semibold text-[var(--dash-text)]'>
                         {editorMode.type === 'edit' ? 'Edit reaction-role menu' : 'Create reaction-role menu'}
                     </h4>
-                    <p className='mt-1 text-sm leading-6 text-neutral-400'>
+                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
                         Saving disables the menu until Fluxer and stored configuration are synchronized.
                     </p>
                 </div>
-                <button
-                    type='button'
-                    onClick={onCancel}
-                    className='min-h-9 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-neutral-500'>
+                <button type='button' onClick={onCancel} className={reactionRoleSecondaryButtonClassName}>
                     Cancel
                 </button>
             </div>
 
-            <section className='space-y-4' aria-label='Reaction-role message'>
-                <div className='space-y-1'>
-                    <h5 className='text-sm font-semibold text-neutral-100'>Message</h5>
-                    <p className='text-xs leading-5 text-neutral-500'>This is the message users will react to.</p>
-                </div>
-                {editorMode.type === 'create' ? (
-                    <DashboardChannelPicker
-                        channels={channels}
-                        hasError={false}
-                        isLoading={false}
-                        isOpen={channelPickerOpen}
-                        listboxId='reaction-role-channel-options'
-                        search={draft.channelSearch}
-                        selectedChannelId={draft.selectedChannelId}
-                        onBlur={() => setChannelPickerOpen(false)}
-                        onFocus={() => setChannelPickerOpen(true)}
-                        onSearchChange={(search) => {
-                            updateDraft({ channelSearch: search, selectedChannelId: '' });
-                            setChannelPickerOpen(true);
-                        }}
-                        onSelect={(channel) => {
-                            updateDraft({
-                                selectedChannelId: channel.id,
-                                channelSearch: formatDashboardChannelLabel(channel),
-                            });
-                            setChannelPickerOpen(false);
-                        }}
-                    />
-                ) : (
-                    <div className='rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-300'>
-                        Channel:{' '}
-                        {editorMode.message.channelName
-                            ? `#${editorMode.message.channelName}`
-                            : editorMode.message.channelId}
+            <div className='min-w-0 space-y-6'>
+                <section className='space-y-4' aria-label='Reaction-role message'>
+                    <div className='space-y-1 border-b border-[var(--dash-border)] pb-3'>
+                        <h5 className='text-sm font-semibold text-[var(--dash-text)]'>Message</h5>
+                        <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>
+                            This is the message members will react to.
+                        </p>
                     </div>
-                )}
-                <SegmentedControl
-                    label='Message type'
-                    value={draft.messageType}
-                    options={[
-                        { value: 'plain', label: 'Plain text' },
-                        { value: 'embed', label: 'Embed' },
-                    ]}
-                    onChange={(value) => updateDraft({ messageType: value as ReactionRoleMessageType })}
-                />
-                {draft.messageType === 'plain' ? (
-                    <label className='space-y-2 text-sm font-medium text-neutral-200'>
-                        <span>Message content</span>
-                        <textarea
-                            value={draft.content}
-                            onChange={(event) => updateDraft({ content: event.currentTarget.value })}
-                            className='min-h-32 w-full resize-y rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-base text-white transition outline-none placeholder:text-neutral-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
-                            placeholder='Pick your roles:{list}'
+                    {editorMode.type === 'create' ? (
+                        <DashboardChannelPicker
+                            channels={channels}
+                            hasError={false}
+                            isLoading={false}
+                            isOpen={channelPickerOpen}
+                            listboxId='reaction-role-channel-options'
+                            search={draft.channelSearch}
+                            selectedChannelId={draft.selectedChannelId}
+                            onBlur={() => setChannelPickerOpen(false)}
+                            onFocus={() => setChannelPickerOpen(true)}
+                            onSearchChange={(search) => {
+                                updateDraft({ channelSearch: search, selectedChannelId: '' });
+                                setChannelPickerOpen(true);
+                            }}
+                            onSelect={(channel) => {
+                                updateDraft({
+                                    selectedChannelId: channel.id,
+                                    channelSearch: formatDashboardChannelLabel(channel),
+                                });
+                                setChannelPickerOpen(false);
+                            }}
                         />
+                    ) : (
+                        <div className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-sm text-[var(--dash-text-muted)]'>
+                            Channel:{' '}
+                            <span className='font-medium text-[var(--dash-text)]'>
+                                {editorMode.message.channelName
+                                    ? `#${editorMode.message.channelName}`
+                                    : editorMode.message.channelId}
+                            </span>
+                        </div>
+                    )}
+                    <SegmentedControl
+                        label='Message type'
+                        value={draft.messageType}
+                        options={[
+                            { value: 'plain', label: 'Plain text' },
+                            { value: 'embed', label: 'Embed' },
+                        ]}
+                        onChange={(value) => updateDraft({ messageType: value as ReactionRoleMessageType })}
+                    />
+                    {draft.messageType === 'plain' ? (
+                        <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
+                            <span>Message content</span>
+                            <textarea
+                                value={draft.content}
+                                onChange={(event) => updateDraft({ content: event.currentTarget.value })}
+                                className={reactionRoleEditorFieldClassName}
+                                placeholder='Pick your roles:{list}'
+                            />
+                        </label>
+                    ) : (
+                        <DashboardEmbedBuilder
+                            draft={draft.embedDraft}
+                            onDraftChange={(embedDraft) => updateDraft({ embedDraft })}
+                        />
+                    )}
+                    <label className='inline-flex min-h-10 items-center gap-3 text-sm font-medium text-[var(--dash-text)]'>
+                        <input
+                            type='checkbox'
+                            checked={draft.generateOverview}
+                            onChange={(event) => updateDraft({ generateOverview: event.currentTarget.checked })}
+                            className='size-4 accent-[var(--dash-primary)]'
+                        />
+                        Generate the emoji-to-role overview
                     </label>
-                ) : (
-                    <DashboardEmbedBuilder
-                        draft={draft.embedDraft}
-                        onDraftChange={(embedDraft) => updateDraft({ embedDraft })}
+                </section>
+
+                <section className='space-y-3' aria-label='Reaction-role mode'>
+                    <SegmentedControl
+                        label='Assignment mode'
+                        value={draft.mode}
+                        options={[
+                            { value: 'normal', label: 'Normal' },
+                            { value: 'exclusive', label: 'Exclusive' },
+                        ]}
+                        onChange={(value) => updateDraft({ mode: value as DashboardReactionRoleMode })}
                     />
-                )}
-                <label className='inline-flex min-h-10 items-center gap-3 text-sm font-medium text-neutral-200'>
-                    <input
-                        type='checkbox'
-                        checked={draft.generateOverview}
-                        onChange={(event) => updateDraft({ generateOverview: event.currentTarget.checked })}
-                        className='size-4 accent-sky-400'
+                </section>
+
+                <section
+                    className='space-y-4 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-3'
+                    aria-label='Reaction-role options'>
+                    <div>
+                        <h5 className='text-sm font-semibold text-[var(--dash-text)]'>Emoji and role options</h5>
+                        <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                            Each emoji and role may appear once. Drag options to set their display order.
+                        </p>
+                    </div>
+                    <div className='flex flex-wrap items-end gap-3'>
+                        <EmojiPicker emojis={emojis} selected={selectedEmoji} onSelect={setSelectedEmoji} />
+                        <RolePicker roles={roles} selected={selectedRole} onSelect={setSelectedRole} />
+                        <button
+                            type='button'
+                            onClick={addOption}
+                            disabled={!selectedEmoji || !selectedRole || draft.options.length >= maxReactionRoleOptions}
+                            className={reactionRolePrimaryButtonClassName}>
+                            Add option
+                        </button>
+                        <button
+                            type='button'
+                            onClick={sortOptionsAlphabetically}
+                            disabled={draft.options.length < 2}
+                            className={reactionRoleSecondaryButtonClassName}>
+                            Sort alphabetically
+                        </button>
+                    </div>
+                    <ReactionRoleOptionList
+                        options={draft.options}
+                        roles={roles}
+                        onRemove={(index) =>
+                            updateDraft({ options: draft.options.filter((_, optionIndex) => optionIndex !== index) })
+                        }
+                        onReorder={(fromIndex, toIndex) =>
+                            updateDraft({ options: arrayMove(draft.options, fromIndex, toIndex) })
+                        }
                     />
-                    Generate overview
-                </label>
-                <DashboardPostingPreview content={preview.content ?? ''} embeds={preview.embeds} />
-            </section>
-
-            <section className='space-y-3' aria-label='Reaction-role mode'>
-                <SegmentedControl
-                    label='Mode'
-                    value={draft.mode}
-                    options={[
-                        { value: 'normal', label: 'Normal' },
-                        { value: 'exclusive', label: 'Exclusive' },
-                    ]}
-                    onChange={(value) => updateDraft({ mode: value as DashboardReactionRoleMode })}
-                />
-            </section>
-
-            <section
-                className='space-y-4 rounded-md border border-neutral-800 bg-neutral-950 p-3'
-                aria-label='Reaction-role options'>
-                <div className='flex flex-wrap items-end gap-3'>
-                    <EmojiPicker emojis={emojis} selected={selectedEmoji} onSelect={setSelectedEmoji} />
-                    <RolePicker roles={roles} selected={selectedRole} onSelect={setSelectedRole} />
-                    <button
-                        type='button'
-                        onClick={addOption}
-                        disabled={!selectedEmoji || !selectedRole || draft.options.length >= maxReactionRoleOptions}
-                        className='min-h-10 rounded-md bg-sky-500 px-3 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        Add option
-                    </button>
-                    <button
-                        type='button'
-                        onClick={sortOptionsAlphabetically}
-                        disabled={draft.options.length < 2}
-                        className='min-h-10 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:text-neutral-500'>
-                        Sort alphabetically
-                    </button>
-                </div>
-                <ReactionRoleOptionList
-                    options={draft.options}
-                    roles={roles}
-                    onRemove={(index) =>
-                        updateDraft({ options: draft.options.filter((_, optionIndex) => optionIndex !== index) })
-                    }
-                    onReorder={(fromIndex, toIndex) =>
-                        updateDraft({ options: arrayMove(draft.options, fromIndex, toIndex) })
-                    }
-                />
-            </section>
-
-            <div className='flex flex-wrap items-center gap-3 border-t border-neutral-800 pt-4'>
-                <button
-                    type='submit'
-                    disabled={saveMutation.isPending}
-                    className='min-h-10 rounded-md bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                    {saveMutation.isPending ? 'Saving...' : 'Save changes'}
-                </button>
-                <span role='status' className={getEditorMessageClassName(editorMessage?.type)}>
-                    {editorMessage?.text}
-                </span>
+                </section>
             </div>
+
+            <aside className='min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start' aria-label='Menu preview and save'>
+                <DashboardPostingPreview content={preview.content ?? ''} embeds={preview.embeds} />
+                <div className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] p-4'>
+                    <button
+                        type='submit'
+                        disabled={saveMutation.isPending}
+                        className={reactionRolePrimaryButtonClassName}>
+                        {saveMutation.isPending
+                            ? 'Saving…'
+                            : editorMode.type === 'create'
+                              ? 'Publish menu'
+                              : 'Save changes'}
+                    </button>
+                    {editorMessage ? (
+                        <div className='mt-3'>
+                            <DashboardStatus tone={getReactionRoleEditorMessageTone(editorMessage.type)}>
+                                {editorMessage.text}
+                            </DashboardStatus>
+                        </div>
+                    ) : (
+                        <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>
+                            The menu is unavailable to members while publish or synchronization is in progress.
+                        </p>
+                    )}
+                </div>
+            </aside>
         </form>
     );
 }
@@ -497,44 +531,4 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : undefined;
-}
-
-function getSaveErrorMessage(type: string, message?: string): string {
-    if (message) return message;
-
-    switch (type) {
-        case 'invalid-input':
-            return 'Check the message, emoji, and role options before saving.';
-        case 'auth-required':
-            return 'Sign in again before changing settings.';
-        case 'bot-token-missing':
-            return 'Reaction-role editing is not configured for this deployment.';
-        case 'edit-failed':
-            return 'Fluxer could not edit this reaction-role message.';
-        case 'send-failed':
-            return 'Fluxer could not publish this menu.';
-        case 'not-found':
-            return 'This reaction-role menu is not available anymore.';
-        case 'operation-busy':
-            return 'This menu already has a synchronization in progress.';
-        case 'revision-conflict':
-            return 'This menu changed elsewhere. Reload it before saving.';
-        case 'idempotency-conflict':
-            return 'This submission changed after it was queued. Try saving again.';
-        default:
-            return 'Could not save this reaction-role menu.';
-    }
-}
-
-function getEditorMessageClassName(type: EditorMessage['type'] | undefined): string {
-    switch (type) {
-        case 'success':
-            return 'text-sm text-emerald-300';
-        case 'warning':
-            return 'text-sm text-amber-300';
-        case 'error':
-            return 'text-sm text-rose-300';
-        default:
-            return 'text-sm text-neutral-400';
-    }
 }

@@ -78,6 +78,16 @@ describe('Server Blueprint progress transport', () => {
         vi.restoreAllMocks();
     });
 
+    it('stays idle when no deployment run is active', () => {
+        renderProgress({ initialExecution: undefined, runId: undefined });
+
+        expect(screen.getByTestId('progress').textContent).toBe('none');
+        expect(screen.getByTestId('issue').textContent).toBe('none');
+        expect(screen.getByTestId('transport').textContent).toBe('idle:unconfirmed');
+        expect(mocks.httpQuery).not.toHaveBeenCalled();
+        expect(mocks.liveClient).not.toHaveBeenCalled();
+    });
+
     it('uses the authenticated polling read when the live watch fails', async () => {
         const poll = deferred<ExecutionQueryResult>();
         mocks.httpQuery.mockReturnValue(poll.promise);
@@ -93,6 +103,7 @@ describe('Server Blueprint progress transport', () => {
 
         await waitFor(() => expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2'));
         expect(screen.getByTestId('issue').textContent).toBe('none');
+        expect(screen.getByTestId('transport').textContent).toBe('polling:confirmed');
     });
 
     it('keeps live progress healthy when the polling read fails', async () => {
@@ -111,6 +122,7 @@ describe('Server Blueprint progress transport', () => {
             expect(queryClient.getQueryState(structureProgressKey('guild-1', 'run-1'))?.status).toBe('error')
         );
         expect(screen.getByTestId('issue').textContent).toBe('none');
+        expect(screen.getByTestId('transport').textContent).toBe('live:confirmed');
     });
 
     it('retains the last confirmed progress when both transports fail', async () => {
@@ -130,6 +142,7 @@ describe('Server Blueprint progress transport', () => {
 
         await waitFor(() => expect(screen.getByTestId('issue').textContent).toBe('BLUEPRINT_PROGRESS_READ_FAILED'));
         expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2');
+        expect(screen.getByTestId('transport').textContent).toBe('reconnecting:unconfirmed');
     });
 
     it('cancels a poisoned token request so an explicit retry can recover', async () => {
@@ -350,8 +363,8 @@ function ProgressProbe({
     initialExecution,
     runId,
 }: {
-    initialExecution: DashboardStructureExecutionProgress;
-    runId: string;
+    initialExecution: DashboardStructureExecutionProgress | undefined;
+    runId: string | undefined;
 }) {
     const progress = useDashboardStructureExecutionProgress({
         guildId: 'guild-1',
@@ -366,6 +379,9 @@ function ProgressProbe({
                     : 'none'}
             </output>
             <output data-testid='issue'>{progress.issueCode ?? 'none'}</output>
+            <output data-testid='transport'>
+                {progress.transport.mode}:{progress.transport.confirmedAt ? 'confirmed' : 'unconfirmed'}
+            </output>
             <button type='button' onClick={progress.retry}>
                 Retry progress
             </button>
@@ -381,8 +397,8 @@ function renderProgress({
     initialExecution,
     runId,
 }: {
-    initialExecution: DashboardStructureExecutionProgress;
-    runId: string;
+    initialExecution: DashboardStructureExecutionProgress | undefined;
+    runId: string | undefined;
 }) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(

@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { getDashboardCategory, getDashboardCategorySubNavigation } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import { getGuildIdParam } from '../server/dashboard-guild-route-data.js';
+import { DashboardPage, DashboardPageHeader } from './dashboard-ui.js';
 
 export function DashboardWorkbench({
     categoryId,
@@ -22,27 +23,45 @@ export function DashboardWorkbench({
 
         return pathname === path || pathname.startsWith(`${path}/`);
     });
+    const activeId = activeItem?.id ?? categoryId;
+    const headingId = `dashboard-${activeId}-heading`;
 
     return (
-        <section className='min-w-0'>
+        <section className='min-w-0' aria-labelledby={headingId}>
             <motion.div
-                key={activeItem?.id ?? categoryId}
+                key={activeId}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className='min-w-0 space-y-4'>
-                <header className='border-b border-[var(--dash-border)] pb-4'>
-                    <h2 className='text-2xl font-semibold text-[var(--dash-text)]'>
-                        {activeItem?.label ?? category.label}
-                    </h2>
-                    <p className='mt-1 max-w-3xl text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        {activeItem?.description ?? category.description}
-                    </p>
-                </header>
-                {children ?? <Outlet />}
+                transition={{ duration: 0.18, ease: 'easeOut' }}>
+                <DashboardPage width={getWorkbenchWidth(activeId)}>
+                    <DashboardPageHeader
+                        title={activeItem?.label ?? category.label}
+                        description={activeItem?.description ?? category.description}
+                        titleId={headingId}
+                    />
+                    {children ?? <Outlet />}
+                </DashboardPage>
             </motion.div>
         </section>
     );
+}
+
+function getWorkbenchWidth(activeId: string): 'focused' | 'standard' | 'wide' | 'full' {
+    if (activeId === 'command-prefix' || activeId === 'bot-presence' || activeId === 'command-help') {
+        return 'focused';
+    }
+
+    if (
+        activeId === 'audit-events' ||
+        activeId === 'message-builder' ||
+        activeId === 'reaction-roles' ||
+        activeId === 'cases' ||
+        activeId === 'tickets'
+    ) {
+        return 'full';
+    }
+
+    return 'standard';
 }
 
 function getDashboardSubNavigationPath(to: string, guildId: string): string {
