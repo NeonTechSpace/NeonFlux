@@ -1,36 +1,33 @@
+import { isRedirect } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
 
-import { dashboardStructureNavigationItems, getDefaultDashboardStructureTo } from './dashboard-structure-navigation.js';
+import { Route as StructureIndexRoute } from './routes/dashboard/$guildId/structure/index.js';
 
 describe('dashboard structure navigation', () => {
-    it('keeps the Blueprint workspace routes focused and ordered', () => {
-        expect(dashboardStructureNavigationItems).toStrictEqual([
-            {
-                id: 'current',
-                label: 'Current',
-                to: '/dashboard/$guildId/structure/current',
-            },
-            {
-                id: 'backups',
-                label: 'Backups',
-                to: '/dashboard/$guildId/structure/backups',
-            },
-            {
-                id: 'compare',
-                label: 'Compare',
-                to: '/dashboard/$guildId/structure/compare',
-            },
-            {
-                id: 'deploy',
-                label: 'Deploy',
-                to: '/dashboard/$guildId/structure/deploy',
-            },
-            {
-                id: 'runs',
-                label: 'Runs',
-                to: '/dashboard/$guildId/structure/runs',
-            },
-        ]);
-        expect(getDefaultDashboardStructureTo()).toBe('/dashboard/$guildId/structure/current');
+    it('redirects the Blueprint root to the safe read-only Current surface', () => {
+        const beforeLoad = StructureIndexRoute.options.beforeLoad;
+        let thrown: unknown;
+
+        if (!beforeLoad) throw new Error('Expected the Blueprint index route to define beforeLoad.');
+
+        try {
+            beforeLoad({ params: { guildId: 'guild-1' } } as Parameters<typeof beforeLoad>[0]);
+        } catch (error) {
+            thrown = error;
+        }
+
+        expect(isRedirect(thrown)).toBe(true);
+        expect(readRedirectOptions(thrown)).toMatchObject({
+            to: '/dashboard/$guildId/structure/current',
+            params: { guildId: 'guild-1' },
+        });
     });
 });
+
+function readRedirectOptions(error: unknown): Record<string, unknown> {
+    if (!error || typeof error !== 'object' || !('options' in error)) {
+        throw new Error('Expected TanStack Router redirect options.');
+    }
+
+    return (error as { options: Record<string, unknown> }).options;
+}

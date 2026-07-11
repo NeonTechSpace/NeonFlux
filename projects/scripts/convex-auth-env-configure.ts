@@ -54,10 +54,6 @@ export function createConvexAuthEnvPlan(
     };
 }
 
-export function createConvexAuthEnvSetOperations(plan: ConvexAuthEnvPlan): ConvexAuthEnvSetOperation[] {
-    return plan.operations;
-}
-
 export function formatConvexAuthEnvPlan(plan: ConvexAuthEnvPlan, mode: 'apply' | 'dry-run'): string {
     return [
         `${mode === 'apply' ? 'Configured' : 'Would configure'} isolated Convex auth providers for ${plan.deploymentLabel}.`,

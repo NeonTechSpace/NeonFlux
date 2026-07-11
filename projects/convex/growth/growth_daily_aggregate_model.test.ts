@@ -20,10 +20,13 @@ describe('growth daily aggregate model', () => {
         expect(maxGrowthOverviewAggregateRows(90)).toBe(5_760);
     });
 
-    it('selects stable bounded shards and distributes representative ids', () => {
-        expect(selectGrowthDailyAggregateShard('guild-1:2026-07-10:message-1')).toBe(
-            selectGrowthDailyAggregateShard('guild-1:2026-07-10:message-1')
-        );
+    it('keeps persisted shard assignments stable, bounded, and distributed', () => {
+        expect([
+            selectGrowthDailyAggregateShard('guild-1:2026-07-10:message-1'),
+            selectGrowthDailyAggregateShard('message-0'),
+            selectGrowthDailyAggregateShard('message-42'),
+            selectGrowthDailyAggregateShard('guild-2:2026-07-11:user-9'),
+        ]).toStrictEqual([57, 1, 45, 49]);
 
         const shards = new Set(
             Array.from({ length: 5_100 }, (_, index) => selectGrowthDailyAggregateShard(`message-${String(index)}`))

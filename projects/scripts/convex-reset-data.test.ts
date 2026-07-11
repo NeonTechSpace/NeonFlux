@@ -97,8 +97,21 @@ describe('convex reset data script', () => {
         ).not.toThrow();
     });
 
-    it('reads table names from the current Convex schema', () => {
-        expect(getConvexSchemaTableNames()).toContain('structureBackups');
+    it('enumerates every schema table in stable order and rejects missing definitions', () => {
+        const schema = {
+            tables: {
+                structureBackups: {},
+                guilds: {},
+                auditEvents: {},
+            },
+        };
+
+        expect(getConvexSchemaTableNames(schema)).toStrictEqual(['auditEvents', 'guilds', 'structureBackups']);
+        expect(() => getConvexSchemaTableNames({})).toThrow('Convex schema did not expose table definitions.');
+
+        const currentSchemaTables = getConvexSchemaTableNames();
+        expect(currentSchemaTables.length).toBeGreaterThan(0);
+        expect(new Set(currentSchemaTables).size).toBe(currentSchemaTables.length);
     });
 
     it('writes an empty snapshot zip with one documents file per table', async () => {

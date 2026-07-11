@@ -1,25 +1,65 @@
 # NeonFlux Workspace Instructions
 
-- Use pnpm only for Node.js work.
-- Target pnpm 11. Keep pnpm settings in `pnpm-workspace.yaml`, and pin Node with root `package.json` `devEngines.runtime`.
-- Use the Convex-backed database boundary for durable app runtime. Do not add new Postgres, Drizzle, SQLite, `node:sqlite`, local DB-file runtime support, or dual-store fallback paths.
-- There is no staging environment. Runtime environments are development and production.
-- `INSTANCE_MODE` bootstrap and DB-effective mode behavior must be handled with `switch` statements.
-- Keep shared logic in `packages/*`. Bot and web consume it through workspace package imports.
-- Use `neverthrow` for expected recoverable runtime failures. Each importing package must declare it directly.
-- In development, bot runtime logs should be high-signal and verbose for DX: route decisions, ignored reasons, auth/DEFCON decisions, and runtime checkpoints are useful, but never log secrets, tokens, OAuth codes, session cookies, raw message content, or full env values.
-- When bot or web user-facing behavior changes, update public docs in the same change. Put information where readers expect to find it: feature pages explain that feature's behavior, defaults, limits, and current configurability. Dashboard/navigation pages explain dashboard paths and where settings live. Do not repeat dashboard route explanations on every feature page. Keep docs trivial to scan and low cognitive load. Internal-only changes may skip docs.
-- Tests must drive real production APIs and behavior. Do not add production parameters, branches, exports, or wrappers solely for tests. Mock only real runtime boundaries such as network, DB, env, clock, and randomness.
-- Releases are tag-driven from `main`: use `web-vX.Y.Z` for web outputs and/or `bot-vX.Y.Z` for bot. GHCR images get version, `latest`, and commit SHA tags.
-- Do not create release tags unless the user explicitly asks. Suggested release tags must move forward per component and never reuse or go below the latest existing `web-vX.Y.Z` or `bot-vX.Y.Z`.
-- Shared package changes do not force every image to release, but persistence/schema changes must stay compatible with deployed bot and web versions.
-- For Convex data design, model ownership before writing schema: name the durable concept, lifecycle, cardinality, authority, retention/deletion behavior, and expected access paths. Each table should own one durable concept.
-- Deployment behavior config lives in the dedicated `deployment_config` row. Do not copy it into entity rows such as `bot_installations`.
-- Use guild-scoped generic settings only for small feature toggles/config. Add dedicated feature tables when a feature owns records, workflows, submissions, logs, approvals, counters, or user data.
-- Do not reintroduce startup database migrations, app Postgres bootstrap, source-export tooling, or import/smoke scripts in app or Docker paths.
-- When work changes deployable behavior, end the final response with an H1 `Release Impact` warning. Split it into `Current Commit` and `Since Last Release Tag`. Current commit means the entire current JJ/Git commit or working-copy diff, not only the most recent task or file edit. Before writing `Since Last Release Tag`, check whether a relevant `web-vX.Y.Z` or `bot-vX.Y.Z` release tag exists. If no relevant release tag exists, write `Since Last Release Tag: no release tag exists yet`. Do not infer or fill this section from the template. If a relevant tag exists, aggregate unreleased impact since that tag. Current deployable outputs are `bot`, `web`, and `web-docs`, so state `bot`, `web`, `web-docs`, `both web variants`, `both`, or `none` for each section. Use `both web variants` when `web` and `web-docs` are affected but `bot` is not. Use `both` when `bot` and at least one web output are affected.
-- Never commit secrets, `.env`, generated `dist`, local DB data, or machine-specific absolute paths.
-- Do not stage, commit, tag, push, squash, rebase, or run mutating VCS commands without explicit permission.
-- Keep handwritten production files under 555 LOC unless a narrow exception is justified.
-- Validate changes with `pnpm check` from this folder when practical.
-- Before finalizing material implementation work, perform a hostile self-audit of the complete working-copy diff and relevant surrounding code, contracts, schemas, tests, and Research notes. Apply the existing safety, data-lifecycle, failure-path, concurrency, authorization, secret-handling, payload/performance, UI-accuracy, regression-coverage, and maintainability requirements. Fix in-scope P1/P2 issues, rerun proportionate validation, and report remaining risks, skipped checks, and any required live validation without overstating certainty.
+## Scope and judgment
+
+- This file applies to the entire workspace. A deeper `AGENTS.md` adds subsystem-specific rules without weakening these ones.
+- Optimize for correctness, security, durable behavior, maintainability, and future human time. Keep changes coherent and as small as the requested outcome allows.
+- NeonFlux is an unreleased product under active development. Do not add migrations, compatibility shims, legacy branches, dual behavior, or preservation code unless the user explicitly requests them.
+- Inspect relevant production code, tests, Research notes, and JJ state before material changes. Treat existing working-copy changes as user-owned.
+
+## Toolchain and repository safety
+
+- Use pnpm 11 only for Node.js work. Keep pnpm settings in `pnpm-workspace.yaml` and the Node pin in root `package.json` `devEngines.runtime`.
+- Do not edit generated files manually. Run the owning generator and inspect its diff.
+- Do not stage, commit, describe, bookmark, tag, push, squash, rebase, or otherwise mutate VCS state without explicit permission.
+- Never commit secrets, `.env`, generated `dist`, local database data, or machine-specific absolute paths.
+- Keep new or substantially rewritten handwritten production modules focused and generally below 555 LOC.
+
+## Architecture and runtime
+
+- Convex is the only durable application database. Do not add Postgres, Drizzle, SQLite, `node:sqlite`, local database files, or dual-store fallbacks.
+- Runtime environments are development and production. There is no staging environment.
+- Handle `INSTANCE_MODE` bootstrap and DB-effective mode behavior with explicit `switch` statements.
+- Deployment behavior belongs in the dedicated `deployment_config` row, never copied into entity rows such as `bot_installations`.
+- Keep reusable domain and platform logic in `packages/*`. Bot and web consume it through workspace imports.
+- Use `neverthrow` for expected recoverable runtime failures. Every importing package declares it directly.
+- Model durable data before changing schema: ownership, authority, lifecycle, cardinality, retention/deletion, access paths, concurrency, and recovery. Each table owns one durable concept.
+- Use guild-scoped generic settings only for small configuration. Give workflows, records, logs, approvals, counters, leases, and user data dedicated tables.
+- For external side effects, make partial failure, idempotency, retries, rate limits, concurrency, crash recovery, and reconciliation explicit. Do not claim cross-system atomicity.
+- Do not reintroduce startup migrations, application Postgres bootstrap, source-export tooling, or import/smoke scripts in application or Docker paths.
+
+## Security and observability
+
+- Re-check authorization at the authoritative boundary. Minimize scopes and keep guild/user ownership explicit.
+- Development bot logs should expose useful routing, policy, ignored-reason, and runtime checkpoint information.
+- Never log credentials or expose them through errors, diagnostics, or unintended response fields. Deliberately issuing a scoped token or session cookie from its authoritative authentication boundary is allowed. Keep it minimal, short-lived where possible, and out of unrelated payloads.
+
+## Test quality
+
+- Every test must protect a credible regression in observable behavior or a meaningful invariant. Prefer policy boundaries, authorization/security, durable data behavior, lifecycle transitions, failure/retry/recovery, idempotency/concurrency, provider contracts, and user-visible interactions.
+- Test production APIs and outcomes. Mock only real runtime boundaries such as network, database, filesystem, environment, clock, randomness, browser APIs, and external services.
+- Do not add production exports, parameters, branches, wrappers, or test-only hooks solely to make testing easier.
+- Do not add or retain tests whose only purpose is to restate source text, package metadata, TypeScript types, export existence, enum or constant contents, static navigation/catalog arrays, CSS classes, prose copy, or fixtures that merely equal themselves.
+- Exact copy assertions are justified only when the text is itself a safety, security, destructive-action, protocol, or accessibility contract.
+- Source/config inspection tests are justified only for intentional repository guards that cannot be exercised through a production API, such as forbidden-pattern, generated-output, release-policy, or secret-exclusion checks. State the invariant and test the guard against controlled fixtures rather than mirroring current source.
+- When a low-value test is the only coverage near risky behavior, replace it with a behavioral test instead of simply deleting it.
+- Prefer a few boundary-rich cases over matrices of equivalent examples. A useful test should fail for a plausible bug, explain the impact, and remain stable through harmless refactors.
+- Coverage counts are evidence, not a goal. Passing tests do not replace reviewing real data flow, authorization, side effects, and failure paths.
+
+## Documentation and Research
+
+- Public documentation is frozen until Neonsy explicitly authorizes documentation work. Do not infer permission from implementation, release, or repository instructions.
+- Keep internal Research notes accurate when durable behavior, architecture, operations, data ownership, or known production limits change.
+
+## Validation and completion
+
+- Validate proportionately with focused tests, typechecks, lint, generators, builds, and `git diff --check`. Run `pnpm check` from this folder when practical.
+- For meaningful UI changes, inspect the real application when possible and verify loading, error, empty, retry, destructive, and responsive states.
+- Before finalizing material work, perform a hostile review of the complete working-copy diff and relevant surrounding code. Fix in-scope P1/P2 issues and report remaining risks or skipped live validation honestly.
+
+## Releases and handoff
+
+- Releases are tag-driven from `main`: `web-vX.Y.Z` for web outputs and `bot-vX.Y.Z` for bot. Images receive version, `latest`, and commit-SHA tags.
+- Never create or move release tags unless explicitly requested. Suggested versions move forward and never reuse or undercut an existing component tag.
+- Shared-package changes do not automatically release every image, but persistence/schema changes must be coordinated with all deployed consumers.
+- When work changes deployable behavior, end the final response with an H1 `Release Impact`. Report `Current Commit` for the whole current JJ/Git diff and `Since Last Release Tag` after checking relevant tags. Outputs are `bot`, `web`, and `web-docs`. Use `both web variants` for both web outputs and `both` for bot plus any web output. If no relevant tag exists, write `Since Last Release Tag: no release tag exists yet`.

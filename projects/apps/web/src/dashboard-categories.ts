@@ -107,7 +107,7 @@ export type DashboardSubNavigationItem = {
     status: 'implemented' | 'placeholder';
 };
 
-export type DashboardNavigationCategorySetting = DashboardCategoryDefinition & {
+type DashboardNavigationCategorySetting = DashboardCategoryDefinition & {
     items: readonly DashboardSubNavigationItem[];
 };
 
@@ -135,7 +135,7 @@ type SubNavigationInput = [
     icon: LucideIcon,
 ];
 
-export const dashboardNavigationSettings = [
+const dashboardNavigationSettings = [
     {
         id: 'overview',
         label: 'Overview',
@@ -506,7 +506,7 @@ export function getDashboardSubNavigationItem(id: DashboardCategoryId, itemId: s
     return item;
 }
 
-export function getDefaultDashboardSubNavigationTo(id: DashboardCategoryId): DashboardSubNavigationTo | undefined {
+function getDefaultDashboardSubNavigationTo(id: DashboardCategoryId): DashboardSubNavigationTo | undefined {
     return getDashboardCategorySubNavigation(id).at(0)?.to;
 }
 

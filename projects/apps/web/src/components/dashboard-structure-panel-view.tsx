@@ -24,7 +24,7 @@ import type { BackupPageState, DriftState, PanelStatus } from './dashboard-struc
 
 export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
 
-export const dashboardStructureDeploymentPolicies = [
+const dashboardStructureDeploymentPolicies = [
     {
         value: 'merge',
         label: 'Merge additions only',

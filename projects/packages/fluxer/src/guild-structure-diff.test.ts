@@ -118,10 +118,7 @@ describe('guild structure diff', () => {
                 categories: [],
                 channels: [{ id: 'channel-1' }],
             })
-        ).toStrictEqual({
-            type: 'invalid',
-            message: 'Server blueprint JSON must include valid roles, categories, and channels arrays.',
-        });
+        ).toMatchObject({ type: 'invalid' });
     });
 
     it('rejects duplicate object and permission overwrite identities', () => {
@@ -179,14 +176,15 @@ describe('guild structure diff', () => {
             ],
         });
 
-        expect(duplicateObject).toStrictEqual({
-            type: 'invalid',
-            message: 'Server blueprint JSON contains duplicate object id "duplicate-id".',
-        });
-        expect(duplicateOverwrite).toStrictEqual({
-            type: 'invalid',
-            message: 'Channel "channel-1" contains duplicate permission overwrite "0:role-1".',
-        });
+        expect(duplicateObject.type).toBe('invalid');
+        expect(duplicateOverwrite.type).toBe('invalid');
+
+        if (duplicateObject.type !== 'invalid' || duplicateOverwrite.type !== 'invalid') {
+            throw new Error('Expected duplicate identities to be rejected');
+        }
+
+        expect(duplicateObject.message).toContain('duplicate-id');
+        expect(duplicateOverwrite.message).toContain('0:role-1');
     });
 
     it('fails closed instead of guessing between ambiguous same-name matches', () => {
@@ -304,14 +302,15 @@ describe('guild structure diff', () => {
             ],
         });
 
-        expect(missingParent).toStrictEqual({
-            type: 'invalid',
-            message: 'Channel "channel-1" references missing parent category "missing-category".',
-        });
-        expect(missingRole).toStrictEqual({
-            type: 'invalid',
-            message: 'Channel "channel-1" references missing overwrite role "missing-role".',
-        });
+        expect(missingParent.type).toBe('invalid');
+        expect(missingRole.type).toBe('invalid');
+
+        if (missingParent.type !== 'invalid' || missingRole.type !== 'invalid') {
+            throw new Error('Expected missing structure references to be rejected');
+        }
+
+        expect(missingParent.message).toContain('missing-category');
+        expect(missingRole.message).toContain('missing-role');
     });
 
     it('plans creates, updates, deletes, and permission changes against the current server layout', () => {

@@ -1,27 +1,28 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 
-import { describe, expect, it } from 'vitest';
+import { getRouter } from '../../router.js';
 
-describe('/auth/convex', () => {
-    it('registers Convex token and JWKS endpoints as concrete file routes', () => {
-        const routeTree = readWebFile('src/routeTree.gen.ts');
+vi.mock('../../components/docs-page.js', () => ({
+    PublicDocsPage: () => null,
+}));
 
-        expect(routeTree).toContain("fullPath: '/.well-known/jwks.json'");
-        expect(routeTree).toContain("fullPath: '/auth/convex/token'");
-        expect(readWebFile('src/routes/[.]well-known.jwks[.]json.ts')).toContain(
-            "createFileRoute('/.well-known/jwks.json')"
-        );
-        expect(readWebFile('src/routes/auth/convex/token.ts')).toContain("createFileRoute('/auth/convex/token')");
-    });
+describe('Convex auth endpoint routing', () => {
+    it.each(['/.well-known/jwks.json', '/auth/convex/token'] as const)(
+        'registers %s as a GET endpoint in the application router',
+        (path) => {
+            const router = getRouter();
+            const route = router.routesByPath[path];
+            const handlers = route.options.server?.handlers;
+
+            expect(route.fullPath).toBe(path);
+            expect(route.id).toBe(path);
+            expect(handlers).toBeTypeOf('object');
+
+            if (!handlers || typeof handlers === 'function') {
+                throw new Error(`Expected ${path} to expose static server handlers.`);
+            }
+
+            expect(handlers.GET).toEqual(expect.any(Function));
+        }
+    );
 });
-
-function readWebFile(path: string): string {
-    const candidates = [`apps/web/${path}`, path];
-    const filePath = candidates.find((candidate) => existsSync(candidate));
-
-    if (!filePath) {
-        throw new Error(`Unable to find ${path}`);
-    }
-
-    return readFileSync(filePath, 'utf8');
-}

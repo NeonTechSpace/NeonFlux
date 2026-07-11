@@ -5,7 +5,6 @@ import {
     applyFluxerBotGuildStructureAction,
     applyFluxerBotGuildStructureActions,
     applyFluxerBotGuildStructureUpdate,
-    DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS,
 } from './guild-structure-apply.js';
 
 describe('applyFluxerBotGuildStructureAction', () => {
@@ -118,10 +117,14 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
 
         expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'unsupported-action',
-            reason: 'Protected bot, integration, and default roles cannot be created.',
-        });
+        const error = result._unsafeUnwrapErr();
+        expect(error.type).toBe('unsupported-action');
+
+        if (error.type !== 'unsupported-action') {
+            throw new Error(`Expected unsupported-action, got ${error.type}`);
+        }
+
+        expect(error.reason).toMatch(/protected/iu);
         expect(login).not.toHaveBeenCalled();
     });
 
@@ -217,6 +220,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
     });
 
     it('paces batch mutations between operations by default', async () => {
+        const expectedDefaultDelayMs = 750;
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-07-09T00:00:00.000Z'));
 
@@ -261,15 +265,15 @@ describe('applyFluxerBotGuildStructureAction', () => {
             ],
         });
 
-        await vi.advanceTimersByTimeAsync(DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS * 2);
+        await vi.advanceTimersByTimeAsync(expectedDefaultDelayMs * 2);
 
         const result = await resultPromise;
 
         expect(result.isOk()).toBe(true);
         expect(editTimes).toStrictEqual([
             new Date('2026-07-09T00:00:00.000Z').getTime(),
-            new Date('2026-07-09T00:00:00.000Z').getTime() + DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS,
-            new Date('2026-07-09T00:00:00.000Z').getTime() + DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS * 2,
+            new Date('2026-07-09T00:00:00.000Z').getTime() + expectedDefaultDelayMs,
+            new Date('2026-07-09T00:00:00.000Z').getTime() + expectedDefaultDelayMs * 2,
         ]);
     });
 
@@ -403,10 +407,14 @@ describe('applyFluxerBotGuildStructureAction', () => {
         expect(result.isOk()).toBe(true);
         expect(setRolePositions).toHaveBeenCalledWith([{ id: 'role-1', position: 5 }]);
         expect(everyoneResult.isErr()).toBe(true);
-        expect(everyoneResult._unsafeUnwrapErr()).toStrictEqual({
-            type: 'unsupported-action',
-            reason: 'Protected default roles cannot be updated.',
-        });
+        const everyoneError = everyoneResult._unsafeUnwrapErr();
+        expect(everyoneError.type).toBe('unsupported-action');
+
+        if (everyoneError.type !== 'unsupported-action') {
+            throw new Error(`Expected unsupported-action, got ${everyoneError.type}`);
+        }
+
+        expect(everyoneError.reason).toMatch(/protected/iu);
     });
 
     it('applies mapped permission overwrites after creating channels', async () => {

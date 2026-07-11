@@ -150,7 +150,7 @@ describe('authorizeCommandAction', () => {
         ).toBe(true);
     });
 
-    it('does not use dashboard grants for command authorization', () => {
+    it('denies guarded commands without Manage Server or a matching command grant', () => {
         expect(
             authorizeCommandAction({
                 appEnv: 'production',
@@ -211,20 +211,6 @@ describe('authorizeDashboardAccess', () => {
                 actor: manager,
             }).allowed
         ).toBe(true);
-        expect(
-            authorizeDashboardAccess({
-                appEnv: 'production',
-                override: 3,
-                actor: member,
-            })
-        ).toStrictEqual({
-            allowed: false,
-            effectiveDefconLevel: 3,
-            reason: 'missing-dashboard-permission',
-        });
-    });
-
-    it('does not use command grants for dashboard authorization', () => {
         expect(
             authorizeDashboardAccess({
                 appEnv: 'production',

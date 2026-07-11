@@ -1,4 +1,4 @@
-export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
+type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
 
 export type DashboardStructureNavigationTo =
     | '/dashboard/$guildId/structure/current'
@@ -7,13 +7,13 @@ export type DashboardStructureNavigationTo =
     | '/dashboard/$guildId/structure/deploy'
     | '/dashboard/$guildId/structure/runs';
 
-export type DashboardStructureNavigationItem = {
+type DashboardStructureNavigationItem = {
     id: DashboardStructureSurface;
     label: string;
     to: DashboardStructureNavigationTo;
 };
 
-export const dashboardStructureNavigationItems = [
+const dashboardStructureNavigationItems = [
     {
         id: 'current',
         label: 'Current',

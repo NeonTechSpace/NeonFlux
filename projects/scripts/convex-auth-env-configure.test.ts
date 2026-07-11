@@ -4,18 +4,37 @@ import { describe, expect, it } from 'vitest';
 
 import {
     createConvexAuthEnvPlan,
-    createConvexAuthEnvSetOperations,
     parseConvexAuthEnvConfigureArgs,
     requireConvexAuthEnvApplyConfirmation,
 } from './convex-auth-env-configure.js';
 
 describe('Convex auth env configuration', () => {
-    it('builds nine public operations from three private signers', () => {
-        const plan = createConvexAuthEnvPlan(validEnv(), { deployment: 'dev:target' });
+    it('emits complete public configuration without sending private signer material', () => {
+        const env = validEnv();
+        const plan = createConvexAuthEnvPlan(env, { deployment: 'dev:target' });
 
-        expect(plan.providers.map(({ kind }) => kind)).toEqual(['bot', 'web', 'user']);
-        expect(createConvexAuthEnvSetOperations(plan)).toHaveLength(9);
-        expect(plan.operations.every(({ name }) => !name.endsWith('PRIVATE_KEY'))).toBe(true);
+        expect(plan.operations.map(({ name }) => name).sort()).toStrictEqual([
+            'NEONFLUX_BOT_AUTH_JWT_AUDIENCE',
+            'NEONFLUX_BOT_AUTH_JWT_ISSUER',
+            'NEONFLUX_BOT_AUTH_JWT_JWKS',
+            'NEONFLUX_USER_AUTH_JWT_AUDIENCE',
+            'NEONFLUX_USER_AUTH_JWT_ISSUER',
+            'NEONFLUX_USER_AUTH_JWT_JWKS',
+            'NEONFLUX_WEB_AUTH_JWT_AUDIENCE',
+            'NEONFLUX_WEB_AUTH_JWT_ISSUER',
+            'NEONFLUX_WEB_AUTH_JWT_JWKS',
+        ]);
+
+        const jwksPayloads = plan.operations
+            .filter(({ name }) => name.endsWith('_JWKS'))
+            .map(({ value }) => decodeURIComponent(value));
+        const publicValuesMatchSource = plan.operations
+            .filter(({ name }) => !name.endsWith('_JWKS'))
+            .every(({ name, value }) => value === env[name]);
+
+        expect(jwksPayloads).toHaveLength(3);
+        expect(jwksPayloads.some((payload) => /"(?:d|dp|dq|oth|p|q|qi)"\s*:/u.test(payload))).toBe(false);
+        expect(publicValuesMatchSource).toBe(true);
     });
 
     it('rejects shared issuers', () => {

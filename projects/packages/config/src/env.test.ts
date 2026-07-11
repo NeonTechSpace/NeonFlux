@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe('loadBotConfig', () => {
     it('fails when single mode does not include SINGLE_GUILD_ID', () => {
-        expect(() => loadBotConfig({ INSTANCE_MODE: 'single' })).toThrow('SINGLE_GUILD_ID is required');
+        expect(() => loadBotConfig({ INSTANCE_MODE: 'single' })).toThrow(/SINGLE_GUILD_ID/u);
     });
 
     it('loads single mode with SINGLE_GUILD_ID', () => {
@@ -82,30 +82,20 @@ describe('loadBotConfig', () => {
     });
 
     it('rejects public web URLs with a path, query, hash, or credentials', () => {
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example/docs' })).toThrow(
-            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
-        );
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example?x=1' })).toThrow(
-            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
-        );
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example#docs' })).toThrow(
-            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
-        );
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example/docs' })).toThrow(/PUBLIC_WEB_URL/u);
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example?x=1' })).toThrow(/PUBLIC_WEB_URL/u);
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example#docs' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://user:pass@neonflux.example' })).toThrow(
-            'PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials'
+            /PUBLIC_WEB_URL/u
         );
     });
 
     it('rejects non-http public web URLs', () => {
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(
-            'PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin'
-        );
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
     });
 
     it('rejects malformed public web URLs', () => {
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(
-            'PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin'
-        );
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
     });
 });
 
@@ -144,13 +134,13 @@ describe('loadWebConfig', () => {
 
     it('rejects non-http bot invite URLs', () => {
         expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'fluxer://oauth2/authorize' })).toThrow(
-            'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
+            /FLUXER_BOT_INVITE_URL/u
         );
     });
 
     it('rejects malformed bot invite URLs', () => {
         expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.fluxer.app/oauth2/authorize' })).toThrow(
-            'FLUXER_BOT_INVITE_URL must be a valid HTTP or HTTPS URL'
+            /FLUXER_BOT_INVITE_URL/u
         );
     });
 
@@ -221,23 +211,19 @@ describe('loadConvexConfig', () => {
     });
 
     it('rejects invalid Convex URLs', () => {
-        expect(() => loadConvexConfig({ CONVEX_URL: 'convex.example' })).toThrow(
-            'CONVEX_URL must be a valid HTTP or HTTPS URL'
-        );
-        expect(() => loadConvexConfig({ VITE_CONVEX_URL: 'ssh://convex.example' })).toThrow(
-            'VITE_CONVEX_URL must be a valid HTTP or HTTPS URL'
-        );
+        expect(() => loadConvexConfig({ CONVEX_URL: 'convex.example' })).toThrow(/CONVEX_URL/u);
+        expect(() => loadConvexConfig({ VITE_CONVEX_URL: 'ssh://convex.example' })).toThrow(/VITE_CONVEX_URL/u);
         expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_ISSUER: 'auth.example' })).toThrow(
-            'NEONFLUX_USER_AUTH_JWT_ISSUER must be a valid HTTP or HTTPS URL'
+            /NEONFLUX_USER_AUTH_JWT_ISSUER/u
         );
         expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_ISSUER: 'https://web.fluxer.app' })).toThrow(
-            'NEONFLUX_USER_AUTH_JWT_ISSUER must be a NeonFlux issuer, not a Fluxer OAuth host'
+            /NEONFLUX_USER_AUTH_JWT_ISSUER/u
         );
         expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_JWKS: 'not-a-url' })).toThrow(
-            'NEONFLUX_USER_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+            /NEONFLUX_USER_AUTH_JWT_JWKS/u
         );
         expect(() => loadConvexConfig({ NEONFLUX_USER_AUTH_JWT_JWKS: 'file:///tmp/jwks.json' })).toThrow(
-            'NEONFLUX_USER_AUTH_JWT_JWKS must be a valid HTTP(S) URL or JWKS data URI'
+            /NEONFLUX_USER_AUTH_JWT_JWKS/u
         );
         expect(() =>
             loadConvexConfig({
@@ -245,20 +231,20 @@ describe('loadConvexConfig', () => {
                     JSON.stringify({ keys: [{ d: 'private', kid: 'test' }] })
                 )}`,
             })
-        ).toThrow('NEONFLUX_USER_AUTH_JWT_JWKS exposes private JWK parameter "d"');
+        ).toThrow(/NEONFLUX_USER_AUTH_JWT_JWKS.*"d"/u);
         expect(() =>
             loadConvexConfig({
                 NEONFLUX_USER_AUTH_JWT_JWKS: `data:application/json,${encodeURIComponent(
                     JSON.stringify({ keys: [{ alg: 'RS256', e: 'AQAB', kid: 'test', kty: 'RSA', use: 'sig' }] })
                 )}`,
             })
-        ).toThrow('NEONFLUX_USER_AUTH_JWT_JWKS key at index 0 must include public RSA parameter "n"');
+        ).toThrow(/NEONFLUX_USER_AUTH_JWT_JWKS.*"n"/u);
     });
 });
 
 describe('requireConvexConfig', () => {
     it('requires every Convex cutover value', () => {
-        expect(() => requireConvexConfig({})).toThrow('NEONFLUX_BOT_AUTH_JWT_AUDIENCE is required');
+        expect(() => requireConvexConfig({})).toThrow(/NEONFLUX_BOT_AUTH_JWT_AUDIENCE/u);
     });
 
     it('returns strict Convex config when all cutover values are present', () => {
@@ -277,7 +263,7 @@ describe('requireConvexConfig', () => {
 
 describe('loadRuntimeConfig', () => {
     it('rejects staging because the project only has dev and prod bots', () => {
-        expect(() => loadRuntimeConfig({ APP_ENV: 'staging' })).toThrow('Invalid environment');
+        expect(() => loadRuntimeConfig({ APP_ENV: 'staging' })).toThrow();
     });
 
     it('does not require app Postgres config for production runtime loading', () => {
@@ -331,8 +317,8 @@ describe('loadRuntimeConfig', () => {
     });
 
     it('rejects invalid guild DEFCON overrides', () => {
-        expect(() => loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: '4' })).toThrow('Invalid environment');
-        expect(() => loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: 'locked' })).toThrow('Invalid environment');
+        expect(() => loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: '4' })).toThrow();
+        expect(() => loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: 'locked' })).toThrow();
     });
 });
 

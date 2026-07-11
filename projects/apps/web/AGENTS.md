@@ -1,23 +1,34 @@
 # NeonFlux Web Instructions
 
-- Re-check authorization server-side on every mutation.
-- Web reads deployment behavior from `deployment_config`, not `INSTANCE_MODE` or `SINGLE_GUILD_ID` env.
-- Single mode has no guild picker and checks only the DB-effective configured guild.
-- Multi mode lists guilds from OAuth only after Manage Server permission filtering.
-- Keep OAuth and Fluxer permission translation in `packages/fluxer`.
-- Keep shared dashboard access rules in `packages/core`.
-- Use TanStack Query for UI-facing server state and dashboard mutations, not OAuth token exchange.
-- Keep OAuth client secrets, bot tokens, session secrets, and token exchange logic out of browser code.
-- Prefer server data, route loaders/server functions, and render-time derivation before client effects.
-- Dashboard pages load initial protected data through route loaders/server functions before rendering client components.
-- The router uses global instant pending with `defaultPendingMs: 0` and `defaultPendingMinMs: 0`.
-- Stable route shells stay mounted across docs and dashboard navigation.
-- Use already-known route/list data immediately for headers, names, icons, and ids.
-- Server loaders/functions remain authoritative. Client preview/list data is display-only.
-- Avoid page-wide skeletons except for true cold entry with no useful shell.
-- Put loading states inside the exact panel, field, or article body that is waiting.
-- Use `useEffect` only to sync with external systems, never for derived state or normal data loading.
-- Use `useLayoutEffect` only for unavoidable pre-paint DOM measurement or mutation.
-- Keep UI async-first for fast paint and instant-feeling loading: avoid request waterfalls, do not block input/render on network, show clear loading/pending states, and use transitions/deferred work for expensive updates.
-- Optimistic updates keep the UI responsive and must include rollback plus server revalidation.
-- Keep this file in present tense as app patterns change.
+## Authority and data flow
+
+- Re-check authorization server-side for every mutation and sensitive read. Browser state, route parameters, cached lists, and previews are never authority.
+- Read deployment behavior from `deployment_config`, not `INSTANCE_MODE` or `SINGLE_GUILD_ID` environment variables.
+- Single mode has no guild picker and authorizes only the DB-effective configured guild. Multi mode exposes only OAuth guilds for which the user has Manage Server permission.
+- Keep OAuth and Fluxer permission translation in `packages/fluxer`. Keep shared dashboard access policy in `packages/core`.
+- Keep OAuth client secrets, bot tokens, session secrets, encryption keys, and token exchange logic out of browser bundles and client-visible errors.
+- Use TanStack Query for UI-facing server state. Server loaders/functions and direct authorized reactive queries remain authoritative.
+
+## Rendering and interaction
+
+- Prefer server data, render-time derivation, and stable query caches before client effects. Use `useEffect` only to synchronize an external system and `useLayoutEffect` only for unavoidable pre-paint DOM work.
+- Protected initial data loads through route loaders or server functions. Known route/list data should render headers, names, icons, and IDs immediately.
+- The router uses instant pending (`defaultPendingMs: 0`, `defaultPendingMinMs: 0`), but stable docs/dashboard shells remain mounted.
+- Avoid page-wide skeletons when a useful shell or cached data exists. Put pending states in the panel or control doing the work.
+- Async UI must remain responsive and honest: show progress, stale state, errors, retry/reconnect behavior, destructive confirmation, partial failure, and terminal outcomes.
+- Optimistic updates require rollback and authoritative revalidation. Do not let older responses overwrite newer or terminal state.
+- Keep expensive work out of render and avoid request waterfalls, repeated authorization calls, and broad refetches when a focused query is sufficient.
+
+## Web test standard
+
+- Exercise the behavior users and security boundaries depend on: server authorization, redirect/cookie/token handling, secret non-disclosure, query lifecycle, stale/terminal ordering, rollback, retry, destructive confirmation, and accessible interaction.
+- Component tests should drive accessible controls and assert meaningful rendered outcomes. Prefer roles, labels, and state over DOM structure or CSS classes.
+- Route and server tests should call exported loaders/functions or rendered routes. Do not scan source files, generated route text, package metadata, MDX prose, or static navigation arrays as a proxy for behavior.
+- Do not assert ordinary product copy verbatim unless it is a destructive, security, protocol, or accessibility contract. Assert semantics and available actions instead.
+- Mock network, DB, browser, and clock boundaries. Do not mock the internal function whose behavior the test is supposed to prove.
+- Cover cold, cached, error, retry, empty, unauthorized, and terminal states when they materially differ.
+
+## Validation
+
+- Run focused web tests, web lint, and web typecheck for web changes. Run the full web suite for cross-cutting routing, authentication, query-cache, or shared dashboard changes.
+- Visually inspect meaningful interaction/layout changes in the real app when services and authentication are available.

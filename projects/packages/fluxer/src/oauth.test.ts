@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    buildFluxerAuthorizeUrl,
-    exchangeFluxerAuthorizationCode,
-    FLUXER_OAUTH_TOKEN_URL,
-    refreshFluxerOAuthToken,
-} from './oauth.js';
+import { buildFluxerAuthorizeUrl, exchangeFluxerAuthorizationCode, refreshFluxerOAuthToken } from './oauth.js';
 
 afterEach(() => {
     vi.useRealTimers();
@@ -13,60 +8,27 @@ afterEach(() => {
 });
 
 describe('buildFluxerAuthorizeUrl', () => {
-    it('builds the login URL', () => {
-        expect(
-            buildFluxerAuthorizeUrl({
-                appId: '1517169145576165376',
-                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-                scopes: ['identify', 'guilds'],
-            })
-        ).toBe(
-            'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=identify+guilds&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Ffluxer%2Fcallback&response_type=code'
-        );
-    });
+    it('builds a provider-compatible request without corrupting caller-controlled values', () => {
+        const redirectUrl = 'http://localhost:3000/auth/fluxer/callback?next=/dashboard guilds';
+        const state = 'state with symbols /+=';
+        const authorizeUrl = buildFluxerAuthorizeUrl({
+            appId: '1517169145576165376',
+            redirectUrl,
+            scopes: ['identify', 'guilds'],
+            state,
+        });
+        const result = new URL(authorizeUrl);
 
-    it('encodes redirect URLs', () => {
-        expect(
-            buildFluxerAuthorizeUrl({
-                appId: 'app-id',
-                redirectUrl: 'http://localhost:3000/auth/fluxer/callback?next=/dashboard guilds',
-                scopes: ['identify'],
-            })
-        ).toContain(
-            'redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Ffluxer%2Fcallback%3Fnext%3D%2Fdashboard+guilds'
-        );
-    });
-
-    it('preserves scope order', () => {
-        expect(
-            buildFluxerAuthorizeUrl({
-                appId: 'app-id',
-                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-                scopes: ['guilds', 'identify', 'bot'],
-            })
-        ).toContain('scope=guilds+identify+bot');
-    });
-
-    it('builds a URL with state', () => {
-        expect(
-            buildFluxerAuthorizeUrl({
-                appId: 'app-id',
-                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-                scopes: ['identify', 'guilds'],
-                state: 'oauth-state',
-            })
-        ).toContain('state=oauth-state');
-    });
-
-    it('encodes state', () => {
-        expect(
-            buildFluxerAuthorizeUrl({
-                appId: 'app-id',
-                redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
-                scopes: ['identify'],
-                state: 'state with symbols /+=',
-            })
-        ).toContain('state=state+with+symbols+%2F%2B%3D');
+        expect(result.origin + result.pathname).toBe('https://web.fluxer.app/oauth2/authorize');
+        expect(authorizeUrl).not.toContain(redirectUrl);
+        expect(authorizeUrl).not.toContain(state);
+        expect(Object.fromEntries([...result.searchParams].filter(([key]) => key !== 'scope'))).toStrictEqual({
+            client_id: '1517169145576165376',
+            redirect_uri: redirectUrl,
+            response_type: 'code',
+            state,
+        });
+        expect(new Set(result.searchParams.get('scope')?.split(' '))).toStrictEqual(new Set(['identify', 'guilds']));
     });
 
     it('throws for empty app id', () => {
@@ -76,7 +38,7 @@ describe('buildFluxerAuthorizeUrl', () => {
                 redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
                 scopes: ['identify'],
             })
-        ).toThrow('appId is required');
+        ).toThrow(/appId/u);
     });
 
     it('throws for empty redirect URL', () => {
@@ -86,7 +48,7 @@ describe('buildFluxerAuthorizeUrl', () => {
                 redirectUrl: ' ',
                 scopes: ['identify'],
             })
-        ).toThrow('redirectUrl is required');
+        ).toThrow(/redirectUrl/u);
     });
 
     it('throws for empty scopes', () => {
@@ -96,7 +58,7 @@ describe('buildFluxerAuthorizeUrl', () => {
                 redirectUrl: 'http://localhost:3000/auth/fluxer/callback',
                 scopes: [],
             })
-        ).toThrow('scopes is required');
+        ).toThrow(/scopes/u);
     });
 
     it('throws for empty state when provided', () => {
@@ -107,7 +69,7 @@ describe('buildFluxerAuthorizeUrl', () => {
                 scopes: ['identify'],
                 state: ' ',
             })
-        ).toThrow('state is required');
+        ).toThrow(/state/u);
     });
 });
 
@@ -146,7 +108,7 @@ describe('exchangeFluxerAuthorizationCode', () => {
             refreshToken: 'refresh-token',
             scope: 'identify guilds',
         });
-        expect(capturedInput).toBe(FLUXER_OAUTH_TOKEN_URL);
+        expect(capturedInput).toBe('https://api.fluxer.app/v1/oauth2/token');
         expect(capturedInit?.method).toBe('POST');
 
         const body = capturedInit?.body;
@@ -320,7 +282,7 @@ describe('refreshFluxerOAuthToken', () => {
             refreshToken: 'new-refresh-token',
             scope: 'identify guilds',
         });
-        expect(capturedInput).toBe(FLUXER_OAUTH_TOKEN_URL);
+        expect(capturedInput).toBe('https://api.fluxer.app/v1/oauth2/token');
         expect(capturedInit?.method).toBe('POST');
 
         const body = capturedInit?.body;

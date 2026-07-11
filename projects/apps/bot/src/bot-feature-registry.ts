@@ -4,7 +4,7 @@ import type { BotCommandMetadata, BotFeatureModule, BotHelpCategory } from './bo
 
 const botCommands = listBotCommandDefinitions();
 
-export const BOT_FEATURE_MODULES = [
+const BOT_FEATURE_MODULES = [
     {
         id: 'general',
         order: 10,
@@ -40,7 +40,7 @@ export const BOT_FEATURE_MODULES = [
     },
 ] as const satisfies readonly BotFeatureModule[];
 
-export function listBotCommandMetadata(): BotCommandMetadata[] {
+function listBotCommandMetadata(): BotCommandMetadata[] {
     return [...BOT_FEATURE_MODULES]
         .sort((left, right) => left.order - right.order)
         .flatMap((featureModule) => featureModule.commands);

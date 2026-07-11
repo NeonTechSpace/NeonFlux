@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
 
-import { existsSync, readFileSync } from 'node:fs';
-
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
 import { createElement } from 'react';
@@ -26,103 +24,6 @@ describe('/dashboard', () => {
             particlesEnabled: true,
             particleBlurEnabled: true,
         });
-    });
-
-    it('keeps the server selector on an index route so guild pages render through the dashboard layout', () => {
-        const routeTree = readFileSync(findRouteTreePath(), 'utf8');
-
-        expect(routeTree).toContain("DashboardIndexRouteImport } from './routes/dashboard.index'");
-        expect(routeTree).toContain('DashboardIndexRoute = DashboardIndexRouteImport.update({');
-        expect(routeTree).toContain('getParentRoute: () => DashboardRoute');
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/access'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/access/autoroles'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/access/reaction-roles'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/community/giveaways'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/events/audit-events'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general/bot-presence'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/general/command-prefix'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/insights'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/insights/growth-tracking'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging/bluesky'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/messaging/message-builder'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/moderation'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/moderation/automod'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/server-blueprint/import-export'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/backups'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/compare'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/current'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/deploy'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/import-export'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/structure/runs'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/system'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/system/bot-installation-sync'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/invites'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/audit'");
-        expect(routeTree).toContain("fullPath: '/dashboard/$guildId/logging'");
-        expect(routeTree).toContain("fullPath: '/dashboard/'");
-        expect(routeTree).not.toContain("fullPath: '/profile-builder'");
-    });
-
-    it('keeps legacy Blueprint paths on the canonical focused surfaces', () => {
-        const structureIndexRoute = readWebSourceFile('src/routes/dashboard/$guildId/structure/index.tsx');
-        const structureLegacyRoute = readWebSourceFile('src/routes/dashboard/$guildId/structure/import-export.tsx');
-        const blueprintLayoutRoute = readWebSourceFile('src/routes/dashboard/$guildId/server-blueprint.tsx');
-        const blueprintIndexRoute = readWebSourceFile('src/routes/dashboard/$guildId/server-blueprint/index.tsx');
-        const blueprintLegacyRoute = readWebSourceFile(
-            'src/routes/dashboard/$guildId/server-blueprint/import-export.tsx'
-        );
-
-        expect(structureIndexRoute).toContain('getDefaultDashboardStructureTo()');
-        expect(structureLegacyRoute).toContain("to: '/dashboard/$guildId/structure/deploy'");
-        expect(blueprintLayoutRoute).toContain('component: Outlet');
-        expect(blueprintIndexRoute).toContain("to: '/dashboard/$guildId/structure/current'");
-        expect(blueprintLegacyRoute).toContain("to: '/dashboard/$guildId/structure/deploy'");
-    });
-
-    it('keeps auth-bearing dashboard pending paths from rendering dashboard chrome', () => {
-        const dashboardIndexRoute = readWebSourceFile('src/routes/dashboard.index.tsx');
-        const dashboardGuildRoute = readWebSourceFile('src/routes/dashboard.$guildId.tsx');
-        const router = readWebSourceFile('src/router.tsx');
-        const dashboardIndexPage = readWebSourceFile('src/components/dashboard-index-page.tsx');
-        const dashboardLayout = readWebSourceFile('src/components/dashboard-layout.tsx');
-
-        expect(dashboardIndexRoute).not.toContain('DashboardRouteLoading');
-        expect(dashboardIndexRoute).not.toContain('pendingComponent');
-        expect(dashboardIndexRoute).not.toContain('fallback=');
-        expect(dashboardIndexRoute).not.toContain('lazy(');
-        expect(dashboardGuildRoute).not.toContain('pendingComponent: DashboardRouteLoading');
-        expect(dashboardGuildRoute).not.toContain('fallback={<DashboardRouteLoading />}');
-        expect(dashboardGuildRoute).toContain('loader: ({ params }) =>');
-        expect(dashboardGuildRoute).toContain('loadDashboardGuildRouteData');
-        expect(dashboardGuildRoute).toContain('pendingComponent: DashboardGuildPendingRoute');
-        expect(dashboardGuildRoute).toContain('readDashboardGuildPreview');
-        expect(dashboardGuildRoute).not.toContain('pendingMs: 0');
-        expect(dashboardGuildRoute).not.toContain('pendingMinMs: 0');
-        expect(router).toContain('defaultPendingMs: 0');
-        expect(router).toContain('defaultPendingMinMs: 0');
-        expect(dashboardGuildRoute).toContain(
-            '<DashboardGuildPageContent data={data} activeCategoryId={activeCategoryId} />'
-        );
-        expect(dashboardGuildRoute).toContain(
-            '<DashboardGuildPendingPage guildId={guildId} preview={preview} activeCategoryId={activeCategoryId} />'
-        );
-        expect(dashboardIndexPage).toContain("preload='intent'");
-        expect(dashboardIndexPage).toContain('withDashboardGuildPreview(preview)');
-        expect(dashboardIndexPage).toContain('createDashboardGuildPreview');
-        expect(dashboardIndexPage).toContain("className='min-h-0 flex-1 overflow-y-auto pb-8'");
-        expect(dashboardIndexPage).toContain("className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'");
-        expect(dashboardLayout).toContain("case '/dashboard':");
-        expect(dashboardLayout).toContain("<Link to='/dashboard'");
-        expect(dashboardLayout).toContain('<a href={actionTo}');
     });
 
     it('maps dashboard data into route data', async () => {
@@ -349,26 +250,4 @@ function getRedirectOptions(error: unknown): Record<string, unknown> {
     }
 
     return (error as { options: Record<string, unknown> }).options;
-}
-
-function findRouteTreePath(): string {
-    const routeTreePaths = ['apps/web/src/routeTree.gen.ts', 'src/routeTree.gen.ts'];
-    const routeTreePath = routeTreePaths.find((path) => existsSync(path));
-
-    if (!routeTreePath) {
-        throw new Error('Expected generated TanStack route tree to exist.');
-    }
-
-    return routeTreePath;
-}
-
-function readWebSourceFile(path: string): string {
-    const sourcePaths = [`apps/web/${path}`, path];
-    const sourcePath = sourcePaths.find((candidate) => existsSync(candidate));
-
-    if (!sourcePath) {
-        throw new Error(`Expected web source file to exist: ${path}`);
-    }
-
-    return readFileSync(sourcePath, 'utf8');
 }

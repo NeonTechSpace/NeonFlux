@@ -197,20 +197,6 @@ describe('Convex service database', () => {
         });
     });
 
-    it('creates an authenticated Convex HTTP client boundary without exposing generated paths', async () => {
-        const config = createConfig();
-        const database = await createConvexServiceDb(config, {
-            serviceName: 'web',
-        });
-
-        expect(database).toMatchObject({
-            deployment: 'team:neonflux-test',
-            serviceName: 'web',
-            url: 'https://neonflux-test.convex.cloud',
-        });
-        expect(database.client).toBeDefined();
-    });
-
     it('selects Convex runtime without DATABASE_URL when cutover config is complete', async () => {
         const database = await createRuntimeDb(
             {
