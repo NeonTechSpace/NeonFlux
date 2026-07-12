@@ -25,15 +25,15 @@ export function DashboardServerDockActionTile({
     const Icon = icon === 'all' ? Grid2X2 : Plus;
     const content = (
         <>
-            <span className='relative grid size-10 place-items-center rounded-full border border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] shadow-[0_0_18px_rgba(90,215,255,0.08)]'>
-                <Icon className='size-[1.1rem]' aria-hidden='true' />
+            <span className='grid size-8 shrink-0 place-items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)]'>
+                <Icon className='size-4' aria-hidden='true' />
             </span>
-            <span className='relative block w-full text-center text-xs font-semibold'>{label}</span>
+            <span className='min-w-0 flex-1 truncate text-sm font-semibold'>{label}</span>
         </>
     );
 
     return (
-        <motion.li layout className='min-w-0' whileHover={{ y: -2 }} transition={dashboardServerDockSpring}>
+        <motion.li layout className='min-w-0' transition={dashboardServerDockSpring}>
             {icon === 'all' ? (
                 <Link
                     to={href}
@@ -67,8 +67,8 @@ export function DashboardServerDockAvatar({
         <span
             className={
                 active
-                    ? 'relative grid size-10 place-items-center overflow-hidden rounded-full border border-[var(--dash-primary)] bg-[var(--dash-surface-raised)] shadow-[0_0_18px_rgba(90,215,255,0.24)]'
-                    : 'relative grid size-10 place-items-center overflow-hidden rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'
+                    ? 'relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--dash-primary)] bg-[var(--dash-surface-raised)] shadow-[0_0_16px_rgba(90,215,255,0.2)]'
+                    : 'relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'
             }
             aria-hidden='true'>
             <DashboardGuildSelectorAvatar guild={guild} />
@@ -101,8 +101,8 @@ export function getDashboardServerTriggerClassName(variant: 'sidebar' | 'mobile-
         'group/server-trigger flex w-full min-w-0 items-center gap-3 rounded-[var(--dash-radius-control)] text-left text-[var(--dash-text)] transition outline-none focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]';
 
     return variant === 'mobile-header'
-        ? `${base} min-h-11 border border-transparent px-1 hover:bg-[var(--dash-surface-raised)]`
-        : `${base} min-h-12 justify-center border border-[var(--dash-border)] bg-[rgba(9,14,23,0.82)] px-2.5 shadow-[var(--dash-shadow-surface)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] lg:justify-start`;
+        ? `${base} h-[3.25rem] border border-transparent px-1 hover:bg-[var(--dash-surface-raised)]`
+        : `${base} h-[3.25rem] justify-center border border-[var(--dash-border)] bg-[rgba(9,14,23,0.82)] px-2 shadow-[var(--dash-shadow-surface)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] lg:justify-start lg:px-2.5`;
 }
 
 export function getDashboardServerDockClassName(variant: 'sidebar' | 'mobile-header'): string {
@@ -110,23 +110,23 @@ export function getDashboardServerDockClassName(variant: 'sidebar' | 'mobile-hea
         'flex flex-col overflow-hidden rounded-[var(--dash-radius-panel)] border border-[var(--dash-border-interactive)] bg-[rgba(7,12,20,0.96)] text-[var(--dash-text)] shadow-[var(--dash-shadow-popover)] backdrop-blur-2xl';
 
     return variant === 'mobile-header'
-        ? `${surface} absolute inset-x-2 bottom-2 max-h-[calc(100dvh-1rem)]`
-        : `${surface} fixed z-50 max-h-[calc(100dvh-2rem)] w-[min(38rem,calc(100vw-6.5rem))] origin-left`;
+        ? `${surface} absolute inset-x-2 bottom-2 max-h-[min(42rem,calc(100dvh-1rem))]`
+        : `${surface} fixed z-50 w-[min(24rem,calc(100vw-6.5rem))] origin-left`;
 }
 
 export function getDashboardServerDockTileClassName(tone: 'action' | 'current' | 'default' | 'pending'): string {
     const base =
-        'relative flex min-h-[6.75rem] w-full min-w-0 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-[var(--dash-radius-control)] border px-2 py-2.5 text-[var(--dash-text)] outline-none transition focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]';
+        'relative flex min-h-14 w-full min-w-0 items-center gap-3 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 py-2 text-left text-[var(--dash-text)] outline-none transition-[border-color,background-color,color,box-shadow,transform] duration-[160ms] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]';
 
     switch (tone) {
         case 'current':
-            return `${base} border-[var(--dash-border-interactive)]`;
+            return `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)]`;
         case 'pending':
             return `${base} border-[var(--dash-primary)] bg-[var(--dash-primary-soft)] shadow-[0_0_18px_rgba(90,215,255,0.14)] active:scale-[0.98]`;
         case 'action':
-            return `${base} border-[var(--dash-border)] bg-[rgba(14,21,32,0.66)] text-[var(--dash-primary)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-primary-soft)] active:scale-[0.98]`;
+            return `${base} min-h-12 border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] active:scale-[0.99]`;
         case 'default':
-            return `${base} border-transparent bg-[rgba(14,21,32,0.46)] text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] active:scale-[0.98]`;
+            return `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] active:scale-[0.99]`;
     }
 }
 

@@ -55,10 +55,8 @@ export function DashboardAmbientSurface() {
             data-ambient-motion={effects.ambientMotionEnabled && pageVisible}
             aria-hidden='true'>
             <div className='dashboard-ambient-base absolute inset-0' />
-            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-cyan absolute' />
-            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-blue absolute' />
-            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-magenta absolute' />
-            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-violet absolute' />
+            <div className='dashboard-ambient-body dashboard-ambient-body-cyan absolute' />
+            <div className='dashboard-ambient-body dashboard-ambient-body-violet absolute' />
             <div className='dashboard-ambient-current absolute' />
             <svg
                 className='absolute inset-0 size-full opacity-[0.048] mix-blend-overlay'
@@ -78,7 +76,7 @@ export function DashboardAmbientSurface() {
             </svg>
             {effects.particlesEnabled && desktopMotionEnabled && pageVisible ? (
                 <Suspense fallback={null}>
-                    <DashboardParticleField blurEnabled={effects.particleBlurEnabled} />
+                    <DashboardParticleField bloomEnabled={effects.particleBlurEnabled} />
                 </Suspense>
             ) : null}
             <div className='absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_34%,rgba(5,7,17,0.08)_70%,rgba(4,5,13,0.35)_100%),linear-gradient(180deg,rgba(3,5,14,0.02),rgba(3,4,12,0.28))]' />

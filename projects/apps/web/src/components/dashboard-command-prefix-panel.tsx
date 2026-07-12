@@ -15,7 +15,13 @@ import {
     updateDashboardCommandPrefixRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
-import { DashboardStatus, DashboardSurface, DashboardToolbar } from './dashboard-ui.js';
+import {
+    dashboardFieldClassName,
+    dashboardPrimaryActionClassName,
+    DashboardStatus,
+    DashboardSurface,
+    DashboardToolbar,
+} from './dashboard-ui.js';
 
 type CommandPrefixFormState = {
     draftPrefix: string;
@@ -231,7 +237,7 @@ export function DashboardCommandPrefixSettingsPanel({
                                 formMessage: undefined,
                             }));
                         }}
-                        className='min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[rgba(107,125,152,0.72)] bg-[rgba(2,6,23,0.76)] px-3 text-base text-[var(--dash-text)] transition outline-none placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)]'
+                        className={`${dashboardFieldClassName} text-base`}
                         maxLength={6}
                         inputMode='text'
                         autoComplete='off'
@@ -247,7 +253,7 @@ export function DashboardCommandPrefixSettingsPanel({
                     <motion.button
                         type='submit'
                         disabled={!canSubmit}
-                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'
+                        className={`${dashboardPrimaryActionClassName} inline-flex items-center`}
                         {...dashboardTactile}>
                         {mutation.isPending ? 'Saving...' : 'Save prefix'}
                     </motion.button>

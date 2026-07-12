@@ -12,7 +12,13 @@ import {
     dashboardFastTransition,
     dashboardInlineVariants,
 } from './dashboard-motion.js';
-import { DashboardEmptyState, DashboardErrorState, DashboardSurface, DashboardToolbar } from './dashboard-ui.js';
+import {
+    dashboardDangerActionClassName,
+    DashboardEmptyState,
+    DashboardErrorState,
+    DashboardSurface,
+    DashboardToolbar,
+} from './dashboard-ui.js';
 
 type MemberFlowChartDay = DashboardGuildOverview['memberFlow']['graph'][number] & {
     leaveLoss: number;
@@ -50,7 +56,7 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
                     <button
                         type='button'
                         onClick={() => void overviewQuery.refetch()}
-                        className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                        className={dashboardDangerActionClassName}>
                         Try again
                     </button>
                 }
@@ -62,7 +68,7 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
 
     return (
         <motion.div
-            className='mx-auto max-w-[90rem] space-y-5'
+            className='space-y-5'
             variants={dashboardContentVariants}
             initial='initial'
             animate='enter'
@@ -84,7 +90,7 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
 
 export function DashboardServerOverviewLoading() {
     return (
-        <section className='mx-auto max-w-[90rem] space-y-5' aria-label='Loading server overview'>
+        <section className='space-y-5' aria-label='Loading server overview'>
             <DashboardSurface as='div'>
                 <div className='h-4 w-52 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
                 <div className='mt-5 grid gap-3 md:grid-cols-2'>

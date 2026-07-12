@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowDownAZ, Check, ChevronsUpDown, Search, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import { createDashboardGuildPreview, withDashboardGuildPreview } from '../dashboard-guild-preview.js';
@@ -43,7 +43,7 @@ export function DashboardGuildSelector({
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [localPendingGuildId, setLocalPendingGuildId] = useState<string>();
-    const [desktopDockPosition, setDesktopDockPosition] = useState<{ left: number; top: number }>();
+    const [desktopDockPosition, setDesktopDockPosition] = useState<CSSProperties>();
     const selectorRef = useRef<HTMLElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const dockRef = useRef<HTMLElement>(null);
@@ -153,9 +153,12 @@ export function DashboardGuildSelector({
             const selectorBounds = selectorRef.current?.getBoundingClientRect();
 
             if (selectorBounds) {
+                const top = Math.max(8, Math.min(selectorBounds.top, window.innerHeight - 160));
+
                 setDesktopDockPosition({
-                    left: selectorBounds.right + 12,
-                    top: Math.max(8, selectorBounds.top),
+                    left: Math.min(selectorBounds.right + 12, window.innerWidth - 392),
+                    top,
+                    maxHeight: Math.max(144, window.innerHeight - top - 8),
                 });
             }
         }
@@ -207,13 +210,10 @@ export function DashboardGuildSelector({
                 aria-controls={dockId}
                 onClick={() => (open ? closeSelector() : openSelector())}
                 className={getTriggerClassName(variant)}>
-                <span className='relative grid size-9 shrink-0 place-items-center overflow-visible rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'>
-                    <span className='grid size-full place-items-center overflow-hidden rounded-full' aria-hidden='true'>
-                        <DashboardGuildSelectorAvatar guild={activeGuild} />
-                    </span>
-                    <span className='absolute -right-1 -bottom-1 grid size-[1.15rem] place-items-center rounded-full border border-[var(--dash-border-interactive)] bg-[var(--dash-navigation)] text-[var(--dash-primary)] shadow-[0_0_12px_rgba(90,215,255,0.34)]'>
-                        <ChevronsUpDown className='size-2.5' aria-hidden='true' />
-                    </span>
+                <span
+                    className='grid size-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'
+                    aria-hidden='true'>
+                    <DashboardGuildSelectorAvatar guild={activeGuild} />
                 </span>
                 <span
                     className={variant === 'mobile-header' ? 'min-w-0 flex-1' : 'hidden min-w-0 flex-1 lg:block'}
@@ -227,9 +227,7 @@ export function DashboardGuildSelector({
                         </>
                     ) : (
                         <>
-                            <span className='line-clamp-2 block text-sm leading-4 font-semibold'>
-                                {activeGuild.name}
-                            </span>
+                            <span className='block truncate text-sm font-semibold'>{activeGuild.name}</span>
                         </>
                     )}
                 </span>
@@ -312,7 +310,7 @@ function DashboardServerDock({
     pendingGuildId?: string;
     navigationDisabledGuildId?: string;
     portalHost?: HTMLElement | null;
-    desktopPosition?: { left: number; top: number };
+    desktopPosition?: CSSProperties;
     query: string;
     showTools: boolean;
     sortByName: boolean;
@@ -380,8 +378,8 @@ function DashboardServerDock({
                 </div>
             ) : null}
 
-            <div className='min-h-0 flex-1 overflow-y-auto p-3 sm:p-4'>
-                <ul className='grid grid-cols-[repeat(auto-fit,minmax(6.6rem,1fr))] gap-2'>
+            <nav className='min-h-0 flex-1 overflow-y-auto p-2 sm:p-3' aria-label='Available servers'>
+                <ul className='space-y-1'>
                     <DashboardCurrentGuildTile guild={activeGuild} layoutId={`${id}-current`} />
                     {selectableGuilds.map((guild) => (
                         <DashboardGuildLinkTile
@@ -394,17 +392,22 @@ function DashboardServerDock({
                             onNavigate={onServerNavigate}
                         />
                     ))}
+                </ul>
+                {selectableGuilds.length === 0 && query.trim().length > 0 ? (
+                    <p className='mt-2 rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] px-3 py-5 text-center text-sm text-[var(--dash-text-muted)]'>
+                        No other matching servers
+                    </p>
+                ) : null}
+            </nav>
+
+            <nav className='shrink-0 border-t border-[var(--dash-border)] p-2 sm:p-3' aria-label='Server actions'>
+                <ul className='space-y-1'>
                     <DashboardActionTile href='/dashboard' label='All servers' icon='all' onClick={onClose} />
                     {botInviteUrl ? (
                         <DashboardActionTile href={botInviteUrl} label='Invite bot' icon='invite' onClick={onClose} />
                     ) : null}
                 </ul>
-                {selectableGuilds.length === 0 && query.trim().length > 0 ? (
-                    <p className='mt-3 rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] px-3 py-4 text-center text-sm text-[var(--dash-text-muted)]'>
-                        No other matching servers
-                    </p>
-                ) : null}
-            </div>
+            </nav>
         </motion.section>
     );
 
@@ -436,15 +439,15 @@ function DashboardCurrentGuildTile({ guild, layoutId }: { guild: DashboardGuildS
                 className={`${getDockTileClassName('current')} cursor-default`}>
                 <motion.span
                     layoutId={layoutId}
-                    className='absolute inset-0 rounded-[var(--dash-radius-control)] bg-[linear-gradient(145deg,rgba(90,215,255,0.2),rgba(157,140,255,0.14)_58%,rgba(255,113,138,0.1))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_22px_rgba(90,215,255,0.1)]'
+                    className='absolute inset-y-2 left-0 w-0.5 rounded-full bg-[var(--dash-primary)] shadow-[0_0_12px_rgba(90,215,255,0.5)]'
                     transition={dockSpring}
                 />
                 <DashboardDockAvatar guild={guild} active />
-                <span className='relative line-clamp-2 block min-h-8 w-full text-center text-xs leading-4 font-semibold'>
-                    {guild.name}
-                </span>
-                <span className='relative inline-flex items-center gap-1 text-[0.65rem] font-semibold text-[var(--dash-primary)]'>
-                    <Check className='size-3' aria-hidden='true' /> Current
+                <span className='relative min-w-0 flex-1'>
+                    <span className='block truncate text-sm font-semibold'>{guild.name}</span>
+                    <span className='mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-[var(--dash-primary)]'>
+                        <Check className='size-3' aria-hidden='true' /> Current
+                    </span>
                 </span>
             </span>
         </motion.li>
@@ -482,21 +485,17 @@ function DashboardGuildLinkTile({
     const content = (
         <>
             <DashboardDockAvatar guild={guild} />
-            <span className='relative line-clamp-2 block min-h-8 w-full text-center text-xs leading-4 font-semibold'>
-                {guild.name}
+            <span className='relative min-w-0 flex-1'>
+                <span className='block truncate text-sm font-semibold'>{guild.name}</span>
+                {pending ? (
+                    <span className='mt-0.5 block text-xs font-medium text-[var(--dash-primary)]'>Opening…</span>
+                ) : null}
             </span>
-            {pending ? (
-                <span className='relative text-[0.65rem] font-semibold text-[var(--dash-primary)]'>Opening…</span>
-            ) : null}
         </>
     );
 
     return (
-        <motion.li
-            layout
-            className='min-w-0'
-            whileHover={navigationDisabled ? undefined : { y: -2 }}
-            transition={dockSpring}>
+        <motion.li layout className='min-w-0' transition={dockSpring}>
             {navigationDisabled ? (
                 <span
                     aria-label={`${guild.name}, opening`}

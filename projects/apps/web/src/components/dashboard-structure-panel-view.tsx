@@ -66,7 +66,7 @@ const dashboardStructureDeploymentPolicies = [
 export function DashboardStructurePanelView({
     surface,
     ...workspace
-}: DashboardStructurePanelViewProps & { surface: DashboardStructureSurface | 'all' }) {
+}: DashboardStructurePanelViewProps & { surface: DashboardStructureSurface }) {
     const refreshIssue = workspace.settingsRefreshIssue ? (
         <ExecutionProgressIssue
             code={workspace.settingsRefreshIssue.code}
@@ -75,19 +75,6 @@ export function DashboardStructurePanelView({
             onRetry={workspace.onRetrySettingsRefresh}
         />
     ) : null;
-    if (surface === 'all') {
-        return (
-            <div className='space-y-12'>
-                {refreshIssue}
-                <CurrentSurface workspace={workspace} showActions={false} />
-                <BackupsSurface workspace={workspace} showStatus={false} />
-                <CompareSurface workspace={workspace} />
-                <DeploySurface workspace={workspace} forceSourceDetails />
-                <RunsSurface workspace={workspace} includeDetails={false} />
-            </div>
-        );
-    }
-
     return (
         <motion.div
             key={surface}
@@ -132,12 +119,12 @@ function CurrentSurface({
           : 'No comparison has been run';
 
     return (
-        <section aria-labelledby='blueprint-current-heading' className='mx-auto max-w-[74rem]'>
+        <section aria-labelledby='blueprint-current-heading'>
             <div className='flex flex-wrap items-end justify-between gap-5 border-b border-[var(--dash-border)] pb-5'>
                 <div>
-                    <h3 id='blueprint-current-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
+                    <h2 id='blueprint-current-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
                         Current layout
-                    </h3>
+                    </h2>
                     <p className='mt-1 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
                         The relationship between the latest protected version and what is live now.
                     </p>
@@ -253,12 +240,12 @@ function BackupsSurface({
         : 'Automatic backups are off.';
 
     return (
-        <section aria-labelledby='blueprint-backups-heading' className='mx-auto max-w-[78rem]'>
+        <section aria-labelledby='blueprint-backups-heading'>
             <div className='flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
                 <div>
-                    <h3 id='blueprint-backups-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
+                    <h2 id='blueprint-backups-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
                         Protected versions
-                    </h3>
+                    </h2>
                     <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{scheduleCopy}</p>
                 </div>
                 <div className='flex flex-wrap gap-2'>
@@ -347,9 +334,9 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
         <section aria-labelledby='blueprint-compare-heading' className='@container/blueprint min-w-0'>
             <div className='mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
                 <div>
-                    <h3 id='blueprint-compare-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
+                    <h2 id='blueprint-compare-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
                         Compare layouts
-                    </h3>
+                    </h2>
                     <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
                         Domain changes first. Raw normalized JSON remains an advanced inspection mode.
                     </p>
@@ -401,11 +388,11 @@ function DeploySurface({
     const stage = getDashboardStructureDeployStage(workspace.latestRun);
 
     return (
-        <section aria-labelledby='blueprint-deploy-heading' className='mx-auto max-w-[76rem]'>
+        <section aria-labelledby='blueprint-deploy-heading'>
             <div className='border-b border-[var(--dash-border)] pb-4'>
-                <h3 id='blueprint-deploy-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
+                <h2 id='blueprint-deploy-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
                     Deploy a blueprint
-                </h3>
+                </h2>
                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
                     Prepare one source, review its domain changes, check the live server, then apply deliberately.
                 </p>
@@ -658,11 +645,11 @@ function RunsSurface({
     includeDetails: boolean;
 }) {
     return (
-        <section aria-labelledby='blueprint-runs-heading' className='mx-auto max-w-[78rem]'>
+        <section aria-labelledby='blueprint-runs-heading'>
             <div className='border-b border-[var(--dash-border)] pb-4'>
-                <h3 id='blueprint-runs-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
+                <h2 id='blueprint-runs-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
                     Deployment runs
-                </h3>
+                </h2>
                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
                     Active work stays at the top; completed runs follow.
                 </p>

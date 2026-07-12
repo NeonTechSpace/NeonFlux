@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
 import type { DashboardGuildPreview } from '../dashboard-guild-preview.js';
-import { dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
+import { dashboardStructureIdentity, dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
 import {
     getDashboardCategory,
     getDashboardCategorySubNavigation,
@@ -26,8 +26,8 @@ import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
 import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
 import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
-import { DashboardStructurePanel } from './dashboard-structure-panel.js';
-import { DashboardPage, DashboardPageHeader } from './dashboard-ui.js';
+import { DashboardStructureNavigation } from './dashboard-structure-workspace-shell.js';
+import { DashboardFeaturePage } from './dashboard-ui.js';
 import { getDashboardWorkbenchWidth } from './dashboard-workbench.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
@@ -35,7 +35,6 @@ const commandLiveArea = ['commands'] as const satisfies readonly DashboardLiveAr
 const overviewLiveArea = ['overview'] as const satisfies readonly DashboardLiveArea[];
 const messagingLiveArea = ['posting'] as const satisfies readonly DashboardLiveArea[];
 const reactionRolesLiveArea = ['reaction_roles'] as const satisfies readonly DashboardLiveArea[];
-const structureLiveArea = ['import_export', 'structure'] as const satisfies readonly DashboardLiveArea[];
 const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
 
 type AuthorizedDashboardGuildRouteData = Extract<DashboardGuildRouteData, { type: 'guild' }>;
@@ -108,7 +107,11 @@ export function DashboardGuildPendingPage({
             pendingGuildId={sourcePreview ? preview.id : undefined}
             pathnameOverride={sourcePathname}
             isLoading>
-            <DashboardPendingCategory activeCategoryId={activeCategoryId} pathname={pathname} />
+            <DashboardPendingCategory
+                activeCategoryId={activeCategoryId}
+                pathname={pathname}
+                guildId={sourcePreview?.id ?? preview.id}
+            />
         </DashboardGuildFrame>
     );
 }
@@ -184,10 +187,19 @@ export function DashboardGuildOverviewCategory() {
         areas: overviewLiveArea,
     });
 
+    const category = getDashboardCategory('overview');
+    const FeatureIcon = category.icon;
+
     return (
-        <DashboardCategorySection categoryId='overview'>
+        <DashboardFeaturePage
+            title='Server pulse'
+            description='Growth and message activity across this server.'
+            eyebrow={getDashboardNavigationJob('overview').label}
+            icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+            titleId='dashboard-overview-heading'
+            width='wide'>
             <DashboardServerOverviewPanel guildId={data.guild.id} />
-        </DashboardCategorySection>
+        </DashboardFeaturePage>
     );
 }
 
@@ -226,17 +238,6 @@ export function DashboardGuildReactionRolesCategory() {
     });
 
     return <DashboardReactionRolesPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildStructureCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: structureLiveArea,
-    });
-
-    return <DashboardStructurePanel guildId={data.guild.id} />;
 }
 
 export function DashboardGuildAuditEventsCategory() {
@@ -315,55 +316,34 @@ function DashboardGuildFrame({
     );
 }
 
-function DashboardCategorySection({
-    categoryId,
-    children,
-    identity,
-}: {
-    categoryId: DashboardCategoryId;
-    children: ReactNode;
-    identity?: DashboardPendingIdentity;
-}) {
-    const category = getDashboardCategory(categoryId);
-    const headingId = `dashboard-${category.id}-heading`;
-    const title = identity?.title ?? (category.id === 'overview' ? 'Server pulse' : category.label);
-    const description =
-        identity?.description ??
-        (category.id === 'overview' ? 'Growth and message activity across this server.' : category.description);
-
-    return (
-        <section
-            className='min-h-full space-y-4'
-            aria-label={identity?.title ?? category.label}
-            data-dashboard-feature={identity?.id}>
-            <div className='border-b border-[var(--dash-border)] px-1 pb-3'>
-                <h1 id={headingId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
-                    {title}
-                </h1>
-                <p className='mt-1 max-w-3xl text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>{description}</p>
-            </div>
-            {children}
-        </section>
-    );
-}
-
 function DashboardPendingCategory({
     activeCategoryId,
     pathname,
+    guildId,
 }: {
     activeCategoryId: DashboardCategoryId;
     pathname?: string;
+    guildId?: string;
 }) {
     const identity = getDashboardPendingIdentity(activeCategoryId, pathname);
 
     if (activeCategoryId === 'overview') {
+        const category = getDashboardCategory('overview');
+        const FeatureIcon = category.icon;
+
         return (
-            <DashboardCategorySection categoryId='overview' identity={identity}>
+            <DashboardFeaturePage
+                title={identity.title}
+                description={identity.description}
+                eyebrow={getDashboardNavigationJob('overview').label}
+                icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+                titleId='dashboard-overview-heading'
+                width='wide'>
                 <span role='status' className='sr-only'>
                     Loading {identity.title}
                 </span>
                 <DashboardServerOverviewLoading />
-            </DashboardCategorySection>
+            </DashboardFeaturePage>
         );
     }
 
@@ -375,35 +355,48 @@ function DashboardPendingCategory({
         const headingId = `dashboard-${featureId}-heading`;
 
         return (
-            <section
-                className='min-w-0'
-                aria-labelledby={headingId}
-                data-dashboard-feature={identity.id}
-                data-dashboard-page-width={getDashboardWorkbenchWidth(featureId)}>
-                <DashboardPage width={getDashboardWorkbenchWidth(featureId)}>
-                    <span role='status' className='sr-only'>
-                        Loading {identity.title}
-                    </span>
-                    <DashboardPageHeader
-                        title={identity.title}
-                        description={identity.description}
-                        eyebrow={activeItem ? getDashboardNavigationJob(activeItem.navigationJobId).label : undefined}
-                        icon={<FeatureIcon className='size-5' aria-hidden='true' />}
-                        titleId={headingId}
-                    />
-                    <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
-                </DashboardPage>
-            </section>
+            <DashboardFeaturePage
+                title={identity.title}
+                description={identity.description}
+                eyebrow={activeItem ? getDashboardNavigationJob(activeItem.navigationJobId).label : undefined}
+                icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+                titleId={headingId}
+                width={getDashboardWorkbenchWidth(featureId)}>
+                <span role='status' className='sr-only'>
+                    Loading {identity.title}
+                </span>
+                <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
+            </DashboardFeaturePage>
         );
     }
 
+    const category = getDashboardCategory('structure');
+    const FeatureIcon = category.icon;
+
     return (
-        <DashboardCategorySection categoryId={activeCategoryId} identity={identity}>
-            <span role='status' className='sr-only'>
-                Loading {identity.title}
-            </span>
-            <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
-        </DashboardCategorySection>
+        <DashboardFeaturePage
+            title={dashboardStructureIdentity.title}
+            description={dashboardStructureIdentity.description}
+            eyebrow={dashboardStructureIdentity.eyebrow}
+            icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+            titleId='server-blueprint-title'
+            width='full'
+            navigation={guildId ? <DashboardStructureNavigation guildId={guildId} /> : undefined}>
+            <section aria-labelledby='dashboard-blueprint-pending-surface-heading'>
+                <h2
+                    id='dashboard-blueprint-pending-surface-heading'
+                    className='text-lg font-semibold text-[var(--dash-text)]'>
+                    {identity.title}
+                </h2>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>{identity.description}</p>
+                <div className='mt-5'>
+                    <span role='status' className='sr-only'>
+                        Loading {identity.title}
+                    </span>
+                    <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
+                </div>
+            </section>
+        </DashboardFeaturePage>
     );
 }
 

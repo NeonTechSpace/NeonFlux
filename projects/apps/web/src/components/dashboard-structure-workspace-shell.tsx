@@ -1,8 +1,9 @@
 import { Link, Outlet } from '@tanstack/react-router';
+import { GitBranch } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
-import { dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
+import { dashboardStructureIdentity, dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import {
     formatDashboardStructureExecutionPhase,
@@ -14,6 +15,7 @@ import {
     dashboardSelectionTransition,
 } from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
+import { DashboardFeaturePage } from './dashboard-ui.js';
 
 export function DashboardStructureWorkspaceShell({
     guildId,
@@ -28,57 +30,59 @@ export function DashboardStructureWorkspaceShell({
     executionTransport: DashboardStructureProgressTransport;
     children: ReactNode;
 }) {
+    const activeExecution = activeRun?.execution ? (
+        <BlueprintExecutionStrip
+            key={activeRun.id}
+            guildId={guildId}
+            run={activeRun}
+            hasProgressIssue={executionProgressIssue?.runId === activeRun.id}
+            transport={executionTransport}
+        />
+    ) : undefined;
+
     return (
-        <section className='min-w-0' aria-labelledby='server-blueprint-title'>
-            <header className='sticky top-0 z-10 border-b border-[var(--dash-border)] bg-[rgba(7,8,11,0.94)] px-1 backdrop-blur-md'>
-                <div className='flex min-h-14 items-center justify-between gap-5'>
-                    <h1
-                        id='server-blueprint-title'
-                        className='text-xl font-semibold tracking-tight text-[var(--dash-text)]'>
-                        Server Blueprint
-                    </h1>
-                    <p className='hidden text-sm text-[var(--dash-text-muted)] 2xl:block'>
-                        Capture versions, understand differences, and apply reviewed changes.
-                    </p>
-                </div>
-                <nav className='flex min-w-0 gap-6 overflow-x-auto' aria-label='Server Blueprint tools'>
-                    {dashboardStructureNavigationItems.map((item) => (
-                        <Link
-                            key={item.id}
-                            to={item.to}
-                            params={{ guildId }}
-                            className='relative shrink-0 py-3 text-sm font-medium text-[var(--dash-text-muted)] transition-colors hover:text-[var(--dash-text)] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)]'
-                            activeProps={{ className: 'text-[var(--dash-text)]' }}>
-                            {({ isActive }) => (
-                                <>
-                                    {item.label}
-                                    {isActive ? (
-                                        <motion.span
-                                            layoutId='server-blueprint-active-tool'
-                                            data-dashboard-motion='selection-gel'
-                                            className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
-                                            transition={dashboardSelectionTransition}
-                                        />
-                                    ) : null}
-                                </>
-                            )}
-                        </Link>
-                    ))}
-                </nav>
-                <AnimatePresence initial={false}>
-                    {activeRun?.execution ? (
-                        <BlueprintExecutionStrip
-                            key={activeRun.id}
-                            guildId={guildId}
-                            run={activeRun}
-                            hasProgressIssue={executionProgressIssue?.runId === activeRun.id}
-                            transport={executionTransport}
-                        />
-                    ) : null}
-                </AnimatePresence>
-            </header>
-            <div className='pt-5'>{children}</div>
-        </section>
+        <DashboardFeaturePage
+            title={dashboardStructureIdentity.title}
+            description={dashboardStructureIdentity.description}
+            eyebrow={dashboardStructureIdentity.eyebrow}
+            icon={<GitBranch className='size-5' aria-hidden='true' />}
+            titleId='server-blueprint-title'
+            width='full'
+            navigation={<DashboardStructureNavigation guildId={guildId} />}
+            status={activeExecution ? <AnimatePresence initial={false}>{activeExecution}</AnimatePresence> : undefined}>
+            {children}
+        </DashboardFeaturePage>
+    );
+}
+
+export function DashboardStructureNavigation({ guildId }: { guildId: string }) {
+    return (
+        <nav
+            className='flex min-w-0 gap-6 overflow-x-auto border-b border-[var(--dash-border)]'
+            aria-label='Server Blueprint tools'>
+            {dashboardStructureNavigationItems.map((item) => (
+                <Link
+                    key={item.id}
+                    to={item.to}
+                    params={{ guildId }}
+                    className='relative flex min-h-11 shrink-0 items-center text-sm font-medium text-[var(--dash-text-muted)] transition-colors hover:text-[var(--dash-text)] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)]'
+                    activeProps={{ className: 'text-[var(--dash-text)]' }}>
+                    {({ isActive }) => (
+                        <>
+                            {item.label}
+                            {isActive ? (
+                                <motion.span
+                                    layoutId='server-blueprint-active-tool'
+                                    data-dashboard-motion='selection-gel'
+                                    className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
+                                    transition={dashboardSelectionTransition}
+                                />
+                            ) : null}
+                        </>
+                    )}
+                </Link>
+            ))}
+        </nav>
     );
 }
 
@@ -102,7 +106,7 @@ function BlueprintExecutionStrip({
     return (
         <motion.div
             data-dashboard-motion='confirmation'
-            className='grid min-w-0 gap-2 border-t border-[var(--dash-border)] py-2.5 md:grid-cols-[minmax(0,1fr)_minmax(9rem,16rem)_auto] md:items-center md:gap-4'
+            className='grid min-w-0 gap-2 py-2.5 md:grid-cols-[minmax(0,1fr)_minmax(9rem,16rem)_auto] md:items-center md:gap-4'
             aria-label='Active Blueprint deployment'
             variants={dashboardConfirmationVariants}
             initial='initial'

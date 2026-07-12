@@ -72,7 +72,8 @@ describe('DashboardGuildSelector', () => {
         );
 
         const serverNavigation = screen.getByRole('navigation', { name: 'Servers' });
-        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+        const trigger = screen.getByRole('button', { name: 'Switch server, currently Guild One' });
+        fireEvent.click(trigger);
         const serverDock = screen.getByRole('dialog', { name: 'Switch server' });
 
         expect(serverNavigation.contains(serverDock)).toBe(false);
@@ -92,6 +93,10 @@ describe('DashboardGuildSelector', () => {
         expect(screen.queryByText('Open')).toBeNull();
         expect(document.body.textContent).not.toContain('guild-1');
         expect(document.body.textContent).not.toContain('guild-2');
+
+        fireEvent.pointerDown(document.body);
+
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Switch server' })).toBeNull());
     });
 
     it('keeps the multi-instance dock useful with one manageable server', () => {
@@ -156,6 +161,13 @@ describe('DashboardGuildSelector', () => {
         expect(screen.getByRole('link', { name: 'Beta Guild' })).toBeDefined();
         expect(screen.queryByRole('link', { name: 'Alpha Guild' })).toBeNull();
         expect(document.body.textContent).not.toContain('guild-b');
+
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search servers' }), {
+            target: { value: 'not a manageable server' },
+        });
+
+        expect(screen.getByText('No other matching servers')).toBeDefined();
+        expect(screen.queryByRole('link', { name: 'Beta Guild' })).toBeNull();
     });
 
     it('keeps full server names recoverable when tile labels wrap', () => {

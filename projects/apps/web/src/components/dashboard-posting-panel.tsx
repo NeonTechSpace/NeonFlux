@@ -31,7 +31,12 @@ import {
 } from './dashboard-motion.js';
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
-import { DashboardStatus, DashboardSurface } from './dashboard-ui.js';
+import {
+    dashboardFieldClassName,
+    dashboardPrimaryActionClassName,
+    DashboardStatus,
+    DashboardSurface,
+} from './dashboard-ui.js';
 
 type PostingFormMessage = {
     type: 'error' | 'success' | 'warning';
@@ -476,9 +481,7 @@ function getFormMessageTone(type: PostingFormMessage['type']): 'danger' | 'succe
     }
 }
 
-const fieldClassName =
-    'min-h-28 w-full resize-y rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-base text-[var(--dash-text)] outline-none transition placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]';
-const primaryButtonClassName =
-    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-muted)] disabled:text-[var(--dash-text-disabled)]';
+const fieldClassName = `${dashboardFieldClassName} min-h-28 resize-y py-2 text-base`;
+const primaryButtonClassName = `${dashboardPrimaryActionClassName} inline-flex items-center justify-center`;
 const warningButtonClassName =
     'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-warning)]';

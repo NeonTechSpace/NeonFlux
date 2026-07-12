@@ -27,7 +27,15 @@ import {
     dashboardViewTransition,
 } from './dashboard-motion.js';
 import { ReactionRoleEditor } from './dashboard-reaction-role-editor.js';
-import { DashboardEmptyState, DashboardErrorState, DashboardStatus, DashboardSurface } from './dashboard-ui.js';
+import {
+    dashboardDangerActionClassName,
+    dashboardPrimaryActionClassName,
+    dashboardSecondaryActionClassName,
+    DashboardEmptyState,
+    DashboardErrorState,
+    DashboardStatus,
+    DashboardSurface,
+} from './dashboard-ui.js';
 
 type ReactionRolePanelView =
     | { type: 'overview' }
@@ -192,25 +200,13 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         );
 
     return (
-        <DashboardSurface
-            as='section'
-            padding='none'
-            aria-labelledby={
-                view.type === 'overview' && hasOverviewContent ? 'dashboard-reaction-role-menus-heading' : undefined
-            }
-            aria-label={view.type === 'overview' && !hasOverviewContent ? 'Reaction-role menus' : undefined}>
+        <DashboardSurface as='section' padding='none' aria-label='Reaction-role menus'>
             {view.type === 'overview' && hasOverviewContent ? (
-                <div className='flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] px-4 py-4 sm:px-5'>
-                    <div>
-                        <h3
-                            id='dashboard-reaction-role-menus-heading'
-                            className='text-base font-semibold text-[var(--dash-text)]'>
-                            Reaction-role menus
-                        </h3>
-                        <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                            Menus stay locked only while Fluxer synchronization is active or needs attention.
-                        </p>
-                    </div>
+                <div className='flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-[var(--dash-border)] px-4 py-3 sm:px-5'>
+                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>
+                        {settingsQuery.data.messages.length}{' '}
+                        {settingsQuery.data.messages.length === 1 ? 'configured menu' : 'configured menus'}
+                    </p>
                     <motion.button
                         type='button'
                         onClick={() => {
@@ -551,11 +547,8 @@ function getPanelMessageTone(type: PanelMessage['type']): 'danger' | 'success' |
     return 'danger';
 }
 
-const primaryButtonClassName =
-    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-muted)] disabled:text-[var(--dash-text-disabled)]';
-const secondaryButtonClassName =
-    'inline-flex min-h-9 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
-const dangerButtonClassName =
-    'inline-flex min-h-9 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-danger)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
+const primaryButtonClassName = `${dashboardPrimaryActionClassName} inline-flex items-center justify-center`;
+const secondaryButtonClassName = `${dashboardSecondaryActionClassName} inline-flex items-center justify-center`;
+const dangerButtonClassName = `${dashboardDangerActionClassName} inline-flex items-center justify-center`;
 const statusActionButtonClassName =
     'inline-flex min-h-9 items-center rounded-[var(--dash-radius-control)] border border-current px-3 text-xs font-semibold';

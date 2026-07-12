@@ -17,7 +17,9 @@ import type { DashboardStructurePolicy } from '../server/dashboard-structure-con
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
-import { DashboardStructureErrorBoundary, DashboardStructureErrorState } from './dashboard-structure-error-boundary.js';
+import { DashboardStructureErrorBoundary } from './dashboard-structure-error-boundary.js';
+import { renderDashboardStructureControllerState } from './dashboard-structure-controller-state.js';
+import type { DashboardStructureControllerState } from './dashboard-structure-controller-state.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { isBackupPageStateFresh } from './dashboard-structure-panel-backup-state.js';
 import { downloadJsonFile } from './dashboard-structure-panel-download.js';
@@ -25,7 +27,6 @@ import { createDashboardStructureDriftActions } from './dashboard-structure-drif
 import { useDashboardStructureExplorerState } from './dashboard-structure-panel-explorer-state.js';
 import { formatBackupSource, formatCounts, formatDate } from './dashboard-structure-panel-format.js';
 import { useDashboardStructureImportState } from './dashboard-structure-panel-import-state.js';
-import { DashboardStructureLoading } from './dashboard-structure-panel-shared.js';
 import {
     isTerminalDashboardStructureExecution,
     readDashboardStructureDiagnosticCode,
@@ -57,19 +58,32 @@ export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
                 void queryClient.invalidateQueries({ queryKey: getDashboardStructureSettingsQueryKey(guildId) });
             }}>
             <DashboardStructureController guildId={guildId}>
-                {(workspace) => (
-                    <DashboardStructureWorkspaceContext value={workspace}>
+                {(state) => {
+                    const workspace = state.type === 'ready' ? state.workspace : undefined;
+
+                    return (
                         <DashboardStructureWorkspaceShell
                             guildId={guildId}
-                            activeRun={workspace.importRuns.find(
+                            activeRun={workspace?.importRuns.find(
                                 (run) => run.execution && !isTerminalDashboardStructureExecution(run.execution)
                             )}
-                            executionProgressIssue={workspace.executionProgressIssue}
-                            executionTransport={workspace.executionTransport}>
-                            <DashboardStructureWorkspaceOutlet />
+                            executionProgressIssue={workspace?.executionProgressIssue}
+                            executionTransport={workspace?.executionTransport ?? { mode: 'idle' }}>
+                            <DashboardStructureErrorBoundary
+                                onRetry={() => {
+                                    void queryClient.invalidateQueries({
+                                        queryKey: getDashboardStructureSettingsQueryKey(guildId),
+                                    });
+                                }}>
+                                {renderDashboardStructureControllerState(state, (readyWorkspace) => (
+                                    <DashboardStructureWorkspaceContext value={readyWorkspace}>
+                                        <DashboardStructureWorkspaceOutlet />
+                                    </DashboardStructureWorkspaceContext>
+                                ))}
+                            </DashboardStructureErrorBoundary>
                         </DashboardStructureWorkspaceShell>
-                    </DashboardStructureWorkspaceContext>
-                )}
+                    );
+                }}
             </DashboardStructureController>
         </DashboardStructureErrorBoundary>
     );
@@ -83,20 +97,12 @@ export function DashboardStructureRouteSurface({ surface }: { surface: Dashboard
     return <DashboardStructurePanelView {...workspace} surface={surface} />;
 }
 
-export function DashboardStructurePanel({ guildId }: { guildId: string }) {
-    return (
-        <DashboardStructureController guildId={guildId}>
-            {(workspace) => <DashboardStructurePanelView {...workspace} surface='all' />}
-        </DashboardStructureController>
-    );
-}
-
 function DashboardStructureController({
     guildId,
     children,
 }: {
     guildId: string;
-    children: (workspace: DashboardStructurePanelViewProps) => ReactNode;
+    children: (state: DashboardStructureControllerState) => ReactNode;
 }) {
     const queryClient = useQueryClient();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
@@ -410,24 +416,11 @@ function DashboardStructureController({
         }
     }
 
-    if (!settingsQuery.data && settingsQuery.isPending) return <DashboardStructureLoading />;
+    if (!settingsQuery.data && settingsQuery.isPending) return children({ type: 'loading' });
 
     if (!settingsQuery.data) {
         const diagnosticCode = readDashboardStructureDiagnosticCode(settingsQuery.error);
-        return (
-            <DashboardStructureErrorState
-                title='Server Blueprint could not load'
-                message={
-                    diagnosticCode === 'BLUEPRINT_LOAD_BACKEND_INCOMPATIBLE'
-                        ? 'The Convex backend does not match this NeonFlux build. Deploy the matching backend before using Server Blueprint.'
-                        : 'The dashboard did not receive Blueprint data. Retry the read; this does not queue or apply a deployment.'
-                }
-                diagnosticCode={diagnosticCode}
-                onRetry={() => {
-                    retrySettings();
-                }}
-            />
-        );
+        return children({ type: 'error', diagnosticCode, retry: retrySettings });
     }
 
     const importRuns = settingsQuery.data.importRuns.map((run) => ({
@@ -452,106 +445,109 @@ function DashboardStructureController({
               };
 
     return children({
-        backupJson,
-        backupPage,
-        backupSettings,
-        busyAction,
-        cadenceDraft,
-        deleteConfirmBackupId,
-        deleteConfirmationByRunId: imports.deleteConfirmationByRunId,
-        driftState,
-        editingBackupId,
-        editingBackupName,
-        enabledDraft,
-        executionProgressIssue:
-            executionProgress.issueCode && activeExecutionRun
-                ? {
-                      code: executionProgress.issueCode,
-                      runId: activeExecutionRun.id,
-                  }
+        type: 'ready',
+        workspace: {
+            backupJson,
+            backupPage,
+            backupSettings,
+            busyAction,
+            cadenceDraft,
+            deleteConfirmBackupId,
+            deleteConfirmationByRunId: imports.deleteConfirmationByRunId,
+            driftState,
+            editingBackupId,
+            editingBackupName,
+            enabledDraft,
+            executionProgressIssue:
+                executionProgress.issueCode && activeExecutionRun
+                    ? {
+                          code: executionProgress.issueCode,
+                          runId: activeExecutionRun.id,
+                      }
+                    : undefined,
+            executionTransport: executionProgress.transport,
+            explorer,
+            structurePolicy,
+            importJson,
+            importRuns,
+            latestRun,
+            observedState: settingsQuery.data.observedState,
+            preflightByRunId: imports.preflightByRunId,
+            restoreShortcutBackupId: imports.restoreShortcutBackupId,
+            roleMappingConflicts: imports.roleMappingConflicts,
+            roleMappings: imports.roleMappings,
+            retentionDraft,
+            settingsRefreshIssue: settingsQuery.isError
+                ? { code: readDashboardStructureDiagnosticCode(settingsQuery.error) }
                 : undefined,
-        executionTransport: executionProgress.transport,
-        explorer,
-        structurePolicy,
-        importJson,
-        importRuns,
-        latestRun,
-        observedState: settingsQuery.data.observedState,
-        preflightByRunId: imports.preflightByRunId,
-        restoreShortcutBackupId: imports.restoreShortcutBackupId,
-        roleMappingConflicts: imports.roleMappingConflicts,
-        roleMappings: imports.roleMappings,
-        retentionDraft,
-        settingsRefreshIssue: settingsQuery.isError
-            ? { code: readDashboardStructureDiagnosticCode(settingsQuery.error) }
-            : undefined,
-        status,
-        onApplyRun: (run) => void imports.applyImportRun(run),
-        onControlExecution: (run, request) => void imports.controlExecution(run, request),
-        onBackupCadenceWeeksChange: setBackupCadenceWeeks,
-        onBackupDelete: (backup) => void deleteBackup(backup),
-        onBackupDownload: (backup) => void loadBackupJson(backup, 'download'),
-        onBackupEnabledChange: setBackupEnabled,
-        onBackupImport: (backup) => void importBackup(backup),
-        onBackupInspect: (backup) => void loadBackupJson(backup, 'inspect'),
-        onBackupRename: (backup) => void renameBackup(backup),
-        onBackupRenameNameChange: setEditingBackupName,
-        onBackupRetentionDaysChange: setBackupRetentionDays,
-        onBeginBackupRename: (backup) => {
-            setEditingBackupId(backup.id);
-            setEditingBackupName(backup.name);
-            setDeleteConfirmBackupId(undefined);
-        },
-        onCancelBackupDelete: () => setDeleteConfirmBackupId(undefined),
-        onCancelBackupRename: () => {
-            setEditingBackupId(undefined);
-            setEditingBackupName('');
-        },
-        onCheckBackupDrift: (backup) => void driftActions.check(backup),
-        onCheckLatestDrift: () => void driftActions.check(),
-        onApprovePlan: (run) => void imports.approvePlan(run),
-        onCreateBackup: () => void createBackup(),
-        onCreatePlan: () => void imports.createPlan(),
-        onCreateRestoreDryRun: (backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
-        onDeleteConfirmationChange: (runId, confirmation) =>
-            imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
-        onDownloadCurrentStructure: () => void downloadCurrentStructure(),
-        onDriftCreateDryRun: (backup) => void importBackup(backup),
-        onImportJsonChange: (value) => {
-            setImportJson(value);
-            imports.clearRoleMappings();
-        },
-        onStructurePolicyChange: (value) => {
-            setStructurePolicy(value);
-            imports.clearRoleMappings();
-        },
-        onRoleMappingChange: (sourceId, targetId) =>
-            imports.setRoleMappings((current) => {
-                if (!targetId) {
-                    const next = { ...current };
-                    delete next[sourceId];
-                    return next;
-                }
+            status,
+            onApplyRun: (run) => void imports.applyImportRun(run),
+            onControlExecution: (run, request) => void imports.controlExecution(run, request),
+            onBackupCadenceWeeksChange: setBackupCadenceWeeks,
+            onBackupDelete: (backup) => void deleteBackup(backup),
+            onBackupDownload: (backup) => void loadBackupJson(backup, 'download'),
+            onBackupEnabledChange: setBackupEnabled,
+            onBackupImport: (backup) => void importBackup(backup),
+            onBackupInspect: (backup) => void loadBackupJson(backup, 'inspect'),
+            onBackupRename: (backup) => void renameBackup(backup),
+            onBackupRenameNameChange: setEditingBackupName,
+            onBackupRetentionDaysChange: setBackupRetentionDays,
+            onBeginBackupRename: (backup) => {
+                setEditingBackupId(backup.id);
+                setEditingBackupName(backup.name);
+                setDeleteConfirmBackupId(undefined);
+            },
+            onCancelBackupDelete: () => setDeleteConfirmBackupId(undefined),
+            onCancelBackupRename: () => {
+                setEditingBackupId(undefined);
+                setEditingBackupName('');
+            },
+            onCheckBackupDrift: (backup) => void driftActions.check(backup),
+            onCheckLatestDrift: () => void driftActions.check(),
+            onApprovePlan: (run) => void imports.approvePlan(run),
+            onCreateBackup: () => void createBackup(),
+            onCreatePlan: () => void imports.createPlan(),
+            onCreateRestoreDryRun: (backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
+            onDeleteConfirmationChange: (runId, confirmation) =>
+                imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
+            onDownloadCurrentStructure: () => void downloadCurrentStructure(),
+            onDriftCreateDryRun: (backup) => void importBackup(backup),
+            onImportJsonChange: (value) => {
+                setImportJson(value);
+                imports.clearRoleMappings();
+            },
+            onStructurePolicyChange: (value) => {
+                setStructurePolicy(value);
+                imports.clearRoleMappings();
+            },
+            onRoleMappingChange: (sourceId, targetId) =>
+                imports.setRoleMappings((current) => {
+                    if (!targetId) {
+                        const next = { ...current };
+                        delete next[sourceId];
+                        return next;
+                    }
 
-                return { ...current, [sourceId]: targetId };
-            }),
-        onImportStructureFile: importStructureFile,
-        onLoadMoreBackups: () => void loadMoreBackups(),
-        onLoadRunActions: (run) => void imports.loadRunActions(run),
-        onLoadRunDecisions: (run) => void imports.loadRunDecisions(run),
-        onPreflightRun: (run) => void imports.preflightImportRun(run),
-        onRetryExecutionProgress: () => {
-            executionProgress.retry();
-        },
-        onRetrySettingsRefresh: () => {
-            retrySettings();
-        },
-        onRecoveryPlan: (run) => void imports.createRecoveryPlan(run),
-        onReviewScheduledDrift: (baselineBackupId) => void driftActions.reviewScheduled(baselineBackupId),
-        onSaveBackupSettings: (value) => void saveBackupSettings(value),
-        onSetBackupJsonAsImportJson: () => {
-            setImportJson(backupJson);
-            imports.clearRoleMappings();
+                    return { ...current, [sourceId]: targetId };
+                }),
+            onImportStructureFile: importStructureFile,
+            onLoadMoreBackups: () => void loadMoreBackups(),
+            onLoadRunActions: (run) => void imports.loadRunActions(run),
+            onLoadRunDecisions: (run) => void imports.loadRunDecisions(run),
+            onPreflightRun: (run) => void imports.preflightImportRun(run),
+            onRetryExecutionProgress: () => {
+                executionProgress.retry();
+            },
+            onRetrySettingsRefresh: () => {
+                retrySettings();
+            },
+            onRecoveryPlan: (run) => void imports.createRecoveryPlan(run),
+            onReviewScheduledDrift: (baselineBackupId) => void driftActions.reviewScheduled(baselineBackupId),
+            onSaveBackupSettings: (value) => void saveBackupSettings(value),
+            onSetBackupJsonAsImportJson: () => {
+                setImportJson(backupJson);
+                imports.clearRoleMappings();
+            },
         },
     });
 }

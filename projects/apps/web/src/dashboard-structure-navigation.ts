@@ -7,6 +7,12 @@ export type DashboardStructureNavigationTo =
     | '/dashboard/$guildId/structure/deploy'
     | '/dashboard/$guildId/structure/runs';
 
+export const dashboardStructureIdentity = {
+    title: 'Server Blueprint',
+    description: 'Capture versions, understand differences, and apply reviewed changes.',
+    eyebrow: 'Structure & recovery',
+} as const;
+
 type DashboardStructureNavigationItem = {
     id: DashboardStructureSurface;
     label: string;

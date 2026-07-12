@@ -11,7 +11,7 @@ import {
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import { getGuildIdParam } from '../server/dashboard-guild-route-data.js';
 import { dashboardContentTransition, dashboardContentVariants } from './dashboard-motion.js';
-import { DashboardPage, DashboardPageHeader } from './dashboard-ui.js';
+import { DashboardFeaturePage } from './dashboard-ui.js';
 
 export function DashboardWorkbench({
     categoryId,
@@ -35,26 +35,23 @@ export function DashboardWorkbench({
     const FeatureIcon = activeItem?.icon ?? category.icon;
 
     return (
-        <section className='min-w-0' aria-labelledby={headingId}>
-            <motion.div
-                key={activeId}
-                data-dashboard-motion='route-arrival'
-                variants={dashboardContentVariants}
-                initial='initial'
-                animate='enter'
-                transition={dashboardContentTransition}>
-                <DashboardPage width={getDashboardWorkbenchWidth(activeId)}>
-                    <DashboardPageHeader
-                        title={activeItem?.label ?? category.label}
-                        description={activeItem?.description ?? category.description}
-                        eyebrow={navigationJob?.label}
-                        icon={<FeatureIcon className='size-5' aria-hidden='true' />}
-                        titleId={headingId}
-                    />
-                    {children ?? <Outlet />}
-                </DashboardPage>
-            </motion.div>
-        </section>
+        <motion.div
+            key={activeId}
+            data-dashboard-motion='route-arrival'
+            variants={dashboardContentVariants}
+            initial='initial'
+            animate='enter'
+            transition={dashboardContentTransition}>
+            <DashboardFeaturePage
+                title={activeItem?.label ?? category.label}
+                description={activeItem?.description ?? category.description}
+                eyebrow={navigationJob?.label}
+                icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+                titleId={headingId}
+                width={getDashboardWorkbenchWidth(activeId)}>
+                {children ?? <Outlet />}
+            </DashboardFeaturePage>
+        </motion.div>
     );
 }
 

@@ -17,6 +17,8 @@ import {
 } from './dashboard-audit-filters.js';
 import { dashboardContentTransition, dashboardFastTransition, dashboardInlineVariants } from './dashboard-motion.js';
 import {
+    dashboardFieldClassName,
+    dashboardSecondaryActionClassName,
     DashboardEmptyState,
     DashboardErrorState,
     DashboardStatus,
@@ -109,7 +111,7 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                     <select
                         value={searchScope}
                         onChange={(event) => setSearchScope(event.currentTarget.value as DashboardAuditSearchScope)}
-                        className='min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border-strong)] bg-[var(--dash-surface-muted)] px-3 text-sm text-[var(--dash-text)] transition outline-none focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)]'>
+                        className={dashboardFieldClassName}>
                         {dashboardAuditSearchScopes.map((scope) => (
                             <option key={scope.value} value={scope.value}>
                                 {scope.label}
@@ -122,7 +124,7 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                     <input
                         value={search}
                         onChange={(event) => setSearch(event.currentTarget.value)}
-                        className='min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border-strong)] bg-[var(--dash-surface-muted)] px-3 text-sm text-[var(--dash-text)] transition outline-none placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)]'
+                        className={dashboardFieldClassName}
                         placeholder={activeSearchScope.placeholder}
                         type='search'
                     />
@@ -133,7 +135,7 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                             key='clear-filters'
                             type='button'
                             onClick={clearFilters}
-                            className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-border-interactive)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'
+                            className={dashboardSecondaryActionClassName}
                             variants={dashboardInlineVariants}
                             initial='initial'
                             animate='enter'

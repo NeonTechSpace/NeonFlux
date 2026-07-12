@@ -2,7 +2,7 @@ import type { Engine, ISourceOptions } from '@tsparticles/engine';
 import Particles, { ParticlesProvider } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 
-const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff', '#f5bd4f'];
+const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff'];
 
 const dashboardParticleOptions = {
     autoPlay: true,
@@ -11,7 +11,7 @@ const dashboardParticleOptions = {
             value: 'transparent',
         },
     },
-    detectRetina: true,
+    detectRetina: false,
     fpsLimit: 45,
     fullScreen: {
         enable: false,
@@ -21,15 +21,22 @@ const dashboardParticleOptions = {
         events: {
             onHover: {
                 enable: true,
-                mode: 'bubble',
+                mode: ['bubble', 'connect'],
             },
         },
         modes: {
             bubble: {
-                distance: 112,
+                distance: 132,
                 duration: 0.35,
-                opacity: 0.68,
-                size: 3.8,
+                opacity: 0.96,
+                size: 5.2,
+            },
+            connect: {
+                distance: 100,
+                links: {
+                    opacity: 0.62,
+                },
+                radius: 126,
             },
         },
     },
@@ -38,11 +45,11 @@ const dashboardParticleOptions = {
             value: particleColors,
         },
         links: {
-            color: '#79d9ff',
-            distance: 152,
+            color: '#75d8ff',
+            distance: 158,
             enable: true,
-            opacity: 0.28,
-            width: 1,
+            opacity: 0.24,
+            width: 0.9,
         },
         move: {
             direction: 'none',
@@ -52,21 +59,28 @@ const dashboardParticleOptions = {
             },
             random: true,
             speed: {
-                max: 0.32,
-                min: 0.16,
+                max: 0.52,
+                min: 0.24,
             },
             straight: false,
         },
         number: {
             density: {
-                enable: false,
+                enable: true,
+                height: 900,
+                width: 1600,
             },
-            value: 84,
+            value: 72,
         },
         opacity: {
+            animation: {
+                enable: true,
+                speed: 0.14,
+                sync: false,
+            },
             value: {
-                max: 0.78,
-                min: 0.32,
+                max: 0.82,
+                min: 0.34,
             },
         },
         paint: {
@@ -82,8 +96,8 @@ const dashboardParticleOptions = {
         },
         size: {
             value: {
-                max: 3.4,
-                min: 1.1,
+                max: 3.2,
+                min: 0.9,
             },
         },
     },
@@ -92,20 +106,14 @@ const dashboardParticleOptions = {
     smooth: true,
 } satisfies ISourceOptions;
 
-export function DashboardParticleField({ blurEnabled }: { blurEnabled: boolean }) {
+export function DashboardParticleField({ bloomEnabled }: { bloomEnabled: boolean }) {
     return (
         <ParticlesProvider init={loadDashboardParticles}>
             <Particles
                 id='dashboard-particle-field'
-                className={
-                    blurEnabled
-                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden opacity-[0.92] blur-[2.4px] brightness-125 saturate-125 md:block'
-                        : 'dashboard-particle-field fixed -inset-[14dvh] hidden opacity-[0.84] md:block'
-                }
-                style={{
-                    height: '128dvh',
-                    width: '128vw',
-                }}
+                className={`dashboard-particle-field fixed inset-0 hidden size-full md:block ${
+                    bloomEnabled ? 'dashboard-particle-field--bloom' : ''
+                }`}
                 options={dashboardParticleOptions}
             />
         </ParticlesProvider>

@@ -14,6 +14,11 @@ import {
     dashboardConfirmationVariants,
     dashboardTactile,
 } from './dashboard-motion.js';
+import {
+    dashboardDangerActionClassName,
+    dashboardFieldClassName,
+    dashboardSecondaryActionClassName,
+} from './dashboard-ui.js';
 
 type TemplateControlsMessage = {
     type: 'error' | 'success' | 'warning';
@@ -44,10 +49,11 @@ export function DashboardPostingTemplateControls({
 
     const templatesQuery = useQuery({
         queryKey: getDashboardPostingTemplatesQueryKey(guildId),
-        queryFn: async () => {
+        queryFn: async ({ queryKey }) => {
+            const queryGuildId = queryKey[2];
             const result = await readDashboardPostingTemplatesRouteData({
                 data: {
-                    guildId,
+                    guildId: queryGuildId,
                 },
             });
 
@@ -380,12 +386,9 @@ export function DashboardPostingTemplateControls({
     );
 }
 
-const fieldClassName =
-    'min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-sm text-[var(--dash-text)] outline-none transition placeholder:text-[var(--dash-text-disabled)] focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)]';
-const secondaryButtonClassName =
-    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
-const dangerButtonClassName =
-    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-danger)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
+const fieldClassName = `${dashboardFieldClassName} py-2`;
+const secondaryButtonClassName = `${dashboardSecondaryActionClassName} inline-flex items-center justify-center`;
+const dangerButtonClassName = `${dashboardDangerActionClassName} inline-flex items-center justify-center`;
 
 async function invalidateTemplateQueries(queryClient: ReturnType<typeof useQueryClient>, guildId: string) {
     await Promise.all([

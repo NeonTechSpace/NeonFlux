@@ -1,12 +1,12 @@
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from 'react';
 
-type DashboardPageWidth = 'focused' | 'standard' | 'wide' | 'full';
+export type DashboardPageWidth = 'focused' | 'standard' | 'wide' | 'full';
 type DashboardSurfaceElement = 'article' | 'div' | 'section';
 type DashboardSurfaceTone = 'default' | 'glass' | 'raised' | 'subtle';
 type DashboardSurfacePadding = 'none' | 'compact' | 'normal';
 export type DashboardStatusTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
 
-const pageWidthClassNames = {
+const featureBodyWidthClassNames = {
     focused: 'max-w-3xl',
     standard: 'max-w-5xl',
     wide: 'max-w-[90rem]',
@@ -50,23 +50,51 @@ const statusToneClassNames = {
     danger: 'border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] text-[var(--dash-text)]',
 } as const satisfies Record<DashboardStatusTone, string>;
 
-export function DashboardPage({
+export function DashboardFeaturePage({
+    title,
+    description,
+    eyebrow,
+    icon,
+    actions,
+    navigation,
+    status,
+    titleId,
     width = 'standard',
-    className,
     children,
 }: {
+    title: string;
+    description?: string;
+    eyebrow?: string;
+    icon?: ReactNode;
+    actions?: ReactNode;
+    navigation?: ReactNode;
+    status?: ReactNode;
+    titleId?: string;
     width?: DashboardPageWidth;
-    className?: string;
     children: ReactNode;
 }) {
     return (
-        <div className={joinClassNames('mx-auto w-full min-w-0 space-y-4', pageWidthClassNames[width], className)}>
-            {children}
-        </div>
+        <section className='min-h-full min-w-0 px-4 pt-1 pb-8 sm:px-6 lg:px-8' aria-labelledby={titleId}>
+            <div className='mx-auto w-full max-w-[100rem] min-w-0'>
+                <DashboardPageHeader
+                    title={title}
+                    description={description}
+                    eyebrow={eyebrow}
+                    icon={icon}
+                    actions={actions}
+                    titleId={titleId}
+                />
+                {navigation}
+                {status ? <div className='border-b border-[var(--dash-border)]'>{status}</div> : null}
+                <div className={joinClassNames('min-w-0 pt-5 sm:pt-6', featureBodyWidthClassNames[width])}>
+                    {children}
+                </div>
+            </div>
+        </section>
     );
 }
 
-export function DashboardPageHeader({
+function DashboardPageHeader({
     title,
     description,
     eyebrow,
@@ -82,7 +110,7 @@ export function DashboardPageHeader({
     titleId?: string;
 }) {
     return (
-        <header className='flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
+        <header className='flex min-w-0 flex-wrap items-start justify-between gap-4 border-b border-[var(--dash-border)] py-4 sm:py-5'>
             <div className='flex min-w-0 flex-1 items-start gap-3'>
                 {icon ? (
                     <div className='dashboard-glass-panel grid size-11 shrink-0 place-items-center text-[var(--dash-primary)]'>
@@ -103,7 +131,9 @@ export function DashboardPageHeader({
                     ) : null}
                 </div>
             </div>
-            {actions ? <div className='flex shrink-0 flex-wrap items-center gap-2'>{actions}</div> : null}
+            {actions ? (
+                <div className='flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0'>{actions}</div>
+            ) : null}
         </header>
     );
 }
