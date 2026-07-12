@@ -2,7 +2,7 @@ import type { Engine, ISourceOptions } from '@tsparticles/engine';
 import Particles, { ParticlesProvider } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 
-const particleColors = ['#5ad7ff', '#78defe', '#9d8cff'];
+const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff', '#f5bd4f'];
 
 const dashboardParticleOptions = {
     autoPlay: true,
@@ -15,6 +15,23 @@ const dashboardParticleOptions = {
     fpsLimit: 60,
     fullScreen: {
         enable: false,
+    },
+    interactivity: {
+        detectsOn: 'window',
+        events: {
+            onHover: {
+                enable: true,
+                mode: 'bubble',
+            },
+        },
+        modes: {
+            bubble: {
+                distance: 112,
+                duration: 0.35,
+                opacity: 0.68,
+                size: 3.8,
+            },
+        },
     },
     particles: {
         color: {
@@ -30,19 +47,22 @@ const dashboardParticleOptions = {
                 default: 'out',
             },
             random: true,
-            speed: 0.18,
+            speed: {
+                max: 0.32,
+                min: 0.16,
+            },
             straight: false,
         },
         number: {
             density: {
                 enable: false,
             },
-            value: 52,
+            value: 84,
         },
         opacity: {
             value: {
-                max: 0.46,
-                min: 0.16,
+                max: 0.54,
+                min: 0.18,
             },
         },
         paint: {
@@ -58,8 +78,8 @@ const dashboardParticleOptions = {
         },
         size: {
             value: {
-                max: 2.4,
-                min: 1,
+                max: 3.1,
+                min: 0.9,
             },
         },
     },
@@ -75,7 +95,7 @@ export function DashboardParticleField({ blurEnabled }: { blurEnabled: boolean }
                 id='dashboard-particle-field'
                 className={
                     blurEnabled
-                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden blur-[2px] md:block'
+                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden blur-[2.5px] md:block'
                         : 'dashboard-particle-field fixed -inset-[14dvh] hidden md:block'
                 }
                 style={{

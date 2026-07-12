@@ -9,7 +9,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
 
     return (
-        <MotionConfig reducedMotion={reducedEffectsEnabled ? 'always' : 'user'}>
+        <MotionConfig reducedMotion={reducedEffectsEnabled ? 'always' : 'user'} skipAnimations={reducedEffectsEnabled}>
             <main
                 className='dashboard-theme h-dvh overflow-hidden px-3 py-4 text-[var(--dash-text)] sm:px-5 lg:px-6'
                 data-reduce-effects={reducedEffectsEnabled}>

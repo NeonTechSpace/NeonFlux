@@ -2,7 +2,7 @@ import type { ComponentPropsWithoutRef, ElementType, ReactNode } from 'react';
 
 type DashboardPageWidth = 'focused' | 'standard' | 'wide' | 'full';
 type DashboardSurfaceElement = 'article' | 'div' | 'section';
-type DashboardSurfaceTone = 'default' | 'raised' | 'subtle';
+type DashboardSurfaceTone = 'default' | 'glass' | 'raised' | 'subtle';
 type DashboardSurfacePadding = 'none' | 'compact' | 'normal';
 export type DashboardStatusTone = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
 
@@ -15,6 +15,7 @@ const pageWidthClassNames = {
 
 const surfaceToneClassNames = {
     default: 'dashboard-surface',
+    glass: 'dashboard-glass-panel',
     raised: 'border border-[var(--dash-border-strong)] bg-[var(--dash-surface-raised)] shadow-[var(--dash-shadow-surface)]',
     subtle: 'dashboard-surface-muted',
 } as const satisfies Record<DashboardSurfaceTone, string>;

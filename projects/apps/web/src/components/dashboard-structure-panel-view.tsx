@@ -19,6 +19,13 @@ import { getDashboardStructureDeployStage } from './dashboard-structure-deploy-s
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
+import {
+    dashboardContentTransition,
+    dashboardContentVariants,
+    dashboardFastTransition,
+    dashboardInlineVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 import type { DashboardStructureExplorerPanelState } from './dashboard-structure-panel-explorer-state.js';
 import { formatDate, formatObservedState } from './dashboard-structure-panel-format.js';
@@ -77,9 +84,10 @@ export function DashboardStructurePanelView({
     return (
         <motion.div
             key={surface}
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}>
+            variants={dashboardContentVariants}
+            initial='initial'
+            animate='enter'
+            transition={dashboardContentTransition}>
             {refreshIssue}
             {surface === 'current' ? <CurrentSurface workspace={workspace} showActions /> : null}
             {surface === 'backups' ? <BackupsSurface workspace={workspace} showStatus /> : null}
@@ -184,7 +192,15 @@ function VersionPoint({ label, title, detail }: { label: string; title: string; 
     return (
         <div className='min-w-0 py-5 lg:px-4 lg:first:pl-0 lg:last:pr-0'>
             <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>{label}</p>
-            <p className='mt-2 text-sm font-semibold text-[var(--dash-text)]'>{title}</p>
+            <motion.p
+                key={title}
+                className='mt-2 text-sm font-semibold text-[var(--dash-text)]'
+                variants={dashboardInlineVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardFastTransition}>
+                {title}
+            </motion.p>
             <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>{detail}</p>
         </div>
     );
@@ -626,7 +642,9 @@ function RunsSurface({
                     </div>
                     {workspace.importRuns.map((run) => (
                         <details key={run.id} role='listitem' className='group border-b border-[var(--dash-border)]'>
-                            <summary className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'>
+                            <motion.summary
+                                className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'
+                                {...dashboardTactile}>
                                 <span className='text-sm text-[var(--dash-text-muted)]'>
                                     {formatDate(run.createdAt)}
                                 </span>
@@ -639,7 +657,7 @@ function RunsSurface({
                                 <span className='text-sm font-medium text-[var(--dash-primary)]'>
                                     {includeDetails ? 'Open run' : 'Details available'}
                                 </span>
-                            </summary>
+                            </motion.summary>
                             {includeDetails ? (
                                 <div className='pb-5'>
                                     <DashboardStructureImportHistory

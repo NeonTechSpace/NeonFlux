@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
@@ -20,6 +21,12 @@ import type {
     DashboardEmbedMode,
     ParsedDashboardEmbedsResult,
 } from './dashboard-embed-builder.js';
+import {
+    dashboardContentTransition,
+    dashboardFastTransition,
+    dashboardInlineVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import { DashboardStatus, DashboardSurface } from './dashboard-ui.js';
@@ -254,29 +261,46 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     </div>
                 </fieldset>
 
-                {embedMode === 'builder' ? (
-                    <DashboardEmbedBuilder
-                        draft={embedDraft}
-                        onDraftChange={(nextDraft) => {
-                            setEmbedDraft(nextDraft);
-                            setFormMessage(undefined);
-                        }}
-                    />
-                ) : (
-                    <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
-                        <span>Embed JSON</span>
-                        <textarea
-                            value={embedJson}
-                            onChange={(event) => {
-                                setEmbedJson(event.currentTarget.value);
-                                setFormMessage(undefined);
-                            }}
-                            className={`${fieldClassName} min-h-48 font-mono text-sm`}
-                            placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
-                            spellCheck={false}
-                        />
-                    </label>
-                )}
+                <AnimatePresence initial={false} mode='popLayout'>
+                    {embedMode === 'builder' ? (
+                        <motion.div
+                            key='builder'
+                            variants={dashboardInlineVariants}
+                            initial='initial'
+                            animate='enter'
+                            exit='exit'
+                            transition={dashboardContentTransition}>
+                            <DashboardEmbedBuilder
+                                draft={embedDraft}
+                                onDraftChange={(nextDraft) => {
+                                    setEmbedDraft(nextDraft);
+                                    setFormMessage(undefined);
+                                }}
+                            />
+                        </motion.div>
+                    ) : (
+                        <motion.label
+                            key='advanced-json'
+                            className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'
+                            variants={dashboardInlineVariants}
+                            initial='initial'
+                            animate='enter'
+                            exit='exit'
+                            transition={dashboardContentTransition}>
+                            <span>Embed JSON</span>
+                            <textarea
+                                value={embedJson}
+                                onChange={(event) => {
+                                    setEmbedJson(event.currentTarget.value);
+                                    setFormMessage(undefined);
+                                }}
+                                className={`${fieldClassName} min-h-48 font-mono text-sm`}
+                                placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
+                                spellCheck={false}
+                            />
+                        </motion.label>
+                    )}
+                </AnimatePresence>
 
                 <DashboardPostingTemplateControls
                     guildId={guildId}
@@ -298,36 +322,52 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 <DashboardPostingPreview content={content} embeds={previewEmbeds} />
                 <DashboardSurface as='section' tone='raised' padding='compact' aria-label='Message delivery'>
                     <div className='flex flex-wrap items-center gap-3'>
-                        <button
+                        <motion.button
                             type='submit'
                             disabled={mutation.isPending || deliveryUncertain}
-                            className={primaryButtonClassName}>
+                            className={primaryButtonClassName}
+                            {...dashboardTactile}>
                             {mutation.isPending ? 'Sending…' : 'Send message'}
-                        </button>
+                        </motion.button>
                         {deliveryUncertain ? (
-                            <button
+                            <motion.button
                                 type='button'
                                 onClick={() => {
                                     setDeliveryUncertain(false);
                                     setFormMessage({ type: 'warning', text: 'A new posting attempt is ready.' });
                                 }}
-                                className={warningButtonClassName}>
+                                className={warningButtonClassName}
+                                {...dashboardTactile}>
                                 Start new attempt
-                            </button>
+                            </motion.button>
                         ) : null}
                     </div>
-                    {formMessage ? (
-                        <div className='mt-3'>
-                            <DashboardStatus tone={getFormMessageTone(formMessage.type)}>
-                                {formMessage.text}
-                            </DashboardStatus>
-                        </div>
-                    ) : (
-                        <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>
-                            Sending is immediate. If delivery cannot be confirmed, NeonFlux stops before another attempt
-                            can begin.
-                        </p>
-                    )}
+                    <AnimatePresence initial={false} mode='popLayout'>
+                        {formMessage ? (
+                            <motion.div
+                                key={`${formMessage.type}:${formMessage.text}`}
+                                className='mt-3'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}>
+                                <DashboardStatus tone={getFormMessageTone(formMessage.type)}>
+                                    {formMessage.text}
+                                </DashboardStatus>
+                            </motion.div>
+                        ) : (
+                            <motion.p
+                                key='delivery-help'
+                                className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}>
+                                Sending is immediate. If delivery cannot be confirmed, NeonFlux stops before another
+                                attempt can begin.
+                            </motion.p>
+                        )}
+                    </AnimatePresence>
                 </DashboardSurface>
             </aside>
         </form>

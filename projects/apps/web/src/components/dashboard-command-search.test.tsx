@@ -2,9 +2,45 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardCommandSearch, DashboardCommandSearchTrigger } from './dashboard-command-search.js';
+
+vi.mock('@tanstack/react-router', async () => {
+    const { createElement } = await import('react');
+
+    return {
+        Link: ({
+            to,
+            state,
+            preload: _preload,
+            children,
+            ...props
+        }: {
+            to: string;
+            state?: (current: { __tempKey?: string }) => {
+                dashboardGuildPreview?: { id?: string };
+                dashboardGuildSourcePreview?: { id?: string };
+            };
+            preload?: unknown;
+            children: ReactNode;
+        }) => {
+            const previewState = state?.({ __tempKey: 'test' });
+
+            return createElement(
+                'a',
+                {
+                    ...props,
+                    href: to,
+                    'data-preview-guild': previewState?.dashboardGuildPreview?.id,
+                    'data-preview-source-guild': previewState?.dashboardGuildSourcePreview?.id,
+                },
+                children
+            );
+        },
+    };
+});
 
 const views: RenderResult[] = [];
 
@@ -56,9 +92,10 @@ describe('DashboardCommandSearch', () => {
 
         fireEvent.change(searchInput, { target: { value: 'beta' } });
 
-        expect(screen.getByRole('link', { name: /Beta Guild/u }).getAttribute('href')).toBe(
-            '/dashboard/guild-2/access/reaction-roles'
-        );
+        const betaGuild = screen.getByRole('link', { name: /Beta Guild/u });
+        expect(betaGuild.getAttribute('href')).toBe('/dashboard/guild-2/access/reaction-roles');
+        expect(betaGuild.getAttribute('data-preview-guild')).toBe('guild-2');
+        expect(betaGuild.getAttribute('data-preview-source-guild')).toBe('guild-1');
         expect(document.body.textContent).not.toContain('guild-2');
     });
 

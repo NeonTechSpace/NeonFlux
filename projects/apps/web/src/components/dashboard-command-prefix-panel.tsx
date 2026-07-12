@@ -4,6 +4,7 @@ import {
     DEFAULT_COMMAND_PREFIX,
     normalizeCommandPrefix,
 } from '@neonflux/core/command-prefix';
+import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
@@ -13,6 +14,7 @@ import {
     readDashboardCommandSettingsRouteData,
     updateDashboardCommandPrefixRouteData,
 } from '../server/dashboard-guild-route-data.js';
+import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
 import { DashboardStatus, DashboardSurface, DashboardToolbar } from './dashboard-ui.js';
 
 type CommandPrefixFormState = {
@@ -197,9 +199,18 @@ export function DashboardCommandPrefixSettingsPanel({
                     <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>
                         Current prefix
                     </p>
-                    <code className='mt-1 block text-2xl font-semibold text-[var(--dash-primary)]'>
-                        {liveCommandSettings.prefix}
-                    </code>
+                    <AnimatePresence initial={false} mode='popLayout'>
+                        <motion.code
+                            key={liveCommandSettings.prefix}
+                            className='mt-1 block text-2xl font-semibold text-[var(--dash-primary)]'
+                            variants={dashboardInlineVariants}
+                            initial='initial'
+                            animate='enter'
+                            exit='exit'
+                            transition={dashboardFastTransition}>
+                            {liveCommandSettings.prefix}
+                        </motion.code>
+                    </AnimatePresence>
                 </div>
             </DashboardToolbar>
 
@@ -233,20 +244,27 @@ export function DashboardCommandPrefixSettingsPanel({
                     Start with an allowed symbol, then use up to two more letters, numbers, or symbols.
                 </p>
                 <div className='flex flex-wrap items-center gap-3'>
-                    <button
+                    <motion.button
                         type='submit'
                         disabled={!canSubmit}
-                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'>
+                        className='inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]'
+                        {...dashboardTactile}>
                         {mutation.isPending ? 'Saving...' : 'Save prefix'}
-                    </button>
+                    </motion.button>
                 </div>
                 {displayedFormMessage ? (
-                    <div id='command-prefix-message'>
+                    <motion.div
+                        key={`${displayedFormMessage.type}:${displayedFormMessage.text}`}
+                        id='command-prefix-message'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
                         <DashboardStatus
                             tone={getPrefixMessageTone(displayedFormMessage.type)}
                             actions={
                                 displayedFormMessage.type === 'warning' ? (
-                                    <button
+                                    <motion.button
                                         type='button'
                                         onClick={() =>
                                             setFormState({
@@ -254,19 +272,27 @@ export function DashboardCommandPrefixSettingsPanel({
                                                 draftBasePrefix: liveCommandSettings.prefix,
                                             })
                                         }
-                                        className='min-h-9 rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                                        className='min-h-9 rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'
+                                        {...dashboardTactile}>
                                         Use current prefix
-                                    </button>
+                                    </motion.button>
                                 ) : undefined
                             }>
                             {displayedFormMessage.text}
                         </DashboardStatus>
-                    </div>
+                    </motion.div>
                 ) : null}
                 {commandSettingsQuery.isError ? (
-                    <DashboardStatus tone='danger'>
-                        Could not refresh this setting. The last confirmed value is shown.
-                    </DashboardStatus>
+                    <motion.div
+                        key='refresh-error'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        <DashboardStatus tone='danger'>
+                            Could not refresh this setting. The last confirmed value is shown.
+                        </DashboardStatus>
+                    </motion.div>
                 ) : null}
             </form>
         </DashboardSurface>

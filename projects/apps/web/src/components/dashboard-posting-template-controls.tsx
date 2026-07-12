@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 
 import { getDashboardAuditEventsBaseQueryKey, getDashboardPostingTemplatesQueryKey } from '../dashboard-query-keys.js';
@@ -8,6 +9,7 @@ import {
     saveDashboardPostingTemplateRouteData,
 } from '../server/dashboard-posting-templates-route-data.js';
 import type { DashboardMessageTemplate } from '../server/dashboard-posting-templates.server.js';
+import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
 
 type TemplateControlsMessage = {
     type: 'error' | 'success' | 'warning';
@@ -269,7 +271,7 @@ export function DashboardPostingTemplateControls({
                 </label>
 
                 <div className='flex items-end gap-2'>
-                    <button
+                    <motion.button
                         type='button'
                         onClick={applySelectedTemplate}
                         disabled={
@@ -278,18 +280,27 @@ export function DashboardPostingTemplateControls({
                             deleteMutation.isPending ||
                             saveMutation.isPending
                         }
-                        className={secondaryButtonClassName}>
+                        className={secondaryButtonClassName}
+                        {...dashboardTactile}>
                         {applyConfirmTemplateId === selectedTemplate?.id ? 'Confirm replace' : 'Apply'}
-                    </button>
-                    {applyConfirmTemplateId === selectedTemplate?.id ? (
-                        <button
-                            type='button'
-                            onClick={() => setApplyConfirmTemplateId('')}
-                            className={secondaryButtonClassName}>
-                            Cancel replace
-                        </button>
-                    ) : null}
-                    <button
+                    </motion.button>
+                    <AnimatePresence initial={false}>
+                        {applyConfirmTemplateId === selectedTemplate?.id ? (
+                            <motion.button
+                                key='cancel-replace'
+                                type='button'
+                                onClick={() => setApplyConfirmTemplateId('')}
+                                className={secondaryButtonClassName}
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}
+                                {...dashboardTactile}>
+                                Cancel replace
+                            </motion.button>
+                        ) : null}
+                    </AnimatePresence>
+                    <motion.button
                         type='button'
                         onClick={deleteSelectedTemplate}
                         disabled={
@@ -298,19 +309,28 @@ export function DashboardPostingTemplateControls({
                             deleteMutation.isPending ||
                             saveMutation.isPending
                         }
-                        className={dangerButtonClassName}>
+                        className={dangerButtonClassName}
+                        {...dashboardTactile}>
                         {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id
                             ? 'Confirm delete'
                             : 'Delete'}
-                    </button>
-                    {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id ? (
-                        <button
-                            type='button'
-                            onClick={() => setDeleteConfirmTemplateId('')}
-                            className={secondaryButtonClassName}>
-                            Cancel
-                        </button>
-                    ) : null}
+                    </motion.button>
+                    <AnimatePresence initial={false}>
+                        {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id ? (
+                            <motion.button
+                                key='cancel-delete'
+                                type='button'
+                                onClick={() => setDeleteConfirmTemplateId('')}
+                                className={secondaryButtonClassName}
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}
+                                {...dashboardTactile}>
+                                Cancel
+                            </motion.button>
+                        ) : null}
+                    </AnimatePresence>
                 </div>
             </div>
 
@@ -325,20 +345,29 @@ export function DashboardPostingTemplateControls({
                     />
                 </label>
                 <div className='flex items-end'>
-                    <button
+                    <motion.button
                         type='button'
                         onClick={saveCurrentTemplate}
                         disabled={templatesQuery.isError || saveMutation.isPending || deleteMutation.isPending}
-                        className={secondaryButtonClassName}>
+                        className={secondaryButtonClassName}
+                        {...dashboardTactile}>
                         {saveMutation.isPending ? 'Saving…' : 'Save current'}
-                    </button>
+                    </motion.button>
                 </div>
             </div>
-            {templatesQuery.isError ? (
-                <p role='alert' className='text-sm text-rose-300'>
-                    Templates could not be loaded. Reload them before saving or deleting.
-                </p>
-            ) : null}
+            <AnimatePresence initial={false}>
+                {templatesQuery.isError ? (
+                    <motion.p
+                        role='alert'
+                        className='text-sm text-rose-300'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        Templates could not be loaded. Reload them before saving or deleting.
+                    </motion.p>
+                ) : null}
+            </AnimatePresence>
         </section>
     );
 }

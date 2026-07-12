@@ -8,10 +8,12 @@ export type DashboardGuildPreview = {
 };
 
 const dashboardGuildPreviewStateKey = 'dashboardGuildPreview';
+const dashboardGuildSourcePreviewStateKey = 'dashboardGuildSourcePreview';
 
 declare module '@tanstack/react-router' {
     interface HistoryState {
         dashboardGuildPreview?: DashboardGuildPreview;
+        dashboardGuildSourcePreview?: DashboardGuildPreview;
     }
 }
 
@@ -24,20 +26,57 @@ export function createDashboardGuildPreview(input: DashboardGuildPreview): Dashb
     };
 }
 
-export function withDashboardGuildPreview(preview: DashboardGuildPreview) {
+export function withDashboardGuildPreview(preview: DashboardGuildPreview, sourcePreview?: DashboardGuildPreview) {
     return (state: HistoryState): HistoryState => ({
         ...state,
         __tempKey: state.__tempKey,
         dashboardGuildPreview: createDashboardGuildPreview(preview),
+        dashboardGuildSourcePreview: sourcePreview ? createDashboardGuildPreview(sourcePreview) : undefined,
     });
 }
 
 export function readDashboardGuildPreview(state: unknown, guildId: string): DashboardGuildPreview | undefined {
+    const preview = readDashboardGuildPreviewState(state, dashboardGuildPreviewStateKey);
+
+    return preview?.id === guildId ? preview : undefined;
+}
+
+export function readDashboardGuildSourcePreview(
+    state: unknown,
+    targetGuildId: string
+): DashboardGuildPreview | undefined {
+    if (!readDashboardGuildPreview(state, targetGuildId)) {
+        return undefined;
+    }
+
+    const sourcePreview = readDashboardGuildPreviewState(state, dashboardGuildSourcePreviewStateKey);
+
+    return sourcePreview?.id === targetGuildId ? undefined : sourcePreview;
+}
+
+export function withoutDashboardGuildTransitionPreviews(state: unknown): HistoryState | undefined {
     if (!state || typeof state !== 'object') {
         return undefined;
     }
 
-    const preview = (state as Record<string, unknown>)[dashboardGuildPreviewStateKey];
+    const stateRecord = state as Record<string, unknown>;
+    if (!(dashboardGuildPreviewStateKey in stateRecord) && !(dashboardGuildSourcePreviewStateKey in stateRecord)) {
+        return undefined;
+    }
+
+    const nextState = { ...stateRecord };
+    delete nextState[dashboardGuildPreviewStateKey];
+    delete nextState[dashboardGuildSourcePreviewStateKey];
+
+    return nextState;
+}
+
+function readDashboardGuildPreviewState(state: unknown, key: string): DashboardGuildPreview | undefined {
+    if (!state || typeof state !== 'object') {
+        return undefined;
+    }
+
+    const preview = (state as Record<string, unknown>)[key];
 
     if (!preview || typeof preview !== 'object') {
         return undefined;
@@ -49,7 +88,7 @@ export function readDashboardGuildPreview(state: unknown, guildId: string): Dash
     const iconUrl = previewRecord.iconUrl;
     const mode = previewRecord.mode;
 
-    if (id !== guildId || typeof id !== 'string' || typeof name !== 'string') {
+    if (typeof id !== 'string' || typeof name !== 'string') {
         return undefined;
     }
 

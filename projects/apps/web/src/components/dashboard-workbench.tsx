@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { getDashboardCategory, getDashboardCategorySubNavigation } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import { getGuildIdParam } from '../server/dashboard-guild-route-data.js';
+import { dashboardContentTransition, dashboardContentVariants } from './dashboard-motion.js';
 import { DashboardPage, DashboardPageHeader } from './dashboard-ui.js';
 
 export function DashboardWorkbench({
@@ -30,9 +31,10 @@ export function DashboardWorkbench({
         <section className='min-w-0' aria-labelledby={headingId}>
             <motion.div
                 key={activeId}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}>
+                variants={dashboardContentVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardContentTransition}>
                 <DashboardPage width={getWorkbenchWidth(activeId)}>
                     <DashboardPageHeader
                         title={activeItem?.label ?? category.label}

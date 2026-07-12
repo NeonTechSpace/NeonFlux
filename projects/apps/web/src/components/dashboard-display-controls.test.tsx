@@ -86,7 +86,7 @@ describe('resolveDashboardDisplayEffects', () => {
             forceReducedMotion: true,
             particlesEnabled: false,
             particleBlurEnabled: false,
-            transparencyEnabled: false,
+            ambientMotionEnabled: false,
         });
 
         expect(
@@ -99,7 +99,7 @@ describe('resolveDashboardDisplayEffects', () => {
             forceReducedMotion: false,
             particlesEnabled: false,
             particleBlurEnabled: false,
-            transparencyEnabled: true,
+            ambientMotionEnabled: true,
         });
     });
 });

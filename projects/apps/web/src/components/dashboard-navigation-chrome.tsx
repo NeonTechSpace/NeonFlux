@@ -12,23 +12,25 @@ export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
                         <button
                             type='button'
                             aria-label='Appearance controls'
-                            className='grid size-10 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                            className='grid size-11 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                             <SlidersHorizontal className='size-4' aria-hidden='true' />
                         </button>
                         <div className='invisible absolute bottom-0 left-[calc(100%+0.75rem)] z-50 translate-x-[-0.25rem] opacity-0 transition group-focus-within/appearance:visible group-focus-within/appearance:translate-x-0 group-focus-within/appearance:opacity-100 group-hover/appearance:visible group-hover/appearance:translate-x-0 group-hover/appearance:opacity-100'>
                             <DashboardDisplayControls variant='inline' />
                         </div>
                     </div>
-                    <div className='hidden xl:block'>
+                    <div className='hidden justify-center xl:flex'>
                         <DashboardDisplayControls variant='inline' />
                     </div>
                 </>
             ) : (
-                <DashboardDisplayControls variant='inline' />
+                <div className='flex justify-center'>
+                    <DashboardDisplayControls variant='inline' />
+                </div>
             )}
             <a
                 href='/auth/fluxer/login'
-                className='flex min-h-10 items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-transparent px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] xl:justify-start'>
+                className='flex min-h-11 items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-transparent px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                 <UserRound className='size-4 shrink-0' aria-hidden='true' />
                 <span className={compact ? 'hidden xl:inline' : ''}>Switch account</span>
             </a>

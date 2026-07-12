@@ -1,6 +1,8 @@
+import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
 import type { DashboardAuditEvent } from '../server/dashboard-posting.server.js';
+import { dashboardTactile } from './dashboard-motion.js';
 
 export function DashboardAuditEventRow({
     event,
@@ -15,7 +17,9 @@ export function DashboardAuditEventRow({
 
     return (
         <details className={`group border-l-2 ${eventTone.leftBorderClassName}`} role='listitem'>
-            <summary className='grid min-h-[4.5rem] cursor-pointer list-none gap-2 px-3 py-2 transition outline-none hover:bg-[var(--dash-surface-raised)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[inset_0_0_0_2px_var(--dash-primary)] md:grid-cols-[minmax(18rem,1fr)_minmax(10rem,0.55fr)_minmax(10rem,0.45fr)_1.5rem] md:items-center md:gap-3 [&::-webkit-details-marker]:hidden'>
+            <motion.summary
+                className='grid min-h-[4.5rem] cursor-pointer list-none gap-2 px-3 py-2 transition outline-none hover:bg-[var(--dash-surface-raised)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[inset_0_0_0_2px_var(--dash-primary)] md:grid-cols-[minmax(18rem,1fr)_minmax(10rem,0.55fr)_minmax(10rem,0.45fr)_1.5rem] md:items-center md:gap-3 [&::-webkit-details-marker]:hidden'
+                {...dashboardTactile}>
                 <div className='min-w-0'>
                     <div className='flex min-w-0 flex-wrap items-center gap-2'>
                         <span
@@ -36,7 +40,7 @@ export function DashboardAuditEventRow({
                     aria-hidden='true'>
                     ›
                 </span>
-            </summary>
+            </motion.summary>
 
             <div className='border-t border-[var(--dash-border)] bg-[var(--dash-surface)] px-3 py-3'>
                 <p className='text-xs text-[var(--dash-text-subtle)]'>
@@ -68,13 +72,14 @@ export function DashboardAuditEventsLoadMoreRow({
 }) {
     return (
         <div className='p-3' role='listitem'>
-            <button
+            <motion.button
                 type='button'
                 disabled={isFetchingNextPage}
                 onClick={() => void fetchNextPage()}
-                className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] disabled:cursor-not-allowed disabled:opacity-60'>
+                className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] disabled:cursor-not-allowed disabled:opacity-60'
+                {...dashboardTactile}>
                 {isFetchingNextPage ? 'Loading older events...' : 'Load older events'}
-            </button>
+            </motion.button>
         </div>
     );
 }

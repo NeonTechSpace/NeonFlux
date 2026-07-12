@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { AnimatePresence, motion } from 'motion/react';
 import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
 
 import { getDashboardAuditEventsQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
@@ -14,6 +15,7 @@ import {
     formatDashboardAuditSearchScope,
     useDashboardAuditUrlFilters,
 } from './dashboard-audit-filters.js';
+import { dashboardContentTransition, dashboardFastTransition, dashboardInlineVariants } from './dashboard-motion.js';
 import {
     DashboardEmptyState,
     DashboardErrorState,
@@ -123,14 +125,22 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                         type='search'
                     />
                 </label>
-                {search || searchScope !== 'all' ? (
-                    <button
-                        type='button'
-                        onClick={clearFilters}
-                        className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-border-interactive)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                        Clear filters
-                    </button>
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {search || searchScope !== 'all' ? (
+                        <motion.button
+                            key='clear-filters'
+                            type='button'
+                            onClick={clearFilters}
+                            className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-border-interactive)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'
+                            variants={dashboardInlineVariants}
+                            initial='initial'
+                            animate='enter'
+                            exit='exit'
+                            transition={dashboardFastTransition}>
+                            Clear filters
+                        </motion.button>
+                    ) : null}
+                </AnimatePresence>
             </DashboardToolbar>
 
             <AuditEventsBody
@@ -212,20 +222,31 @@ function AuditEventsBody({
 
     if (isLoading) {
         return (
-            <div className='mt-4 space-y-2' aria-label='Loading audit events'>
+            <motion.div
+                className='mt-4 space-y-2'
+                aria-label='Loading audit events'
+                variants={dashboardInlineVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardContentTransition}>
                 {Array.from({ length: 5 }, (_, index) => (
                     <div
                         key={index}
                         className='h-16 animate-pulse rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)]'
                     />
                 ))}
-            </div>
+            </motion.div>
         );
     }
 
     if (isError && events.length === 0) {
         return (
-            <div className='mt-4'>
+            <motion.div
+                className='mt-4'
+                variants={dashboardInlineVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardContentTransition}>
                 <DashboardErrorState
                     title='Audit events unavailable'
                     description='The persisted event history could not be loaded.'
@@ -238,30 +259,39 @@ function AuditEventsBody({
                         </button>
                     }
                 />
-            </div>
+            </motion.div>
         );
     }
 
     if (events.length === 0) {
         return (
-            <DashboardEmptyState
-                title={search ? 'No matching events' : 'No audit events yet'}
-                description={
-                    search
-                        ? `No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`
-                        : 'Dashboard and bot changes will appear here when they are recorded.'
-                }
-            />
+            <motion.div
+                variants={dashboardInlineVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardContentTransition}>
+                <DashboardEmptyState
+                    title={search ? 'No matching events' : 'No audit events yet'}
+                    description={
+                        search
+                            ? `No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`
+                            : 'Dashboard and bot changes will appear here when they are recorded.'
+                    }
+                />
+            </motion.div>
         );
     }
 
     return (
         <>
-            <div
+            <motion.div
                 ref={scrollParentRef}
                 className='mt-4 h-[34rem] overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)]'
                 aria-label='Dashboard audit events'
-                role='list'>
+                role='list'
+                initial={{ opacity: 0.72 }}
+                animate={{ opacity: 1 }}
+                transition={dashboardFastTransition}>
                 <div
                     className='sticky top-0 z-10 hidden grid-cols-[minmax(18rem,1fr)_minmax(10rem,0.55fr)_minmax(10rem,0.45fr)_1.5rem] gap-3 border-b border-[var(--dash-border)] bg-[var(--dash-surface)] px-3 py-2 text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase md:grid'
                     aria-hidden='true'>
@@ -295,13 +325,18 @@ function AuditEventsBody({
                         );
                     })}
                 </div>
-            </div>
+            </motion.div>
             {isError ? (
-                <div className='mt-3'>
+                <motion.div
+                    className='mt-3'
+                    variants={dashboardInlineVariants}
+                    initial='initial'
+                    animate='enter'
+                    transition={dashboardFastTransition}>
                     <DashboardStatus tone='warning'>
                         Older events could not be loaded. The events above remain current.
                     </DashboardStatus>
-                </div>
+                </motion.div>
             ) : null}
         </>
     );

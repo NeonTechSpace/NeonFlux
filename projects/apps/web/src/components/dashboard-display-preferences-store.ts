@@ -21,10 +21,10 @@ type DashboardDisplayEffectPreferences = Pick<
 >;
 
 export type EffectiveDashboardDisplayEffects = {
+    ambientMotionEnabled: boolean;
     forceReducedMotion: boolean;
     particleBlurEnabled: boolean;
     particlesEnabled: boolean;
-    transparencyEnabled: boolean;
 };
 
 export function resolveDashboardDisplayEffects({
@@ -35,10 +35,10 @@ export function resolveDashboardDisplayEffects({
     const effectiveParticlesEnabled = particlesEnabled && !reducedEffectsEnabled;
 
     return {
+        ambientMotionEnabled: !reducedEffectsEnabled,
         forceReducedMotion: reducedEffectsEnabled,
         particleBlurEnabled: effectiveParticlesEnabled && particleBlurEnabled,
         particlesEnabled: effectiveParticlesEnabled,
-        transparencyEnabled: !reducedEffectsEnabled,
     };
 }
 

@@ -1,8 +1,10 @@
+import { Link } from '@tanstack/react-router';
 import { Search, Server, X } from 'lucide-react';
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { dashboardNavigationEntries } from '../dashboard-categories.js';
+import { createDashboardGuildPreview, withDashboardGuildPreview } from '../dashboard-guild-preview.js';
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
 import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 
@@ -17,6 +19,7 @@ type DashboardCommandResult = {
     href: string;
     keywords: string;
     type: 'route' | 'server';
+    guild?: DashboardGuildShellGuild;
 };
 
 const DashboardCommandSearchContext = createContext<DashboardCommandSearchContextValue | undefined>(undefined);
@@ -42,6 +45,7 @@ export function DashboardCommandSearch({
         [guildId, guilds, pathname]
     );
     const filteredResults = useMemo(() => filterDashboardCommandResults(results, query), [query, results]);
+    const activeGuild = guilds.find((guild) => guild.id === guildId);
 
     const openSearch = useCallback((returnFocusTo?: HTMLElement) => {
         returnFocusRef.current = returnFocusTo;
@@ -136,7 +140,7 @@ export function DashboardCommandSearch({
                             type='button'
                             aria-label='Close search'
                             onClick={closeSearch}
-                            className='grid size-10 shrink-0 place-items-center rounded-[var(--dash-radius-control)] text-[var(--dash-text-muted)] transition outline-none hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                            className='grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] text-[var(--dash-text-muted)] transition outline-none hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                             <X className='size-5' aria-hidden='true' />
                         </button>
                     </header>
@@ -161,8 +165,10 @@ export function DashboardCommandSearch({
                             <ul className='space-y-1' aria-label='Search results'>
                                 {filteredResults.map((result) => (
                                     <li key={result.id}>
-                                        <a
-                                            href={result.href}
+                                        <Link
+                                            to={result.href}
+                                            preload='intent'
+                                            state={getDashboardCommandResultState(result, activeGuild)}
                                             onClick={closeSearch}
                                             className='flex min-h-14 items-center gap-3 rounded-[var(--dash-radius-control)] border border-transparent px-3 text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                                             <span className='grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)]'>
@@ -180,7 +186,7 @@ export function DashboardCommandSearch({
                                                     {result.description}
                                                 </span>
                                             </span>
-                                        </a>
+                                        </Link>
                                     </li>
                                 ))}
                             </ul>
@@ -212,8 +218,8 @@ export function DashboardCommandSearchTrigger({ compact = false }: { compact?: b
             onClick={(event) => context.openSearch(event.currentTarget)}
             className={
                 compact
-                    ? 'grid size-10 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'
-                    : 'flex min-h-10 w-full items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] xl:justify-start'
+                    ? 'grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'
+                    : 'flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] xl:justify-start'
             }>
             <Search className='size-4 shrink-0' aria-hidden='true' />
             {compact ? null : (
@@ -271,10 +277,37 @@ function buildDashboardCommandResults({
             href: getDashboardGuildSwitchPath(guildId, guild.id, pathname),
             keywords: guild.name.toLocaleLowerCase(),
             type: 'server',
+            guild,
         })
     );
 
     return [...routeResults, ...serverResults];
+}
+
+function getDashboardCommandResultState(
+    result: DashboardCommandResult,
+    sourceGuild: DashboardGuildShellGuild | undefined
+) {
+    if (result.type !== 'server' || !result.guild || result.guild.id === sourceGuild?.id) {
+        return undefined;
+    }
+
+    const targetPreview = createDashboardGuildPreview({
+        id: result.guild.id,
+        name: result.guild.name,
+        ...(result.guild.iconUrl ? { iconUrl: result.guild.iconUrl } : {}),
+        mode: 'multi',
+    });
+    const sourcePreview = sourceGuild
+        ? createDashboardGuildPreview({
+              id: sourceGuild.id,
+              name: sourceGuild.name,
+              ...(sourceGuild.iconUrl ? { iconUrl: sourceGuild.iconUrl } : {}),
+              mode: 'multi',
+          })
+        : undefined;
+
+    return withDashboardGuildPreview(targetPreview, sourcePreview);
 }
 
 function filterDashboardCommandResults(

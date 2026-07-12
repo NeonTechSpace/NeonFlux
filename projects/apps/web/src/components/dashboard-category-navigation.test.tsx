@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
+
+const renderedNavigations: RenderResult[] = [];
 
 vi.mock('@tanstack/react-router', async () => {
     const { createElement } = await import('react');
@@ -16,18 +19,28 @@ vi.mock('@tanstack/react-router', async () => {
             to,
             params,
             activeOptions: _activeOptions,
+            state: _state,
+            preload: _preload,
             children,
             ...props
         }: {
             to: string;
-            params: { guildId: string };
+            params?: { guildId: string };
             activeOptions?: unknown;
+            state?: unknown;
+            preload?: unknown;
             children: ReactNode;
-        }) => createElement('a', { ...props, href: to.replace('$guildId', params.guildId) }, children),
+        }) => createElement('a', { ...props, href: params ? to.replace('$guildId', params.guildId) : to }, children),
     };
 });
 
 describe('DashboardCategoryNavigation mobile dialog', () => {
+    afterEach(() => {
+        for (const renderedNavigation of renderedNavigations.splice(0)) {
+            renderedNavigation.unmount();
+        }
+    });
+
     beforeEach(() => {
         Object.defineProperties(HTMLDialogElement.prototype, {
             showModal: {
@@ -55,14 +68,16 @@ describe('DashboardCategoryNavigation mobile dialog', () => {
     });
 
     it('moves focus into the modal sheet and restores it after Escape', async () => {
-        render(
-            <DashboardCategoryNavigation
-                guild={{ id: 'guild-1', name: 'Alpha Guild' }}
-                guilds={[{ id: 'guild-1', name: 'Alpha Guild' }]}
-                guildId='guild-1'
-                activeCategoryId='overview'
-                mode='single'
-            />
+        renderedNavigations.push(
+            render(
+                <DashboardCategoryNavigation
+                    guild={{ id: 'guild-1', name: 'Alpha Guild' }}
+                    guilds={[{ id: 'guild-1', name: 'Alpha Guild' }]}
+                    guildId='guild-1'
+                    activeCategoryId='overview'
+                    mode='single'
+                />
+            )
         );
 
         const trigger = screen.getByRole('button', { name: 'Open dashboard menu' });
@@ -76,5 +91,32 @@ describe('DashboardCategoryNavigation mobile dialog', () => {
 
         await waitFor(() => expect(trigger.matches(':focus')).toBe(true));
         expect(screen.queryByRole('dialog', { name: 'Dashboard menu' })).toBeNull();
+    });
+
+    it('makes a one-server multi-instance switcher directly available from the mobile header', () => {
+        renderedNavigations.push(
+            render(
+                <DashboardCategoryNavigation
+                    guild={{ id: 'guild-1', name: 'Alpha Guild' }}
+                    guilds={[{ id: 'guild-1', name: 'Alpha Guild' }]}
+                    guildId='guild-1'
+                    activeCategoryId='overview'
+                    mode='multi'
+                />
+            )
+        );
+
+        const mobileHeader = screen.getByRole('banner');
+        const serverTrigger = within(mobileHeader).getByRole('button', {
+            name: 'Switch server, currently Alpha Guild',
+        });
+        const navigationTrigger = within(mobileHeader).getByRole('button', { name: 'Open dashboard menu' });
+
+        fireEvent.click(serverTrigger);
+
+        expect(screen.getByRole('dialog', { name: 'Switch server' })).toBeDefined();
+        expect(serverTrigger.getAttribute('aria-expanded')).toBe('true');
+        expect(navigationTrigger.getAttribute('aria-expanded')).toBe('false');
+        expect(screen.getByRole('link', { name: 'All servers' })).toBeDefined();
     });
 });

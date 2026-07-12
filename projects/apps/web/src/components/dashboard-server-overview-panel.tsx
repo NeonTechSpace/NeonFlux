@@ -1,11 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { getDashboardOverviewQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildOverviewRouteData } from '../server/dashboard-guild-route-data.js';
 import type { DashboardGuildOverview } from '../server/dashboard-overview.server.js';
+import {
+    dashboardContentTransition,
+    dashboardContentVariants,
+    dashboardFastTransition,
+    dashboardInlineVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 import {
     DashboardEmptyState,
     DashboardErrorState,
@@ -59,7 +67,12 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
     }
 
     return (
-        <div className='mx-auto max-w-[90rem] space-y-5'>
+        <motion.div
+            className='mx-auto max-w-[90rem] space-y-5'
+            variants={dashboardContentVariants}
+            initial='initial'
+            animate='enter'
+            transition={dashboardContentTransition}>
             <OverviewAttention overview={overview} />
             <OverviewSummary overview={overview} refreshedAt={overviewQuery.dataUpdatedAt} />
             <div className='grid gap-4 xl:grid-cols-2'>
@@ -67,7 +80,7 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
                 <MessageActivityChart overview={overview} />
             </div>
             <OverviewQuickActions guildId={guildId} />
-        </div>
+        </motion.div>
     );
 }
 
@@ -111,10 +124,16 @@ function OverviewAttention({ overview }: { overview: DashboardGuildOverview }) {
     if (missingSignals.length === 0) return null;
 
     return (
-        <DashboardStatus tone='info' title='Activity data is still building'>
-            The dashboard has not recorded {formatList(missingSignals)} in this window. New activity will appear here as
-            it is observed.
-        </DashboardStatus>
+        <motion.div
+            variants={dashboardInlineVariants}
+            initial='initial'
+            animate='enter'
+            transition={dashboardFastTransition}>
+            <DashboardStatus tone='info' title='Activity data is still building'>
+                The dashboard has not recorded {formatList(missingSignals)} in this window. New activity will appear
+                here as it is observed.
+            </DashboardStatus>
+        </motion.div>
     );
 }
 
@@ -157,7 +176,15 @@ function SummaryMetric({ label, value, detail }: { label: string; value: string;
     return (
         <div className='min-w-0 p-4'>
             <dt className='text-xs font-semibold tracking-wide text-[var(--dash-text-muted)] uppercase'>{label}</dt>
-            <dd className='mt-2 truncate text-[1.7rem] leading-tight font-semibold text-[var(--dash-text)]'>{value}</dd>
+            <motion.dd
+                key={value}
+                className='mt-2 truncate text-[1.7rem] leading-tight font-semibold text-[var(--dash-text)]'
+                variants={dashboardInlineVariants}
+                initial='initial'
+                animate='enter'
+                transition={dashboardFastTransition}>
+                {value}
+            </motion.dd>
             {detail ? <dd className='mt-1 truncate text-[0.95rem] text-[var(--dash-text-muted)]'>{detail}</dd> : null}
         </div>
     );
@@ -327,21 +354,30 @@ function OverviewQuickActions({ guildId }: { guildId: string }) {
                     <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>Go directly to the tool you need.</p>
                 </div>
                 <div className='flex flex-wrap gap-2'>
-                    <Link
-                        to='/dashboard/$guildId/messaging/message-builder'
-                        params={{ guildId }}
-                        className={actionClassName}>
-                        Build a message
-                    </Link>
-                    <Link to='/dashboard/$guildId/events/audit-events' params={{ guildId }} className={actionClassName}>
-                        Review activity
-                    </Link>
-                    <Link
-                        to='/dashboard/$guildId/general/command-prefix'
-                        params={{ guildId }}
-                        className={actionClassName}>
-                        Change command prefix
-                    </Link>
+                    <motion.div {...dashboardTactile}>
+                        <Link
+                            to='/dashboard/$guildId/messaging/message-builder'
+                            params={{ guildId }}
+                            className={actionClassName}>
+                            Build a message
+                        </Link>
+                    </motion.div>
+                    <motion.div {...dashboardTactile}>
+                        <Link
+                            to='/dashboard/$guildId/events/audit-events'
+                            params={{ guildId }}
+                            className={actionClassName}>
+                            Review activity
+                        </Link>
+                    </motion.div>
+                    <motion.div {...dashboardTactile}>
+                        <Link
+                            to='/dashboard/$guildId/general/command-prefix'
+                            params={{ guildId }}
+                            className={actionClassName}>
+                            Change command prefix
+                        </Link>
+                    </motion.div>
                 </div>
             </div>
         </DashboardSurface>

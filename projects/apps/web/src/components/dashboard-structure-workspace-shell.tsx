@@ -1,5 +1,5 @@
 import { Link, Outlet } from '@tanstack/react-router';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
@@ -7,6 +7,7 @@ import {
     formatDashboardStructureExecutionPhase,
     formatDashboardStructureExecutionState,
 } from '../server/dashboard-structure-contracts.js';
+import { dashboardContentTransition, dashboardFastTransition, dashboardInlineVariants } from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 
 const blueprintNavigation = [
@@ -58,7 +59,7 @@ export function DashboardStructureWorkspaceShell({
                                         <motion.span
                                             layoutId='server-blueprint-active-tool'
                                             className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
-                                            transition={{ duration: 0.18, ease: 'easeOut' }}
+                                            transition={dashboardContentTransition}
                                         />
                                     ) : null}
                                 </>
@@ -66,14 +67,17 @@ export function DashboardStructureWorkspaceShell({
                         </Link>
                     ))}
                 </nav>
-                {activeRun?.execution ? (
-                    <BlueprintExecutionStrip
-                        guildId={guildId}
-                        run={activeRun}
-                        hasProgressIssue={executionProgressIssue?.runId === activeRun.id}
-                        transport={executionTransport}
-                    />
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {activeRun?.execution ? (
+                        <BlueprintExecutionStrip
+                            key={activeRun.id}
+                            guildId={guildId}
+                            run={activeRun}
+                            hasProgressIssue={executionProgressIssue?.runId === activeRun.id}
+                            transport={executionTransport}
+                        />
+                    ) : null}
+                </AnimatePresence>
             </header>
             <div className='pt-5'>{children}</div>
         </section>
@@ -98,9 +102,14 @@ function BlueprintExecutionStrip({
     const percent = Math.round(progress * 100);
 
     return (
-        <div
+        <motion.div
             className='grid min-w-0 gap-2 border-t border-[var(--dash-border)] py-2.5 md:grid-cols-[minmax(0,1fr)_minmax(9rem,16rem)_auto] md:items-center md:gap-4'
-            aria-label='Active Blueprint deployment'>
+            aria-label='Active Blueprint deployment'
+            variants={dashboardInlineVariants}
+            initial='initial'
+            animate='enter'
+            exit='exit'
+            transition={dashboardFastTransition}>
             <div className='min-w-0'>
                 <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
                     <span className='font-semibold text-[var(--dash-text)]'>Deployment active</span>
@@ -126,11 +135,21 @@ function BlueprintExecutionStrip({
                     </span>
                 </div>
                 <progress
-                    className='h-1.5 w-full accent-[var(--dash-primary)]'
+                    className='sr-only'
                     value={execution.completedActions}
                     max={Math.max(1, execution.totalActions)}
                     aria-label={`${formatDashboardStructureExecutionPhase(execution.phase)}: ${percent}%`}
                 />
+                <div
+                    className='h-1.5 w-full overflow-hidden rounded-full bg-[var(--dash-surface-raised)]'
+                    aria-hidden='true'>
+                    <motion.div
+                        className='h-full rounded-full bg-[var(--dash-primary)]'
+                        initial={false}
+                        animate={{ width: `${percent}%` }}
+                        transition={dashboardContentTransition}
+                    />
+                </div>
             </div>
             <div className='flex items-center gap-3 text-xs font-semibold'>
                 <Link
@@ -146,7 +165,7 @@ function BlueprintExecutionStrip({
                     Runs
                 </Link>
             </div>
-        </div>
+        </motion.div>
     );
 }
 

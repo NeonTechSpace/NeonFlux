@@ -12,6 +12,7 @@ import { DashboardCategoryNavigation } from './dashboard-category-navigation.js'
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
 import { DashboardFeaturePlaceholder } from './dashboard-feature-placeholder.js';
+import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
@@ -79,23 +80,33 @@ export function DashboardGuildPageContent({
 export function DashboardGuildPendingPage({
     guildId,
     preview,
+    sourcePreview,
+    pathname,
     activeCategoryId = 'overview',
 }: {
     guildId: string;
     preview?: DashboardGuildPreview;
+    sourcePreview?: DashboardGuildPreview;
+    pathname?: string;
     activeCategoryId?: DashboardCategoryId;
 }) {
     if (!preview) {
         return <DashboardGuildColdLoadingShell activeCategoryId={activeCategoryId} />;
     }
 
+    const currentPreview = sourcePreview ?? preview;
+    const sourcePathname =
+        sourcePreview && pathname ? getDashboardGuildSwitchPath(guildId, sourcePreview.id, pathname) : undefined;
+
     return (
         <DashboardGuildFrame
-            guild={preview}
-            manageableGuilds={[preview]}
-            guildId={guildId}
+            guild={currentPreview}
+            manageableGuilds={sourcePreview ? [sourcePreview, preview] : [preview]}
+            guildId={sourcePreview?.id ?? guildId}
             activeCategoryId={activeCategoryId}
-            mode={preview.mode}
+            mode={sourcePreview ? 'multi' : preview.mode}
+            pendingGuildId={sourcePreview ? preview.id : undefined}
+            pathnameOverride={sourcePathname}
             isLoading>
             <DashboardPendingCategory activeCategoryId={activeCategoryId} />
         </DashboardGuildFrame>
@@ -258,6 +269,8 @@ function DashboardGuildFrame({
     activeCategoryId,
     mode,
     botInviteUrl,
+    pendingGuildId,
+    pathnameOverride,
     isLoading = false,
     children,
 }: {
@@ -267,6 +280,8 @@ function DashboardGuildFrame({
     activeCategoryId: DashboardCategoryId;
     mode: 'single' | 'multi';
     botInviteUrl?: string;
+    pendingGuildId?: string;
+    pathnameOverride?: string;
     isLoading?: boolean;
     children: ReactNode;
 }) {
@@ -280,6 +295,8 @@ function DashboardGuildFrame({
                     activeCategoryId={activeCategoryId}
                     mode={mode}
                     botInviteUrl={botInviteUrl}
+                    pendingGuildId={pendingGuildId}
+                    pathnameOverride={pathnameOverride}
                     isLoading={isLoading}
                 />
                 <div className='min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pb-8 md:pr-2'>{children}</div>

@@ -27,6 +27,8 @@ type DashboardCategoryNavigationProps = {
     activeCategoryId: DashboardCategoryId;
     mode: 'single' | 'multi';
     botInviteUrl?: string;
+    pendingGuildId?: string;
+    pathnameOverride?: string;
     isLoading?: boolean;
 };
 
@@ -37,9 +39,12 @@ export function DashboardCategoryNavigation({
     activeCategoryId,
     mode,
     botInviteUrl,
+    pendingGuildId,
+    pathnameOverride,
     isLoading = false,
 }: DashboardCategoryNavigationProps) {
-    const pathname = useLocation({ select: (location) => location.pathname });
+    const routePathname = useLocation({ select: (location) => location.pathname });
+    const pathname = pathnameOverride ?? routePathname;
     const mobileDialogRef = useRef<HTMLDialogElement>(null);
     const mobileCloseRef = useRef<HTMLButtonElement>(null);
     const mobileTriggerRef = useRef<HTMLButtonElement>(null);
@@ -52,7 +57,7 @@ export function DashboardCategoryNavigation({
         activeNavigationEntry?.category.label ??
         dashboardCategories.find((category) => category.id === activeCategoryId)?.label ??
         'Dashboard';
-    const canSwitchServers = mode === 'multi' && guilds.length > 1;
+    const canSwitchServers = mode === 'multi';
 
     useEffect(() => {
         if (!mobileOpen) {
@@ -125,6 +130,7 @@ export function DashboardCategoryNavigation({
             activeGuildId={guildId}
             pathname={pathname}
             botInviteUrl={botInviteUrl}
+            pendingGuildId={pendingGuildId}
         />
     ) : (
         <DashboardGuildIdentity guild={guild} />
@@ -133,11 +139,27 @@ export function DashboardCategoryNavigation({
     return (
         <DashboardCommandSearch guildId={guildId} guilds={guilds} pathname={pathname}>
             <header className='relative z-40 flex min-h-14 items-center gap-2 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(8,13,21,0.92)] p-2 shadow-[var(--dash-shadow-surface)] backdrop-blur md:hidden'>
-                <DashboardGuildAvatar guild={guild} className='size-9' />
-                <div className='min-w-0 flex-1'>
-                    <p className='truncate text-sm font-semibold text-[var(--dash-text)]'>{guild.name}</p>
-                    <p className='truncate text-xs text-[var(--dash-text-muted)]'>{activeLabel}</p>
-                </div>
+                {canSwitchServers ? (
+                    <div className='min-w-0 flex-1'>
+                        <DashboardGuildSelector
+                            guilds={guilds}
+                            activeGuildId={guildId}
+                            pathname={pathname}
+                            botInviteUrl={botInviteUrl}
+                            pendingGuildId={pendingGuildId}
+                            variant='mobile-header'
+                            activeLabel={activeLabel}
+                        />
+                    </div>
+                ) : (
+                    <>
+                        <DashboardGuildAvatar guild={guild} className='size-9' />
+                        <div className='min-w-0 flex-1'>
+                            <p className='truncate text-sm font-semibold text-[var(--dash-text)]'>{guild.name}</p>
+                            <p className='truncate text-xs text-[var(--dash-text-muted)]'>{activeLabel}</p>
+                        </div>
+                    </>
+                )}
                 {isLoading ? <NavigationLoadingIndicator compact /> : null}
                 <DashboardCommandSearchTrigger compact />
                 <button
@@ -147,7 +169,7 @@ export function DashboardCategoryNavigation({
                     aria-expanded={mobileOpen}
                     aria-controls='dashboard-mobile-navigation'
                     onClick={() => (mobileOpen ? closeMobileNavigation() : setMobileOpen(true))}
-                    className='grid size-10 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                    className='grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                     {mobileOpen ? (
                         <X className='size-5' aria-hidden='true' />
                     ) : (
@@ -168,7 +190,8 @@ export function DashboardCategoryNavigation({
                 className='fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0 text-[var(--dash-text)] backdrop:bg-[rgba(2,5,10,0.76)] backdrop:backdrop-blur-sm md:hidden'>
                 <button
                     type='button'
-                    aria-label='Close dashboard menu'
+                    tabIndex={-1}
+                    aria-hidden='true'
                     onClick={closeMobileNavigation}
                     className='absolute inset-0'
                 />
@@ -191,21 +214,10 @@ export function DashboardCategoryNavigation({
                             type='button'
                             aria-label='Close dashboard menu'
                             onClick={closeMobileNavigation}
-                            className='grid size-10 place-items-center rounded-[var(--dash-radius-control)] text-[var(--dash-text-muted)] transition outline-none hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                            className='grid size-11 place-items-center rounded-[var(--dash-radius-control)] text-[var(--dash-text-muted)] transition outline-none hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                             <X className='size-5' aria-hidden='true' />
                         </button>
                     </div>
-                    {canSwitchServers ? (
-                        <div className='py-3'>
-                            <DashboardGuildSelector
-                                guilds={guilds}
-                                activeGuildId={guildId}
-                                pathname={pathname}
-                                botInviteUrl={botInviteUrl}
-                                variant='sheet'
-                            />
-                        </div>
-                    ) : null}
                     <nav className='min-h-0 flex-1 overflow-y-auto py-3' aria-label='Dashboard categories'>
                         <DashboardExpandedNavigationList
                             activeCategoryId={activeCategoryId}
@@ -457,7 +469,7 @@ function DashboardSubNavigationListItem({
 
 function getCategoryDisclosureButtonClassName(active: boolean): string {
     const base =
-        'grid min-h-11 w-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border text-[var(--dash-text-muted)] outline-none transition';
+        'grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border text-[var(--dash-text-muted)] outline-none transition';
 
     return active
         ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
@@ -484,7 +496,7 @@ function getRailLinkClassName(active: boolean): string {
 
 function getSubNavigationLinkClassName(active: boolean): string {
     const base =
-        'relative flex min-h-10 items-center gap-2 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.88rem] font-semibold outline-none transition';
+        'relative flex min-h-11 items-center gap-2 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.88rem] font-semibold outline-none transition';
 
     return active
         ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)]`

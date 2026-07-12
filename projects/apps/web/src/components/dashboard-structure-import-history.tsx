@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
@@ -15,6 +16,13 @@ import {
     DashboardStructureActionInspector,
     DashboardStructureActionPreview,
 } from './dashboard-structure-action-inspection.js';
+import {
+    dashboardContentTransition,
+    dashboardFastTransition,
+    dashboardInlineVariants,
+    dashboardListItemVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 
 export type StructureBusyAction =
     | 'export'
@@ -140,9 +148,13 @@ function ImportRunCard({
     const canRecover = run.recoveryAvailable === true;
 
     return (
-        <div
+        <motion.div
             className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'
-            aria-current={isLatest ? 'true' : undefined}>
+            aria-current={isLatest ? 'true' : undefined}
+            variants={dashboardListItemVariants}
+            initial='initial'
+            animate='enter'
+            transition={dashboardContentTransition}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
                     <p className='text-sm font-semibold text-white'>Dry-run {formatDate(run.createdAt)}</p>
@@ -180,65 +192,93 @@ function ImportRunCard({
                 }}
             />
             {inspectedAction ? (
-                <DashboardStructureActionInspector
-                    action={inspectedAction}
-                    onClose={() => setInspectedAction(undefined)}
-                />
-            ) : null}
-            {canApprove ? (
-                <div className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'>
-                    <p className='text-xs leading-5 text-neutral-300'>
-                        Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
-                    </p>
-                    <div className='mt-2 flex justify-end'>
-                        <button
-                            type='button'
-                            onClick={() => onApprove(run)}
-                            disabled={Boolean(busyAction)}
-                            className='min-h-10 rounded-md bg-amber-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                            {isApprovalBusy ? 'Approving' : 'Approve reviewed plan'}
-                        </button>
-                    </div>
-                    <p className='mt-2 text-xs leading-5 text-neutral-400'>
-                        Approval is recorded separately from execution. No server changes are applied yet.
-                    </p>
-                </div>
-            ) : null}
-            {canPreflight ? (
-                <>
-                    {run.execution?.status === 'failed_before_mutation' ? (
-                        <p className='mt-3 rounded-[var(--dash-radius-control)] border border-amber-400/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100'>
-                            No server changes were made. Run a fresh safety check before queueing this approved plan
-                            again.
-                        </p>
-                    ) : null}
-                    <DashboardStructureApplyControls
-                        run={run}
-                        busyAction={busyAction}
-                        preflightReport={preflightReport}
-                        deleteConfirmation={deleteConfirmation}
-                        onPreflight={onPreflight}
-                        onDeleteConfirmationChange={onDeleteConfirmationChange}
-                        onApply={onApply}
+                <motion.div
+                    key={inspectedAction.id}
+                    variants={dashboardInlineVariants}
+                    initial='initial'
+                    animate='enter'
+                    transition={dashboardFastTransition}>
+                    <DashboardStructureActionInspector
+                        action={inspectedAction}
+                        onClose={() => setInspectedAction(undefined)}
                     />
-                </>
+                </motion.div>
             ) : null}
-            {canRecover ? (
-                <div className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
-                    <p className='text-xs leading-5 text-neutral-300'>
-                        Recovery re-reads the live server and creates a new Match blueprint plan from the remaining
-                        differences.
-                    </p>
-                    <button
-                        type='button'
-                        onClick={() => onRecoveryPlan(run)}
-                        disabled={Boolean(busyAction)}
-                        className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
-                        {isRecoveryBusy ? 'Creating recovery plan' : 'Create recovery plan'}
-                    </button>
-                </div>
-            ) : null}
-        </div>
+            <AnimatePresence initial={false} mode='popLayout'>
+                {canApprove ? (
+                    <motion.div
+                        key='approve'
+                        className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        <p className='text-xs leading-5 text-neutral-300'>
+                            Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
+                        </p>
+                        <div className='mt-2 flex justify-end'>
+                            <motion.button
+                                type='button'
+                                onClick={() => onApprove(run)}
+                                disabled={Boolean(busyAction)}
+                                className='min-h-10 rounded-md bg-amber-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'
+                                {...dashboardTactile}>
+                                {isApprovalBusy ? 'Approving' : 'Approve reviewed plan'}
+                            </motion.button>
+                        </div>
+                        <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                            Approval is recorded separately from execution. No server changes are applied yet.
+                        </p>
+                    </motion.div>
+                ) : null}
+                {canPreflight ? (
+                    <motion.div
+                        key='preflight'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        {run.execution?.status === 'failed_before_mutation' ? (
+                            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-amber-400/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100'>
+                                No server changes were made. Run a fresh safety check before queueing this approved plan
+                                again.
+                            </p>
+                        ) : null}
+                        <DashboardStructureApplyControls
+                            run={run}
+                            busyAction={busyAction}
+                            preflightReport={preflightReport}
+                            deleteConfirmation={deleteConfirmation}
+                            onPreflight={onPreflight}
+                            onDeleteConfirmationChange={onDeleteConfirmationChange}
+                            onApply={onApply}
+                        />
+                    </motion.div>
+                ) : null}
+                {canRecover ? (
+                    <motion.div
+                        key='recover'
+                        className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        <p className='text-xs leading-5 text-neutral-300'>
+                            Recovery re-reads the live server and creates a new Match blueprint plan from the remaining
+                            differences.
+                        </p>
+                        <motion.button
+                            type='button'
+                            onClick={() => onRecoveryPlan(run)}
+                            disabled={Boolean(busyAction)}
+                            className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'
+                            {...dashboardTactile}>
+                            {isRecoveryBusy ? 'Creating recovery plan' : 'Create recovery plan'}
+                        </motion.button>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        </motion.div>
     );
 }
 
@@ -352,11 +392,21 @@ function ExecutionProgress({
                 </span>
             </div>
             <progress
-                className='mt-2 h-1.5 w-full accent-[var(--dash-primary)]'
+                className='sr-only'
                 value={execution.completedActions}
                 max={Math.max(1, execution.totalActions)}
                 aria-label={`${execution.phase.replaceAll('_', ' ')} progress: ${percent}%`}
             />
+            <div
+                className='mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--dash-surface-muted)]'
+                aria-hidden='true'>
+                <motion.div
+                    className='h-full rounded-full bg-[var(--dash-primary)]'
+                    initial={false}
+                    animate={{ width: `${percent}%` }}
+                    transition={dashboardContentTransition}
+                />
+            </div>
             <dl className='mt-3 grid gap-3 text-xs sm:grid-cols-3'>
                 <div>
                     <dt className='text-[var(--dash-text-subtle)]'>Operation</dt>
@@ -367,7 +417,15 @@ function ExecutionProgress({
                 </div>
                 <div>
                     <dt className='text-[var(--dash-text-subtle)]'>Outcome</dt>
-                    <dd className={`mt-1 ${getExecutionOutcomeClassName(execution.status)}`}>{outcome}</dd>
+                    <motion.dd
+                        key={outcome}
+                        className={`mt-1 ${getExecutionOutcomeClassName(execution.status)}`}
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        transition={dashboardFastTransition}>
+                        {outcome}
+                    </motion.dd>
                 </div>
                 <div>
                     <dt className='text-[var(--dash-text-subtle)]'>Execution record updated</dt>
@@ -396,31 +454,34 @@ function ExecutionProgress({
             ) : null}
             <div className='mt-3 flex flex-wrap gap-2'>
                 {['running', 'waiting_rate_limit'].includes(execution.status) ? (
-                    <button
+                    <motion.button
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('pause')}
-                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'>
+                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'
+                        {...dashboardTactile}>
                         Pause deployment
-                    </button>
+                    </motion.button>
                 ) : null}
                 {execution.status === 'paused' ? (
-                    <button
+                    <motion.button
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('resume')}
-                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'>
+                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'
+                        {...dashboardTactile}>
                         Resume deployment
-                    </button>
+                    </motion.button>
                 ) : null}
                 {['queued', 'paused'].includes(execution.status) ? (
-                    <button
+                    <motion.button
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('cancel')}
-                        className='rounded border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:opacity-50'>
+                        className='rounded border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:opacity-50'
+                        {...dashboardTactile}>
                         Cancel {execution.status === 'queued' ? 'queued' : 'paused'} deployment
-                    </button>
+                    </motion.button>
                 ) : null}
             </div>
         </div>

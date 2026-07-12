@@ -1,5 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import { useMutation } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
@@ -21,6 +22,12 @@ import {
     normalizeDashboardEmbedDraft,
 } from './dashboard-embed-builder.js';
 import type { DashboardEmbedDraft } from './dashboard-embed-builder.js';
+import {
+    dashboardContentTransition,
+    dashboardFastTransition,
+    dashboardInlineVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import {
     getReactionRoleEditorMessageTone,
@@ -232,9 +239,13 @@ export function ReactionRoleEditor({
                         Saving disables the menu until Fluxer and stored configuration are synchronized.
                     </p>
                 </div>
-                <button type='button' onClick={onCancel} className={reactionRoleSecondaryButtonClassName}>
+                <motion.button
+                    type='button'
+                    onClick={onCancel}
+                    className={reactionRoleSecondaryButtonClassName}
+                    {...dashboardTactile}>
                     Cancel
-                </button>
+                </motion.button>
             </div>
 
             <div className='min-w-0 space-y-6'>
@@ -287,22 +298,39 @@ export function ReactionRoleEditor({
                         ]}
                         onChange={(value) => updateDraft({ messageType: value as ReactionRoleMessageType })}
                     />
-                    {draft.messageType === 'plain' ? (
-                        <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
-                            <span>Message content</span>
-                            <textarea
-                                value={draft.content}
-                                onChange={(event) => updateDraft({ content: event.currentTarget.value })}
-                                className={reactionRoleEditorFieldClassName}
-                                placeholder='Pick your roles:{list}'
-                            />
-                        </label>
-                    ) : (
-                        <DashboardEmbedBuilder
-                            draft={draft.embedDraft}
-                            onDraftChange={(embedDraft) => updateDraft({ embedDraft })}
-                        />
-                    )}
+                    <AnimatePresence initial={false} mode='popLayout'>
+                        {draft.messageType === 'plain' ? (
+                            <motion.label
+                                key='plain'
+                                className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                exit='exit'
+                                transition={dashboardContentTransition}>
+                                <span>Message content</span>
+                                <textarea
+                                    value={draft.content}
+                                    onChange={(event) => updateDraft({ content: event.currentTarget.value })}
+                                    className={reactionRoleEditorFieldClassName}
+                                    placeholder='Pick your roles:{list}'
+                                />
+                            </motion.label>
+                        ) : (
+                            <motion.div
+                                key='embed'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                exit='exit'
+                                transition={dashboardContentTransition}>
+                                <DashboardEmbedBuilder
+                                    draft={draft.embedDraft}
+                                    onDraftChange={(embedDraft) => updateDraft({ embedDraft })}
+                                />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                     <label className='inline-flex min-h-10 items-center gap-3 text-sm font-medium text-[var(--dash-text)]'>
                         <input
                             type='checkbox'
@@ -338,20 +366,22 @@ export function ReactionRoleEditor({
                     <div className='flex flex-wrap items-end gap-3'>
                         <EmojiPicker emojis={emojis} selected={selectedEmoji} onSelect={setSelectedEmoji} />
                         <RolePicker roles={roles} selected={selectedRole} onSelect={setSelectedRole} />
-                        <button
+                        <motion.button
                             type='button'
                             onClick={addOption}
                             disabled={!selectedEmoji || !selectedRole || draft.options.length >= maxReactionRoleOptions}
-                            className={reactionRolePrimaryButtonClassName}>
+                            className={reactionRolePrimaryButtonClassName}
+                            {...dashboardTactile}>
                             Add option
-                        </button>
-                        <button
+                        </motion.button>
+                        <motion.button
                             type='button'
                             onClick={sortOptionsAlphabetically}
                             disabled={draft.options.length < 2}
-                            className={reactionRoleSecondaryButtonClassName}>
+                            className={reactionRoleSecondaryButtonClassName}
+                            {...dashboardTactile}>
                             Sort alphabetically
-                        </button>
+                        </motion.button>
                     </div>
                     <ReactionRoleOptionList
                         options={draft.options}
@@ -369,27 +399,42 @@ export function ReactionRoleEditor({
             <aside className='min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start' aria-label='Menu preview and save'>
                 <DashboardPostingPreview content={preview.content ?? ''} embeds={preview.embeds} />
                 <div className='rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] p-4'>
-                    <button
+                    <motion.button
                         type='submit'
                         disabled={saveMutation.isPending}
-                        className={reactionRolePrimaryButtonClassName}>
+                        className={reactionRolePrimaryButtonClassName}
+                        {...dashboardTactile}>
                         {saveMutation.isPending
                             ? 'Saving…'
                             : editorMode.type === 'create'
                               ? 'Publish menu'
                               : 'Save changes'}
-                    </button>
-                    {editorMessage ? (
-                        <div className='mt-3'>
-                            <DashboardStatus tone={getReactionRoleEditorMessageTone(editorMessage.type)}>
-                                {editorMessage.text}
-                            </DashboardStatus>
-                        </div>
-                    ) : (
-                        <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>
-                            The menu is unavailable to members while publish or synchronization is in progress.
-                        </p>
-                    )}
+                    </motion.button>
+                    <AnimatePresence initial={false} mode='popLayout'>
+                        {editorMessage ? (
+                            <motion.div
+                                key={`${editorMessage.type}:${editorMessage.text}`}
+                                className='mt-3'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}>
+                                <DashboardStatus tone={getReactionRoleEditorMessageTone(editorMessage.type)}>
+                                    {editorMessage.text}
+                                </DashboardStatus>
+                            </motion.div>
+                        ) : (
+                            <motion.p
+                                key='save-help'
+                                className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'
+                                variants={dashboardInlineVariants}
+                                initial='initial'
+                                animate='enter'
+                                transition={dashboardFastTransition}>
+                                The menu is unavailable to members while publish or synchronization is in progress.
+                            </motion.p>
+                        )}
+                    </AnimatePresence>
                 </div>
             </aside>
         </form>

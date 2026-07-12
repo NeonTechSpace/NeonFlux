@@ -40,7 +40,7 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
             className={
                 variant === 'floating'
                     ? 'dashboard-overlay-surface fixed top-7 right-[max(1rem,calc((100vw-1540px)/2))] z-30 hidden shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] p-1 shadow-[var(--dash-shadow-surface)] lg:flex'
-                    : 'dashboard-overlay-surface inline-flex h-10 shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] p-1 shadow-[var(--dash-shadow-surface)]'
+                    : 'dashboard-overlay-surface inline-flex h-[3.25rem] shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] p-1 shadow-[var(--dash-shadow-surface)]'
             }
             aria-label='Display effects'>
             <button
@@ -79,7 +79,7 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
 
 function getDisplayControlClassName(active: boolean): string {
     const base =
-        'grid size-8 place-items-center rounded-[var(--dash-radius-control)] border border-transparent transition focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40';
+        'grid size-11 place-items-center rounded-[var(--dash-radius-control)] border border-transparent transition focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40';
 
     return active
         ? `${base} bg-[var(--dash-primary-soft)] text-[var(--dash-primary)]`

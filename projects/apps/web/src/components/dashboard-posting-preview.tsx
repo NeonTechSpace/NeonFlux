@@ -1,5 +1,7 @@
+import { AnimatePresence, motion } from 'motion/react';
 import type { CSSProperties } from 'react';
 
+import { dashboardContentTransition, dashboardInlineVariants } from './dashboard-motion.js';
 import { DashboardSurface } from './dashboard-ui.js';
 
 type DashboardPostingPreviewProps = {
@@ -20,27 +22,44 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
                 </p>
                 <h3 className='mt-1 text-base font-semibold text-[var(--dash-text)]'>What members will see</h3>
             </div>
-            {!trimmedContent && previewEmbedItems.length === 0 ? (
-                <div className='grid min-h-48 place-items-center rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] bg-[var(--dash-bg)] px-6 text-center'>
-                    <div>
-                        <p className='text-sm font-medium text-[var(--dash-text)]'>The preview is empty</p>
-                        <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                            Add message content or configure an embed in the editor.
-                        </p>
-                    </div>
-                </div>
-            ) : (
-                <div className='space-y-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[#0b0d12] p-3'>
-                    {trimmedContent ? (
-                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#f5f7fb]'>
-                            {trimmedContent}
-                        </p>
-                    ) : null}
-                    {previewEmbedItems.map((item) => (
-                        <DashboardEmbedPreview key={item.key} embed={item.embed} />
-                    ))}
-                </div>
-            )}
+            <AnimatePresence initial={false} mode='popLayout'>
+                {!trimmedContent && previewEmbedItems.length === 0 ? (
+                    <motion.div
+                        key='empty'
+                        className='grid min-h-48 place-items-center rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] bg-[var(--dash-bg)] px-6 text-center'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        exit='exit'
+                        transition={dashboardContentTransition}>
+                        <div>
+                            <p className='text-sm font-medium text-[var(--dash-text)]'>The preview is empty</p>
+                            <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                                Add message content or configure an embed in the editor.
+                            </p>
+                        </div>
+                    </motion.div>
+                ) : (
+                    <motion.div
+                        key='message'
+                        layout
+                        className='space-y-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[#0b0d12] p-3'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        exit='exit'
+                        transition={dashboardContentTransition}>
+                        {trimmedContent ? (
+                            <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#f5f7fb]'>
+                                {trimmedContent}
+                            </p>
+                        ) : null}
+                        {previewEmbedItems.map((item) => (
+                            <DashboardEmbedPreview key={item.key} embed={item.embed} />
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </DashboardSurface>
     );
 }

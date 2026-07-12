@@ -8,12 +8,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 
 import type {
     DashboardReactionRoleEmoji,
     DashboardReactionRoleRole,
 } from '../server/dashboard-reaction-roles.server.js';
+import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
 
 export type ReactionRoleBuilderOption = {
     emojiKey: string;
@@ -53,26 +55,45 @@ export function ReactionRoleOptionList({
 
     return (
         <div className='mt-3'>
-            {options.length === 0 ? (
-                <p className='text-sm text-[var(--dash-text-muted)]'>No options yet. Add up to 30.</p>
-            ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                    <SortableContext
-                        items={options.map((option) => option.emojiKey)}
-                        strategy={verticalListSortingStrategy}>
-                        <div className='space-y-2'>
-                            {options.map((option, index) => (
-                                <SortableReactionRoleOption
-                                    key={option.emojiKey}
-                                    option={option}
-                                    role={roleById.get(option.roleId)}
-                                    onRemove={() => onRemove(index)}
-                                />
-                            ))}
-                        </div>
-                    </SortableContext>
-                </DndContext>
-            )}
+            <AnimatePresence initial={false} mode='popLayout'>
+                {options.length === 0 ? (
+                    <motion.p
+                        key='empty'
+                        className='text-sm text-[var(--dash-text-muted)]'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        exit='exit'
+                        transition={dashboardFastTransition}>
+                        No options yet. Add up to 30.
+                    </motion.p>
+                ) : (
+                    <motion.div
+                        key='options'
+                        variants={dashboardInlineVariants}
+                        initial='initial'
+                        animate='enter'
+                        exit='exit'
+                        transition={dashboardFastTransition}>
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                            <SortableContext
+                                items={options.map((option) => option.emojiKey)}
+                                strategy={verticalListSortingStrategy}>
+                                <div className='space-y-2'>
+                                    {options.map((option, index) => (
+                                        <SortableReactionRoleOption
+                                            key={option.emojiKey}
+                                            option={option}
+                                            role={roleById.get(option.roleId)}
+                                            onRemove={() => onRemove(index)}
+                                        />
+                                    ))}
+                                </div>
+                            </SortableContext>
+                        </DndContext>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
@@ -102,24 +123,26 @@ function SortableReactionRoleOption({
                     ? 'flex items-center gap-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-surface-raised)] px-3 py-2 text-sm text-[var(--dash-text)] shadow-[var(--dash-shadow-popover)]'
                     : 'flex items-center gap-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)] px-3 py-2 text-sm text-[var(--dash-text)]'
             }>
-            <button
+            <motion.button
                 type='button'
                 {...attributes}
                 {...listeners}
+                {...dashboardTactile}
                 className='grid size-8 cursor-grab place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] text-[var(--dash-text-muted)] active:cursor-grabbing'
                 aria-label={`Drag ${option.emojiLabel} option`}>
                 <GripVertical className='size-4' aria-hidden='true' />
-            </button>
+            </motion.button>
             <span className='text-base'>{option.emojiLabel}</span>
             <RoleSwatch color={role?.color ?? 0} />
             <span className='min-w-0 flex-1 truncate'>@{role?.name ?? option.roleId}</span>
-            <button
+            <motion.button
                 type='button'
                 className='inline-flex min-h-8 items-center gap-1 rounded-[var(--dash-radius-control)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] hover:bg-rose-400/10 hover:text-rose-100'
-                onClick={onRemove}>
+                onClick={onRemove}
+                {...dashboardTactile}>
                 <X className='size-3.5' aria-hidden='true' />
                 Remove
-            </button>
+            </motion.button>
         </div>
     );
 }
@@ -147,16 +170,17 @@ export function EmojiPicker({
             />
             <div className='grid max-h-36 grid-cols-4 gap-1 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)] p-1'>
                 {matches.map((emoji) => (
-                    <button
+                    <motion.button
                         key={emoji.key}
                         type='button'
                         onClick={() => {
                             onSelect(emoji);
                             setQuery('');
                         }}
-                        className='min-h-9 rounded text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'>
+                        className='min-h-9 rounded text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'
+                        {...dashboardTactile}>
                         {emoji.custom ? emoji.label : emoji.key}
-                    </button>
+                    </motion.button>
                 ))}
             </div>
         </label>
@@ -186,17 +210,18 @@ export function RolePicker({
             />
             <div className='max-h-36 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface)]'>
                 {matches.map((role) => (
-                    <button
+                    <motion.button
                         key={role.id}
                         type='button'
                         onClick={() => {
                             onSelect(role);
                             setQuery('');
                         }}
-                        className='flex min-h-9 w-full items-center gap-2 px-3 text-left text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'>
+                        className='flex min-h-9 w-full items-center gap-2 px-3 text-left text-sm text-[var(--dash-text)] transition hover:bg-[var(--dash-surface-selected)]'
+                        {...dashboardTactile}>
                         <RoleSwatch color={role.color} />
                         <span className='truncate'>@{role.name}</span>
-                    </button>
+                    </motion.button>
                 ))}
             </div>
         </label>
@@ -219,7 +244,7 @@ export function SegmentedControl({
             <legend className='text-sm font-medium text-[var(--dash-text)]'>{label}</legend>
             <div className='flex flex-wrap gap-2'>
                 {options.map((option) => (
-                    <button
+                    <motion.button
                         key={option.value}
                         type='button'
                         aria-pressed={value === option.value}
@@ -228,9 +253,10 @@ export function SegmentedControl({
                             value === option.value
                                 ? 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-primary-ring)] px-3 text-sm font-semibold text-[var(--dash-text)]'
                                 : 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
-                        }>
+                        }
+                        {...dashboardTactile}>
                         {option.label}
-                    </button>
+                    </motion.button>
                 ))}
             </div>
         </fieldset>
