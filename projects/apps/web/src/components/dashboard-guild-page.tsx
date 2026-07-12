@@ -4,14 +4,22 @@ import type { ReactNode } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
 import type { DashboardGuildPreview } from '../dashboard-guild-preview.js';
-import { getDashboardCategory, getDashboardCategorySubNavigation } from '../dashboard-categories.js';
+import { dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
+import {
+    getDashboardCategory,
+    getDashboardCategorySubNavigation,
+    getDashboardNavigationJob,
+} from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
-import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
+import type {
+    DashboardCommandSettingsReadResult,
+    DashboardGuildRouteData,
+} from '../server/dashboard-guild-route-data.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
-import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
-import { DashboardFeaturePlaceholder } from './dashboard-feature-placeholder.js';
+import { DashboardCommandPrefixRouteContent } from './dashboard-command-prefix-route-content.js';
+import { DashboardGuildUnavailablePage } from './dashboard-guild-unavailable-page.js';
 import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
@@ -65,17 +73,7 @@ export function DashboardGuildPageContent({
             );
 
         case 'unavailable':
-            return (
-                <DashboardShell>
-                    <DashboardStatusSection
-                        eyebrow='Dashboard'
-                        title={data.title}
-                        body={data.message}
-                        actionLabel='Choose server'
-                        actionTo='/dashboard'
-                    />
-                </DashboardShell>
-            );
+            return <DashboardGuildUnavailablePage data={data} />;
     }
 }
 
@@ -193,7 +191,11 @@ export function DashboardGuildOverviewCategory() {
     );
 }
 
-export function DashboardGuildCommandPrefixCategory() {
+export function DashboardGuildCommandPrefixCategory({
+    commandSettingsResult,
+}: {
+    commandSettingsResult: DashboardCommandSettingsReadResult;
+}) {
     const data = useDashboardGuildData();
 
     useDashboardLiveInvalidation({
@@ -201,7 +203,7 @@ export function DashboardGuildCommandPrefixCategory() {
         areas: commandLiveArea,
     });
 
-    return <DashboardCommandPrefixSettingsPanel guildId={data.guild.id} commandSettings={data.commandSettings} />;
+    return <DashboardCommandPrefixRouteContent guildId={data.guild.id} commandSettingsResult={commandSettingsResult} />;
 }
 
 export function DashboardGuildMessageBuilderCategory() {
@@ -246,10 +248,6 @@ export function DashboardGuildAuditEventsCategory() {
     });
 
     return <DashboardAuditEventsPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildPlaceholderCategory({ featureName }: { featureName: string }) {
-    return <DashboardFeaturePlaceholder featureName={featureName} />;
 }
 
 function DashboardGuildView({
@@ -339,9 +337,9 @@ function DashboardCategorySection({
             aria-label={identity?.title ?? category.label}
             data-dashboard-feature={identity?.id}>
             <div className='border-b border-[var(--dash-border)] px-1 pb-3'>
-                <h2 id={headingId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
+                <h1 id={headingId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
                     {title}
-                </h2>
+                </h1>
                 <p className='mt-1 max-w-3xl text-[0.95rem] leading-6 text-[var(--dash-text-muted)]'>{description}</p>
             </div>
             {children}
@@ -389,7 +387,7 @@ function DashboardPendingCategory({
                     <DashboardPageHeader
                         title={identity.title}
                         description={identity.description}
-                        eyebrow={activeItem ? category.label : undefined}
+                        eyebrow={activeItem ? getDashboardNavigationJob(activeItem.navigationJobId).label : undefined}
                         icon={<FeatureIcon className='size-5' aria-hidden='true' />}
                         titleId={headingId}
                     />
@@ -482,8 +480,17 @@ function getDashboardPendingIdentity(
         };
     }
 
-    if (categoryId === 'structure' && pathSegment && Object.hasOwn(blueprintPendingIdentities, pathSegment)) {
-        return blueprintPendingIdentities[pathSegment as keyof typeof blueprintPendingIdentities];
+    const structureItem =
+        categoryId === 'structure'
+            ? dashboardStructureNavigationItems.find((item) => item.id === pathSegment)
+            : undefined;
+
+    if (structureItem) {
+        return {
+            id: `structure:${structureItem.id}`,
+            title: structureItem.title,
+            description: structureItem.description,
+        };
     }
 
     const category = getDashboardCategory(categoryId);
@@ -494,31 +501,3 @@ function getDashboardPendingIdentity(
             category.id === 'overview' ? 'Growth and message activity across this server.' : category.description,
     };
 }
-
-const blueprintPendingIdentities = {
-    current: {
-        id: 'structure:current',
-        title: 'Current layout',
-        description: 'The relationship between the latest protected version and what is live now.',
-    },
-    backups: {
-        id: 'structure:backups',
-        title: 'Protected versions',
-        description: 'Backups provide comparison baselines and deliberate recovery sources.',
-    },
-    compare: {
-        id: 'structure:compare',
-        title: 'Compare layouts',
-        description: 'Review domain changes before inspecting normalized JSON details.',
-    },
-    deploy: {
-        id: 'structure:deploy',
-        title: 'Deploy a blueprint',
-        description: 'Prepare, review, safety-check, and deliberately apply one blueprint.',
-    },
-    runs: {
-        id: 'structure:runs',
-        title: 'Deployment runs',
-        description: 'Track active, recoverable, and completed deployment work.',
-    },
-} as const satisfies Record<string, DashboardPendingIdentity>;

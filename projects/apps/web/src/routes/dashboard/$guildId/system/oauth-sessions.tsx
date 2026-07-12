@@ -1,9 +1,0 @@
-import { createFileRoute } from '@tanstack/react-router';
-
-import { DashboardPlaceholderRoute } from '../../../../components/dashboard-placeholder-route.js';
-
-const createRoute = createFileRoute('/dashboard/$guildId/system/oauth-sessions');
-
-export const Route = createRoute({
-    component: () => <DashboardPlaceholderRoute categoryId='system' itemId='oauth-sessions' />,
-});

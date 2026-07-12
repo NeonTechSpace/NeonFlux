@@ -6,6 +6,7 @@ import type {
     DashboardCommandSettings,
     DashboardCommandSettingsPageDataResult,
 } from './dashboard-command-settings.server.js';
+import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import type {
     DashboardAuditEventsResult,
     DashboardAuditSearchScope,
@@ -20,7 +21,7 @@ const deploymentConfigUnavailableMessage = 'NeonFlux deployment config unavailab
 const communityUnavailableMessage = 'This community is not available for this account.';
 
 export type DashboardGuildRouteData =
-    | Extract<DashboardCommandSettingsPageDataResult, { type: 'guild' }>
+    | Extract<DashboardGuildPageDataResult, { type: 'guild' }>
     | {
           type: 'single-unauthorized';
           configuredGuildId: string;
@@ -82,7 +83,7 @@ export type DashboardCommandSettingsReadResult =
           type: 'guild-lookup-failed';
       };
 
-function toDashboardGuildRouteResult(data: DashboardCommandSettingsPageDataResult): DashboardGuildRouteResult {
+function toDashboardGuildRouteResult(data: DashboardGuildPageDataResult): DashboardGuildRouteResult {
     switch (data.type) {
         case 'guild':
         case 'single-unauthorized':
@@ -145,10 +146,8 @@ export const loadDashboardGuildRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
     .handler(async ({ data }): Promise<DashboardGuildRouteData> => {
         const { getRequest, setResponseHeader, setResponseStatus } = await import('@tanstack/react-start/server');
-        const { loadDashboardCommandSettingsPageData } = await import('./dashboard-command-settings.server.js');
-        const routeResult = toDashboardGuildRouteResult(
-            await loadDashboardCommandSettingsPageData(getRequest(), data.guildId)
-        );
+        const { loadDashboardGuildPageData } = await import('./dashboard-guild-page.server.js');
+        const routeResult = toDashboardGuildRouteResult(await loadDashboardGuildPageData(getRequest(), data.guildId));
 
         setResponseHeader('Cache-Control', 'no-store');
 

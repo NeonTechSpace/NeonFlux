@@ -1,13 +1,27 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardGuildPendingPage } from './dashboard-guild-page.js';
+import {
+    DashboardGuildCommandPrefixCategory,
+    DashboardGuildPageContent,
+    DashboardGuildPendingPage,
+} from './dashboard-guild-page.js';
 
 const renderedPages: RenderResult[] = [];
+const invalidateRouter = vi.fn(() => Promise.resolve());
+
+beforeEach(() => {
+    vi.stubEnv('VITE_CONVEX_URL', '');
+});
+
+afterEach(() => {
+    vi.unstubAllEnvs();
+});
 
 vi.mock('@tanstack/react-router', async () => {
     const { createElement } = await import('react');
@@ -30,6 +44,7 @@ vi.mock('@tanstack/react-router', async () => {
             children: ReactNode;
         }) => createElement('a', { ...props, href: params ? to.replace('$guildId', params.guildId) : to }, children),
         Outlet: () => null,
+        useRouter: () => ({ invalidate: invalidateRouter }),
         useLocation: ({ select }: { select?: (location: { pathname: string }) => unknown } = {}) =>
             select ? select({ pathname: '/dashboard/guild-2' }) : { pathname: '/dashboard/guild-2' },
     };
@@ -40,6 +55,7 @@ describe('DashboardGuildPendingPage', () => {
         for (const renderedPage of renderedPages.splice(0)) {
             renderedPage.unmount();
         }
+        vi.clearAllMocks();
     });
 
     it('renders a generic loading shell when no safe guild preview is available', () => {
@@ -69,17 +85,16 @@ describe('DashboardGuildPendingPage', () => {
         expect(screen.getByLabelText('Current Guild, current server').getAttribute('aria-current')).toBe('page');
         expect(screen.getByLabelText('Target Guild, opening').getAttribute('aria-busy')).toBe('true');
         expect(screen.queryByRole('link', { name: 'Target Guild, opening' })).toBeNull();
-        expect(
-            within(sidebar)
-                .getAllByRole('link', { name: 'Members & Access' })
-                .map((link) => link.getAttribute('href'))
-        ).toEqual(['/dashboard/guild-1/access/reaction-roles', '/dashboard/guild-1/access/reaction-roles']);
+        const accessLinks = within(sidebar).getAllByRole('link', { name: 'Members & Access' });
+        expect(accessLinks.length).toBeGreaterThan(0);
+        expect(new Set(accessLinks.map((link) => link.getAttribute('href')))).toEqual(
+            new Set(['/dashboard/guild-1/access/reaction-roles'])
+        );
         expect(screen.getByRole('heading', { name: 'Reaction Roles' })).toBeTruthy();
         expect(screen.getByText('Build reaction-backed role menus.')).toBeTruthy();
         expect(screen.getByRole('article', { name: 'Loading Reaction Roles controls' })).toBeTruthy();
         const pendingFeature = screen.getByRole('region', { name: 'Reaction Roles' });
-        expect(pendingFeature.getAttribute('data-dashboard-page-width')).toBe('full');
-        expect(within(pendingFeature).getByText('Roles & Access')).toBeTruthy();
+        expect(within(pendingFeature).getByText('Members & Access')).toBeTruthy();
     });
 
     it('keeps the exact Blueprint surface identity while switching servers', () => {
@@ -97,5 +112,55 @@ describe('DashboardGuildPendingPage', () => {
 
         expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
         expect(screen.getByText('Backups provide comparison baselines and deliberate recovery sources.')).toBeTruthy();
+    });
+
+    it('keeps an authorized guild shell available when command settings fail to load', () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+        renderedPages.push(
+            render(
+                <QueryClientProvider client={queryClient}>
+                    <DashboardGuildPageContent
+                        data={{
+                            type: 'guild',
+                            mode: 'multi',
+                            guild: { id: 'guild-1', name: 'Guild One' },
+                            manageableGuilds: [{ id: 'guild-1', name: 'Guild One' }],
+                        }}
+                        activeCategoryId='general'>
+                        <DashboardGuildCommandPrefixCategory commandSettingsResult={{ type: 'database-error' }} />
+                    </DashboardGuildPageContent>
+                </QueryClientProvider>
+            )
+        );
+
+        expect(screen.getByRole('complementary')).toBeTruthy();
+        expect(screen.getByText(/rest of this server dashboard is still available/i)).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Retry settings' }));
+
+        expect(invalidateRouter).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers retry without presenting stale guild details when the shell access read fails', () => {
+        renderedPages.push(
+            render(
+                <DashboardGuildPageContent
+                    data={{
+                        type: 'unavailable',
+                        status: 502,
+                        title: 'Dashboard unavailable',
+                        message: 'NeonFlux dashboard unavailable.',
+                    }}
+                />
+            )
+        );
+
+        expect(screen.queryByRole('complementary')).toBeNull();
+        expect(screen.getByRole('link', { name: 'Choose server' })).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Retry dashboard' }));
+
+        expect(invalidateRouter).toHaveBeenCalledTimes(1);
     });
 });

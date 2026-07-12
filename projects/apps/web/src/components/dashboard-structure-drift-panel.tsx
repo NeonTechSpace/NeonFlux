@@ -8,6 +8,7 @@ import { countPlanChanges } from './dashboard-structure-panel-status.js';
 import { emptyPlanSummary } from './dashboard-structure-panel-types.js';
 import type { DriftState } from './dashboard-structure-panel-types.js';
 import { MiniCount } from './dashboard-structure-panel-shared.js';
+import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 export function DashboardStructureDriftPanel({
     drift,
@@ -34,11 +35,11 @@ export function DashboardStructureDriftPanel({
     const scheduledDrift = settings.scheduledDrift;
 
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'>
+        <div className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-3'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <p className='text-sm font-semibold text-white'>Drift check</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-400'>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Drift check</p>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
                         Manual live comparison against the latest regular backup or a selected backup row.
                     </p>
                 </div>
@@ -46,7 +47,7 @@ export function DashboardStructureDriftPanel({
                     type='button'
                     onClick={onCheckLatest}
                     disabled={busy}
-                    className='min-h-10 rounded-md border border-neutral-700 px-3 text-sm font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                    className={dashboardSecondaryActionClassName}>
                     {isChecking ? 'Checking' : 'Check latest'}
                 </button>
             </div>
@@ -59,7 +60,7 @@ export function DashboardStructureDriftPanel({
                     onReviewScheduledDrift={onReviewScheduledDrift}
                 />
             ) : settings.enabled ? (
-                <p className='mt-3 rounded-md border border-neutral-800 bg-neutral-950/70 px-3 py-2 text-xs leading-5 text-neutral-500'>
+                <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 text-xs leading-5 text-[var(--dash-text-subtle)]'>
                     Scheduled drift monitoring is queued with automatic backups.
                     {settings.nextDriftCheckAt ? ` Next check: ${formatDate(settings.nextDriftCheckAt)}.` : ''}
                 </p>
@@ -67,14 +68,14 @@ export function DashboardStructureDriftPanel({
 
             {drift ? (
                 <div className='mt-4 space-y-4'>
-                    <div className='flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 pt-3'>
+                    <div className='flex flex-wrap items-center justify-between gap-3 border-t border-[var(--dash-border)] pt-3'>
                         <div>
-                            <p className='text-sm font-semibold text-white'>
+                            <p className='text-sm font-semibold text-[var(--dash-text)]'>
                                 {driftCount === 0
                                     ? `Live server matches ${drift.baseline.name}.`
                                     : `${driftCount} drift changes found`}
                             </p>
-                            <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                            <p className='mt-1 text-xs leading-5 text-[var(--dash-text-subtle)]'>
                                 Baseline: {drift.baseline.name} · {formatBackupSource(drift.baseline.source)} ·{' '}
                                 {formatDate(drift.baseline.completedAt)}
                             </p>
@@ -84,14 +85,14 @@ export function DashboardStructureDriftPanel({
                                 type='button'
                                 onClick={onCreateBackup}
                                 disabled={busy}
-                                className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                className={`${dashboardSecondaryActionClassName} text-xs`}>
                                 Create backup now
                             </button>
                             <button
                                 type='button'
                                 onClick={() => onCreateDryRun(drift.baseline)}
                                 disabled={busy || drift.baseline.status !== 'succeeded'}
-                                className='min-h-9 rounded-md bg-sky-400 px-3 text-xs font-semibold text-neutral-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                                className={`${dashboardPrimaryActionClassName} min-h-9 px-3 text-xs`}>
                                 Create dry-run from baseline
                             </button>
                         </div>
@@ -116,21 +117,23 @@ export function DashboardStructureDriftPanel({
                     </div>
 
                     {drift.previewActions.length > 0 ? (
-                        <div className='max-h-56 overflow-y-auto rounded-md border border-neutral-800'>
+                        <div className='max-h-[min(14rem,42dvh)] overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)]'>
                             {drift.previewActions.map((action) => (
                                 <button
                                     type='button'
                                     key={action.id}
                                     onClick={() => onSelectAction(action)}
-                                    className='grid gap-2 border-b border-neutral-800 px-3 py-2 text-left last:border-b-0 md:grid-cols-[5rem_7rem_minmax(0,1fr)_minmax(8rem,0.7fr)]'>
-                                    <span className='text-xs font-semibold text-neutral-300'>
+                                    className='grid w-full gap-2 border-b border-[var(--dash-border)] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[var(--dash-primary-soft)] focus-visible:bg-[var(--dash-primary-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none md:grid-cols-[5rem_7rem_minmax(0,1fr)_minmax(8rem,0.7fr)]'>
+                                    <span className='text-xs font-semibold text-[var(--dash-text)]'>
                                         {formatStatus(action.actionType)}
                                     </span>
-                                    <span className='text-xs text-neutral-500'>{formatStatus(action.targetType)}</span>
-                                    <span className='truncate text-xs text-neutral-200'>
+                                    <span className='text-xs text-[var(--dash-text-subtle)]'>
+                                        {formatStatus(action.targetType)}
+                                    </span>
+                                    <span className='truncate text-xs text-[var(--dash-text)]'>
                                         {action.label ?? action.targetId ?? 'Unknown target'}
                                     </span>
-                                    <span className='truncate text-xs text-neutral-500'>
+                                    <span className='truncate text-xs text-[var(--dash-text-subtle)]'>
                                         {action.fields.length > 0 ? action.fields.map(formatStatus).join(', ') : 'item'}
                                     </span>
                                 </button>
@@ -139,17 +142,17 @@ export function DashboardStructureDriftPanel({
                     ) : null}
 
                     {drift.hasMorePreview ? (
-                        <p className='text-xs leading-5 text-neutral-500'>
+                        <p className='text-xs leading-5 text-[var(--dash-text-subtle)]'>
                             Preview is capped. Create a dry-run from the baseline to review every action.
                         </p>
                     ) : null}
-                    <p className='text-xs leading-5 text-neutral-500'>
+                    <p className='text-xs leading-5 text-[var(--dash-text-subtle)]'>
                         Checked {formatDate(drift.checkedAt)}. Live counts: {drift.liveCounts.roles} roles,{' '}
                         {drift.liveCounts.categories} categories, {drift.liveCounts.channels} channels.
                     </p>
                 </div>
             ) : (
-                <p className='mt-3 border-t border-neutral-800 pt-3 text-xs leading-5 text-neutral-500'>
+                <p className='mt-3 border-t border-[var(--dash-border)] pt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>
                     No drift check has been run in this view.
                 </p>
             )}
@@ -173,27 +176,27 @@ function ScheduledDriftStatus({
 
     return (
         <div
-            className={`mt-3 rounded-md border px-3 py-2 ${
+            className={`mt-3 rounded-[var(--dash-radius-control)] border px-3 py-2 ${
                 status.tone === 'error'
-                    ? 'border-rose-400/25 bg-rose-400/10'
+                    ? 'border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)]'
                     : status.tone === 'warning'
-                      ? 'border-amber-400/25 bg-amber-400/10'
-                      : 'border-neutral-800 bg-neutral-950/70'
+                      ? 'border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)]'
+                      : 'border-[var(--dash-border)] bg-[var(--dash-bg)]'
             }`}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div className='min-w-0'>
                     <p
                         className={`text-sm font-semibold ${
                             status.tone === 'error'
-                                ? 'text-rose-100'
+                                ? 'text-[var(--dash-danger)]'
                                 : status.tone === 'warning'
-                                  ? 'text-amber-100'
-                                  : 'text-neutral-100'
+                                  ? 'text-[var(--dash-warning)]'
+                                  : 'text-[var(--dash-text)]'
                         }`}>
                         {status.title}
                     </p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-400'>{status.detail}</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-500'>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>{status.detail}</p>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-subtle)]'>
                         {scheduledDrift.checkedAt
                             ? `Checked ${formatDate(scheduledDrift.checkedAt)}.`
                             : 'Not checked yet.'}
@@ -205,7 +208,7 @@ function ScheduledDriftStatus({
                         type='button'
                         onClick={() => onReviewScheduledDrift(scheduledDrift.baselineBackupId ?? '')}
                         disabled={busy}
-                        className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                        className={`${dashboardSecondaryActionClassName} text-xs`}>
                         {isReviewing ? 'Reviewing' : 'Review drift'}
                     </button>
                 ) : null}

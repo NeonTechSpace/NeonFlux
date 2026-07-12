@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    dashboardCapabilities,
     dashboardCategories,
     dashboardNavigationEntries,
     getDashboardCategorySubNavigation,
@@ -18,7 +17,7 @@ describe('dashboard categories', () => {
         }
     });
 
-    it('shows only available capabilities and collapses single-capability jobs to direct links', () => {
+    it('shows direct workspaces and keeps multi-feature jobs stable as groups', () => {
         expect(getDashboardNavigationEntry('overview')).toMatchObject({
             type: 'direct',
             linkTo: '/dashboard/$guildId',
@@ -33,7 +32,7 @@ describe('dashboard categories', () => {
         const messaging = getDashboardNavigationEntry('messaging');
 
         expect(messaging).toMatchObject({
-            type: 'direct',
+            type: 'group',
             defaultSubNavigationTo: '/dashboard/$guildId/messaging/message-builder',
             linkTo: '/dashboard/$guildId/messaging/message-builder',
         });
@@ -41,36 +40,12 @@ describe('dashboard categories', () => {
         expect(() => getDashboardNavigationEntry('moderation')).toThrow('Unknown dashboard navigation entry');
     });
 
-    it('keeps unavailable routes in the exhaustive catalog without exposing them in navigation', () => {
-        expect(getDashboardCategorySubNavigation('messaging').map((item) => item.id)).toStrictEqual([
-            'bluesky',
-            'free-game-alerts',
-            'message-builder',
-        ]);
-        expect(dashboardNavigationEntries.map((entry) => entry.category.label)).toStrictEqual([
-            'Overview',
-            'Create & Deliver',
-            'Members & Access',
-            'Insights & Activity',
-            'Server Blueprint',
-            'Settings',
-        ]);
+    it('exposes only implemented routes in navigation', () => {
         expect(
             dashboardNavigationEntries
                 .flatMap((entry) => entry.subNavigation)
                 .every((item) => item.status === 'implemented')
         ).toBe(true);
-        expect(dashboardCapabilities.find((item) => item.id === 'tickets')).toMatchObject({
-            navigationJobId: 'safety-support',
-            scope: 'guild',
-        });
-        expect(dashboardCapabilities.find((item) => item.id === 'oauth-sessions')).toMatchObject({
-            navigationJobId: 'settings',
-            scope: 'account',
-        });
-        expect(dashboardCapabilities.find((item) => item.id === 'deployment')).toMatchObject({
-            scope: 'platform',
-        });
     });
 
     it('redirects legacy category indexes to available capabilities when possible', () => {

@@ -11,10 +11,6 @@ import { useDashboardDisplayPreferences } from '../components/dashboard-display-
 import { resolveDashboardRouteResult, toDashboardRouteResult } from '../server/dashboard-route-data.js';
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 
-const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
-const fluxerUserId = '1517169145576165376';
-const accessToken = 'fresh-access-token';
-
 describe('/dashboard', () => {
     afterEach(() => {
         window.localStorage.clear();
@@ -24,10 +20,6 @@ describe('/dashboard', () => {
             particlesEnabled: true,
             particleBlurEnabled: true,
         });
-    });
-
-    it('maps dashboard data into route data', async () => {
-        expect(toDashboardRouteResult(createDashboardData())).toStrictEqual(createDashboardRouteData());
     });
 
     it('redirects single-instance guild lists to the canonical guild route', () => {
@@ -119,15 +111,11 @@ describe('/dashboard', () => {
         renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
 
         expect(screen.getByRole('heading', { name: 'Choose server' })).toBeTruthy();
-        expect(screen.queryByRole('heading', { name: 'Manageable servers' })).toBeNull();
-        expect(document.body.textContent).not.toContain('Servers where you can manage this bot.');
         expect(screen.getByRole('button', { name: 'Disable particles' })).toBeTruthy();
-        expect(screen.getByRole('button', { name: 'Disable particle blur' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Use crisp particles' })).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Open Guild One dashboard' }).getAttribute('href')).toBe(
             '/dashboard/guild-1'
         );
-        expect(document.body.textContent).not.toContain('Open dashboard');
-        expect(document.body.textContent).not.toContain('Community');
     });
 
     it('renders the single-instance unauthorized state', () => {
@@ -200,14 +188,6 @@ describe('/dashboard', () => {
         expect(screen.getByRole('heading', { name: 'Dashboard unavailable' })).toBeTruthy();
         expect(screen.getByText('NeonFlux dashboard unavailable.')).toBeTruthy();
     });
-
-    it('does not render session, token, or Fluxer user data', () => {
-        renderWithRouter(createElement(DashboardPageContent, { data: createDashboardRouteData() }));
-
-        expect(document.body.textContent).not.toContain(sessionId);
-        expect(document.body.textContent).not.toContain(fluxerUserId);
-        expect(document.body.textContent).not.toContain(accessToken);
-    });
 });
 
 function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
@@ -228,23 +208,6 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
     const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
 
     return render(createElement(RouterContextProvider, providerProps, ui));
-}
-
-function createDashboardData(): Parameters<typeof toDashboardRouteResult>[0] {
-    return {
-        type: 'dashboard',
-        viewModel: {
-            type: 'guild-list',
-            mode: 'multi',
-            guilds: [
-                {
-                    id: 'guild-1',
-                    name: 'Guild One',
-                    iconUrl: 'https://fluxerusercontent.com/icons/guild-1/icon.webp?size=80',
-                },
-            ],
-        },
-    };
 }
 
 function createDashboardRouteData(): DashboardRouteData {

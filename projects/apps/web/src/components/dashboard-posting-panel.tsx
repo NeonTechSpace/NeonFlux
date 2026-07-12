@@ -481,4 +481,4 @@ const fieldClassName =
 const primaryButtonClassName =
     'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-muted)] disabled:text-[var(--dash-text-disabled)]';
 const warningButtonClassName =
-    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] border border-amber-400/50 px-4 text-sm font-semibold text-amber-100 transition hover:border-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300';
+    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-warning)]';

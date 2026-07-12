@@ -14,8 +14,8 @@ export function DashboardStructureExplorerDetails({
     if (!metadata) {
         return (
             <aside className='p-4' aria-label='Blueprint inspector'>
-                <p className='text-sm font-semibold text-white'>Select an item</p>
-                <p className='mt-1 max-w-md text-xs leading-5 text-neutral-400'>
+                <p className='text-sm font-semibold text-[var(--dash-text)]'>Select an item</p>
+                <p className='mt-1 max-w-md text-xs leading-5 text-[var(--dash-text-muted)]'>
                     Choose a role, category, channel, or planned action to inspect details.
                 </p>
             </aside>
@@ -24,15 +24,19 @@ export function DashboardStructureExplorerDetails({
 
     return (
         <aside className='min-w-0 p-4' aria-label='Blueprint inspector'>
-            <header className='border-b border-neutral-800 pb-3'>
+            <header className='border-b border-[var(--dash-border)] pb-3'>
                 <div className='flex min-w-0 items-baseline gap-2'>
-                    <h5 className='min-w-0 truncate text-base font-semibold text-white'>{metadata.label}</h5>
-                    <span className='shrink-0 text-xs text-neutral-500'>{formatStatus(metadata.kind)}</span>
+                    <h5 className='min-w-0 truncate text-base font-semibold text-[var(--dash-text)]'>
+                        {metadata.label}
+                    </h5>
+                    <span className='shrink-0 text-xs text-[var(--dash-text-subtle)]'>
+                        {formatStatus(metadata.kind)}
+                    </span>
                 </div>
-                <p className='mt-1 truncate text-xs text-neutral-500'>{source.label}</p>
+                <p className='mt-1 truncate text-xs text-[var(--dash-text-subtle)]'>{source.label}</p>
             </header>
 
-            <dl className='mt-1 divide-y divide-neutral-800'>
+            <dl className='mt-1 divide-y divide-[var(--dash-border)]'>
                 {metadata.id ? <DetailValue label='ID' value={metadata.id} /> : null}
                 {metadata.entityKey ? <DetailValue label='Entity key' value={metadata.entityKey} /> : null}
                 {metadata.parentId ? <DetailValue label='Parent' value={metadata.parentId} /> : null}
@@ -61,8 +65,8 @@ export function DashboardStructureExplorerDetails({
             </dl>
 
             {metadata.badges.length > 0 ? (
-                <section className='border-t border-neutral-800 py-3' aria-label='Change markers'>
-                    <p className='text-xs font-medium text-neutral-500'>Change markers</p>
+                <section className='border-t border-[var(--dash-border)] py-3' aria-label='Change markers'>
+                    <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>Change markers</p>
                     <div className='mt-2 flex flex-wrap gap-x-4 gap-y-2'>
                         {metadata.badges.map((badge) => (
                             <span
@@ -77,9 +81,11 @@ export function DashboardStructureExplorerDetails({
             ) : null}
 
             {metadata.risks.length > 0 ? (
-                <section className='border-l-2 border-amber-400/60 bg-amber-400/5 px-3 py-2.5' aria-label='Risks'>
-                    <p className='text-xs font-semibold text-amber-100'>Needs attention</p>
-                    <ul className='mt-1.5 space-y-1 text-xs leading-5 text-neutral-200'>
+                <section
+                    className='border-l-2 border-[var(--dash-warning)] bg-[var(--dash-warning-soft)] px-3 py-2.5'
+                    aria-label='Risks'>
+                    <p className='text-xs font-semibold text-[var(--dash-warning)]'>Needs attention</p>
+                    <ul className='mt-1.5 space-y-1 text-xs leading-5 text-[var(--dash-text)]'>
                         {metadata.risks.map((risk) => (
                             <li key={risk}>{risk}</li>
                         ))}
@@ -88,9 +94,9 @@ export function DashboardStructureExplorerDetails({
             ) : null}
 
             {metadata.actions.length > 0 ? (
-                <section className='mt-4 border-t border-neutral-800 pt-3'>
-                    <p className='text-xs font-medium text-neutral-500'>Related actions</p>
-                    <div className='mt-1 divide-y divide-neutral-800'>
+                <section className='mt-4 border-t border-[var(--dash-border)] pt-3'>
+                    <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>Related actions</p>
+                    <div className='mt-1 divide-y divide-[var(--dash-border)]'>
                         {metadata.actions.map((action) => (
                             <ActionDetails key={action.id} action={action} />
                         ))}
@@ -108,24 +114,28 @@ function ActionDetails({ action }: { action: DashboardStructureExplorerAction })
         <article className='py-3'>
             <div className='flex flex-wrap items-start justify-between gap-2'>
                 <div>
-                    <p className='text-sm font-semibold text-neutral-100'>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>
                         {formatStatus(action.actionType)} {formatStatus(action.targetType)}
                     </p>
-                    <p className='mt-1 text-xs text-neutral-500'>{action.id}</p>
+                    <p className='mt-1 text-xs text-[var(--dash-text-subtle)]'>{action.id}</p>
                 </div>
-                {action.status ? <span className='text-xs text-neutral-500'>{formatStatus(action.status)}</span> : null}
+                {action.status ? (
+                    <span className='text-xs text-[var(--dash-text-subtle)]'>{formatStatus(action.status)}</span>
+                ) : null}
             </div>
             {action.preflightMessage ? (
-                <p className='mt-2 text-xs leading-5 text-amber-100'>{action.preflightMessage}</p>
+                <p className='mt-2 text-xs leading-5 text-[var(--dash-warning)]'>{action.preflightMessage}</p>
             ) : null}
             {changes.length > 0 ? (
-                <dl className='mt-3 divide-y divide-neutral-800 border-y border-neutral-800'>
+                <dl className='mt-3 divide-y divide-[var(--dash-border)] border-y border-[var(--dash-border)]'>
                     {changes.map((change) => (
                         <div
                             key={change.field}
                             className='grid gap-2 py-2 @min-[32rem]/blueprint-explorer:grid-cols-[8rem_minmax(0,1fr)]'>
-                            <dt className='text-xs font-semibold text-neutral-200'>{formatStatus(change.field)}</dt>
-                            <dd className='grid min-w-0 gap-2 text-xs text-neutral-400 @min-[42rem]/blueprint-explorer:grid-cols-2'>
+                            <dt className='text-xs font-semibold text-[var(--dash-text)]'>
+                                {formatStatus(change.field)}
+                            </dt>
+                            <dd className='grid min-w-0 gap-2 text-xs text-[var(--dash-text-muted)] @min-[42rem]/blueprint-explorer:grid-cols-2'>
                                 <span className='min-w-0 break-words'>Before: {formatUnknown(change.before)}</span>
                                 <span className='min-w-0 break-words'>After: {formatUnknown(change.after)}</span>
                             </dd>
@@ -140,22 +150,22 @@ function ActionDetails({ action }: { action: DashboardStructureExplorerAction })
 function DetailValue({ label, value }: { label: string; value: string }) {
     return (
         <div className='grid gap-2 py-2 @min-[30rem]/blueprint-explorer:grid-cols-[8rem_minmax(0,1fr)]'>
-            <dt className='text-xs font-medium text-neutral-500'>{label}</dt>
-            <dd className='min-w-0 font-mono text-xs break-all text-neutral-200'>{value}</dd>
+            <dt className='text-xs font-medium text-[var(--dash-text-subtle)]'>{label}</dt>
+            <dd className='min-w-0 font-mono text-xs break-all text-[var(--dash-text)]'>{value}</dd>
         </div>
     );
 }
 
 function badgeClassName(badge: string): string {
     if (badge === 'blocked' || badge === 'failed' || badge === 'invalid' || badge === 'unsupported') {
-        return 'text-rose-200';
+        return 'text-[var(--dash-danger)]';
     }
     if (badge === 'delete' || badge === 'destructive' || badge === 'permissions') {
-        return 'text-amber-200';
+        return 'text-[var(--dash-warning)]';
     }
-    if (badge === 'create') return 'text-emerald-200';
+    if (badge === 'create') return 'text-[var(--dash-success)]';
 
-    return 'text-sky-200';
+    return 'text-[var(--dash-primary)]';
 }
 
 function readActionChanges(action: DashboardStructureExplorerAction): Array<{

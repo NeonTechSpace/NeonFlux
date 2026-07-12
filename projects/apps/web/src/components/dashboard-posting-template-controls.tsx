@@ -367,7 +367,7 @@ export function DashboardPostingTemplateControls({
                     <motion.p
                         role='alert'
                         data-dashboard-motion='confirmation'
-                        className='text-sm text-rose-300'
+                        className='text-sm text-[var(--dash-danger)]'
                         variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
@@ -385,7 +385,7 @@ const fieldClassName =
 const secondaryButtonClassName =
     'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 const dangerButtonClassName =
-    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-rose-400/45 px-3 text-sm font-semibold text-rose-100 transition hover:border-rose-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
+    'inline-flex min-h-10 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-danger)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 
 async function invalidateTemplateQueries(queryClient: ReturnType<typeof useQueryClient>, guildId: string) {
     await Promise.all([

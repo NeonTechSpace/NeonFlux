@@ -14,11 +14,27 @@ const pageWidthClassNames = {
 } as const satisfies Record<DashboardPageWidth, string>;
 
 const surfaceToneClassNames = {
-    default: 'dashboard-surface',
+    default:
+        'border border-[var(--dash-border)] bg-[linear-gradient(145deg,rgba(14,25,41,0.98),rgba(18,18,34,0.97))] shadow-[var(--dash-shadow-surface)]',
     glass: 'dashboard-glass-panel',
     raised: 'border border-[var(--dash-border-strong)] bg-[var(--dash-surface-raised)] shadow-[var(--dash-shadow-surface)]',
-    subtle: 'dashboard-surface-muted',
+    subtle: 'border border-[var(--dash-border)] bg-[linear-gradient(145deg,rgba(11,21,35,0.98),rgba(15,16,30,0.97))] shadow-[var(--dash-shadow-surface)]',
 } as const satisfies Record<DashboardSurfaceTone, string>;
+
+export const dashboardPrimaryActionClassName =
+    'min-h-10 rounded-[var(--dash-radius-control)] border border-transparent bg-[var(--dash-primary)] px-4 text-[0.9rem] font-bold text-[#061017] transition-[background-color,box-shadow,transform,opacity] duration-[140ms] hover:bg-[var(--dash-primary-strong)] hover:shadow-[0_8px_24px_rgba(90,215,255,0.16)] active:translate-y-px focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-[0.45] motion-reduce:transform-none [.dashboard-theme[data-reduce-effects=true]_&]:transform-none';
+export const dashboardSecondaryActionClassName =
+    'min-h-9 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-[0.88rem] font-[650] text-[var(--dash-text)] transition-[border-color,background-color,color,box-shadow,opacity] duration-[140ms] hover:border-[var(--dash-primary)] hover:bg-[var(--dash-primary-soft)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:pointer-events-none disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.55]';
+export const dashboardDangerActionClassName =
+    'min-h-9 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/55 px-3 text-[0.88rem] font-[650] text-[var(--dash-text)] transition-[border-color,background-color,color,box-shadow,opacity] duration-[140ms] hover:border-[var(--dash-danger)] hover:bg-[var(--dash-danger-soft)] hover:text-[#ffe4e9] focus-visible:border-[var(--dash-danger)] focus-visible:shadow-[0_0_0_1px_rgba(255,113,138,0.42),0_0_0_4px_rgba(255,113,138,0.12)] focus-visible:outline-none disabled:pointer-events-none disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.55]';
+export const dashboardQuietActionClassName =
+    'min-h-9 rounded-[var(--dash-radius-control)] border border-transparent px-3 text-[0.88rem] font-[650] text-[var(--dash-text-muted)] transition-[border-color,background-color,color,box-shadow,opacity] duration-[140ms] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:pointer-events-none disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.55]';
+export const dashboardIconActionClassName =
+    'grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition-[border-color,background-color,color,box-shadow,opacity] duration-[140ms] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:pointer-events-none disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.55]';
+export const dashboardFieldClassName =
+    'min-h-11 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-3 text-sm text-[var(--dash-text)] outline-none transition-[border-color,background-color,box-shadow,opacity] duration-[140ms] placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.65]';
+export const dashboardCompactFieldClassName =
+    'h-9 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] px-2.5 text-sm text-[var(--dash-text)] outline-none transition-[border-color,background-color,box-shadow,opacity] duration-[140ms] placeholder:text-[var(--dash-text-subtle)] focus:border-[var(--dash-primary)] focus:shadow-[var(--dash-shadow-focus)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)] disabled:opacity-[0.65]';
 
 const surfacePaddingClassNames = {
     none: '',
@@ -79,9 +95,9 @@ export function DashboardPageHeader({
                             {eyebrow}
                         </p>
                     ) : null}
-                    <h2 id={titleId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
+                    <h1 id={titleId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
                         {title}
-                    </h2>
+                    </h1>
                     {description ? (
                         <p className='mt-1 max-w-3xl text-sm leading-6 text-[var(--dash-text-muted)]'>{description}</p>
                     ) : null}

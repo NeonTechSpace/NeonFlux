@@ -55,12 +55,13 @@ export function DashboardAmbientSurface() {
             data-ambient-motion={effects.ambientMotionEnabled && pageVisible}
             aria-hidden='true'>
             <div className='dashboard-ambient-base absolute inset-0' />
-            <div className='dashboard-ambient-aurora dashboard-ambient-aurora-cyan absolute' />
-            <div className='dashboard-ambient-aurora dashboard-ambient-aurora-magenta absolute' />
-            <div className='dashboard-ambient-aurora dashboard-ambient-aurora-violet absolute' />
-            <div className='dashboard-ambient-ribbon absolute' />
+            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-cyan absolute' />
+            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-blue absolute' />
+            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-magenta absolute' />
+            <div className='dashboard-ambient-fluid dashboard-ambient-fluid-violet absolute' />
+            <div className='dashboard-ambient-current absolute' />
             <svg
-                className='dashboard-ambient-noise absolute inset-0 size-full'
+                className='absolute inset-0 size-full opacity-[0.048] mix-blend-overlay'
                 focusable='false'
                 preserveAspectRatio='none'>
                 <filter id={noiseFilterId} x='-20%' y='-20%' width='140%' height='140%'>
@@ -80,7 +81,7 @@ export function DashboardAmbientSurface() {
                     <DashboardParticleField blurEnabled={effects.particleBlurEnabled} />
                 </Suspense>
             ) : null}
-            <div className='dashboard-ambient-vignette absolute inset-0' />
+            <div className='absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_34%,rgba(5,7,17,0.08)_70%,rgba(4,5,13,0.35)_100%),linear-gradient(180deg,rgba(3,5,14,0.02),rgba(3,4,12,0.28))]' />
         </div>
     );
 }

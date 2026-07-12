@@ -12,7 +12,7 @@ const dashboardParticleOptions = {
         },
     },
     detectRetina: true,
-    fpsLimit: 60,
+    fpsLimit: 45,
     fullScreen: {
         enable: false,
     },
@@ -38,7 +38,11 @@ const dashboardParticleOptions = {
             value: particleColors,
         },
         links: {
-            enable: false,
+            color: '#79d9ff',
+            distance: 152,
+            enable: true,
+            opacity: 0.28,
+            width: 1,
         },
         move: {
             direction: 'none',
@@ -61,8 +65,8 @@ const dashboardParticleOptions = {
         },
         opacity: {
             value: {
-                max: 0.54,
-                min: 0.18,
+                max: 0.78,
+                min: 0.32,
             },
         },
         paint: {
@@ -78,8 +82,8 @@ const dashboardParticleOptions = {
         },
         size: {
             value: {
-                max: 3.1,
-                min: 0.9,
+                max: 3.4,
+                min: 1.1,
             },
         },
     },
@@ -95,8 +99,8 @@ export function DashboardParticleField({ blurEnabled }: { blurEnabled: boolean }
                 id='dashboard-particle-field'
                 className={
                     blurEnabled
-                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden blur-[2.5px] md:block'
-                        : 'dashboard-particle-field fixed -inset-[14dvh] hidden md:block'
+                        ? 'dashboard-particle-field fixed -inset-[14dvh] hidden opacity-[0.92] blur-[2.4px] brightness-125 saturate-125 md:block'
+                        : 'dashboard-particle-field fixed -inset-[14dvh] hidden opacity-[0.84] md:block'
                 }
                 style={{
                     height: '128dvh',

@@ -98,26 +98,6 @@ describe('DashboardStructureExplorer', () => {
         expect(onInspectImportJson).toHaveBeenCalledOnce();
     });
 
-    it('uses a named container and presents source and target as one comparison toolbar', () => {
-        renderExplorer({
-            comparisonTarget: { label: 'Nightly backup', detail: 'Jul 9, 2026', type: 'backup' },
-            source: {
-                label: 'Live server layout',
-                detail: 'Loaded just now',
-                snapshot: createExplorerSnapshot(),
-                type: 'live',
-            },
-        });
-
-        expect(screen.getByLabelText('Server blueprint explorer').className).toContain('@container/blueprint-explorer');
-        expect(screen.getByTestId('blueprint-explorer-workbench').className).toContain(
-            '@min-[48rem]/blueprint-explorer:grid-cols-'
-        );
-        expect(screen.getByText('Source')).toBeTruthy();
-        expect(screen.getByText('Target')).toBeTruthy();
-        expect(screen.getByText('Nightly backup')).toBeTruthy();
-    });
-
     it('renders loaded hierarchy and default details', () => {
         renderExplorer({
             source: {

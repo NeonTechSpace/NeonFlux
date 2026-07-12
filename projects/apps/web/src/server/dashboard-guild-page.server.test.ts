@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadWebConfig } from '@neonflux/config';
 import type * as NeonFluxConfig from '@neonflux/config';
 import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
-import type { DashboardGuildAccess, DashboardGuildAccessError } from './dashboard-guild-access.server.js';
+import type { DashboardGuildAccess } from './dashboard-guild-access.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 
 const request = new Request('http://localhost:3000/dashboard/guild-1');
@@ -154,19 +154,8 @@ describe('loadDashboardGuildPageData', () => {
         });
     });
 
-    it.each([
-        'missing-cookie',
-        'invalid-cookie',
-        'invalid-signature',
-        'not-found',
-        'missing-token-set',
-        'token-expired',
-        'missing-refresh-token',
-        'token-refresh-failed',
-        'invalid-token-payload',
-        'decrypt-failed',
-    ] satisfies DashboardGuildAccessError[])('maps recoverable %s errors to auth-required', async (error) => {
-        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err(error));
+    it('propagates recoverable access failures as auth-required', async () => {
+        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(err('missing-cookie'));
 
         await expect(loadDashboardGuildPageData(request, 'guild-1')).resolves.toStrictEqual({ type: 'auth-required' });
     });

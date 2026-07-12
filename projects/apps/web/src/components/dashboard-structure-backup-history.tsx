@@ -19,6 +19,13 @@ import { buildDashboardStructureBackupRowId } from './dashboard-structure-backup
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { formatBackupSource, formatDate } from './dashboard-structure-panel-format.js';
 import type { BackupPageState } from './dashboard-structure-panel-types.js';
+import {
+    dashboardCompactFieldClassName,
+    dashboardDangerActionClassName,
+    dashboardIconActionClassName,
+    dashboardQuietActionClassName,
+    dashboardSecondaryActionClassName,
+} from './dashboard-ui.js';
 import { getDashboardVirtualOverscan } from './dashboard-virtualization.js';
 
 const backupViewportHeight = 448;
@@ -97,28 +104,33 @@ export function DashboardStructureBackupHistory({
     );
 
     return (
-        <section className='border-y border-neutral-800 bg-neutral-950/40' aria-label='Backup library'>
-            <div className='flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-3 py-3'>
+        <section
+            className='border-y border-[var(--dash-border)] bg-[var(--dash-surface-muted)]'
+            aria-label='Backup library'>
+            <div className='flex flex-wrap items-center justify-between gap-3 border-b border-[var(--dash-border)] px-3 py-3'>
                 <div>
-                    <p className='text-sm font-semibold text-white'>Backup library</p>
-                    <p className='mt-0.5 text-xs text-neutral-500'>{headerText}</p>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Backup library</p>
+                    <p className='mt-0.5 text-xs text-[var(--dash-text-subtle)]'>{headerText}</p>
                 </div>
                 {page.nextCursor ? (
                     <button
                         type='button'
                         onClick={onLoadMore}
                         disabled={Boolean(busyAction)}
-                        className='min-h-9 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                        className={`${dashboardSecondaryActionClassName} text-xs`}>
                         {busyAction === 'backup-page' ? 'Loading' : 'Load more'}
                     </button>
                 ) : null}
             </div>
             {backups.length === 0 ? (
-                <p className='px-3 py-8 text-sm leading-6 text-neutral-400'>
+                <p className='px-3 py-8 text-sm leading-6 text-[var(--dash-text-muted)]'>
                     Create a backup to establish the first comparison baseline and recovery source.
                 </p>
             ) : (
-                <div ref={parentRef} className='h-[28rem] overflow-y-auto overscroll-contain' role='list'>
+                <div
+                    ref={parentRef}
+                    className='h-[min(28rem,55dvh)] min-h-72 overflow-y-auto overscroll-contain sm:h-[28rem]'
+                    role='list'>
                     <div
                         className='relative w-full'
                         style={{
@@ -132,7 +144,7 @@ export function DashboardStructureBackupHistory({
                                     key={virtualRow.key}
                                     data-index={virtualRow.index}
                                     ref={virtualizer.measureElement}
-                                    className='absolute top-0 left-0 w-full border-b border-neutral-800 px-3'
+                                    className='absolute top-0 left-0 w-full border-b border-[var(--dash-border)] px-3'
                                     style={{
                                         transform: `translateY(${virtualRow.start}px)`,
                                     }}>
@@ -159,7 +171,7 @@ export function DashboardStructureBackupHistory({
                                             type='button'
                                             onClick={onLoadMore}
                                             disabled={Boolean(busyAction)}
-                                            className='min-h-14 w-full text-sm font-semibold text-neutral-300 transition hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                            className={`${dashboardQuietActionClassName} min-h-14 w-full text-sm`}>
                                             {busyAction === 'backup-page'
                                                 ? 'Loading older backups'
                                                 : 'Load older backups'}
@@ -230,7 +242,7 @@ function BackupLibraryRow({
                                 value={editingName}
                                 onChange={(event) => onRenameNameChange(event.currentTarget.value)}
                                 maxLength={120}
-                                className='h-9 min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40'
+                                className={`${dashboardCompactFieldClassName} min-w-0 flex-1`}
                                 aria-label='Backup name'
                             />
                             <button
@@ -238,7 +250,7 @@ function BackupLibraryRow({
                                 aria-label='Save backup name'
                                 disabled={busy}
                                 onClick={() => onRename(backup)}
-                                className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
+                                className={`${dashboardSecondaryActionClassName} inline-flex items-center gap-2 text-xs`}>
                                 {isRenameBusy ? (
                                     <Loader2 data-dashboard-loading='spinner' className='size-3.5 animate-spin' />
                                 ) : (
@@ -251,15 +263,15 @@ function BackupLibraryRow({
                                 aria-label='Cancel rename'
                                 disabled={busy}
                                 onClick={onCancelRename}
-                                className='inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-600'>
+                                className={`${dashboardQuietActionClassName} inline-flex items-center gap-2 text-xs`}>
                                 <X className='size-4' />
                                 Cancel
                             </button>
                         </div>
                     ) : (
-                        <p className='truncate text-sm font-semibold text-white'>{backup.name}</p>
+                        <p className='truncate text-sm font-semibold text-[var(--dash-text)]'>{backup.name}</p>
                     )}
-                    <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500'>
+                    <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--dash-text-subtle)]'>
                         <span>{formatDate(backup.completedAt)}</span>
                         <span aria-hidden='true'>·</span>
                         <span>{formatBackupSource(backup.source)}</span>
@@ -267,7 +279,7 @@ function BackupLibraryRow({
                         <span>{contentSummary}</span>
                     </div>
                     {backup.status === 'failed' ? (
-                        <p className='mt-1 text-xs leading-5 text-rose-300'>
+                        <p className='mt-1 text-xs leading-5 text-[var(--dash-danger)]'>
                             {backup.errorMessage ?? 'Backup failed.'}
                         </p>
                     ) : null}
@@ -338,10 +350,10 @@ function BackupActions({
             <summary
                 data-dashboard-disclosure
                 aria-label={`Actions for ${backup.name}`}
-                className='grid size-9 cursor-pointer list-none place-items-center rounded-md border border-transparent text-neutral-400 transition marker:content-none hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none [&::-webkit-details-marker]:hidden'>
+                className={`${dashboardIconActionClassName} size-9 cursor-pointer list-none marker:content-none [&::-webkit-details-marker]:hidden`}>
                 <MoreHorizontal className='size-4' />
             </summary>
-            <div className='mt-2 grid min-w-56 gap-0.5 rounded-md border border-neutral-700 bg-neutral-950 p-1.5 shadow-lg'>
+            <div className='mt-2 grid min-w-56 gap-0.5 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-strong)] bg-[var(--dash-surface-raised)] p-1.5 shadow-[var(--dash-shadow-surface)]'>
                 <BackupAction
                     icon={GitCompareArrows}
                     label='Check drift against this backup'
@@ -379,17 +391,17 @@ function BackupActions({
                         onBeginRename(backup);
                     }}
                 />
-                <div className='my-1 border-t border-neutral-800' />
+                <div className='my-1 border-t border-[var(--dash-border)]' />
                 {isDeleteConfirming ? (
                     <div className='space-y-2 px-2 py-1.5'>
-                        <p className='text-xs leading-5 text-rose-100'>Delete this backup permanently?</p>
+                        <p className='text-xs leading-5 text-[var(--dash-danger)]'>Delete this backup permanently?</p>
                         <div className='flex gap-2'>
                             <button
                                 type='button'
                                 aria-label='Confirm backup delete'
                                 disabled={busy}
                                 onClick={() => onDelete(backup)}
-                                className='inline-flex min-h-8 flex-1 items-center justify-center gap-2 rounded-md bg-rose-300 px-2 text-xs font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500'>
+                                className={`${dashboardDangerActionClassName} inline-flex min-h-8 flex-1 items-center justify-center gap-2 px-2 text-xs`}>
                                 {isDeleteBusy ? (
                                     <Loader2 data-dashboard-loading='spinner' className='size-3.5 animate-spin' />
                                 ) : (
@@ -405,7 +417,7 @@ function BackupActions({
                                     closeActions(event.currentTarget);
                                     onCancelDelete();
                                 }}
-                                className='min-h-8 rounded-md px-2 text-xs font-semibold text-neutral-300 transition hover:bg-neutral-900 hover:text-white disabled:cursor-not-allowed disabled:text-neutral-600'>
+                                className={`${dashboardQuietActionClassName} min-h-8 px-2 text-xs`}>
                                 Cancel
                             </button>
                         </div>
@@ -446,11 +458,7 @@ function BackupAction({
             aria-busy={busy || undefined}
             disabled={disabled}
             onClick={(event) => onClick(event.currentTarget)}
-            className={`flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-semibold transition disabled:cursor-not-allowed disabled:text-neutral-600 ${
-                tone === 'danger'
-                    ? 'text-rose-200 hover:bg-rose-400/10 hover:text-rose-100'
-                    : 'text-neutral-200 hover:bg-neutral-900 hover:text-sky-200'
-            }`}>
+            className={`${tone === 'danger' ? dashboardDangerActionClassName : dashboardQuietActionClassName} flex w-full items-center gap-2 px-2 text-left text-xs`}>
             {busy ? (
                 <Loader2 data-dashboard-loading='spinner' className='size-3.5 shrink-0 animate-spin' />
             ) : (

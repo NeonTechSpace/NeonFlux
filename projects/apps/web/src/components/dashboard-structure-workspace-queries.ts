@@ -61,28 +61,15 @@ export function useDashboardStructureWorkspaceQueries(guildId: string) {
         activeExecutionRun,
         executionProgress,
         queryKey,
-        retrySettings: () =>
-            recoverDashboardStructureSettings({
-                requestOutstanding: settingsRequestOutstanding,
-                refetch: () => void settingsQuery.refetch(),
-            }),
+        retrySettings: () => {
+            if (settingsRequestOutstanding) {
+                window.location.reload();
+                return;
+            }
+
+            void settingsQuery.refetch();
+        },
         settingsQuery,
         settingsRequestOutstanding,
     };
-}
-
-export function recoverDashboardStructureSettings({
-    requestOutstanding,
-    refetch,
-    reload = () => window.location.reload(),
-}: {
-    requestOutstanding: boolean;
-    refetch: () => void;
-    reload?: () => void;
-}): void {
-    if (requestOutstanding) {
-        reload();
-        return;
-    }
-    refetch();
 }

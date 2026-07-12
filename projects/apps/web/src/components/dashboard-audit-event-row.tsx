@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import type { DashboardAuditEvent } from '../server/dashboard-posting.server.js';
 import { dashboardTactile } from './dashboard-motion.js';
+import { dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 export function DashboardAuditEventRow({
     event,
@@ -77,7 +78,7 @@ export function DashboardAuditEventsLoadMoreRow({
                 type='button'
                 disabled={isFetchingNextPage}
                 onClick={() => void fetchNextPage()}
-                className='min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] disabled:cursor-not-allowed disabled:opacity-60'
+                className={`${dashboardSecondaryActionClassName} min-h-10 text-sm`}
                 {...dashboardTactile}>
                 {isFetchingNextPage ? 'Loading older events...' : 'Load older events'}
             </motion.button>

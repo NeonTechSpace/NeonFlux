@@ -556,6 +556,6 @@ const primaryButtonClassName =
 const secondaryButtonClassName =
     'inline-flex min-h-9 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 const dangerButtonClassName =
-    'inline-flex min-h-9 items-center justify-center rounded-[var(--dash-radius-control)] border border-rose-400/45 px-3 text-sm font-semibold text-rose-100 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
+    'inline-flex min-h-9 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-danger)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 const statusActionButtonClassName =
     'inline-flex min-h-9 items-center rounded-[var(--dash-radius-control)] border border-current px-3 text-xs font-semibold';

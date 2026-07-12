@@ -13,10 +13,8 @@ describe('/', () => {
         renderWithRouter(createElement(HomePage));
 
         expect(screen.getByRole('heading', { name: 'NeonFlux' })).toBeTruthy();
-        expect(screen.getByText('A multi functional bot for Fluxer.')).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('href')).toBe('/dashboard');
         expect(screen.getByRole('link', { name: 'Docs' }).getAttribute('href')).toBe('/docs/topic');
-        expect(screen.queryByText('Welcome to TanStack Start')).toBeNull();
     });
 });
 

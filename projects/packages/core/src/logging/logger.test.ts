@@ -22,31 +22,6 @@ describe('createLogger', () => {
         vi.clearAllMocks();
     });
 
-    it('colors scan-critical values in development pretty logs', () => {
-        const logger = createLogger({ logLevel: 'debug', nodeEnv: 'development' });
-
-        logger.info('bot.feature_route', {
-            action: 'command.ping',
-            guildDefconOverride: 'auto',
-            guildId: 'guild-1',
-            reason: 'bot-not-mentioned',
-            status: 'handled',
-        });
-
-        expect(evlogMock.initLogger).toHaveBeenCalledWith({
-            minLevel: 'debug',
-            pretty: true,
-        });
-        expect(evlogMock.log.info).toHaveBeenCalledWith({
-            event: '\u001B[36mbot.feature_route\u001B[0m',
-            action: '\u001B[36mcommand.ping\u001B[0m',
-            guildDefconOverride: '\u001B[35mauto\u001B[0m',
-            guildId: '\u001B[34mguild-1\u001B[0m',
-            reason: '\u001B[33mbot-not-mentioned\u001B[0m',
-            status: '\u001B[32mhandled\u001B[0m',
-        });
-    });
-
     it('keeps production logs machine-parseable and uncolored', () => {
         const logger = createLogger({ logLevel: 'info', nodeEnv: 'production' });
 

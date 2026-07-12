@@ -153,7 +153,7 @@ function SortableReactionRoleOption({
             <span className='min-w-0 flex-1 truncate'>@{role?.name ?? option.roleId}</span>
             <motion.button
                 type='button'
-                className='inline-flex min-h-8 items-center gap-1 rounded-[var(--dash-radius-control)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] hover:bg-rose-400/10 hover:text-rose-100'
+                className='inline-flex min-h-8 items-center gap-1 rounded-[var(--dash-radius-control)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] hover:bg-[var(--dash-danger-soft)] hover:text-[var(--dash-danger)]'
                 onClick={onRemove}
                 {...dashboardTactile}>
                 <X className='size-3.5' aria-hidden='true' />

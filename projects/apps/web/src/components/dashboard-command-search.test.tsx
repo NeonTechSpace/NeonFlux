@@ -124,20 +124,24 @@ describe('DashboardCommandSearch', () => {
         expect(screen.getByText('Tools')).toBeDefined();
         expect(screen.getByText('Servers')).toBeDefined();
 
+        fireEvent.change(searchInput, { target: { value: 'command prefix' } });
+        const settings = screen.getByRole('link', { name: /Command Prefix/u });
+        await waitFor(() => expect(settings.getAttribute('data-active')).not.toBeNull());
+        expect(searchInput.getAttribute('aria-activedescendant')).toBe(settings.id);
+
         fireEvent.change(searchInput, { target: { value: 'guild' } });
         const alpha = screen.getByRole('link', { name: /Alpha Guild/u });
         const beta = screen.getByRole('link', { name: /Beta Guild/u });
-        const settings = screen.getByRole('link', { name: /Command Prefix/u });
 
         await waitFor(() => expect(alpha.getAttribute('data-active')).not.toBeNull());
         fireEvent.keyDown(searchInput, { key: 'End' });
-        expect(settings.getAttribute('data-active')).not.toBeNull();
-        expect(searchInput.getAttribute('aria-activedescendant')).toBe(settings.id);
+        expect(beta.getAttribute('data-active')).not.toBeNull();
+        expect(searchInput.getAttribute('aria-activedescendant')).toBe(beta.id);
 
         fireEvent.keyDown(searchInput, { key: 'Home' });
         expect(alpha.getAttribute('data-active')).not.toBeNull();
         fireEvent.keyDown(searchInput, { key: 'ArrowUp' });
-        expect(settings.getAttribute('data-active')).not.toBeNull();
+        expect(beta.getAttribute('data-active')).not.toBeNull();
         fireEvent.keyDown(searchInput, { key: 'ArrowDown' });
         expect(alpha.getAttribute('data-active')).not.toBeNull();
 

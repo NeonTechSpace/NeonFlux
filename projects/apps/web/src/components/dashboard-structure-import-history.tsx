@@ -25,6 +25,12 @@ import {
     dashboardTactile,
     dashboardViewTransition,
 } from './dashboard-motion.js';
+import {
+    dashboardCompactFieldClassName,
+    dashboardDangerActionClassName,
+    dashboardPrimaryActionClassName,
+    dashboardSecondaryActionClassName,
+} from './dashboard-ui.js';
 
 export type StructureBusyAction =
     | 'export'
@@ -81,7 +87,7 @@ export function DashboardStructureImportHistory({
     onRecoveryPlan: (run: DashboardStructureImportRun) => void;
 }) {
     if (runs.length === 0) {
-        return <p className='text-sm leading-6 text-neutral-400'>No import dry-runs yet.</p>;
+        return <p className='text-sm leading-6 text-[var(--dash-text-muted)]'>No import dry-runs yet.</p>;
     }
 
     return (
@@ -152,7 +158,7 @@ function ImportRunCard({
     return (
         <motion.div
             data-dashboard-motion='list-insert'
-            className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'
+            className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-3'
             aria-current={isLatest ? 'true' : undefined}
             variants={dashboardListItemVariants}
             initial='initial'
@@ -160,17 +166,17 @@ function ImportRunCard({
             transition={dashboardListTransition}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <p className='text-sm font-semibold text-white'>Dry-run {formatDate(run.createdAt)}</p>
-                    <p className='mt-1 text-xs text-neutral-500'>{formatRunDisplayStatus(run)}</p>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Dry-run {formatDate(run.createdAt)}</p>
+                    <p className='mt-1 text-xs text-[var(--dash-text-subtle)]'>{formatRunDisplayStatus(run)}</p>
                 </div>
-                <p className='rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-300'>
+                <p className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border-strong)] px-2 py-1 text-xs font-semibold text-[var(--dash-text)]'>
                     {run.actionCount} changes · {run.executionActionCount} execution steps
                 </p>
             </div>
-            <p className='mt-3 text-sm text-neutral-300'>
+            <p className='mt-3 text-sm text-[var(--dash-text)]'>
                 {run.summary.creates} create, {run.summary.updates} update, {run.summary.deletes} delete
             </p>
-            <p className='mt-1 text-xs font-medium text-sky-200'>{formatPolicy(run.policy)}</p>
+            <p className='mt-1 text-xs font-medium text-[var(--dash-primary)]'>{formatPolicy(run.policy)}</p>
             <DecisionSummary
                 run={run}
                 loading={busyAction === `decisions:${run.id}`}
@@ -213,12 +219,12 @@ function ImportRunCard({
                     <motion.div
                         key='approve'
                         data-dashboard-motion='confirmation'
-                        className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'
+                        className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-3'
                         variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
                         transition={dashboardConfirmationTransition}>
-                        <p className='text-xs leading-5 text-neutral-300'>
+                        <p className='text-xs leading-5 text-[var(--dash-text)]'>
                             Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
                         </p>
                         <div className='mt-2 flex justify-end'>
@@ -226,12 +232,12 @@ function ImportRunCard({
                                 type='button'
                                 onClick={() => onApprove(run)}
                                 disabled={Boolean(busyAction)}
-                                className='min-h-10 rounded-md bg-amber-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'
+                                className={dashboardPrimaryActionClassName}
                                 {...dashboardTactile}>
                                 {isApprovalBusy ? 'Approving' : 'Approve reviewed plan'}
                             </motion.button>
                         </div>
-                        <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                        <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
                             Approval is recorded separately from execution. No server changes are applied yet.
                         </p>
                     </motion.div>
@@ -245,7 +251,7 @@ function ImportRunCard({
                         animate='enter'
                         transition={dashboardConfirmationTransition}>
                         {run.execution?.status === 'failed_before_mutation' ? (
-                            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-amber-400/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100'>
+                            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-3 text-xs leading-5 text-[var(--dash-warning)]'>
                                 No server changes were made. Run a fresh safety check before queueing this approved plan
                                 again.
                             </p>
@@ -265,12 +271,12 @@ function ImportRunCard({
                     <motion.div
                         key='recover'
                         data-dashboard-motion='confirmation'
-                        className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'
+                        className='mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-3'
                         variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
                         transition={dashboardConfirmationTransition}>
-                        <p className='text-xs leading-5 text-neutral-300'>
+                        <p className='min-w-0 flex-1 text-xs leading-5 text-[var(--dash-text)]'>
                             Recovery re-reads the live server and creates a new Match blueprint plan from the remaining
                             differences.
                         </p>
@@ -278,7 +284,7 @@ function ImportRunCard({
                             type='button'
                             onClick={() => onRecoveryPlan(run)}
                             disabled={Boolean(busyAction)}
-                            className='min-h-10 rounded-md bg-rose-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'
+                            className={dashboardDangerActionClassName}
                             {...dashboardTactile}>
                             {isRecoveryBusy ? 'Creating recovery plan' : 'Create recovery plan'}
                         </motion.button>
@@ -307,25 +313,27 @@ function DecisionSummary({
             : run.decisions.filter((decision) => decision.classification === classification);
 
     return (
-        <details className='mt-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'>
-            <summary data-dashboard-disclosure className='cursor-pointer text-xs font-semibold text-neutral-200'>
+        <details className='mt-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-3'>
+            <summary
+                data-dashboard-disclosure
+                className='cursor-pointer rounded-sm text-xs font-semibold text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
                 Full projected result · {total} decisions
             </summary>
             <div className='mt-3 flex flex-wrap gap-2'>
                 {visible.map(([decisionClassification, count]) => (
                     <span
                         key={decisionClassification}
-                        className='rounded border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300'>
+                        className='rounded border border-[var(--dash-border-strong)] px-2 py-1 text-[11px] text-[var(--dash-text-muted)]'>
                         {decisionClassification.replaceAll('-', ' ')}: {count}
                     </span>
                 ))}
             </div>
-            <label className='mt-3 block text-xs text-neutral-400'>
+            <label className='mt-3 block text-xs text-[var(--dash-text-muted)]'>
                 Filter decisions
                 <select
                     value={classification}
                     onChange={(event) => setClassification(event.currentTarget.value)}
-                    className='ml-2 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-200'>
+                    className={`ml-2 inline-block w-auto ${dashboardCompactFieldClassName}`}>
                     <option value='all'>All</option>
                     {visible.map(([value]) => (
                         <option key={value} value={value}>
@@ -335,27 +343,27 @@ function DecisionSummary({
                 </select>
             </label>
             {filtered.length > 0 ? (
-                <ul className='mt-3 max-h-72 space-y-1 overflow-y-auto text-xs text-neutral-400'>
+                <ul className='mt-3 max-h-[min(18rem,45dvh)] space-y-1 overflow-y-auto text-xs text-[var(--dash-text-muted)]'>
                     {filtered.map((decision) => (
                         <li
                             key={decision.logicalId}
-                            className='flex justify-between gap-3 border-t border-neutral-800 py-2'>
+                            className='flex justify-between gap-3 border-t border-[var(--dash-border)] py-2'>
                             <span className='min-w-0 truncate'>{decision.name}</span>
-                            <span className='shrink-0 text-neutral-300'>
+                            <span className='shrink-0 text-[var(--dash-text)]'>
                                 {decision.classification.replaceAll('-', ' ')}
                             </span>
                         </li>
                     ))}
                 </ul>
             ) : (
-                <p className='mt-3 text-xs text-neutral-500'>No loaded decisions match this filter.</p>
+                <p className='mt-3 text-xs text-[var(--dash-text-subtle)]'>No loaded decisions match this filter.</p>
             )}
             {run.decisions.length < total ? (
                 <button
                     type='button'
                     onClick={onLoad}
                     disabled={loading}
-                    className='mt-3 rounded border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 disabled:opacity-50'>
+                    className={`mt-3 ${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
                     {loading
                         ? 'Loading decisions'
                         : run.decisions.length === 0
@@ -444,7 +452,9 @@ function ExecutionProgress({
                 </div>
             </dl>
             <details className='mt-3 border-t border-[var(--dash-border)] pt-2 text-[11px] text-[var(--dash-text-subtle)]'>
-                <summary data-dashboard-disclosure className='cursor-pointer text-xs text-[var(--dash-text-muted)]'>
+                <summary
+                    data-dashboard-disclosure
+                    className='cursor-pointer rounded-sm text-xs text-[var(--dash-text-muted)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
                     Execution timestamps
                 </summary>
                 <ol className='mt-2 grid gap-1 border-l border-[var(--dash-border-strong)] pl-3'>
@@ -454,12 +464,12 @@ function ExecutionProgress({
                 </ol>
             </details>
             {execution.failedActions > 0 || execution.errorType ? (
-                <p className='mt-2 text-xs text-rose-200'>
+                <p className='mt-2 text-xs text-[var(--dash-danger)]'>
                     {execution.failedActions} failed{execution.errorType ? ` · ${execution.errorType}` : ''}
                 </p>
             ) : null}
             {!hasCompatibleProtocol ? (
-                <p className='mt-2 text-xs text-amber-200'>
+                <p className='mt-2 text-xs text-[var(--dash-warning)]'>
                     Deployment controls are disabled because this deployment uses a different Blueprint protocol.
                 </p>
             ) : null}
@@ -469,7 +479,7 @@ function ExecutionProgress({
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('pause')}
-                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'
+                        className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}
                         {...dashboardTactile}>
                         Pause deployment
                     </motion.button>
@@ -479,7 +489,7 @@ function ExecutionProgress({
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('resume')}
-                        className='rounded border border-[var(--dash-border-interactive)] px-3 py-1.5 text-xs font-semibold text-[var(--dash-primary)] disabled:opacity-50'
+                        className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}
                         {...dashboardTactile}>
                         Resume deployment
                     </motion.button>
@@ -489,7 +499,7 @@ function ExecutionProgress({
                         type='button'
                         disabled={controlsDisabled}
                         onClick={() => onControl('cancel')}
-                        className='rounded border border-rose-400/40 px-3 py-1.5 text-xs font-semibold text-rose-100 disabled:opacity-50'
+                        className={`${dashboardDangerActionClassName} min-h-8 text-xs`}
                         {...dashboardTactile}>
                         Cancel {execution.status === 'queued' ? 'queued' : 'paused'} deployment
                     </motion.button>
@@ -519,12 +529,12 @@ function formatExecutionOutcome(status: NonNullable<DashboardStructureImportRun[
 }
 
 function getExecutionOutcomeClassName(status: NonNullable<DashboardStructureImportRun['execution']>['status']): string {
-    if (status === 'succeeded') return 'text-emerald-200';
+    if (status === 'succeeded') return 'text-[var(--dash-success)]';
     if (status === 'failed_before_mutation' || status === 'cancelled') return 'text-[var(--dash-text-muted)]';
     if (status === 'partially_applied' || status === 'needs_reconciliation' || status === 'outcome_unknown') {
-        return 'text-rose-200';
+        return 'text-[var(--dash-danger)]';
     }
-    return 'text-amber-200';
+    return 'text-[var(--dash-warning)]';
 }
 
 function VerificationResult({
@@ -534,7 +544,7 @@ function VerificationResult({
 }) {
     if (verification.status === 'matched') {
         return (
-            <p className='mt-3 rounded-md border border-emerald-400/30 bg-emerald-950/20 p-3 text-xs text-emerald-200'>
+            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-success)]/35 bg-[var(--dash-success-soft)] p-3 text-xs text-[var(--dash-success)]'>
                 Post-apply verification matched the projected result.
             </p>
         );
@@ -542,20 +552,20 @@ function VerificationResult({
 
     if (verification.status === 'read-failed') {
         return (
-            <p className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-200'>
+            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-3 text-xs leading-5 text-[var(--dash-danger)]'>
                 Post-apply verification could not read the server. The apply result is not verified.
             </p>
         );
     }
 
     return (
-        <div className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3 text-xs text-rose-200'>
+        <div className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-3 text-xs text-[var(--dash-danger)]'>
             <p>
                 Post-apply verification found {verification.mismatchCount} projected result mismatch
                 {verification.mismatchCount === 1 ? '' : 'es'}.
             </p>
             {verification.preview.length > 0 ? (
-                <ul className='mt-2 space-y-1 font-mono text-[11px] text-neutral-300'>
+                <ul className='mt-2 space-y-1 font-mono text-[11px] text-[var(--dash-text)]'>
                     {verification.preview.map((mismatch) => (
                         <li
                             key={`${mismatch.logicalId}:${mismatch.field}:${formatVerificationValue(mismatch.expected)}:${formatVerificationValue(mismatch.actual)}`}>

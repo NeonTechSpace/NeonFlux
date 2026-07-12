@@ -227,12 +227,8 @@ function invalidateDashboardLiveArea(
     }
 }
 
-export function dashboardLiveInvalidationDestination(area: DashboardLiveArea): string {
+function dashboardLiveInvalidationDestination(area: DashboardLiveArea): string {
     if (area === 'import_export' || area === 'structure') return 'structure-settings';
     if (area === 'structure_execution') return 'structure-execution-progress';
     return area;
-}
-
-export function countDashboardLiveInvalidationDestinations(areas: readonly DashboardLiveArea[]): number {
-    return new Set(areas.map(dashboardLiveInvalidationDestination)).size;
 }

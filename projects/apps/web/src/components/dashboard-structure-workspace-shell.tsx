@@ -2,6 +2,7 @@ import { Link, Outlet } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
+import { dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import {
     formatDashboardStructureExecutionPhase,
@@ -13,14 +14,6 @@ import {
     dashboardSelectionTransition,
 } from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
-
-const blueprintNavigation = [
-    { id: 'current', label: 'Current', to: '/dashboard/$guildId/structure/current' },
-    { id: 'backups', label: 'Backups', to: '/dashboard/$guildId/structure/backups' },
-    { id: 'compare', label: 'Compare', to: '/dashboard/$guildId/structure/compare' },
-    { id: 'deploy', label: 'Deploy', to: '/dashboard/$guildId/structure/deploy' },
-    { id: 'runs', label: 'Runs', to: '/dashboard/$guildId/structure/runs' },
-] as const;
 
 export function DashboardStructureWorkspaceShell({
     guildId,
@@ -39,17 +32,17 @@ export function DashboardStructureWorkspaceShell({
         <section className='min-w-0' aria-labelledby='server-blueprint-title'>
             <header className='sticky top-0 z-10 border-b border-[var(--dash-border)] bg-[rgba(7,8,11,0.94)] px-1 backdrop-blur-md'>
                 <div className='flex min-h-14 items-center justify-between gap-5'>
-                    <h2
+                    <h1
                         id='server-blueprint-title'
                         className='text-xl font-semibold tracking-tight text-[var(--dash-text)]'>
                         Server Blueprint
-                    </h2>
+                    </h1>
                     <p className='hidden text-sm text-[var(--dash-text-muted)] 2xl:block'>
                         Capture versions, understand differences, and apply reviewed changes.
                     </p>
                 </div>
                 <nav className='flex min-w-0 gap-6 overflow-x-auto' aria-label='Server Blueprint tools'>
-                    {blueprintNavigation.map((item) => (
+                    {dashboardStructureNavigationItems.map((item) => (
                         <Link
                             key={item.id}
                             to={item.to}
@@ -162,13 +155,13 @@ function BlueprintExecutionStrip({
                 <Link
                     to='/dashboard/$guildId/structure/deploy'
                     params={{ guildId }}
-                    className='text-[var(--dash-primary)] hover:text-[var(--dash-primary-strong)]'>
+                    className='rounded-sm text-[var(--dash-primary)] outline-none hover:text-[var(--dash-primary-strong)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                     Open deployment
                 </Link>
                 <Link
                     to='/dashboard/$guildId/structure/runs'
                     params={{ guildId }}
-                    className='text-[var(--dash-text-muted)] hover:text-[var(--dash-text)]'>
+                    className='rounded-sm text-[var(--dash-text-muted)] outline-none hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                     Runs
                 </Link>
             </div>
@@ -201,10 +194,10 @@ function formatTransportLabel(mode: DashboardStructureProgressTransport['mode'])
 
 function getTransportClassName(mode: DashboardStructureProgressTransport['mode'], hasProgressIssue: boolean): string {
     return mode === 'live' && !hasProgressIssue
-        ? 'mt-1 text-xs text-emerald-200'
+        ? 'mt-1 text-xs text-[var(--dash-success)]'
         : mode === 'polling' && !hasProgressIssue
           ? 'mt-1 text-xs text-[var(--dash-text-muted)]'
-          : 'mt-1 text-xs text-amber-200';
+          : 'mt-1 text-xs text-[var(--dash-warning)]';
 }
 
 export function DashboardStructureWorkspaceOutlet() {

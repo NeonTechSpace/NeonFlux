@@ -38,14 +38,26 @@ describe('DashboardDisplayControls', () => {
         ).toHaveProperty('disabled', true);
         expect(
             screen.getByRole('button', {
-                name: 'Particle blur unavailable while effects are reduced',
+                name: 'Particle bloom unavailable while effects are reduced',
             })
         ).toHaveProperty('disabled', true);
 
         fireEvent.click(screen.getByRole('button', { name: 'Use full effects' }));
 
         expect(screen.getByRole('button', { name: 'Disable particles' })).toHaveProperty('disabled', false);
-        expect(screen.getByRole('button', { name: 'Disable particle blur' })).toHaveProperty('disabled', false);
+        expect(screen.getByRole('button', { name: 'Use crisp particles' })).toHaveProperty('disabled', false);
+    });
+
+    it('switches between visibly named bloom and crisp particle treatments', () => {
+        render(<DashboardDisplayControls variant='inline' />);
+        const crispButtons = screen.getAllByRole('button', { name: 'Use crisp particles' });
+
+        fireEvent.click(crispButtons.at(-1)!);
+
+        expect(useDashboardDisplayPreferences.getState().particleBlurEnabled).toBe(false);
+        expect(screen.getAllByRole('button', { name: 'Use particle bloom' }).at(-1)?.getAttribute('aria-pressed')).toBe(
+            'false'
+        );
     });
 
     it('migrates existing granular preferences without opting users into reduced effects', async () => {

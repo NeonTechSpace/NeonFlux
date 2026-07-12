@@ -6,9 +6,24 @@ import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dash
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 import { DashboardDisplayControls } from './dashboard-display-controls.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
-import { DashboardServerDockAvatar } from './dashboard-server-dock-ui.js';
+import { DashboardGuildSelectorAvatar } from './dashboard-server-dock-ui.js';
+import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
+const dashboardGuildCardBaseClassName =
+    'group relative isolate flex min-h-[9rem] flex-col overflow-hidden rounded-[var(--dash-radius-panel)] border border-[rgba(112,177,224,0.3)] bg-[radial-gradient(circle_at_8%_0%,rgba(90,215,255,0.1),transparent_42%),linear-gradient(145deg,rgba(11,24,43,0.94),rgba(15,15,35,0.92))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.075),var(--dash-shadow-surface),0_18px_52px_rgba(3,7,18,0.2)] backdrop-blur-[18px] backdrop-saturate-[1.28] transition-[transform,border-color,box-shadow] duration-200 ease-out sm:p-5';
+const dashboardGuildCardDecorationClassName =
+    "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:scale-[0.94] before:bg-[radial-gradient(circle_at_12%_10%,rgba(90,215,255,0.24),transparent_46%),radial-gradient(circle_at_92%_110%,rgba(157,140,255,0.22),transparent_52%)] before:opacity-0 before:transition-[opacity,transform] before:duration-[240ms] before:ease-out before:content-[''] after:pointer-events-none after:absolute after:inset-x-[12%] after:bottom-0 after:h-px after:origin-center after:scale-x-[0.28] after:bg-[linear-gradient(90deg,transparent,var(--dash-primary),var(--dash-creative),transparent)] after:opacity-30 after:transition-[opacity,transform] after:duration-[240ms] after:ease-out after:content-['']";
+const dashboardGuildCardInteractionClassName =
+    'hover:-translate-y-[3px] hover:border-[rgba(90,215,255,0.68)] hover:bg-[radial-gradient(circle_at_8%_0%,rgba(90,215,255,0.15),transparent_42%),linear-gradient(145deg,rgba(12,31,54,0.97),rgba(24,17,48,0.95))] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.11),0_0_0_1px_rgba(90,215,255,0.1),0_18px_42px_rgba(4,10,24,0.4),0_0_30px_rgba(90,215,255,0.13)] hover:before:scale-100 hover:before:opacity-100 hover:after:scale-x-100 hover:after:opacity-[0.86] focus-visible:-translate-y-[3px] focus-visible:border-[rgba(90,215,255,0.68)] focus-visible:bg-[radial-gradient(circle_at_8%_0%,rgba(90,215,255,0.15),transparent_42%),linear-gradient(145deg,rgba(12,31,54,0.97),rgba(24,17,48,0.95))] focus-visible:shadow-[var(--dash-shadow-focus),0_18px_42px_rgba(4,10,24,0.4),0_0_30px_rgba(90,215,255,0.13)] focus-visible:outline-none focus-visible:before:scale-100 focus-visible:before:opacity-100 focus-visible:after:scale-x-100 focus-visible:after:opacity-[0.86]';
+const dashboardGuildCardReducedEffectsClassName =
+    'motion-reduce:transform-none motion-reduce:transition-none motion-reduce:before:transition-none motion-reduce:after:transition-none [.dashboard-theme[data-reduce-effects=true]_&]:transform-none [.dashboard-theme[data-reduce-effects=true]_&]:transition-none [.dashboard-theme[data-reduce-effects=true]_&]:before:transition-none [.dashboard-theme[data-reduce-effects=true]_&]:after:transition-none';
+const dashboardGuildCardClassName = [
+    dashboardGuildCardBaseClassName,
+    dashboardGuildCardDecorationClassName,
+    dashboardGuildCardInteractionClassName,
+    dashboardGuildCardReducedEffectsClassName,
+].join(' ');
 
 export function DashboardPageContent({ data }: { data: DashboardRouteData }) {
     switch (data.type) {
@@ -48,7 +63,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
                             {viewModel.botInviteUrl ? (
                                 <a
                                     href={viewModel.botInviteUrl}
-                                    className='dashboard-secondary-button inline-flex min-h-10 items-center gap-2 px-3'>
+                                    className={`${dashboardSecondaryActionClassName} inline-flex min-h-10 items-center gap-2`}>
                                     <Plus className='size-4' aria-hidden='true' />
                                     Invite bot
                                 </a>
@@ -108,14 +123,14 @@ function DashboardNoManageableServers({ botInviteUrl }: { botInviteUrl?: string 
                         {botInviteUrl ? (
                             <a
                                 href={botInviteUrl}
-                                className='dashboard-primary-button inline-flex min-h-11 items-center gap-2 px-4'>
+                                className={`${dashboardPrimaryActionClassName} inline-flex min-h-11 items-center gap-2`}>
                                 <Plus className='size-4' aria-hidden='true' />
                                 Invite bot
                             </a>
                         ) : null}
                         <Link
                             to={fluxerLoginPath}
-                            className='dashboard-secondary-button inline-flex min-h-11 items-center gap-2 px-4'>
+                            className={`${dashboardSecondaryActionClassName} inline-flex min-h-11 items-center gap-2 px-4`}>
                             <ExternalLink className='size-4' aria-hidden='true' />
                             Use another account
                         </Link>
@@ -142,17 +157,22 @@ function DashboardGuildItem({ guild, mode }: { guild: DashboardViewModelGuild; m
                 preload='intent'
                 state={withDashboardGuildPreview(preview)}
                 aria-label={`Open ${guild.name} dashboard`}
-                className='dashboard-glass-panel group flex min-h-[6.75rem] items-center gap-3 p-3 transition hover:border-[var(--dash-border-interactive)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                <div className='relative flex min-w-0 flex-1 items-center gap-3'>
-                    <span className='rounded-full bg-[linear-gradient(135deg,var(--dash-primary),var(--dash-creative))] p-px shadow-[0_0_18px_rgba(90,215,255,0.12)] transition group-hover:shadow-[0_0_22px_rgba(90,215,255,0.24)]'>
-                        <DashboardServerDockAvatar guild={guild} />
+                className={dashboardGuildCardClassName}>
+                <div className='relative flex min-w-0 flex-1 items-center gap-4'>
+                    <span className='grid size-14 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--dash-border-interactive)] bg-[var(--dash-surface-raised)] shadow-[0_0_22px_rgba(90,215,255,0.14)] transition duration-200 group-hover:scale-[1.04] group-hover:border-[var(--dash-primary)] group-hover:shadow-[0_0_28px_rgba(90,215,255,0.3)] motion-reduce:transform-none motion-reduce:transition-none [.dashboard-theme[data-reduce-effects=true]_&]:transform-none [.dashboard-theme[data-reduce-effects=true]_&]:transition-none'>
+                        <DashboardGuildSelectorAvatar guild={guild} />
                     </span>
                     <div className='min-w-0 flex-1'>
-                        <h3 className='truncate text-lg font-semibold text-[var(--dash-text)]'>{guild.name}</h3>
+                        <h3 className='line-clamp-2 text-xl leading-7 font-semibold text-[var(--dash-text)]'>
+                            {guild.name}
+                        </h3>
                     </div>
                 </div>
-                <span className='relative grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] transition group-hover:border-[var(--dash-primary)]'>
-                    <ArrowUpRight className='size-4' aria-hidden='true' />
+                <span className='relative mt-4 flex items-center justify-between border-t border-[var(--dash-border)] pt-3 text-sm font-semibold text-[var(--dash-text-muted)] transition-colors duration-200 group-hover:border-[rgba(90,215,255,0.3)] group-hover:text-[var(--dash-primary)]'>
+                    Manage server
+                    <span className='grid size-8 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:border-[var(--dash-primary)] group-hover:shadow-[0_0_16px_rgba(90,215,255,0.2)] motion-reduce:transform-none motion-reduce:transition-none [.dashboard-theme[data-reduce-effects=true]_&]:transform-none [.dashboard-theme[data-reduce-effects=true]_&]:transition-none'>
+                        <ArrowUpRight className='size-4' aria-hidden='true' />
+                    </span>
                 </span>
             </Link>
         </li>

@@ -54,7 +54,13 @@ export function DashboardCategoryNavigation({
     const activeNavigationEntry = dashboardNavigationEntries.find((entry) =>
         isNavigationEntryActive(entry, activeCategoryId, guildId, pathname)
     );
+    const activeSubNavigationItem = activeNavigationEntry?.subNavigation.find((item) => {
+        const targetPath = getDashboardSubNavigationPath(item.to, guildId);
+
+        return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
+    });
     const activeLabel =
+        activeSubNavigationItem?.label ??
         activeNavigationEntry?.category.label ??
         dashboardCategories.find((category) => category.id === activeCategoryId)?.label ??
         'Dashboard';
@@ -420,7 +426,7 @@ function getCategoryLinkClassName(active: boolean): string {
         'relative flex min-h-11 items-center gap-3 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.93rem] font-semibold outline-none transition';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] text-[var(--dash-text)]`
+        ? `${base} border-[var(--dash-border-interactive)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
         : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
@@ -429,7 +435,7 @@ function getSubNavigationLinkClassName(active: boolean): string {
         'relative flex min-h-11 items-center gap-2 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.88rem] font-semibold outline-none transition';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)]`
+        ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
         : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 

@@ -290,7 +290,7 @@ function AuditEventsBody({
         <>
             <motion.div
                 ref={scrollParentRef}
-                className='mt-4 h-[34rem] overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)]'
+                className='mt-4 h-[min(34rem,60dvh)] min-h-60 overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] sm:min-h-72'
                 aria-label='Dashboard audit events'
                 role='list'
                 initial={{ opacity: 0.72 }}

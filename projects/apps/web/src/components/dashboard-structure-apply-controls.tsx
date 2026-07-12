@@ -5,6 +5,12 @@ import {
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-contracts.js';
+import {
+    dashboardFieldClassName,
+    dashboardPrimaryActionClassName,
+    dashboardSecondaryActionClassName,
+    DashboardStatus,
+} from './dashboard-ui.js';
 
 export function DashboardStructureApplyControls({
     run,
@@ -37,11 +43,11 @@ export function DashboardStructureApplyControls({
     const confirmationMatches = !hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText;
 
     return (
-        <div className='mt-3 rounded-md border border-sky-400/30 bg-sky-950/20 p-3'>
+        <div className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-info)]/35 bg-[var(--dash-info-soft)] p-3'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
                 <div>
-                    <p className='text-xs font-semibold text-sky-100'>Apply preflight</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-400'>
+                    <p className='text-xs font-semibold text-[var(--dash-text)]'>Apply preflight</p>
+                    <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
                         Re-checks the approved plan against the current server before it can be queued.
                     </p>
                 </div>
@@ -49,61 +55,62 @@ export function DashboardStructureApplyControls({
                     type='button'
                     onClick={() => onPreflight(run)}
                     disabled={Boolean(busyAction)}
-                    className='min-h-10 rounded-md bg-sky-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                    className={dashboardSecondaryActionClassName}>
                     {isPreflightBusy ? 'Checking' : 'Run preflight'}
                 </button>
             </div>
             {preflightReport ? <PreflightReport report={preflightReport} /> : null}
             {canApply ? (
-                <div className='mt-3 border-t border-sky-400/20 pt-3'>
+                <div className='mt-3 border-t border-[var(--dash-border)] pt-3'>
                     <div className='mt-2 flex justify-end'>
                         <button
                             type='button'
                             onClick={() => onApply(run)}
                             disabled={Boolean(busyAction) || !confirmationMatches}
-                            className='min-h-10 rounded-md bg-emerald-300 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400'>
+                            className={dashboardPrimaryActionClassName}>
                             {isApplyBusy ? 'Queueing' : 'Queue deployment'}
                         </button>
                     </div>
                     {hasDestructiveApproval ? (
-                        <div className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
-                            <label
-                                className='block text-xs font-semibold text-rose-100'
-                                htmlFor={`delete-approval-${run.id}`}>
-                                Type {expectedDeleteText} to approve {destructiveApprovalCount} irreversible delete
-                                {destructiveApprovalCount === 1 ? '' : 's'}
-                            </label>
-                            <input
-                                id={`delete-approval-${run.id}`}
-                                value={deleteConfirmation}
-                                onChange={(event) => onDeleteConfirmationChange(run.id, event.currentTarget.value)}
-                                className='mt-2 min-h-10 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-300/30'
-                            />
-                            <p className='mt-2 text-xs leading-5 text-neutral-400'>
-                                Deletes are irreversible server mutations. Approval is bound to this exact plan and
-                                safety check.
-                            </p>
-                        </div>
+                        <DashboardStatus tone='danger' role='alert'>
+                            <div className='w-full'>
+                                <label
+                                    className='block text-xs font-semibold text-[var(--dash-text)]'
+                                    htmlFor={`delete-approval-${run.id}`}>
+                                    Type {expectedDeleteText} to approve {destructiveApprovalCount} irreversible delete
+                                    {destructiveApprovalCount === 1 ? '' : 's'}
+                                </label>
+                                <input
+                                    id={`delete-approval-${run.id}`}
+                                    value={deleteConfirmation}
+                                    onChange={(event) => onDeleteConfirmationChange(run.id, event.currentTarget.value)}
+                                    className={`mt-2 ${dashboardFieldClassName} focus:border-[var(--dash-danger)]`}
+                                />
+                                <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                                    Deletes are irreversible server mutations. Approval is bound to this exact plan and
+                                    safety check.
+                                </p>
+                            </div>
+                        </DashboardStatus>
                     ) : null}
-                    <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                    <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
                         This executes preflight-ready creates, role name, color, hoist, mentionability, and permission
                         updates, supported channel/category name and permission overwrite updates, and explicitly
                         approved deletes.
                     </p>
                 </div>
             ) : preflightReport && hardBlockerCount > 0 ? (
-                <div className='mt-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'>
-                    <p className='text-xs font-semibold text-rose-100'>Apply blocked</p>
-                    <p className='mt-1 text-xs leading-5 text-neutral-300'>
+                <DashboardStatus tone='danger' title='Apply blocked' role='alert'>
+                    <p>
                         Fix or remove {hardBlockerCount} unsupported, stale, mapping-required, or invalid planned{' '}
                         {hardBlockerCount === 1 ? 'change' : 'changes'}, then create a new deployment plan.
                     </p>
                     {hasDestructiveApproval ? (
-                        <p className='mt-2 text-xs leading-5 text-neutral-400'>
+                        <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
                             Delete approval is only available after hard blockers are gone.
                         </p>
                     ) : null}
-                </div>
+                </DashboardStatus>
             ) : null}
         </div>
     );
@@ -113,18 +120,18 @@ function PreflightReport({ report }: { report: DashboardStructurePreflightReport
     const blockers = sortPreflightBlockers(report.actions.filter((action) => action.status !== 'ready'));
 
     return (
-        <div className='mt-3 border-t border-sky-400/20 pt-3' role='status' aria-live='polite'>
-            <p className='text-xs text-neutral-300'>
+        <div className='mt-3 border-t border-[var(--dash-border)] pt-3' role='status' aria-live='polite'>
+            <p className='text-xs text-[var(--dash-text)]'>
                 {report.summary.ready} ready, {report.summary.stale} stale, {report.summary.mappingRequired} mapping
                 required, {report.summary.destructiveApprovalRequired} destructive approval,{' '}
                 {report.summary.unsupported} unsupported, {report.summary.invalidPlan} invalid.
             </p>
             {blockers.length > 0 ? (
-                <ul className='mt-2 space-y-1 text-xs text-neutral-400'>
+                <ul className='mt-2 space-y-1 text-xs text-[var(--dash-text-muted)]'>
                     {blockers.slice(0, 4).map((action) => (
                         <li key={action.actionId}>
-                            <span className='font-semibold text-neutral-200'>{formatStatus(action.status)}</span>:{' '}
-                            {action.label ?? action.targetId ?? action.targetType} - {action.message}
+                            <span className='font-semibold text-[var(--dash-text)]'>{formatStatus(action.status)}</span>
+                            : {action.label ?? action.targetId ?? action.targetType} - {action.message}
                         </li>
                     ))}
                     {blockers.length > 4 ? <li>+{blockers.length - 4} more blockers</li> : null}

@@ -18,6 +18,13 @@ import { DashboardStructureDriftPanel as DriftPanel } from './dashboard-structur
 import { getDashboardStructureDeployStage } from './dashboard-structure-deploy-stage.js';
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
+import {
+    dashboardCompactFieldClassName,
+    dashboardFieldClassName,
+    dashboardPrimaryActionClassName,
+    dashboardSecondaryActionClassName,
+    DashboardStatus,
+} from './dashboard-ui.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import {
     dashboardConfirmationTransition,
@@ -141,14 +148,14 @@ function CurrentSurface({
                             type='button'
                             onClick={workspace.onDownloadCurrentStructure}
                             disabled={Boolean(workspace.busyAction)}
-                            className={secondaryButtonClass}>
+                            className={dashboardSecondaryActionClassName}>
                             {workspace.busyAction === 'export' ? 'Preparing JSON' : 'Download current JSON'}
                         </button>
                         <button
                             type='button'
                             onClick={latestBackup ? workspace.onCheckLatestDrift : workspace.onCreateBackup}
                             disabled={Boolean(workspace.busyAction)}
-                            className={primaryButtonClass}>
+                            className={dashboardPrimaryActionClassName}>
                             {latestBackup ? 'Check differences' : 'Create first backup'}
                         </button>
                     </div>
@@ -259,14 +266,14 @@ function BackupsSurface({
                         type='button'
                         onClick={workspace.onDownloadCurrentStructure}
                         disabled={Boolean(workspace.busyAction)}
-                        className={secondaryButtonClass}>
+                        className={dashboardSecondaryActionClassName}>
                         {workspace.busyAction === 'export' ? 'Preparing JSON' : 'Download JSON'}
                     </button>
                     <button
                         type='button'
                         onClick={workspace.onCreateBackup}
                         disabled={Boolean(workspace.busyAction)}
-                        className={primaryButtonClass}>
+                        className={dashboardPrimaryActionClassName}>
                         {workspace.busyAction === 'backup' ? 'Creating backup' : 'Create backup'}
                     </button>
                 </div>
@@ -301,7 +308,7 @@ function BackupsSurface({
                     <button
                         type='button'
                         onClick={workspace.onSetBackupJsonAsImportJson}
-                        className={secondaryButtonClass}>
+                        className={dashboardSecondaryActionClassName}>
                         Use as deploy source
                     </button>
                 </div>
@@ -531,14 +538,14 @@ function DeploySource({
                         onChange={(event) => workspace.onImportJsonChange(event.currentTarget.value)}
                         rows={12}
                         spellCheck={false}
-                        className='w-full resize-y rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 py-2 font-mono text-xs text-[var(--dash-text)] outline-none focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]'
+                        className={`${dashboardFieldClassName} resize-y py-2 font-mono text-xs`}
                         placeholder='Paste normalized Server Blueprint JSON.'
                     />
                     <button
                         type='button'
                         onClick={workspace.explorer.inspectImportJson}
                         disabled={!workspace.importJson.trim() || Boolean(workspace.busyAction)}
-                        className={`mt-3 ${secondaryButtonClass}`}>
+                        className={`mt-3 ${dashboardSecondaryActionClassName}`}>
                         Inspect source
                     </button>
                 </div>
@@ -552,7 +559,7 @@ function DeploySource({
                                 key={option.value}
                                 htmlFor={`structure-policy-${option.value}`}
                                 aria-label={option.label}
-                                className={`flex cursor-pointer items-start gap-3 rounded-[var(--dash-radius-control)] border p-4 transition ${
+                                className={`flex cursor-pointer items-start gap-3 rounded-[var(--dash-radius-control)] border p-4 transition-[border-color,background-color,box-shadow] focus-within:shadow-[var(--dash-shadow-focus)] ${
                                     workspace.structurePolicy === option.value
                                         ? 'border-[var(--dash-primary)] bg-[var(--dash-primary-ring)]'
                                         : 'border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'
@@ -579,9 +586,11 @@ function DeploySource({
             ) : null}
             {mappingRows.length > 0 ? (
                 <div
-                    className='mt-5 max-w-2xl rounded-[var(--dash-radius-control)] border border-amber-400/40 bg-amber-950/20 p-4'
+                    className='mt-5 max-w-2xl rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-4'
                     role='alert'>
-                    <h4 className='text-sm font-semibold text-amber-100'>Match duplicate blueprint items</h4>
+                    <h4 className='text-sm font-semibold text-[var(--dash-warning)]'>
+                        Match duplicate blueprint items
+                    </h4>
                     <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
                         These roles are still genuinely ambiguous after projecting the final hierarchy. Select each
                         existing target role once. No server changes occur until the reviewed plan is applied.
@@ -598,7 +607,7 @@ function DeploySource({
                                     onChange={(event) =>
                                         workspace.onRoleMappingChange(sourceId, event.currentTarget.value)
                                     }
-                                    className='min-h-10 w-full rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] px-3 text-sm text-[var(--dash-text)] outline-none focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]'>
+                                    className={dashboardCompactFieldClassName}>
                                     <option value=''>Choose an existing target {conflict.targetType}</option>
                                     {conflict.candidateTargetIds.map((targetId) => {
                                         const selectedByAnotherSource = Object.entries(workspace.roleMappings).some(
@@ -624,7 +633,7 @@ function DeploySource({
                     type='button'
                     onClick={workspace.onCreatePlan}
                     disabled={Boolean(workspace.busyAction) || !workspace.importJson.trim() || !mappingsComplete}
-                    className={primaryButtonClass}>
+                    className={dashboardPrimaryActionClassName}>
                     {workspace.busyAction === 'plan'
                         ? 'Creating plan'
                         : mappingRows.length > 0
@@ -794,23 +803,28 @@ function ExecutionProgressIssue({
         code !== 'BLUEPRINT_LOAD_BACKEND_INCOMPATIBLE';
 
     return (
-        <div className='mt-4 flex flex-wrap items-center justify-between gap-3 border border-amber-400/30 bg-amber-950/20 p-3'>
+        <DashboardStatus
+            tone='warning'
+            actions={
+                retryable ? (
+                    <button
+                        type='button'
+                        onClick={onRetry}
+                        className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
+                        {retryLabel}
+                    </button>
+                ) : undefined
+            }>
             <div>
-                <p className='text-xs text-amber-100'>{message}</p>
+                <p className='text-xs'>{message}</p>
                 <details className='mt-1 text-[11px] text-[var(--dash-text-subtle)]'>
-                    <summary className='cursor-pointer'>Technical details</summary>
+                    <summary className='cursor-pointer rounded-sm focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                        Technical details
+                    </summary>
                     <code className='mt-1 block'>{code}</code>
                 </details>
             </div>
-            {retryable ? (
-                <button
-                    type='button'
-                    onClick={onRetry}
-                    className='rounded border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100'>
-                    {retryLabel}
-                </button>
-            ) : null}
-        </div>
+        </DashboardStatus>
     );
 }
 
@@ -823,11 +837,6 @@ function formatExecutionProgressIssue(code: string): string {
     }
     return 'Deployment progress could not refresh. The last confirmed state remains visible.';
 }
-
-const primaryButtonClass =
-    'min-h-10 rounded-[var(--dash-radius-control)] bg-[var(--dash-primary)] px-4 text-sm font-semibold text-[#06111a] transition hover:bg-[var(--dash-primary-strong)] disabled:cursor-not-allowed disabled:bg-[var(--dash-surface-raised)] disabled:text-[var(--dash-text-disabled)]';
-const secondaryButtonClass =
-    'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:border-[var(--dash-border)] disabled:text-[var(--dash-text-disabled)]';
 
 export type DashboardStructurePanelViewProps = {
     backupJson: string;

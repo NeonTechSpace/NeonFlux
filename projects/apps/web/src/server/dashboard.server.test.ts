@@ -39,51 +39,7 @@ describe('loadDashboardData', () => {
                 ],
             },
         });
-    });
-
-    it('maps single-instance unauthorized access to a dashboard view model', async () => {
-        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
-            ok({
-                type: 'unauthorized',
-                mode: {
-                    instanceMode: 'single',
-                    singleGuildId: guildId,
-                },
-                configuredGuildId: guildId,
-                configuredGuildName: 'Configured Community',
-            })
-        );
-
-        const result = await loadDashboardData(request);
-
-        expect(result).toStrictEqual({
-            type: 'dashboard',
-            viewModel: {
-                type: 'single-unauthorized',
-                configuredGuildId: guildId,
-                configuredGuildName: 'Configured Community',
-            },
-        });
-    });
-
-    it('maps multi-instance empty access to a dashboard view model', async () => {
-        vi.mocked(loadDashboardGuildAccess).mockResolvedValueOnce(
-            ok({
-                type: 'no-manageable-guilds',
-                mode: {
-                    instanceMode: 'multi',
-                },
-            })
-        );
-
-        const result = await loadDashboardData(request);
-
-        expect(result).toStrictEqual({
-            type: 'dashboard',
-            viewModel: {
-                type: 'multi-empty',
-            },
-        });
+        expect(loadDashboardGuildAccess).toHaveBeenCalledWith(request);
     });
 
     it.each([

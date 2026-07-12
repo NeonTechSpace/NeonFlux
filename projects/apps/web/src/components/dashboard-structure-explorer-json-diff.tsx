@@ -38,16 +38,18 @@ export function DashboardStructureExplorerJsonDiffView({
             {jsonDiff.type === 'same' ? (
                 <DiffEmptyState message='No JSON differences found.' />
             ) : jsonDiff.type === 'capped' ? (
-                <div className='rounded-md border border-amber-400/25 bg-amber-400/10 p-4'>
-                    <p className='text-sm font-semibold text-amber-100'>JSON diff is too large to render inline.</p>
-                    <p className='mt-2 text-xs leading-5 text-neutral-300'>
+                <div className='rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-4'>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>
+                        JSON diff is too large to render inline.
+                    </p>
+                    <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
                         Source JSON is {jsonDiff.beforeLength.toLocaleString()} characters and comparison JSON is{' '}
                         {jsonDiff.afterLength.toLocaleString()} characters. Inline rendering is capped at{' '}
                         {jsonDiff.limit.toLocaleString()} combined characters.
                     </p>
                 </div>
             ) : (
-                <div className='max-h-[34rem] overflow-auto rounded-md border border-neutral-800 bg-neutral-950'>
+                <div className='max-h-[min(34rem,65dvh)] overflow-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)]'>
                     <FileDiff
                         fileDiff={jsonDiff.fileDiff}
                         options={{
@@ -79,19 +81,19 @@ function DiffHeader({
 
 function DiffSourceTile({ detail, label, title }: { detail?: string; label: string; title: string }) {
     return (
-        <div className='rounded-md border border-neutral-800 bg-neutral-950 p-2'>
-            <p className='text-xs font-medium text-neutral-500 uppercase'>{label}</p>
-            <p className='mt-1 text-sm font-semibold text-neutral-100'>{title}</p>
-            {detail ? <p className='mt-1 text-xs text-neutral-500'>{detail}</p> : null}
+        <div className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-2'>
+            <p className='text-xs font-medium text-[var(--dash-text-subtle)] uppercase'>{label}</p>
+            <p className='mt-1 text-sm font-semibold text-[var(--dash-text)]'>{title}</p>
+            {detail ? <p className='mt-1 text-xs text-[var(--dash-text-subtle)]'>{detail}</p> : null}
         </div>
     );
 }
 
 function DiffEmptyState({ message }: { message: string }) {
     return (
-        <div className='rounded-md border border-dashed border-neutral-700 bg-neutral-950 p-4'>
-            <p className='text-sm font-semibold text-neutral-100'>JSON diff</p>
-            <p className='mt-2 text-xs leading-5 text-neutral-400'>{message}</p>
+        <div className='rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border-strong)] bg-[var(--dash-surface-muted)] p-4'>
+            <p className='text-sm font-semibold text-[var(--dash-text)]'>JSON diff</p>
+            <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>{message}</p>
         </div>
     );
 }

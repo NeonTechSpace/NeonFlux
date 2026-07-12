@@ -175,7 +175,6 @@ describe('DashboardGuildSelector', () => {
 
         const longServer = screen.getByRole('link', { name: longName });
         expect(longServer.getAttribute('title')).toBe(longName);
-        expect(screen.getByText(longName).className).toContain('line-clamp-2');
     });
 
     it('opens directly as a mobile dialog and restores trigger focus after Escape', async () => {

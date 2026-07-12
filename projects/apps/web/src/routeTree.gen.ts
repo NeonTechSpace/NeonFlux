@@ -48,10 +48,6 @@ import { Route as DashboardGuildIdEventsIndexRouteImport } from './routes/dashbo
 import { Route as DashboardGuildIdCommunityIndexRouteImport } from './routes/dashboard/$guildId/community/index'
 import { Route as DashboardGuildIdAccessIndexRouteImport } from './routes/dashboard/$guildId/access/index'
 import { Route as DashboardGuildIdSystemPublicWebLinksRouteImport } from './routes/dashboard/$guildId/system/public-web-links'
-import { Route as DashboardGuildIdSystemOauthSessionsRouteImport } from './routes/dashboard/$guildId/system/oauth-sessions'
-import { Route as DashboardGuildIdSystemDocumentationRouteImport } from './routes/dashboard/$guildId/system/documentation'
-import { Route as DashboardGuildIdSystemDeploymentRouteImport } from './routes/dashboard/$guildId/system/deployment'
-import { Route as DashboardGuildIdSystemConvexDashboardDataRouteImport } from './routes/dashboard/$guildId/system/convex-dashboard-data'
 import { Route as DashboardGuildIdSystemBotInstallationSyncRouteImport } from './routes/dashboard/$guildId/system/bot-installation-sync'
 import { Route as DashboardGuildIdStructureRunsRouteImport } from './routes/dashboard/$guildId/structure/runs'
 import { Route as DashboardGuildIdStructureImportExportRouteImport } from './routes/dashboard/$guildId/structure/import-export'
@@ -296,30 +292,6 @@ const DashboardGuildIdSystemPublicWebLinksRoute =
   DashboardGuildIdSystemPublicWebLinksRouteImport.update({
     id: '/public-web-links',
     path: '/public-web-links',
-    getParentRoute: () => DashboardGuildIdSystemRoute,
-  } as any)
-const DashboardGuildIdSystemOauthSessionsRoute =
-  DashboardGuildIdSystemOauthSessionsRouteImport.update({
-    id: '/oauth-sessions',
-    path: '/oauth-sessions',
-    getParentRoute: () => DashboardGuildIdSystemRoute,
-  } as any)
-const DashboardGuildIdSystemDocumentationRoute =
-  DashboardGuildIdSystemDocumentationRouteImport.update({
-    id: '/documentation',
-    path: '/documentation',
-    getParentRoute: () => DashboardGuildIdSystemRoute,
-  } as any)
-const DashboardGuildIdSystemDeploymentRoute =
-  DashboardGuildIdSystemDeploymentRouteImport.update({
-    id: '/deployment',
-    path: '/deployment',
-    getParentRoute: () => DashboardGuildIdSystemRoute,
-  } as any)
-const DashboardGuildIdSystemConvexDashboardDataRoute =
-  DashboardGuildIdSystemConvexDashboardDataRouteImport.update({
-    id: '/convex-dashboard-data',
-    path: '/convex-dashboard-data',
     getParentRoute: () => DashboardGuildIdSystemRoute,
   } as any)
 const DashboardGuildIdSystemBotInstallationSyncRoute =
@@ -583,10 +555,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
   '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
-  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
-  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
-  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
-  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
   '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community/': typeof DashboardGuildIdCommunityIndexRoute
@@ -647,10 +615,6 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
   '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
-  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
-  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
-  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
-  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
   '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityIndexRoute
@@ -726,10 +690,6 @@ export interface FileRoutesById {
   '/dashboard/$guildId/structure/import-export': typeof DashboardGuildIdStructureImportExportRoute
   '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
   '/dashboard/$guildId/system/bot-installation-sync': typeof DashboardGuildIdSystemBotInstallationSyncRoute
-  '/dashboard/$guildId/system/convex-dashboard-data': typeof DashboardGuildIdSystemConvexDashboardDataRoute
-  '/dashboard/$guildId/system/deployment': typeof DashboardGuildIdSystemDeploymentRoute
-  '/dashboard/$guildId/system/documentation': typeof DashboardGuildIdSystemDocumentationRoute
-  '/dashboard/$guildId/system/oauth-sessions': typeof DashboardGuildIdSystemOauthSessionsRoute
   '/dashboard/$guildId/system/public-web-links': typeof DashboardGuildIdSystemPublicWebLinksRoute
   '/dashboard/$guildId/access/': typeof DashboardGuildIdAccessIndexRoute
   '/dashboard/$guildId/community/': typeof DashboardGuildIdCommunityIndexRoute
@@ -806,10 +766,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/structure/import-export'
     | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
-    | '/dashboard/$guildId/system/convex-dashboard-data'
-    | '/dashboard/$guildId/system/deployment'
-    | '/dashboard/$guildId/system/documentation'
-    | '/dashboard/$guildId/system/oauth-sessions'
     | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access/'
     | '/dashboard/$guildId/community/'
@@ -870,10 +826,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/structure/import-export'
     | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
-    | '/dashboard/$guildId/system/convex-dashboard-data'
-    | '/dashboard/$guildId/system/deployment'
-    | '/dashboard/$guildId/system/documentation'
-    | '/dashboard/$guildId/system/oauth-sessions'
     | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/community'
@@ -948,10 +900,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/structure/import-export'
     | '/dashboard/$guildId/structure/runs'
     | '/dashboard/$guildId/system/bot-installation-sync'
-    | '/dashboard/$guildId/system/convex-dashboard-data'
-    | '/dashboard/$guildId/system/deployment'
-    | '/dashboard/$guildId/system/documentation'
-    | '/dashboard/$guildId/system/oauth-sessions'
     | '/dashboard/$guildId/system/public-web-links'
     | '/dashboard/$guildId/access/'
     | '/dashboard/$guildId/community/'
@@ -1248,34 +1196,6 @@ declare module '@tanstack/react-router' {
       path: '/public-web-links'
       fullPath: '/dashboard/$guildId/system/public-web-links'
       preLoaderRoute: typeof DashboardGuildIdSystemPublicWebLinksRouteImport
-      parentRoute: typeof DashboardGuildIdSystemRoute
-    }
-    '/dashboard/$guildId/system/oauth-sessions': {
-      id: '/dashboard/$guildId/system/oauth-sessions'
-      path: '/oauth-sessions'
-      fullPath: '/dashboard/$guildId/system/oauth-sessions'
-      preLoaderRoute: typeof DashboardGuildIdSystemOauthSessionsRouteImport
-      parentRoute: typeof DashboardGuildIdSystemRoute
-    }
-    '/dashboard/$guildId/system/documentation': {
-      id: '/dashboard/$guildId/system/documentation'
-      path: '/documentation'
-      fullPath: '/dashboard/$guildId/system/documentation'
-      preLoaderRoute: typeof DashboardGuildIdSystemDocumentationRouteImport
-      parentRoute: typeof DashboardGuildIdSystemRoute
-    }
-    '/dashboard/$guildId/system/deployment': {
-      id: '/dashboard/$guildId/system/deployment'
-      path: '/deployment'
-      fullPath: '/dashboard/$guildId/system/deployment'
-      preLoaderRoute: typeof DashboardGuildIdSystemDeploymentRouteImport
-      parentRoute: typeof DashboardGuildIdSystemRoute
-    }
-    '/dashboard/$guildId/system/convex-dashboard-data': {
-      id: '/dashboard/$guildId/system/convex-dashboard-data'
-      path: '/convex-dashboard-data'
-      fullPath: '/dashboard/$guildId/system/convex-dashboard-data'
-      preLoaderRoute: typeof DashboardGuildIdSystemConvexDashboardDataRouteImport
       parentRoute: typeof DashboardGuildIdSystemRoute
     }
     '/dashboard/$guildId/system/bot-installation-sync': {
@@ -1732,10 +1652,6 @@ const DashboardGuildIdStructureRouteWithChildren =
 
 interface DashboardGuildIdSystemRouteChildren {
   DashboardGuildIdSystemBotInstallationSyncRoute: typeof DashboardGuildIdSystemBotInstallationSyncRoute
-  DashboardGuildIdSystemConvexDashboardDataRoute: typeof DashboardGuildIdSystemConvexDashboardDataRoute
-  DashboardGuildIdSystemDeploymentRoute: typeof DashboardGuildIdSystemDeploymentRoute
-  DashboardGuildIdSystemDocumentationRoute: typeof DashboardGuildIdSystemDocumentationRoute
-  DashboardGuildIdSystemOauthSessionsRoute: typeof DashboardGuildIdSystemOauthSessionsRoute
   DashboardGuildIdSystemPublicWebLinksRoute: typeof DashboardGuildIdSystemPublicWebLinksRoute
   DashboardGuildIdSystemIndexRoute: typeof DashboardGuildIdSystemIndexRoute
 }
@@ -1744,14 +1660,6 @@ const DashboardGuildIdSystemRouteChildren: DashboardGuildIdSystemRouteChildren =
   {
     DashboardGuildIdSystemBotInstallationSyncRoute:
       DashboardGuildIdSystemBotInstallationSyncRoute,
-    DashboardGuildIdSystemConvexDashboardDataRoute:
-      DashboardGuildIdSystemConvexDashboardDataRoute,
-    DashboardGuildIdSystemDeploymentRoute:
-      DashboardGuildIdSystemDeploymentRoute,
-    DashboardGuildIdSystemDocumentationRoute:
-      DashboardGuildIdSystemDocumentationRoute,
-    DashboardGuildIdSystemOauthSessionsRoute:
-      DashboardGuildIdSystemOauthSessionsRoute,
     DashboardGuildIdSystemPublicWebLinksRoute:
       DashboardGuildIdSystemPublicWebLinksRoute,
     DashboardGuildIdSystemIndexRoute: DashboardGuildIdSystemIndexRoute,

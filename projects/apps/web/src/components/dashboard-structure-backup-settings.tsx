@@ -3,6 +3,7 @@ import { type } from 'arktype';
 
 import type { DashboardStructureBackupSettings as DashboardStructureBackupSettingsRecord } from '../server/dashboard-structure.server.js';
 import { formatDate } from './dashboard-structure-panel-format.js';
+import { dashboardCompactFieldClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 const backupSettingsSchema = type({
     enabled: 'boolean',
@@ -137,7 +138,7 @@ export function DashboardStructureBackupSettings({
                         <button
                             type='submit'
                             disabled={busy || isSubmitting || !canSubmit}
-                            className='mt-5 min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-primary)] disabled:cursor-not-allowed disabled:text-[var(--dash-text-disabled)]'>
+                            className={`mt-5 ${dashboardSecondaryActionClassName}`}>
                             {busy || isSubmitting ? 'Saving' : 'Save'}
                         </button>
                     )}
@@ -158,5 +159,4 @@ function FieldError({ errors }: { errors: unknown[] }) {
     return message ? <span className='mt-1 block font-normal text-[var(--dash-danger)]'>{message}</span> : null;
 }
 
-const numberInputClass =
-    'h-10 w-20 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] bg-[var(--dash-bg)] px-3 text-sm text-[var(--dash-text)] outline-none focus:border-[var(--dash-primary)] focus:ring-2 focus:ring-[var(--dash-primary-ring)]';
+const numberInputClass = `${dashboardCompactFieldClassName} h-10 w-20 px-3`;

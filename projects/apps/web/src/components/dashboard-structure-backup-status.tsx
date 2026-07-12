@@ -64,7 +64,7 @@ export function DashboardStructureBackupStatus({
                             </div>
                             <a
                                 href={issue.href}
-                                className='text-xs font-semibold text-[var(--dash-text)] underline decoration-[var(--dash-border-strong)] underline-offset-4 transition hover:decoration-[var(--dash-primary)]'>
+                                className='rounded-sm text-xs font-semibold text-[var(--dash-text)] underline decoration-[var(--dash-border-strong)] underline-offset-4 transition hover:decoration-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
                                 Review
                             </a>
                         </div>

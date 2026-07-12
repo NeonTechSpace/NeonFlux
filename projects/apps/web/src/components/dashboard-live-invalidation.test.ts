@@ -1,27 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    countDashboardLiveInvalidationDestinations,
-    dashboardLiveInvalidationDestination,
-    fetchDashboardConvexToken,
-} from './dashboard-live-invalidation.js';
+import { fetchDashboardConvexToken } from './dashboard-live-invalidation.js';
 
 afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
 });
 
-describe('dashboard live invalidation destinations', () => {
-    it('deduplicates simultaneous terminal structure signals into one canonical workspace refresh', () => {
-        expect(countDashboardLiveInvalidationDestinations(['structure', 'import_export'])).toBe(1);
-        expect(dashboardLiveInvalidationDestination('structure')).toBe('structure-settings');
-    });
-
-    it('keeps execution checkpoints on the lightweight progress destination', () => {
-        expect(dashboardLiveInvalidationDestination('structure_execution')).toBe('structure-execution-progress');
-        expect(countDashboardLiveInvalidationDestinations(['structure_execution', 'structure'])).toBe(2);
-    });
-
+describe('dashboard live invalidation', () => {
     it('aborts a token request that exceeds its browser deadline', async () => {
         vi.useFakeTimers();
         const fetch = vi.fn(

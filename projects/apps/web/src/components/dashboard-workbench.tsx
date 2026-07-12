@@ -2,7 +2,12 @@ import { Outlet, useLocation } from '@tanstack/react-router';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
-import { getDashboardCategory, getDashboardCategorySubNavigation } from '../dashboard-categories.js';
+import {
+    dashboardCapabilities,
+    getDashboardCategory,
+    getDashboardCategorySubNavigation,
+    getDashboardNavigationJob,
+} from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import { getGuildIdParam } from '../server/dashboard-guild-route-data.js';
 import { dashboardContentTransition, dashboardContentVariants } from './dashboard-motion.js';
@@ -25,6 +30,7 @@ export function DashboardWorkbench({
         return pathname === path || pathname.startsWith(`${path}/`);
     });
     const activeId = activeItem?.id ?? categoryId;
+    const navigationJob = activeItem ? getDashboardNavigationJob(activeItem.navigationJobId) : undefined;
     const headingId = `dashboard-${activeId}-heading`;
     const FeatureIcon = activeItem?.icon ?? category.icon;
 
@@ -41,7 +47,7 @@ export function DashboardWorkbench({
                     <DashboardPageHeader
                         title={activeItem?.label ?? category.label}
                         description={activeItem?.description ?? category.description}
-                        eyebrow={activeItem ? category.label : undefined}
+                        eyebrow={navigationJob?.label}
                         icon={<FeatureIcon className='size-5' aria-hidden='true' />}
                         titleId={headingId}
                     />
@@ -53,21 +59,7 @@ export function DashboardWorkbench({
 }
 
 export function getDashboardWorkbenchWidth(activeId: string): 'focused' | 'standard' | 'wide' | 'full' {
-    if (activeId === 'command-prefix' || activeId === 'bot-presence' || activeId === 'command-help') {
-        return 'focused';
-    }
-
-    if (
-        activeId === 'audit-events' ||
-        activeId === 'message-builder' ||
-        activeId === 'reaction-roles' ||
-        activeId === 'cases' ||
-        activeId === 'tickets'
-    ) {
-        return 'full';
-    }
-
-    return 'standard';
+    return dashboardCapabilities.find((item) => item.id === activeId)?.pageWidth ?? 'standard';
 }
 
 function getDashboardSubNavigationPath(to: string, guildId: string): string {

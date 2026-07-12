@@ -28,19 +28,19 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
           ? 'Disable particles'
           : 'Enable particles';
     const blurLabel = reducedEffectsEnabled
-        ? 'Particle blur unavailable while effects are reduced'
+        ? 'Particle bloom unavailable while effects are reduced'
         : !particlesEnabled
-          ? 'Particle blur unavailable while particles are disabled'
+          ? 'Particle bloom unavailable while particles are disabled'
           : particleBlurEnabled
-            ? 'Disable particle blur'
-            : 'Enable particle blur';
+            ? 'Use crisp particles'
+            : 'Use particle bloom';
 
     return (
         <div
             className={
                 variant === 'floating'
-                    ? 'dashboard-overlay-surface fixed top-7 right-[max(1rem,calc((100vw-1540px)/2))] z-30 hidden shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] p-1 shadow-[var(--dash-shadow-surface)] lg:flex'
-                    : 'dashboard-overlay-surface inline-flex h-[3.25rem] shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] p-1 shadow-[var(--dash-shadow-surface)]'
+                    ? 'fixed top-7 right-[max(1rem,calc((100vw-1540px)/2))] z-30 hidden shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-overlay-surface)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),var(--dash-shadow-surface)] backdrop-blur-[18px] backdrop-saturate-[1.28] lg:flex'
+                    : 'inline-flex h-[3.25rem] shrink-0 items-center gap-1 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-overlay-surface)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),var(--dash-shadow-surface)] backdrop-blur-[18px] backdrop-saturate-[1.28]'
             }
             aria-label='Display effects'>
             <button

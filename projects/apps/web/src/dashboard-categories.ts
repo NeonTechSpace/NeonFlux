@@ -3,7 +3,6 @@ import {
     BarChart3,
     BellDot,
     Bot,
-    Boxes,
     ChartNoAxesCombined,
     FileQuestion,
     Gamepad2,
@@ -13,7 +12,6 @@ import {
     Globe,
     HelpCircle,
     KeyRound,
-    Library,
     MessageSquareText,
     Radio,
     ScrollText,
@@ -21,7 +19,6 @@ import {
     Settings2,
     ShieldCheck,
     Sparkles,
-    TerminalSquare,
     TicketCheck,
     Trophy,
     UserRoundCog,
@@ -51,8 +48,6 @@ export type DashboardNavigationJobId =
     | 'insights-activity'
     | 'blueprint'
     | 'settings';
-
-export type DashboardCapabilityScope = 'guild' | 'account' | 'platform';
 
 type DashboardCategoryTo =
     | '/dashboard/$guildId'
@@ -93,10 +88,6 @@ export type DashboardSubNavigationTo =
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/events/logging-destinations'
     | '/dashboard/$guildId/system/bot-installation-sync'
-    | '/dashboard/$guildId/system/convex-dashboard-data'
-    | '/dashboard/$guildId/system/deployment'
-    | '/dashboard/$guildId/system/documentation'
-    | '/dashboard/$guildId/system/oauth-sessions'
     | '/dashboard/$guildId/system/public-web-links';
 
 export type DashboardCategoryDefinition = {
@@ -106,19 +97,17 @@ export type DashboardCategoryDefinition = {
     to: DashboardCategoryTo;
     description: string;
     icon: LucideIcon;
-    status: 'active' | 'planned';
 };
 
 export type DashboardSubNavigationItem = {
     id: string;
     categoryId: DashboardCategoryId;
     navigationJobId: DashboardNavigationJobId;
-    scope: DashboardCapabilityScope;
     label: string;
     description: string;
     to: DashboardSubNavigationTo;
     icon: LucideIcon;
-    implemented: boolean;
+    pageWidth: 'focused' | 'standard' | 'wide' | 'full';
     status: 'implemented' | 'placeholder';
 };
 
@@ -158,6 +147,7 @@ type SubNavigationInput = [
     description: string,
     to: DashboardSubNavigationTo,
     icon: LucideIcon,
+    pageWidth?: DashboardSubNavigationItem['pageWidth'],
 ];
 
 const dashboardNavigationSettings = [
@@ -168,7 +158,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId',
         description: 'Server pulse, activity, and operational health.',
         icon: BarChart3,
-        status: 'active',
         items: [],
     },
     {
@@ -178,7 +167,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/messaging',
         description: 'Message composition, publishing, and future outbound feeds.',
         icon: MessageSquareText,
-        status: 'active',
         items: [
             placeholder(
                 'bluesky',
@@ -199,7 +187,8 @@ const dashboardNavigationSettings = [
                 'Message Builder',
                 'Compose, preview, and post Fluxer messages.',
                 '/dashboard/$guildId/messaging/message-builder',
-                MessageSquareText
+                MessageSquareText,
+                'full'
             ),
         ],
     },
@@ -210,7 +199,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/moderation',
         description: 'Future policy, cases, and automated safety controls.',
         icon: Bot,
-        status: 'planned',
         items: [
             placeholder(
                 'automod',
@@ -224,14 +212,16 @@ const dashboardNavigationSettings = [
                 'Cases',
                 'Planned moderation case history.',
                 '/dashboard/$guildId/moderation/cases',
-                ScrollText
+                ScrollText,
+                'full'
             ),
             placeholder(
                 'policy',
                 'Policy',
                 'Planned moderation policy settings.',
                 '/dashboard/$guildId/moderation/policy',
-                ShieldCheck
+                ShieldCheck,
+                'full'
             ),
         ],
     },
@@ -242,7 +232,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/access',
         description: 'Role automation, grants, verification, and reaction roles.',
         icon: ShieldCheck,
-        status: 'active',
         items: [
             placeholder(
                 'autoroles',
@@ -295,7 +284,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/community',
         description: 'Future community workflows and member-facing systems.',
         icon: UsersRound,
-        status: 'planned',
         items: [
             placeholder(
                 'giveaways',
@@ -323,7 +311,8 @@ const dashboardNavigationSettings = [
                 'Tickets',
                 'Planned public and private tickets.',
                 '/dashboard/$guildId/community/tickets',
-                TicketCheck
+                TicketCheck,
+                'full'
             ),
             placeholder(
                 'voice-rooms',
@@ -342,7 +331,6 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/insights',
         description: 'Future growth analytics and invite attribution workspaces.',
         icon: ChartNoAxesCombined,
-        status: 'planned',
         items: [
             placeholder(
                 'growth-tracking',
@@ -367,28 +355,30 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/general',
         description: 'Core bot behavior and command settings.',
         icon: Settings2,
-        status: 'active',
         items: [
             placeholder(
                 'bot-presence',
                 'Bot Presence',
                 'Planned status and presence settings.',
                 '/dashboard/$guildId/general/bot-presence',
-                Radio
+                Radio,
+                'focused'
             ),
             placeholder(
                 'command-help',
                 'Command Help',
                 'Planned help visibility settings.',
                 '/dashboard/$guildId/general/command-help',
-                HelpCircle
+                HelpCircle,
+                'focused'
             ),
             implemented(
                 'command-prefix',
                 'Command Prefix',
                 'Change the bot command prefix.',
                 '/dashboard/$guildId/general/command-prefix',
-                Settings2
+                Settings2,
+                'focused'
             ),
         ],
     },
@@ -399,14 +389,14 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/events',
         description: 'Future audit and logging exploration.',
         icon: BellDot,
-        status: 'planned',
         items: [
             implemented(
                 'audit-events',
                 'Audit Events',
                 'Search persisted dashboard and bot changes.',
                 '/dashboard/$guildId/events/audit-events',
-                ScrollText
+                ScrollText,
+                'full'
             ),
             placeholder(
                 'logging-destinations',
@@ -424,17 +414,15 @@ const dashboardNavigationSettings = [
         to: '/dashboard/$guildId/structure',
         description: 'Inspect, compare, back up, and safely deploy server layout changes.',
         icon: GitBranch,
-        status: 'active',
         items: [],
     },
     {
         id: 'system',
-        label: 'System',
+        label: 'Integrations',
         path: 'system',
         to: '/dashboard/$guildId/system',
-        description: 'Future deployment, session, documentation, and platform controls.',
+        description: 'Guild-owned installation and public integration settings.',
         icon: ServerCog,
-        status: 'planned',
         items: [
             placeholder(
                 'bot-installation-sync',
@@ -442,34 +430,6 @@ const dashboardNavigationSettings = [
                 'Planned installation reconciliation visibility.',
                 '/dashboard/$guildId/system/bot-installation-sync',
                 Bot
-            ),
-            placeholder(
-                'convex-dashboard-data',
-                'Convex Dashboard Data',
-                'Planned Convex-backed dashboard data status.',
-                '/dashboard/$guildId/system/convex-dashboard-data',
-                Boxes
-            ),
-            placeholder(
-                'deployment',
-                'Deployment',
-                'Planned deployment and image status.',
-                '/dashboard/$guildId/system/deployment',
-                TerminalSquare
-            ),
-            placeholder(
-                'documentation',
-                'Documentation',
-                'Planned documentation status.',
-                '/dashboard/$guildId/system/documentation',
-                Library
-            ),
-            placeholder(
-                'oauth-sessions',
-                'OAuth Sessions',
-                'Planned OAuth session controls.',
-                '/dashboard/$guildId/system/oauth-sessions',
-                KeyRound
             ),
             placeholder(
                 'public-web-links',
@@ -549,15 +509,13 @@ export const dashboardCapabilities = dashboardNavigationSettings.flatMap((settin
             ...item,
             categoryId: setting.id,
             navigationJobId: getCapabilityNavigationJobId(setting.id, item.id),
-            scope: getCapabilityScope(setting.id, item.id),
         })
     )
 );
 
 export const dashboardNavigationEntries = dashboardNavigationJobs.flatMap((job): DashboardNavigationEntry[] => {
-    const availableItems = dashboardCapabilities.filter(
-        (item) => item.navigationJobId === job.id && item.scope === 'guild' && item.status === 'implemented'
-    );
+    const jobItems = dashboardCapabilities.filter((item) => item.navigationJobId === job.id);
+    const availableItems = jobItems.filter((item) => item.status === 'implemented');
     const defaultSubNavigationTo = availableItems.at(0)?.to;
     const directCategory = getDirectNavigationCategory(job.id);
 
@@ -565,7 +523,7 @@ export const dashboardNavigationEntries = dashboardNavigationJobs.flatMap((job):
         return [];
     }
 
-    if (availableItems.length > 1 && defaultSubNavigationTo) {
+    if (!directCategory && jobItems.length > 1 && defaultSubNavigationTo) {
         return [
             {
                 category: job,
@@ -600,6 +558,16 @@ export function getDashboardCategory(id: DashboardCategoryId): DashboardCategory
 
 export function getDashboardCategorySubNavigation(id: DashboardCategoryId): readonly DashboardSubNavigationItem[] {
     return dashboardCapabilities.filter((item) => item.categoryId === id);
+}
+
+export function getDashboardNavigationJob(id: DashboardNavigationJobId): DashboardNavigationJobDefinition {
+    const job = dashboardNavigationJobs.find((candidate) => candidate.id === id);
+
+    if (!job) {
+        throw new Error(`Unknown dashboard navigation job: ${id}`);
+    }
+
+    return job;
 }
 
 export function getDashboardSubNavigationItem(id: DashboardCategoryId, itemId: string): DashboardSubNavigationItem {
@@ -693,23 +661,6 @@ function getCapabilityNavigationJobId(categoryId: DashboardCategoryId, itemId: s
     }
 }
 
-function getCapabilityScope(categoryId: DashboardCategoryId, itemId: string): DashboardCapabilityScope {
-    if (categoryId !== 'system') {
-        return 'guild';
-    }
-
-    switch (itemId) {
-        case 'oauth-sessions':
-            return 'account';
-        case 'convex-dashboard-data':
-        case 'deployment':
-        case 'documentation':
-            return 'platform';
-        default:
-            return 'guild';
-    }
-}
-
 function implemented(...input: SubNavigationInput): DashboardSubNavigationSetting {
     return subNavigationItem(input, true);
 }
@@ -719,7 +670,7 @@ function placeholder(...input: SubNavigationInput): DashboardSubNavigationSettin
 }
 
 function subNavigationItem(
-    [id, label, description, to, icon]: SubNavigationInput,
+    [id, label, description, to, icon, pageWidth = 'standard']: SubNavigationInput,
     isImplemented: boolean
 ): DashboardSubNavigationSetting {
     return {
@@ -728,7 +679,7 @@ function subNavigationItem(
         description,
         to,
         icon,
-        implemented: isImplemented,
+        pageWidth,
         status: isImplemented ? 'implemented' : 'placeholder',
     };
 }

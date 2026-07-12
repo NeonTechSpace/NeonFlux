@@ -1,6 +1,8 @@
 import { Component, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 
+import { dashboardDangerActionClassName, DashboardStatus } from './dashboard-ui.js';
+
 type BoundaryProps = {
     children: ReactNode;
     onRetry: () => void;
@@ -62,17 +64,21 @@ export function DashboardStructureErrorState({
     retryDisabled?: boolean;
 }) {
     return (
-        <article className='rounded-lg border border-rose-400/30 bg-rose-950/20 p-5' role='alert'>
-            <h3 className='text-lg font-semibold text-rose-100'>{title}</h3>
-            <p className='mt-2 text-sm leading-6 text-neutral-300'>{message}</p>
-            <p className='mt-2 font-mono text-xs text-neutral-500'>Diagnostic: {diagnosticCode}</p>
-            <button
-                type='button'
-                onClick={onRetry}
-                disabled={retryDisabled}
-                className='mt-4 min-h-10 rounded-md border border-rose-300/50 px-4 text-sm font-semibold text-rose-100 transition hover:border-rose-200 disabled:cursor-wait disabled:opacity-50'>
-                {retryDisabled ? 'Waiting for current read' : 'Retry Blueprint'}
-            </button>
-        </article>
+        <DashboardStatus
+            tone='danger'
+            title={title}
+            role='alert'
+            actions={
+                <button
+                    type='button'
+                    onClick={onRetry}
+                    disabled={retryDisabled}
+                    className={dashboardDangerActionClassName}>
+                    {retryDisabled ? 'Waiting for current read' : 'Retry Blueprint'}
+                </button>
+            }>
+            <p>{message}</p>
+            <p className='mt-1 font-mono text-xs text-[var(--dash-text-subtle)]'>Diagnostic: {diagnosticCode}</p>
+        </DashboardStatus>
     );
 }

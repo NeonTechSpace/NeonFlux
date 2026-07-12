@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { DashboardAmbientSurface } from './dashboard-ambient-surface.js';
 import { useDashboardDisplayPreferences } from './dashboard-display-preferences-store.js';
+import { dashboardPrimaryActionClassName } from './dashboard-ui.js';
 
 export function DashboardShell({ children }: { children: ReactNode }) {
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
@@ -11,7 +12,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     return (
         <MotionConfig reducedMotion={reducedEffectsEnabled ? 'always' : 'user'} skipAnimations={reducedEffectsEnabled}>
             <main
-                className='dashboard-theme h-dvh overflow-hidden px-3 py-4 text-[var(--dash-text)] sm:px-5 lg:px-6'
+                className='dashboard-theme relative isolate h-dvh overflow-hidden bg-[var(--dash-bg)] px-3 py-4 text-[var(--dash-text)] sm:px-5 lg:px-6'
                 data-reduce-effects={reducedEffectsEnabled}>
                 <DashboardAmbientSurface />
                 <div className='relative z-10 mx-auto flex h-full w-full max-w-[1800px] min-w-0 flex-col gap-5 overflow-hidden'>
@@ -48,7 +49,7 @@ export function DashboardStatusSection({
 }
 
 function DashboardStatusAction({ actionTo, children }: { actionTo: string; children: ReactNode }) {
-    const className = 'dashboard-primary-button inline-flex min-h-10 items-center px-4 focus-visible:outline-none';
+    const className = `${dashboardPrimaryActionClassName} inline-flex items-center`;
 
     switch (actionTo) {
         case '/dashboard':
