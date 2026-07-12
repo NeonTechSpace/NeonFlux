@@ -9,12 +9,18 @@ import {
     saveDashboardPostingTemplateRouteData,
 } from '../server/dashboard-posting-templates-route-data.js';
 import type { DashboardMessageTemplate } from '../server/dashboard-posting-templates.server.js';
-import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
+import {
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
+    dashboardTactile,
+} from './dashboard-motion.js';
 
 type TemplateControlsMessage = {
     type: 'error' | 'success' | 'warning';
     text: string;
 };
+
+type TemplateConfirmation = { type: 'apply' | 'delete'; templateId: string };
 
 export function DashboardPostingTemplateControls({
     guildId,
@@ -34,8 +40,7 @@ export function DashboardPostingTemplateControls({
     const queryClient = useQueryClient();
     const [templateName, setTemplateName] = useState('');
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
-    const [deleteConfirmTemplateId, setDeleteConfirmTemplateId] = useState('');
-    const [applyConfirmTemplateId, setApplyConfirmTemplateId] = useState('');
+    const [confirmation, setConfirmation] = useState<TemplateConfirmation>();
 
     const templatesQuery = useQuery({
         queryKey: getDashboardPostingTemplatesQueryKey(guildId),
@@ -134,7 +139,7 @@ export function DashboardPostingTemplateControls({
             switch (result.type) {
                 case 'deleted':
                     setSelectedTemplateId('');
-                    setDeleteConfirmTemplateId('');
+                    setConfirmation(undefined);
                     onMessage({ type: 'success', text: 'Template deleted.' });
                     await invalidateTemplateQueries(queryClient, guildId);
                     return;
@@ -199,8 +204,11 @@ export function DashboardPostingTemplateControls({
         }
 
         const composerHasContent = Boolean(content.trim() || embeds.length > 0 || payloadError);
-        if (composerHasContent && applyConfirmTemplateId !== selectedTemplate.id) {
-            setApplyConfirmTemplateId(selectedTemplate.id);
+        if (
+            composerHasContent &&
+            !(confirmation?.type === 'apply' && confirmation.templateId === selectedTemplate.id)
+        ) {
+            setConfirmation({ type: 'apply', templateId: selectedTemplate.id });
             onMessage({
                 type: 'warning',
                 text: `Replace the current message with ${selectedTemplate.name}? Select replace again to confirm.`,
@@ -208,7 +216,7 @@ export function DashboardPostingTemplateControls({
             return;
         }
 
-        setApplyConfirmTemplateId('');
+        setConfirmation(undefined);
         onApplyTemplate(selectedTemplate);
         setTemplateName(selectedTemplate.name);
     }
@@ -219,8 +227,8 @@ export function DashboardPostingTemplateControls({
             return;
         }
 
-        if (deleteConfirmTemplateId !== selectedTemplate.id) {
-            setDeleteConfirmTemplateId(selectedTemplate.id);
+        if (!(confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate.id)) {
+            setConfirmation({ type: 'delete', templateId: selectedTemplate.id });
             onMessage({
                 type: 'warning',
                 text: `Delete ${selectedTemplate.name}? This removes the saved template, not any messages already sent.`,
@@ -250,8 +258,7 @@ export function DashboardPostingTemplateControls({
                             setSelectedTemplateId(nextTemplateId);
                             const nextTemplate = templates.find((template) => template.id === nextTemplateId);
                             setTemplateName(nextTemplate?.name ?? '');
-                            setDeleteConfirmTemplateId('');
-                            setApplyConfirmTemplateId('');
+                            setConfirmation(undefined);
                         }}
                         className={fieldClassName}
                         disabled={templatesQuery.isPending || templatesQuery.isError || templates.length === 0}>
@@ -270,7 +277,7 @@ export function DashboardPostingTemplateControls({
                     </select>
                 </label>
 
-                <div className='flex items-end gap-2'>
+                <div className='flex flex-wrap items-end gap-2'>
                     <motion.button
                         type='button'
                         onClick={applySelectedTemplate}
@@ -282,24 +289,25 @@ export function DashboardPostingTemplateControls({
                         }
                         className={secondaryButtonClassName}
                         {...dashboardTactile}>
-                        {applyConfirmTemplateId === selectedTemplate?.id ? 'Confirm replace' : 'Apply'}
+                        {confirmation?.type === 'apply' && confirmation.templateId === selectedTemplate?.id
+                            ? 'Confirm replace'
+                            : 'Apply'}
                     </motion.button>
-                    <AnimatePresence initial={false}>
-                        {applyConfirmTemplateId === selectedTemplate?.id ? (
-                            <motion.button
-                                key='cancel-replace'
-                                type='button'
-                                onClick={() => setApplyConfirmTemplateId('')}
-                                className={secondaryButtonClassName}
-                                variants={dashboardInlineVariants}
-                                initial='initial'
-                                animate='enter'
-                                transition={dashboardFastTransition}
-                                {...dashboardTactile}>
-                                Cancel replace
-                            </motion.button>
-                        ) : null}
-                    </AnimatePresence>
+                    {confirmation?.type === 'apply' && confirmation.templateId === selectedTemplate?.id ? (
+                        <motion.button
+                            key='cancel-replace'
+                            data-dashboard-motion='confirmation'
+                            type='button'
+                            onClick={() => setConfirmation(undefined)}
+                            className={secondaryButtonClassName}
+                            variants={dashboardConfirmationVariants}
+                            initial='initial'
+                            animate='enter'
+                            transition={dashboardConfirmationTransition}
+                            {...dashboardTactile}>
+                            Cancel replace
+                        </motion.button>
+                    ) : null}
                     <motion.button
                         type='button'
                         onClick={deleteSelectedTemplate}
@@ -311,26 +319,25 @@ export function DashboardPostingTemplateControls({
                         }
                         className={dangerButtonClassName}
                         {...dashboardTactile}>
-                        {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id
+                        {confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate?.id
                             ? 'Confirm delete'
                             : 'Delete'}
                     </motion.button>
-                    <AnimatePresence initial={false}>
-                        {deleteConfirmTemplateId && deleteConfirmTemplateId === selectedTemplate?.id ? (
-                            <motion.button
-                                key='cancel-delete'
-                                type='button'
-                                onClick={() => setDeleteConfirmTemplateId('')}
-                                className={secondaryButtonClassName}
-                                variants={dashboardInlineVariants}
-                                initial='initial'
-                                animate='enter'
-                                transition={dashboardFastTransition}
-                                {...dashboardTactile}>
-                                Cancel
-                            </motion.button>
-                        ) : null}
-                    </AnimatePresence>
+                    {confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate?.id ? (
+                        <motion.button
+                            key='cancel-delete'
+                            data-dashboard-motion='confirmation'
+                            type='button'
+                            onClick={() => setConfirmation(undefined)}
+                            className={secondaryButtonClassName}
+                            variants={dashboardConfirmationVariants}
+                            initial='initial'
+                            animate='enter'
+                            transition={dashboardConfirmationTransition}
+                            {...dashboardTactile}>
+                            Cancel
+                        </motion.button>
+                    ) : null}
                 </div>
             </div>
 
@@ -359,11 +366,12 @@ export function DashboardPostingTemplateControls({
                 {templatesQuery.isError ? (
                     <motion.p
                         role='alert'
+                        data-dashboard-motion='confirmation'
                         className='text-sm text-rose-300'
-                        variants={dashboardInlineVariants}
+                        variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardConfirmationTransition}>
                         Templates could not be loaded. Reload them before saving or deleting.
                     </motion.p>
                 ) : null}

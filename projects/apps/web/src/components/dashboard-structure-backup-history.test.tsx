@@ -75,6 +75,16 @@ describe('DashboardStructureBackupHistory', () => {
         expect(screen.getByRole('button', { name: 'Create restore dry-run' })).toBeTruthy();
         expect(view.onLoadMore).toHaveBeenCalledOnce();
     });
+
+    it('uses one concise empty-state explanation', () => {
+        renderHistory({ page: { backups: [] } });
+
+        expect(screen.getByText('Protected snapshots for comparison and recovery')).toBeTruthy();
+        expect(
+            screen.getByText('Create a backup to establish the first comparison baseline and recovery source.')
+        ).toBeTruthy();
+        expect(screen.queryByText(/no (stored|server blueprint) backups/i)).toBeNull();
+    });
 });
 
 function renderHistory(

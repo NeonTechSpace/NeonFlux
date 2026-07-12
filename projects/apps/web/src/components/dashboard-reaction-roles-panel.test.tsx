@@ -87,6 +87,29 @@ describe('reaction-role operation status', () => {
         );
     });
 
+    it('offers one empty-state action and one editor heading', async () => {
+        vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue({
+            channels: [],
+            emojiReadStatus: 'available',
+            emojis: [],
+            messages: [],
+            operations: [],
+            roles: [],
+            structureReadStatus: 'available',
+            type: 'settings',
+        });
+        renderPanel();
+
+        expect(await screen.findByText('Your first role menu')).toBeTruthy();
+        expect(screen.getAllByRole('button', { name: 'Create menu' })).toHaveLength(1);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Create menu' }));
+
+        expect(screen.getAllByText('Create reaction-role menu')).toHaveLength(1);
+        expect(screen.queryByText('Reaction-role menus')).toBeNull();
+        expect(screen.getByText('Members cannot use this menu until Fluxer confirms synchronization.')).toBeTruthy();
+    });
+
     it('exposes retry for terminal member-assignment failures', async () => {
         vi.mocked(readDashboardReactionRolesSettingsRouteData).mockResolvedValue({
             channels: [],

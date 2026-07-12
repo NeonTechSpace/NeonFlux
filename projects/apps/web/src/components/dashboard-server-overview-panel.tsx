@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -12,15 +11,8 @@ import {
     dashboardContentVariants,
     dashboardFastTransition,
     dashboardInlineVariants,
-    dashboardTactile,
 } from './dashboard-motion.js';
-import {
-    DashboardEmptyState,
-    DashboardErrorState,
-    DashboardStatus,
-    DashboardSurface,
-    DashboardToolbar,
-} from './dashboard-ui.js';
+import { DashboardEmptyState, DashboardErrorState, DashboardSurface, DashboardToolbar } from './dashboard-ui.js';
 
 type MemberFlowChartDay = DashboardGuildOverview['memberFlow']['graph'][number] & {
     leaveLoss: number;
@@ -66,6 +58,8 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
         );
     }
 
+    const hasActivity = overview.dataHealth.hasMemberFlow || overview.dataHealth.hasMessageActivity;
+
     return (
         <motion.div
             className='mx-auto max-w-[90rem] space-y-5'
@@ -73,13 +67,17 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
             initial='initial'
             animate='enter'
             transition={dashboardContentTransition}>
-            <OverviewAttention overview={overview} />
-            <OverviewSummary overview={overview} refreshedAt={overviewQuery.dataUpdatedAt} />
-            <div className='grid gap-4 xl:grid-cols-2'>
-                <MemberFlowChart overview={overview} />
-                <MessageActivityChart overview={overview} />
-            </div>
-            <OverviewQuickActions guildId={guildId} />
+            {hasActivity ? (
+                <>
+                    <OverviewSummary overview={overview} refreshedAt={overviewQuery.dataUpdatedAt} />
+                    <div className='grid gap-4 xl:grid-cols-2'>
+                        <MemberFlowChart overview={overview} />
+                        <MessageActivityChart overview={overview} />
+                    </div>
+                </>
+            ) : (
+                <OverviewFirstUse />
+            )}
         </motion.div>
     );
 }
@@ -115,31 +113,27 @@ export function DashboardServerOverviewLoading() {
     );
 }
 
-function OverviewAttention({ overview }: { overview: DashboardGuildOverview }) {
-    const missingSignals = [
-        !overview.dataHealth.hasMemberFlow ? 'member movement' : undefined,
-        !overview.dataHealth.hasMessageActivity ? 'message activity' : undefined,
-    ].filter((signal): signal is string => Boolean(signal));
-
-    if (missingSignals.length === 0) return null;
-
+function OverviewFirstUse() {
     return (
         <motion.div
             variants={dashboardInlineVariants}
             initial='initial'
             animate='enter'
             transition={dashboardFastTransition}>
-            <DashboardStatus tone='info' title='Activity data is still building'>
-                The dashboard has not recorded {formatList(missingSignals)} in this window. New activity will appear
-                here as it is observed.
-            </DashboardStatus>
+            <DashboardSurface tone='glass' padding='compact'>
+                <DashboardEmptyState
+                    size='compact'
+                    title='Listening for activity'
+                    description='Member movement and messages will appear after NeonFlux observes them.'
+                />
+            </DashboardSurface>
         </motion.div>
     );
 }
 
 function OverviewSummary({ overview, refreshedAt }: { overview: DashboardGuildOverview; refreshedAt: number }) {
     return (
-        <DashboardSurface padding='none' className='overflow-hidden' aria-label='30-day activity summary'>
+        <DashboardSurface tone='glass' padding='none' className='overflow-hidden' aria-label='30-day activity summary'>
             <DashboardToolbar
                 className='px-4 py-3'
                 summary={
@@ -340,50 +334,6 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
     );
 }
 
-function OverviewQuickActions({ guildId }: { guildId: string }) {
-    const actionClassName =
-        'inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-3 text-sm font-semibold text-[var(--dash-text)] transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none';
-
-    return (
-        <DashboardSurface tone='subtle' padding='compact' aria-labelledby='overview-next-actions-heading'>
-            <div className='flex flex-wrap items-center justify-between gap-3'>
-                <div>
-                    <h3 id='overview-next-actions-heading' className='text-sm font-semibold text-[var(--dash-text)]'>
-                        Common tasks
-                    </h3>
-                    <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>Go directly to the tool you need.</p>
-                </div>
-                <div className='flex flex-wrap gap-2'>
-                    <motion.div {...dashboardTactile}>
-                        <Link
-                            to='/dashboard/$guildId/messaging/message-builder'
-                            params={{ guildId }}
-                            className={actionClassName}>
-                            Build a message
-                        </Link>
-                    </motion.div>
-                    <motion.div {...dashboardTactile}>
-                        <Link
-                            to='/dashboard/$guildId/events/audit-events'
-                            params={{ guildId }}
-                            className={actionClassName}>
-                            Review activity
-                        </Link>
-                    </motion.div>
-                    <motion.div {...dashboardTactile}>
-                        <Link
-                            to='/dashboard/$guildId/general/command-prefix'
-                            params={{ guildId }}
-                            className={actionClassName}>
-                            Change command prefix
-                        </Link>
-                    </motion.div>
-                </div>
-            </div>
-        </DashboardSurface>
-    );
-}
-
 function ChartPanel({
     title,
     legendItems,
@@ -487,12 +437,6 @@ function formatRefreshTime(value: number): string {
               hour: 'numeric',
               minute: '2-digit',
           });
-}
-
-function formatList(values: string[]): string {
-    if (values.length <= 1) return values[0] ?? 'activity';
-
-    return `${values.slice(0, -1).join(', ')} and ${values.at(-1)}`;
 }
 
 function formatChartDate(value: unknown): string {

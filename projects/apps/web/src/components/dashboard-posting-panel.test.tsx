@@ -88,6 +88,12 @@ describe('DashboardPostingPanel', () => {
         expect(screen.getByText(/replace the current message/i)).toBeTruthy();
         expect((message as HTMLTextAreaElement).value).toBe('Unsaved message');
 
+        fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        expect(screen.queryByRole('button', { name: 'Confirm replace' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Confirm delete' })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
         fireEvent.click(screen.getByRole('button', { name: 'Confirm replace' }));
 
         expect((message as HTMLTextAreaElement).value).toBe('Template content');

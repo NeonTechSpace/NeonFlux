@@ -43,6 +43,7 @@ export function DashboardGuildSelector({
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [localPendingGuildId, setLocalPendingGuildId] = useState<string>();
+    const [desktopDockPosition, setDesktopDockPosition] = useState<{ left: number; top: number }>();
     const selectorRef = useRef<HTMLElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const dockRef = useRef<HTMLElement>(null);
@@ -100,6 +101,20 @@ export function DashboardGuildSelector({
             }
         }
 
+        function handleDesktopViewportChange(event: Event): void {
+            if (variant === 'sidebar') {
+                if (
+                    event.type === 'scroll' &&
+                    event.target instanceof Node &&
+                    dockRef.current?.contains(event.target)
+                ) {
+                    return;
+                }
+
+                closeSelector({ restoreFocus: false });
+            }
+        }
+
         const desktopMedia =
             variant === 'mobile-header' && typeof window.matchMedia === 'function'
                 ? window.matchMedia('(min-width: 768px)')
@@ -107,15 +122,17 @@ export function DashboardGuildSelector({
 
         window.addEventListener('pointerdown', handlePointerDown);
         window.addEventListener('keydown', handleEscape);
+        window.addEventListener('resize', handleDesktopViewportChange);
+        window.addEventListener('scroll', handleDesktopViewportChange, true);
         desktopMedia?.addEventListener('change', handleDesktopBreakpoint);
 
-        if (variant === 'mobile-header') {
-            queueMicrotask(() => dockCloseRef.current?.focus());
-        }
+        queueMicrotask(() => dockCloseRef.current?.focus());
 
         return () => {
             window.removeEventListener('pointerdown', handlePointerDown);
             window.removeEventListener('keydown', handleEscape);
+            window.removeEventListener('resize', handleDesktopViewportChange);
+            window.removeEventListener('scroll', handleDesktopViewportChange, true);
             desktopMedia?.removeEventListener('change', handleDesktopBreakpoint);
         };
     }, [open, variant]);
@@ -124,14 +141,30 @@ export function DashboardGuildSelector({
         setOpen(false);
         setQuery('');
         setLocalPendingGuildId(undefined);
+        setDesktopDockPosition(undefined);
 
         if (restoreFocus) {
             queueMicrotask(() => triggerRef.current?.focus());
         }
     }
 
+    function openSelector(): void {
+        if (variant === 'sidebar') {
+            const selectorBounds = selectorRef.current?.getBoundingClientRect();
+
+            if (selectorBounds) {
+                setDesktopDockPosition({
+                    left: selectorBounds.right + 12,
+                    top: Math.max(8, selectorBounds.top),
+                });
+            }
+        }
+
+        setOpen(true);
+    }
+
     function handleDockKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
-        if (variant !== 'mobile-header' || event.key !== 'Tab') {
+        if (event.key !== 'Tab') {
             return;
         }
 
@@ -172,7 +205,7 @@ export function DashboardGuildSelector({
                 title={`Switch server — ${activeGuild.name}`}
                 aria-expanded={open}
                 aria-controls={dockId}
-                onClick={() => (open ? closeSelector() : setOpen(true))}
+                onClick={() => (open ? closeSelector() : openSelector())}
                 className={getTriggerClassName(variant)}>
                 <span className='relative grid size-9 shrink-0 place-items-center overflow-visible rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)]'>
                     <span className='grid size-full place-items-center overflow-hidden rounded-full' aria-hidden='true'>
@@ -182,7 +215,9 @@ export function DashboardGuildSelector({
                         <ChevronsUpDown className='size-2.5' aria-hidden='true' />
                     </span>
                 </span>
-                <span className={variant === 'mobile-header' ? 'min-w-0 flex-1' : 'hidden min-w-0 flex-1 xl:block'}>
+                <span
+                    className={variant === 'mobile-header' ? 'min-w-0 flex-1' : 'hidden min-w-0 flex-1 lg:block'}
+                    title={activeGuild.name}>
                     {variant === 'mobile-header' ? (
                         <>
                             <span className='block truncate text-sm font-semibold'>{activeGuild.name}</span>
@@ -192,10 +227,9 @@ export function DashboardGuildSelector({
                         </>
                     ) : (
                         <>
-                            <span className='block text-[0.68rem] font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
-                                Server
+                            <span className='line-clamp-2 block text-sm leading-4 font-semibold'>
+                                {activeGuild.name}
                             </span>
-                            <span className='block truncate text-sm font-semibold'>{activeGuild.name}</span>
                         </>
                     )}
                 </span>
@@ -203,7 +237,7 @@ export function DashboardGuildSelector({
                     className={
                         variant === 'mobile-header'
                             ? 'size-4 shrink-0 text-[var(--dash-primary)]'
-                            : 'hidden size-4 shrink-0 text-[var(--dash-primary)] xl:block'
+                            : 'hidden size-4 shrink-0 text-[var(--dash-primary)] lg:block'
                     }
                     aria-hidden='true'
                 />
@@ -225,6 +259,7 @@ export function DashboardGuildSelector({
                         pendingGuildId={pendingGuildId}
                         navigationDisabledGuildId={routePendingGuildId}
                         portalHost={selectorRef.current?.closest<HTMLElement>('.dashboard-theme')}
+                        desktopPosition={desktopDockPosition}
                         query={query}
                         showTools={showTools}
                         sortByName={sortByName}
@@ -254,6 +289,7 @@ function DashboardServerDock({
     pendingGuildId,
     navigationDisabledGuildId,
     portalHost,
+    desktopPosition,
     query,
     showTools,
     sortByName,
@@ -276,6 +312,7 @@ function DashboardServerDock({
     pendingGuildId?: string;
     navigationDisabledGuildId?: string;
     portalHost?: HTMLElement | null;
+    desktopPosition?: { left: number; top: number };
     query: string;
     showTools: boolean;
     sortByName: boolean;
@@ -289,7 +326,7 @@ function DashboardServerDock({
         <motion.section
             ref={dockRef}
             id={id}
-            role={variant === 'mobile-header' ? 'dialog' : undefined}
+            role='dialog'
             aria-modal={variant === 'mobile-header' ? true : undefined}
             aria-label='Switch server'
             initial={
@@ -301,14 +338,12 @@ function DashboardServerDock({
             }
             transition={dockSpring}
             onKeyDown={onDockKeyDown}
+            style={variant === 'sidebar' ? desktopPosition : undefined}
             className={getDockClassName(variant)}>
             <div className='flex shrink-0 items-center gap-3 border-b border-[var(--dash-border)] px-3 py-3 sm:px-4'>
-                <div className='min-w-0 flex-1'>
-                    <p className='text-[0.68rem] font-semibold tracking-[0.14em] text-[var(--dash-primary)] uppercase'>
-                        Server dock
-                    </p>
-                    <h2 className='truncate text-base font-semibold text-[var(--dash-text)]'>Switch server</h2>
-                </div>
+                <h2 className='min-w-0 flex-1 truncate text-base font-semibold text-[var(--dash-text)]'>
+                    Switch server
+                </h2>
                 <button
                     ref={closeRef}
                     type='button'
@@ -388,7 +423,7 @@ function DashboardServerDock({
         );
     }
 
-    return dock;
+    return createPortal(dock, portalHost ?? document.body);
 }
 
 function DashboardCurrentGuildTile({ guild, layoutId }: { guild: DashboardGuildShellGuild; layoutId: string }) {
@@ -397,6 +432,7 @@ function DashboardCurrentGuildTile({ guild, layoutId }: { guild: DashboardGuildS
             <span
                 aria-current='page'
                 aria-label={`${guild.name}, current server`}
+                title={guild.name}
                 className={`${getDockTileClassName('current')} cursor-default`}>
                 <motion.span
                     layoutId={layoutId}
@@ -404,7 +440,9 @@ function DashboardCurrentGuildTile({ guild, layoutId }: { guild: DashboardGuildS
                     transition={dockSpring}
                 />
                 <DashboardDockAvatar guild={guild} active />
-                <span className='relative block w-full truncate text-center text-xs font-semibold'>{guild.name}</span>
+                <span className='relative line-clamp-2 block min-h-8 w-full text-center text-xs leading-4 font-semibold'>
+                    {guild.name}
+                </span>
                 <span className='relative inline-flex items-center gap-1 text-[0.65rem] font-semibold text-[var(--dash-primary)]'>
                     <Check className='size-3' aria-hidden='true' /> Current
                 </span>
@@ -444,15 +482,12 @@ function DashboardGuildLinkTile({
     const content = (
         <>
             <DashboardDockAvatar guild={guild} />
-            <span className='relative block w-full truncate text-center text-xs font-semibold'>{guild.name}</span>
-            <span
-                className={
-                    pending
-                        ? 'relative text-[0.65rem] font-semibold text-[var(--dash-primary)]'
-                        : 'relative text-[0.65rem] font-medium text-[var(--dash-text-subtle)]'
-                }>
-                {pending ? 'Opening…' : 'Open'}
+            <span className='relative line-clamp-2 block min-h-8 w-full text-center text-xs leading-4 font-semibold'>
+                {guild.name}
             </span>
+            {pending ? (
+                <span className='relative text-[0.65rem] font-semibold text-[var(--dash-primary)]'>Opening…</span>
+            ) : null}
         </>
     );
 
@@ -466,6 +501,7 @@ function DashboardGuildLinkTile({
                 <span
                     aria-label={`${guild.name}, opening`}
                     aria-busy='true'
+                    title={guild.name}
                     className={getDockTileClassName('pending')}>
                     {content}
                 </span>
@@ -476,6 +512,7 @@ function DashboardGuildLinkTile({
                     state={withDashboardGuildPreview(preview, sourcePreview)}
                     aria-label={pending ? `${guild.name}, opening` : guild.name}
                     aria-busy={pending}
+                    title={guild.name}
                     onClick={(event) => onNavigate(event, guild.id)}
                     className={getDockTileClassName(pending ? 'pending' : 'default')}>
                     {content}

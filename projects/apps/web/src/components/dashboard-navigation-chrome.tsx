@@ -1,25 +1,17 @@
 import { SlidersHorizontal, UserRound } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
 import { DashboardDisplayControls } from './dashboard-display-controls.js';
 
 export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
     return (
-        <div className='shrink-0 space-y-2 border-t border-[var(--dash-border)] pt-3'>
+        <div className='dashboard-navigation-footer shrink-0 space-y-2 border-t border-[var(--dash-border)] pt-3'>
             {compact ? (
                 <>
-                    <div className='group/appearance relative flex justify-center xl:hidden'>
-                        <button
-                            type='button'
-                            aria-label='Appearance controls'
-                            className='grid size-11 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
-                            <SlidersHorizontal className='size-4' aria-hidden='true' />
-                        </button>
-                        <div className='invisible absolute bottom-0 left-[calc(100%+0.75rem)] z-50 translate-x-[-0.25rem] opacity-0 transition group-focus-within/appearance:visible group-focus-within/appearance:translate-x-0 group-focus-within/appearance:opacity-100 group-hover/appearance:visible group-hover/appearance:translate-x-0 group-hover/appearance:opacity-100'>
-                            <DashboardDisplayControls variant='inline' />
-                        </div>
-                    </div>
-                    <div className='hidden justify-center xl:flex'>
+                    <DashboardCompactAppearanceControls />
+                    <div className='hidden justify-center lg:flex'>
                         <DashboardDisplayControls variant='inline' />
                     </div>
                 </>
@@ -30,19 +22,143 @@ export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
             )}
             <a
                 href='/auth/fluxer/login'
+                aria-label='Switch account'
                 className='flex min-h-11 items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-transparent px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                 <UserRound className='size-4 shrink-0' aria-hidden='true' />
-                <span className={compact ? 'hidden xl:inline' : ''}>Switch account</span>
+                <span className={compact ? 'hidden lg:inline' : ''}>Switch account</span>
             </a>
+        </div>
+    );
+}
+
+function DashboardCompactAppearanceControls() {
+    const [open, setOpen] = useState(false);
+    const [position, setPosition] = useState<{ left: number; top: number }>();
+    const [portalHost, setPortalHost] = useState<HTMLElement>();
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
+    const popoverId = `dashboard-appearance-${useId().replaceAll(':', '')}`;
+
+    useEffect(() => {
+        if (!open) return;
+
+        function close({ restoreFocus = true }: { restoreFocus?: boolean } = {}): void {
+            setOpen(false);
+            setPosition(undefined);
+            setPortalHost(undefined);
+            if (restoreFocus) queueMicrotask(() => triggerRef.current?.focus());
+        }
+
+        function handlePointerDown(event: PointerEvent): void {
+            if (
+                event.target instanceof Node &&
+                !triggerRef.current?.contains(event.target) &&
+                !popoverRef.current?.contains(event.target)
+            ) {
+                close({ restoreFocus: false });
+            }
+        }
+
+        function handleKeyDown(event: KeyboardEvent): void {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                close();
+                return;
+            }
+
+            if (event.key !== 'Tab') return;
+
+            const buttons = popoverRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])');
+            if (!buttons || buttons.length === 0) return;
+
+            const first = buttons.item(0);
+            const last = buttons.item(buttons.length - 1);
+
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+
+        function handleViewportChange(): void {
+            close({ restoreFocus: false });
+        }
+
+        window.addEventListener('pointerdown', handlePointerDown);
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('resize', handleViewportChange);
+        window.addEventListener('scroll', handleViewportChange, true);
+        queueMicrotask(() => popoverRef.current?.querySelector<HTMLButtonElement>('button')?.focus());
+
+        return () => {
+            window.removeEventListener('pointerdown', handlePointerDown);
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('resize', handleViewportChange);
+            window.removeEventListener('scroll', handleViewportChange, true);
+        };
+    }, [open]);
+
+    function openControls(): void {
+        const bounds = triggerRef.current?.getBoundingClientRect();
+
+        if (bounds) {
+            setPosition({
+                left: bounds.right + 12,
+                top: Math.max(8, Math.min(bounds.bottom - 52, window.innerHeight - 60)),
+            });
+        }
+
+        setPortalHost(triggerRef.current?.closest<HTMLElement>('.dashboard-theme') ?? document.body);
+
+        setOpen(true);
+    }
+
+    return (
+        <div className='flex justify-center lg:hidden'>
+            <button
+                ref={triggerRef}
+                type='button'
+                aria-label='Appearance controls'
+                aria-expanded={open}
+                aria-controls={popoverId}
+                onClick={() => {
+                    if (open) {
+                        setOpen(false);
+                        setPosition(undefined);
+                        setPortalHost(undefined);
+                    } else {
+                        openControls();
+                    }
+                }}
+                className='grid size-11 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                <SlidersHorizontal className='size-4' aria-hidden='true' />
+            </button>
+            {open && portalHost
+                ? createPortal(
+                      <div
+                          ref={popoverRef}
+                          id={popoverId}
+                          role='dialog'
+                          aria-label='Appearance controls'
+                          className='fixed z-[80]'
+                          style={position}>
+                          <DashboardDisplayControls variant='inline' />
+                      </div>,
+                      portalHost
+                  )
+                : null}
         </div>
     );
 }
 
 export function DashboardGuildIdentity({ guild }: { guild: DashboardGuildShellGuild }) {
     return (
-        <div className='flex min-h-12 items-center justify-center gap-3 rounded-[var(--dash-radius-control)] px-1 xl:justify-start xl:px-2'>
+        <div className='flex min-h-12 items-center justify-center gap-3 rounded-[var(--dash-radius-control)] px-1 lg:justify-start lg:px-2'>
             <DashboardGuildAvatar guild={guild} className='size-9' />
-            <div className='hidden min-w-0 flex-1 xl:block'>
+            <div className='hidden min-w-0 flex-1 lg:block'>
                 <p className='text-[0.68rem] font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
                     Server
                 </p>
@@ -78,10 +194,11 @@ export function NavigationLoadingIndicator({ compact = false }: { compact?: bool
     return (
         <span
             role='status'
+            data-dashboard-loading={compact ? 'pulse' : undefined}
             className={
                 compact
                     ? 'size-2 shrink-0 animate-pulse rounded-full bg-[var(--dash-primary)]'
-                    : 'mb-2 hidden min-h-8 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] xl:flex'
+                    : 'mb-2 hidden min-h-8 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] lg:flex'
             }>
             {compact ? <span className='sr-only'>Loading server settings</span> : 'Loading settings'}
         </span>

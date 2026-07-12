@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -61,7 +61,7 @@ describe('DashboardGuildSelector', () => {
         });
     });
 
-    it('opens a visual dock with current, manageable, all-server, and configured invite actions', () => {
+    it('opens a focus-owned portaled dock with current, manageable, all-server, and invite actions', async () => {
         renderGuildSelector(
             <DashboardGuildSelector
                 guilds={createGuilds()}
@@ -71,14 +71,25 @@ describe('DashboardGuildSelector', () => {
             />
         );
 
+        const serverNavigation = screen.getByRole('navigation', { name: 'Servers' });
         fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+        const serverDock = screen.getByRole('dialog', { name: 'Switch server' });
 
+        expect(serverNavigation.contains(serverDock)).toBe(false);
+        const closeButton = within(serverDock).getByRole('button', { name: 'Close server dock' });
+        await waitFor(() => expect(closeButton.matches(':focus')).toBe(true));
+        fireEvent.keyDown(serverDock, { key: 'Tab', shiftKey: true });
+        expect(within(serverDock).getByRole('link', { name: 'Invite bot' }).matches(':focus')).toBe(true);
+        fireEvent.scroll(serverDock);
+        expect(screen.getByRole('dialog', { name: 'Switch server' })).toBe(serverDock);
         expect(screen.getByLabelText('Guild One, current server').getAttribute('aria-current')).toBe('page');
         expect(screen.getByRole('link', { name: 'Guild Two' })).toBeDefined();
         expect(screen.getByRole('link', { name: 'All servers' }).getAttribute('href')).toBe('/dashboard');
         expect(screen.getByRole('link', { name: 'Invite bot' }).getAttribute('href')).toBe(
             'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
         );
+        expect(screen.queryByText('Server dock')).toBeNull();
+        expect(screen.queryByText('Open')).toBeNull();
         expect(document.body.textContent).not.toContain('guild-1');
         expect(document.body.textContent).not.toContain('guild-2');
     });
@@ -145,6 +156,26 @@ describe('DashboardGuildSelector', () => {
         expect(screen.getByRole('link', { name: 'Beta Guild' })).toBeDefined();
         expect(screen.queryByRole('link', { name: 'Alpha Guild' })).toBeNull();
         expect(document.body.textContent).not.toContain('guild-b');
+    });
+
+    it('keeps full server names recoverable when tile labels wrap', () => {
+        const longName = 'A Very Long Community Server Name That Needs More Space';
+        renderGuildSelector(
+            <DashboardGuildSelector
+                guilds={[
+                    { id: 'guild-1', name: 'Guild One' },
+                    { id: 'guild-long', name: longName },
+                ]}
+                activeGuildId='guild-1'
+                pathname='/dashboard/guild-1'
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+
+        const longServer = screen.getByRole('link', { name: longName });
+        expect(longServer.getAttribute('title')).toBe(longName);
+        expect(screen.getByText(longName).className).toContain('line-clamp-2');
     });
 
     it('opens directly as a mobile dialog and restores trigger focus after Escape', async () => {

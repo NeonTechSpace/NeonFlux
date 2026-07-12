@@ -7,7 +7,11 @@ import {
     formatDashboardStructureExecutionPhase,
     formatDashboardStructureExecutionState,
 } from '../server/dashboard-structure-contracts.js';
-import { dashboardContentTransition, dashboardFastTransition, dashboardInlineVariants } from './dashboard-motion.js';
+import {
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
+    dashboardSelectionTransition,
+} from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 
 const blueprintNavigation = [
@@ -58,8 +62,9 @@ export function DashboardStructureWorkspaceShell({
                                     {isActive ? (
                                         <motion.span
                                             layoutId='server-blueprint-active-tool'
+                                            data-dashboard-motion='selection-gel'
                                             className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
-                                            transition={dashboardContentTransition}
+                                            transition={dashboardSelectionTransition}
                                         />
                                     ) : null}
                                 </>
@@ -103,13 +108,14 @@ function BlueprintExecutionStrip({
 
     return (
         <motion.div
+            data-dashboard-motion='confirmation'
             className='grid min-w-0 gap-2 border-t border-[var(--dash-border)] py-2.5 md:grid-cols-[minmax(0,1fr)_minmax(9rem,16rem)_auto] md:items-center md:gap-4'
             aria-label='Active Blueprint deployment'
-            variants={dashboardInlineVariants}
+            variants={dashboardConfirmationVariants}
             initial='initial'
             animate='enter'
             exit='exit'
-            transition={dashboardFastTransition}>
+            transition={dashboardConfirmationTransition}>
             <div className='min-w-0'>
                 <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
                     <span className='font-semibold text-[var(--dash-text)]'>Deployment active</span>
@@ -144,10 +150,11 @@ function BlueprintExecutionStrip({
                     className='h-1.5 w-full overflow-hidden rounded-full bg-[var(--dash-surface-raised)]'
                     aria-hidden='true'>
                     <motion.div
+                        data-dashboard-motion='confirmation'
                         className='h-full rounded-full bg-[var(--dash-primary)]'
                         initial={false}
                         animate={{ width: `${percent}%` }}
-                        transition={dashboardContentTransition}
+                        transition={dashboardConfirmationTransition}
                     />
                 </div>
             </div>

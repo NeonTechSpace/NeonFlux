@@ -10,14 +10,8 @@ import { loadLocalEnv } from '../packages/config/src/env.js';
 import { createConvexCliChildEnv } from './convex-cli.js';
 
 type ResetDataArgs = {
-    confirmProductionReset: boolean;
-    convexArgs: string[];
-    dryRun: boolean;
-    yes: boolean;
+    production: boolean;
 };
-
-const productionDeploymentRefs = new Set(['prod', 'production']);
-const unsupportedDeploymentRefs = new Set(['local']);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     await main().catch((error: unknown) => {
@@ -30,7 +24,6 @@ async function main(): Promise<void> {
     loadLocalEnv();
 
     const args = parseResetDataArgs(process.argv.slice(2));
-    validateResetDataArgs(args);
 
     const tableNames = getConvexSchemaTableNames();
     const tempDir = await mkdtemp(join(tmpdir(), 'neonflux-convex-reset-'));
@@ -39,13 +32,7 @@ async function main(): Promise<void> {
     try {
         await writeEmptyConvexSnapshotZip(snapshotPath, tableNames);
 
-        const convexArgs = [
-            'import',
-            '--replace-all',
-            ...args.convexArgs,
-            ...(args.yes ? ['--yes'] : []),
-            snapshotPath,
-        ];
+        const convexArgs = ['import', '--replace-all', ...(args.production ? ['--prod'] : []), '--yes', snapshotPath];
 
         process.stdout.write(
             `${[
@@ -55,11 +42,6 @@ async function main(): Promise<void> {
             ].join('\n')}\n`
         );
 
-        if (args.dryRun) {
-            process.stdout.write('Dry run only. Snapshot will be deleted.\n');
-            return;
-        }
-
         const exitCode = await runConvexCli(convexArgs);
         process.exitCode = exitCode;
     } finally {
@@ -68,87 +50,22 @@ async function main(): Promise<void> {
 }
 
 export function parseResetDataArgs(argv: readonly string[]): ResetDataArgs {
-    const convexArgs: string[] = [];
-    let confirmProductionReset = false;
-    let dryRun = false;
-    let yes = false;
+    let production = false;
 
-    for (let index = 0; index < argv.length; index += 1) {
-        const arg = argv[index];
-
+    for (const arg of argv) {
         if (arg === '--') {
             continue;
         }
 
-        if (arg === '--confirm-production-reset') {
-            confirmProductionReset = true;
-            continue;
-        }
-
-        if (arg === '--dry-run') {
-            dryRun = true;
-            continue;
-        }
-
-        if (arg === '-y' || arg === '--yes') {
-            yes = true;
-            continue;
-        }
-
         if (arg === '--prod') {
-            convexArgs.push(arg);
+            production = true;
             continue;
         }
 
-        if (arg === '--deployment') {
-            const value = argv[index + 1];
-            if (!value) throw new Error('--deployment requires a value');
-            validateSupportedDeploymentRef(value);
-            convexArgs.push(arg, value);
-            index += 1;
-            continue;
-        }
-
-        if (arg?.startsWith('--deployment=')) {
-            validateSupportedDeploymentRef(arg.slice('--deployment='.length));
-            convexArgs.push(arg);
-            continue;
-        }
-
-        throw new Error(`Unexpected argument: ${arg ?? ''}`);
+        throw new Error(`Unexpected argument: ${arg}`);
     }
 
-    return { confirmProductionReset, convexArgs, dryRun, yes };
-}
-
-function validateSupportedDeploymentRef(value: string): void {
-    if (unsupportedDeploymentRefs.has(value.toLowerCase())) {
-        throw new Error(
-            'Refusing --deployment local for reset-data. Use --deployment dev for the hosted dev deployment, or create/select a local Convex deployment manually before using the Convex CLI directly.'
-        );
-    }
-}
-
-export function validateResetDataArgs(args: ResetDataArgs): void {
-    if (!args.dryRun && !hasExplicitDeploymentTarget(args.convexArgs)) {
-        throw new Error(
-            'Refusing to reset Convex data without an explicit deployment target. Use --deployment dev, --deployment <deployment-name>, or --prod.'
-        );
-    }
-
-    if (!args.yes && !args.dryRun) {
-        throw new Error('Refusing to reset Convex data without --yes. Use --dry-run to inspect the generated command.');
-    }
-
-    if (isProductionTarget(args.convexArgs) && !args.confirmProductionReset) {
-        throw new Error(
-            'Refusing to reset a production Convex deployment without --confirm-production-reset. This deletes all documents.'
-        );
-    }
-}
-
-function hasExplicitDeploymentTarget(args: readonly string[]): boolean {
-    return args.includes('--prod') || args.some((arg) => arg === '--deployment' || arg.startsWith('--deployment='));
+    return { production };
 }
 
 export function getConvexSchemaTableNames(schema: { tables?: Record<string, unknown> } = convexSchema): string[] {
@@ -169,23 +86,6 @@ export async function writeEmptyConvexSnapshotZip(path: string, tableNames: read
 
 export async function readFileBuffer(path: string): Promise<Buffer> {
     return await readFile(path);
-}
-
-function isProductionTarget(args: readonly string[]): boolean {
-    if (args.includes('--prod')) return true;
-
-    for (let index = 0; index < args.length; index += 1) {
-        const arg = args[index];
-        if (arg === '--deployment' && productionDeploymentRefs.has((args[index + 1] ?? '').toLowerCase())) {
-            return true;
-        }
-        if (arg?.startsWith('--deployment=')) {
-            const value = arg.slice('--deployment='.length).toLowerCase();
-            if (productionDeploymentRefs.has(value)) return true;
-        }
-    }
-
-    return false;
 }
 
 async function runConvexCli(args: readonly string[]): Promise<number> {

@@ -22,10 +22,12 @@ import type {
     ParsedDashboardEmbedsResult,
 } from './dashboard-embed-builder.js';
 import {
-    dashboardContentTransition,
-    dashboardFastTransition,
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
     dashboardInlineVariants,
+    dashboardSelectionTransition,
     dashboardTactile,
+    dashboardViewTransition,
 } from './dashboard-motion.js';
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
@@ -191,16 +193,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             className='grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]'
             onSubmit={submitMessage}
             aria-busy={mutation.isPending}>
-            <DashboardSurface as='section' className='space-y-5' aria-labelledby='message-composer-heading'>
-                <div className='border-b border-[var(--dash-border)] pb-4'>
-                    <h3 id='message-composer-heading' className='text-base font-semibold text-[var(--dash-text)]'>
-                        Compose message
-                    </h3>
-                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        Choose the destination, write the message, and review the Fluxer preview before sending.
-                    </p>
-                </div>
-
+            <DashboardSurface as='section' tone='glass' className='space-y-5' aria-label='Message composer'>
                 <DashboardChannelPicker
                     channels={channelsQuery.data ?? []}
                     hasError={channelsQuery.isError}
@@ -265,11 +258,12 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     {embedMode === 'builder' ? (
                         <motion.div
                             key='builder'
+                            data-dashboard-motion='view-change'
                             variants={dashboardInlineVariants}
                             initial='initial'
                             animate='enter'
                             exit='exit'
-                            transition={dashboardContentTransition}>
+                            transition={dashboardViewTransition}>
                             <DashboardEmbedBuilder
                                 draft={embedDraft}
                                 onDraftChange={(nextDraft) => {
@@ -281,12 +275,13 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     ) : (
                         <motion.label
                             key='advanced-json'
+                            data-dashboard-motion='view-change'
                             className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'
                             variants={dashboardInlineVariants}
                             initial='initial'
                             animate='enter'
                             exit='exit'
-                            transition={dashboardContentTransition}>
+                            transition={dashboardViewTransition}>
                             <span>Embed JSON</span>
                             <textarea
                                 value={embedJson}
@@ -320,7 +315,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
 
             <aside className='min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start' aria-label='Preview and delivery'>
                 <DashboardPostingPreview content={content} embeds={previewEmbeds} />
-                <DashboardSurface as='section' tone='raised' padding='compact' aria-label='Message delivery'>
+                <DashboardSurface as='section' tone='glass' padding='compact' aria-label='Message delivery'>
                     <div className='flex flex-wrap items-center gap-3'>
                         <motion.button
                             type='submit'
@@ -346,11 +341,12 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         {formMessage ? (
                             <motion.div
                                 key={`${formMessage.type}:${formMessage.text}`}
+                                data-dashboard-motion='confirmation'
                                 className='mt-3'
-                                variants={dashboardInlineVariants}
+                                variants={dashboardConfirmationVariants}
                                 initial='initial'
                                 animate='enter'
-                                transition={dashboardFastTransition}>
+                                transition={dashboardConfirmationTransition}>
                                 <DashboardStatus tone={getFormMessageTone(formMessage.type)}>
                                     {formMessage.text}
                                 </DashboardStatus>
@@ -358,11 +354,12 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         ) : (
                             <motion.p
                                 key='delivery-help'
+                                data-dashboard-motion='confirmation'
                                 className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'
-                                variants={dashboardInlineVariants}
+                                variants={dashboardConfirmationVariants}
                                 initial='initial'
                                 animate='enter'
-                                transition={dashboardFastTransition}>
+                                transition={dashboardConfirmationTransition}>
                                 Sending is immediate. If delivery cannot be confirmed, NeonFlux stops before another
                                 attempt can begin.
                             </motion.p>
@@ -387,12 +384,22 @@ function EmbedModeOption({
 }) {
     return (
         <label
+            data-dashboard-motion='selection-gel'
             className={
                 currentMode === mode
-                    ? 'inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-primary-ring)] px-3 text-sm font-semibold text-[var(--dash-text)]'
-                    : 'inline-flex min-h-10 items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
+                    ? 'relative inline-flex min-h-10 items-center overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] px-3 text-sm font-semibold text-[var(--dash-text)]'
+                    : 'relative inline-flex min-h-10 items-center overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
             }>
-            <span>{label}</span>
+            {currentMode === mode ? (
+                <motion.span
+                    layoutId='dashboard-posting-embed-mode-gel'
+                    data-dashboard-motion='selection-gel'
+                    className='absolute inset-0 bg-[var(--dash-primary-ring)]'
+                    transition={dashboardSelectionTransition}
+                    aria-hidden='true'
+                />
+            ) : null}
+            <span className='relative'>{label}</span>
             <span className='sr-only'>
                 <input
                     type='radio'

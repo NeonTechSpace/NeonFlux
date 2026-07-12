@@ -18,6 +18,7 @@ export function DashboardAuditEventRow({
     return (
         <details className={`group border-l-2 ${eventTone.leftBorderClassName}`} role='listitem'>
             <motion.summary
+                data-dashboard-disclosure
                 className='grid min-h-[4.5rem] cursor-pointer list-none gap-2 px-3 py-2 transition outline-none hover:bg-[var(--dash-surface-raised)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[inset_0_0_0_2px_var(--dash-primary)] md:grid-cols-[minmax(18rem,1fr)_minmax(10rem,0.55fr)_minmax(10rem,0.45fr)_1.5rem] md:items-center md:gap-3 [&::-webkit-details-marker]:hidden'
                 {...dashboardTactile}>
                 <div className='min-w-0'>

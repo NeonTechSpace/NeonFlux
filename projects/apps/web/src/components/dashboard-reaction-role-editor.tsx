@@ -23,10 +23,11 @@ import {
 } from './dashboard-embed-builder.js';
 import type { DashboardEmbedDraft } from './dashboard-embed-builder.js';
 import {
-    dashboardContentTransition,
-    dashboardFastTransition,
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
     dashboardInlineVariants,
     dashboardTactile,
+    dashboardViewTransition,
 } from './dashboard-motion.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import {
@@ -232,11 +233,13 @@ export function ReactionRoleEditor({
             aria-busy={saveMutation.isPending}>
             <div className='flex flex-wrap items-start justify-between gap-3 xl:col-span-2'>
                 <div>
-                    <h4 className='text-base font-semibold text-[var(--dash-text)]'>
+                    <h4
+                        id='dashboard-reaction-role-menus-heading'
+                        className='text-base font-semibold text-[var(--dash-text)]'>
                         {editorMode.type === 'edit' ? 'Edit reaction-role menu' : 'Create reaction-role menu'}
                     </h4>
                     <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        Saving disables the menu until Fluxer and stored configuration are synchronized.
+                        Build the message and role mapping, then preview it before publishing.
                     </p>
                 </div>
                 <motion.button
@@ -302,12 +305,13 @@ export function ReactionRoleEditor({
                         {draft.messageType === 'plain' ? (
                             <motion.label
                                 key='plain'
+                                data-dashboard-motion='view-change'
                                 className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'
                                 variants={dashboardInlineVariants}
                                 initial='initial'
                                 animate='enter'
                                 exit='exit'
-                                transition={dashboardContentTransition}>
+                                transition={dashboardViewTransition}>
                                 <span>Message content</span>
                                 <textarea
                                     value={draft.content}
@@ -319,11 +323,12 @@ export function ReactionRoleEditor({
                         ) : (
                             <motion.div
                                 key='embed'
+                                data-dashboard-motion='view-change'
                                 variants={dashboardInlineVariants}
                                 initial='initial'
                                 animate='enter'
                                 exit='exit'
-                                transition={dashboardContentTransition}>
+                                transition={dashboardViewTransition}>
                                 <DashboardEmbedBuilder
                                     draft={draft.embedDraft}
                                     onDraftChange={(embedDraft) => updateDraft({ embedDraft })}
@@ -414,11 +419,12 @@ export function ReactionRoleEditor({
                         {editorMessage ? (
                             <motion.div
                                 key={`${editorMessage.type}:${editorMessage.text}`}
+                                data-dashboard-motion='confirmation'
                                 className='mt-3'
-                                variants={dashboardInlineVariants}
+                                variants={dashboardConfirmationVariants}
                                 initial='initial'
                                 animate='enter'
-                                transition={dashboardFastTransition}>
+                                transition={dashboardConfirmationTransition}>
                                 <DashboardStatus tone={getReactionRoleEditorMessageTone(editorMessage.type)}>
                                     {editorMessage.text}
                                 </DashboardStatus>
@@ -426,12 +432,13 @@ export function ReactionRoleEditor({
                         ) : (
                             <motion.p
                                 key='save-help'
+                                data-dashboard-motion='confirmation'
                                 className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'
-                                variants={dashboardInlineVariants}
+                                variants={dashboardConfirmationVariants}
                                 initial='initial'
                                 animate='enter'
-                                transition={dashboardFastTransition}>
-                                The menu is unavailable to members while publish or synchronization is in progress.
+                                transition={dashboardConfirmationTransition}>
+                                Members cannot use this menu until Fluxer confirms synchronization.
                             </motion.p>
                         )}
                     </AnimatePresence>

@@ -60,6 +60,10 @@ describe('DashboardCommandSearch', () => {
                 },
             },
         });
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: vi.fn(),
+        });
     });
 
     afterEach(() => {
@@ -110,6 +114,37 @@ describe('DashboardCommandSearch', () => {
 
         await waitFor(() => expect(trigger.matches(':focus')).toBe(true));
         expect(screen.queryByRole('dialog', { name: 'Find a destination' })).toBeNull();
+    });
+
+    it('groups results and owns active-result keyboard navigation', async () => {
+        renderCommandSearch();
+        fireEvent.click(screen.getByRole('button', { name: 'Search dashboard' }));
+
+        const searchInput = await screen.findByRole('searchbox', { name: 'Search dashboard' });
+        expect(screen.getByText('Tools')).toBeDefined();
+        expect(screen.getByText('Servers')).toBeDefined();
+
+        fireEvent.change(searchInput, { target: { value: 'guild' } });
+        const alpha = screen.getByRole('link', { name: /Alpha Guild/u });
+        const beta = screen.getByRole('link', { name: /Beta Guild/u });
+        const settings = screen.getByRole('link', { name: /Command Prefix/u });
+
+        await waitFor(() => expect(alpha.getAttribute('data-active')).not.toBeNull());
+        fireEvent.keyDown(searchInput, { key: 'End' });
+        expect(settings.getAttribute('data-active')).not.toBeNull();
+        expect(searchInput.getAttribute('aria-activedescendant')).toBe(settings.id);
+
+        fireEvent.keyDown(searchInput, { key: 'Home' });
+        expect(alpha.getAttribute('data-active')).not.toBeNull();
+        fireEvent.keyDown(searchInput, { key: 'ArrowUp' });
+        expect(settings.getAttribute('data-active')).not.toBeNull();
+        fireEvent.keyDown(searchInput, { key: 'ArrowDown' });
+        expect(alpha.getAttribute('data-active')).not.toBeNull();
+
+        beta.addEventListener('click', (event) => event.preventDefault(), { once: true });
+        fireEvent.keyDown(searchInput, { key: 'ArrowDown' });
+        fireEvent.keyDown(searchInput, { key: 'Enter' });
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Find a destination' })).toBeNull());
     });
 });
 

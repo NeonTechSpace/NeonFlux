@@ -6,6 +6,7 @@ import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dash
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 import { DashboardDisplayControls } from './dashboard-display-controls.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
+import { DashboardServerDockAvatar } from './dashboard-server-dock-ui.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 
@@ -34,7 +35,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
         case 'guild-list':
             return (
                 <DashboardShell>
-                    <header className='flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[var(--dash-border)] pb-5'>
+                    <header className='flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
                         <div className='min-w-0'>
                             <h1 className='text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>
                                 Choose server
@@ -56,7 +57,7 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
                         </div>
                     </header>
 
-                    <section className='min-h-0 flex-1 overflow-y-auto pb-8' aria-label='Server launcher'>
+                    <section className='min-h-0 flex-1 overflow-y-auto pb-6' aria-label='Server launcher'>
                         <ul className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
                             {viewModel.guilds.map((guild) => (
                                 <DashboardGuildItem key={guild.id} guild={guild} mode={viewModel.mode} />
@@ -90,18 +91,20 @@ function DashboardNoManageableServers({ botInviteUrl }: { botInviteUrl?: string 
             <div className='flex shrink-0 justify-end'>
                 <DashboardDisplayControls variant='inline' />
             </div>
-            <section className='dashboard-surface mx-auto grid min-h-[24rem] max-w-3xl place-items-center p-8 text-center'>
+            <section className='dashboard-glass-panel mx-auto grid min-h-[18rem] max-w-3xl place-items-center p-6 text-center sm:p-8'>
                 <div className='max-w-xl'>
-                    <div className='mx-auto grid size-14 place-items-center rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-[var(--dash-primary)]'>
+                    <div className='relative mx-auto grid size-14 place-items-center rounded-full border border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] shadow-[0_0_18px_rgba(90,215,255,0.14)]'>
                         <Server className='size-6' aria-hidden='true' />
                     </div>
                     <h1 className='mt-5 text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>
                         No servers available
                     </h1>
                     <p className='mt-3 text-[0.98rem] leading-7 text-[var(--dash-text-muted)]'>
-                        Use an account with Manage Server, or invite the bot to a server you own.
+                        {botInviteUrl
+                            ? 'Invite NeonFlux to a server you own, or switch accounts if your servers are elsewhere.'
+                            : 'Sign in with a Fluxer account that can manage at least one server.'}
                     </p>
-                    <div className='mt-6 flex flex-wrap justify-center gap-3'>
+                    <div className='relative mt-6 flex flex-wrap justify-center gap-2'>
                         {botInviteUrl ? (
                             <a
                                 href={botInviteUrl}
@@ -139,52 +142,19 @@ function DashboardGuildItem({ guild, mode }: { guild: DashboardViewModelGuild; m
                 preload='intent'
                 state={withDashboardGuildPreview(preview)}
                 aria-label={`Open ${guild.name} dashboard`}
-                className='dashboard-surface group flex min-h-[6.75rem] items-center gap-3 p-3 transition hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                <div className='flex min-w-0 flex-1 items-center gap-3'>
-                    <DashboardGuildIcon guild={guild} />
+                className='dashboard-glass-panel group flex min-h-[6.75rem] items-center gap-3 p-3 transition hover:border-[var(--dash-border-interactive)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                <div className='relative flex min-w-0 flex-1 items-center gap-3'>
+                    <span className='rounded-full bg-[linear-gradient(135deg,var(--dash-primary),var(--dash-creative))] p-px shadow-[0_0_18px_rgba(90,215,255,0.12)] transition group-hover:shadow-[0_0_22px_rgba(90,215,255,0.24)]'>
+                        <DashboardServerDockAvatar guild={guild} />
+                    </span>
                     <div className='min-w-0 flex-1'>
                         <h3 className='truncate text-lg font-semibold text-[var(--dash-text)]'>{guild.name}</h3>
                     </div>
                 </div>
-                <span className='grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] transition group-hover:border-[var(--dash-primary)]'>
+                <span className='relative grid size-9 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] transition group-hover:border-[var(--dash-primary)]'>
                     <ArrowUpRight className='size-4' aria-hidden='true' />
                 </span>
             </Link>
         </li>
     );
-}
-
-function DashboardGuildIcon({ guild }: { guild: DashboardViewModelGuild }) {
-    const fallbackLabel = getGuildFallbackLabel(guild.name);
-
-    if (guild.iconUrl) {
-        return (
-            <img
-                src={guild.iconUrl}
-                alt={`${guild.name} icon`}
-                className='size-12 shrink-0 rounded-[var(--dash-radius-surface)] bg-[var(--dash-surface-raised)] object-cover ring-1 ring-[rgba(255,255,255,0.1)]'
-                loading='lazy'
-                referrerPolicy='no-referrer'
-            />
-        );
-    }
-
-    return (
-        <span
-            className='grid size-12 shrink-0 place-items-center rounded-[var(--dash-radius-surface)] bg-[var(--dash-surface-raised)] text-sm font-semibold text-[var(--dash-text)] ring-1 ring-[rgba(255,255,255,0.1)]'
-            aria-hidden='true'>
-            {fallbackLabel}
-        </span>
-    );
-}
-
-function getGuildFallbackLabel(name: string): string {
-    const letters = name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part.at(0)?.toUpperCase())
-        .join('');
-
-    return letters || '?';
 }

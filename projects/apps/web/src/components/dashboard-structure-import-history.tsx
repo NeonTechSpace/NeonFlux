@@ -17,11 +17,13 @@ import {
     DashboardStructureActionPreview,
 } from './dashboard-structure-action-inspection.js';
 import {
-    dashboardContentTransition,
-    dashboardFastTransition,
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
     dashboardInlineVariants,
     dashboardListItemVariants,
+    dashboardListTransition,
     dashboardTactile,
+    dashboardViewTransition,
 } from './dashboard-motion.js';
 
 export type StructureBusyAction =
@@ -149,12 +151,13 @@ function ImportRunCard({
 
     return (
         <motion.div
+            data-dashboard-motion='list-insert'
             className='rounded-md border border-neutral-800 bg-neutral-950/60 p-3'
             aria-current={isLatest ? 'true' : undefined}
             variants={dashboardListItemVariants}
             initial='initial'
             animate='enter'
-            transition={dashboardContentTransition}>
+            transition={dashboardListTransition}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
                     <p className='text-sm font-semibold text-white'>Dry-run {formatDate(run.createdAt)}</p>
@@ -194,10 +197,11 @@ function ImportRunCard({
             {inspectedAction ? (
                 <motion.div
                     key={inspectedAction.id}
+                    data-dashboard-motion='view-change'
                     variants={dashboardInlineVariants}
                     initial='initial'
                     animate='enter'
-                    transition={dashboardFastTransition}>
+                    transition={dashboardViewTransition}>
                     <DashboardStructureActionInspector
                         action={inspectedAction}
                         onClose={() => setInspectedAction(undefined)}
@@ -208,11 +212,12 @@ function ImportRunCard({
                 {canApprove ? (
                     <motion.div
                         key='approve'
+                        data-dashboard-motion='confirmation'
                         className='mt-3 rounded-md border border-amber-400/30 bg-amber-950/20 p-3'
-                        variants={dashboardInlineVariants}
+                        variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardConfirmationTransition}>
                         <p className='text-xs leading-5 text-neutral-300'>
                             Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
                         </p>
@@ -234,10 +239,11 @@ function ImportRunCard({
                 {canPreflight ? (
                     <motion.div
                         key='preflight'
-                        variants={dashboardInlineVariants}
+                        data-dashboard-motion='confirmation'
+                        variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardConfirmationTransition}>
                         {run.execution?.status === 'failed_before_mutation' ? (
                             <p className='mt-3 rounded-[var(--dash-radius-control)] border border-amber-400/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100'>
                                 No server changes were made. Run a fresh safety check before queueing this approved plan
@@ -258,11 +264,12 @@ function ImportRunCard({
                 {canRecover ? (
                     <motion.div
                         key='recover'
+                        data-dashboard-motion='confirmation'
                         className='mt-3 flex items-center justify-between gap-3 rounded-md border border-rose-400/30 bg-rose-950/20 p-3'
-                        variants={dashboardInlineVariants}
+                        variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardConfirmationTransition}>
                         <p className='text-xs leading-5 text-neutral-300'>
                             Recovery re-reads the live server and creates a new Match blueprint plan from the remaining
                             differences.
@@ -301,7 +308,7 @@ function DecisionSummary({
 
     return (
         <details className='mt-3 rounded-md border border-neutral-800 bg-neutral-950 p-3'>
-            <summary className='cursor-pointer text-xs font-semibold text-neutral-200'>
+            <summary data-dashboard-disclosure className='cursor-pointer text-xs font-semibold text-neutral-200'>
                 Full projected result · {total} decisions
             </summary>
             <div className='mt-3 flex flex-wrap gap-2'>
@@ -401,10 +408,11 @@ function ExecutionProgress({
                 className='mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--dash-surface-muted)]'
                 aria-hidden='true'>
                 <motion.div
+                    data-dashboard-motion='confirmation'
                     className='h-full rounded-full bg-[var(--dash-primary)]'
                     initial={false}
                     animate={{ width: `${percent}%` }}
-                    transition={dashboardContentTransition}
+                    transition={dashboardConfirmationTransition}
                 />
             </div>
             <dl className='mt-3 grid gap-3 text-xs sm:grid-cols-3'>
@@ -419,11 +427,12 @@ function ExecutionProgress({
                     <dt className='text-[var(--dash-text-subtle)]'>Outcome</dt>
                     <motion.dd
                         key={outcome}
+                        data-dashboard-motion='confirmation'
                         className={`mt-1 ${getExecutionOutcomeClassName(execution.status)}`}
-                        variants={dashboardInlineVariants}
+                        variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardConfirmationTransition}>
                         {outcome}
                     </motion.dd>
                 </div>
@@ -435,7 +444,9 @@ function ExecutionProgress({
                 </div>
             </dl>
             <details className='mt-3 border-t border-[var(--dash-border)] pt-2 text-[11px] text-[var(--dash-text-subtle)]'>
-                <summary className='cursor-pointer text-xs text-[var(--dash-text-muted)]'>Execution timestamps</summary>
+                <summary data-dashboard-disclosure className='cursor-pointer text-xs text-[var(--dash-text-muted)]'>
+                    Execution timestamps
+                </summary>
                 <ol className='mt-2 grid gap-1 border-l border-[var(--dash-border-strong)] pl-3'>
                     <li>Queued {formatDate(execution.createdAt)}</li>
                     {execution.startedAt ? <li>Started {formatDate(execution.startedAt)}</li> : null}

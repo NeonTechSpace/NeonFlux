@@ -18,12 +18,13 @@ import type {
     DashboardReactionRoleOperation,
 } from '../server/dashboard-reaction-roles.server.js';
 import {
-    dashboardContentTransition,
-    dashboardContentVariants,
-    dashboardFastTransition,
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
     dashboardInlineVariants,
     dashboardListItemVariants,
+    dashboardListTransition,
     dashboardTactile,
+    dashboardViewTransition,
 } from './dashboard-motion.js';
 import { ReactionRoleEditor } from './dashboard-reaction-role-editor.js';
 import { DashboardEmptyState, DashboardErrorState, DashboardStatus, DashboardSurface } from './dashboard-ui.js';
@@ -33,7 +34,6 @@ type ReactionRolePanelView =
     | { type: 'create' }
     | { type: 'edit'; message: DashboardReactionRoleMessage };
 type PanelMessage = { type: 'success' | 'warning' | 'error'; text: string };
-
 const commonEmojis: DashboardReactionRoleEmoji[] = [
     '✅',
     '❌',
@@ -165,7 +165,6 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         await queryClient.invalidateQueries({ queryKey: getDashboardReactionRolesSettingsQueryKey(guildId) });
         await queryClient.invalidateQueries({ queryKey: getDashboardAuditEventsBaseQueryKey(guildId) });
     }
-
     async function handleSaved(message: PanelMessage): Promise<void> {
         setPanelMessage(message);
         await invalidateSettings();
@@ -186,23 +185,32 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
     }
 
     const emojis = [...commonEmojis, ...settingsQuery.data.emojis];
+    const hasOverviewContent =
+        settingsQuery.data.messages.length > 0 ||
+        settingsQuery.data.operations.some(
+            (operation) => operation.type === 'publish' && operation.status !== 'succeeded'
+        );
 
     return (
-        <DashboardSurface as='section' padding='none' aria-labelledby='dashboard-reaction-role-menus-heading'>
-            <div className='flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] px-4 py-4 sm:px-5'>
-                <div>
-                    <h3
-                        id='dashboard-reaction-role-menus-heading'
-                        className='text-base font-semibold text-[var(--dash-text)]'>
-                        {view.type === 'overview' ? 'Menus' : view.type === 'create' ? 'Create menu' : 'Edit menu'}
-                    </h3>
-                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        {view.type === 'overview'
-                            ? 'Bot-owned menus stay locked while Fluxer synchronization is active or needs attention.'
-                            : 'Changes remain disabled until Fluxer and stored configuration agree.'}
-                    </p>
-                </div>
-                {view.type === 'overview' ? (
+        <DashboardSurface
+            as='section'
+            padding='none'
+            aria-labelledby={
+                view.type === 'overview' && hasOverviewContent ? 'dashboard-reaction-role-menus-heading' : undefined
+            }
+            aria-label={view.type === 'overview' && !hasOverviewContent ? 'Reaction-role menus' : undefined}>
+            {view.type === 'overview' && hasOverviewContent ? (
+                <div className='flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] px-4 py-4 sm:px-5'>
+                    <div>
+                        <h3
+                            id='dashboard-reaction-role-menus-heading'
+                            className='text-base font-semibold text-[var(--dash-text)]'>
+                            Reaction-role menus
+                        </h3>
+                        <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                            Menus stay locked only while Fluxer synchronization is active or needs attention.
+                        </p>
+                    </div>
                     <motion.button
                         type='button'
                         onClick={() => {
@@ -214,52 +222,55 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
                         {...dashboardTactile}>
                         Create menu
                     </motion.button>
-                ) : null}
-            </div>
+                </div>
+            ) : null}
             <ReactionRoleStatusMessages
                 structureReadStatus={settingsQuery.data.structureReadStatus}
                 emojiReadStatus={settingsQuery.data.emojiReadStatus}
                 panelMessage={panelMessage}
             />
-            <motion.div
-                key={view.type === 'edit' ? `edit:${view.message.messageId}` : view.type}
-                variants={dashboardContentVariants}
-                initial='initial'
-                animate='enter'
-                transition={dashboardContentTransition}>
-                {view.type === 'overview' ? (
-                    <ReactionRoleOverview
-                        messages={settingsQuery.data.messages}
-                        operations={settingsQuery.data.operations}
-                        busyMessageId={deleteMutation.isPending ? deleteMutation.variables.messageId : undefined}
-                        deleteConfirmMessageId={deleteConfirmMessageId}
-                        retryConfirmOperationId={retryConfirmOperationId}
-                        onCancelDelete={() => setDeleteConfirmMessageId('')}
-                        onCreate={() => {
-                            setPanelMessage(undefined);
-                            setView({ type: 'create' });
-                        }}
-                        onEdit={(message) => {
-                            setPanelMessage(undefined);
-                            setDeleteConfirmMessageId('');
-                            setView({ type: 'edit', message });
-                        }}
-                        onDelete={deleteMenu}
-                        onRetry={retryOperation}
-                        onRetryMembers={(message) => retryMembersMutation.mutate(message.messageId)}
-                    />
-                ) : (
-                    <ReactionRoleEditor
-                        guildId={guildId}
-                        editorMode={view}
-                        channels={settingsQuery.data.channels}
-                        roles={settingsQuery.data.roles}
-                        emojis={emojis}
-                        onCancel={() => setView({ type: 'overview' })}
-                        onSaved={handleSaved}
-                    />
-                )}
-            </motion.div>
+            <AnimatePresence initial={false}>
+                <motion.div
+                    key={view.type === 'edit' ? `edit:${view.message.messageId}` : view.type}
+                    data-dashboard-motion='view-change'
+                    variants={dashboardInlineVariants}
+                    initial='initial'
+                    animate='enter'
+                    transition={dashboardViewTransition}>
+                    {view.type === 'overview' ? (
+                        <ReactionRoleOverview
+                            messages={settingsQuery.data.messages}
+                            operations={settingsQuery.data.operations}
+                            busyMessageId={deleteMutation.isPending ? deleteMutation.variables.messageId : undefined}
+                            deleteConfirmMessageId={deleteConfirmMessageId}
+                            retryConfirmOperationId={retryConfirmOperationId}
+                            onCancelDelete={() => setDeleteConfirmMessageId('')}
+                            onCreate={() => {
+                                setPanelMessage(undefined);
+                                setView({ type: 'create' });
+                            }}
+                            onEdit={(message) => {
+                                setPanelMessage(undefined);
+                                setDeleteConfirmMessageId('');
+                                setView({ type: 'edit', message });
+                            }}
+                            onDelete={deleteMenu}
+                            onRetry={retryOperation}
+                            onRetryMembers={(message) => retryMembersMutation.mutate(message.messageId)}
+                        />
+                    ) : (
+                        <ReactionRoleEditor
+                            guildId={guildId}
+                            editorMode={view}
+                            channels={settingsQuery.data.channels}
+                            roles={settingsQuery.data.roles}
+                            emojis={emojis}
+                            onCancel={() => setView({ type: 'overview' })}
+                            onSaved={handleSaved}
+                        />
+                    )}
+                </motion.div>
+            </AnimatePresence>
         </DashboardSurface>
     );
 }
@@ -296,15 +307,15 @@ function ReactionRoleOverview({
     if (messages.length === 0 && pendingPublishes.length === 0) {
         return (
             <DashboardEmptyState
-                title='Create your first reaction-role menu'
-                description='Build a message, choose normal or exclusive assignment, then map each emoji to one role.'
+                title='Your first role menu'
+                description='Map emojis to roles, preview the message, then publish when it looks right.'
                 action={
                     <motion.button
                         type='button'
                         onClick={onCreate}
                         className={primaryButtonClassName}
                         {...dashboardTactile}>
-                        Create first menu
+                        Create menu
                     </motion.button>
                 }
             />
@@ -324,11 +335,12 @@ function ReactionRoleOverview({
             {messages.map((message) => (
                 <motion.article
                     key={message.messageId}
+                    data-dashboard-motion='list-insert'
                     className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-3 sm:p-4'
                     variants={dashboardListItemVariants}
                     initial='initial'
                     animate='enter'
-                    transition={dashboardFastTransition}>
+                    transition={dashboardListTransition}>
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                         <div className='min-w-0'>
                             <p className='font-medium text-[var(--dash-text)]'>
@@ -357,22 +369,21 @@ function ReactionRoleOverview({
                                 {...dashboardTactile}>
                                 {deleteConfirmMessageId === message.messageId ? 'Confirm delete' : 'Delete'}
                             </motion.button>
-                            <AnimatePresence initial={false}>
-                                {deleteConfirmMessageId === message.messageId ? (
-                                    <motion.button
-                                        key='cancel-delete'
-                                        type='button'
-                                        onClick={onCancelDelete}
-                                        className={secondaryButtonClassName}
-                                        variants={dashboardInlineVariants}
-                                        initial='initial'
-                                        animate='enter'
-                                        transition={dashboardFastTransition}
-                                        {...dashboardTactile}>
-                                        Cancel
-                                    </motion.button>
-                                ) : null}
-                            </AnimatePresence>
+                            {deleteConfirmMessageId === message.messageId ? (
+                                <motion.button
+                                    key='cancel-delete'
+                                    data-dashboard-motion='confirmation'
+                                    type='button'
+                                    onClick={onCancelDelete}
+                                    className={secondaryButtonClassName}
+                                    variants={dashboardConfirmationVariants}
+                                    initial='initial'
+                                    animate='enter'
+                                    transition={dashboardConfirmationTransition}
+                                    {...dashboardTactile}>
+                                    Cancel
+                                </motion.button>
+                            ) : null}
                         </div>
                     </div>
                     <div className='mt-3 flex flex-wrap gap-2'>
@@ -516,10 +527,19 @@ function ReactionRoleStatusMessages({
 function DashboardReactionRolesLoading() {
     return (
         <DashboardSurface as='article' aria-busy='true' aria-label='Loading reaction-role menus'>
-            <div className='h-5 w-40 animate-pulse rounded bg-[var(--dash-surface-selected)]' />
+            <div
+                data-dashboard-loading='pulse'
+                className='h-5 w-40 animate-pulse rounded bg-[var(--dash-surface-selected)]'
+            />
             <div className='mt-4 space-y-3'>
-                <div className='h-4 w-72 animate-pulse rounded bg-[var(--dash-surface-selected)]' />
-                <div className='h-10 w-full animate-pulse rounded bg-[var(--dash-surface-selected)]' />
+                <div
+                    data-dashboard-loading='pulse'
+                    className='h-4 w-72 animate-pulse rounded bg-[var(--dash-surface-selected)]'
+                />
+                <div
+                    data-dashboard-loading='pulse'
+                    className='h-10 w-full animate-pulse rounded bg-[var(--dash-surface-selected)]'
+                />
             </div>
         </DashboardSurface>
     );

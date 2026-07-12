@@ -5,6 +5,7 @@ import type { RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DashboardNavigationEntry } from '../dashboard-categories.js';
 import { DashboardCategoryNavigation } from './dashboard-category-navigation.js';
 
 const renderedNavigations: RenderResult[] = [];
@@ -31,6 +32,41 @@ vi.mock('@tanstack/react-router', async () => {
             preload?: unknown;
             children: ReactNode;
         }) => createElement('a', { ...props, href: params ? to.replace('$guildId', params.guildId) : to }, children),
+    };
+});
+
+vi.mock('../dashboard-categories.js', async () => {
+    const actual = await vi.importActual('../dashboard-categories.js');
+    const entries = (actual as { dashboardNavigationEntries: readonly DashboardNavigationEntry[] })
+        .dashboardNavigationEntries;
+
+    return {
+        ...actual,
+        dashboardNavigationEntries: entries.map((entry) => {
+            if (entry.category.id !== 'create-deliver') {
+                return entry;
+            }
+
+            const firstItem = entry.subNavigation.at(0);
+
+            if (!firstItem) {
+                return entry;
+            }
+
+            return {
+                ...entry,
+                type: 'group',
+                defaultSubNavigationTo: firstItem.to,
+                subNavigation: [
+                    firstItem,
+                    {
+                        ...firstItem,
+                        id: 'scheduled-messages',
+                        label: 'Scheduled Messages',
+                    },
+                ],
+            };
+        }),
     };
 });
 
@@ -118,5 +154,81 @@ describe('DashboardCategoryNavigation mobile dialog', () => {
         expect(serverTrigger.getAttribute('aria-expanded')).toBe('true');
         expect(navigationTrigger.getAttribute('aria-expanded')).toBe('false');
         expect(screen.getByRole('link', { name: 'All servers' })).toBeDefined();
+    });
+
+    it('opens future rail groups through a portaled, focus-owned disclosure', async () => {
+        const view = render(
+            <div className='dashboard-theme' data-testid='dashboard-theme'>
+                <DashboardCategoryNavigation
+                    guild={{ id: 'guild-1', name: 'Alpha Guild' }}
+                    guilds={[{ id: 'guild-1', name: 'Alpha Guild' }]}
+                    guildId='guild-1'
+                    activeCategoryId='overview'
+                    mode='single'
+                />
+            </div>
+        );
+        renderedNavigations.push(view);
+
+        const railTrigger = screen.getByRole('button', { name: 'Open Create & Deliver destinations' });
+        fireEvent.click(railTrigger);
+
+        const disclosure = await screen.findByRole('dialog', { name: 'Create & Deliver' });
+        const theme = screen.getByTestId('dashboard-theme');
+        expect(within(theme).getByRole('dialog', { name: 'Create & Deliver' })).toBe(disclosure);
+
+        const links = within(disclosure).getAllByRole('link');
+        await waitFor(() => expect(links[0]?.matches(':focus')).toBe(true));
+
+        const closeButton = within(disclosure).getByRole('button', {
+            name: 'Close Create & Deliver destinations',
+        });
+        closeButton.focus();
+        fireEvent.keyDown(disclosure, { key: 'Tab', shiftKey: true });
+        expect(links.at(-1)?.matches(':focus')).toBe(true);
+
+        fireEvent.scroll(disclosure);
+        expect(screen.getByRole('dialog', { name: 'Create & Deliver' })).toBe(disclosure);
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+        await waitFor(() => expect(railTrigger.matches(':focus')).toBe(true));
+        expect(screen.queryByRole('dialog', { name: 'Create & Deliver' })).toBeNull();
+
+        fireEvent.click(railTrigger);
+        expect(await screen.findByRole('dialog', { name: 'Create & Deliver' })).toBeDefined();
+        fireEvent(window, new Event('resize'));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Create & Deliver' })).toBeNull());
+    });
+
+    it('portals compact appearance controls and restores trigger focus', async () => {
+        const view = render(
+            <div className='dashboard-theme' data-testid='dashboard-theme'>
+                <DashboardCategoryNavigation
+                    guild={{ id: 'guild-1', name: 'Alpha Guild' }}
+                    guilds={[{ id: 'guild-1', name: 'Alpha Guild' }]}
+                    guildId='guild-1'
+                    activeCategoryId='overview'
+                    mode='single'
+                />
+            </div>
+        );
+        renderedNavigations.push(view);
+
+        const trigger = screen.getByRole('button', { name: 'Appearance controls' });
+        expect(screen.getByRole('link', { name: 'Switch account' })).toBeDefined();
+        fireEvent.click(trigger);
+
+        const dialog = await screen.findByRole('dialog', { name: 'Appearance controls' });
+        expect(within(screen.getByTestId('dashboard-theme')).getByRole('dialog', { name: 'Appearance controls' })).toBe(
+            dialog
+        );
+        await waitFor(() =>
+            expect(within(dialog).getByRole('button', { name: 'Reduce effects' }).matches(':focus')).toBe(true)
+        );
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+
+        await waitFor(() => expect(trigger.matches(':focus')).toBe(true));
+        expect(screen.queryByRole('dialog', { name: 'Appearance controls' })).toBeNull();
     });
 });

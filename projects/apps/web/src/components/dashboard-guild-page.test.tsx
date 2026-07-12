@@ -45,7 +45,7 @@ describe('DashboardGuildPendingPage', () => {
     it('renders a generic loading shell when no safe guild preview is available', () => {
         renderedPages.push(render(<DashboardGuildPendingPage guildId='untrusted-cold-guild-id' />));
 
-        expect(screen.getByRole('status').textContent).toContain('Loading dashboard');
+        expect(screen.getByRole('status').textContent).toContain('Loading Server pulse');
         expect(screen.getAllByRole('main')).toHaveLength(1);
         expect(document.body.textContent).not.toContain('untrusted-cold-guild-id');
     });
@@ -66,15 +66,36 @@ describe('DashboardGuildPendingPage', () => {
         const sidebar = screen.getByRole('complementary');
         fireEvent.click(within(sidebar).getByRole('button', { name: 'Switch server, currently Current Guild' }));
 
-        expect(within(sidebar).getByLabelText('Current Guild, current server').getAttribute('aria-current')).toBe(
-            'page'
-        );
-        expect(within(sidebar).getByLabelText('Target Guild, opening').getAttribute('aria-busy')).toBe('true');
-        expect(within(sidebar).queryByRole('link', { name: 'Target Guild, opening' })).toBeNull();
+        expect(screen.getByLabelText('Current Guild, current server').getAttribute('aria-current')).toBe('page');
+        expect(screen.getByLabelText('Target Guild, opening').getAttribute('aria-busy')).toBe('true');
+        expect(screen.queryByRole('link', { name: 'Target Guild, opening' })).toBeNull();
         expect(
             within(sidebar)
                 .getAllByRole('link', { name: 'Members & Access' })
                 .map((link) => link.getAttribute('href'))
         ).toEqual(['/dashboard/guild-1/access/reaction-roles', '/dashboard/guild-1/access/reaction-roles']);
+        expect(screen.getByRole('heading', { name: 'Reaction Roles' })).toBeTruthy();
+        expect(screen.getByText('Build reaction-backed role menus.')).toBeTruthy();
+        expect(screen.getByRole('article', { name: 'Loading Reaction Roles controls' })).toBeTruthy();
+        const pendingFeature = screen.getByRole('region', { name: 'Reaction Roles' });
+        expect(pendingFeature.getAttribute('data-dashboard-page-width')).toBe('full');
+        expect(within(pendingFeature).getByText('Roles & Access')).toBeTruthy();
+    });
+
+    it('keeps the exact Blueprint surface identity while switching servers', () => {
+        renderedPages.push(
+            render(
+                <DashboardGuildPendingPage
+                    guildId='guild-2'
+                    preview={{ id: 'guild-2', name: 'Target Guild', mode: 'multi' }}
+                    sourcePreview={{ id: 'guild-1', name: 'Current Guild', mode: 'multi' }}
+                    pathname='/dashboard/guild-2/structure/backups'
+                    activeCategoryId='structure'
+                />
+            )
+        );
+
+        expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
+        expect(screen.getByText('Backups provide comparison baselines and deliberate recovery sources.')).toBeTruthy();
     });
 });

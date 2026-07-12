@@ -100,7 +100,9 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 summary={
                     auditEventsQuery.isFetching && !auditEventsQuery.isFetchingNextPage
                         ? 'Refreshing events…'
-                        : `${auditEvents.length} loaded`
+                        : auditEvents.length > 0
+                          ? `${auditEvents.length} loaded`
+                          : undefined
                 }>
                 <label className='block min-w-44 space-y-1.5 text-sm font-medium text-[var(--dash-text)]'>
                     <span className='text-xs text-[var(--dash-text-muted)]'>Search in</span>
@@ -225,6 +227,7 @@ function AuditEventsBody({
             <motion.div
                 className='mt-4 space-y-2'
                 aria-label='Loading audit events'
+                data-dashboard-loading='pulse'
                 variants={dashboardInlineVariants}
                 initial='initial'
                 animate='enter'
@@ -254,7 +257,7 @@ function AuditEventsBody({
                         <button
                             type='button'
                             onClick={() => void retry()}
-                            className='min-h-9 rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
+                            className='min-h-11 rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
                             Try again
                         </button>
                     }
@@ -266,18 +269,19 @@ function AuditEventsBody({
     if (events.length === 0) {
         return (
             <motion.div
+                data-dashboard-motion='confirmation'
                 variants={dashboardInlineVariants}
                 initial='initial'
                 animate='enter'
                 transition={dashboardContentTransition}>
-                <DashboardEmptyState
-                    title={search ? 'No matching events' : 'No audit events yet'}
-                    description={
-                        search
-                            ? `No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`
-                            : 'Dashboard and bot changes will appear here when they are recorded.'
-                    }
-                />
+                {search ? (
+                    <DashboardEmptyState
+                        title='No matching events'
+                        description={`No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`}
+                    />
+                ) : (
+                    <DashboardAuditEmptyTimeline />
+                )}
             </motion.div>
         );
     }
@@ -339,5 +343,24 @@ function AuditEventsBody({
                 </motion.div>
             ) : null}
         </>
+    );
+}
+
+function DashboardAuditEmptyTimeline() {
+    return (
+        <div className='mx-auto grid max-w-xl grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-4 px-3 py-8'>
+            <div className='relative grid h-24 place-items-center' aria-hidden='true'>
+                <span className='absolute top-2 bottom-2 left-1/2 w-px -translate-x-1/2 bg-[linear-gradient(var(--dash-primary),var(--dash-creative))] opacity-45' />
+                <span className='absolute top-2 size-2.5 rounded-full border border-[var(--dash-primary)] bg-[var(--dash-primary-soft)] shadow-[0_0_14px_rgba(90,215,255,0.22)]' />
+                <span className='size-3.5 rounded-full border border-[var(--dash-border-interactive)] bg-[var(--dash-surface-raised)]' />
+                <span className='absolute bottom-2 size-2.5 rounded-full border border-[var(--dash-creative)] bg-[var(--dash-accent-soft)]' />
+            </div>
+            <div className='min-w-0'>
+                <h3 className='text-base font-semibold text-[var(--dash-text)]'>No audit events yet</h3>
+                <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                    New dashboard and bot changes will appear in this timeline.
+                </p>
+            </div>
+        </div>
     );
 }

@@ -29,7 +29,6 @@ export function DashboardServerDockActionTile({
                 <Icon className='size-[1.1rem]' aria-hidden='true' />
             </span>
             <span className='relative block w-full text-center text-xs font-semibold'>{label}</span>
-            <span className='relative text-[0.65rem] font-medium text-[var(--dash-text-subtle)]'>Open</span>
         </>
     );
 
@@ -103,7 +102,7 @@ export function getDashboardServerTriggerClassName(variant: 'sidebar' | 'mobile-
 
     return variant === 'mobile-header'
         ? `${base} min-h-11 border border-transparent px-1 hover:bg-[var(--dash-surface-raised)]`
-        : `${base} min-h-12 justify-center border border-[var(--dash-border)] bg-[rgba(9,14,23,0.82)] px-2.5 shadow-[var(--dash-shadow-surface)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] xl:justify-start`;
+        : `${base} min-h-12 justify-center border border-[var(--dash-border)] bg-[rgba(9,14,23,0.82)] px-2.5 shadow-[var(--dash-shadow-surface)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] lg:justify-start`;
 }
 
 export function getDashboardServerDockClassName(variant: 'sidebar' | 'mobile-header'): string {
@@ -112,7 +111,7 @@ export function getDashboardServerDockClassName(variant: 'sidebar' | 'mobile-hea
 
     return variant === 'mobile-header'
         ? `${surface} absolute inset-x-2 bottom-2 max-h-[calc(100dvh-1rem)]`
-        : `${surface} absolute top-0 left-[calc(100%+0.75rem)] z-50 max-h-[calc(100dvh-2rem)] w-[min(38rem,calc(100vw-6.5rem))] origin-left`;
+        : `${surface} fixed z-50 max-h-[calc(100dvh-2rem)] w-[min(38rem,calc(100vw-6.5rem))] origin-left`;
 }
 
 export function getDashboardServerDockTileClassName(tone: 'action' | 'current' | 'default' | 'pending'): string {

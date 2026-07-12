@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -149,7 +149,7 @@ describe('/dashboard', () => {
     });
 
     it('renders the multi-instance empty state', () => {
-        renderWithRouter(
+        const view = renderWithRouter(
             createElement(DashboardPageContent, {
                 data: {
                     type: 'dashboard',
@@ -161,9 +161,29 @@ describe('/dashboard', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'No servers available' })).toBeTruthy();
+        expect(screen.getByText('Sign in with a Fluxer account that can manage at least one server.')).toBeTruthy();
+        expect(within(view.container).getByRole('link', { name: 'Use another account' })).toBeTruthy();
+        expect(within(view.container).queryByRole('link', { name: 'Invite bot' })).toBeNull();
+    });
+
+    it('preserves invite and account recovery when the bot can be invited', () => {
+        const view = renderWithRouter(
+            createElement(DashboardPageContent, {
+                data: {
+                    type: 'dashboard',
+                    viewModel: {
+                        type: 'multi-empty',
+                        botInviteUrl: 'https://fluxer.app/oauth2/authorize?client_id=bot',
+                    },
+                },
+            })
+        );
+
         expect(
-            screen.getByText('Use an account with Manage Server, or invite the bot to a server you own.')
+            screen.getByText('Invite NeonFlux to a server you own, or switch accounts if your servers are elsewhere.')
         ).toBeTruthy();
+        expect(within(view.container).getByRole('link', { name: 'Invite bot' })).toBeTruthy();
+        expect(within(view.container).getByRole('link', { name: 'Use another account' })).toBeTruthy();
     });
 
     it('renders generic dashboard unavailable errors', () => {

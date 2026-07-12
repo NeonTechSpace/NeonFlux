@@ -92,7 +92,7 @@ export function DashboardStructureBackupHistory({
                 ? '1 stored backup'
                 : backups.length > 1
                   ? `${backups.length} stored backups`
-                  : 'No stored backups',
+                  : 'Protected snapshots for comparison and recovery',
         [backups.length]
     );
 
@@ -114,7 +114,9 @@ export function DashboardStructureBackupHistory({
                 ) : null}
             </div>
             {backups.length === 0 ? (
-                <p className='px-3 py-8 text-sm leading-6 text-neutral-400'>No server blueprint backups yet.</p>
+                <p className='px-3 py-8 text-sm leading-6 text-neutral-400'>
+                    Create a backup to establish the first comparison baseline and recovery source.
+                </p>
             ) : (
                 <div ref={parentRef} className='h-[28rem] overflow-y-auto overscroll-contain' role='list'>
                     <div
@@ -238,7 +240,7 @@ function BackupLibraryRow({
                                 onClick={() => onRename(backup)}
                                 className='inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-700 px-3 text-xs font-semibold text-neutral-100 transition hover:border-sky-400 hover:text-sky-200 disabled:cursor-not-allowed disabled:text-neutral-500'>
                                 {isRenameBusy ? (
-                                    <Loader2 className='size-3.5 animate-spin' />
+                                    <Loader2 data-dashboard-loading='spinner' className='size-3.5 animate-spin' />
                                 ) : (
                                     <Check className='size-3.5' />
                                 )}
@@ -334,6 +336,7 @@ function BackupActions({
     return (
         <details className='group relative justify-self-end'>
             <summary
+                data-dashboard-disclosure
                 aria-label={`Actions for ${backup.name}`}
                 className='grid size-9 cursor-pointer list-none place-items-center rounded-md border border-transparent text-neutral-400 transition marker:content-none hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none [&::-webkit-details-marker]:hidden'>
                 <MoreHorizontal className='size-4' />
@@ -388,7 +391,7 @@ function BackupActions({
                                 onClick={() => onDelete(backup)}
                                 className='inline-flex min-h-8 flex-1 items-center justify-center gap-2 rounded-md bg-rose-300 px-2 text-xs font-semibold text-neutral-950 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500'>
                                 {isDeleteBusy ? (
-                                    <Loader2 className='size-3.5 animate-spin' />
+                                    <Loader2 data-dashboard-loading='spinner' className='size-3.5 animate-spin' />
                                 ) : (
                                     <Trash2 className='size-3.5' />
                                 )}
@@ -448,7 +451,11 @@ function BackupAction({
                     ? 'text-rose-200 hover:bg-rose-400/10 hover:text-rose-100'
                     : 'text-neutral-200 hover:bg-neutral-900 hover:text-sky-200'
             }`}>
-            {busy ? <Loader2 className='size-3.5 shrink-0 animate-spin' /> : <Icon className='size-3.5 shrink-0' />}
+            {busy ? (
+                <Loader2 data-dashboard-loading='spinner' className='size-3.5 shrink-0 animate-spin' />
+            ) : (
+                <Icon className='size-3.5 shrink-0' />
+            )}
             <span>{label}</span>
         </button>
     );

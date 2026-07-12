@@ -15,7 +15,14 @@ import type {
     DashboardReactionRoleEmoji,
     DashboardReactionRoleRole,
 } from '../server/dashboard-reaction-roles.server.js';
-import { dashboardFastTransition, dashboardInlineVariants, dashboardTactile } from './dashboard-motion.js';
+import {
+    dashboardInlineVariants,
+    dashboardListItemVariants,
+    dashboardListTransition,
+    dashboardSelectionTransition,
+    dashboardTactile,
+    dashboardViewTransition,
+} from './dashboard-motion.js';
 
 export type ReactionRoleBuilderOption = {
     emojiKey: string;
@@ -59,34 +66,43 @@ export function ReactionRoleOptionList({
                 {options.length === 0 ? (
                     <motion.p
                         key='empty'
+                        data-dashboard-motion='view-change'
                         className='text-sm text-[var(--dash-text-muted)]'
                         variants={dashboardInlineVariants}
                         initial='initial'
                         animate='enter'
                         exit='exit'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardViewTransition}>
                         No options yet. Add up to 30.
                     </motion.p>
                 ) : (
                     <motion.div
                         key='options'
+                        data-dashboard-motion='view-change'
                         variants={dashboardInlineVariants}
                         initial='initial'
                         animate='enter'
                         exit='exit'
-                        transition={dashboardFastTransition}>
+                        transition={dashboardViewTransition}>
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                             <SortableContext
                                 items={options.map((option) => option.emojiKey)}
                                 strategy={verticalListSortingStrategy}>
                                 <div className='space-y-2'>
                                     {options.map((option, index) => (
-                                        <SortableReactionRoleOption
+                                        <motion.div
                                             key={option.emojiKey}
-                                            option={option}
-                                            role={roleById.get(option.roleId)}
-                                            onRemove={() => onRemove(index)}
-                                        />
+                                            data-dashboard-motion='list-insert'
+                                            variants={dashboardListItemVariants}
+                                            initial='initial'
+                                            animate='enter'
+                                            transition={dashboardListTransition}>
+                                            <SortableReactionRoleOption
+                                                option={option}
+                                                role={roleById.get(option.roleId)}
+                                                onRemove={() => onRemove(index)}
+                                            />
+                                        </motion.div>
                                     ))}
                                 </div>
                             </SortableContext>
@@ -239,6 +255,8 @@ export function SegmentedControl({
     options: Array<{ value: string; label: string }>;
     onChange: (value: string) => void;
 }) {
+    const selectionLayoutId = `dashboard-segmented-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`;
+
     return (
         <fieldset className='space-y-2'>
             <legend className='text-sm font-medium text-[var(--dash-text)]'>{label}</legend>
@@ -246,16 +264,26 @@ export function SegmentedControl({
                 {options.map((option) => (
                     <motion.button
                         key={option.value}
+                        data-dashboard-motion='selection-gel'
                         type='button'
                         aria-pressed={value === option.value}
                         onClick={() => onChange(option.value)}
                         className={
                             value === option.value
-                                ? 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] bg-[var(--dash-primary-ring)] px-3 text-sm font-semibold text-[var(--dash-text)]'
-                                : 'min-h-10 rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
+                                ? 'relative min-h-10 overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] px-3 text-sm font-semibold text-[var(--dash-text)]'
+                                : 'relative min-h-10 overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
                         }
                         {...dashboardTactile}>
-                        {option.label}
+                        {value === option.value ? (
+                            <motion.span
+                                layoutId={selectionLayoutId}
+                                data-dashboard-motion='selection-gel'
+                                className='absolute inset-0 bg-[var(--dash-primary-ring)]'
+                                transition={dashboardSelectionTransition}
+                                aria-hidden='true'
+                            />
+                        ) : null}
+                        <span className='relative'>{option.label}</span>
                     </motion.button>
                 ))}
             </div>

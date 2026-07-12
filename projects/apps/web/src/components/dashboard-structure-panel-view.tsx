@@ -20,10 +20,10 @@ import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import {
-    dashboardContentTransition,
+    dashboardConfirmationTransition,
+    dashboardConfirmationVariants,
     dashboardContentVariants,
-    dashboardFastTransition,
-    dashboardInlineVariants,
+    dashboardRouteTransition,
     dashboardTactile,
 } from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
@@ -84,10 +84,11 @@ export function DashboardStructurePanelView({
     return (
         <motion.div
             key={surface}
+            data-dashboard-motion='route-arrival'
             variants={dashboardContentVariants}
             initial='initial'
             animate='enter'
-            transition={dashboardContentTransition}>
+            transition={dashboardRouteTransition}>
             {refreshIssue}
             {surface === 'current' ? <CurrentSurface workspace={workspace} showActions /> : null}
             {surface === 'backups' ? <BackupsSurface workspace={workspace} showStatus /> : null}
@@ -106,6 +107,11 @@ function CurrentSurface({
     showActions: boolean;
 }) {
     const latestBackup = workspace.backupPage.backups.find((backup) => backup.status === 'succeeded');
+    const hasBackupAttempt = Boolean(
+        workspace.backupPage.backups.length > 0 ||
+        workspace.backupSettings.lastAttemptAt ||
+        workspace.backupSettings.lastErrorMessage
+    );
     const observedCopy =
         workspace.observedState.observedChangeCount > 0
             ? formatObservedState(workspace.observedState)
@@ -149,40 +155,57 @@ function CurrentSurface({
                 ) : null}
             </div>
 
-            <div className='grid border-b border-[var(--dash-border)] lg:grid-cols-[1fr_auto_1fr_auto_1fr]'>
-                <VersionPoint
-                    label='Protected version'
-                    title={latestBackup?.name ?? 'No baseline yet'}
-                    detail={latestBackup ? formatDate(latestBackup.completedAt) : 'Create a backup to establish one'}
-                />
-                <VersionConnector />
-                <VersionPoint label='Observed activity' title={observedCopy} detail={driftCopy} />
-                <VersionConnector />
-                <VersionPoint
-                    label='Live layout'
-                    title={
-                        workspace.observedState.changedSinceLastBackup ? 'May differ from baseline' : 'Ready to inspect'
-                    }
-                    detail={
-                        latestBackup
-                            ? `${latestBackup.roleCount} roles · ${latestBackup.categoryCount} categories · ${latestBackup.channelCount} channels in baseline`
-                            : 'Live inventory has not been captured yet'
-                    }
-                />
-            </div>
-
-            {!latestBackup ? (
-                <p className='border-b border-[var(--dash-border)] py-5 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                    No baseline yet. Create a backup to compare future layout changes and provide a recovery source.
-                </p>
-            ) : null}
-            <div className='py-6'>
-                <BackupStatus
-                    backups={workspace.backupPage.backups}
-                    observedState={workspace.observedState}
-                    settings={workspace.backupSettings}
-                />
-            </div>
+            {latestBackup ? (
+                <>
+                    <div className='grid border-b border-[var(--dash-border)] lg:grid-cols-[1fr_auto_1fr_auto_1fr]'>
+                        <VersionPoint
+                            label='Protected version'
+                            title={latestBackup.name}
+                            detail={formatDate(latestBackup.completedAt)}
+                        />
+                        <VersionConnector />
+                        <VersionPoint label='Observed activity' title={observedCopy} detail={driftCopy} />
+                        <VersionConnector />
+                        <VersionPoint
+                            label='Live layout'
+                            title={
+                                workspace.observedState.changedSinceLastBackup
+                                    ? 'May differ from baseline'
+                                    : 'Ready to inspect'
+                            }
+                            detail={`${latestBackup.roleCount} roles · ${latestBackup.categoryCount} categories · ${latestBackup.channelCount} channels in baseline`}
+                        />
+                    </div>
+                    <div className='py-6'>
+                        <BackupStatus
+                            backups={workspace.backupPage.backups}
+                            observedState={workspace.observedState}
+                            settings={workspace.backupSettings}
+                        />
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className='border-b border-[var(--dash-border)] py-8'>
+                        <p className='text-sm font-semibold text-[var(--dash-text)]'>
+                            Start with one protected version
+                        </p>
+                        <p className='mt-1 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
+                            A backup becomes the comparison baseline and a recovery source without changing the live
+                            server.
+                        </p>
+                    </div>
+                    {hasBackupAttempt ? (
+                        <div className='py-6'>
+                            <BackupStatus
+                                backups={workspace.backupPage.backups}
+                                observedState={workspace.observedState}
+                                settings={workspace.backupSettings}
+                            />
+                        </div>
+                    ) : null}
+                </>
+            )}
             {showActions && workspace.status ? <StatusMessage status={workspace.status} /> : null}
         </section>
     );
@@ -194,11 +217,12 @@ function VersionPoint({ label, title, detail }: { label: string; title: string; 
             <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>{label}</p>
             <motion.p
                 key={title}
+                data-dashboard-motion='confirmation'
                 className='mt-2 text-sm font-semibold text-[var(--dash-text)]'
-                variants={dashboardInlineVariants}
+                variants={dashboardConfirmationVariants}
                 initial='initial'
                 animate='enter'
-                transition={dashboardFastTransition}>
+                transition={dashboardConfirmationTransition}>
                 {title}
             </motion.p>
             <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>{detail}</p>
@@ -249,7 +273,9 @@ function BackupsSurface({
             </div>
 
             <details className='group border-b border-[var(--dash-border)]'>
-                <summary className='flex min-h-12 cursor-pointer list-none items-center justify-between text-sm font-medium text-[var(--dash-text)] marker:hidden'>
+                <summary
+                    data-dashboard-disclosure
+                    className='flex min-h-12 cursor-pointer list-none items-center justify-between text-sm font-medium text-[var(--dash-text)] marker:hidden'>
                     Schedule and retention
                     <span className='text-xs text-[var(--dash-text-muted)] group-open:hidden'>Edit</span>
                     <span className='hidden text-xs text-[var(--dash-text-muted)] group-open:inline'>Close</span>
@@ -421,7 +447,9 @@ function DeploySurface({
             ) : null}
             {stage === 4 && canStartNewBlueprintDeployment(workspace.latestRun) ? (
                 <details className='mt-6 border-y border-[var(--dash-border)]'>
-                    <summary className='cursor-pointer list-none py-4 text-sm font-semibold text-[var(--dash-primary)] marker:hidden'>
+                    <summary
+                        data-dashboard-disclosure
+                        className='cursor-pointer list-none py-4 text-sm font-semibold text-[var(--dash-primary)] marker:hidden'>
                         Start a new deployment
                     </summary>
                     <DeploySource workspace={workspace} forceDetailsOpen={false} />
@@ -488,7 +516,9 @@ function DeploySource({
             <details
                 className='mt-4 max-w-2xl border-y border-[var(--dash-border)]'
                 open={forceDetailsOpen || undefined}>
-                <summary className='cursor-pointer list-none py-3 text-sm font-medium text-[var(--dash-text)] marker:hidden'>
+                <summary
+                    data-dashboard-disclosure
+                    className='cursor-pointer list-none py-3 text-sm font-medium text-[var(--dash-text)] marker:hidden'>
                     Or paste blueprint JSON
                 </summary>
                 <div className='pb-4'>
@@ -625,7 +655,7 @@ function RunsSurface({
                     Deployment runs
                 </h3>
                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                    Non-terminal and recoverable work remains visible ahead of completed history.
+                    Active work stays at the top; completed runs follow.
                 </p>
             </div>
             {workspace.importRuns.length === 0 ? (
@@ -643,6 +673,7 @@ function RunsSurface({
                     {workspace.importRuns.map((run) => (
                         <details key={run.id} role='listitem' className='group border-b border-[var(--dash-border)]'>
                             <motion.summary
+                                data-dashboard-disclosure
                                 className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'
                                 {...dashboardTactile}>
                                 <span className='text-sm text-[var(--dash-text-muted)]'>

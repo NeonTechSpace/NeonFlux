@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import type { CSSProperties } from 'react';
 
-import { dashboardContentTransition, dashboardInlineVariants } from './dashboard-motion.js';
+import { dashboardInlineVariants, dashboardViewTransition } from './dashboard-motion.js';
 import { DashboardSurface } from './dashboard-ui.js';
 
 type DashboardPostingPreviewProps = {
@@ -15,7 +15,7 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
     const previewEmbedItems = toPreviewEmbedItems(previewEmbeds);
 
     return (
-        <DashboardSurface as='section' tone='raised' className='space-y-4' aria-label='Message preview'>
+        <DashboardSurface as='section' tone='glass' className='space-y-4' aria-label='Message preview'>
             <div className='border-b border-[var(--dash-border)] pb-3'>
                 <p className='text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
                     Fluxer preview
@@ -26,12 +26,13 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
                 {!trimmedContent && previewEmbedItems.length === 0 ? (
                     <motion.div
                         key='empty'
+                        data-dashboard-motion='view-change'
                         className='grid min-h-48 place-items-center rounded-[var(--dash-radius-control)] border border-dashed border-[var(--dash-border)] bg-[var(--dash-bg)] px-6 text-center'
                         variants={dashboardInlineVariants}
                         initial='initial'
                         animate='enter'
                         exit='exit'
-                        transition={dashboardContentTransition}>
+                        transition={dashboardViewTransition}>
                         <div>
                             <p className='text-sm font-medium text-[var(--dash-text)]'>The preview is empty</p>
                             <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
@@ -42,13 +43,14 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
                 ) : (
                     <motion.div
                         key='message'
+                        data-dashboard-motion='view-change'
                         layout
                         className='space-y-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[#0b0d12] p-3'
                         variants={dashboardInlineVariants}
                         initial='initial'
                         animate='enter'
                         exit='exit'
-                        transition={dashboardContentTransition}>
+                        transition={dashboardViewTransition}>
                         {trimmedContent ? (
                             <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#f5f7fb]'>
                                 {trimmedContent}

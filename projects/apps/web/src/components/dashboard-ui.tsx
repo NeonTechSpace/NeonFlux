@@ -54,29 +54,38 @@ export function DashboardPageHeader({
     title,
     description,
     eyebrow,
+    icon,
     actions,
     titleId,
 }: {
     title: string;
     description?: string;
     eyebrow?: string;
+    icon?: ReactNode;
     actions?: ReactNode;
     titleId?: string;
 }) {
     return (
         <header className='flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
-            <div className='min-w-0'>
-                {eyebrow ? (
-                    <p className='mb-1 text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
-                        {eyebrow}
-                    </p>
+            <div className='flex min-w-0 flex-1 items-start gap-3'>
+                {icon ? (
+                    <div className='dashboard-glass-panel grid size-11 shrink-0 place-items-center text-[var(--dash-primary)]'>
+                        <span className='relative'>{icon}</span>
+                    </div>
                 ) : null}
-                <h2 id={titleId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
-                    {title}
-                </h2>
-                {description ? (
-                    <p className='mt-1 max-w-3xl text-sm leading-6 text-[var(--dash-text-muted)]'>{description}</p>
-                ) : null}
+                <div className='min-w-0'>
+                    {eyebrow ? (
+                        <p className='mb-1 text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
+                            {eyebrow}
+                        </p>
+                    ) : null}
+                    <h2 id={titleId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
+                        {title}
+                    </h2>
+                    {description ? (
+                        <p className='mt-1 max-w-3xl text-sm leading-6 text-[var(--dash-text-muted)]'>{description}</p>
+                    ) : null}
+                </div>
             </div>
             {actions ? <div className='flex shrink-0 flex-wrap items-center gap-2'>{actions}</div> : null}
         </header>
@@ -165,13 +174,19 @@ export function DashboardEmptyState({
     title,
     description,
     action,
+    size = 'default',
 }: {
     title: string;
     description: string;
     action?: ReactNode;
+    size?: 'compact' | 'default';
 }) {
     return (
-        <div className='grid h-full min-h-40 place-items-center px-4 py-8 text-center'>
+        <div
+            className={joinClassNames(
+                'grid h-full place-items-center px-4 text-center',
+                size === 'compact' ? 'py-5' : 'min-h-40 py-8'
+            )}>
             <div className='max-w-md'>
                 <h3 className='text-base font-semibold text-[var(--dash-text)]'>{title}</h3>
                 <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>{description}</p>

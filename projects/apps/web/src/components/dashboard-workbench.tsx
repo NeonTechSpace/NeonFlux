@@ -26,19 +26,23 @@ export function DashboardWorkbench({
     });
     const activeId = activeItem?.id ?? categoryId;
     const headingId = `dashboard-${activeId}-heading`;
+    const FeatureIcon = activeItem?.icon ?? category.icon;
 
     return (
         <section className='min-w-0' aria-labelledby={headingId}>
             <motion.div
                 key={activeId}
+                data-dashboard-motion='route-arrival'
                 variants={dashboardContentVariants}
                 initial='initial'
                 animate='enter'
                 transition={dashboardContentTransition}>
-                <DashboardPage width={getWorkbenchWidth(activeId)}>
+                <DashboardPage width={getDashboardWorkbenchWidth(activeId)}>
                     <DashboardPageHeader
                         title={activeItem?.label ?? category.label}
                         description={activeItem?.description ?? category.description}
+                        eyebrow={activeItem ? category.label : undefined}
+                        icon={<FeatureIcon className='size-5' aria-hidden='true' />}
                         titleId={headingId}
                     />
                     {children ?? <Outlet />}
@@ -48,7 +52,7 @@ export function DashboardWorkbench({
     );
 }
 
-function getWorkbenchWidth(activeId: string): 'focused' | 'standard' | 'wide' | 'full' {
+export function getDashboardWorkbenchWidth(activeId: string): 'focused' | 'standard' | 'wide' | 'full' {
     if (activeId === 'command-prefix' || activeId === 'bot-presence' || activeId === 'command-help') {
         return 'focused';
     }

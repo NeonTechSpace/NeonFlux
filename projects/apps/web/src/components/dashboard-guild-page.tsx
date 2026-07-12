@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
 import type { DashboardGuildPreview } from '../dashboard-guild-preview.js';
-import { getDashboardCategory } from '../dashboard-categories.js';
+import { getDashboardCategory, getDashboardCategorySubNavigation } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
 import type { DashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
@@ -19,6 +19,8 @@ import { DashboardPostingPanel } from './dashboard-posting-panel.js';
 import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
 import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
 import { DashboardStructurePanel } from './dashboard-structure-panel.js';
+import { DashboardPage, DashboardPageHeader } from './dashboard-ui.js';
+import { getDashboardWorkbenchWidth } from './dashboard-workbench.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const commandLiveArea = ['commands'] as const satisfies readonly DashboardLiveArea[];
@@ -91,7 +93,7 @@ export function DashboardGuildPendingPage({
     activeCategoryId?: DashboardCategoryId;
 }) {
     if (!preview) {
-        return <DashboardGuildColdLoadingShell activeCategoryId={activeCategoryId} />;
+        return <DashboardGuildColdLoadingShell activeCategoryId={activeCategoryId} pathname={pathname} />;
     }
 
     const currentPreview = sourcePreview ?? preview;
@@ -108,48 +110,58 @@ export function DashboardGuildPendingPage({
             pendingGuildId={sourcePreview ? preview.id : undefined}
             pathnameOverride={sourcePathname}
             isLoading>
-            <DashboardPendingCategory activeCategoryId={activeCategoryId} />
+            <DashboardPendingCategory activeCategoryId={activeCategoryId} pathname={pathname} />
         </DashboardGuildFrame>
     );
 }
 
-function DashboardGuildColdLoadingShell({ activeCategoryId }: { activeCategoryId: DashboardCategoryId }) {
+function DashboardGuildColdLoadingShell({
+    activeCategoryId,
+    pathname,
+}: {
+    activeCategoryId: DashboardCategoryId;
+    pathname?: string;
+}) {
     return (
         <DashboardShell>
             <div className='flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden md:flex-row md:gap-4'>
                 <header
                     className='flex min-h-14 shrink-0 items-center gap-3 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(8,13,21,0.92)] p-2 md:hidden'
                     aria-label='Loading dashboard navigation'>
-                    <span className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
-                    <span className='h-3 w-32 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
+                    <span
+                        data-dashboard-loading='pulse'
+                        className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
+                    />
+                    <span
+                        data-dashboard-loading='pulse'
+                        className='h-3 w-32 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
+                    />
                 </header>
                 <aside
-                    className='hidden h-full min-h-0 w-[4.5rem] shrink-0 flex-col rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,11,18,0.9)] p-2 md:flex xl:w-64 xl:p-3'
+                    className='hidden h-full min-h-0 w-[4.5rem] shrink-0 flex-col rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,11,18,0.9)] p-2 md:flex lg:w-64 lg:p-3'
                     aria-label='Loading dashboard navigation'>
-                    <div className='flex min-h-12 items-center justify-center gap-3 border-b border-[var(--dash-border)] pb-3 xl:justify-start'>
-                        <span className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]' />
-                        <span className='hidden h-3 w-28 animate-pulse rounded-full bg-[var(--dash-surface-raised)] xl:block' />
+                    <div className='flex min-h-12 items-center justify-center gap-3 border-b border-[var(--dash-border)] pb-3 lg:justify-start'>
+                        <span
+                            data-dashboard-loading='pulse'
+                            className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
+                        />
+                        <span
+                            data-dashboard-loading='pulse'
+                            className='hidden h-3 w-28 animate-pulse rounded-full bg-[var(--dash-surface-raised)] lg:block'
+                        />
                     </div>
                     <div className='space-y-2 py-4'>
                         {Array.from({ length: 6 }, (_, index) => (
                             <div
                                 key={index}
-                                className='mx-auto h-11 w-11 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] xl:mx-0 xl:w-full'
+                                data-dashboard-loading='pulse'
+                                className='mx-auto h-11 w-11 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] lg:mx-0 lg:w-full'
                             />
                         ))}
                     </div>
                 </aside>
                 <div className='min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pb-8 md:pr-2'>
-                    <section className='min-h-full space-y-4' aria-label='Loading dashboard'>
-                        <div className='border-b border-[var(--dash-border)] px-1 pb-3'>
-                            <span role='status' className='sr-only'>
-                                Loading dashboard
-                            </span>
-                            <div className='h-7 w-48 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
-                            <div className='mt-2 h-4 w-80 max-w-full animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
-                        </div>
-                        <DashboardCategoryLoading categoryId={activeCategoryId} />
-                    </section>
+                    <DashboardPendingCategory activeCategoryId={activeCategoryId} pathname={pathname} />
                 </div>
             </div>
         </DashboardShell>
@@ -305,15 +317,27 @@ function DashboardGuildFrame({
     );
 }
 
-function DashboardCategorySection({ categoryId, children }: { categoryId: DashboardCategoryId; children: ReactNode }) {
+function DashboardCategorySection({
+    categoryId,
+    children,
+    identity,
+}: {
+    categoryId: DashboardCategoryId;
+    children: ReactNode;
+    identity?: DashboardPendingIdentity;
+}) {
     const category = getDashboardCategory(categoryId);
     const headingId = `dashboard-${category.id}-heading`;
-    const title = category.id === 'overview' ? 'Server pulse' : category.label;
+    const title = identity?.title ?? (category.id === 'overview' ? 'Server pulse' : category.label);
     const description =
-        category.id === 'overview' ? 'Growth and message activity across this server.' : category.description;
+        identity?.description ??
+        (category.id === 'overview' ? 'Growth and message activity across this server.' : category.description);
 
     return (
-        <section className='min-h-full space-y-4' aria-label={category.label}>
+        <section
+            className='min-h-full space-y-4'
+            aria-label={identity?.title ?? category.label}
+            data-dashboard-feature={identity?.id}>
             <div className='border-b border-[var(--dash-border)] px-1 pb-3'>
                 <h2 id={headingId} className='text-2xl font-semibold tracking-tight text-[var(--dash-text)]'>
                     {title}
@@ -325,48 +349,176 @@ function DashboardCategorySection({ categoryId, children }: { categoryId: Dashbo
     );
 }
 
-function DashboardPendingCategory({ activeCategoryId }: { activeCategoryId: DashboardCategoryId }) {
+function DashboardPendingCategory({
+    activeCategoryId,
+    pathname,
+}: {
+    activeCategoryId: DashboardCategoryId;
+    pathname?: string;
+}) {
+    const identity = getDashboardPendingIdentity(activeCategoryId, pathname);
+
     if (activeCategoryId === 'overview') {
         return (
-            <DashboardCategorySection categoryId='overview'>
+            <DashboardCategorySection categoryId='overview' identity={identity}>
+                <span role='status' className='sr-only'>
+                    Loading {identity.title}
+                </span>
                 <DashboardServerOverviewLoading />
             </DashboardCategorySection>
         );
     }
 
+    if (activeCategoryId !== 'structure') {
+        const category = getDashboardCategory(activeCategoryId);
+        const featureId = identity.id.split(':').at(-1) ?? category.id;
+        const activeItem = getDashboardCategorySubNavigation(activeCategoryId).find((item) => item.id === featureId);
+        const FeatureIcon = activeItem?.icon ?? category.icon;
+        const headingId = `dashboard-${featureId}-heading`;
+
+        return (
+            <section
+                className='min-w-0'
+                aria-labelledby={headingId}
+                data-dashboard-feature={identity.id}
+                data-dashboard-page-width={getDashboardWorkbenchWidth(featureId)}>
+                <DashboardPage width={getDashboardWorkbenchWidth(featureId)}>
+                    <span role='status' className='sr-only'>
+                        Loading {identity.title}
+                    </span>
+                    <DashboardPageHeader
+                        title={identity.title}
+                        description={identity.description}
+                        eyebrow={activeItem ? category.label : undefined}
+                        icon={<FeatureIcon className='size-5' aria-hidden='true' />}
+                        titleId={headingId}
+                    />
+                    <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
+                </DashboardPage>
+            </section>
+        );
+    }
+
     return (
-        <DashboardCategorySection categoryId={activeCategoryId}>
-            <DashboardCategoryLoading categoryId={activeCategoryId} />
+        <DashboardCategorySection categoryId={activeCategoryId} identity={identity}>
+            <span role='status' className='sr-only'>
+                Loading {identity.title}
+            </span>
+            <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
         </DashboardCategorySection>
     );
 }
 
-function DashboardCategoryLoading({ categoryId }: { categoryId: DashboardCategoryId }) {
+function DashboardCategoryLoading({
+    categoryId,
+    identity,
+}: {
+    categoryId: DashboardCategoryId;
+    identity: DashboardPendingIdentity;
+}) {
     const compact = categoryId === 'general' || categoryId === 'structure' || categoryId === 'events';
 
     return (
         <div className={compact ? 'space-y-4' : 'grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]'}>
-            <article className='dashboard-glass-panel p-5' aria-label='Loading settings panel'>
-                <div className='h-5 w-40 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
-                <div className='mt-3 h-4 w-64 max-w-full animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(177,186,200,0.14)]' />
+            <article className='dashboard-glass-panel p-5' aria-label={`Loading ${identity.title} controls`}>
+                <div
+                    data-dashboard-loading='pulse'
+                    className='h-5 w-40 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]'
+                />
+                <div
+                    data-dashboard-loading='pulse'
+                    className='mt-3 h-4 w-64 max-w-full animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(177,186,200,0.14)]'
+                />
                 <div className='mt-6 space-y-3'>
                     {Array.from({ length: compact ? 2 : 4 }, (_, index) => (
                         <div
                             key={index}
+                            data-dashboard-loading='pulse'
                             className='h-11 animate-pulse rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(6,10,18,0.52)]'
                         />
                     ))}
                 </div>
             </article>
             {!compact ? (
-                <article className='dashboard-glass-panel p-5' aria-label='Loading preview panel'>
-                    <div className='h-5 w-36 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]' />
+                <article className='dashboard-glass-panel p-5' aria-label={`Loading ${identity.title} preview`}>
+                    <div
+                        data-dashboard-loading='pulse'
+                        className='h-5 w-36 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]'
+                    />
                     <div className='mt-5 space-y-3'>
-                        <div className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(56,189,248,0.08)]' />
-                        <div className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(217,70,239,0.08)]' />
+                        <div
+                            data-dashboard-loading='pulse'
+                            className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(56,189,248,0.08)]'
+                        />
+                        <div
+                            data-dashboard-loading='pulse'
+                            className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(217,70,239,0.08)]'
+                        />
                     </div>
                 </article>
             ) : null}
         </div>
     );
 }
+
+type DashboardPendingIdentity = {
+    id: string;
+    title: string;
+    description: string;
+};
+
+function getDashboardPendingIdentity(
+    categoryId: DashboardCategoryId,
+    pathname: string | undefined
+): DashboardPendingIdentity {
+    const pathSegment = pathname?.split('/').filter(Boolean).at(-1);
+    const subfeature = getDashboardCategorySubNavigation(categoryId).find((item) => item.id === pathSegment);
+
+    if (subfeature) {
+        return {
+            id: `${categoryId}:${subfeature.id}`,
+            title: subfeature.label,
+            description: subfeature.description,
+        };
+    }
+
+    if (categoryId === 'structure' && pathSegment && Object.hasOwn(blueprintPendingIdentities, pathSegment)) {
+        return blueprintPendingIdentities[pathSegment as keyof typeof blueprintPendingIdentities];
+    }
+
+    const category = getDashboardCategory(categoryId);
+    return {
+        id: category.id,
+        title: category.id === 'overview' ? 'Server pulse' : category.label,
+        description:
+            category.id === 'overview' ? 'Growth and message activity across this server.' : category.description,
+    };
+}
+
+const blueprintPendingIdentities = {
+    current: {
+        id: 'structure:current',
+        title: 'Current layout',
+        description: 'The relationship between the latest protected version and what is live now.',
+    },
+    backups: {
+        id: 'structure:backups',
+        title: 'Protected versions',
+        description: 'Backups provide comparison baselines and deliberate recovery sources.',
+    },
+    compare: {
+        id: 'structure:compare',
+        title: 'Compare layouts',
+        description: 'Review domain changes before inspecting normalized JSON details.',
+    },
+    deploy: {
+        id: 'structure:deploy',
+        title: 'Deploy a blueprint',
+        description: 'Prepare, review, safety-check, and deliberately apply one blueprint.',
+    },
+    runs: {
+        id: 'structure:runs',
+        title: 'Deployment runs',
+        description: 'Track active, recoverable, and completed deployment work.',
+    },
+} as const satisfies Record<string, DashboardPendingIdentity>;
