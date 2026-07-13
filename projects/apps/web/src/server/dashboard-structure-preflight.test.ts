@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { diffDashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import type { DashboardStructureSnapshot } from './dashboard-structure-diff.js';
 import {
     isDashboardStructurePreflightReady,
@@ -116,6 +117,69 @@ describe('Server Blueprint action preflight', () => {
         );
 
         expect(report.actions[2]).toMatchObject({ status: 'ready' });
+    });
+
+    it('accepts overwrite steps that follow a planned channel create in a cross-guild rebuild', () => {
+        const current = createSnapshot({
+            guildId: 'target-guild',
+            channels: [createChannel('target-channel', 'old-channel', 0, null, 0)],
+        });
+        const requested = createSnapshot({
+            guildId: 'source-guild',
+            roles: [createRole('source-role')],
+            channels: [
+                {
+                    ...createChannel('source-channel', 'new-channel', 0, null, 0),
+                    permissionOverwrites: [{ id: 'source-role', type: 0, allow: '1024', deny: '0' }],
+                },
+            ],
+        });
+        const { plan, report } = preflightRebuildPlan(current, requested);
+
+        expect(
+            plan.executionActions.some(
+                (action) =>
+                    action.actionType === 'update' &&
+                    action.targetId === 'source-channel' &&
+                    readExecutionOperation(action.details) === 'permission-overwrite-upsert'
+            )
+        ).toBe(true);
+        expect(report.summary).toMatchObject({
+            stale: 0,
+            mappingRequired: 0,
+            unsupported: 0,
+            invalidPlan: 0,
+        });
+    });
+
+    it('accepts overwrite steps after recreating a same-ID channel in a rebuild', () => {
+        const current = createSnapshot({
+            guildId: 'same-guild',
+            channels: [
+                {
+                    ...createChannel('channel-1', 'old-channel', 0, null, 0),
+                    permissionOverwrites: [{ id: 'old-member', type: 1, allow: '0', deny: '1024' }],
+                },
+            ],
+        });
+        const requested = createSnapshot({
+            guildId: 'same-guild',
+            roles: [createRole('role-1')],
+            channels: [
+                {
+                    ...createChannel('channel-1', 'new-channel', 0, null, 0),
+                    permissionOverwrites: [{ id: 'role-1', type: 0, allow: '1024', deny: '0' }],
+                },
+            ],
+        });
+        const { report } = preflightRebuildPlan(current, requested);
+
+        expect(report.summary).toMatchObject({
+            stale: 0,
+            mappingRequired: 0,
+            unsupported: 0,
+            invalidPlan: 0,
+        });
     });
 
     it.each([
@@ -266,4 +330,31 @@ function createRetainedMergeOrderAction(): DashboardStructurePreflightInputActio
             ],
         },
     };
+}
+
+function preflightRebuildPlan(current: DashboardStructureSnapshot, requested: DashboardStructureSnapshot) {
+    const plan = diffDashboardStructureSnapshot(current, requested, { policy: 'rebuild' });
+    const report = preflightDashboardStructureImportPlan(
+        current,
+        plan.executionActions.map((action, index) => ({ ...action, id: `action-${String(index)}` })),
+        {
+            idMap: Object.fromEntries(
+                Object.entries(plan.sourceTargetMap).filter(
+                    (entry): entry is [string, string] => typeof entry[1] === 'string'
+                )
+            ),
+            knownTargetIds: Object.keys(plan.knownTargetKinds),
+            policy: 'rebuild',
+            ...(requested.guildId ? { sourceGuildId: requested.guildId } : {}),
+            sourceIds: Object.keys(plan.sourceTargetMap),
+        }
+    );
+    return { plan, report };
+}
+
+function readExecutionOperation(details: Record<string, unknown>): unknown {
+    const execution = details.execution;
+    return typeof execution === 'object' && execution !== null && !Array.isArray(execution)
+        ? (execution as Record<string, unknown>).operation
+        : undefined;
 }

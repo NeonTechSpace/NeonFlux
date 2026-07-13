@@ -733,36 +733,47 @@ function preflightUpdateAction(
     }
 
     const currentItem = findCurrentItem(current, targetType, targetId);
+    const followsPlannedCreate = isPlannedCreateFollowupUpdate(action, actions, targetType);
 
-    if (!currentItem) {
+    if (!currentItem && !followsPlannedCreate) {
         return toPreflightAction(action, 'stale', 'The target no longer exists in the current server layout.');
     }
 
-    if (targetType === 'role' && isProtectedRoleTarget(currentItem, current.guildId)) {
-        return toPreflightAction(
-            action,
-            'unsupported',
-            'Protected bot, integration, and default roles cannot be updated.'
+    if (currentItem && !followsPlannedCreate) {
+        if (targetType === 'role' && isProtectedRoleTarget(currentItem, current.guildId)) {
+            return toPreflightAction(
+                action,
+                'unsupported',
+                'Protected bot, integration, and default roles cannot be updated.'
+            );
+        }
+
+        if (
+            targetType === 'role' &&
+            isRoleBlockedByBotHierarchy(
+                currentItem,
+                current.botHighestRolePosition,
+                current.botHighestRoleHierarchyRank
+            )
+        ) {
+            return toPreflightAction(
+                action,
+                'unsupported',
+                'The bot role must be above this role before it can be updated.'
+            );
+        }
+
+        const staleField = changes.find(
+            (change) => stableValueKey(readStructureField(currentItem, change.field)) !== stableValueKey(change.before)
         );
-    }
 
-    if (
-        targetType === 'role' &&
-        isRoleBlockedByBotHierarchy(currentItem, current.botHighestRolePosition, current.botHighestRoleHierarchyRank)
-    ) {
-        return toPreflightAction(
-            action,
-            'unsupported',
-            'The bot role must be above this role before it can be updated.'
-        );
-    }
-
-    const staleField = changes.find(
-        (change) => stableValueKey(readStructureField(currentItem, change.field)) !== stableValueKey(change.before)
-    );
-
-    if (staleField) {
-        return toPreflightAction(action, 'stale', `Field ${staleField.field} changed after the dry-run was created.`);
+        if (staleField) {
+            return toPreflightAction(
+                action,
+                'stale',
+                `Field ${staleField.field} changed after the dry-run was created.`
+            );
+        }
     }
 
     const supportedFields = supportedUpdateFields.get(targetType) ?? new Set<string>();
@@ -788,7 +799,74 @@ function preflightUpdateAction(
         return toPreflightAction(action, layoutValidation.status, layoutValidation.message);
     }
 
-    return toPreflightAction(action, 'ready', 'The target still matches the dry-run baseline.');
+    return toPreflightAction(
+        action,
+        'ready',
+        followsPlannedCreate
+            ? 'The update follows its reviewed create step.'
+            : 'The target still matches the dry-run baseline.'
+    );
+}
+
+function isPlannedCreateFollowupUpdate(
+    action: DashboardStructurePreflightInputAction,
+    actions: DashboardStructurePreflightInputAction[],
+    targetType: TargetType
+): boolean {
+    const actionIndex = actions.indexOf(action);
+    const execution = readExecutionStep(action);
+    if (
+        actionIndex <= 0 ||
+        action.actionType !== 'update' ||
+        execution?.operation !== 'permission-overwrite-upsert' ||
+        execution.step <= 1
+    ) {
+        return false;
+    }
+
+    return actions.slice(0, actionIndex).some((candidate) => {
+        const candidateExecution = readExecutionStep(candidate);
+        return (
+            candidate.actionType === 'create' &&
+            candidate.targetType === targetType &&
+            candidate.targetId === action.targetId &&
+            candidateExecution?.operation === 'create' &&
+            candidateExecution.groupId === execution.groupId &&
+            candidateExecution.step === 1 &&
+            candidateExecution.stepCount === execution.stepCount
+        );
+    });
+}
+
+function readExecutionStep(action: DashboardStructurePreflightInputAction):
+    | {
+          groupId: string;
+          operation: string;
+          step: number;
+          stepCount: number;
+      }
+    | undefined {
+    const execution = action.details.execution;
+    if (
+        !isObject(execution) ||
+        typeof execution.groupId !== 'string' ||
+        !execution.groupId ||
+        typeof execution.operation !== 'string' ||
+        !execution.operation ||
+        !Number.isInteger(execution.step) ||
+        !Number.isInteger(execution.stepCount) ||
+        (execution.step as number) < 1 ||
+        (execution.stepCount as number) < (execution.step as number)
+    ) {
+        return undefined;
+    }
+
+    return {
+        groupId: execution.groupId,
+        operation: execution.operation,
+        step: execution.step as number,
+        stepCount: execution.stepCount as number,
+    };
 }
 
 function normalizeChanges(value: unknown): Array<{ field: string; before: unknown; after: unknown }> | undefined {
