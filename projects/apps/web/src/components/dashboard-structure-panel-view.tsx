@@ -486,9 +486,11 @@ function DeploySource({
                 id='server-blueprint-import-file'
                 type='file'
                 accept='application/json,.json'
+                onClick={(event) => {
+                    event.currentTarget.value = '';
+                }}
                 onChange={(event) => {
                     void workspace.onImportStructureFile(event.currentTarget.files?.[0]);
-                    event.currentTarget.value = '';
                 }}
                 className='mt-3 block w-full max-w-2xl bg-transparent px-0 py-3 text-sm text-[var(--dash-text-muted)] file:mr-4 file:rounded-[var(--dash-radius-control)] file:border-0 file:bg-[var(--dash-surface-raised)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--dash-text)] hover:file:bg-[var(--dash-surface-selected)]'
             />
