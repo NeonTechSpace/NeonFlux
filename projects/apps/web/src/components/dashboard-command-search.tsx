@@ -343,13 +343,13 @@ export function DashboardCommandSearchTrigger({ compact = false }: { compact?: b
             className={
                 compact
                     ? 'grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'
-                    : 'flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)] lg:justify-start'
+                    : 'flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-white/[0.025] px-2 text-sm font-medium text-[var(--dash-text-muted)] transition outline-none hover:bg-white/[0.05] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)] lg:justify-start'
             }>
             <Search className='size-4 shrink-0' aria-hidden='true' />
             {compact ? null : (
                 <>
                     <span className='hidden min-w-0 flex-1 truncate lg:block'>Search</span>
-                    <kbd className='hidden rounded border border-[var(--dash-border)] px-1.5 py-0.5 text-[0.65rem] font-medium text-[var(--dash-text-subtle)] lg:block'>
+                    <kbd className='hidden rounded-md bg-white/[0.045] px-1.5 py-0.5 text-[0.65rem] font-medium text-[var(--dash-text-subtle)] lg:block'>
                         Ctrl K
                     </kbd>
                 </>

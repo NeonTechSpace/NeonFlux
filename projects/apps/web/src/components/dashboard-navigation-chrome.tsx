@@ -7,12 +7,12 @@ import { DashboardDisplayControls } from './dashboard-display-controls.js';
 
 export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
     return (
-        <div className='dashboard-navigation-footer shrink-0 space-y-2 border-t border-[var(--dash-border)] pt-3'>
+        <div className='dashboard-navigation-footer shrink-0 space-y-1 border-t border-white/[0.06] pt-2'>
             {compact ? (
                 <>
                     <DashboardCompactAppearanceControls />
                     <div className='hidden justify-center lg:flex'>
-                        <DashboardDisplayControls variant='inline' />
+                        <DashboardDisplayControls variant='navigation' />
                     </div>
                 </>
             ) : (
@@ -23,7 +23,7 @@ export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
             <a
                 href='/auth/fluxer/login'
                 aria-label='Switch account'
-                className='flex min-h-11 items-center justify-center gap-2 rounded-[var(--dash-radius-control)] border border-transparent px-2 text-sm font-semibold text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                className='flex min-h-10 items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium text-[var(--dash-text-muted)] transition outline-none hover:bg-white/[0.04] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                 <UserRound className='size-4 shrink-0' aria-hidden='true' />
                 <span className={compact ? 'hidden lg:inline' : ''}>Switch account</span>
             </a>
@@ -133,7 +133,7 @@ function DashboardCompactAppearanceControls() {
                         openControls();
                     }
                 }}
-                className='grid size-11 place-items-center rounded-[var(--dash-radius-control)] border border-transparent text-[var(--dash-text-muted)] transition outline-none hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                className='grid size-10 place-items-center rounded-xl text-[var(--dash-text-muted)] transition outline-none hover:bg-white/[0.045] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
                 <SlidersHorizontal className='size-4' aria-hidden='true' />
             </button>
             {open && portalHost
@@ -156,7 +156,7 @@ function DashboardCompactAppearanceControls() {
 
 export function DashboardGuildIdentity({ guild }: { guild: DashboardGuildShellGuild }) {
     return (
-        <div className='flex min-h-12 items-center justify-center gap-3 rounded-[var(--dash-radius-control)] px-1 lg:justify-start lg:px-2'>
+        <div className='flex min-h-12 items-center justify-center gap-3 rounded-xl px-1 lg:justify-start lg:px-2'>
             <DashboardGuildAvatar guild={guild} className='size-9' />
             <div className='hidden min-w-0 flex-1 lg:block'>
                 <p className='text-[0.68rem] font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>

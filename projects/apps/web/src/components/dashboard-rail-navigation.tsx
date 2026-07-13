@@ -130,7 +130,7 @@ export function DashboardRailNavigationList({
 
     return (
         <>
-            <ul className='space-y-1'>
+            <ul className='space-y-0.5'>
                 {dashboardNavigationEntries.map((entry) => {
                     const Icon = entry.category.icon;
                     const active = isNavigationEntryActive(entry, activeCategoryId, guildId, pathname);
@@ -188,8 +188,8 @@ export function DashboardRailNavigationList({
                               top: openGroup.top,
                               maxHeight: `calc(100dvh - ${openGroup.top + 12}px)`,
                           }}
-                          className='fixed z-[65] flex w-64 min-w-0 flex-col overflow-hidden rounded-[var(--dash-radius-panel)] border border-[var(--dash-border-interactive)] bg-[rgba(8,13,21,0.98)] text-[var(--dash-text)] shadow-[var(--dash-shadow-popover)] backdrop-blur-xl'>
-                          <header className='flex min-h-14 shrink-0 items-center gap-2 border-b border-[var(--dash-border)] px-3'>
+                          className='fixed z-[65] flex w-64 min-w-0 flex-col overflow-hidden rounded-2xl bg-[rgba(7,12,20,0.96)] text-[var(--dash-text)] shadow-[var(--dash-shadow-popover)] ring-1 ring-white/[0.07] backdrop-blur-2xl'>
+                          <header className='flex min-h-14 shrink-0 items-center gap-2 border-b border-white/[0.06] px-3'>
                               <h2
                                   id={`${disclosureId}-title`}
                                   className='min-w-0 flex-1 truncate text-sm font-semibold'>
@@ -239,19 +239,19 @@ function ActiveRailIndicator() {
     return (
         <motion.span
             layoutId='dashboard-category-active-rail'
-            className='absolute inset-0 rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-selected)]'
-            transition={{ duration: 0.16, ease: 'easeOut' }}
-        />
+            className='absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_20%_50%,rgba(90,215,255,0.16),rgba(90,215,255,0.045)_70%,transparent)]'
+            transition={{ duration: 0.16, ease: 'easeOut' }}>
+            <span className='absolute inset-y-2 left-0 w-0.5 rounded-full bg-[var(--dash-primary)] shadow-[0_0_10px_rgba(90,215,255,0.6)]' />
+        </motion.span>
     );
 }
 
 function getRailControlClassName(active: boolean): string {
-    const base =
-        'relative grid size-12 place-items-center overflow-hidden rounded-[var(--dash-radius-control)] border outline-none transition';
+    const base = 'relative grid size-11 place-items-center overflow-hidden rounded-xl outline-none transition';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} text-[var(--dash-text-muted)] hover:bg-white/[0.045] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getRailIconClassName(active: boolean): string {
@@ -260,11 +260,11 @@ function getRailIconClassName(active: boolean): string {
 
 function getSubNavigationLinkClassName(active: boolean): string {
     const base =
-        'relative flex min-h-11 items-center gap-2 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.88rem] font-semibold outline-none transition';
+        'relative flex min-h-10 items-center gap-2 rounded-lg px-3 text-[0.86rem] font-medium outline-none transition-colors';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} bg-white/[0.035] text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} text-[var(--dash-text-muted)] hover:bg-white/[0.035] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getSubNavigationIconClassName(active: boolean): string {

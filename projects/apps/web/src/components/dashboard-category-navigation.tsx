@@ -240,13 +240,13 @@ export function DashboardCategoryNavigation({
                 </motion.aside>
             </dialog>
 
-            <aside className='dashboard-navigation-sidebar relative z-30 hidden h-full min-h-0 w-[4.5rem] shrink-0 flex-col rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,11,18,0.9)] p-2 shadow-[var(--dash-shadow-surface)] backdrop-blur md:flex lg:w-64 lg:p-3'>
-                <div className='shrink-0 border-b border-[var(--dash-border)] pb-3'>{serverControl}</div>
-                <div className='dashboard-navigation-tools shrink-0 pt-3'>
+            <aside className='dashboard-navigation-sidebar relative z-30 hidden h-full min-h-0 w-[4.25rem] shrink-0 flex-col rounded-[1.4rem] bg-[linear-gradient(180deg,rgba(7,12,20,0.88),rgba(5,9,16,0.78))] p-1.5 shadow-[inset_-1px_0_0_rgba(125,169,220,0.1),0_24px_64px_rgba(2,6,14,0.3)] ring-1 ring-white/[0.045] backdrop-blur-[22px] backdrop-saturate-[1.2] md:flex lg:w-[15.5rem] lg:px-3 lg:py-3'>
+                <div className='shrink-0 pb-1'>{serverControl}</div>
+                <div className='dashboard-navigation-tools shrink-0 pt-1'>
                     <DashboardCommandSearchTrigger />
                 </div>
                 <nav
-                    className='dashboard-navigation-scroll min-h-0 flex-1 overflow-y-auto py-3'
+                    className='dashboard-navigation-scroll min-h-0 flex-1 overflow-y-auto py-2'
                     aria-label='Dashboard categories'>
                     <div className='lg:hidden'>
                         <DashboardRailNavigationList
@@ -291,7 +291,7 @@ function DashboardExpandedNavigationList({
     onToggleCategory: (jobId: DashboardNavigationJobId) => void;
 }) {
     return (
-        <ul className='space-y-1'>
+        <ul className='space-y-0.5'>
             {dashboardNavigationEntries.map((entry) => {
                 const { category, subNavigation } = entry;
                 const Icon = category.icon;
@@ -301,7 +301,20 @@ function DashboardExpandedNavigationList({
 
                 return (
                     <li key={category.id}>
-                        <div className='flex items-center gap-1'>
+                        <div className='relative flex items-center overflow-hidden rounded-xl'>
+                            {active ? (
+                                <>
+                                    <motion.span
+                                        layoutId={`dashboard-category-active-${variant}`}
+                                        className='absolute inset-0 bg-[linear-gradient(90deg,rgba(90,215,255,0.14),rgba(90,215,255,0.035)_72%,transparent)]'
+                                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                                    />
+                                    <span
+                                        className='absolute inset-y-2 left-0 w-0.5 rounded-full bg-[var(--dash-primary)] shadow-[0_0_12px_rgba(90,215,255,0.6)]'
+                                        aria-hidden='true'
+                                    />
+                                </>
+                            ) : null}
                             <Link
                                 to={entry.linkTo}
                                 params={{ guildId }}
@@ -309,13 +322,6 @@ function DashboardExpandedNavigationList({
                                 aria-current={active ? 'page' : undefined}
                                 onClick={onNavigate}
                                 className={`${getCategoryLinkClassName(active)} min-w-0 flex-1`}>
-                                {active ? (
-                                    <motion.span
-                                        layoutId={`dashboard-category-active-${variant}`}
-                                        className='absolute inset-0 rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-selected)]'
-                                        transition={{ duration: 0.16, ease: 'easeOut' }}
-                                    />
-                                ) : null}
                                 <Icon
                                     className={
                                         active
@@ -349,8 +355,8 @@ function DashboardExpandedNavigationList({
                                 aria-hidden={!open}
                                 className={
                                     open
-                                        ? 'relative mt-1 ml-5 overflow-hidden border-l border-[var(--dash-border-strong)] pl-3'
-                                        : 'pointer-events-none relative mt-1 ml-5 overflow-hidden border-l border-[var(--dash-border-strong)] pl-3'
+                                        ? 'relative mt-1 ml-[1.15rem] space-y-0.5 overflow-hidden border-l border-white/[0.08] pl-3'
+                                        : 'pointer-events-none relative mt-1 ml-[1.15rem] space-y-0.5 overflow-hidden border-l border-white/[0.08] pl-3'
                                 }>
                                 {subNavigation.map((item) => (
                                     <DashboardSubNavigationListItem
@@ -414,29 +420,29 @@ function DashboardSubNavigationListItem({
 
 function getCategoryDisclosureButtonClassName(active: boolean): string {
     const base =
-        'grid size-11 shrink-0 place-items-center rounded-[var(--dash-radius-control)] border text-[var(--dash-text-muted)] outline-none transition';
+        'relative z-10 mr-0.5 grid size-10 shrink-0 place-items-center rounded-lg text-[var(--dash-text-muted)] outline-none transition';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} text-[var(--dash-primary)] hover:bg-white/[0.045] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} hover:bg-white/[0.045] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getCategoryLinkClassName(active: boolean): string {
     const base =
-        'relative flex min-h-11 items-center gap-3 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.93rem] font-semibold outline-none transition';
+        'relative z-10 flex min-h-10 items-center gap-3 rounded-xl px-3 text-[0.9rem] font-semibold outline-none transition-colors';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} text-[var(--dash-text-muted)] hover:bg-white/[0.035] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getSubNavigationLinkClassName(active: boolean): string {
     const base =
-        'relative flex min-h-11 items-center gap-2 overflow-hidden rounded-[var(--dash-radius-control)] border px-3 text-[0.88rem] font-semibold outline-none transition';
+        'relative flex min-h-9 items-center gap-2 rounded-lg px-2 text-[0.84rem] font-medium outline-none transition-colors';
 
     return active
-        ? `${base} border-[var(--dash-border-interactive)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`
-        : `${base} border-transparent text-[var(--dash-text-muted)] hover:border-[var(--dash-border)] hover:bg-[var(--dash-surface-raised)] hover:text-[var(--dash-text)] focus-visible:border-[var(--dash-primary)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
+        ? `${base} bg-white/[0.025] text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`
+        : `${base} text-[var(--dash-text-subtle)] hover:bg-white/[0.035] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]`;
 }
 
 function getDashboardSubNavigationPath(to: DashboardSubNavigationTo, guildId: string): string {

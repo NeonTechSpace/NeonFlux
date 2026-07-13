@@ -102,7 +102,7 @@ export function getDashboardServerTriggerClassName(variant: 'sidebar' | 'mobile-
 
     return variant === 'mobile-header'
         ? `${base} h-[3.25rem] border border-transparent px-1 hover:bg-[var(--dash-surface-raised)]`
-        : `${base} h-[3.25rem] justify-center border border-[var(--dash-border)] bg-[rgba(9,14,23,0.82)] px-2 shadow-[var(--dash-shadow-surface)] hover:border-[var(--dash-border-interactive)] hover:bg-[var(--dash-surface-raised)] lg:justify-start lg:px-2.5`;
+        : `${base} h-12 justify-center border border-transparent px-1.5 hover:bg-white/[0.045] lg:justify-start lg:px-2`;
 }
 
 export function getDashboardServerDockClassName(variant: 'sidebar' | 'mobile-header'): string {
