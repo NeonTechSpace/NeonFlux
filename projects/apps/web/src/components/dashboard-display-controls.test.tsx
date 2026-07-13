@@ -16,7 +16,6 @@ describe('DashboardDisplayControls', () => {
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
-            particleBlurEnabled: true,
             reducedEffectsEnabled: false,
         });
         window.localStorage.clear();
@@ -30,7 +29,6 @@ describe('DashboardDisplayControls', () => {
         expect(useDashboardDisplayPreferences.getState()).toMatchObject({
             fluidBlobsEnabled: true,
             particlesEnabled: true,
-            particleBlurEnabled: true,
             reducedEffectsEnabled: true,
         });
         expect(
@@ -38,19 +36,12 @@ describe('DashboardDisplayControls', () => {
                 name: 'Particle controls unavailable while effects are reduced',
             })
         ).toHaveProperty('disabled', true);
-        expect(
-            screen.getByRole('button', {
-                name: 'Particle blur unavailable while effects are reduced',
-            })
-        ).toHaveProperty('disabled', true);
-
         fireEvent.click(screen.getByRole('button', { name: 'Use full effects' }));
 
         expect(screen.getByRole('button', { name: 'Disable particles' })).toHaveProperty('disabled', false);
-        expect(screen.getByRole('button', { name: 'Use crisp particles' })).toHaveProperty('disabled', false);
     });
 
-    it('toggles fluid blobs without changing particles or particle blur', () => {
+    it('toggles fluid blobs without changing particles', () => {
         render(<DashboardDisplayControls variant='inline' />);
 
         fireEvent.click(screen.getAllByRole('button', { name: 'Disable fluid blobs' }).at(-1)!);
@@ -58,24 +49,11 @@ describe('DashboardDisplayControls', () => {
         expect(useDashboardDisplayPreferences.getState()).toMatchObject({
             fluidBlobsEnabled: false,
             particlesEnabled: true,
-            particleBlurEnabled: true,
         });
         expect(screen.getAllByRole('button', { name: 'Enable fluid blobs' }).at(-1)?.getAttribute('aria-pressed')).toBe(
             'false'
         );
         expect(screen.getAllByRole('button', { name: 'Disable particles' }).at(-1)).toHaveProperty('disabled', false);
-    });
-
-    it('switches between visibly named blurred and crisp particle treatments', () => {
-        render(<DashboardDisplayControls variant='inline' />);
-        const crispButtons = screen.getAllByRole('button', { name: 'Use crisp particles' });
-
-        fireEvent.click(crispButtons.at(-1)!);
-
-        expect(useDashboardDisplayPreferences.getState().particleBlurEnabled).toBe(false);
-        expect(screen.getAllByRole('button', { name: 'Blur particles' }).at(-1)?.getAttribute('aria-pressed')).toBe(
-            'false'
-        );
     });
 
     it('migrates existing granular preferences without opting users into reduced effects', async () => {
@@ -86,9 +64,8 @@ describe('DashboardDisplayControls', () => {
                     desktopGuildSelectorOpen: true,
                     guildSelectorSortByName: true,
                     particlesEnabled: false,
-                    particleBlurEnabled: false,
                 },
-                version: 2,
+                version: 4,
             })
         );
 
@@ -99,7 +76,6 @@ describe('DashboardDisplayControls', () => {
             guildSelectorSortByName: true,
             fluidBlobsEnabled: true,
             particlesEnabled: false,
-            particleBlurEnabled: false,
             reducedEffectsEnabled: false,
         });
     });
@@ -111,13 +87,11 @@ describe('resolveDashboardDisplayEffects', () => {
             resolveDashboardDisplayEffects({
                 fluidBlobsEnabled: true,
                 particlesEnabled: true,
-                particleBlurEnabled: true,
                 reducedEffectsEnabled: true,
             })
         ).toStrictEqual({
             forceReducedMotion: true,
             particlesEnabled: false,
-            particleBlurEnabled: false,
             ambientMotionEnabled: false,
             fluidBlobsEnabled: true,
         });
@@ -126,13 +100,11 @@ describe('resolveDashboardDisplayEffects', () => {
             resolveDashboardDisplayEffects({
                 fluidBlobsEnabled: false,
                 particlesEnabled: false,
-                particleBlurEnabled: true,
                 reducedEffectsEnabled: false,
             })
         ).toStrictEqual({
             forceReducedMotion: false,
             particlesEnabled: false,
-            particleBlurEnabled: false,
             ambientMotionEnabled: true,
             fluidBlobsEnabled: false,
         });

@@ -1,4 +1,4 @@
-import { Blend, Gauge, Sparkles, Waves } from 'lucide-react';
+import { Gauge, Sparkles, Waves } from 'lucide-react';
 
 import {
     resolveDashboardDisplayEffects,
@@ -12,15 +12,12 @@ type DashboardDisplayControlsProps = {
 export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisplayControlsProps) {
     const particlesEnabled = useDashboardDisplayPreferences((state) => state.particlesEnabled);
     const fluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.fluidBlobsEnabled);
-    const particleBlurEnabled = useDashboardDisplayPreferences((state) => state.particleBlurEnabled);
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
     const setParticlesEnabled = useDashboardDisplayPreferences((state) => state.setParticlesEnabled);
     const setFluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.setFluidBlobsEnabled);
-    const setParticleBlurEnabled = useDashboardDisplayPreferences((state) => state.setParticleBlurEnabled);
     const setReducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.setReducedEffectsEnabled);
     const effects = resolveDashboardDisplayEffects({
         fluidBlobsEnabled,
-        particleBlurEnabled,
         particlesEnabled,
         reducedEffectsEnabled,
     });
@@ -31,14 +28,6 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
         : particlesEnabled
           ? 'Disable particles'
           : 'Enable particles';
-    const blurLabel = reducedEffectsEnabled
-        ? 'Particle blur unavailable while effects are reduced'
-        : !particlesEnabled
-          ? 'Particle blur unavailable while particles are disabled'
-          : particleBlurEnabled
-            ? 'Use crisp particles'
-            : 'Blur particles';
-
     return (
         <div className={getDisplayControlsClassName(variant)} aria-label='Display effects'>
             <button
@@ -76,16 +65,6 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
                 onClick={() => setParticlesEnabled(!particlesEnabled)}
                 className={getDisplayControlClassName(effects.particlesEnabled, variant === 'navigation')}>
                 <Sparkles className='size-4' aria-hidden='true' />
-            </button>
-            <button
-                type='button'
-                aria-label={blurLabel}
-                aria-pressed={particleBlurEnabled}
-                disabled={!effects.particlesEnabled}
-                title={blurLabel}
-                onClick={() => setParticleBlurEnabled(!particleBlurEnabled)}
-                className={getDisplayControlClassName(effects.particleBlurEnabled, variant === 'navigation')}>
-                <Blend className='size-4' aria-hidden='true' />
             </button>
         </div>
     );

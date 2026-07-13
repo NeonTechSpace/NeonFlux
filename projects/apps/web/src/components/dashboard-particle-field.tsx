@@ -1,7 +1,6 @@
-import type { Engine, IShapeDrawData, IShapeDrawer, ISourceOptions } from '@tsparticles/engine';
+import type { Engine, ISourceOptions } from '@tsparticles/engine';
 import Particles, { ParticlesProvider } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
-import { useEffect } from 'react';
 
 const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff'];
 const particleLinkDistance = 158;
@@ -9,11 +8,7 @@ const particleLinkHoverRadius = particleLinkDistance + 8;
 
 const dashboardParticleOptions = createDashboardParticleOptions();
 
-export function DashboardParticleField({ blurEnabled }: { blurEnabled: boolean }) {
-    useEffect(() => {
-        DashboardCircleDrawer.blurEnabled = blurEnabled;
-    }, [blurEnabled]);
-
+export function DashboardParticleField() {
     return (
         <ParticlesProvider init={loadDashboardParticles}>
             <Particles
@@ -114,7 +109,7 @@ function createDashboardParticleOptions() {
                 },
             },
             shape: {
-                type: 'dashboard-circle',
+                type: 'circle',
             },
             size: {
                 value: {
@@ -131,36 +126,4 @@ function createDashboardParticleOptions() {
 
 async function loadDashboardParticles(engine: Engine): Promise<void> {
     await loadSlim(engine);
-    await engine.pluginManager.register((registeredEngine) => {
-        registeredEngine.pluginManager.addShape(['dashboard-circle'], () =>
-            Promise.resolve(new DashboardCircleDrawer())
-        );
-    });
-}
-
-class DashboardCircleDrawer implements IShapeDrawer {
-    static blurEnabled = false;
-
-    afterDraw({ context }: IShapeDrawData): void {
-        if (DashboardCircleDrawer.blurEnabled) {
-            context.restore();
-        }
-    }
-
-    beforeDraw({ context }: IShapeDrawData): void {
-        if (!DashboardCircleDrawer.blurEnabled) {
-            return;
-        }
-
-        context.save();
-        context.filter = 'blur(2px)';
-    }
-
-    draw({ context, radius }: IShapeDrawData): void {
-        context.arc(0, 0, radius, 0, Math.PI * 2, false);
-    }
-
-    getSidesCount(): number {
-        return 12;
-    }
 }

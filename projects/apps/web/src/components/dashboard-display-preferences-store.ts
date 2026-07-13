@@ -7,32 +7,28 @@ export type DashboardDisplayPreferencesState = {
     fluidBlobsEnabled: boolean;
     guildSelectorSortByName: boolean;
     particlesEnabled: boolean;
-    particleBlurEnabled: boolean;
     reducedEffectsEnabled: boolean;
     setDesktopGuildSelectorOpen: (open: boolean) => void;
     setFluidBlobsEnabled: (enabled: boolean) => void;
     setGuildSelectorSortByName: (sortByName: boolean) => void;
     setParticlesEnabled: (enabled: boolean) => void;
-    setParticleBlurEnabled: (enabled: boolean) => void;
     setReducedEffectsEnabled: (enabled: boolean) => void;
 };
 
 type DashboardDisplayEffectPreferences = Pick<
     DashboardDisplayPreferencesState,
-    'fluidBlobsEnabled' | 'particleBlurEnabled' | 'particlesEnabled' | 'reducedEffectsEnabled'
+    'fluidBlobsEnabled' | 'particlesEnabled' | 'reducedEffectsEnabled'
 >;
 
 export type EffectiveDashboardDisplayEffects = {
     ambientMotionEnabled: boolean;
     fluidBlobsEnabled: boolean;
     forceReducedMotion: boolean;
-    particleBlurEnabled: boolean;
     particlesEnabled: boolean;
 };
 
 export function resolveDashboardDisplayEffects({
     fluidBlobsEnabled,
-    particleBlurEnabled,
     particlesEnabled,
     reducedEffectsEnabled,
 }: DashboardDisplayEffectPreferences): EffectiveDashboardDisplayEffects {
@@ -42,7 +38,6 @@ export function resolveDashboardDisplayEffects({
         ambientMotionEnabled: !reducedEffectsEnabled,
         fluidBlobsEnabled,
         forceReducedMotion: reducedEffectsEnabled,
-        particleBlurEnabled: effectiveParticlesEnabled && particleBlurEnabled,
         particlesEnabled: effectiveParticlesEnabled,
     };
 }
@@ -54,7 +49,6 @@ export const useDashboardDisplayPreferences = create<DashboardDisplayPreferences
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
-            particleBlurEnabled: true,
             reducedEffectsEnabled: false,
             setDesktopGuildSelectorOpen: (open) =>
                 set((state) => {
@@ -72,10 +66,6 @@ export const useDashboardDisplayPreferences = create<DashboardDisplayPreferences
                 set((state) => {
                     state.particlesEnabled = enabled;
                 }),
-            setParticleBlurEnabled: (enabled) =>
-                set((state) => {
-                    state.particleBlurEnabled = enabled;
-                }),
             setReducedEffectsEnabled: (enabled) =>
                 set((state) => {
                     state.reducedEffectsEnabled = enabled;
@@ -88,7 +78,6 @@ export const useDashboardDisplayPreferences = create<DashboardDisplayPreferences
                 fluidBlobsEnabled: readBoolean(persistedState, 'fluidBlobsEnabled', true),
                 guildSelectorSortByName: readBoolean(persistedState, 'guildSelectorSortByName', false),
                 particlesEnabled: readBoolean(persistedState, 'particlesEnabled', true),
-                particleBlurEnabled: readBoolean(persistedState, 'particleBlurEnabled', true),
                 reducedEffectsEnabled: readBoolean(persistedState, 'reducedEffectsEnabled', false),
             }),
             partialize: (state) => ({
@@ -96,10 +85,9 @@ export const useDashboardDisplayPreferences = create<DashboardDisplayPreferences
                 fluidBlobsEnabled: state.fluidBlobsEnabled,
                 guildSelectorSortByName: state.guildSelectorSortByName,
                 particlesEnabled: state.particlesEnabled,
-                particleBlurEnabled: state.particleBlurEnabled,
                 reducedEffectsEnabled: state.reducedEffectsEnabled,
             }),
-            version: 4,
+            version: 5,
         }
     )
 );

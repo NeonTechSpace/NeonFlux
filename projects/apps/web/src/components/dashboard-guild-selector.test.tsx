@@ -57,7 +57,6 @@ describe('DashboardGuildSelector', () => {
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
-            particleBlurEnabled: true,
             reducedEffectsEnabled: false,
         });
     });

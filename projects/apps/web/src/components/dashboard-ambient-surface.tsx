@@ -15,14 +15,12 @@ const DashboardParticleField = lazy(async () => {
 export function DashboardAmbientSurface() {
     const particlesEnabled = useDashboardDisplayPreferences((state) => state.particlesEnabled);
     const fluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.fluidBlobsEnabled);
-    const particleBlurEnabled = useDashboardDisplayPreferences((state) => state.particleBlurEnabled);
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
     const [desktopMotionEnabled, setDesktopMotionEnabled] = useState(false);
     const [pageVisible, setPageVisible] = useState(true);
     const noiseFilterId = `dashboard-ambient-noise-${useId().replaceAll(':', '')}`;
     const effects = resolveDashboardDisplayEffects({
         fluidBlobsEnabled,
-        particleBlurEnabled,
         particlesEnabled,
         reducedEffectsEnabled,
     });
@@ -75,7 +73,7 @@ export function DashboardAmbientSurface() {
             </svg>
             {effects.particlesEnabled && desktopMotionEnabled && pageVisible ? (
                 <Suspense fallback={null}>
-                    <DashboardParticleField blurEnabled={effects.particleBlurEnabled} />
+                    <DashboardParticleField />
                 </Suspense>
             ) : null}
             <div className='absolute inset-0 z-40 bg-[radial-gradient(ellipse_at_center,transparent_34%,rgba(5,7,17,0.08)_70%,rgba(4,5,13,0.35)_100%),linear-gradient(180deg,rgba(3,5,14,0.02),rgba(3,4,12,0.28))]' />

@@ -19,7 +19,6 @@ describe('/dashboard', () => {
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
-            particleBlurEnabled: true,
         });
     });
 
@@ -113,7 +112,6 @@ describe('/dashboard', () => {
 
         expect(screen.getByRole('heading', { name: 'Choose server' })).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Disable particles' })).toBeTruthy();
-        expect(screen.getByRole('button', { name: 'Use crisp particles' })).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Open Guild One dashboard' }).getAttribute('href')).toBe(
             '/dashboard/guild-1'
         );
