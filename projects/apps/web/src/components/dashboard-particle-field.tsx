@@ -4,7 +4,7 @@ import { loadSlim } from '@tsparticles/slim';
 
 const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff'];
 const particleLinkDistance = 158;
-const particleLinkHoverRadius = particleLinkDistance + 8;
+const particleHoverRadius = 104;
 
 const dashboardParticleOptions = createDashboardParticleOptions();
 
@@ -43,17 +43,17 @@ function createDashboardParticleOptions() {
             },
             modes: {
                 bubble: {
-                    distance: 132,
+                    distance: particleHoverRadius,
                     duration: 0.35,
                     opacity: 0.96,
-                    size: 5.2,
+                    size: 6.2,
                 },
                 connect: {
                     distance: particleLinkDistance,
                     links: {
                         opacity: 0.62,
                     },
-                    radius: particleLinkHoverRadius,
+                    radius: particleHoverRadius,
                 },
             },
         },
