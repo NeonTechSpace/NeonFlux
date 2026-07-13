@@ -36,6 +36,9 @@ export type DashboardStructureApplyResult =
       }
     | { type: 'invalid-input'; message: string }
     | { type: 'plan-digest-mismatch' }
+    | { type: 'review-stale' }
+    | { type: 'execution-active' }
+    | { type: 'nothing-to-apply' }
     | { type: 'destructive-confirmation-mismatch'; expectedText: string }
     | { type: 'not-applicable'; status: string }
     | DashboardStructureErrorResult;
@@ -77,6 +80,7 @@ export async function applyDashboardStructureImportRun(
     if (runResult.value.status !== structureImportRunStatuses.approved) {
         return { type: 'not-applicable', status: runResult.value.status };
     }
+    if (runResult.value.actions.length === 0) return { type: 'nothing-to-apply' };
     if (!input.planDigest || input.planDigest !== runResult.value.planDigest) {
         return { type: 'plan-digest-mismatch' };
     }
@@ -129,7 +133,7 @@ export async function applyDashboardStructureImportRun(
             preflightDigest: input.preflightDigest,
         }),
     });
-    if (executionResult.isErr()) return mapRepositoryError(executionResult.error);
+    if (executionResult.isErr()) return mapEnqueueRepositoryError(executionResult.error);
 
     return {
         type: 'queued',
@@ -172,6 +176,16 @@ export async function controlDashboardStructureImportExecution(
     if (!allowed) return { type: 'not-controllable', status: latest.value.status };
 
     const result = await requestStructureImportExecutionControl(database.db, {
+        audit: createStructureAuditInput(
+            context,
+            input.request === 'pause'
+                ? structureAuditActions.importExecutionPauseRequested
+                : input.request === 'cancel'
+                  ? structureAuditActions.importExecutionCancelRequested
+                  : structureAuditActions.importExecutionResumed,
+            input.executionId,
+            { request: input.request, runId: input.runId }
+        ),
         executionId: input.executionId,
         request: input.request,
         now: new Date(),
@@ -187,4 +201,11 @@ export async function controlDashboardStructureImportExecution(
 
 function mapRepositoryError(error: { type: string }): DashboardStructureErrorResult {
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
+}
+
+function mapEnqueueRepositoryError(error: { type: string }): DashboardStructureApplyResult {
+    if (error.type === 'structure-execution-review-stale') return { type: 'review-stale' };
+    if (error.type === 'structure-guild-execution-active') return { type: 'execution-active' };
+    if (error.type === 'structure-execution-empty') return { type: 'nothing-to-apply' };
+    return mapRepositoryError(error);
 }

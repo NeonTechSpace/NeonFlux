@@ -4,10 +4,16 @@ import type {
     DashboardStructureDriftResult,
     DashboardStructureImportAction,
 } from '../server/dashboard-structure.server.js';
+import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 
 export type PanelStatus = {
     tone: 'success' | 'error' | 'neutral';
     message: string;
+};
+
+export type DashboardStructurePreflightView = DashboardStructurePreflightReport & {
+    checkedAt?: string;
+    expiresAt?: string;
 };
 
 export type ActionPageState = {

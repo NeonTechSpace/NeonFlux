@@ -15,9 +15,12 @@ import {
     buildStructureImportRunDocument,
     chooseLatestStructureDriftBaselineBackup,
     classifyStructureImportExecutionReclaim,
+    classifyStructureExecutionPreMutationAuthorization,
     isStructureBackupRetentionEligible,
+    isStructureExecutionMutationAuthorizedForLease,
     isStructureImportDecisionLedgerComplete,
     resolveExpiredStructureImportControl,
+    resolveStructureExecutionMutationAuthorization,
     resolveStructureAttemptCompletionStatus,
     resolveStructureExecutionReferenceAuthority,
     resolveStructureExecutionIdMap,
@@ -38,6 +41,97 @@ const runId = 'run-1' as GenericId<'structureImportRuns'>;
 const actionId = 'action-1' as GenericId<'structureImportActions'>;
 
 describe('structure model', () => {
+    it('requires a fresh matching live fingerprint before the first provider mutation', () => {
+        const boundary = {
+            completedMutationSteps: 0,
+            expectedLiveFingerprint: 'live-1',
+            expiresAt: '2026-06-28T12:05:00.000Z',
+            nextActionSequence: 0,
+            now,
+        };
+
+        expect(classifyStructureExecutionPreMutationAuthorization(boundary)).toBe('authorization_required');
+        expect(classifyStructureExecutionPreMutationAuthorization({ ...boundary, liveFingerprint: 'live-2' })).toBe(
+            'live_fingerprint_stale'
+        );
+        expect(
+            classifyStructureExecutionPreMutationAuthorization({
+                ...boundary,
+                liveFingerprint: 'live-1',
+                now: boundary.expiresAt,
+            })
+        ).toBe('preflight_expired');
+        expect(classifyStructureExecutionPreMutationAuthorization({ ...boundary, liveFingerprint: 'live-1' })).toBe(
+            'authorized'
+        );
+        expect(
+            classifyStructureExecutionPreMutationAuthorization({
+                ...boundary,
+                completedMutationSteps: 1,
+                liveFingerprint: 'changed-by-this-execution',
+            })
+        ).toBe('not_required');
+        expect(
+            isStructureExecutionMutationAuthorizedForLease({
+                completedMutationSteps: 0,
+                expiresAt: boundary.expiresAt,
+                leaseId: 'lease-2',
+                mutationAuthorizedAt: now,
+                mutationAuthorizationLeaseId: 'lease-1',
+                nextActionSequence: 0,
+                now,
+            })
+        ).toBe(false);
+        expect(
+            isStructureExecutionMutationAuthorizedForLease({
+                completedMutationSteps: 0,
+                expiresAt: boundary.expiresAt,
+                leaseId: 'lease-1',
+                mutationAuthorizedAt: now,
+                mutationAuthorizationLeaseId: 'lease-1',
+                nextActionSequence: 0,
+                now,
+            })
+        ).toBe(true);
+
+        const authorized = resolveStructureExecutionMutationAuthorization({
+            ...boundary,
+            leaseId: 'lease-1',
+            liveFingerprint: 'live-1',
+            structure: {
+                version: 1,
+                roles: [{ id: 'role-1' }],
+                categories: [{ id: 'category-1' }],
+                channels: [{ id: 'channel-1' }, { id: 'channel-2' }],
+            },
+        });
+        expect(authorized).toMatchObject({
+            type: 'authorized',
+            executionPatch: {
+                mutationAuthorizedAt: now,
+                mutationAuthorizationLeaseId: 'lease-1',
+            },
+            restorePointPatch: {
+                roleCount: 1,
+                categoryCount: 1,
+                channelCount: 2,
+                structure: {
+                    roles: [{ id: 'role-1' }],
+                    categories: [{ id: 'category-1' }],
+                    channels: [{ id: 'channel-1' }, { id: 'channel-2' }],
+                },
+            },
+        });
+        expect(
+            resolveStructureExecutionMutationAuthorization({
+                ...boundary,
+                leaseId: 'lease-1',
+                liveFingerprint: 'live-2',
+                structure: { roles: [], categories: [], channels: [] },
+            })
+        ).toEqual({ type: 'live_fingerprint_stale' });
+    });
+
     it('seeds executions with every resolved source-to-target match and leaves creates unresolved', () => {
         expect(
             resolveStructureExecutionIdMap({

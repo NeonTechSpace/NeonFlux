@@ -131,6 +131,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                         await routeAndLogFeatureEvent({
                             type: 'guild.lifecycle.deleted',
                             guildId: event.guildId,
+                            unavailable: event.unavailable,
                         });
                     },
                     async guildUpdated(event) {

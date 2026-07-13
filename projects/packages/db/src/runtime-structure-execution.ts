@@ -8,6 +8,7 @@ import type {
     StructureImportDecisionPageRecord,
     StructureImportDecisionRecord,
     StructureImportExecutionClaimRecord,
+    StructureImportExecutionMutationAuthorizationRecord,
     StructureImportExecutionPhase,
     StructureImportExecutionRecord,
     StructureImportExportRepositoryError,
@@ -59,6 +60,44 @@ export async function transitionStructureImportPlanState(
             status: input.status,
         });
         return ok(toRun(record));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function authorizeStructureImportExecutionMutation(
+    db: StructureDb,
+    input: {
+        executionId: string;
+        leaseId: string;
+        leaseOwner: string;
+        liveFingerprint: string;
+        now: Date;
+        structure: Record<string, unknown>;
+    }
+): Promise<Result<StructureImportExecutionMutationAuthorizationRecord, StructureImportExportRepositoryError>> {
+    try {
+        const value = recordValue(
+            await db.client.mutation(api.structure.authorizeStructureImportExecutionMutation, {
+                executionId: input.executionId as Id<'structureImportExecutions'>,
+                leaseId: input.leaseId,
+                leaseOwner: input.leaseOwner,
+                liveFingerprint: input.liveFingerprint,
+                now: input.now.toISOString(),
+                protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+                structureJson: JSON.stringify(input.structure),
+            })
+        );
+        const kind = value.kind;
+        if (kind === 'authorized' || kind === 'not_required') {
+            return ok({ kind, execution: toExecution(value.execution) });
+        }
+        if (kind !== 'rejected') throw new Error('invalid-structure-execution-authorization-kind');
+        const reason = value.reason;
+        if (reason !== 'preflight_expired' && reason !== 'live_fingerprint_stale') {
+            throw new Error('invalid-structure-execution-authorization-reason');
+        }
+        return ok({ kind, reason, execution: toExecution(value.execution) });
     } catch {
         return err({ type: 'database-error' });
     }
@@ -199,8 +238,8 @@ export async function enqueueStructureImportExecution(
                 })
             )
         );
-    } catch {
-        return err({ type: 'database-error' });
+    } catch (error) {
+        return err(mapStructureExecutionEnqueueError(error));
     }
 }
 
@@ -266,6 +305,14 @@ function requiredPositiveInteger(value: unknown): number {
     return value;
 }
 
+function mapStructureExecutionEnqueueError(error: unknown): StructureImportExportRepositoryError {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('structure-execution-review-stale')) return { type: 'structure-execution-review-stale' };
+    if (message.includes('structure-guild-execution-active')) return { type: 'structure-guild-execution-active' };
+    if (message.includes('structure-execution-empty')) return { type: 'structure-execution-empty' };
+    return { type: 'database-error' };
+}
+
 export async function renewStructureImportExecutionLease(
     db: StructureDb,
     input: { executionId: string; leaseExpiresAt: Date; leaseId: string; leaseOwner: string; now: Date }
@@ -287,10 +334,11 @@ export async function renewStructureImportExecutionLease(
 
 export async function requestStructureImportExecutionControl(
     db: StructureDb,
-    input: { executionId: string; now: Date; request: 'pause' | 'resume' | 'cancel' }
+    input: { audit?: StructureAuditInput; executionId: string; now: Date; request: 'pause' | 'resume' | 'cancel' }
 ): Promise<Result<StructureImportExecutionRecord, StructureImportExportRepositoryError>> {
     try {
         const record = await db.client.mutation(api.structure.requestStructureImportExecutionControl, {
+            ...(input.audit ? { audit: input.audit } : {}),
             executionId: input.executionId as Id<'structureImportExecutions'>,
             now: input.now.toISOString(),
             protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,

@@ -1,6 +1,7 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
+import { markDashboardCatalogChangedInMutation } from './dashboard_catalog.js';
 import {
     buildGuildDefconExemptionDocument,
     buildGuildSecurityPolicyDocument,
@@ -115,6 +116,10 @@ export const upsertGuildSecurityPolicy = mutation({
             });
         } else {
             await ctx.db.insert('guildSecurityPolicies', document);
+        }
+
+        if (existingPolicy?.defconLevel !== document.defconLevel) {
+            await markDashboardCatalogChangedInMutation(ctx, document.updatedAt);
         }
 
         return toGuildSecurityPolicyRecord(document);

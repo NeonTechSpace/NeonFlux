@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,9 +11,11 @@ import {
     DashboardGuildPageContent,
     DashboardGuildPendingPage,
 } from './dashboard-guild-page.js';
+import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 
 const renderedPages: RenderResult[] = [];
 const invalidateRouter = vi.fn(() => Promise.resolve());
+const navigate = vi.fn(() => Promise.resolve());
 
 beforeEach(() => {
     vi.stubEnv('VITE_CONVEX_URL', '');
@@ -45,6 +47,7 @@ vi.mock('@tanstack/react-router', async () => {
         }) => createElement('a', { ...props, href: params ? to.replace('$guildId', params.guildId) : to }, children),
         Outlet: () => null,
         useRouter: () => ({ invalidate: invalidateRouter }),
+        useNavigate: () => navigate,
         useLocation: ({ select }: { select?: (location: { pathname: string }) => unknown } = {}) =>
             select ? select({ pathname: '/dashboard/guild-2' }) : { pathname: '/dashboard/guild-2' },
     };
@@ -140,6 +143,69 @@ describe('DashboardGuildPendingPage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Retry settings' }));
 
         expect(invalidateRouter).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves an active workbench when refreshed access no longer includes that server', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+        renderedPages.push(
+            render(
+                <QueryClientProvider client={queryClient}>
+                    <DashboardGuildPageContent
+                        data={{
+                            type: 'guild',
+                            mode: 'multi',
+                            guild: { id: 'guild-1', name: 'Guild One' },
+                            manageableGuilds: [{ id: 'guild-1', name: 'Guild One' }],
+                        }}>
+                        <div>Authorized feature</div>
+                    </DashboardGuildPageContent>
+                </QueryClientProvider>
+            )
+        );
+
+        act(() => {
+            queryClient.setQueryData(getDashboardGuildCatalogQueryKey(), {
+                guilds: [{ id: 'guild-2', name: 'Guild Two' }],
+                mode: 'multi',
+            });
+        });
+
+        await waitFor(() => {
+            expect(navigate).toHaveBeenCalledWith({ to: '/dashboard', replace: true });
+        });
+    });
+
+    it('lets fresh authorized route data replace an older shared catalog before access-loss handling', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        queryClient.setQueryData(getDashboardGuildCatalogQueryKey(), {
+            guilds: [{ id: 'guild-2', name: 'Guild Two' }],
+            mode: 'multi',
+        });
+
+        renderedPages.push(
+            render(
+                <QueryClientProvider client={queryClient}>
+                    <DashboardGuildPageContent
+                        data={{
+                            type: 'guild',
+                            mode: 'multi',
+                            guild: { id: 'guild-1', name: 'Guild One' },
+                            manageableGuilds: [{ id: 'guild-1', name: 'Guild One' }],
+                        }}>
+                        <div>Authorized feature</div>
+                    </DashboardGuildPageContent>
+                </QueryClientProvider>
+            )
+        );
+
+        await waitFor(() => {
+            expect(queryClient.getQueryData(getDashboardGuildCatalogQueryKey())).toStrictEqual({
+                guilds: [{ id: 'guild-1', name: 'Guild One' }],
+                mode: 'multi',
+            });
+        });
+        expect(navigate).not.toHaveBeenCalled();
     });
 
     it('offers retry without presenting stale guild details when the shell access read fails', () => {

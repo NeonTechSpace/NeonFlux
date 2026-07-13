@@ -2,6 +2,7 @@ import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    authorizeStructureImportExecutionMutation,
     checkpointStructureImportExecution,
     claimNextStructureImportExecution,
     completeAndCheckpointStructureImportActionAttempt,
@@ -10,12 +11,14 @@ import {
     prepareStructureImportActionAttempt,
     renewStructureImportExecutionLease,
     startStructureImportActionAttempt,
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
     type StructureImportActionRecord,
     type StructureImportExecutionRecord,
     type StructureImportRunRecord,
 } from '@neonflux/db';
 import {
     applyFluxerBotGuildStructureActions,
+    createFluxerGuildStructureSnapshotFingerprintInput,
     deriveFluxerBotGuildStructureCursorAuthority,
     normalizeFluxerGuildStructureSnapshot,
     readFluxerBotGuildStructure,
@@ -25,6 +28,8 @@ import {
 import { runNextStructureImportExecution, startStructureImportExecutionWorker } from './bot-structure-import-worker.js';
 
 vi.mock('@neonflux/db', () => ({
+    STRUCTURE_EXECUTION_PROTOCOL_VERSION: 3,
+    authorizeStructureImportExecutionMutation: vi.fn(),
     checkpointStructureImportExecution: vi.fn(),
     claimNextStructureImportExecution: vi.fn(),
     completeAndCheckpointStructureImportActionAttempt: vi.fn(),
@@ -36,6 +41,7 @@ vi.mock('@neonflux/db', () => ({
 }));
 vi.mock('@neonflux/fluxer', () => ({
     applyFluxerBotGuildStructureActions: vi.fn(),
+    createFluxerGuildStructureSnapshotFingerprintInput: vi.fn(),
     deriveFluxerBotGuildStructureCursorAuthority: vi.fn(),
     normalizeFluxerGuildStructureSnapshot: vi.fn(),
     readFluxerBotGuildStructure: vi.fn(),
@@ -49,6 +55,15 @@ describe('structure import execution worker', () => {
             idMap: {},
             knownTargetKinds: { 'guild-1': 'role' },
             ok: true,
+        });
+        vi.mocked(authorizeStructureImportExecutionMutation).mockResolvedValue(
+            ok({ kind: 'authorized', execution: workerExecution() })
+        );
+        vi.mocked(createFluxerGuildStructureSnapshotFingerprintInput).mockReturnValue({
+            version: 1,
+            roles: [],
+            categories: [],
+            channels: [],
         });
     });
     afterEach(() => vi.useRealTimers());
@@ -164,41 +179,7 @@ describe('structure import execution worker', () => {
             details: { label: 'Member', after: { id: 'source-role', name: 'Member' } },
             createdAt: new Date(),
         };
-        const execution = {
-            id: 'execution-1',
-            runId: 'run-1',
-            guildId: 'guild-1',
-            preflightDigest: 'preflight',
-            protocolVersion: 1,
-            status: 'running' as const,
-            nextActionSequence: 0,
-            notStartedActions: 1,
-            phase: 'queued' as const,
-            totalActions: 1,
-            totalMutationSteps: 1,
-            completedMutationSteps: 0,
-            appliedActions: 0,
-            failedActions: 0,
-            skippedActions: 0,
-            idMap: {},
-            retryAt: null,
-            errorType: null,
-            currentActionDomain: null,
-            currentActionId: null,
-            currentActionLabel: null,
-            leaseId: null,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-            heartbeatAt: null,
-            startedAt: null,
-            completedAt: null,
-            controlRequest: null,
-            restorePointBackupId: null,
-            verificationResult: null,
-            verificationStatus: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
+        const execution = workerExecution();
         vi.mocked(claimNextStructureImportExecution).mockResolvedValue(
             ok({
                 kind: 'claimed',
@@ -270,12 +251,13 @@ describe('structure import execution worker', () => {
 
     it('reuses an attached restore point without creating another one', async () => {
         const execution = workerExecution({
+            appliedActions: 1,
+            completedMutationSteps: 1,
+            nextActionSequence: 1,
             restorePointBackupId: 'backup-existing',
-            totalActions: 0,
-            totalMutationSteps: 0,
             notStartedActions: 0,
         });
-        mockClaim(execution, []);
+        mockClaim(execution, [workerAction()]);
         vi.mocked(checkpointStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(finalizeStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(ok({ actions: [], idMap: {} }));
@@ -287,6 +269,45 @@ describe('structure import execution worker', () => {
 
         expect(ensureStructureImportRestorePoint).not.toHaveBeenCalled();
         expect(readFluxerBotGuildStructure).toHaveBeenCalledOnce();
+    });
+
+    it('uses a separate post-restore read and stops before provider mutation when authorization rejects it', async () => {
+        const execution = workerExecution();
+        mockClaim(execution, [workerAction()]);
+        vi.mocked(ensureStructureImportRestorePoint).mockResolvedValue(ok({ backupId: 'backup-1' }));
+        vi.mocked(readFluxerBotGuildStructure)
+            .mockResolvedValueOnce(ok({ guildName: 'restore-state' } as never))
+            .mockResolvedValueOnce(ok({ guildName: 'changed-before-mutation' } as never));
+        vi.mocked(toFluxerGuildStructureSnapshot)
+            .mockReturnValueOnce({
+                version: 1,
+                guildName: 'restore-state',
+                roles: [],
+                categories: [],
+                channels: [],
+            })
+            .mockReturnValueOnce({
+                version: 1,
+                guildName: 'changed-before-mutation',
+                roles: [],
+                categories: [],
+                channels: [],
+            });
+        vi.mocked(authorizeStructureImportExecutionMutation).mockResolvedValue(
+            ok({ kind: 'rejected', reason: 'live_fingerprint_stale', execution })
+        );
+
+        await expect(runWorker()).resolves.toBe('progressed');
+
+        expect(readFluxerBotGuildStructure).toHaveBeenCalledTimes(2);
+        expect(ensureStructureImportRestorePoint).toHaveBeenCalledBefore(
+            vi.mocked(authorizeStructureImportExecutionMutation)
+        );
+        expect(vi.mocked(authorizeStructureImportExecutionMutation).mock.calls[0]?.[1].structure).toMatchObject({
+            guildName: 'changed-before-mutation',
+        });
+        expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
+        expect(finalizeStructureImportExecution).not.toHaveBeenCalled();
     });
 
     it('persists provider retry timing without advancing the action cursor', async () => {
@@ -664,12 +685,13 @@ describe('structure import execution worker', () => {
 
     it('records full verification read failures as reconciliation work', async () => {
         const execution = workerExecution({
+            appliedActions: 1,
+            completedMutationSteps: 1,
+            nextActionSequence: 1,
             restorePointBackupId: 'backup-1',
-            totalActions: 0,
-            totalMutationSteps: 0,
             notStartedActions: 0,
         });
-        mockClaim(execution, []);
+        mockClaim(execution, [workerAction()]);
         vi.mocked(checkpointStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(finalizeStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(ok({ actions: [], idMap: {} }));
@@ -691,12 +713,13 @@ describe('structure import execution worker', () => {
 
     it('records a full projected snapshot mismatch as reconciliation work', async () => {
         const execution = workerExecution({
+            appliedActions: 1,
+            completedMutationSteps: 1,
+            nextActionSequence: 1,
             restorePointBackupId: 'backup-1',
-            totalActions: 0,
-            totalMutationSteps: 0,
             notStartedActions: 0,
         });
-        mockClaim(execution, []);
+        mockClaim(execution, [workerAction()]);
         vi.mocked(checkpointStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(finalizeStructureImportExecution).mockResolvedValue(ok(execution));
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(ok({ actions: [], idMap: {} }));
@@ -726,7 +749,11 @@ function workerExecution(overrides: Partial<StructureImportExecutionRecord> = {}
         runId: 'run-1',
         guildId: 'guild-1',
         preflightDigest: 'preflight',
-        protocolVersion: 1,
+        preflightExpiresAt: new Date('2026-07-11T12:05:00.000Z'),
+        preflightLiveFingerprint: 'live-fingerprint',
+        mutationAuthorizedAt: null,
+        mutationAuthorizationLeaseId: null,
+        protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
         status: 'running' as const,
         nextActionSequence: 0,
         notStartedActions: 1,
@@ -766,7 +793,7 @@ function executionProtocolMismatch() {
         guildId: 'guild-1',
         kind: 'protocol_mismatch' as const,
         mayHaveExternalEffects: true,
-        requiredProtocolVersion: 2,
+        requiredProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
         status: 'paused',
     };
 }

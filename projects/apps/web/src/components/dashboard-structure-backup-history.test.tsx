@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+/* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
 import { DashboardStructureBackupHistory } from './dashboard-structure-backup-history.js';
@@ -18,6 +19,8 @@ const backup: DashboardStructureBackupSummary = {
     channelCount: 9,
 };
 
+afterEach(cleanup);
+
 describe('DashboardStructureBackupHistory', () => {
     it('renders dense backup metadata and keeps routine actions in one disclosure', () => {
         const view = renderHistory();
@@ -27,7 +30,7 @@ describe('DashboardStructureBackupHistory', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Check drift against this backup' }));
         fireEvent.click(screen.getByRole('button', { name: 'Inspect backup' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Create dry-run from backup' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Use as deploy source' }));
         fireEvent.click(screen.getByRole('button', { name: 'Download backup JSON' }));
         fireEvent.click(screen.getByRole('button', { name: 'Rename backup' }));
         fireEvent.click(screen.getByRole('button', { name: 'Delete backup' }));
@@ -62,7 +65,7 @@ describe('DashboardStructureBackupHistory', () => {
         expect(view.onCancelDelete).toHaveBeenCalledOnce();
     });
 
-    it('preserves paged loading and restore-point action copy', () => {
+    it('preserves paged loading and protects restore points from manual deletion', () => {
         const view = renderHistory({
             page: {
                 backups: [{ ...backup, source: 'restore_point' }],
@@ -72,7 +75,8 @@ describe('DashboardStructureBackupHistory', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
 
-        expect(screen.getByRole('button', { name: 'Create restore dry-run' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Plan restore with Match' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Delete backup' })).toBeNull();
         expect(view.onLoadMore).toHaveBeenCalledOnce();
     });
 });

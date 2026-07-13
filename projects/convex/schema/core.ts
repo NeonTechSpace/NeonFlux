@@ -10,6 +10,7 @@ import { webSessionsTable } from './tables/web_sessions.js';
 import { fluxerOauthTokensTable } from './tables/fluxer_oauth_tokens.js';
 import { botActionEventsTable } from './tables/bot_action_events.js';
 import { dashboardLiveStatesTable } from './tables/dashboard_live_states.js';
+import { dashboardCatalogStatesTable } from './tables/dashboard_catalog_states.js';
 
 export const coreTables = {
     guilds: guildsTable,
@@ -24,4 +25,5 @@ export const coreTables = {
     fluxerOauthTokens: fluxerOauthTokensTable,
     botActionEvents: botActionEventsTable,
     dashboardLiveStates: dashboardLiveStatesTable,
+    dashboardCatalogStates: dashboardCatalogStatesTable,
 };

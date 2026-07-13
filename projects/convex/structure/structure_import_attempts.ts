@@ -10,6 +10,7 @@ import { requireExecutionLease } from './structure_import_execution.js';
 import { finalizeStructureImportExecutionInMutation } from './structure_import_execution_terminal_mutation.js';
 import {
     resolveStructureAttemptCompletionStatus,
+    isStructureExecutionMutationAuthorizedForLease,
     validateStructureExecutionAttemptIdMapTransition,
     validateStructureExecutionProgressTransition,
 } from './structure_model.js';
@@ -83,6 +84,21 @@ export const startStructureImportActionAttempt = mutation({
         const action = await ctx.db.get('structureImportActions', attempt.actionId);
         if (action?.runId !== execution.runId || action.sequence !== execution.nextActionSequence) {
             throw new Error('structure-attempt-action-invalid');
+        }
+        if (
+            !isStructureExecutionMutationAuthorizedForLease({
+                completedMutationSteps: execution.completedMutationSteps,
+                expiresAt: execution.preflightExpiresAt,
+                leaseId: args.leaseId,
+                ...(execution.mutationAuthorizedAt ? { mutationAuthorizedAt: execution.mutationAuthorizedAt } : {}),
+                ...(execution.mutationAuthorizationLeaseId
+                    ? { mutationAuthorizationLeaseId: execution.mutationAuthorizationLeaseId }
+                    : {}),
+                nextActionSequence: execution.nextActionSequence,
+                now: args.now,
+            })
+        ) {
+            throw new Error('structure-execution-mutation-authorization-required');
         }
         const patch = { startedAt: args.now, state: 'started' as const, updatedAt: args.now };
         await ctx.db.patch('structureImportActionAttempts', attempt._id, patch);

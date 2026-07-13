@@ -1,5 +1,21 @@
 import type { FluxerGuildChannel, FluxerGuildRole, FluxerGuildStructure } from './guild-structure.js';
 
+export const FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS = {
+    maxJsonBytes: 4 * 1024 * 1024,
+    maxRoles: 250,
+    maxCategories: 500,
+    maxChannels: 500,
+    maxTotalChannels: 500,
+    maxPermissionOverwritesPerChannel: 1_000,
+    maxIdLength: 64,
+    maxGuildNameLength: 100,
+    maxRoleNameLength: 100,
+    maxChannelNameLength: 100,
+    maxChannelUrlLength: 2_048,
+    maxExportedAtLength: 64,
+    maxPermissionBitfieldLength: 32,
+} as const;
+
 export type FluxerGuildStructureSnapshot = {
     version: 1;
     guildId?: string;
@@ -11,6 +27,8 @@ export type FluxerGuildStructureSnapshot = {
     categories: FluxerGuildChannel[];
     channels: FluxerGuildChannel[];
 };
+
+export type FluxerGuildStructureSnapshotFingerprintInput = Omit<FluxerGuildStructureSnapshot, 'exportedAt'>;
 
 export type FluxerGuildStructureSnapshotValidationResult =
     | { type: 'valid'; snapshot: FluxerGuildStructureSnapshot }
@@ -40,10 +58,55 @@ export function toFluxerGuildStructureSnapshot(
     };
 }
 
+export function createFluxerGuildStructureSnapshotFingerprintInput(
+    snapshot: FluxerGuildStructureSnapshot
+): FluxerGuildStructureSnapshotFingerprintInput {
+    return {
+        version: snapshot.version,
+        ...(snapshot.guildId !== undefined ? { guildId: snapshot.guildId } : {}),
+        ...(snapshot.guildName !== undefined ? { guildName: snapshot.guildName } : {}),
+        ...(snapshot.botHighestRolePosition !== undefined
+            ? { botHighestRolePosition: snapshot.botHighestRolePosition }
+            : {}),
+        ...(snapshot.botHighestRoleHierarchyRank !== undefined
+            ? { botHighestRoleHierarchyRank: snapshot.botHighestRoleHierarchyRank }
+            : {}),
+        roles: snapshot.roles,
+        categories: snapshot.categories,
+        channels: snapshot.channels,
+    };
+}
+
+export function isFluxerGuildStructureSnapshotJsonWithinByteLimit(value: string): boolean {
+    const maximum = FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes;
+    let bytes = 0;
+
+    for (let index = 0; index < value.length; index += 1) {
+        const codeUnit = value.charCodeAt(index);
+        if (codeUnit <= 0x7f) bytes += 1;
+        else if (codeUnit <= 0x7ff) bytes += 2;
+        else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && isLowSurrogate(value.charCodeAt(index + 1))) {
+            bytes += 4;
+            index += 1;
+        } else bytes += 3;
+
+        if (bytes > maximum) return false;
+    }
+
+    return true;
+}
+
+function isLowSurrogate(value: number): boolean {
+    return value >= 0xdc00 && value <= 0xdfff;
+}
+
 export function normalizeFluxerGuildStructureSnapshot(value: unknown): FluxerGuildStructureSnapshotValidationResult {
     if (!isObject(value)) {
         return { type: 'invalid', message: 'Server blueprint JSON must be an object.' };
     }
+
+    const boundsError = validateSnapshotBounds(value);
+    if (boundsError) return { type: 'invalid', message: boundsError };
 
     const roles = normalizeRoles(value.roles);
     const categories = normalizeChannels(value.categories);
@@ -86,6 +149,106 @@ export function normalizeFluxerGuildStructureSnapshot(value: unknown): FluxerGui
             channels,
         },
     };
+}
+
+function validateSnapshotBounds(value: Record<string, unknown>): string | undefined {
+    const limits = FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS;
+
+    const topLevelTextError =
+        validateOptionalTextLength(value.guildId, limits.maxIdLength, 'Server id') ??
+        validateOptionalTextLength(value.guildName, limits.maxGuildNameLength, 'Server name') ??
+        validateOptionalTextLength(value.exportedAt, limits.maxExportedAtLength, 'Export timestamp');
+    if (topLevelTextError) return topLevelTextError;
+
+    if (Array.isArray(value.roles) && value.roles.length > limits.maxRoles) {
+        return `Server blueprint JSON cannot contain more than ${String(limits.maxRoles)} roles.`;
+    }
+    if (Array.isArray(value.categories) && value.categories.length > limits.maxCategories) {
+        return `Server blueprint JSON cannot contain more than ${String(limits.maxCategories)} categories.`;
+    }
+    if (Array.isArray(value.channels) && value.channels.length > limits.maxChannels) {
+        return `Server blueprint JSON cannot contain more than ${String(limits.maxChannels)} channels.`;
+    }
+    if (
+        Array.isArray(value.categories) &&
+        Array.isArray(value.channels) &&
+        value.categories.length + value.channels.length > limits.maxTotalChannels
+    ) {
+        return `Server blueprint JSON cannot contain more than ${String(limits.maxTotalChannels)} total categories and channels.`;
+    }
+
+    if (Array.isArray(value.roles)) {
+        for (const [index, role] of value.roles.entries()) {
+            if (!isObject(role)) continue;
+            const roleError =
+                validateOptionalTextLength(role.id, limits.maxIdLength, `Role ${String(index + 1)} id`) ??
+                validateOptionalTextLength(role.name, limits.maxRoleNameLength, `Role ${String(index + 1)} name`) ??
+                validateOptionalTextLength(
+                    role.permissions,
+                    limits.maxPermissionBitfieldLength,
+                    `Role ${String(index + 1)} permissions`
+                );
+            if (roleError) return roleError;
+        }
+    }
+
+    for (const collection of [value.categories, value.channels]) {
+        if (!Array.isArray(collection)) continue;
+
+        for (const [index, channel] of collection.entries()) {
+            if (!isObject(channel)) continue;
+            const channelLabel = collection === value.categories ? 'Category' : 'Channel';
+            const channelError =
+                validateOptionalTextLength(channel.id, limits.maxIdLength, `${channelLabel} ${String(index + 1)} id`) ??
+                validateOptionalTextLength(
+                    channel.name,
+                    limits.maxChannelNameLength,
+                    `${channelLabel} ${String(index + 1)} name`
+                ) ??
+                validateOptionalTextLength(
+                    channel.url,
+                    limits.maxChannelUrlLength,
+                    `${channelLabel} ${String(index + 1)} URL`
+                ) ??
+                validateOptionalTextLength(
+                    channel.parentId,
+                    limits.maxIdLength,
+                    `${channelLabel} ${String(index + 1)} parent id`
+                );
+            if (channelError) return channelError;
+
+            if (!Array.isArray(channel.permissionOverwrites)) continue;
+            if (channel.permissionOverwrites.length > limits.maxPermissionOverwritesPerChannel) {
+                return `${channelLabel} ${String(index + 1)} cannot contain more than ${String(limits.maxPermissionOverwritesPerChannel)} permission overwrites.`;
+            }
+
+            for (const [overwriteIndex, overwrite] of channel.permissionOverwrites.entries()) {
+                if (!isObject(overwrite)) continue;
+                const overwriteLabel = `${channelLabel} ${String(index + 1)} permission overwrite ${String(overwriteIndex + 1)}`;
+                const overwriteError =
+                    validateOptionalTextLength(overwrite.id, limits.maxIdLength, `${overwriteLabel} id`) ??
+                    validateOptionalTextLength(
+                        overwrite.allow,
+                        limits.maxPermissionBitfieldLength,
+                        `${overwriteLabel} allow value`
+                    ) ??
+                    validateOptionalTextLength(
+                        overwrite.deny,
+                        limits.maxPermissionBitfieldLength,
+                        `${overwriteLabel} deny value`
+                    );
+                if (overwriteError) return overwriteError;
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function validateOptionalTextLength(value: unknown, maximum: number, label: string): string | undefined {
+    return typeof value === 'string' && value.length > maximum
+        ? `${label} cannot exceed ${String(maximum)} characters.`
+        : undefined;
 }
 
 function normalizeRoles(value: unknown): FluxerGuildRole[] | undefined {

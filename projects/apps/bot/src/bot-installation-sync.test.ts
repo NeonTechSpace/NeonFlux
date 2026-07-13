@@ -214,6 +214,17 @@ describe('removeBotInstallationEvent', () => {
         vi.clearAllMocks();
     });
 
+    it('keeps installation state during a temporary guild outage', async () => {
+        const result = await removeBotInstallationEvent(testDb, createMultiMode(), {
+            guildId: 'guild-1',
+            unavailable: true,
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(result._unsafeUnwrap()).toStrictEqual({ status: 'ignored' });
+        expect(deleteBotInstallationMock).not.toHaveBeenCalled();
+    });
+
     it('removes the target guild in single mode', async () => {
         deleteBotInstallationMock.mockResolvedValue(ok(createInstallation('target')));
 

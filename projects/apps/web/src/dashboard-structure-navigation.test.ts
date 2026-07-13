@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Route as StructureIndexRoute } from './routes/dashboard/$guildId/structure/index.js';
 
 describe('dashboard structure navigation', () => {
-    it('redirects the Blueprint root to the safe read-only Current surface', () => {
+    it('redirects the Blueprint root to the safe read-only Overview surface', () => {
         const beforeLoad = StructureIndexRoute.options.beforeLoad;
         let thrown: unknown;
 

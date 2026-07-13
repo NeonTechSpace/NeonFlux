@@ -1,5 +1,5 @@
-import { Outlet } from '@tanstack/react-router';
-import { createContext, use } from 'react';
+import { Outlet, useNavigate } from '@tanstack/react-router';
+import { createContext, use, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
@@ -20,6 +20,7 @@ import { DashboardCategoryNavigation } from './dashboard-category-navigation.js'
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 import { DashboardCommandPrefixRouteContent } from './dashboard-command-prefix-route-content.js';
 import { DashboardGuildUnavailablePage } from './dashboard-guild-unavailable-page.js';
+import { useDashboardGuildCatalog } from './dashboard-guild-catalog.js';
 import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
@@ -260,14 +261,36 @@ function DashboardGuildView({
     activeCategoryId: DashboardCategoryId;
     children: ReactNode;
 }) {
+    const navigate = useNavigate();
+    const initialGuilds = data.manageableGuilds ?? [data.guild];
+    const catalogQuery = useDashboardGuildCatalog({
+        guilds: initialGuilds,
+        mode: data.mode,
+        ...(data.botInviteUrl ? { botInviteUrl: data.botInviteUrl } : {}),
+    });
+    const catalog = catalogQuery.data;
+    const activeGuild = catalog?.guilds.find((guild) => guild.id === data.guild.id);
+    const activeGuildAvailable = activeGuild !== undefined;
+
+    useEffect(() => {
+        if (!catalog || activeGuildAvailable) {
+            return;
+        }
+
+        void navigate({ to: '/dashboard', replace: true });
+    }, [activeGuildAvailable, catalog, navigate]);
+
+    const displayGuild = activeGuild ?? data.guild;
+    const displayGuilds = activeGuild && catalog ? catalog.guilds : initialGuilds;
+
     return (
         <DashboardGuildFrame
-            guild={data.guild}
-            manageableGuilds={data.manageableGuilds ?? [data.guild]}
+            guild={displayGuild}
+            manageableGuilds={displayGuilds}
             guildId={data.guild.id}
             activeCategoryId={activeCategoryId}
-            mode={data.mode}
-            botInviteUrl={data.botInviteUrl}>
+            mode={catalog?.mode ?? data.mode}
+            botInviteUrl={catalog?.botInviteUrl ?? data.botInviteUrl}>
             <DashboardGuildDataContext value={data}>{children}</DashboardGuildDataContext>
         </DashboardGuildFrame>
     );

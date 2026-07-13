@@ -1,5 +1,6 @@
 export {
     diffFluxerGuildStructureSnapshot as diffDashboardStructureSnapshot,
+    createFluxerGuildStructureSnapshotFingerprintInput as createDashboardStructureSnapshotFingerprintInput,
     FluxerGuildStructureAmbiguousIdentityError as DashboardStructureAmbiguousIdentityError,
     normalizeFluxerGuildStructureSnapshot as normalizeDashboardStructureSnapshot,
     toFluxerGuildStructureSnapshot as toDashboardStructureSnapshot,

@@ -86,7 +86,7 @@ export function RestorePointShortcutNotice({
                     disabled={disabled}
                     className={`${dashboardSecondaryActionClassName} inline-flex min-h-8 items-center gap-2 text-xs`}>
                     <RotateCcw className='size-3.5' />
-                    {busy ? 'Creating restore dry-run' : 'Create restore dry-run'}
+                    {busy ? 'Creating restore plan' : 'Plan restore with Match'}
                 </button>
             }>
             Restore point saved before apply.

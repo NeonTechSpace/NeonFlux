@@ -3,10 +3,12 @@ import { ArrowUpRight, ExternalLink, Plus, Server } from 'lucide-react';
 
 import { createDashboardGuildPreview, withDashboardGuildPreview } from '../dashboard-guild-preview.js';
 import type { DashboardViewModel, DashboardViewModelGuild } from '../server/dashboard-view-model.server.js';
+import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
 import { DashboardDisplayControls } from './dashboard-display-controls.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardGuildSelectorAvatar } from './dashboard-server-dock-ui.js';
+import { useDashboardGuildCatalog } from './dashboard-guild-catalog.js';
 import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
@@ -48,39 +50,7 @@ export function DashboardPageContent({ data }: { data: DashboardRouteData }) {
 function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
     switch (viewModel.type) {
         case 'guild-list':
-            return (
-                <DashboardShell>
-                    <header className='flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
-                        <div className='min-w-0'>
-                            <h1 className='text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>
-                                Choose server
-                            </h1>
-                            <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
-                                Open a server you can manage with this Fluxer account.
-                            </p>
-                        </div>
-                        <div className='flex shrink-0 items-center gap-2'>
-                            {viewModel.botInviteUrl ? (
-                                <a
-                                    href={viewModel.botInviteUrl}
-                                    className={`${dashboardSecondaryActionClassName} inline-flex min-h-10 items-center gap-2`}>
-                                    <Plus className='size-4' aria-hidden='true' />
-                                    Invite bot
-                                </a>
-                            ) : null}
-                            <DashboardDisplayControls variant='inline' />
-                        </div>
-                    </header>
-
-                    <section className='min-h-0 flex-1 overflow-y-auto pb-6' aria-label='Server launcher'>
-                        <ul className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
-                            {viewModel.guilds.map((guild) => (
-                                <DashboardGuildItem key={guild.id} guild={guild} mode={viewModel.mode} />
-                            ))}
-                        </ul>
-                    </section>
-                </DashboardShell>
-            );
+            return <DashboardLiveGuildList initialCatalog={toDashboardGuildCatalog(viewModel)} />;
 
         case 'single-unauthorized':
             return (
@@ -96,8 +66,67 @@ function DashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
             );
 
         case 'multi-empty':
-            return <DashboardNoManageableServers botInviteUrl={viewModel.botInviteUrl} />;
+            return (
+                <DashboardLiveGuildList
+                    initialCatalog={{
+                        guilds: [],
+                        mode: 'multi',
+                        ...(viewModel.botInviteUrl ? { botInviteUrl: viewModel.botInviteUrl } : {}),
+                    }}
+                />
+            );
     }
+}
+
+function DashboardLiveGuildList({ initialCatalog }: { initialCatalog: DashboardGuildCatalog }) {
+    const catalogQuery = useDashboardGuildCatalog(initialCatalog);
+    const catalog = catalogQuery.data ?? initialCatalog;
+
+    if (catalog.guilds.length === 0) {
+        return <DashboardNoManageableServers botInviteUrl={catalog.botInviteUrl} />;
+    }
+
+    return (
+        <DashboardShell>
+            <header className='flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
+                <div className='min-w-0'>
+                    <h1 className='text-3xl font-semibold tracking-tight text-[var(--dash-text)]'>Choose server</h1>
+                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                        Open a server you can manage with this Fluxer account.
+                    </p>
+                </div>
+                <div className='flex shrink-0 items-center gap-2'>
+                    {catalog.botInviteUrl ? (
+                        <a
+                            href={catalog.botInviteUrl}
+                            className={`${dashboardSecondaryActionClassName} inline-flex min-h-10 items-center gap-2`}>
+                            <Plus className='size-4' aria-hidden='true' />
+                            Invite bot
+                        </a>
+                    ) : null}
+                    <DashboardDisplayControls variant='inline' />
+                </div>
+            </header>
+
+            <section className='min-h-0 flex-1 overflow-y-auto pb-6' aria-label='Server launcher'>
+                <ul className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
+                    {catalog.guilds.map((guild) => (
+                        <DashboardGuildItem key={guild.id} guild={guild} mode={catalog.mode} />
+                    ))}
+                </ul>
+            </section>
+        </DashboardShell>
+    );
+}
+
+function toDashboardGuildCatalog(
+    viewModel: Extract<DashboardViewModel, { type: 'guild-list' }>
+): DashboardGuildCatalog {
+    return {
+        guilds: viewModel.guilds,
+        mode: viewModel.mode,
+        ...(viewModel.botInviteUrl ? { botInviteUrl: viewModel.botInviteUrl } : {}),
+    };
 }
 
 function DashboardNoManageableServers({ botInviteUrl }: { botInviteUrl?: string }) {

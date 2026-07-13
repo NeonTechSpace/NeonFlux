@@ -46,8 +46,10 @@ export const structureAuditActions = {
     importExecutionNeedsReconciliation: 'structure.import_execution_needs_reconciliation',
     importExecutionOutcomeUnknown: 'structure.import_execution_outcome_unknown',
     importExecutionPaused: 'structure.import_execution_paused',
+    importExecutionPauseRequested: 'structure.import_execution_pause_requested',
     importExecutionResumed: 'structure.import_execution_resumed',
     importExecutionCancelled: 'structure.import_execution_cancelled',
+    importExecutionCancelRequested: 'structure.import_execution_cancel_requested',
     scheduledDriftDetected: 'structure.scheduled_drift_detected',
     scheduledDriftFailed: 'structure.scheduled_drift_failed',
 } as const;
@@ -217,6 +219,10 @@ export type StructureImportExecutionRecord = {
     runId: string;
     guildId: string;
     preflightDigest: string;
+    preflightExpiresAt: Date;
+    preflightLiveFingerprint: string;
+    mutationAuthorizedAt: Date | null;
+    mutationAuthorizationLeaseId: string | null;
     protocolVersion: number;
     status: StructureImportExecutionStatus;
     nextActionSequence: number;
@@ -247,6 +253,14 @@ export type StructureImportExecutionRecord = {
     createdAt: Date;
     updatedAt: Date;
 };
+
+export type StructureImportExecutionMutationAuthorizationRecord =
+    | { kind: 'authorized' | 'not_required'; execution: StructureImportExecutionRecord }
+    | {
+          kind: 'rejected';
+          reason: 'preflight_expired' | 'live_fingerprint_stale';
+          execution: StructureImportExecutionRecord;
+      };
 
 export type StructureImportActionAttemptRecord = {
     id: string;
@@ -319,7 +333,12 @@ export type StructureImportActionPageRecord = {
     nextCursor: string | null;
 };
 
-export type StructureImportExportRepositoryError = GuildFeatureRepositoryError | { type: 'backend-incompatible' };
+export type StructureImportExportRepositoryError =
+    | GuildFeatureRepositoryError
+    | { type: 'backend-incompatible' }
+    | { type: 'structure-execution-review-stale' }
+    | { type: 'structure-guild-execution-active' }
+    | { type: 'structure-execution-empty' };
 
 export type StructureImportRunWithActionsRecord = StructureImportRunRecord & {
     actions: StructureImportActionRecord[];

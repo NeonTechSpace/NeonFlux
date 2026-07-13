@@ -93,7 +93,7 @@ export function DashboardStructureDriftPanel({
                                 onClick={() => onCreateDryRun(drift.baseline)}
                                 disabled={busy || drift.baseline.status !== 'succeeded'}
                                 className={`${dashboardPrimaryActionClassName} min-h-9 px-3 text-xs`}>
-                                Create dry-run from baseline
+                                Plan restore to this baseline
                             </button>
                         </div>
                     </div>
@@ -143,7 +143,7 @@ export function DashboardStructureDriftPanel({
 
                     {drift.hasMorePreview ? (
                         <p className='text-xs leading-5 text-[var(--dash-text-subtle)]'>
-                            Preview is capped. Create a dry-run from the baseline to review every action.
+                            Preview is capped. Use this baseline as a deployment source to review every action.
                         </p>
                     ) : null}
                     <p className='text-xs leading-5 text-[var(--dash-text-subtle)]'>

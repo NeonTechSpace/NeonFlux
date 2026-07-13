@@ -22,6 +22,8 @@ export const structureImportExecutionsTable = defineTable({
     leaseOwner: optionalString,
     nextActionSequence: v.number(),
     notStartedActions: v.number(),
+    mutationAuthorizedAt: optionalTimestamp,
+    mutationAuthorizationLeaseId: optionalString,
     phase: v.union(
         v.literal('queued'),
         v.literal('preparing'),
@@ -36,6 +38,8 @@ export const structureImportExecutionsTable = defineTable({
         v.literal('complete')
     ),
     preflightDigest: v.string(),
+    preflightExpiresAt: timestamp,
+    preflightLiveFingerprint: v.string(),
     protocolVersion: v.number(),
     retryAt: optionalTimestamp,
     restorePointBackupId: optionalString,

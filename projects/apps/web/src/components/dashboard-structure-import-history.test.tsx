@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
+/* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import { createEmptyDecisionSummary } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
+
+afterEach(cleanup);
 
 describe('Server Blueprint action inspection', () => {
     it('opens action details inline on Deploy instead of selecting a hidden Explorer item', () => {
@@ -78,7 +81,58 @@ describe('Server Blueprint action inspection', () => {
         expect(onControl).not.toHaveBeenCalled();
         expect(screen.getByText(/controls are disabled because this deployment uses a different/i)).toBeTruthy();
     });
+
+    it('turns review into one clear continuation to the final safety check', () => {
+        const onApprove = vi.fn();
+        const run = createRun({ status: 'review_ready' });
+
+        renderHistory(run, { onApprove });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to final check' }));
+
+        expect(onApprove).toHaveBeenCalledWith(run);
+        expect(screen.getByText(/immediately check the live server again/i)).toBeTruthy();
+    });
+
+    it('does not offer approval or apply when the blueprint already matches', () => {
+        const run = createRun({
+            status: 'review_ready',
+            actions: [],
+            actionCount: 0,
+            executionActionCount: 0,
+            summary: { creates: 0, updates: 0, deletes: 0, roles: 0, categories: 0, channels: 0 },
+        });
+
+        renderHistory(run);
+
+        expect(screen.getByText(/already matches/i)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Continue to final check' })).toBeNull();
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+    });
 });
+
+function renderHistory(
+    run: DashboardStructureImportRun,
+    overrides: Partial<Parameters<typeof DashboardStructureImportHistory>[0]> = {}
+): void {
+    render(
+        <DashboardStructureImportHistory
+            runs={[run]}
+            latestRun={run}
+            busyAction={undefined}
+            preflightByRunId={{}}
+            deleteConfirmationByRunId={{}}
+            onDeleteConfirmationChange={vi.fn()}
+            onApprove={vi.fn()}
+            onPreflight={vi.fn()}
+            onApply={vi.fn()}
+            onControl={vi.fn()}
+            onLoadActions={vi.fn()}
+            onLoadDecisions={vi.fn()}
+            onRecoveryPlan={vi.fn()}
+            {...overrides}
+        />
+    );
+}
 
 function createRun(overrides: Partial<DashboardStructureImportRun> = {}): DashboardStructureImportRun {
     return {

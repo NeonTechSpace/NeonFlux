@@ -1,3 +1,7 @@
+export function getDashboardGuildCatalogQueryKey() {
+    return ['dashboard', 'guild-catalog'] as const;
+}
+
 export function getDashboardCommandSettingsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'command-settings'] as const;
 }

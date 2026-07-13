@@ -1,18 +1,29 @@
 // @vitest-environment jsdom
 
 import { RouterContextProvider, createRootRoute, createRoute, createRouter, isRedirect } from '@tanstack/react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import { createElement } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardPageContent } from '../components/dashboard-index-page.js';
 import { useDashboardDisplayPreferences } from '../components/dashboard-display-preferences-store.js';
 import { resolveDashboardRouteResult, toDashboardRouteResult } from '../server/dashboard-route-data.js';
 import type { DashboardRouteData } from '../server/dashboard-route-data.js';
+import {
+    redirectDashboardGuildSubrouteFallback,
+    resolveDashboardGuildRouteResult,
+    toDashboardGuildRouteResult,
+} from '../server/dashboard-guild-route-data.js';
 
 describe('/dashboard', () => {
+    beforeEach(() => {
+        vi.stubEnv('VITE_CONVEX_URL', '');
+    });
+
     afterEach(() => {
+        vi.unstubAllEnvs();
         window.localStorage.clear();
         useDashboardDisplayPreferences.setState({
             desktopGuildSelectorOpen: false,
@@ -43,7 +54,7 @@ describe('/dashboard', () => {
         });
     });
 
-    it('redirects single-instance unauthorized dashboards to the canonical guild route', () => {
+    it('keeps single-instance unauthorized dashboards on the server chooser route', () => {
         expect(
             toDashboardRouteResult({
                 type: 'dashboard',
@@ -54,8 +65,61 @@ describe('/dashboard', () => {
                 },
             })
         ).toStrictEqual({
-            type: 'guild-redirect',
-            guildId: 'guild-1',
+            type: 'dashboard',
+            viewModel: {
+                type: 'single-unauthorized',
+                configuredGuildId: 'guild-1',
+                configuredGuildName: 'Configured Community',
+            },
+        });
+    });
+
+    it.each([
+        { type: 'not-found' as const },
+        {
+            type: 'single-unauthorized' as const,
+            configuredGuildId: 'guild-1',
+            configuredGuildName: 'Configured Community',
+        },
+    ])('redirects an invalid or inaccessible guild route to the dashboard', (guildData) => {
+        const routeResult = toDashboardGuildRouteResult(guildData);
+        expect(routeResult).toStrictEqual({ type: 'dashboard-redirect' });
+
+        let thrownError: unknown;
+        try {
+            resolveDashboardGuildRouteResult(routeResult);
+        } catch (error) {
+            thrownError = error;
+        }
+
+        expect(thrownError).toBeInstanceOf(Response);
+        expect(isRedirect(thrownError)).toBe(true);
+        expect(getRedirectOptions(thrownError)).toMatchObject({
+            to: '/dashboard',
+            replace: true,
+        });
+    });
+
+    it('redirects an unknown subroute of an authorized guild to that guild dashboard', async () => {
+        let thrownError: unknown;
+
+        try {
+            await redirectDashboardGuildSubrouteFallback('guild-1', async () => ({
+                type: 'guild',
+                mode: 'multi',
+                guild: { id: 'guild-1', name: 'Guild One' },
+                manageableGuilds: [{ id: 'guild-1', name: 'Guild One' }],
+            }));
+        } catch (error) {
+            thrownError = error;
+        }
+
+        expect(thrownError).toBeInstanceOf(Response);
+        expect(isRedirect(thrownError)).toBe(true);
+        expect(getRedirectOptions(thrownError)).toMatchObject({
+            to: '/dashboard/$guildId',
+            params: { guildId: 'guild-1' },
+            replace: true,
         });
     });
 
@@ -189,10 +253,8 @@ describe('/dashboard', () => {
     });
 });
 
-function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
-    const rootRoute = createRootRoute({
-        component: () => ui,
-    });
+function renderWithRouter(ui: ReactNode, queryClient = createDashboardQueryClient()): ReturnType<typeof render> {
+    const rootRoute = createRootRoute();
     const dashboardRoute = createRoute({
         getParentRoute: () => rootRoute,
         path: '/dashboard',
@@ -206,7 +268,17 @@ function renderWithRouter(ui: ReactNode): ReturnType<typeof render> {
     });
     const providerProps = { router } as ComponentProps<typeof RouterContextProvider>;
 
-    return render(createElement(RouterContextProvider, providerProps, ui));
+    return render(
+        createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(RouterContextProvider, providerProps, ui)
+        )
+    );
+}
+
+function createDashboardQueryClient(): QueryClient {
+    return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
 function createDashboardRouteData(): DashboardRouteData {

@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@fluxerjs/core@1.4.0': b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b
+  '@fluxerjs/core@1.4.0': cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2
 
 importers:
 
@@ -371,7 +371,7 @@ importers:
     dependencies:
       '@fluxerjs/core':
         specifier: ^1.4.0
-        version: 1.4.0(patch_hash=b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b)
+        version: 1.4.0(patch_hash=cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2)
       '@neonflux/core':
         specifier: workspace:*
         version: link:../core
@@ -7001,7 +7001,7 @@ snapshots:
 
   '@fluxerjs/collection@1.4.0': {}
 
-  '@fluxerjs/core@1.4.0(patch_hash=b40041ced352d04f2fc9c95740084382e12ef8be2cf05c9c5e8693f2d1c4619b)':
+  '@fluxerjs/core@1.4.0(patch_hash=cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2)':
     dependencies:
       '@fluxerjs/builders': 1.4.0
       '@fluxerjs/collection': 1.4.0

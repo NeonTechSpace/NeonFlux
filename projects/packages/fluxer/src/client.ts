@@ -34,6 +34,10 @@ export type FluxerBotGuildEvent = {
     guildId: string;
 };
 
+export type FluxerBotGuildDeleteEvent = FluxerBotGuildEvent & {
+    unavailable: boolean;
+};
+
 export type FluxerBotGuildsReadyEvent = {
     guildIds: string[];
 };
@@ -98,7 +102,7 @@ export type { FluxerBotVoiceStateEvent } from './voice-state-cache.js';
 
 export type FluxerBotLifecycleHandlers = {
     guildCreated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
-    guildDeleted?: (event: FluxerBotGuildEvent) => void | Promise<void>;
+    guildDeleted?: (event: FluxerBotGuildDeleteEvent) => void | Promise<void>;
     guildUpdated?: (event: FluxerBotGuildEvent) => void | Promise<void>;
     guildsReady?: (event: FluxerBotGuildsReadyEvent) => void | Promise<void>;
     messageDeleted?: (event: FluxerBotMessageDeletedEvent) => void | Promise<void>;
@@ -208,10 +212,11 @@ export function createFluxerBot(
         });
     });
 
-    client.on(Events.GuildDelete, (guild) => {
+    client.on(Events.GuildDelete, (guild, unavailable) => {
         voiceStateCache.delete(guild.id);
         runLifecycleHandler(logger, 'fluxer.guild_deleted_handler_failed', lifecycleHandlers.guildDeleted, {
             guildId: guild.id,
+            unavailable,
         });
     });
 

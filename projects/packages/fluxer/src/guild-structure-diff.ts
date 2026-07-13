@@ -38,9 +38,13 @@ export {
 } from './guild-structure-identity.js';
 
 export {
+    createFluxerGuildStructureSnapshotFingerprintInput,
+    FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
+    isFluxerGuildStructureSnapshotJsonWithinByteLimit,
     normalizeFluxerGuildStructureSnapshot,
     toFluxerGuildStructureSnapshot,
     type FluxerGuildStructureSnapshot,
+    type FluxerGuildStructureSnapshotFingerprintInput,
     type FluxerGuildStructureSnapshotValidationResult,
 } from './guild-structure-snapshot.js';
 

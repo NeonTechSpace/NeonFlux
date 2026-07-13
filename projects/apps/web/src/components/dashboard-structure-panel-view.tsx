@@ -7,7 +7,6 @@ import type {
     DashboardStructureImportRun,
     DashboardStructureRoleMappingConflict,
 } from '../server/dashboard-structure.server.js';
-import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import { formatDashboardStructureExecutionState } from '../server/dashboard-structure-contracts.js';
 import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureBackupHistory as BackupHistory } from './dashboard-structure-backup-history.js';
@@ -37,15 +36,21 @@ import type { DashboardStructureProgressTransport } from './dashboard-structure-
 import type { DashboardStructureExplorerPanelState } from './dashboard-structure-panel-explorer-state.js';
 import { formatDate, formatObservedState } from './dashboard-structure-panel-format.js';
 import { RestorePointShortcutNotice, StatusMessage } from './dashboard-structure-panel-shared.js';
-import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
+import type {
+    BackupPageState,
+    DashboardStructurePreflightView,
+    DriftState,
+    PanelStatus,
+} from './dashboard-structure-panel-types.js';
 
 export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
 
 const dashboardStructureDeploymentPolicies = [
     {
         value: 'merge',
-        label: 'Merge additions only',
-        description: 'Create missing items and update or reorder matches while retaining eligible target-only items.',
+        label: 'Merge without deletions',
+        description:
+            'Create missing items and update matching names, permissions, parents, and order without deleting target-only items.',
     },
     {
         value: 'synchronize',
@@ -84,8 +89,13 @@ export function DashboardStructurePanelView({
             animate='enter'
             transition={dashboardRouteTransition}>
             {refreshIssue}
-            {surface === 'current' ? <CurrentSurface workspace={workspace} showActions /> : null}
-            {surface === 'backups' ? <BackupsSurface workspace={workspace} showStatus /> : null}
+            {workspace.status ? (
+                <div className='mb-5'>
+                    <StatusMessage status={workspace.status} />
+                </div>
+            ) : null}
+            {surface === 'current' ? <CurrentSurface workspace={workspace} /> : null}
+            {surface === 'backups' ? <BackupsSurface workspace={workspace} /> : null}
             {surface === 'compare' ? <CompareSurface workspace={workspace} /> : null}
             {surface === 'deploy' ? <DeploySurface workspace={workspace} forceSourceDetails={false} /> : null}
             {surface === 'runs' ? <RunsSurface workspace={workspace} includeDetails /> : null}
@@ -93,14 +103,10 @@ export function DashboardStructurePanelView({
     );
 }
 
-function CurrentSurface({
-    workspace,
-    showActions,
-}: {
-    workspace: DashboardStructurePanelViewProps;
-    showActions: boolean;
-}) {
-    const latestBackup = workspace.backupPage.backups.find((backup) => backup.status === 'succeeded');
+function CurrentSurface({ workspace }: { workspace: DashboardStructurePanelViewProps }) {
+    const latestBackup = workspace.backupPage.backups.find(
+        (backup) => backup.status === 'succeeded' && backup.source !== 'restore_point'
+    );
     const hasBackupAttempt = Boolean(
         workspace.backupPage.backups.length > 0 ||
         workspace.backupSettings.lastAttemptAt ||
@@ -123,30 +129,28 @@ function CurrentSurface({
             <div className='flex flex-wrap items-end justify-between gap-5 border-b border-[var(--dash-border)] pb-5'>
                 <div>
                     <h2 id='blueprint-current-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                        Current layout
+                        Blueprint overview
                     </h2>
                     <p className='mt-1 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        The relationship between the latest protected version and what is live now.
+                        Backup health and observed activity. Inspecting the live layout performs a fresh server read.
                     </p>
                 </div>
-                {showActions ? (
-                    <div className='flex flex-wrap gap-2'>
-                        <button
-                            type='button'
-                            onClick={workspace.onDownloadCurrentStructure}
-                            disabled={Boolean(workspace.busyAction)}
-                            className={dashboardSecondaryActionClassName}>
-                            {workspace.busyAction === 'export' ? 'Preparing JSON' : 'Download current JSON'}
-                        </button>
-                        <button
-                            type='button'
-                            onClick={latestBackup ? workspace.onCheckLatestDrift : workspace.onCreateBackup}
-                            disabled={Boolean(workspace.busyAction)}
-                            className={dashboardPrimaryActionClassName}>
-                            {latestBackup ? 'Check differences' : 'Create first backup'}
-                        </button>
-                    </div>
-                ) : null}
+                <div className='flex flex-wrap gap-2'>
+                    <button
+                        type='button'
+                        onClick={workspace.onInspectCurrentLayout}
+                        disabled={Boolean(workspace.busyAction)}
+                        className={dashboardSecondaryActionClassName}>
+                        {workspace.busyAction === 'explorer-live' ? 'Reading live layout' : 'Inspect live layout'}
+                    </button>
+                    <button
+                        type='button'
+                        onClick={latestBackup ? workspace.onCheckLatestDrift : workspace.onCreateBackup}
+                        disabled={Boolean(workspace.busyAction)}
+                        className={dashboardPrimaryActionClassName}>
+                        {latestBackup ? 'Check differences' : 'Create first backup'}
+                    </button>
+                </div>
             </div>
 
             {latestBackup ? (
@@ -161,11 +165,11 @@ function CurrentSurface({
                         <VersionPoint label='Observed activity' title={observedCopy} detail={driftCopy} />
                         <VersionConnector />
                         <VersionPoint
-                            label='Live layout'
+                            label='Baseline contents'
                             title={
                                 workspace.observedState.changedSinceLastBackup
-                                    ? 'May differ from baseline'
-                                    : 'Ready to inspect'
+                                    ? 'Live layout may have changed'
+                                    : 'Latest saved baseline'
                             }
                             detail={`${latestBackup.roleCount} roles · ${latestBackup.categoryCount} categories · ${latestBackup.channelCount} channels in baseline`}
                         />
@@ -200,7 +204,6 @@ function CurrentSurface({
                     ) : null}
                 </>
             )}
-            {showActions && workspace.status ? <StatusMessage status={workspace.status} /> : null}
         </section>
     );
 }
@@ -228,13 +231,7 @@ function VersionConnector() {
     return <div className='hidden w-px self-stretch bg-[var(--dash-border)] lg:block' aria-hidden='true' />;
 }
 
-function BackupsSurface({
-    workspace,
-    showStatus,
-}: {
-    workspace: DashboardStructurePanelViewProps;
-    showStatus: boolean;
-}) {
+function BackupsSurface({ workspace }: { workspace: DashboardStructurePanelViewProps }) {
     const scheduleCopy = workspace.backupSettings.enabled
         ? `Automatic backup every ${workspace.backupSettings.cadenceWeeks === 1 ? 'week' : `${workspace.backupSettings.cadenceWeeks} weeks`} · keep ${workspace.backupSettings.retentionDays} days${workspace.backupSettings.nextBackupAt ? ` · next ${formatDate(workspace.backupSettings.nextBackupAt)}` : ''}`
         : 'Automatic backups are off.';
@@ -298,11 +295,6 @@ function BackupsSurface({
                         className={dashboardSecondaryActionClassName}>
                         Use as deploy source
                     </button>
-                </div>
-            ) : null}
-            {showStatus && workspace.status ? (
-                <div className='py-4'>
-                    <StatusMessage status={workspace.status} />
                 </div>
             ) : null}
             <div className='pt-5'>
@@ -394,27 +386,25 @@ function DeploySurface({
                     Deploy a blueprint
                 </h2>
                 <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                    Prepare one source, review its domain changes, check the live server, then apply deliberately.
+                    Choose the intended result, review every change, then apply with a fresh safety check.
                 </p>
             </div>
-            <ol className='grid border-b border-[var(--dash-border)] md:grid-cols-4' aria-label='Deployment stages'>
-                {['Source', 'Review', 'Safety check', getBlueprintApplyStageLabel(workspace.latestRun)].map(
-                    (label, index) => (
-                        <li
-                            key={label}
-                            aria-current={stage === index + 1 ? 'step' : undefined}
-                            className={`border-b-2 px-1 py-4 text-sm ${
-                                stage === index + 1
-                                    ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
-                                    : index + 1 < stage
-                                      ? 'border-transparent text-[var(--dash-text-muted)]'
-                                      : 'border-transparent text-[var(--dash-text-subtle)]'
-                            }`}>
-                            <span className='mr-2 font-mono text-xs'>{index + 1}</span>
-                            {label}
-                        </li>
-                    )
-                )}
+            <ol className='grid grid-cols-3 border-b border-[var(--dash-border)]' aria-label='Deployment stages'>
+                {['Choose', 'Review', 'Apply'].map((label, index) => (
+                    <li
+                        key={label}
+                        aria-current={stage === index + 1 ? 'step' : undefined}
+                        className={`border-b-2 px-1 py-4 text-sm ${
+                            stage === index + 1
+                                ? 'border-[var(--dash-primary)] text-[var(--dash-text)]'
+                                : index + 1 < stage
+                                  ? 'border-transparent text-[var(--dash-text-muted)]'
+                                  : 'border-transparent text-[var(--dash-text-subtle)]'
+                        }`}>
+                        <span className='mr-2 font-mono text-xs'>{index + 1}</span>
+                        {label}
+                    </li>
+                ))}
             </ol>
 
             {stage === 1 || forceSourceDetails ? (
@@ -439,12 +429,12 @@ function DeploySurface({
                     />
                 </div>
             ) : null}
-            {stage === 4 && canStartNewBlueprintDeployment(workspace.latestRun) ? (
+            {stage > 1 && canStartNewBlueprintDeployment(workspace.latestRun) ? (
                 <details className='mt-6 border-y border-[var(--dash-border)]'>
                     <summary
                         data-dashboard-disclosure
                         className='cursor-pointer list-none py-4 text-sm font-semibold text-[var(--dash-primary)] marker:hidden'>
-                        Start a new deployment
+                        Start over with another blueprint
                     </summary>
                     <DeploySource workspace={workspace} forceDetailsOpen={false} />
                 </details>
@@ -465,11 +455,6 @@ function DeploySurface({
                         disabled={Boolean(workspace.busyAction)}
                         onCreateRestoreDryRun={workspace.onCreateRestoreDryRun}
                     />
-                </div>
-            ) : null}
-            {workspace.status ? (
-                <div className='pt-5'>
-                    <StatusMessage status={workspace.status} />
                 </div>
             ) : null}
         </section>
@@ -615,17 +600,19 @@ function DeploySource({
                 </div>
             ) : null}
             <div className='mt-6 flex items-center justify-between gap-4 border-t border-[var(--dash-border)] pt-4'>
-                <p className='text-xs text-[var(--dash-text-muted)]'>The selected policy is saved with the plan.</p>
+                <p className='text-xs text-[var(--dash-text-muted)]'>
+                    Nothing changes until the reviewed result is applied.
+                </p>
                 <button
                     type='button'
                     onClick={workspace.onCreatePlan}
                     disabled={Boolean(workspace.busyAction) || !workspace.importJson.trim() || !mappingsComplete}
                     className={dashboardPrimaryActionClassName}>
                     {workspace.busyAction === 'plan'
-                        ? 'Creating plan'
+                        ? 'Preparing preview'
                         : mappingRows.length > 0
-                          ? 'Create plan with mappings'
-                          : 'Create deployment plan'}
+                          ? 'Preview changes with mappings'
+                          : 'Preview exact changes'}
                 </button>
             </div>
             <p className='mt-4 max-w-3xl text-xs leading-5 text-[var(--dash-text-subtle)]'>
@@ -752,23 +739,9 @@ function formatRunStatus(run: DashboardStructureImportRun): string {
     }
 }
 
-function requiresBlueprintRecovery(run: DashboardStructureImportRun | undefined): boolean {
-    if (!run) return false;
-    if (run.recoveryAvailable) return true;
-    if (!run.execution) return run.status === 'failed';
-
-    return ['partially_applied', 'needs_reconciliation', 'outcome_unknown'].includes(run.execution.status);
-}
-
-function getBlueprintApplyStageLabel(run: DashboardStructureImportRun | undefined): string {
-    if (run?.execution?.status === 'failed_before_mutation') return 'Retry';
-    if (requiresBlueprintRecovery(run)) return 'Recover';
-    if (run?.execution?.status === 'succeeded') return 'Complete';
-    return 'Apply';
-}
-
 function canStartNewBlueprintDeployment(run: DashboardStructureImportRun | undefined): boolean {
-    if (!run?.execution) return false;
+    if (!run) return true;
+    if (!run.execution) return true;
 
     return ['succeeded', 'failed_before_mutation', 'cancelled'].includes(run.execution.status);
 }
@@ -849,7 +822,7 @@ export type DashboardStructurePanelViewProps = {
         lastObservedAt?: string;
         changedSinceLastBackup: boolean;
     };
-    preflightByRunId: Record<string, DashboardStructurePreflightReport>;
+    preflightByRunId: Record<string, DashboardStructurePreflightView>;
     structurePolicy: DashboardStructurePolicy;
     roleMappingConflicts: DashboardStructureRoleMappingConflict[];
     roleMappings: Record<string, string>;
@@ -882,6 +855,7 @@ export type DashboardStructurePanelViewProps = {
     onDriftCreateDryRun: (backup: DashboardStructureBackupSummary) => void;
     onImportJsonChange: Dispatch<SetStateAction<string>>;
     onImportStructureFile: (file: File | undefined) => Promise<void>;
+    onInspectCurrentLayout: () => void;
     onLoadMoreBackups: () => void;
     onLoadRunActions: (run: DashboardStructureImportRun) => void;
     onLoadRunDecisions: (run: DashboardStructureImportRun) => void;

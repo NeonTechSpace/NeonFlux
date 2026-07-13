@@ -22,7 +22,7 @@ import {
 import type { DashboardStructureExplorerEntityKey } from './dashboard-structure-explorer-model.js';
 import { formatBackupSource, formatDate } from './dashboard-structure-panel-format.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-structure-panel-requested-snapshot.js';
-import { toErrorStatus } from './dashboard-structure-panel-status.js';
+import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
 import { emptyExplorerComparisonTarget } from './dashboard-structure-panel-types.js';
 import type { DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
@@ -83,6 +83,8 @@ export function useDashboardStructureExplorerState({
             });
             setSelectedExplorerEntityKey(undefined);
             setStatus({ tone: 'success', message: 'Live server blueprint loaded in explorer.' });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -153,6 +155,8 @@ export function useDashboardStructureExplorerState({
                 ...(snapshot.exportedAt ? { detail: `Read ${formatDate(snapshot.exportedAt)}` } : {}),
             });
             setStatus({ tone: 'neutral', message: 'Live server blueprint comparison loaded.' });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -193,6 +197,8 @@ export function useDashboardStructureExplorerState({
                 type: 'backup',
             });
             setStatus({ tone: 'neutral', message: 'Drift baseline comparison loaded.' });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }

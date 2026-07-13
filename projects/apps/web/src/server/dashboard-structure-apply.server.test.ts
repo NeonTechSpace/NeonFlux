@@ -7,7 +7,7 @@ import {
     STRUCTURE_EXECUTION_PROTOCOL_VERSION,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getWebDb } from './db.server.js';
@@ -52,7 +52,9 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('enqueues the approved plan against the exact reviewed preflight digest', async () => {
-        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createRun([])));
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(
+            ok(createRun([{ actionType: 'create' }]))
+        );
         vi.mocked(enqueueStructureImportExecution).mockResolvedValue(ok(createExecution('queued') as never));
 
         const result = await applyDashboardStructureImportRun(request, {
@@ -75,6 +77,39 @@ describe('Server Blueprint enqueue boundary', () => {
                 }),
             })
         );
+    });
+
+    it.each([
+        [{ type: 'structure-execution-review-stale' }, { type: 'review-stale' }],
+        [{ type: 'structure-guild-execution-active' }, { type: 'execution-active' }],
+    ] as const)('preserves an actionable enqueue conflict for the UI', async (repositoryError, expected) => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(
+            ok(createRun([{ actionType: 'create' }]))
+        );
+        vi.mocked(enqueueStructureImportExecution).mockResolvedValue(err(repositoryError));
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            planDigest: 'plan-digest',
+            preflightDigest: 'preflight-digest',
+        });
+
+        expect(result).toEqual(expected);
+    });
+
+    it('does not enqueue an approved plan with no actions', async () => {
+        vi.mocked(findStructureImportRunWithActionsByGuildId).mockResolvedValue(ok(createRun([])));
+
+        const result = await applyDashboardStructureImportRun(request, {
+            guildId: 'guild-1',
+            importRunId: 'run-1',
+            planDigest: 'plan-digest',
+            preflightDigest: 'preflight-digest',
+        });
+
+        expect(result).toEqual({ type: 'nothing-to-apply' });
+        expect(enqueueStructureImportExecution).not.toHaveBeenCalled();
     });
 
     it('requires delete approval text bound to the persisted count and digest', async () => {
@@ -109,6 +144,33 @@ describe('Server Blueprint enqueue boundary', () => {
 
         expect(result).toEqual({ type: 'not-controllable', status: 'running' });
         expect(requestStructureImportExecutionControl).not.toHaveBeenCalled();
+    });
+
+    it('attributes an accepted pause command to the dashboard actor', async () => {
+        vi.mocked(findLatestStructureImportExecution).mockResolvedValue(ok(createExecution('running') as never));
+        vi.mocked(requestStructureImportExecutionControl).mockResolvedValue(
+            ok(createExecution('pause_requested') as never)
+        );
+
+        const result = await controlDashboardStructureImportExecution(request, {
+            guildId: 'guild-1',
+            runId: 'run-1',
+            executionId: 'execution-1',
+            request: 'pause',
+        });
+
+        expect(result).toMatchObject({ type: 'execution-updated', status: 'pause_requested' });
+        expect(requestStructureImportExecutionControl).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                audit: expect.objectContaining({
+                    action: 'structure.import_execution_pause_requested',
+                    actorUserId: 'user-1',
+                    targetId: 'execution-1',
+                }),
+                request: 'pause',
+            })
+        );
     });
 
     it('rejects control of a durable execution created by another protocol', async () => {

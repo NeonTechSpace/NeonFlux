@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { AppLogger } from '@neonflux/core/logging';
 import {
+    authorizeStructureImportExecutionMutation,
     checkpointStructureImportExecution,
     claimNextStructureImportExecution,
     completeAndCheckpointStructureImportActionAttempt,
@@ -17,6 +18,7 @@ import {
 } from '@neonflux/db';
 import {
     applyFluxerBotGuildStructureActions,
+    createFluxerGuildStructureSnapshotFingerprintInput,
     deriveFluxerBotGuildStructureCursorAuthority,
     readFluxerBotGuildStructure,
     toFluxerGuildStructureSnapshot,
@@ -158,6 +160,53 @@ export async function runNextStructureImportExecution(input: {
             return 'progressed';
         }
         restorePointBackupId = restorePoint.value.backupId;
+    }
+    if (
+        execution.nextActionSequence === 0 &&
+        execution.appliedActions === 0 &&
+        execution.completedMutationSteps === 0
+    ) {
+        const authorizationSnapshot = await readFluxerBotGuildStructure({
+            botToken: input.botToken,
+            guildId: execution.guildId,
+        });
+        if (authorizationSnapshot.isErr()) {
+            await finalizeStructureImportExecution(input.database.db, {
+                errorType: 'pre-mutation-live-read-failed',
+                executionId: execution.id,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                now: new Date(),
+                restorePointBackupId,
+                status: 'failed_before_mutation',
+            });
+            return 'progressed';
+        }
+        const authorizationStructure = toFluxerGuildStructureSnapshot(authorizationSnapshot.value);
+        const liveFingerprint = createHash('sha256')
+            .update(JSON.stringify(createFluxerGuildStructureSnapshotFingerprintInput(authorizationStructure)))
+            .digest('hex');
+        const authorization = await authorizeStructureImportExecutionMutation(input.database.db, {
+            executionId: execution.id,
+            leaseId,
+            leaseOwner: input.leaseOwner,
+            liveFingerprint,
+            now: new Date(),
+            structure: authorizationStructure,
+        });
+        if (authorization.isErr()) {
+            await finalizeStructureImportExecution(input.database.db, {
+                errorType: 'pre-mutation-authorization-failed',
+                executionId: execution.id,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                now: new Date(),
+                restorePointBackupId,
+                status: 'failed_before_mutation',
+            });
+            return 'progressed';
+        }
+        if (authorization.value.kind === 'rejected') return 'progressed';
     }
     let result: Awaited<ReturnType<typeof applyFluxerBotGuildStructureActions>>;
     try {

@@ -5,7 +5,7 @@ import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { structureExecutionLiveAreas } from '../core/dashboard_live_model.js';
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { recordStructureAuditInMutation } from './structure.js';
+import { auditInputValidator, recordStructureAuditInMutation } from './structure.js';
 import {
     buildStructureImportExecutionPausedPatch,
     finalizeStructureImportExecutionInMutation,
@@ -22,6 +22,8 @@ import {
     buildBackupSortCursor,
     buildStructureBackupDocument,
     classifyStructureImportExecutionReclaim,
+    classifyStructureExecutionPreMutationAuthorization,
+    resolveStructureExecutionMutationAuthorization,
     resolveExpiredStructureImportControl,
     validateStructureExecutionCheckpointIdMap,
     validateStructureExecutionProgressTransition,
@@ -48,6 +50,24 @@ export const claimNextStructureImportExecution = mutation({
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         let execution = await findCurrentQueuedOrWaitingStructureExecution(ctx, args.now);
+        if (execution?.status === 'queued') {
+            const authorization = classifyStructureExecutionPreMutationAuthorization({
+                completedMutationSteps: execution.completedMutationSteps,
+                expectedLiveFingerprint: execution.preflightLiveFingerprint,
+                expiresAt: execution.preflightExpiresAt,
+                nextActionSequence: execution.nextActionSequence,
+                now: args.now,
+            });
+            if (authorization === 'preflight_expired') {
+                await finalizeStructureImportExecutionInMutation(ctx, {
+                    errorType: 'preflight-expired-before-claim',
+                    execution,
+                    now: args.now,
+                    status: 'failed_before_mutation',
+                });
+                return null;
+            }
+        }
         if (!execution) {
             for (const status of ['running', 'pause_requested', 'verifying'] as const) {
                 const candidates = await listCurrentStructureExecutionReclaimCandidates(ctx, status);
@@ -161,6 +181,87 @@ export const claimNextStructureImportExecution = mutation({
     },
 });
 
+export const authorizeStructureImportExecutionMutation = mutation({
+    args: {
+        executionId: v.id('structureImportExecutions'),
+        leaseId: v.string(),
+        leaseOwner: v.string(),
+        liveFingerprint: v.string(),
+        now: v.string(),
+        protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
+        structureJson: v.string(),
+    },
+    returns: v.any(),
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, ['bot']);
+        const execution = await ctx.db.get('structureImportExecutions', args.executionId);
+        if (!execution) throw new Error('structure-execution-not-found');
+        assertCurrentStructureExecutionProtocol(execution);
+        if (
+            execution.status !== 'running' ||
+            execution.leaseId !== args.leaseId ||
+            execution.leaseOwner !== args.leaseOwner ||
+            !execution.leaseExpiresAt ||
+            execution.leaseExpiresAt < args.now
+        ) {
+            throw new Error('structure-execution-lease-lost');
+        }
+        if (!execution.restorePointBackupId) throw new Error('structure-execution-restore-point-required');
+        const authorization = resolveStructureExecutionMutationAuthorization({
+            completedMutationSteps: execution.completedMutationSteps,
+            expectedLiveFingerprint: execution.preflightLiveFingerprint,
+            expiresAt: execution.preflightExpiresAt,
+            leaseId: args.leaseId,
+            liveFingerprint: args.liveFingerprint,
+            nextActionSequence: execution.nextActionSequence,
+            now: args.now,
+            structure: parseJsonRecord(args.structureJson, 'structure-execution-authorization-snapshot-invalid'),
+        });
+        if (authorization.type === 'not_required') {
+            return { kind: 'not_required' as const, execution: { ...execution, id: execution._id } };
+        }
+        const rejectionReason =
+            authorization.type === 'preflight_expired' || authorization.type === 'live_fingerprint_stale'
+                ? authorization.type
+                : undefined;
+        if (rejectionReason) {
+            const patch = await finalizeStructureImportExecutionInMutation(ctx, {
+                errorType:
+                    rejectionReason === 'preflight_expired'
+                        ? 'preflight-expired-before-mutation'
+                        : 'live-fingerprint-stale-before-mutation',
+                execution,
+                now: args.now,
+                restorePointBackupId: execution.restorePointBackupId,
+                status: 'failed_before_mutation',
+            });
+            return {
+                kind: 'rejected' as const,
+                reason: rejectionReason,
+                execution: { ...execution, ...patch, id: execution._id },
+            };
+        }
+        if (authorization.type !== 'authorized') {
+            throw new Error('structure-execution-authorization-snapshot-invalid');
+        }
+        const restorePointId = execution.restorePointBackupId as GenericId<'structureBackups'>;
+        const restorePoint = await ctx.db.get('structureBackups', restorePointId);
+        if (
+            restorePoint?.guildId !== execution.guildId ||
+            restorePoint.source !== 'restore_point' ||
+            restorePoint.status !== 'succeeded'
+        ) {
+            throw new Error('structure-execution-restore-point-invalid');
+        }
+        await ctx.db.patch('structureBackups', restorePointId, authorization.restorePointPatch);
+        await ctx.db.patch('structureImportExecutions', execution._id, authorization.executionPatch);
+        return {
+            kind: 'authorized' as const,
+            execution: { ...execution, ...authorization.executionPatch, id: execution._id },
+        };
+    },
+});
+
 export const renewStructureImportExecutionLease = mutation({
     args: {
         executionId: v.id('structureImportExecutions'),
@@ -232,6 +333,7 @@ export const ensureStructureImportRestorePoint = mutation({
 
 export const requestStructureImportExecutionControl = mutation({
     args: {
+        audit: v.optional(auditInputValidator),
         executionId: v.id('structureImportExecutions'),
         now: v.string(),
         protocolVersion: v.literal(STRUCTURE_EXECUTION_PROTOCOL_VERSION),
@@ -258,6 +360,9 @@ export const requestStructureImportExecutionControl = mutation({
             status = 'paused';
         } else {
             throw new Error('structure-execution-control-invalid');
+        }
+        if (args.request !== 'resume') {
+            await recordStructureAuditInMutation(ctx, execution.guildId, args.audit, args.now, String(execution._id));
         }
         if (status === 'cancelled') {
             const patch = await finalizeStructureImportExecutionInMutation(ctx, {
@@ -290,7 +395,7 @@ export const requestStructureImportExecutionControl = mutation({
             await recordStructureAuditInMutation(
                 ctx,
                 execution.guildId,
-                { action: 'structure.import_execution_resumed' },
+                args.audit ?? { action: 'structure.import_execution_resumed' },
                 args.now,
                 String(execution._id)
             );

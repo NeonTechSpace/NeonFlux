@@ -52,20 +52,47 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(event ? Object.keys(event) : []).toStrictEqual(['guildId']);
     });
 
-    it('calls guildDeleted with only the guild id on GuildDelete', () => {
-        const guildDeleted = vi.fn<(event: FluxerBotGuildEvent) => void>();
+    it('keeps a temporarily unavailable guild installed and removes a genuine GuildDelete', async () => {
+        const guildDeleted = vi.fn<(event: { guildId: string; unavailable: boolean }) => void>();
         const bot = createFluxerBot(createConfig(), createLogger(), {
             guildDeleted,
         });
+        const guild = createGuild('guild-1');
+        const dispatchClient = bot.client as unknown as {
+            _dispatchGatewayPayload(payload: {
+                d: { id: string; unavailable: boolean };
+                op: typeof GatewayOpcodes.Dispatch;
+                s: number;
+                t: 'GUILD_DELETE';
+            }): Promise<void>;
+        };
+        bot.client.guilds.set(guild.id, guild);
 
-        bot.client.emit(Events.GuildDelete, createGuild('guild-1'));
+        await dispatchClient._dispatchGatewayPayload({
+            d: { id: guild.id, unavailable: true },
+            op: GatewayOpcodes.Dispatch,
+            s: 1,
+            t: 'GUILD_DELETE',
+        });
 
         const event = guildDeleted.mock.calls[0]?.[0];
 
         expect(event).toStrictEqual({
             guildId: 'guild-1',
+            unavailable: true,
         });
-        expect(event ? Object.keys(event) : []).toStrictEqual(['guildId']);
+        expect(event ? Object.keys(event) : []).toStrictEqual(['guildId', 'unavailable']);
+        expect(bot.client.guilds.get(guild.id)).toBe(guild);
+
+        await dispatchClient._dispatchGatewayPayload({
+            d: { id: guild.id, unavailable: false },
+            op: GatewayOpcodes.Dispatch,
+            s: 2,
+            t: 'GUILD_DELETE',
+        });
+
+        expect(guildDeleted).toHaveBeenLastCalledWith({ guildId: guild.id, unavailable: false });
+        expect(bot.client.guilds.has(guild.id)).toBe(false);
     });
 
     it('calls guildUpdated with only the new guild id on GuildUpdate', () => {
@@ -102,7 +129,7 @@ describe('createFluxerBot lifecycle handlers', () => {
 
         expect(() => {
             bot.client.emit(Events.GuildCreate, createGuild('guild-1'));
-            bot.client.emit(Events.GuildDelete, createGuild('guild-1'));
+            bot.client.emit(Events.GuildDelete, createGuild('guild-1'), false);
         }).not.toThrow();
         expect(logger.error).not.toHaveBeenCalled();
     });

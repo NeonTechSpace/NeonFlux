@@ -34,6 +34,7 @@ import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard/$
 import { Route as DashboardGuildIdCommunityRouteImport } from './routes/dashboard/$guildId/community'
 import { Route as DashboardGuildIdAuditRouteImport } from './routes/dashboard/$guildId/audit'
 import { Route as DashboardGuildIdAccessRouteImport } from './routes/dashboard/$guildId/access'
+import { Route as DashboardGuildIdSplatRouteImport } from './routes/dashboard/$guildId/$'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 import { Route as AuthConvexTokenRouteImport } from './routes/auth/convex/token'
@@ -211,6 +212,11 @@ const DashboardGuildIdAuditRoute = DashboardGuildIdAuditRouteImport.update({
 const DashboardGuildIdAccessRoute = DashboardGuildIdAccessRouteImport.update({
   id: '/access',
   path: '/access',
+  getParentRoute: () => DashboardGuildIdRoute,
+} as any)
+const DashboardGuildIdSplatRoute = DashboardGuildIdSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => DashboardGuildIdRoute,
 } as any)
 const AuthFluxerLoginRoute = AuthFluxerLoginRouteImport.update({
@@ -505,6 +511,7 @@ export interface FileRoutesByFullPath {
   '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/$': typeof DashboardGuildIdSplatRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRouteWithChildren
@@ -575,6 +582,7 @@ export interface FileRoutesByTo {
   '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/$': typeof DashboardGuildIdSplatRoute
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/invites': typeof DashboardGuildIdInvitesRoute
   '/dashboard/$guildId/logging': typeof DashboardGuildIdLoggingRoute
@@ -640,6 +648,7 @@ export interface FileRoutesById {
   '/auth/convex/token': typeof AuthConvexTokenRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
+  '/dashboard/$guildId/$': typeof DashboardGuildIdSplatRoute
   '/dashboard/$guildId/access': typeof DashboardGuildIdAccessRouteWithChildren
   '/dashboard/$guildId/audit': typeof DashboardGuildIdAuditRoute
   '/dashboard/$guildId/community': typeof DashboardGuildIdCommunityRouteWithChildren
@@ -716,6 +725,7 @@ export interface FileRouteTypes {
     | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/$'
     | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/audit'
     | '/dashboard/$guildId/community'
@@ -786,6 +796,7 @@ export interface FileRouteTypes {
     | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/$'
     | '/dashboard/$guildId/audit'
     | '/dashboard/$guildId/invites'
     | '/dashboard/$guildId/logging'
@@ -850,6 +861,7 @@ export interface FileRouteTypes {
     | '/auth/convex/token'
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
+    | '/dashboard/$guildId/$'
     | '/dashboard/$guildId/access'
     | '/dashboard/$guildId/audit'
     | '/dashboard/$guildId/community'
@@ -1098,6 +1110,13 @@ declare module '@tanstack/react-router' {
       path: '/access'
       fullPath: '/dashboard/$guildId/access'
       preLoaderRoute: typeof DashboardGuildIdAccessRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/$': {
+      id: '/dashboard/$guildId/$'
+      path: '/$'
+      fullPath: '/dashboard/$guildId/$'
+      preLoaderRoute: typeof DashboardGuildIdSplatRouteImport
       parentRoute: typeof DashboardGuildIdRoute
     }
     '/auth/fluxer/login': {
@@ -1671,6 +1690,7 @@ const DashboardGuildIdSystemRouteWithChildren =
   )
 
 interface DashboardGuildIdRouteChildren {
+  DashboardGuildIdSplatRoute: typeof DashboardGuildIdSplatRoute
   DashboardGuildIdAccessRoute: typeof DashboardGuildIdAccessRouteWithChildren
   DashboardGuildIdAuditRoute: typeof DashboardGuildIdAuditRoute
   DashboardGuildIdCommunityRoute: typeof DashboardGuildIdCommunityRouteWithChildren
@@ -1688,6 +1708,7 @@ interface DashboardGuildIdRouteChildren {
 }
 
 const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
+  DashboardGuildIdSplatRoute: DashboardGuildIdSplatRoute,
   DashboardGuildIdAccessRoute: DashboardGuildIdAccessRouteWithChildren,
   DashboardGuildIdAuditRoute: DashboardGuildIdAuditRoute,
   DashboardGuildIdCommunityRoute: DashboardGuildIdCommunityRouteWithChildren,

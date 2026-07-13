@@ -39,6 +39,10 @@ import type {
     StructureObservedEventStateRecord,
 } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
+import {
+    FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
+    isFluxerGuildStructureSnapshotJsonWithinByteLimit,
+} from '@neonflux/fluxer/guild-structure-diff';
 
 import { getWebDb } from './db.server.js';
 import {
@@ -1257,6 +1261,13 @@ async function markStructureImportRunActionWriteFailed(runId: string): Promise<v
 function parseDashboardStructureSnapshot(
     backupJson: string
 ): { type: 'valid'; snapshot: DashboardStructureSnapshot } | { type: 'invalid-input'; message: string } {
+    if (!isFluxerGuildStructureSnapshotJsonWithinByteLimit(backupJson)) {
+        return {
+            type: 'invalid-input',
+            message: `Server blueprint JSON cannot exceed ${String(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 1024 / 1024)} MiB.`,
+        };
+    }
+
     const trimmedJson = backupJson.trim();
 
     if (!trimmedJson) return { type: 'invalid-input', message: 'Paste exported server blueprint JSON first.' };
@@ -1514,6 +1525,7 @@ function toDashboardPreflight(
         report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan;
     return {
         checkedAt: record.checkedAt.toISOString(),
+        expiresAt: record.expiresAt.toISOString(),
         digest: record.preflightDigest,
         status: record.status === 'ready' ? 'ready' : 'blocked',
         blockerCount,

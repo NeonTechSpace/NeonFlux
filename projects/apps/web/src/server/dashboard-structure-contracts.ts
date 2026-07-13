@@ -32,6 +32,7 @@ export type DashboardStructureReviewDecision = {
 
 export type DashboardStructurePersistedPreflight = {
     checkedAt: string;
+    expiresAt: string;
     digest: string;
     status: 'ready' | 'blocked' | 'stale';
     blockerCount: number;

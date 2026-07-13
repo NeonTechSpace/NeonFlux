@@ -18,6 +18,7 @@ import type * as auth_store from "../auth_store.js";
 import type * as core from "../core.js";
 import type * as core_core from "../core/core.js";
 import type * as core_core_model from "../core/core_model.js";
+import type * as core_dashboard_catalog from "../core/dashboard_catalog.js";
 import type * as core_dashboard_live from "../core/dashboard_live.js";
 import type * as core_dashboard_live_model from "../core/dashboard_live_model.js";
 import type * as core_events from "../core/events.js";
@@ -27,6 +28,7 @@ import type * as core_feature_settings_model from "../core/feature_settings_mode
 import type * as core_security_policies from "../core/security_policies.js";
 import type * as core_security_policies_model from "../core/security_policies_model.js";
 import type * as crons from "../crons.js";
+import type * as dashboard_catalog from "../dashboard_catalog.js";
 import type * as dashboard_live from "../dashboard_live.js";
 import type * as events from "../events.js";
 import type * as feature_settings from "../feature_settings.js";
@@ -63,6 +65,7 @@ import type * as schema_shared from "../schema/shared.js";
 import type * as schema_structure from "../schema/structure.js";
 import type * as schema_tables_bot_action_events from "../schema/tables/bot_action_events.js";
 import type * as schema_tables_bot_installations from "../schema/tables/bot_installations.js";
+import type * as schema_tables_dashboard_catalog_states from "../schema/tables/dashboard_catalog_states.js";
 import type * as schema_tables_dashboard_live_states from "../schema/tables/dashboard_live_states.js";
 import type * as schema_tables_dashboard_posting_operations from "../schema/tables/dashboard_posting_operations.js";
 import type * as schema_tables_deployment_config from "../schema/tables/deployment_config.js";
@@ -128,6 +131,7 @@ declare const fullApi: ApiFromModules<{
   core: typeof core;
   "core/core": typeof core_core;
   "core/core_model": typeof core_core_model;
+  "core/dashboard_catalog": typeof core_dashboard_catalog;
   "core/dashboard_live": typeof core_dashboard_live;
   "core/dashboard_live_model": typeof core_dashboard_live_model;
   "core/events": typeof core_events;
@@ -137,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   "core/security_policies": typeof core_security_policies;
   "core/security_policies_model": typeof core_security_policies_model;
   crons: typeof crons;
+  dashboard_catalog: typeof dashboard_catalog;
   dashboard_live: typeof dashboard_live;
   events: typeof events;
   feature_settings: typeof feature_settings;
@@ -173,6 +178,7 @@ declare const fullApi: ApiFromModules<{
   "schema/structure": typeof schema_structure;
   "schema/tables/bot_action_events": typeof schema_tables_bot_action_events;
   "schema/tables/bot_installations": typeof schema_tables_bot_installations;
+  "schema/tables/dashboard_catalog_states": typeof schema_tables_dashboard_catalog_states;
   "schema/tables/dashboard_live_states": typeof schema_tables_dashboard_live_states;
   "schema/tables/dashboard_posting_operations": typeof schema_tables_dashboard_posting_operations;
   "schema/tables/deployment_config": typeof schema_tables_deployment_config;

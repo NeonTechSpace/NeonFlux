@@ -1,4 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS } from '@neonflux/fluxer/guild-structure-diff';
 import { createContext, use, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -31,7 +33,7 @@ import {
     isTerminalDashboardStructureExecution,
     readDashboardStructureDiagnosticCode,
 } from './dashboard-structure-progress.js';
-import { toErrorStatus } from './dashboard-structure-panel-status.js';
+import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
 import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 import { DashboardStructurePanelView } from './dashboard-structure-panel-view.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
@@ -105,6 +107,7 @@ function DashboardStructureController({
     children: (state: DashboardStructureControllerState) => ReactNode;
 }) {
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
     const [structurePolicy, setStructurePolicy] = useState<DashboardStructurePolicy>('synchronize');
@@ -164,6 +167,8 @@ function DashboardStructureController({
             setStatus({ tone: 'success', message: `Backup created for ${formatCounts(result.backup)}.` });
             await refreshSettings({ resetBackups: true });
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -183,6 +188,8 @@ function DashboardStructureController({
 
             downloadJsonFile(result.fileName, result.structureJson);
             setStatus({ tone: 'success', message: 'Current server blueprint downloaded. No backup was created.' });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -192,6 +199,11 @@ function DashboardStructureController({
         if (!file) return;
 
         setStatus(undefined);
+
+        if (file.size > FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes) {
+            setStatus({ tone: 'error', message: 'Blueprint JSON must be 4 MiB or smaller.' });
+            return;
+        }
 
         try {
             setImportJson(await file.text());
@@ -238,6 +250,8 @@ function DashboardStructureController({
             });
             await refreshSettings();
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -274,6 +288,8 @@ function DashboardStructureController({
                 backups: [...(current?.backups ?? currentPage.backups), ...result.page.backups],
                 ...(result.page.nextCursor ? { nextCursor: result.page.nextCursor } : {}),
             }));
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -308,6 +324,8 @@ function DashboardStructureController({
             setStatus({ tone: 'success', message: 'Backup renamed.' });
             await refreshSettings({ resetBackups: true });
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -350,16 +368,21 @@ function DashboardStructureController({
             setStatus({ tone: 'success', message: 'Backup deleted.' });
             await refreshSettings({ resetBackups: true });
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
     }
 
     async function importBackup(backup: DashboardStructureBackupSummary): Promise<void> {
-        await imports.createDryRunFromBackupId({
-            backupId: backup.id,
-            intent: backup.source === 'restore_point' ? 'restore' : 'backup',
-        });
+        if (backup.source !== 'restore_point') {
+            await loadBackupJson(backup, 'use');
+            return;
+        }
+
+        await imports.createDryRunFromBackupId({ backupId: backup.id, intent: 'restore' });
+        await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
     }
 
     async function loadBackupJson(
@@ -405,12 +428,19 @@ function DashboardStructureController({
                 });
                 explorer.setSelectedExplorerEntityKey(undefined);
                 setStatus({ tone: 'neutral', message: 'Backup loaded in explorer.' });
+                await navigate({ to: '/dashboard/$guildId/structure/compare', params: { guildId } });
                 return;
             }
 
             setImportJson(result.backupJson);
             imports.clearRoleMappings();
-            setStatus({ tone: 'neutral', message: 'Backup JSON loaded. Create a deployment plan to review changes.' });
+            setStatus({
+                tone: 'neutral',
+                message: 'Backup loaded as the deployment source. Choose how it should apply.',
+            });
+            await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -473,7 +503,7 @@ function DashboardStructureController({
             latestRun,
             observedState: settingsQuery.data.observedState,
             preflightByRunId: imports.preflightByRunId,
-            restoreShortcutBackupId: imports.restoreShortcutBackupId,
+            restoreShortcutBackupId: latestRun?.execution?.restorePointBackupId,
             roleMappingConflicts: imports.roleMappingConflicts,
             roleMappings: imports.roleMappings,
             retentionDraft,
@@ -504,7 +534,7 @@ function DashboardStructureController({
             },
             onCheckBackupDrift: (backup) => void driftActions.check(backup),
             onCheckLatestDrift: () => void driftActions.check(),
-            onApprovePlan: (run) => void imports.approvePlan(run),
+            onApprovePlan: (run) => void imports.reviewAndPreflight(run),
             onCreateBackup: () => void createBackup(),
             onCreatePlan: () => void imports.createPlan(),
             onCreateRestoreDryRun: (backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
@@ -531,6 +561,12 @@ function DashboardStructureController({
                     return { ...current, [sourceId]: targetId };
                 }),
             onImportStructureFile: importStructureFile,
+            onInspectCurrentLayout: () => {
+                void (async () => {
+                    await explorer.loadLiveExplorerSnapshot();
+                    await navigate({ to: '/dashboard/$guildId/structure/compare', params: { guildId } });
+                })();
+            },
             onLoadMoreBackups: () => void loadMoreBackups(),
             onLoadRunActions: (run) => void imports.loadRunActions(run),
             onLoadRunDecisions: (run) => void imports.loadRunDecisions(run),
@@ -547,6 +583,11 @@ function DashboardStructureController({
             onSetBackupJsonAsImportJson: () => {
                 setImportJson(backupJson);
                 imports.clearRoleMappings();
+                setStatus({
+                    tone: 'neutral',
+                    message: 'Backup loaded as the deployment source. Choose how it should apply.',
+                });
+                void navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
             },
         },
     });

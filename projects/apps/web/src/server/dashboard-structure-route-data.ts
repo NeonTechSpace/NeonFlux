@@ -1,4 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
+import {
+    FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
+    isFluxerGuildStructureSnapshotJsonWithinByteLimit,
+} from '@neonflux/fluxer/guild-structure-diff';
 
 import type {
     DashboardStructureActionPageInput,
@@ -254,16 +258,23 @@ function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteIn
     };
 }
 
-function validateDashboardStructurePlanInput(input: unknown): DashboardStructurePlanInput {
+export function validateDashboardStructurePlanInput(input: unknown): DashboardStructurePlanInput {
     if (!input || typeof input !== 'object') {
         return { guildId: '', backupJson: '', policy: '' as DashboardStructurePlanInput['policy'] };
     }
 
     const payload = input as Record<string, unknown>;
 
+    const backupJson = readString(payload.backupJson);
+    if (!isFluxerGuildStructureSnapshotJsonWithinByteLimit(backupJson)) {
+        throw new Error(
+            `Server blueprint JSON cannot exceed ${String(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 1024 / 1024)} MiB.`
+        );
+    }
+
     return {
         guildId: readString(payload.guildId),
-        backupJson: readString(payload.backupJson),
+        backupJson,
         policy: readString(payload.policy) as DashboardStructurePlanInput['policy'],
         roleMappings: readStringMap(payload.roleMappings),
         categoryMappings: readStringMap(payload.categoryMappings),
@@ -423,14 +434,20 @@ function validateDashboardStructureApplyInput(input: unknown): DashboardStructur
     };
 }
 
-function validateDashboardStructureExecutionControlInput(input: unknown): DashboardStructureExecutionControlInput {
+export function validateDashboardStructureExecutionControlInput(
+    input: unknown
+): DashboardStructureExecutionControlInput {
     const payload = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
     const request = payload.request;
+    if (request !== 'pause' && request !== 'resume' && request !== 'cancel') {
+        throw new Error('Execution control request must be pause, resume, or cancel.');
+    }
+
     return {
         guildId: readString(payload.guildId),
         runId: readString(payload.runId),
         executionId: readString(payload.executionId),
-        request: request === 'pause' || request === 'resume' || request === 'cancel' ? request : 'pause',
+        request,
     };
 }
 

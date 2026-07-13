@@ -370,7 +370,7 @@ function BackupActions({
                 />
                 <BackupAction
                     icon={isRestorePoint ? RotateCcw : Upload}
-                    label={isRestorePoint ? 'Create restore dry-run' : 'Create dry-run from backup'}
+                    label={isRestorePoint ? 'Plan restore with Match' : 'Use as deploy source'}
                     disabled={busy || !isSucceeded}
                     busy={isImportBusy}
                     onClick={() => onImport(backup)}
@@ -391,8 +391,8 @@ function BackupActions({
                         onBeginRename(backup);
                     }}
                 />
-                <div className='my-1 border-t border-[var(--dash-border)]' />
-                {isDeleteConfirming ? (
+                {!isRestorePoint ? <div className='my-1 border-t border-[var(--dash-border)]' /> : null}
+                {!isRestorePoint && isDeleteConfirming ? (
                     <div className='space-y-2 px-2 py-1.5'>
                         <p className='text-xs leading-5 text-[var(--dash-danger)]'>Delete this backup permanently?</p>
                         <div className='flex gap-2'>
@@ -422,7 +422,7 @@ function BackupActions({
                             </button>
                         </div>
                     </div>
-                ) : (
+                ) : !isRestorePoint ? (
                     <BackupAction
                         icon={Trash2}
                         label='Delete backup'
@@ -430,7 +430,7 @@ function BackupActions({
                         tone='danger'
                         onClick={() => onDelete(backup)}
                     />
-                )}
+                ) : null}
             </div>
         </details>
     );

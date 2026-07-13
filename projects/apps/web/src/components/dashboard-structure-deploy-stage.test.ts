@@ -20,14 +20,14 @@ describe('getDashboardStructureDeployStage', () => {
             },
         } as DashboardStructureImportRun;
 
-        expect(getDashboardStructureDeployStage(run)).toBe(4);
+        expect(getDashboardStructureDeployStage(run)).toBe(3);
     });
 
     it.each([
         [undefined, 1],
         ['review_ready', 2],
         ['approved', 3],
-        ['failed', 4],
+        ['failed', 1],
     ] as const)('maps %s without an execution to stage %s', (status, expected) => {
         const run = status ? ({ status } as DashboardStructureImportRun) : undefined;
 

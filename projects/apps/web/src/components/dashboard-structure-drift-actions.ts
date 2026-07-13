@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { readDashboardStructureDriftRouteData } from '../server/dashboard-structure-route-data.js';
 import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
-import { countPlanChanges, toDriftErrorStatus } from './dashboard-structure-panel-status.js';
+import { countPlanChanges, toDriftErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
 import type { DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
 
 export function createDashboardStructureDriftActions({
@@ -45,6 +45,9 @@ export function createDashboardStructureDriftActions({
                           message: `Drift check found ${count} server layout change${count === 1 ? '' : 's'} against ${result.baseline.name}.`,
                       }
             );
+        } catch {
+            setDriftState(undefined);
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }

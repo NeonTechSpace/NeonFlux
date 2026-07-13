@@ -2,7 +2,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
-import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
@@ -12,6 +11,7 @@ import {
     formatDashboardStructureExecutionState,
 } from '../server/dashboard-structure-contracts.js';
 import { DashboardStructureApplyControls } from './dashboard-structure-apply-controls.js';
+import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
 import {
     DashboardStructureActionInspector,
     DashboardStructureActionPreview,
@@ -74,7 +74,7 @@ export function DashboardStructureImportHistory({
     runs: DashboardStructureImportRun[];
     latestRun: DashboardStructureImportRun | undefined;
     busyAction: StructureBusyAction | undefined;
-    preflightByRunId: Record<string, DashboardStructurePreflightReport>;
+    preflightByRunId: Record<string, DashboardStructurePreflightView>;
     deleteConfirmationByRunId: Record<string, string>;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
     onApprove: (run: DashboardStructureImportRun) => void;
@@ -87,7 +87,7 @@ export function DashboardStructureImportHistory({
     onRecoveryPlan: (run: DashboardStructureImportRun) => void;
 }) {
     if (runs.length === 0) {
-        return <p className='text-sm leading-6 text-[var(--dash-text-muted)]'>No import dry-runs yet.</p>;
+        return <p className='text-sm leading-6 text-[var(--dash-text-muted)]'>No deployment plans yet.</p>;
     }
 
     return (
@@ -98,7 +98,16 @@ export function DashboardStructureImportHistory({
                     run={run}
                     isLatest={latestRun?.id === run.id}
                     busyAction={busyAction}
-                    preflightReport={preflightByRunId[run.id] ?? run.preflight?.report}
+                    preflightReport={
+                        preflightByRunId[run.id] ??
+                        (run.preflight
+                            ? {
+                                  ...run.preflight.report,
+                                  checkedAt: run.preflight.checkedAt,
+                                  expiresAt: run.preflight.expiresAt,
+                              }
+                            : undefined)
+                    }
                     deleteConfirmation={deleteConfirmationByRunId[run.id] ?? ''}
                     onDeleteConfirmationChange={onDeleteConfirmationChange}
                     onApprove={onApprove}
@@ -134,7 +143,7 @@ function ImportRunCard({
     run: DashboardStructureImportRun;
     isLatest: boolean;
     busyAction: StructureBusyAction | undefined;
-    preflightReport: DashboardStructurePreflightReport | undefined;
+    preflightReport: DashboardStructurePreflightView | undefined;
     deleteConfirmation: string;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
     onApprove: (run: DashboardStructureImportRun) => void;
@@ -148,11 +157,15 @@ function ImportRunCard({
 }) {
     const [inspectedAction, setInspectedAction] = useState<DashboardStructureImportAction | undefined>();
     const isApprovalBusy = busyAction === `approval:${run.id}`;
+    const isPreflightBusy = busyAction === `preflight:${run.id}`;
     const isActionBusy = busyAction === `actions:${run.id}`;
     const isRecoveryBusy = busyAction === `recovery:${run.id}`;
-    const canApprove = run.status === 'review_ready' && !run.execution;
+    const hasChanges = run.executionActionCount > 0;
+    const canApprove = run.status === 'review_ready' && !run.execution && hasChanges;
     const canPreflight =
-        run.status === 'approved' && (!run.execution || run.execution.status === 'failed_before_mutation');
+        hasChanges &&
+        run.status === 'approved' &&
+        (!run.execution || run.execution.status === 'failed_before_mutation');
     const canRecover = run.recoveryAvailable === true;
 
     return (
@@ -166,7 +179,7 @@ function ImportRunCard({
             transition={dashboardListTransition}>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div>
-                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Dry-run {formatDate(run.createdAt)}</p>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Plan {formatDate(run.createdAt)}</p>
                     <p className='mt-1 text-xs text-[var(--dash-text-subtle)]'>{formatRunDisplayStatus(run)}</p>
                 </div>
                 <p className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border-strong)] px-2 py-1 text-xs font-semibold text-[var(--dash-text)]'>
@@ -177,6 +190,11 @@ function ImportRunCard({
                 {run.summary.creates} create, {run.summary.updates} update, {run.summary.deletes} delete
             </p>
             <p className='mt-1 text-xs font-medium text-[var(--dash-primary)]'>{formatPolicy(run.policy)}</p>
+            {!hasChanges ? (
+                <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-success)]/35 bg-[var(--dash-success-soft)] p-3 text-sm font-semibold text-[var(--dash-success)]'>
+                    Already matches — no deployment is needed.
+                </p>
+            ) : null}
             <DecisionSummary
                 run={run}
                 loading={busyAction === `decisions:${run.id}`}
@@ -225,7 +243,8 @@ function ImportRunCard({
                         animate='enter'
                         transition={dashboardConfirmationTransition}>
                         <p className='text-xs leading-5 text-[var(--dash-text)]'>
-                            Approval is bound to this exact plan digest. Any refreshed plan requires a new review.
+                            Continue when this exact result is correct. NeonFlux will record the review and immediately
+                            check the live server again. Nothing changes yet.
                         </p>
                         <div className='mt-2 flex justify-end'>
                             <motion.button
@@ -234,11 +253,12 @@ function ImportRunCard({
                                 disabled={Boolean(busyAction)}
                                 className={dashboardPrimaryActionClassName}
                                 {...dashboardTactile}>
-                                {isApprovalBusy ? 'Approving' : 'Approve reviewed plan'}
+                                {isApprovalBusy || isPreflightBusy ? 'Checking live server' : 'Continue to final check'}
                             </motion.button>
                         </div>
                         <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                            Approval is recorded separately from execution. No server changes are applied yet.
+                            If the server changed since this preview, application will be blocked and a new review will
+                            be required.
                         </p>
                     </motion.div>
                 ) : null}
@@ -376,7 +396,7 @@ function DecisionSummary({
 }
 
 function formatPolicy(policy: DashboardStructureImportRun['policy']): string {
-    if (policy === 'merge') return 'Merge additions only';
+    if (policy === 'merge') return 'Merge without deletions';
     if (policy === 'rebuild') return 'Reset and rebuild';
     return 'Match blueprint';
 }

@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import {
+    FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
+    isFluxerGuildStructureSnapshotJsonWithinByteLimit,
+} from '@neonflux/fluxer/guild-structure-diff';
 
 import {
     applyDashboardStructureImportRunRouteData,
@@ -11,15 +15,23 @@ import {
     readDashboardStructureImportDecisionPageRouteData,
     createDashboardStructureRecoveryPlanRouteData,
 } from '../server/dashboard-structure-route-data.js';
-import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
     DashboardStructureImportRun,
     DashboardStructureRoleMappingConflict,
 } from '../server/dashboard-structure.server.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { formatStatus } from './dashboard-structure-panel-format.js';
-import { toApplyErrorStatus, toErrorStatus, toRunActionStatus } from './dashboard-structure-panel-status.js';
-import type { ActionPageState, PanelStatus } from './dashboard-structure-panel-types.js';
+import {
+    toApplyErrorStatus,
+    toErrorStatus,
+    toRunActionStatus,
+    toUnexpectedErrorStatus,
+} from './dashboard-structure-panel-status.js';
+import type {
+    ActionPageState,
+    DashboardStructurePreflightView,
+    PanelStatus,
+} from './dashboard-structure-panel-types.js';
 import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 
 export function useDashboardStructureImportState({
@@ -44,9 +56,8 @@ export function useDashboardStructureImportState({
         Partial<Record<string, { decisions: DashboardStructureImportRun['decisions']; nextCursor?: number }>>
     >({});
     const [deleteConfirmationByRunId, setDeleteConfirmationByRunId] = useState<Record<string, string>>({});
-    const [preflightByRunId, setPreflightByRunId] = useState<Record<string, DashboardStructurePreflightReport>>({});
+    const [preflightByRunId, setPreflightByRunId] = useState<Record<string, DashboardStructurePreflightView>>({});
     const [preflightDigestByRunId, setPreflightDigestByRunId] = useState<Partial<Record<string, string>>>({});
-    const [restoreShortcutBackupId, setRestoreShortcutBackupId] = useState<string | undefined>();
     const [roleMappingConflicts, setRoleMappingConflicts] = useState<DashboardStructureRoleMappingConflict[]>([]);
     const [roleMappings, setRoleMappings] = useState<Record<string, string>>({});
 
@@ -92,12 +103,14 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
     }
 
-    async function approvePlan(run: DashboardStructureImportRun): Promise<void> {
+    async function approvePlan(run: DashboardStructureImportRun): Promise<DashboardStructureImportRun | undefined> {
         setStatus(undefined);
         setBusyAction(`approval:${run.id}`);
 
@@ -108,7 +121,7 @@ export function useDashboardStructureImportState({
 
             if (result.type !== 'approved') {
                 setStatus(toRunActionStatus(result));
-                return;
+                return undefined;
             }
 
             setActionPagesByRunId((current) => ({
@@ -118,9 +131,19 @@ export function useDashboardStructureImportState({
             setStatus({ tone: 'success', message: 'Reviewed plan approved. No server changes were applied.' });
             await refreshSettings();
             await refreshAuditEvents();
+            return result.importRun;
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
+    }
+
+    async function reviewAndPreflight(run: DashboardStructureImportRun): Promise<void> {
+        const approvedRun = await approvePlan(run);
+        if (!approvedRun) return;
+
+        await preflightImportRun(approvedRun);
     }
 
     async function preflightImportRun(run: DashboardStructureImportRun): Promise<void> {
@@ -146,7 +169,14 @@ export function useDashboardStructureImportState({
                 return;
             }
 
-            setPreflightByRunId((current) => ({ ...current, [run.id]: result.report }));
+            setPreflightByRunId((current) => ({
+                ...current,
+                [run.id]: {
+                    ...result.report,
+                    ...(result.checkedAt ? { checkedAt: result.checkedAt } : {}),
+                    ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
+                },
+            }));
             if (result.preflightDigest) {
                 setPreflightDigestByRunId((current) => ({ ...current, [run.id]: result.preflightDigest! }));
             }
@@ -155,6 +185,8 @@ export function useDashboardStructureImportState({
                 message: `Preflight checked ${result.report.summary.total} planned changes. No server changes were applied.`,
             });
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -162,7 +194,6 @@ export function useDashboardStructureImportState({
 
     async function applyImportRun(run: DashboardStructureImportRun): Promise<void> {
         setStatus(undefined);
-        setRestoreShortcutBackupId(undefined);
         setBusyAction(`apply:${run.id}`);
 
         try {
@@ -188,6 +219,8 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -210,6 +243,8 @@ export function useDashboardStructureImportState({
             }
             setStatus({ tone: 'neutral', message: `Deployment ${result.status.replaceAll('_', ' ')}.` });
             await refreshSettings();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -238,6 +273,8 @@ export function useDashboardStructureImportState({
                     ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
                 },
             }));
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -245,6 +282,15 @@ export function useDashboardStructureImportState({
 
     async function createPlan(): Promise<void> {
         setStatus(undefined);
+
+        if (!isFluxerGuildStructureSnapshotJsonWithinByteLimit(importJson)) {
+            setStatus({
+                tone: 'error',
+                message: `Blueprint JSON must be ${String(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 1024 / 1024)} MiB or smaller.`,
+            });
+            return;
+        }
+
         setBusyAction('plan');
 
         try {
@@ -318,7 +364,8 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
-            await refreshAuditEvents();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -358,6 +405,8 @@ export function useDashboardStructureImportState({
                     },
                 };
             });
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -397,6 +446,8 @@ export function useDashboardStructureImportState({
                 }.`,
             });
             await refreshSettings();
+        } catch {
+            setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
@@ -416,10 +467,10 @@ export function useDashboardStructureImportState({
         loadRunDecisions,
         preflightByRunId,
         preflightImportRun,
-        restoreShortcutBackupId,
         roleMappingConflicts,
         roleMappings,
         createRecoveryPlan,
+        reviewAndPreflight,
         setDeleteConfirmationByRunId,
         setRoleMappings,
     };
@@ -428,5 +479,5 @@ export function useDashboardStructureImportState({
 function formatPolicyLabel(policy: DashboardStructurePolicy): string {
     if (policy === 'synchronize') return 'Match blueprint';
     if (policy === 'rebuild') return 'Reset and rebuild';
-    return 'Merge additions only';
+    return 'Merge without deletions';
 }

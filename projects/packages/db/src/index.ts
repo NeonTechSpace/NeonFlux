@@ -89,6 +89,7 @@ export type {
     StructureImportActionAttemptRecord,
     StructureImportApprovalRecord,
     StructureImportExecutionClaimRecord,
+    StructureImportExecutionMutationAuthorizationRecord,
     StructureImportExecutionProtocolMismatchRecord,
     StructureImportExecutionRecord,
     StructureImportExecutionPhase,
@@ -238,6 +239,7 @@ export {
 } from './runtime-structure.js';
 export {
     approveStructureImportPlan,
+    authorizeStructureImportExecutionMutation,
     checkpointStructureImportExecution,
     claimNextStructureImportExecution,
     completeAndCheckpointStructureImportActionAttempt,

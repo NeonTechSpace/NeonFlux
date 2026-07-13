@@ -38,7 +38,10 @@ export async function routeBotFeatureEvent(
                 );
             case 'guild.lifecycle.deleted':
                 return mapInstallationSyncResult(
-                    await removeBotInstallationEvent(context.db, context.mode, { guildId: event.guildId }),
+                    await removeBotInstallationEvent(context.db, context.mode, {
+                        guildId: event.guildId,
+                        ...(event.unavailable !== undefined ? { unavailable: event.unavailable } : {}),
+                    }),
                     event.type
                 );
             case 'member.joined':

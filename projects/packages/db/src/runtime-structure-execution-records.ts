@@ -15,6 +15,10 @@ export function toExecution(input: unknown): StructureImportExecutionRecord {
         runId: stringValue(record.runId),
         guildId: stringValue(record.guildId),
         preflightDigest: stringValue(record.preflightDigest),
+        preflightExpiresAt: requiredDate(record.preflightExpiresAt),
+        preflightLiveFingerprint: stringValue(record.preflightLiveFingerprint),
+        mutationAuthorizedAt: date(record.mutationAuthorizedAt),
+        mutationAuthorizationLeaseId: nullableString(record.mutationAuthorizationLeaseId),
         protocolVersion: positiveIntegerValue(record.protocolVersion),
         status: literalValue(record.status, [
             'queued',

@@ -14,6 +14,7 @@ import { getWebDb } from './db.server.js';
 import { createStructureAuditInput, loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
 import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
 import {
+    createDashboardStructureSnapshotFingerprintInput,
     diffDashboardStructureSnapshot,
     normalizeDashboardStructureSnapshot,
     toDashboardStructureSnapshot,
@@ -121,7 +122,7 @@ export async function preflightDashboardStructureImportRun(
             ? prependDashboardStructureProjectionBlocker(actionReport, projectionCheck.message)
             : actionReport;
     const checkedAt = new Date();
-    const liveFingerprint = structurePlanDigest(currentSnapshot);
+    const liveFingerprint = structurePlanDigest(createDashboardStructureSnapshotFingerprintInput(currentSnapshot));
     const preflightStatus = isDashboardStructurePreflightReady(report) ? 'ready' : 'blocked';
     const preflightDigest = structurePlanDigest({
         checkedAt: checkedAt.toISOString(),

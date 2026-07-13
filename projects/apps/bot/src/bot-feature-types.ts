@@ -10,6 +10,7 @@ export type BotFeatureEvent =
     | {
           type: 'guild.lifecycle.deleted';
           guildId: string;
+          unavailable?: boolean;
       }
     | {
           type: 'guild.lifecycle.updated';

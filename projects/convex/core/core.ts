@@ -2,6 +2,7 @@ import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
 import { clearGuildGrowthCurrentState } from '../growth/growth_current_state_lifecycle.js';
+import { markDashboardCatalogChangedInMutation } from './dashboard_catalog.js';
 import {
     buildDeploymentConfigDocument,
     normalizeListLimit,
@@ -214,6 +215,7 @@ export const upsertBotInstallation = mutation({
         };
 
         await ctx.db.insert('botInstallations', document);
+        await markDashboardCatalogChangedInMutation(ctx, now);
 
         return document;
     },
@@ -236,6 +238,7 @@ export const deleteBotInstallation = mutation({
         }
 
         await ctx.db.delete('botInstallations', installation._id);
+        await markDashboardCatalogChangedInMutation(ctx, now);
 
         return toBotInstallationRecord(installation);
     },

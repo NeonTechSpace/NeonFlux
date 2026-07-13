@@ -24,9 +24,9 @@ type DashboardStructureNavigationItem = {
 export const dashboardStructureNavigationItems = [
     {
         id: 'current',
-        label: 'Current',
-        title: 'Current layout',
-        description: 'The relationship between the latest protected version and what is live now.',
+        label: 'Overview',
+        title: 'Blueprint overview',
+        description: 'Backup health, recent layout activity, and a clear path to inspect the live server.',
         to: '/dashboard/$guildId/structure/current',
     },
     {

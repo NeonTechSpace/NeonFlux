@@ -2,15 +2,17 @@ import {
     countDashboardStructurePreflightHardBlockers,
     isDashboardStructurePreflightReady,
 } from '../server/dashboard-structure-preflight.js';
-import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
+import { useEffect, useState } from 'react';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-contracts.js';
 import {
     dashboardFieldClassName,
+    dashboardDangerActionClassName,
     dashboardPrimaryActionClassName,
     dashboardSecondaryActionClassName,
     DashboardStatus,
 } from './dashboard-ui.js';
+import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
 
 export function DashboardStructureApplyControls({
     run,
@@ -23,7 +25,7 @@ export function DashboardStructureApplyControls({
 }: {
     run: DashboardStructureImportRun;
     busyAction: string | undefined;
-    preflightReport: DashboardStructurePreflightReport | undefined;
+    preflightReport: DashboardStructurePreflightView | undefined;
     deleteConfirmation: string;
     onPreflight: (run: DashboardStructureImportRun) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
@@ -38,7 +40,11 @@ export function DashboardStructureApplyControls({
     const isPreflightBusy = busyAction === `preflight:${run.id}`;
     const isApplyBusy = busyAction === `apply:${run.id}`;
     const hasDestructiveApproval = destructiveApprovalCount > 0;
-    const canApply = preflightReport ? isDashboardStructurePreflightReady(preflightReport) : false;
+    const preflightExpiry = usePreflightExpiry(preflightReport?.expiresAt);
+    const preflightExpired = preflightReport?.expiresAt
+        ? preflightExpiry.expiresAt !== preflightReport.expiresAt || preflightExpiry.expired
+        : false;
+    const canApply = preflightReport ? isDashboardStructurePreflightReady(preflightReport) && !preflightExpired : false;
     const hardBlockerCount = preflightReport ? countDashboardStructurePreflightHardBlockers(preflightReport) : 0;
     const confirmationMatches = !hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText;
 
@@ -46,9 +52,9 @@ export function DashboardStructureApplyControls({
         <div className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-info)]/35 bg-[var(--dash-info-soft)] p-3'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
                 <div>
-                    <p className='text-xs font-semibold text-[var(--dash-text)]'>Apply preflight</p>
+                    <p className='text-xs font-semibold text-[var(--dash-text)]'>Final safety check</p>
                     <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                        Re-checks the approved plan against the current server before it can be queued.
+                        Confirms the reviewed result still matches the live server before application.
                     </p>
                 </div>
                 <button
@@ -56,21 +62,20 @@ export function DashboardStructureApplyControls({
                     onClick={() => onPreflight(run)}
                     disabled={Boolean(busyAction)}
                     className={dashboardSecondaryActionClassName}>
-                    {isPreflightBusy ? 'Checking' : 'Run preflight'}
+                    {isPreflightBusy
+                        ? 'Checking live server'
+                        : preflightReport
+                          ? 'Refresh safety check'
+                          : 'Run safety check'}
                 </button>
             </div>
             {preflightReport ? <PreflightReport report={preflightReport} /> : null}
             {canApply ? (
                 <div className='mt-3 border-t border-[var(--dash-border)] pt-3'>
-                    <div className='mt-2 flex justify-end'>
-                        <button
-                            type='button'
-                            onClick={() => onApply(run)}
-                            disabled={Boolean(busyAction) || !confirmationMatches}
-                            className={dashboardPrimaryActionClassName}>
-                            {isApplyBusy ? 'Queueing' : 'Queue deployment'}
-                        </button>
-                    </div>
+                    <p className='mb-3 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                        After you apply, NeonFlux saves a restore point before the first server change. If that fails,
+                        the deployment stops without mutating Fluxer.
+                    </p>
                     {hasDestructiveApproval ? (
                         <DashboardStatus tone='danger' role='alert'>
                             <div className='w-full'>
@@ -87,18 +92,35 @@ export function DashboardStructureApplyControls({
                                     className={`mt-2 ${dashboardFieldClassName} focus:border-[var(--dash-danger)]`}
                                 />
                                 <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                                    Deletes are irreversible server mutations. Approval is bound to this exact plan and
-                                    safety check.
+                                    These live deletions require an explicit confirmation bound to this reviewed result
+                                    and safety check.
                                 </p>
                             </div>
                         </DashboardStatus>
                     ) : null}
                     <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                        This executes preflight-ready creates, role name, color, hoist, mentionability, and permission
-                        updates, supported channel/category name and permission overwrite updates, and explicitly
-                        approved deletes.
+                        Applying starts the durable deployment immediately. Closing this page will not stop it.
                     </p>
+                    <div className='mt-3 flex justify-end'>
+                        <button
+                            type='button'
+                            onClick={() => onApply(run)}
+                            disabled={Boolean(busyAction) || !confirmationMatches}
+                            className={
+                                hasDestructiveApproval
+                                    ? dashboardDangerActionClassName
+                                    : dashboardPrimaryActionClassName
+                            }>
+                            {isApplyBusy
+                                ? 'Starting deployment'
+                                : `Apply ${run.actionCount} change${run.actionCount === 1 ? '' : 's'}${hasDestructiveApproval ? `, including ${destructiveApprovalCount} deletion${destructiveApprovalCount === 1 ? '' : 's'}` : ''}`}
+                        </button>
+                    </div>
                 </div>
+            ) : preflightExpired ? (
+                <DashboardStatus tone='warning' title='Safety check expired' role='alert'>
+                    Run the safety check again before applying this reviewed result.
+                </DashboardStatus>
             ) : preflightReport && hardBlockerCount > 0 ? (
                 <DashboardStatus tone='danger' title='Apply blocked' role='alert'>
                     <p>
@@ -116,7 +138,7 @@ export function DashboardStructureApplyControls({
     );
 }
 
-function PreflightReport({ report }: { report: DashboardStructurePreflightReport }) {
+function PreflightReport({ report }: { report: DashboardStructurePreflightView }) {
     const blockers = sortPreflightBlockers(report.actions.filter((action) => action.status !== 'ready'));
 
     return (
@@ -126,6 +148,12 @@ function PreflightReport({ report }: { report: DashboardStructurePreflightReport
                 required, {report.summary.destructiveApprovalRequired} destructive approval,{' '}
                 {report.summary.unsupported} unsupported, {report.summary.invalidPlan} invalid.
             </p>
+            {report.checkedAt || report.expiresAt ? (
+                <p className='mt-1 text-[11px] text-[var(--dash-text-subtle)]'>
+                    {report.checkedAt ? `Checked ${formatPreflightTime(report.checkedAt)}` : 'Safety check complete'}
+                    {report.expiresAt ? ` · valid until ${formatPreflightTime(report.expiresAt)}` : ''}
+                </p>
+            ) : null}
             {blockers.length > 0 ? (
                 <ul className='mt-2 space-y-1 text-xs text-[var(--dash-text-muted)]'>
                     {blockers.slice(0, 4).map((action) => (
@@ -142,8 +170,8 @@ function PreflightReport({ report }: { report: DashboardStructurePreflightReport
 }
 
 function sortPreflightBlockers(
-    actions: DashboardStructurePreflightReport['actions']
-): DashboardStructurePreflightReport['actions'] {
+    actions: DashboardStructurePreflightView['actions']
+): DashboardStructurePreflightView['actions'] {
     return [...actions].sort(
         (left, right) => preflightStatusPriority(left.status) - preflightStatusPriority(right.status)
     );
@@ -165,4 +193,41 @@ function preflightStatusPriority(status: string): number {
 
 function formatStatus(status: string): string {
     return status.replace(/[-_]/gu, ' ');
+}
+
+function formatPreflightTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function usePreflightExpiry(expiresAt: string | undefined): { expiresAt: string | undefined; expired: boolean } {
+    const [state, setState] = useState<{ expiresAt: string | undefined; expired: boolean }>({
+        expiresAt: undefined,
+        expired: true,
+    });
+
+    useEffect(() => {
+        let timeout = window.setTimeout(checkExpiry, 0);
+
+        function checkExpiry(): void {
+            if (!expiresAt) {
+                setState({ expiresAt: undefined, expired: false });
+                return;
+            }
+
+            const expiryTime = new Date(expiresAt).getTime();
+            const remainingMs = expiryTime - Date.now();
+            if (!Number.isFinite(expiryTime) || remainingMs <= 0) {
+                setState({ expiresAt, expired: true });
+                return;
+            }
+
+            setState({ expiresAt, expired: false });
+            timeout = window.setTimeout(checkExpiry, remainingMs);
+        }
+
+        return () => window.clearTimeout(timeout);
+    }, [expiresAt]);
+
+    return state;
 }

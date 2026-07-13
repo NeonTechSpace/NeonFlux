@@ -336,6 +336,7 @@ export const enqueueStructureImportExecution = mutation({
             .collect();
         await assertStructureExecutionRunLedger(run, plannedActions);
         const totalActions = plannedActions.length;
+        if (totalActions === 0) throw new Error('structure-execution-empty');
         const totalMutationSteps = totalActions;
         const document = {
             appliedActions: 0,
@@ -348,6 +349,8 @@ export const enqueueStructureImportExecution = mutation({
             notStartedActions: totalActions,
             phase: 'queued' as const,
             preflightDigest: preflight.preflightDigest,
+            preflightExpiresAt: preflight.expiresAt,
+            preflightLiveFingerprint: preflight.liveFingerprint,
             protocolVersion: args.protocolVersion,
             runId: args.runId,
             status: 'queued' as const,

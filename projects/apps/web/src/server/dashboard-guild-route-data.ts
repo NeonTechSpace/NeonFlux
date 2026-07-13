@@ -18,7 +18,6 @@ import type { DashboardGuildOverviewResult } from './dashboard-overview.server.j
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
 const deploymentConfigUnavailableMessage = 'NeonFlux deployment config unavailable.';
-const communityUnavailableMessage = 'This community is not available for this account.';
 
 export type DashboardGuildRouteData =
     | Extract<DashboardGuildPageDataResult, { type: 'guild' }>
@@ -34,7 +33,10 @@ export type DashboardGuildRouteData =
           message: string;
       };
 
-export type DashboardGuildRouteResult = DashboardGuildRouteData | { type: 'auth-required' };
+export type DashboardGuildRouteResult =
+    | DashboardGuildRouteData
+    | { type: 'auth-required' }
+    | { type: 'dashboard-redirect' };
 
 type DashboardGuildRouteInput = {
     guildId: string;
@@ -83,22 +85,17 @@ export type DashboardCommandSettingsReadResult =
           type: 'guild-lookup-failed';
       };
 
-function toDashboardGuildRouteResult(data: DashboardGuildPageDataResult): DashboardGuildRouteResult {
+export function toDashboardGuildRouteResult(data: DashboardGuildPageDataResult): DashboardGuildRouteResult {
     switch (data.type) {
         case 'guild':
-        case 'single-unauthorized':
             return data;
+
+        case 'single-unauthorized':
+        case 'not-found':
+            return { type: 'dashboard-redirect' };
 
         case 'auth-required':
             return { type: 'auth-required' };
-
-        case 'not-found':
-            return {
-                type: 'unavailable',
-                status: 404,
-                title: 'Community unavailable',
-                message: communityUnavailableMessage,
-            };
 
         case 'database-error':
             return {
@@ -126,7 +123,7 @@ function toDashboardGuildRouteResult(data: DashboardGuildPageDataResult): Dashbo
     }
 }
 
-function resolveDashboardGuildRouteResult(routeResult: DashboardGuildRouteResult): DashboardGuildRouteData {
+export function resolveDashboardGuildRouteResult(routeResult: DashboardGuildRouteResult): DashboardGuildRouteData {
     switch (routeResult.type) {
         case 'guild':
         case 'single-unauthorized':
@@ -137,6 +134,13 @@ function resolveDashboardGuildRouteResult(routeResult: DashboardGuildRouteResult
             throw redirect({
                 to: fluxerLoginPath,
                 reloadDocument: true,
+                statusCode: 302,
+            });
+
+        case 'dashboard-redirect':
+            throw redirect({
+                to: '/dashboard',
+                replace: true,
                 statusCode: 302,
             });
     }
@@ -159,6 +163,22 @@ export const loadDashboardGuildRouteData = createServerFn({ method: 'GET' })
 
         return routeData;
     });
+
+export async function redirectDashboardGuildSubrouteFallback(
+    guildId: string,
+    loadGuildRoute: (input: {
+        data: DashboardGuildRouteInput;
+    }) => Promise<DashboardGuildRouteData> = loadDashboardGuildRouteData
+): Promise<never> {
+    await loadGuildRoute({ data: { guildId } });
+
+    throw redirect({
+        to: '/dashboard/$guildId',
+        params: { guildId },
+        replace: true,
+        statusCode: 302,
+    });
+}
 
 export const readDashboardCommandSettingsRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)

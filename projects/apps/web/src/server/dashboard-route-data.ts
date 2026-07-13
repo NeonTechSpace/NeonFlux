@@ -38,13 +38,6 @@ export function toDashboardRouteResult(dashboardData: DashboardDataResult): Dash
                 }
             }
 
-            if (dashboardData.viewModel.type === 'single-unauthorized') {
-                return {
-                    type: 'guild-redirect',
-                    guildId: dashboardData.viewModel.configuredGuildId,
-                };
-            }
-
             return dashboardData;
 
         case 'auth-required':

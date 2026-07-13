@@ -35,6 +35,18 @@ export function toApplyErrorStatus(result: {
             message: `Apply blocked: ${result.report.summary.ready}/${result.report.summary.total} actions are ready.`,
         };
     }
+    if (result.type === 'review-stale') {
+        return {
+            tone: 'error',
+            message: 'The reviewed result or safety check is no longer current. Run the safety check again.',
+        };
+    }
+    if (result.type === 'execution-active') {
+        return { tone: 'error', message: 'Another Blueprint deployment is already active for this server.' };
+    }
+    if (result.type === 'nothing-to-apply') {
+        return { tone: 'neutral', message: 'This Blueprint already matches the server. Nothing needs to be applied.' };
+    }
     return toErrorStatus(result.type);
 }
 
@@ -67,6 +79,13 @@ export function toErrorStatus(type: string): PanelStatus {
     return {
         tone: 'error',
         message: messages[type] ?? 'Server blueprint operation failed.',
+    };
+}
+
+export function toUnexpectedErrorStatus(): PanelStatus {
+    return {
+        tone: 'error',
+        message: 'NeonFlux could not complete this request. Check your connection and try again.',
     };
 }
 

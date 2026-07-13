@@ -960,6 +960,95 @@ export function classifyStructureImportExecutionReclaim(input: {
     return input.hasStartedAttempt ? 'outcome_unknown' : 'reclaim';
 }
 
+export function classifyStructureExecutionPreMutationAuthorization(input: {
+    completedMutationSteps: number;
+    expectedLiveFingerprint: string;
+    expiresAt: string;
+    liveFingerprint?: string;
+    nextActionSequence: number;
+    now: string;
+}) {
+    if (input.nextActionSequence > 0 || input.completedMutationSteps > 0) return 'not_required' as const;
+    if (input.expiresAt <= input.now) return 'preflight_expired' as const;
+    if (input.liveFingerprint === undefined) return 'authorization_required' as const;
+    return input.liveFingerprint === input.expectedLiveFingerprint
+        ? ('authorized' as const)
+        : ('live_fingerprint_stale' as const);
+}
+
+export function resolveStructureExecutionMutationAuthorization(input: {
+    completedMutationSteps: number;
+    expectedLiveFingerprint: string;
+    expiresAt: string;
+    leaseId: string;
+    liveFingerprint: string;
+    nextActionSequence: number;
+    now: string;
+    structure: unknown;
+}):
+    | { type: 'not_required' | 'preflight_expired' | 'live_fingerprint_stale' }
+    | {
+          type: 'authorized';
+          executionPatch: {
+              mutationAuthorizedAt: string;
+              mutationAuthorizationLeaseId: string;
+              updatedAt: string;
+          };
+          restorePointPatch: {
+              categoryCount: number;
+              channelCount: number;
+              completedAt: string;
+              roleCount: number;
+              structure: Record<string, unknown>;
+          };
+      }
+    | { type: 'invalid_snapshot' } {
+    const authorization = classifyStructureExecutionPreMutationAuthorization(input);
+    if (authorization === 'authorization_required') return { type: 'invalid_snapshot' };
+    if (authorization !== 'authorized') return { type: authorization };
+    const structure = normalizeRecord(input.structure);
+    if (
+        !structure ||
+        !Array.isArray(structure.roles) ||
+        !Array.isArray(structure.categories) ||
+        !Array.isArray(structure.channels)
+    ) {
+        return { type: 'invalid_snapshot' };
+    }
+    return {
+        type: 'authorized',
+        executionPatch: {
+            mutationAuthorizedAt: input.now,
+            mutationAuthorizationLeaseId: input.leaseId,
+            updatedAt: input.now,
+        },
+        restorePointPatch: {
+            categoryCount: structure.categories.length,
+            channelCount: structure.channels.length,
+            completedAt: input.now,
+            roleCount: structure.roles.length,
+            structure,
+        },
+    };
+}
+
+export function isStructureExecutionMutationAuthorizedForLease(input: {
+    completedMutationSteps: number;
+    expiresAt: string;
+    leaseId: string;
+    mutationAuthorizedAt?: string;
+    mutationAuthorizationLeaseId?: string;
+    nextActionSequence: number;
+    now: string;
+}): boolean {
+    if (input.nextActionSequence > 0 || input.completedMutationSteps > 0) return true;
+    return (
+        input.expiresAt > input.now &&
+        Boolean(input.mutationAuthorizedAt) &&
+        input.mutationAuthorizationLeaseId === input.leaseId
+    );
+}
+
 export function resolveExpiredStructureImportControl(controlRequest: unknown): 'paused' | 'cancelled' {
     return controlRequest === 'cancel' ? 'cancelled' : 'paused';
 }
