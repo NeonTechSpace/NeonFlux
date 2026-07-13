@@ -13,6 +13,7 @@ describe('DashboardDisplayControls', () => {
     afterEach(() => {
         useDashboardDisplayPreferences.setState({
             desktopGuildSelectorOpen: false,
+            fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
             particleBlurEnabled: true,
@@ -27,6 +28,7 @@ describe('DashboardDisplayControls', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Reduce effects' }));
 
         expect(useDashboardDisplayPreferences.getState()).toMatchObject({
+            fluidBlobsEnabled: true,
             particlesEnabled: true,
             particleBlurEnabled: true,
             reducedEffectsEnabled: true,
@@ -38,7 +40,7 @@ describe('DashboardDisplayControls', () => {
         ).toHaveProperty('disabled', true);
         expect(
             screen.getByRole('button', {
-                name: 'Particle bloom unavailable while effects are reduced',
+                name: 'Particle blur unavailable while effects are reduced',
             })
         ).toHaveProperty('disabled', true);
 
@@ -48,14 +50,30 @@ describe('DashboardDisplayControls', () => {
         expect(screen.getByRole('button', { name: 'Use crisp particles' })).toHaveProperty('disabled', false);
     });
 
-    it('switches between visibly named bloom and crisp particle treatments', () => {
+    it('toggles fluid blobs without changing particles or particle blur', () => {
+        render(<DashboardDisplayControls variant='inline' />);
+
+        fireEvent.click(screen.getAllByRole('button', { name: 'Disable fluid blobs' }).at(-1)!);
+
+        expect(useDashboardDisplayPreferences.getState()).toMatchObject({
+            fluidBlobsEnabled: false,
+            particlesEnabled: true,
+            particleBlurEnabled: true,
+        });
+        expect(screen.getAllByRole('button', { name: 'Enable fluid blobs' }).at(-1)?.getAttribute('aria-pressed')).toBe(
+            'false'
+        );
+        expect(screen.getAllByRole('button', { name: 'Disable particles' }).at(-1)).toHaveProperty('disabled', false);
+    });
+
+    it('switches between visibly named blurred and crisp particle treatments', () => {
         render(<DashboardDisplayControls variant='inline' />);
         const crispButtons = screen.getAllByRole('button', { name: 'Use crisp particles' });
 
         fireEvent.click(crispButtons.at(-1)!);
 
         expect(useDashboardDisplayPreferences.getState().particleBlurEnabled).toBe(false);
-        expect(screen.getAllByRole('button', { name: 'Use particle bloom' }).at(-1)?.getAttribute('aria-pressed')).toBe(
+        expect(screen.getAllByRole('button', { name: 'Blur particles' }).at(-1)?.getAttribute('aria-pressed')).toBe(
             'false'
         );
     });
@@ -79,6 +97,7 @@ describe('DashboardDisplayControls', () => {
         expect(useDashboardDisplayPreferences.getState()).toMatchObject({
             desktopGuildSelectorOpen: true,
             guildSelectorSortByName: true,
+            fluidBlobsEnabled: true,
             particlesEnabled: false,
             particleBlurEnabled: false,
             reducedEffectsEnabled: false,
@@ -90,6 +109,7 @@ describe('resolveDashboardDisplayEffects', () => {
     it('derives effective effects while preserving stored preferences', () => {
         expect(
             resolveDashboardDisplayEffects({
+                fluidBlobsEnabled: true,
                 particlesEnabled: true,
                 particleBlurEnabled: true,
                 reducedEffectsEnabled: true,
@@ -99,10 +119,12 @@ describe('resolveDashboardDisplayEffects', () => {
             particlesEnabled: false,
             particleBlurEnabled: false,
             ambientMotionEnabled: false,
+            fluidBlobsEnabled: true,
         });
 
         expect(
             resolveDashboardDisplayEffects({
+                fluidBlobsEnabled: false,
                 particlesEnabled: false,
                 particleBlurEnabled: true,
                 reducedEffectsEnabled: false,
@@ -112,6 +134,7 @@ describe('resolveDashboardDisplayEffects', () => {
             particlesEnabled: false,
             particleBlurEnabled: false,
             ambientMotionEnabled: true,
+            fluidBlobsEnabled: false,
         });
     });
 });

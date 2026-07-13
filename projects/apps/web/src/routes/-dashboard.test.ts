@@ -16,6 +16,7 @@ describe('/dashboard', () => {
         window.localStorage.clear();
         useDashboardDisplayPreferences.setState({
             desktopGuildSelectorOpen: false,
+            fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
             particleBlurEnabled: true,

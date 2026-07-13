@@ -507,7 +507,6 @@ function DashboardGuildLinkTile({
             ) : (
                 <Link
                     to={href}
-                    preload='intent'
                     state={withDashboardGuildPreview(preview, sourcePreview)}
                     aria-label={pending ? `${guild.name}, opening` : guild.name}
                     aria-busy={pending}

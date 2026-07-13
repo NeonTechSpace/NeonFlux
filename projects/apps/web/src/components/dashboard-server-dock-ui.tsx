@@ -37,7 +37,6 @@ export function DashboardServerDockActionTile({
             {icon === 'all' ? (
                 <Link
                     to={href}
-                    preload='intent'
                     aria-label={label}
                     onClick={onClick}
                     className={getDashboardServerDockTileClassName('action')}>

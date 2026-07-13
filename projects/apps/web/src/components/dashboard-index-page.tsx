@@ -154,7 +154,6 @@ function DashboardGuildItem({ guild, mode }: { guild: DashboardViewModelGuild; m
             <Link
                 to='/dashboard/$guildId'
                 params={{ guildId: guild.id }}
-                preload='intent'
                 state={withDashboardGuildPreview(preview)}
                 aria-label={`Open ${guild.name} dashboard`}
                 className={dashboardGuildCardClassName}>

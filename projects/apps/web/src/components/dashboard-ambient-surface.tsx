@@ -4,6 +4,7 @@ import {
     resolveDashboardDisplayEffects,
     useDashboardDisplayPreferences,
 } from './dashboard-display-preferences-store.js';
+import { DashboardFluidField } from './dashboard-fluid-field.js';
 
 const DashboardParticleField = lazy(async () => {
     const module = await import('./dashboard-particle-field.js');
@@ -13,16 +14,19 @@ const DashboardParticleField = lazy(async () => {
 
 export function DashboardAmbientSurface() {
     const particlesEnabled = useDashboardDisplayPreferences((state) => state.particlesEnabled);
+    const fluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.fluidBlobsEnabled);
     const particleBlurEnabled = useDashboardDisplayPreferences((state) => state.particleBlurEnabled);
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
     const [desktopMotionEnabled, setDesktopMotionEnabled] = useState(false);
     const [pageVisible, setPageVisible] = useState(true);
     const noiseFilterId = `dashboard-ambient-noise-${useId().replaceAll(':', '')}`;
     const effects = resolveDashboardDisplayEffects({
+        fluidBlobsEnabled,
         particleBlurEnabled,
         particlesEnabled,
         reducedEffectsEnabled,
     });
+    const fluidMotionEnabled = effects.ambientMotionEnabled && desktopMotionEnabled && pageVisible;
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -50,16 +54,11 @@ export function DashboardAmbientSurface() {
     }, []);
 
     return (
-        <div
-            className='dashboard-ambient-surface pointer-events-none fixed inset-0 z-0 overflow-hidden'
-            data-ambient-motion={effects.ambientMotionEnabled && pageVisible}
-            aria-hidden='true'>
-            <div className='dashboard-ambient-base absolute inset-0' />
-            <div className='dashboard-ambient-body dashboard-ambient-body-cyan absolute' />
-            <div className='dashboard-ambient-body dashboard-ambient-body-violet absolute' />
-            <div className='dashboard-ambient-current absolute' />
+        <div className='pointer-events-none fixed inset-0 isolate z-0 overflow-hidden' aria-hidden='true'>
+            <div className='dashboard-ambient-base absolute inset-0 z-0' />
+            {effects.fluidBlobsEnabled ? <DashboardFluidField motionEnabled={fluidMotionEnabled} /> : null}
             <svg
-                className='absolute inset-0 size-full opacity-[0.048] mix-blend-overlay'
+                className='absolute inset-0 z-20 size-full opacity-[0.048] mix-blend-overlay'
                 focusable='false'
                 preserveAspectRatio='none'>
                 <filter id={noiseFilterId} x='-20%' y='-20%' width='140%' height='140%'>
@@ -76,10 +75,10 @@ export function DashboardAmbientSurface() {
             </svg>
             {effects.particlesEnabled && desktopMotionEnabled && pageVisible ? (
                 <Suspense fallback={null}>
-                    <DashboardParticleField bloomEnabled={effects.particleBlurEnabled} />
+                    <DashboardParticleField blurEnabled={effects.particleBlurEnabled} />
                 </Suspense>
             ) : null}
-            <div className='absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_34%,rgba(5,7,17,0.08)_70%,rgba(4,5,13,0.35)_100%),linear-gradient(180deg,rgba(3,5,14,0.02),rgba(3,4,12,0.28))]' />
+            <div className='absolute inset-0 z-40 bg-[radial-gradient(ellipse_at_center,transparent_34%,rgba(5,7,17,0.08)_70%,rgba(4,5,13,0.35)_100%),linear-gradient(180deg,rgba(3,5,14,0.02),rgba(3,4,12,0.28))]' />
         </div>
     );
 }

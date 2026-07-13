@@ -26,6 +26,7 @@
     "scripts": {
         "dev:clear": "node -e \"console.clear()\"",
         "dev": "pnpm dev:clear && pnpm build:runtime-packages && pnpm convex:dev:once && concurrently --kill-others-on-fail --names convex,bot,web \"pnpm convex:dev\" \"pnpm --filter @neonflux/bot dev\" \"pnpm --filter neonflux-web dev\"",
+        "dev:clean": "pnpm convex:reset && pnpm dev",
         "build:runtime-packages": "pnpm -r --filter @neonflux/config --filter @neonflux/convex --filter @neonflux/core --filter @neonflux/fluxer --filter @neonflux/db build",
         "dev:bot": "pnpm dev:clear && pnpm build:runtime-packages && pnpm --filter @neonflux/bot dev",
         "dev:bot:smoke": "tsx scripts/dev-bot-smoke.ts",

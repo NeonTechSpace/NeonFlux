@@ -1,4 +1,4 @@
-import { Blend, Gauge, Sparkles } from 'lucide-react';
+import { Blend, Gauge, Sparkles, Waves } from 'lucide-react';
 
 import {
     resolveDashboardDisplayEffects,
@@ -11,29 +11,33 @@ type DashboardDisplayControlsProps = {
 
 export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisplayControlsProps) {
     const particlesEnabled = useDashboardDisplayPreferences((state) => state.particlesEnabled);
+    const fluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.fluidBlobsEnabled);
     const particleBlurEnabled = useDashboardDisplayPreferences((state) => state.particleBlurEnabled);
     const reducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.reducedEffectsEnabled);
     const setParticlesEnabled = useDashboardDisplayPreferences((state) => state.setParticlesEnabled);
+    const setFluidBlobsEnabled = useDashboardDisplayPreferences((state) => state.setFluidBlobsEnabled);
     const setParticleBlurEnabled = useDashboardDisplayPreferences((state) => state.setParticleBlurEnabled);
     const setReducedEffectsEnabled = useDashboardDisplayPreferences((state) => state.setReducedEffectsEnabled);
     const effects = resolveDashboardDisplayEffects({
+        fluidBlobsEnabled,
         particleBlurEnabled,
         particlesEnabled,
         reducedEffectsEnabled,
     });
     const reduceEffectsLabel = reducedEffectsEnabled ? 'Use full effects' : 'Reduce effects';
+    const blobsLabel = fluidBlobsEnabled ? 'Disable fluid blobs' : 'Enable fluid blobs';
     const particlesLabel = reducedEffectsEnabled
         ? 'Particle controls unavailable while effects are reduced'
         : particlesEnabled
           ? 'Disable particles'
           : 'Enable particles';
     const blurLabel = reducedEffectsEnabled
-        ? 'Particle bloom unavailable while effects are reduced'
+        ? 'Particle blur unavailable while effects are reduced'
         : !particlesEnabled
-          ? 'Particle bloom unavailable while particles are disabled'
+          ? 'Particle blur unavailable while particles are disabled'
           : particleBlurEnabled
             ? 'Use crisp particles'
-            : 'Use particle bloom';
+            : 'Blur particles';
 
     return (
         <div className={getDisplayControlsClassName(variant)} aria-label='Display effects'>
@@ -54,6 +58,15 @@ export function DashboardDisplayControls({ variant = 'floating' }: DashboardDisp
                 }
                 aria-hidden='true'
             />
+            <button
+                type='button'
+                aria-label={blobsLabel}
+                aria-pressed={fluidBlobsEnabled}
+                title={blobsLabel}
+                onClick={() => setFluidBlobsEnabled(!fluidBlobsEnabled)}
+                className={getDisplayControlClassName(effects.fluidBlobsEnabled, variant === 'navigation')}>
+                <Waves className='size-4' aria-hidden='true' />
+            </button>
             <button
                 type='button'
                 aria-label={particlesLabel}
