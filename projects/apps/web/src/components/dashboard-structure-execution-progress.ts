@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@neonflux/convex-api';
 import type { Id } from '@neonflux/convex-api/data-model';
 import { ConvexHttpClient } from 'convex/browser';
-import { ConvexReactClient } from 'convex/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -14,7 +13,7 @@ import type { DashboardRequestDeadline } from '../dashboard-request-deadline.js'
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import { dashboardStructureExecutionPhases } from '../server/dashboard-structure-contracts.js';
 import type { DashboardStructureExecutionProgress } from '../server/dashboard-structure-contracts.js';
-import { fetchDashboardConvexToken, readDashboardConvexUrl } from './dashboard-live-invalidation.js';
+import { fetchDashboardConvexToken, readDashboardConvexUrl, useDashboardLive } from './dashboard-live-provider.js';
 import {
     isTerminalDashboardStructureExecution,
     mergeDashboardStructureExecutionProgress,
@@ -83,6 +82,7 @@ export function useDashboardStructureExecutionProgress({
     initialExecution: DashboardStructureExecutionProgress | undefined;
 }) {
     const queryClient = useQueryClient();
+    const { client: liveClient, restart: restartLiveTransport } = useDashboardLive();
     const [watchAttempt, setWatchAttempt] = useState(0);
     const [watchIssue, setWatchIssue] = useState<ProgressIssue>();
     const [liveHealth, setLiveHealth] = useState<ProgressTransportHealth>();
@@ -228,15 +228,13 @@ export function useDashboardStructureExecutionProgress({
     }, [liveHealth, pollHealth, runId]);
 
     useEffect(() => {
-        if (!runId || terminal || typeof window === 'undefined' || !convexUrl) return undefined;
+        if (!runId || terminal || !liveClient) return undefined;
 
         const activeRunId = runId;
-        const client = new ConvexReactClient(convexUrl, { logger: false });
-        client.setAuth(() => fetchDashboardConvexToken());
         let active = true;
         let receivedResult = false;
         let unsubscribe: () => void = () => undefined;
-        let watch: ReturnType<ConvexReactClient['watchQuery']> | undefined;
+        let watch: ReturnType<typeof liveClient.watchQuery> | undefined;
         const timeout = setTimeout(() => {
             if (!receivedResult) recordWatchIssue('BLUEPRINT_PROGRESS_TIMEOUT');
         }, progressWatchTimeoutMs);
@@ -273,7 +271,7 @@ export function useDashboardStructureExecutionProgress({
         }
 
         try {
-            watch = client.watchQuery(api.structure.findStructureImportExecutionProgressForGuild, {
+            watch = liveClient.watchQuery(api.structure.findStructureImportExecutionProgressForGuild, {
                 guildId,
                 protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
                 runId: activeRunId as Id<'structureImportRuns'>,
@@ -289,9 +287,8 @@ export function useDashboardStructureExecutionProgress({
             active = false;
             clearTimeout(timeout);
             unsubscribe();
-            void client.close();
         };
-    }, [convexUrl, guildId, queryClient, queryKey, runId, terminal, watchAttempt]);
+    }, [guildId, liveClient, queryClient, queryKey, runId, terminal, watchAttempt]);
 
     useEffect(() => {
         if (!execution || !isTerminalDashboardStructureExecution(execution)) return;
@@ -371,6 +368,7 @@ export function useDashboardStructureExecutionProgress({
             setLiveHealth(undefined);
             setPollHealth(undefined);
             setWatchIssue(undefined);
+            restartLiveTransport();
             setWatchAttempt((current) => current + 1);
             void progressQuery.refetch({ cancelRefetch: true });
         },

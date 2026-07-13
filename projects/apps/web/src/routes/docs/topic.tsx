@@ -1,12 +1,8 @@
 import { Outlet, createFileRoute } from '@tanstack/react-router';
 
-const createRoute = createFileRoute('/docs/topic');
-
-const docsTopicIndexRouteOptions = {
+export const Route = createFileRoute('/docs/topic')({
     component: DocsTopicRouteLayout,
-} satisfies NonNullable<Parameters<typeof createRoute>[0]>;
-
-export const Route = createRoute(docsTopicIndexRouteOptions);
+});
 
 function DocsTopicRouteLayout() {
     return <Outlet />;

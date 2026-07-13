@@ -10,25 +10,18 @@ import {
     formatDashboardStructureExecutionPhase,
     formatDashboardStructureExecutionState,
 } from '../server/dashboard-structure-contracts.js';
-import { DashboardStructureApplyControls } from './dashboard-structure-apply-controls.js';
+import { DashboardStructureDeployReview } from './dashboard-structure-deploy-review.js';
 import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
-import {
-    DashboardStructureActionInspector,
-    DashboardStructureActionPreview,
-} from './dashboard-structure-action-inspection.js';
 import {
     dashboardConfirmationTransition,
     dashboardConfirmationVariants,
-    dashboardInlineVariants,
     dashboardListItemVariants,
     dashboardListTransition,
     dashboardTactile,
-    dashboardViewTransition,
 } from './dashboard-motion.js';
 import {
     dashboardCompactFieldClassName,
     dashboardDangerActionClassName,
-    dashboardPrimaryActionClassName,
     dashboardSecondaryActionClassName,
 } from './dashboard-ui.js';
 
@@ -155,17 +148,8 @@ function ImportRunCard({
     onInspectAction?: (run: DashboardStructureImportRun, action: DashboardStructureImportAction) => void;
     onRecoveryPlan: (run: DashboardStructureImportRun) => void;
 }) {
-    const [inspectedAction, setInspectedAction] = useState<DashboardStructureImportAction | undefined>();
-    const isApprovalBusy = busyAction === `approval:${run.id}`;
-    const isPreflightBusy = busyAction === `preflight:${run.id}`;
-    const isActionBusy = busyAction === `actions:${run.id}`;
     const isRecoveryBusy = busyAction === `recovery:${run.id}`;
     const hasChanges = run.executionActionCount > 0;
-    const canApprove = run.status === 'review_ready' && !run.execution && hasChanges && run.planBlockerCount === 0;
-    const canPreflight =
-        hasChanges &&
-        run.status === 'approved' &&
-        (!run.execution || run.execution.status === 'failed_before_mutation');
     const canRecover = run.recoveryAvailable === true;
 
     return (
@@ -217,85 +201,22 @@ function ImportRunCard({
                 />
             ) : null}
             {run.verification ? <VerificationResult verification={run.verification} /> : null}
-            <DashboardStructureActionPreview
-                actions={run.actions}
-                actionCount={run.executionActionCount}
-                isLoading={isActionBusy}
-                onLoad={() => onLoadActions(run)}
-                onInspectAction={(action) => {
-                    setInspectedAction(action);
-                    onInspectAction?.(run, action);
-                }}
-            />
-            {inspectedAction ? (
-                <motion.div
-                    key={inspectedAction.id}
-                    data-dashboard-motion='view-change'
-                    variants={dashboardInlineVariants}
-                    initial='initial'
-                    animate='enter'
-                    transition={dashboardViewTransition}>
-                    <DashboardStructureActionInspector
-                        action={inspectedAction}
-                        onClose={() => setInspectedAction(undefined)}
-                    />
-                </motion.div>
+            {hasChanges ? (
+                <DashboardStructureDeployReview
+                    run={run}
+                    busyAction={busyAction}
+                    preflightReport={preflightReport}
+                    deleteConfirmation={deleteConfirmation}
+                    onDeleteConfirmationChange={onDeleteConfirmationChange}
+                    onApprove={onApprove}
+                    onPreflight={onPreflight}
+                    onApply={onApply}
+                    onLoadActions={onLoadActions}
+                    onLoadDecisions={onLoadDecisions}
+                    onInspectAction={onInspectAction}
+                />
             ) : null}
             <AnimatePresence initial={false} mode='popLayout'>
-                {canApprove ? (
-                    <motion.div
-                        key='approve'
-                        data-dashboard-motion='confirmation'
-                        className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-3'
-                        variants={dashboardConfirmationVariants}
-                        initial='initial'
-                        animate='enter'
-                        transition={dashboardConfirmationTransition}>
-                        <p className='text-xs leading-5 text-[var(--dash-text)]'>
-                            Continue when this exact result is correct. NeonFlux will record the review and immediately
-                            check the live server again. Nothing changes yet.
-                        </p>
-                        <div className='mt-2 flex justify-end'>
-                            <motion.button
-                                type='button'
-                                onClick={() => onApprove(run)}
-                                disabled={Boolean(busyAction)}
-                                className={dashboardPrimaryActionClassName}
-                                {...dashboardTactile}>
-                                {isApprovalBusy || isPreflightBusy ? 'Checking live server' : 'Continue to final check'}
-                            </motion.button>
-                        </div>
-                        <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                            If the server changed since this preview, application will be blocked and a new review will
-                            be required.
-                        </p>
-                    </motion.div>
-                ) : null}
-                {canPreflight ? (
-                    <motion.div
-                        key='preflight'
-                        data-dashboard-motion='confirmation'
-                        variants={dashboardConfirmationVariants}
-                        initial='initial'
-                        animate='enter'
-                        transition={dashboardConfirmationTransition}>
-                        {run.execution?.status === 'failed_before_mutation' ? (
-                            <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-3 text-xs leading-5 text-[var(--dash-warning)]'>
-                                No server changes were made. Run a fresh safety check before queueing this approved plan
-                                again.
-                            </p>
-                        ) : null}
-                        <DashboardStructureApplyControls
-                            run={run}
-                            busyAction={busyAction}
-                            preflightReport={preflightReport}
-                            deleteConfirmation={deleteConfirmation}
-                            onPreflight={onPreflight}
-                            onDeleteConfirmationChange={onDeleteConfirmationChange}
-                            onApply={onApply}
-                        />
-                    </motion.div>
-                ) : null}
                 {canRecover ? (
                     <motion.div
                         key='recover'

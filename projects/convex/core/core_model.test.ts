@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    buildDeploymentConfigDocument,
-    deploymentConfigId,
-    normalizeDeploymentConfigInput,
-    normalizeListLimit,
-    normalizeRequiredId,
-} from './core_model.js';
+import { buildDeploymentConfigDocument, deploymentConfigId, normalizeDeploymentConfigInput } from './core_model.js';
 
 describe('Convex core model helpers', () => {
     it('normalizes single-mode deployment config to the app-facing contract', () => {
@@ -67,17 +61,5 @@ describe('Convex core model helpers', () => {
             error: 'missing-single-guild-id',
             ok: false,
         });
-    });
-
-    it('normalizes required guild ids', () => {
-        expect(normalizeRequiredId(' guild-1 ', 'missing-guild-id')).toEqual({ ok: true, value: 'guild-1' });
-        expect(normalizeRequiredId('   ', 'missing-guild-id')).toEqual({ error: 'missing-guild-id', ok: false });
-    });
-
-    it('bounds list limits', () => {
-        expect(normalizeListLimit(undefined)).toBe(1000);
-        expect(normalizeListLimit(0)).toBe(1);
-        expect(normalizeListLimit(3.8)).toBe(3);
-        expect(normalizeListLimit(50_000)).toBe(5000);
     });
 });

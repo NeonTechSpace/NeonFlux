@@ -48,6 +48,10 @@ export type {
     GuildSecurityPolicyRecord,
     GuildSecurityPolicyRepositoryError,
     GrowthOverviewRepositoryError,
+    DashboardPostingOperationRecord,
+    DashboardPostingOperationRepositoryError,
+    DashboardPostingOperationStatus,
+    DashboardPostingOperationWorkerRecord,
     MessageTemplateRecord,
     PostedMessageRecord,
     PostingRepositoryError,
@@ -151,14 +155,28 @@ export {
     syncGuildInviteSnapshots,
 } from './runtime-growth-overview.js';
 export {
-    beginDashboardPostingOperation,
-    completeDashboardPostingOperation,
     deleteMessageTemplate,
     findMessageTemplateByName,
     listMessageTemplatesByGuildId,
     recordPostedMessage,
     upsertMessageTemplate,
 } from './runtime-posting.js';
+export {
+    claimNextDashboardPostingOperation,
+    completeDashboardPostingOperationSent,
+    DASHBOARD_POSTING_PAYLOAD_MAX_BYTES,
+    DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH,
+    deferDashboardPostingOperationBeforeSend,
+    enqueueDashboardPostingOperation,
+    failDashboardPostingOperationPermanently,
+    isDashboardPostingGuildRunnable,
+    listDashboardPostingOperationsByGuild,
+    markDashboardPostingOperationSendStarted,
+    markDashboardPostingOperationUnknown,
+    normalizeDashboardPostingPayload,
+    readDashboardPostingOperationForWorker,
+    recordDashboardPostingOperationExternalMessage,
+} from './runtime-posting-operations.js';
 export {
     findEnabledReactionRoleOptionByReaction,
     findReactionRoleMessage,

@@ -45,7 +45,12 @@ export async function routeMessageCreatedEvent(
         });
     }
 
-    await trackGrowthOverviewEvent(context, event).catch(() => undefined);
+    try {
+        const growthResult = await trackGrowthOverviewEvent(context, event);
+        if (growthResult.isErr()) warnGrowthTrackingFailure(context, event, 'database-error');
+    } catch {
+        warnGrowthTrackingFailure(context, event, 'unexpected-error');
+    }
 
     if (prefixChangeCommand) {
         return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);
@@ -96,6 +101,18 @@ export async function routeMessageCreatedEvent(
     }
 
     return sendBotFeatureReply(context, event, getBotPresenceReply(event, intent), getPresenceHandledAction(intent));
+}
+
+function warnGrowthTrackingFailure(
+    context: BotFeatureHandlerContext,
+    event: BotMessageCreatedEvent,
+    error: 'database-error' | 'unexpected-error'
+): void {
+    context.logger.warn('bot.growth_tracking_failed', {
+        error,
+        eventType: event.type,
+        guildId: event.guildId,
+    });
 }
 
 function getPresenceHandledAction(intent: BotPresenceIntent): BotFeatureRouteHandledAction {

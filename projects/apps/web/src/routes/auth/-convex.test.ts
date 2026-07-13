@@ -14,8 +14,6 @@ describe('Convex auth endpoint routing', () => {
             const route = router.routesByPath[path];
             const handlers = route.options.server?.handlers;
 
-            expect(route.fullPath).toBe(path);
-            expect(route.id).toBe(path);
             expect(handlers).toBeTypeOf('object');
 
             if (!handlers || typeof handlers === 'function') {

@@ -7,10 +7,7 @@ import {
     normalizeCredentialGeneration,
     normalizeEncryptedTokenPayload,
     normalizeFutureTimestamp,
-    normalizeOptionalEncryptedTokenPayload,
-    normalizeRequiredString,
     normalizeScopes,
-    normalizeTimestamp,
 } from './auth_store_model.js';
 
 describe('Convex auth store model helpers', () => {
@@ -81,14 +78,6 @@ describe('Convex auth store model helpers', () => {
         ).toBe(false);
     });
 
-    it('normalizes required strings', () => {
-        expect(normalizeRequiredString(' user-1 ', 'missing-fluxer-user-id')).toEqual({ ok: true, value: 'user-1' });
-        expect(normalizeRequiredString('   ', 'missing-session-id')).toEqual({
-            error: 'missing-session-id',
-            ok: false,
-        });
-    });
-
     it('requires future session expiry timestamps', () => {
         expect(normalizeFutureTimestamp('2026-07-03T09:00:00.000Z', Date.parse('2026-07-03T08:00:00.000Z'))).toEqual({
             ok: true,
@@ -101,14 +90,6 @@ describe('Convex auth store model helpers', () => {
             error: 'invalid-expiry',
             ok: false,
         });
-    });
-
-    it('normalizes arbitrary valid timestamps', () => {
-        expect(normalizeTimestamp('2026-07-03T08:00:00.000+00:00')).toEqual({
-            ok: true,
-            value: '2026-07-03T08:00:00.000Z',
-        });
-        expect(normalizeTimestamp('not-a-date')).toEqual({ error: 'invalid-expiry', ok: false });
     });
 
     it('normalizes encrypted OAuth token payloads without decrypting them', () => {
@@ -142,10 +123,6 @@ describe('Convex auth store model helpers', () => {
                 'invalid-access-token'
             )
         ).toEqual({ error: 'invalid-access-token', ok: false });
-    });
-
-    it('normalizes optional refresh tokens', () => {
-        expect(normalizeOptionalEncryptedTokenPayload(null)).toEqual({ ok: true, value: undefined });
     });
 
     it('requires at least one normalized scope', () => {

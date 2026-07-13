@@ -4,10 +4,7 @@ import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
 } from '../server/dashboard-structure.server.js';
-import {
-    buildDashboardStructureBackupRowId,
-    deriveDashboardStructureBackupHealth,
-} from './dashboard-structure-backup-health.js';
+import { deriveDashboardStructureBackupHealth } from './dashboard-structure-backup-health.js';
 
 const nowMs = Date.parse('2026-07-09T12:00:00.000Z');
 const formatDate = (value: string) => value;
@@ -177,12 +174,6 @@ describe('deriveDashboardStructureBackupHealth', () => {
         });
 
         expect(issues).toStrictEqual([]);
-    });
-
-    it('builds stable backup row anchors from backup ids', () => {
-        expect(buildDashboardStructureBackupRowId(' Backup 1: scheduled ')).toBe(
-            'server-blueprint-backup-backup-1-scheduled'
-        );
     });
 });
 

@@ -43,6 +43,7 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "vitest run",
+        "test:e2e:web": "pnpm --filter neonflux-web e2e:public",
         "test:watch": "vitest watch",
         "convex:codegen": "tsx scripts/convex-cli.ts codegen",
         "convex:codegen:check": "pnpm convex:codegen && git diff --exit-code -- convex/_generated",

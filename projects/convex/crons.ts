@@ -14,7 +14,7 @@ crons.daily(
 crons.daily(
     'prune dashboard posting operations',
     { hourUTC: 2, minuteUTC: 45 },
-    internal.posting.posting.pruneDashboardPostingOperations,
+    internal.posting.pruneDashboardPostingOperations,
     {}
 );
 

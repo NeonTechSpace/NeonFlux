@@ -1,14 +1,7 @@
 import { RotateCcw } from 'lucide-react';
-import type { ReactNode } from 'react';
 
 import type { PanelStatus } from './dashboard-structure-panel-types.js';
-import {
-    dashboardDangerActionClassName,
-    dashboardIconActionClassName,
-    dashboardSecondaryActionClassName,
-    DashboardStatus,
-    DashboardSurface,
-} from './dashboard-ui.js';
+import { dashboardSecondaryActionClassName, DashboardStatus, DashboardSurface } from './dashboard-ui.js';
 
 export function MiniCount({ label, value }: { label: string; value: number }) {
     return (
@@ -16,34 +9,6 @@ export function MiniCount({ label, value }: { label: string; value: number }) {
             <p className='text-xs font-semibold text-[var(--dash-text)]'>{value}</p>
             <p className='mt-0.5 text-[0.68rem] text-[var(--dash-text-subtle)] uppercase'>{label}</p>
         </div>
-    );
-}
-
-export function IconButton({
-    label,
-    disabled,
-    busy,
-    tone = 'neutral',
-    onClick,
-    children,
-}: {
-    label: string;
-    disabled?: boolean;
-    busy?: boolean;
-    tone?: 'neutral' | 'danger';
-    onClick: () => void;
-    children: ReactNode;
-}) {
-    return (
-        <button
-            type='button'
-            aria-label={label}
-            title={label}
-            onClick={onClick}
-            disabled={disabled}
-            className={`${tone === 'danger' ? dashboardDangerActionClassName : dashboardIconActionClassName} size-9 min-h-0 px-0`}>
-            {busy ? <span className='size-3 animate-pulse rounded-full bg-current' /> : children}
-        </button>
     );
 }
 

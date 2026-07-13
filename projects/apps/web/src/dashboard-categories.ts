@@ -622,18 +622,6 @@ export function getDashboardCategoryIdFromPathname(guildId: string, pathname: st
     return category?.id ?? 'overview';
 }
 
-export function getDashboardNavigationEntry(id: DashboardCategoryId): DashboardNavigationEntry {
-    const entry = dashboardNavigationEntries.find((candidate) =>
-        candidate.category.routeCategoryIds.some((categoryId) => categoryId === id)
-    );
-
-    if (!entry) {
-        throw new Error(`Unknown dashboard navigation entry: ${id}`);
-    }
-
-    return entry;
-}
-
 function getDirectNavigationCategory(jobId: DashboardNavigationJobId): DashboardCategoryDefinition | undefined {
     switch (jobId) {
         case 'overview':

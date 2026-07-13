@@ -4,10 +4,6 @@ import {
     buildGuildDefconExemptionDocument,
     buildGuildSecurityPolicyDocument,
     normalizeDefconExemptionLookupInput,
-    normalizeGuildIds,
-    normalizeRequiredGuildId,
-    toGuildDefconExemptionRecord,
-    toGuildSecurityPolicyRecord,
 } from './security_policies_model.js';
 
 describe('security policy model', () => {
@@ -29,12 +25,6 @@ describe('security policy model', () => {
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
-
-        if (!document.ok) {
-            throw new Error('Expected normalized security policy.');
-        }
-
-        expect(toGuildSecurityPolicyRecord(document.value)).toEqual(document.value);
     });
 
     it('preserves policy created timestamp on update', () => {
@@ -128,16 +118,6 @@ describe('security policy model', () => {
                 guildId: 'guild-1',
             },
         });
-
-        if (!document.ok) {
-            throw new Error('Expected normalized DEFCON exemption.');
-        }
-
-        expect(toGuildDefconExemptionRecord(document.value)).toEqual({
-            category: 'bot-mention',
-            createdAt: '2026-07-03T08:00:00.000Z',
-            guildId: 'guild-1',
-        });
     });
 
     it('preserves imported exemption timestamps', () => {
@@ -178,11 +158,5 @@ describe('security policy model', () => {
             error: 'invalid-created-at',
             ok: false,
         });
-    });
-
-    it('normalizes guild id list helpers', () => {
-        expect(normalizeRequiredGuildId(' guild-1 ')).toEqual({ ok: true, value: 'guild-1' });
-        expect(normalizeRequiredGuildId(' ')).toEqual({ error: 'missing-guild-id', ok: false });
-        expect(normalizeGuildIds([' guild-2 ', '', 'guild-1'])).toEqual(['guild-2', 'guild-1']);
     });
 });

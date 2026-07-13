@@ -1,15 +1,13 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
 import {
-    beginDashboardPostingOperation,
-    completeDashboardPostingOperation,
+    enqueueDashboardPostingOperation,
     listBotActionEventPageByGuildId,
+    listDashboardPostingOperationsByGuild,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
-import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
-import type * as FluxerMessages from '@neonflux/fluxer/messages';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
@@ -19,6 +17,7 @@ import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import {
     loadDashboardGuildAuditEventsPage,
     loadDashboardGuildPostingChannels,
+    loadDashboardGuildPostingOperations,
     postDashboardGuildMessage,
 } from './dashboard-posting.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
@@ -61,18 +60,9 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
+        enqueueDashboardPostingOperation: vi.fn(),
         listBotActionEventPageByGuildId: vi.fn(),
-        beginDashboardPostingOperation: vi.fn(),
-        completeDashboardPostingOperation: vi.fn(),
-    };
-});
-
-vi.mock('@neonflux/fluxer/messages', async (importActual) => {
-    const actual = await importActual<typeof FluxerMessages>();
-
-    return {
-        ...actual,
-        sendFluxerBotGuildChannelMessage: vi.fn(),
+        listDashboardPostingOperationsByGuild: vi.fn(),
     };
 });
 
@@ -106,15 +96,10 @@ describe('dashboard posting', () => {
             },
         });
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
-        vi.mocked(sendFluxerBotGuildChannelMessage).mockResolvedValue(
-            ok({
-                id: 'message-1',
-                guildId: 'guild-1',
-                channelId: 'channel-1',
-            })
+        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValue(
+            ok({ created: true, operation: createPostingOperationRecord() })
         );
-        vi.mocked(beginDashboardPostingOperation).mockResolvedValue(ok({ shouldSend: true, status: 'unknown' }));
-        vi.mocked(completeDashboardPostingOperation).mockResolvedValue(ok(createPostedMessageRecord()));
+        vi.mocked(listDashboardPostingOperationsByGuild).mockResolvedValue(ok([createPostingOperationRecord()]));
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValue(
             ok({
                 records: [createBotActionEventRecord()],
@@ -178,7 +163,7 @@ describe('dashboard posting', () => {
         vi.clearAllMocks();
     });
 
-    it('denies unauthenticated users before sending', async () => {
+    it('denies unauthenticated users before queueing', async () => {
         vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({ type: 'auth-required' });
 
         const result = await postDashboardGuildMessage(request, {
@@ -189,10 +174,10 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({ type: 'auth-required' });
-        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
+        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
-    it('denies unavailable or unauthorized guilds before sending', async () => {
+    it('denies unavailable or unauthorized guilds before queueing', async () => {
         vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({ type: 'not-found' });
 
         await expect(
@@ -218,10 +203,10 @@ describe('dashboard posting', () => {
                 requestKey: 'request-1',
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
-        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
+        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
-    it('rejects blank payloads before sending', async () => {
+    it('rejects blank payloads before queueing', async () => {
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
             channelId: 'channel-1',
@@ -234,39 +219,10 @@ describe('dashboard posting', () => {
             type: 'invalid-message',
             message: 'Add message content or at least one embed.',
         });
-        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
+        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
-    it('requires the web deployment to have the bot token configured', async () => {
-        vi.mocked(loadWebConfig).mockReturnValueOnce(createWebConfig({ fluxerBotToken: undefined }));
-
-        const result = await postDashboardGuildMessage(request, {
-            guildId: 'guild-1',
-            channelId: 'channel-1',
-            content: 'hello',
-            requestKey: 'request-1',
-        });
-
-        expect(result).toStrictEqual({ type: 'bot-token-missing' });
-        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
-    });
-
-    it('reports an unknown outcome when Fluxer cannot confirm delivery', async () => {
-        vi.mocked(sendFluxerBotGuildChannelMessage).mockResolvedValueOnce(err({ type: 'send-failed', error: 'nope' }));
-
-        const result = await postDashboardGuildMessage(request, {
-            guildId: 'guild-1',
-            channelId: 'channel-1',
-            content: 'hello',
-            requestKey: 'request-1',
-        });
-
-        expect(result).toStrictEqual({ type: 'delivery-unknown' });
-        expect(beginDashboardPostingOperation).toHaveBeenCalled();
-        expect(completeDashboardPostingOperation).not.toHaveBeenCalled();
-    });
-
-    it('sends authorized dashboard messages and records posting traceability', async () => {
+    it('queues authorized dashboard messages with actor and idempotency data', async () => {
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
             channelId: ' channel-1 ',
@@ -276,56 +232,28 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({
-            type: 'sent',
-            message: {
-                id: 'message-1',
-                guildId: 'guild-1',
-                channelId: 'channel-1',
-            },
+            type: 'operation',
+            operation: createPostingOperationView(),
         });
-        expect(sendFluxerBotGuildChannelMessage).toHaveBeenCalledWith({
-            botToken: 'bot-token',
-            guildId: 'guild-1',
-            channelId: 'channel-1',
-            content: 'hello',
-            embeds: [{ title: 'NeonFlux' }],
-        });
-        expect(beginDashboardPostingOperation).toHaveBeenCalledWith(
+        expect(enqueueDashboardPostingOperation).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
+                actorDisplayName: 'Neonsy',
                 actorUserId: 'actor-1',
+                actorUsername: 'neonsy',
+                content: 'hello',
+                embeds: [{ title: 'NeonFlux' }],
                 guildId: 'guild-1',
+                payloadHash: expect.stringMatching(/^[a-f\d]{64}$/),
                 requestKey: 'request-1',
                 requestedChannelId: 'channel-1',
             })
         );
-        expect(completeDashboardPostingOperation).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                actorUserId: 'actor-1',
-                guildId: 'guild-1',
-                messageId: 'message-1',
-                requestKey: 'request-1',
-                sentChannelId: 'channel-1',
-                auditMetadata: {
-                    channelName: 'general',
-                    actorUsername: 'neonsy',
-                    actorDisplayName: 'Neonsy',
-                    contentLength: 5,
-                    embedCount: 1,
-                },
-            })
-        );
     });
 
-    it('replays a completed request without sending a duplicate message', async () => {
-        vi.mocked(beginDashboardPostingOperation).mockResolvedValueOnce(
-            ok({
-                messageId: 'message-existing',
-                sentChannelId: 'channel-1',
-                shouldSend: false,
-                status: 'sent',
-            })
+    it('returns the existing operation for an idempotent replay', async () => {
+        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValueOnce(
+            ok({ created: false, operation: createPostingOperationRecord({ status: 'sent' }) })
         );
 
         const result = await postDashboardGuildMessage(request, {
@@ -336,15 +264,16 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({
-            message: { channelId: 'channel-1', guildId: 'guild-1', id: 'message-existing' },
-            type: 'sent',
+            operation: createPostingOperationView({ status: 'sent' }),
+            type: 'operation',
         });
-        expect(sendFluxerBotGuildChannelMessage).not.toHaveBeenCalled();
-        expect(completeDashboardPostingOperation).not.toHaveBeenCalled();
+        expect(enqueueDashboardPostingOperation).toHaveBeenCalledTimes(1);
     });
 
-    it('reports an unknown outcome when durable completion fails after delivery', async () => {
-        vi.mocked(completeDashboardPostingOperation).mockResolvedValueOnce(err({ type: 'database-error' }));
+    it('maps an idempotency conflict without exposing database details', async () => {
+        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValueOnce(
+            err({ field: 'requestKey', type: 'conflict' })
+        );
 
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
@@ -353,7 +282,27 @@ describe('dashboard posting', () => {
             requestKey: 'request-1',
         });
 
-        expect(result).toStrictEqual({ type: 'delivery-unknown' });
+        expect(result).toStrictEqual({ type: 'request-conflict' });
+    });
+
+    it('loads durable posting status only through the authorized guild scope', async () => {
+        vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({
+            type: 'guild',
+            mode: 'multi',
+            guild: { id: 'authorized-guild', name: 'Authorized Guild' },
+        });
+
+        await expect(loadDashboardGuildPostingOperations(request, 'requested-guild')).resolves.toStrictEqual({
+            operations: [createPostingOperationView()],
+            type: 'operations',
+        });
+        expect(listDashboardPostingOperationsByGuild).toHaveBeenCalledWith(
+            {},
+            {
+                guildId: 'authorized-guild',
+                limit: 20,
+            }
+        );
     });
 
     it('loads audit events only through the authorized guild scope', async () => {
@@ -518,17 +467,40 @@ function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
     };
 }
 
-function createPostedMessageRecord() {
+function createPostingOperationRecord(overrides: { status?: 'queued' | 'sent' } = {}) {
     return {
-        id: 'posted-message-1',
-        guildId: 'guild-1',
-        templateId: null,
-        channelId: 'channel-1',
-        messageId: 'message-1',
-        createdByUserId: 'actor-1',
-        purpose: 'dashboard',
+        actorDisplayName: 'Neonsy',
+        actorUsername: 'neonsy',
+        actorUserId: 'actor-1',
+        attemptCount: 0,
+        completedAt: null,
+        contentLength: 5,
         createdAt: new Date('2026-06-26T00:00:00.000Z'),
+        embedCount: 1,
+        errorCode: null,
+        guildId: 'guild-1',
+        id: 'operation-1',
+        messageId: null,
+        nextAttemptAt: null,
+        requestKey: 'request-1',
+        requestedChannelId: 'channel-1',
+        sentChannelId: null,
+        status: overrides.status ?? 'queued',
         updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+    };
+}
+
+function createPostingOperationView(overrides: { status?: 'queued' | 'sent' } = {}) {
+    return {
+        attemptCount: 0,
+        contentLength: 5,
+        createdAt: '2026-06-26T00:00:00.000Z',
+        embedCount: 1,
+        id: 'operation-1',
+        requestKey: 'request-1',
+        requestedChannelId: 'channel-1',
+        status: overrides.status ?? 'queued',
+        updatedAt: '2026-06-26T00:00:00.000Z',
     };
 }
 

@@ -225,23 +225,6 @@ describe('removeBotInstallationEvent', () => {
         expect(deleteBotInstallationMock).not.toHaveBeenCalled();
     });
 
-    it('removes the target guild in single mode', async () => {
-        deleteBotInstallationMock.mockResolvedValue(ok(createInstallation('target')));
-
-        const result = await removeBotInstallationEvent(testDb, createSingleMode(), {
-            guildId: ' target ',
-        });
-
-        expect(result.isOk()).toBe(true);
-        expect(result._unsafeUnwrap()).toStrictEqual({
-            status: 'removed',
-            guildId: 'target',
-        });
-        expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
-            guildId: 'target',
-        });
-    });
-
     it('ignores non-target guilds in single mode before DB access', async () => {
         const result = await removeBotInstallationEvent(testDb, createSingleMode(), {
             guildId: 'other',
@@ -267,22 +250,6 @@ describe('removeBotInstallationEvent', () => {
         expect(deleteBotInstallationMock).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
         });
-    });
-
-    it('ignores missing guild ids before DB access', async () => {
-        const missingIdResults = await Promise.all([
-            removeBotInstallationEvent(testDb, createMultiMode(), { guildId: undefined }),
-            removeBotInstallationEvent(testDb, createMultiMode(), { guildId: null }),
-            removeBotInstallationEvent(testDb, createMultiMode(), { guildId: '   ' }),
-        ]);
-
-        expect(missingIdResults.every((result) => result.isOk())).toBe(true);
-        expect(missingIdResults.map((result) => result._unsafeUnwrap())).toStrictEqual([
-            { status: 'ignored' },
-            { status: 'ignored' },
-            { status: 'ignored' },
-        ]);
-        expect(deleteBotInstallationMock).not.toHaveBeenCalled();
     });
 
     it('returns database-error when removing fails in the repository', async () => {

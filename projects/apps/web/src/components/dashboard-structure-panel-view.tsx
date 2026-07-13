@@ -351,6 +351,7 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
                     overlayMode={workspace.explorer.explorerOverlayMode}
                     preflightByRunId={workspace.preflightByRunId}
                     runs={workspace.importRuns}
+                    section={workspace.explorer.explorerSection}
                     selectedEntityKey={workspace.explorer.selectedExplorerEntityKey}
                     comparisonTarget={workspace.explorer.explorerComparisonTarget}
                     source={workspace.explorer.explorerSource}
@@ -363,6 +364,7 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
                     onLoadActions={workspace.onLoadRunActions}
                     onLoadLive={() => void workspace.explorer.loadLiveExplorerSnapshot()}
                     onOverlayModeChange={workspace.explorer.setExplorerOverlayMode}
+                    onSectionChange={workspace.explorer.setExplorerSection}
                     onSelectedEntityKeyChange={workspace.explorer.setSelectedExplorerEntityKey}
                 />
             </div>

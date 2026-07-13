@@ -5,8 +5,6 @@ import {
     buildGuildMemberFlowEventDocument,
     normalizeObservedAt,
     normalizeOverviewDays,
-    toGuildInviteSnapshotRecord,
-    toGuildMemberFlowEventRecord,
 } from './growth_overview_model.js';
 
 const now = '2026-07-03T08:00:00.000Z';
@@ -29,14 +27,6 @@ describe('growth overview model', () => {
         expect(leave).toMatchObject({
             ok: true,
             value: { attributionStatus: 'not-applicable', eventType: 'leave' },
-        });
-
-        if (!join.ok) throw new Error('Expected join event.');
-
-        expect(toGuildMemberFlowEventRecord({ ...join.value, _id: 'event-1' })).toMatchObject({
-            id: 'event-1',
-            inviteCode: null,
-            inviterUserId: null,
         });
     });
 
@@ -66,14 +56,6 @@ describe('growth overview model', () => {
                 temporary: true,
                 uses: 4,
             },
-        });
-
-        if (!snapshot.ok) throw new Error('Expected invite snapshot.');
-
-        expect(toGuildInviteSnapshotRecord({ ...snapshot.value, _id: 'invite-1' })).toMatchObject({
-            active: true,
-            id: 'invite-1',
-            revokedAt: null,
         });
     });
 

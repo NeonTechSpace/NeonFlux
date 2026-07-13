@@ -21,6 +21,7 @@ import type {
     DashboardStructureExplorerAction,
     DashboardStructureExplorerEntityKey,
     DashboardStructureExplorerModel,
+    DashboardStructureExplorerSection,
     DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
 import { DashboardStructureExplorerDetails } from './dashboard-structure-explorer-details.js';
@@ -52,6 +53,7 @@ export function DashboardStructureExplorer({
     overlayMode,
     preflightByRunId,
     runs,
+    section,
     selectedEntityKey,
     comparisonTarget,
     source,
@@ -64,13 +66,16 @@ export function DashboardStructureExplorer({
     onLoadActions,
     onLoadLive,
     onOverlayModeChange,
+    onSectionChange,
     onSelectedEntityKeyChange,
+    presentation = 'default',
 }: {
     busyAction: StructureBusyAction | undefined;
     drift: DriftState | undefined;
     overlayMode: DashboardStructureExplorerOverlayMode;
     preflightByRunId: Record<string, DashboardStructurePreflightReport>;
     runs: DashboardStructureImportRun[];
+    section: DashboardStructureExplorerSection;
     selectedEntityKey: DashboardStructureExplorerEntityKey | undefined;
     comparisonTarget: DashboardStructureExplorerComparisonTarget;
     source: DashboardStructureExplorerSource;
@@ -83,7 +88,9 @@ export function DashboardStructureExplorer({
     onLoadActions: (run: DashboardStructureImportRun) => void;
     onLoadLive: () => void;
     onOverlayModeChange: (mode: DashboardStructureExplorerOverlayMode) => void;
+    onSectionChange: (section: DashboardStructureExplorerSection) => void;
     onSelectedEntityKeyChange: (key: DashboardStructureExplorerEntityKey | undefined) => void;
+    presentation?: 'default' | 'review';
 }) {
     const [viewMode, setViewMode] = useState<'diff' | 'tree'>('tree');
     const selectedRun = readSelectedRun(overlayMode, runs);
@@ -97,9 +104,10 @@ export function DashboardStructureExplorer({
                 actions: overlayActions,
                 driftPreviewCapped: overlayMode === 'drift' && drift?.hasMorePreview === true,
                 preflightReport: selectedRun ? preflightByRunId[selectedRun.id] : undefined,
+                section,
                 snapshot: source.snapshot,
             }),
-        [drift?.hasMorePreview, overlayActions, overlayMode, preflightByRunId, selectedRun, source.snapshot]
+        [drift?.hasMorePreview, overlayActions, overlayMode, preflightByRunId, section, selectedRun, source.snapshot]
     );
     const selectedPath = selectedEntityKey ? explorerModel.entityPathByKey.get(selectedEntityKey) : undefined;
     const effectiveSelectedPath = selectedPath ?? explorerModel.defaultSelectedPath;
@@ -138,7 +146,9 @@ export function DashboardStructureExplorer({
                     <SnapshotIdentity detail={comparisonTarget.detail} label={comparisonTarget.label} slot='Target' />
                 </div>
 
-                <div className='flex min-w-0 flex-wrap items-end gap-x-5 gap-y-3 border-t border-[var(--dash-border)] px-3 py-2.5'>
+                <div
+                    hidden={presentation === 'review'}
+                    className='flex min-w-0 flex-wrap items-end gap-x-5 gap-y-3 border-t border-[var(--dash-border)] px-3 py-2.5'>
                     <label className='min-w-[11rem] text-xs font-medium text-[var(--dash-text-muted)]'>
                         Load source
                         <select
@@ -241,11 +251,19 @@ export function DashboardStructureExplorer({
                     data-testid='blueprint-explorer-workbench'
                     className='grid min-w-0 divide-y divide-[var(--dash-border)] @min-[48rem]/blueprint-explorer:grid-cols-[minmax(17rem,0.82fr)_minmax(0,1.18fr)] @min-[48rem]/blueprint-explorer:divide-x @min-[48rem]/blueprint-explorer:divide-y-0'>
                     <div className='min-w-0 space-y-3 p-3'>
-                        <ExplorerOverlayControl
-                            drift={drift}
-                            overlayMode={overlayMode}
-                            runs={runs}
-                            onOverlayModeChange={onOverlayModeChange}
+                        {presentation === 'default' ? (
+                            <ExplorerOverlayControl
+                                drift={drift}
+                                overlayMode={overlayMode}
+                                runs={runs}
+                                onOverlayModeChange={onOverlayModeChange}
+                            />
+                        ) : null}
+
+                        <ExplorerSectionControl
+                            counts={explorerModel.counts}
+                            section={section}
+                            onSectionChange={onSectionChange}
                         />
 
                         {explorerModel.warnings.length > 0 ? (
@@ -298,6 +316,63 @@ export function DashboardStructureExplorer({
                 </div>
             )}
         </section>
+    );
+}
+
+function ExplorerSectionControl({
+    counts,
+    section,
+    onSectionChange,
+}: {
+    counts: DashboardStructureExplorerModel['counts'];
+    section: DashboardStructureExplorerSection;
+    onSectionChange: (section: DashboardStructureExplorerSection) => void;
+}) {
+    return (
+        <div
+            className='grid grid-cols-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-1'
+            aria-label='Blueprint layout section'>
+            <ExplorerSectionButton
+                count={counts.channels}
+                isActive={section === 'channels'}
+                label='Channels'
+                onClick={() => onSectionChange('channels')}
+            />
+            <ExplorerSectionButton
+                count={counts.roles}
+                isActive={section === 'roles'}
+                label='Roles'
+                onClick={() => onSectionChange('roles')}
+            />
+        </div>
+    );
+}
+
+function ExplorerSectionButton({
+    count,
+    isActive,
+    label,
+    onClick,
+}: {
+    count: number;
+    isActive: boolean;
+    label: string;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type='button'
+            aria-label={`${label}, ${String(count)}`}
+            aria-pressed={isActive}
+            onClick={onClick}
+            className={`flex min-h-9 items-center justify-center gap-2 rounded-[calc(var(--dash-radius-control)-0.25rem)] px-3 text-xs font-semibold transition focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none ${
+                isActive
+                    ? 'bg-[var(--dash-surface-raised)] text-[var(--dash-text)] shadow-sm'
+                    : 'text-[var(--dash-text-muted)] hover:bg-[var(--dash-surface-muted)] hover:text-[var(--dash-text)]'
+            }`}>
+            {label}
+            <span className='font-mono text-[0.6875rem] text-[var(--dash-text-subtle)]'>{count}</span>
+        </button>
     );
 }
 

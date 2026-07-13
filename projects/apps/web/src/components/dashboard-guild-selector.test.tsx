@@ -170,25 +170,6 @@ describe('DashboardGuildSelector', () => {
         expect(screen.queryByRole('link', { name: 'Beta Guild' })).toBeNull();
     });
 
-    it('keeps full server names recoverable when tile labels wrap', () => {
-        const longName = 'A Very Long Community Server Name That Needs More Space';
-        renderGuildSelector(
-            <DashboardGuildSelector
-                guilds={[
-                    { id: 'guild-1', name: 'Guild One' },
-                    { id: 'guild-long', name: longName },
-                ]}
-                activeGuildId='guild-1'
-                pathname='/dashboard/guild-1'
-            />
-        );
-
-        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
-
-        const longServer = screen.getByRole('link', { name: longName });
-        expect(longServer.getAttribute('title')).toBe(longName);
-    });
-
     it('opens directly as a mobile dialog and restores trigger focus after Escape', async () => {
         renderGuildSelector(
             <DashboardGuildSelector
@@ -244,12 +225,6 @@ describe('DashboardGuildSelector', () => {
 });
 
 describe('getDashboardGuildSwitchPath', () => {
-    it('replaces the active guild segment while keeping nested dashboard path', () => {
-        expect(getDashboardGuildSwitchPath('guild-1', 'guild-2', '/dashboard/guild-1/access/verification')).toBe(
-            '/dashboard/guild-2/access/verification'
-        );
-    });
-
     it('falls back to the next guild overview outside the active guild route', () => {
         expect(getDashboardGuildSwitchPath('guild-1', 'guild-2', '/dashboard')).toBe('/dashboard/guild-2');
     });

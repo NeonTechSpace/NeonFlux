@@ -122,6 +122,7 @@ function createContext(mode: BotFeatureHandlerContext['mode'] = { instanceMode: 
         mode,
         appEnv: 'production',
         guildDefconOverride: 'auto',
+        logger: { warn: vi.fn() },
         client: testClient,
         botUserId: 'bot-user',
     };

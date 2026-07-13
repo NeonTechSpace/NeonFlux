@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GenericId } from 'convex/values';
-
-import {
-    buildGuildFeatureSettingDocument,
-    normalizeAfterFeature,
-    normalizeGuildFeatureSettingLimit,
-    normalizeRequiredGuildFeatureString,
-    toGuildFeatureSettingRecord,
-} from './feature_settings_model.js';
-
-const settingId = 'setting-1' as GenericId<'guildFeatureSettings'>;
+import { buildGuildFeatureSettingDocument } from './feature_settings_model.js';
 
 describe('guild feature settings model', () => {
     it('normalizes runtime feature setting input', () => {
@@ -33,20 +23,6 @@ describe('guild feature settings model', () => {
                 guildId: 'guild-1',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
-        });
-
-        if (!document.ok) {
-            throw new Error('Expected normalized feature setting.');
-        }
-
-        expect(toGuildFeatureSettingRecord({ ...document.value, _id: settingId })).toEqual({
-            config: { prefix: '!' },
-            createdAt: '2026-07-03T08:00:00.000Z',
-            enabled: true,
-            feature: 'commands',
-            guildId: 'guild-1',
-            id: settingId,
-            updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
@@ -125,21 +101,5 @@ describe('guild feature settings model', () => {
             error: 'invalid-created-at',
             ok: false,
         });
-    });
-
-    it('normalizes list helpers', () => {
-        expect(normalizeRequiredGuildFeatureString(' guild-1 ', 'missing-guild-id')).toEqual({
-            ok: true,
-            value: 'guild-1',
-        });
-        expect(normalizeRequiredGuildFeatureString(' ', 'missing-feature')).toEqual({
-            error: 'missing-feature',
-            ok: false,
-        });
-        expect(normalizeAfterFeature(' commands ')).toBe('commands');
-        expect(normalizeAfterFeature(' ')).toBeUndefined();
-        expect(normalizeGuildFeatureSettingLimit(undefined)).toBe(100);
-        expect(normalizeGuildFeatureSettingLimit(0)).toBe(1);
-        expect(normalizeGuildFeatureSettingLimit(1_000)).toBe(500);
     });
 });

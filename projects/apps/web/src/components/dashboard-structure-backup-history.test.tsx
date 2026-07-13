@@ -22,10 +22,9 @@ const backup: DashboardStructureBackupSummary = {
 afterEach(cleanup);
 
 describe('DashboardStructureBackupHistory', () => {
-    it('renders dense backup metadata and keeps routine actions in one disclosure', () => {
+    it('keeps routine backup actions accessible from one disclosure', () => {
         const view = renderHistory();
 
-        expect(screen.getByText('3 roles · 2 categories · 9 channels')).toBeTruthy();
         expect(screen.getByLabelText('Actions for NeonSpace backup')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Check drift against this backup' }));

@@ -65,37 +65,24 @@ describe('loadBotConfig', () => {
         expect(config.publicWebUrl).toBeUndefined();
     });
 
-    it('loads optional bot custom status text', () => {
+    it('normalizes optional bot custom status text and omits blank values', () => {
         const config = loadBotConfig({
             FLUXER_BOT_CUSTOM_STATUS: '  Testing NeonFlux  ',
         });
 
         expect(config.fluxerBotCustomStatusText).toBe('Testing NeonFlux');
+        expect(loadBotConfig({ FLUXER_BOT_CUSTOM_STATUS: '   ' }).fluxerBotCustomStatusText).toBeUndefined();
     });
 
-    it('omits a blank bot custom status text', () => {
-        const config = loadBotConfig({
-            FLUXER_BOT_CUSTOM_STATUS: '   ',
-        });
-
-        expect(config.fluxerBotCustomStatusText).toBeUndefined();
-    });
-
-    it('rejects public web URLs with a path, query, hash, or credentials', () => {
+    it('rejects malformed, non-http, or non-origin public web URLs', () => {
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
+        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example/docs' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example?x=1' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://neonflux.example#docs' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'https://user:pass@neonflux.example' })).toThrow(
             /PUBLIC_WEB_URL/u
         );
-    });
-
-    it('rejects non-http public web URLs', () => {
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
-    });
-
-    it('rejects malformed public web URLs', () => {
-        expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
     });
 });
 
@@ -132,14 +119,11 @@ describe('loadWebConfig', () => {
         expect(loadWebConfig({ FLUXER_BOT_INVITE_URL: '   ' }).fluxerBotInviteUrl).toBeUndefined();
     });
 
-    it('rejects non-http bot invite URLs', () => {
-        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'fluxer://oauth2/authorize' })).toThrow(
+    it('rejects malformed and non-http bot invite URLs', () => {
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.fluxer.app/oauth2/authorize' })).toThrow(
             /FLUXER_BOT_INVITE_URL/u
         );
-    });
-
-    it('rejects malformed bot invite URLs', () => {
-        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'web.fluxer.app/oauth2/authorize' })).toThrow(
+        expect(() => loadWebConfig({ FLUXER_BOT_INVITE_URL: 'fluxer://oauth2/authorize' })).toThrow(
             /FLUXER_BOT_INVITE_URL/u
         );
     });
@@ -302,18 +286,15 @@ describe('loadRuntimeConfig', () => {
         });
     });
 
-    it('defaults guild DEFCON override to auto', () => {
+    it('defaults and accepts an explicit guild DEFCON auto override', () => {
         expect(loadRuntimeConfig({}).guildDefconOverride).toBe('auto');
+        expect(loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: 'auto' }).guildDefconOverride).toBe('auto');
     });
 
     it('loads numeric guild DEFCON overrides', () => {
         expect(loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: '1' }).guildDefconOverride).toBe(1);
         expect(loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: '2' }).guildDefconOverride).toBe(2);
         expect(loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: '3' }).guildDefconOverride).toBe(3);
-    });
-
-    it('loads explicit auto guild DEFCON override', () => {
-        expect(loadRuntimeConfig({ GUILD_DEFCON_OVERRIDE: 'auto' }).guildDefconOverride).toBe('auto');
     });
 
     it('rejects invalid guild DEFCON overrides', () => {

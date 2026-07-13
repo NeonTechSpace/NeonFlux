@@ -18,8 +18,12 @@ import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-struct
 import {
     parseDashboardStructureExplorerSnapshot,
     readDashboardStructureExplorerEntityKey,
+    readDashboardStructureExplorerSection,
 } from './dashboard-structure-explorer-model.js';
-import type { DashboardStructureExplorerEntityKey } from './dashboard-structure-explorer-model.js';
+import type {
+    DashboardStructureExplorerEntityKey,
+    DashboardStructureExplorerSection,
+} from './dashboard-structure-explorer-model.js';
 import { formatBackupSource, formatDate } from './dashboard-structure-panel-format.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-structure-panel-requested-snapshot.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
@@ -47,9 +51,32 @@ export function useDashboardStructureExplorerState({
     const [explorerComparisonTarget, setExplorerComparisonTarget] =
         useState<DashboardStructureExplorerComparisonTarget>(emptyExplorerComparisonTarget);
     const [explorerOverlayMode, setExplorerOverlayMode] = useState<DashboardStructureExplorerOverlayMode>('none');
-    const [selectedExplorerEntityKey, setSelectedExplorerEntityKey] = useState<
-        DashboardStructureExplorerEntityKey | undefined
-    >();
+    const [explorerSection, setExplorerSection] = useState<DashboardStructureExplorerSection>('channels');
+    const [selectedExplorerEntityKeys, setSelectedExplorerEntityKeys] = useState<
+        Partial<Record<DashboardStructureExplorerSection, DashboardStructureExplorerEntityKey>>
+    >({});
+    const selectedExplorerEntityKey = selectedExplorerEntityKeys[explorerSection];
+
+    function setSelectedExplorerEntityKey(entityKey: DashboardStructureExplorerEntityKey | undefined): void {
+        if (!entityKey) {
+            setSelectedExplorerEntityKeys({});
+            return;
+        }
+
+        const section = readDashboardStructureExplorerSection(entityKey);
+        setSelectedExplorerEntityKeys((current) => ({ ...current, [section]: entityKey }));
+    }
+
+    function revealExplorerEntity(entityKey: DashboardStructureExplorerEntityKey | undefined): void {
+        if (!entityKey) {
+            setSelectedExplorerEntityKeys({});
+            return;
+        }
+
+        const section = readDashboardStructureExplorerSection(entityKey);
+        setExplorerSection(section);
+        setSelectedExplorerEntityKeys((current) => ({ ...current, [section]: entityKey }));
+    }
 
     function setExplorerSourceAndResetComparison(source: DashboardStructureExplorerSource): void {
         setExplorerSource(source);
@@ -250,12 +277,12 @@ export function useDashboardStructureExplorerState({
 
     function selectDriftAction(action: DriftState['previewActions'][number]): void {
         setExplorerOverlayMode('drift');
-        setSelectedExplorerEntityKey(readDashboardStructureExplorerEntityKey(action));
+        revealExplorerEntity(readDashboardStructureExplorerEntityKey(action));
     }
 
     function selectImportAction(_run: DashboardStructureImportRun, action: DashboardStructureImportAction): void {
         setExplorerOverlayMode(`run:${_run.id}`);
-        setSelectedExplorerEntityKey(readDashboardStructureExplorerActionEntityKey(action));
+        revealExplorerEntity(readDashboardStructureExplorerActionEntityKey(action));
     }
 
     return {
@@ -265,6 +292,7 @@ export function useDashboardStructureExplorerState({
         compareExplorerRequestedFinalState,
         explorerComparisonTarget,
         explorerOverlayMode,
+        explorerSection,
         explorerSource,
         inspectImportJson,
         inspectRequestedFinalState,
@@ -273,6 +301,7 @@ export function useDashboardStructureExplorerState({
         selectImportAction,
         selectedExplorerEntityKey,
         setExplorerOverlayMode,
+        setExplorerSection,
         setExplorerSourceAndResetComparison,
         setSelectedExplorerEntityKey,
     };

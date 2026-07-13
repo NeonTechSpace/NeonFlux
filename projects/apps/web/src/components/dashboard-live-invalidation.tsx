@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@neonflux/convex-api';
-import { ConvexReactClient } from 'convex/react';
 import { useEffect, useRef } from 'react';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
@@ -13,10 +12,8 @@ import {
     getDashboardStructureExecutionProgressBaseQueryKey,
     getDashboardStructureSettingsQueryKey,
 } from '../dashboard-query-keys.js';
-import { createDashboardRequestDeadline } from '../dashboard-request-deadline.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
-
-const dashboardConvexTokenTimeoutMs = 8_000;
+import { readDashboardConvexUrl, useDashboardLive } from './dashboard-live-provider.js';
 
 type DashboardLiveState = {
     area: DashboardLiveArea;
@@ -24,26 +21,6 @@ type DashboardLiveState = {
     updatedAt: string;
     version: number;
 };
-
-type DashboardLiveWatch = {
-    localQueryResult: () => DashboardLiveState[] | undefined;
-    onUpdate: (callback: () => void) => () => void;
-};
-
-type DashboardLiveClient = {
-    close: () => Promise<void>;
-    setAuth: (
-        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<string | null | undefined>,
-        onChange?: (isAuthenticated: boolean) => void,
-        onRefreshChange?: (isRefreshing: boolean) => void
-    ) => void;
-    watchQuery: (
-        query: DashboardLiveQueryReference,
-        args: { areas: DashboardLiveArea[]; guildId: string }
-    ) => DashboardLiveWatch;
-};
-
-type DashboardLiveQueryReference = typeof api.dashboard_live.listDashboardLiveStates;
 
 export function useDashboardLiveInvalidation({
     guildId,
@@ -56,6 +33,7 @@ export function useDashboardLiveInvalidation({
     const areaKey = areas.join(',');
     const liveTransportActive = useDashboardLiveTransportActive();
     const previousLiveTransportActiveRef = useRef(liveTransportActive);
+    const { client } = useDashboardLive();
 
     useEffect(() => {
         const becameActive = liveTransportActive && previousLiveTransportActiveRef.current === false;
@@ -76,11 +54,11 @@ export function useDashboardLiveInvalidation({
             return undefined;
         }
 
-        const client = createDashboardLiveClient(convexUrl);
         const knownSignals = new Map<DashboardLiveArea, string>();
         let hasBaseline = false;
 
-        client.setAuth(() => fetchDashboardConvexToken());
+        if (!client) return undefined;
+
         const watch = client.watchQuery(api.dashboard_live.listDashboardLiveStates, {
             areas: [...visibleAreas],
             guildId,
@@ -131,41 +109,8 @@ export function useDashboardLiveInvalidation({
 
         return () => {
             unsubscribe();
-            void client.close();
         };
-    }, [areaKey, areas, guildId, liveTransportActive, queryClient]);
-}
-
-function createDashboardLiveClient(url: string): DashboardLiveClient {
-    return new ConvexReactClient(url, {
-        logger: false,
-    });
-}
-
-export async function fetchDashboardConvexToken(signal?: AbortSignal): Promise<string | null> {
-    const deadline = createDashboardRequestDeadline(signal, dashboardConvexTokenTimeoutMs);
-
-    try {
-        const response = await fetch('/auth/convex/token', {
-            cache: 'no-store',
-            credentials: 'same-origin',
-            signal: deadline.signal,
-        });
-
-        if (!response.ok) {
-            return null;
-        }
-
-        const body = (await response.json()) as { token?: unknown };
-        return typeof body.token === 'string' && body.token.length > 0 ? body.token : null;
-    } finally {
-        deadline.dispose();
-    }
-}
-
-export function readDashboardConvexUrl(): string | undefined {
-    const value = import.meta.env.VITE_CONVEX_URL;
-    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+    }, [areaKey, areas, client, guildId, liveTransportActive, queryClient]);
 }
 
 function invalidateVisibleAreas(

@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GenericId } from 'convex/values';
 
 import {
     buildCommandPermissionRuleDocument,
     buildDashboardPermissionRuleDocument,
     normalizeCommandPermissionLookupInput,
-    normalizeGuildIds,
-    normalizeRequiredGuildId,
-    toCommandPermissionRuleRecord,
-    toDashboardPermissionRuleRecord,
 } from './access_permissions_model.js';
-
-const commandRuleId = 'rule-1' as GenericId<'guildCommandPermissionRules'>;
 
 describe('access permission model', () => {
     it('normalizes command permission rules to the app-facing contract', () => {
@@ -37,21 +30,6 @@ describe('access permission model', () => {
                 updatedAt: '2026-07-03T08:00:00.000Z',
                 userIds: ['user-1'],
             },
-        });
-
-        if (!document.ok) {
-            throw new Error('Expected command permission rule document.');
-        }
-
-        expect(toCommandPermissionRuleRecord({ ...document.value, _id: commandRuleId })).toEqual({
-            createdAt: '2026-07-03T08:00:00.000Z',
-            guildId: 'guild-1',
-            id: commandRuleId,
-            roleIds: ['role-1'],
-            targetId: 'settings',
-            targetType: 'category',
-            updatedAt: '2026-07-03T08:00:00.000Z',
-            userIds: ['user-1'],
         });
     });
 
@@ -103,12 +81,6 @@ describe('access permission model', () => {
                 userIds: ['user-1'],
             },
         });
-
-        if (!document.ok) {
-            throw new Error('Expected dashboard permission rule document.');
-        }
-
-        expect(toDashboardPermissionRuleRecord(document.value)).toEqual(document.value);
     });
 
     it('rejects invalid command lookup input', () => {
@@ -128,10 +100,7 @@ describe('access permission model', () => {
         });
     });
 
-    it('normalizes guild ids and imported timestamps', () => {
-        expect(normalizeRequiredGuildId(' guild-1 ')).toEqual({ ok: true, value: 'guild-1' });
-        expect(normalizeRequiredGuildId(' ')).toEqual({ error: 'missing-guild-id', ok: false });
-        expect(normalizeGuildIds([' guild-2 ', '', 'guild-1'])).toEqual(['guild-2', 'guild-1']);
+    it('preserves imported timestamps', () => {
         expect(
             buildDashboardPermissionRuleDocument(
                 {

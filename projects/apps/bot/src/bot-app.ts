@@ -17,6 +17,7 @@ import {
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
+import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
 import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
 import { startStructureImportExecutionWorker } from './bot-structure-import-worker.js';
@@ -39,6 +40,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let bot: FluxerBot | undefined;
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
+    let postingScheduler: { stop(): Promise<void> } | undefined;
     let reactionRoleScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
     let structureImportWorker: { stop(): Promise<void> } | undefined;
@@ -80,6 +82,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     appEnv: config.appEnv,
                     guildDefconOverride: config.guildDefconOverride,
                     client: bot.client,
+                    logger,
                     ...(botUserId ? { botUserId } : {}),
                 };
             };
@@ -294,6 +297,10 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     logger,
                     mode: deploymentMode,
                 });
+                postingScheduler = startDashboardPostingScheduler({
+                    context: createFeatureHandlerContext(),
+                    logger,
+                });
                 reactionRoleScheduler = startReactionRoleScheduler({
                     context: createFeatureHandlerContext(),
                     logger,
@@ -315,6 +322,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
         async stop() {
             bot?.stopIntake();
             await installationRepairScheduler?.stop();
+            await postingScheduler?.stop();
             await reactionRoleScheduler?.stop();
             await structureBackupScheduler?.stop();
             await structureImportWorker?.stop();

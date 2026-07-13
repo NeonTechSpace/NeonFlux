@@ -8,6 +8,9 @@
 **/.source
 **/.tanstack
 **/.vinxi
+**/.e2e-runtime
+**/playwright-report
+**/test-results
 .env
 .env.*
 # Docker Compose interpolation applies to unquoted and double-quoted values, but Prettier rewrites them to single quotes.

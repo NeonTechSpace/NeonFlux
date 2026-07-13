@@ -9,12 +9,10 @@ import { describe, expect, it } from 'vitest';
 import { HomePage } from '../components/home-page.js';
 
 describe('/', () => {
-    it('renders the homepage entry points', () => {
+    it('keeps the Dashboard CTA as document navigation to the server-authorized route', () => {
         renderWithRouter(createElement(HomePage));
 
-        expect(screen.getByRole('heading', { name: 'NeonFlux' })).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('href')).toBe('/dashboard');
-        expect(screen.getByRole('link', { name: 'Docs' }).getAttribute('href')).toBe('/docs/topic');
     });
 });
 

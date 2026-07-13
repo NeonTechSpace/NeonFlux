@@ -24,7 +24,7 @@ export const loadDocsShellRouteData = createServerFn({ method: 'GET' }).handler(
     }
 );
 
-export function toDocsRouteResult(data: PublicDocsRouteData | undefined): DocsRouteResult {
+function toDocsRouteResult(data: PublicDocsRouteData | undefined): DocsRouteResult {
     return data ? { type: 'page', data } : { type: 'not-found' };
 }
 

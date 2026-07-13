@@ -20,6 +20,8 @@ export type DashboardStructureExplorerSnapshot = {
 
 export type DashboardStructureExplorerEntityKey = `role:${string}` | `category:${string}` | `channel:${string}`;
 
+export type DashboardStructureExplorerSection = 'channels' | 'roles';
+
 type DashboardStructureExplorerBadge =
     | 'blocked'
     | 'create'
@@ -81,6 +83,7 @@ export type BuildDashboardStructureExplorerModelInput = {
     actions?: DashboardStructureExplorerAction[];
     driftPreviewCapped?: boolean;
     preflightReport?: DashboardStructurePreflightReport;
+    section: DashboardStructureExplorerSection;
     snapshot?: DashboardStructureExplorerSnapshot;
 };
 
@@ -157,81 +160,91 @@ export function buildDashboardStructureExplorerModel({
     actions = [],
     driftPreviewCapped = false,
     preflightReport,
+    section,
     snapshot,
 }: BuildDashboardStructureExplorerModelInput): DashboardStructureExplorerModel {
-    const paths: string[] = [`${roots.roles}/`, `${roots.categories}/`, `${roots.uncategorized}/`];
+    const visibleActions = actions.filter((action) => sectionForTargetType(action.targetType) === section);
+    const paths: string[] =
+        section === 'roles' ? [`${roots.roles}/`] : [`${roots.categories}/`, `${roots.uncategorized}/`];
     const pathMetadata = new Map<string, DashboardStructureExplorerPathMetadata>();
     const entityPathByKey = new Map<DashboardStructureExplorerEntityKey, string>();
-    const actionsByKey = groupActionsByEntityKey(actions);
+    const actionsByKey = groupActionsByEntityKey(visibleActions);
     const segments = createPathSegmentAllocator();
     const warnings = driftPreviewCapped ? ['Drift preview is capped. Create a dry-run to inspect every action.'] : [];
 
-    addRootMetadata(pathMetadata, roots.roles);
-    addRootMetadata(pathMetadata, roots.categories);
-    addRootMetadata(pathMetadata, roots.uncategorized);
+    if (section === 'roles') {
+        addRootMetadata(pathMetadata, roots.roles);
+    } else {
+        addRootMetadata(pathMetadata, roots.categories);
+        addRootMetadata(pathMetadata, roots.uncategorized);
+    }
 
     const categoriesById = new Map((snapshot?.categories ?? []).map((category) => [category.id, category]));
     const categoryPathById = new Map<string, string>();
 
-    for (const role of sortRoles(snapshot?.roles ?? [])) {
-        const key = entityKey('role', role.id);
-        const label = toDisplayLabel(role.name);
-        const path = `${roots.roles}/${segments.allocate(roots.roles, label)}`;
-        addEntityPath({
-            actionsByKey,
-            entityPathByKey,
-            item: role,
-            key,
-            kind: 'role',
-            label,
-            path,
-            pathMetadata,
-            paths,
-        });
+    if (section === 'roles') {
+        for (const role of sortRoles(snapshot?.roles ?? [])) {
+            const key = entityKey('role', role.id);
+            const label = toDisplayLabel(role.name);
+            const path = `${roots.roles}/${segments.allocate(roots.roles, label)}`;
+            addEntityPath({
+                actionsByKey,
+                entityPathByKey,
+                item: role,
+                key,
+                kind: 'role',
+                label,
+                path,
+                pathMetadata,
+                paths,
+            });
+        }
     }
 
-    for (const category of sortChannels(snapshot?.categories ?? [])) {
-        const key = entityKey('category', category.id);
-        const label = toDisplayLabel(category.name ?? category.id);
-        const path = `${roots.categories}/${segments.allocate(roots.categories, label)}/`;
-        categoryPathById.set(category.id, path.slice(0, -1));
-        addEntityPath({
-            actionsByKey,
-            entityPathByKey,
-            item: category,
-            key,
-            kind: 'category',
-            label,
-            path,
-            pathMetadata,
-            paths,
-        });
-    }
+    if (section === 'channels') {
+        for (const category of sortChannels(snapshot?.categories ?? [])) {
+            const key = entityKey('category', category.id);
+            const label = toDisplayLabel(category.name ?? category.id);
+            const path = `${roots.categories}/${segments.allocate(roots.categories, label)}/`;
+            categoryPathById.set(category.id, path.slice(0, -1));
+            addEntityPath({
+                actionsByKey,
+                entityPathByKey,
+                item: category,
+                key,
+                kind: 'category',
+                label,
+                path,
+                pathMetadata,
+                paths,
+            });
+        }
 
-    for (const channel of sortChannels(snapshot?.channels ?? [])) {
-        const key = entityKey('channel', channel.id);
-        const parentCategory = channel.parentId ? categoriesById.get(channel.parentId) : undefined;
-        const rootPath = parentCategory
-            ? (categoryPathById.get(parentCategory.id) ?? roots.uncategorized)
-            : roots.uncategorized;
-        const label = toDisplayLabel(channel.name ?? channel.id);
-        const path = `${rootPath}/${segments.allocate(rootPath, label)}`;
-        addEntityPath({
-            actionsByKey,
-            entityPathByKey,
-            item: channel,
-            key,
-            kind: 'channel',
-            label,
-            parentId: channel.parentId,
-            path,
-            pathMetadata,
-            paths,
-        });
+        for (const channel of sortChannels(snapshot?.channels ?? [])) {
+            const key = entityKey('channel', channel.id);
+            const parentCategory = channel.parentId ? categoriesById.get(channel.parentId) : undefined;
+            const rootPath = parentCategory
+                ? (categoryPathById.get(parentCategory.id) ?? roots.uncategorized)
+                : roots.uncategorized;
+            const label = toDisplayLabel(channel.name ?? channel.id);
+            const path = `${rootPath}/${segments.allocate(rootPath, label)}`;
+            addEntityPath({
+                actionsByKey,
+                entityPathByKey,
+                item: channel,
+                key,
+                kind: 'channel',
+                label,
+                parentId: channel.parentId,
+                path,
+                pathMetadata,
+                paths,
+            });
+        }
     }
 
     addMissingActionTargets({ actionsByKey, entityPathByKey, pathMetadata, paths, segments });
-    addBlockedShortcuts({ actions, pathMetadata, paths, segments });
+    addBlockedShortcuts({ actions: visibleActions, pathMetadata, paths, segments });
     addUnmatchedPreflightWarnings(preflightReport, warnings);
 
     const uniquePaths = [...new Set(paths)];
@@ -261,6 +274,16 @@ export function readDashboardStructureExplorerEntityKey(
         return undefined;
 
     return entityKey(action.targetType, action.targetId);
+}
+
+export function readDashboardStructureExplorerSection(
+    key: DashboardStructureExplorerEntityKey
+): DashboardStructureExplorerSection {
+    return key.startsWith('role:') ? 'roles' : 'channels';
+}
+
+function sectionForTargetType(targetType: string): DashboardStructureExplorerSection {
+    return targetType === 'role' ? 'roles' : 'channels';
 }
 
 function addEntityPath(input: {

@@ -1,4 +1,5 @@
 import type { AppEnv, AppMode, GuildDefconOverride } from '@neonflux/config';
+import type { AppLogger } from '@neonflux/core/logging';
 import type { RuntimeDbClient } from '@neonflux/db';
 import type { FluxerBot } from '@neonflux/fluxer';
 
@@ -99,6 +100,7 @@ export type BotFeatureHandlerContext = {
     appEnv: AppEnv;
     guildDefconOverride: GuildDefconOverride;
     client: FluxerBot['client'];
+    logger: Pick<AppLogger, 'warn'>;
     botUserId?: string;
 };
 

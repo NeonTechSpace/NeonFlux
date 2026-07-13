@@ -98,8 +98,31 @@ describe('DashboardStructureExplorer', () => {
         expect(onInspectImportJson).toHaveBeenCalledOnce();
     });
 
-    it('renders loaded hierarchy and default details', () => {
+    it('separates channel and role hierarchies behind an explicit choice', () => {
+        const onSectionChange = vi.fn();
+        const { unmount } = renderExplorer({
+            onSectionChange,
+            section: 'channels',
+            source: {
+                label: 'Live server layout',
+                snapshot: createExplorerSnapshot(),
+                type: 'live',
+            },
+        });
+
+        expect(screen.getByRole('treeitem', { name: 'Categories/General/general' })).toBeTruthy();
+        expect(screen.queryByRole('treeitem', { name: 'Roles/Admin' })).toBeNull();
+        expect(screen.getByText('Entity key')).toBeTruthy();
+        expect(screen.getByText('category:category-general')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Channels, 1' }).getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByRole('button', { name: 'Tree' }).getAttribute('aria-pressed')).toBe('true');
+        fireEvent.click(screen.getByRole('button', { name: 'Roles, 2' }));
+        expect(onSectionChange).toHaveBeenCalledWith('roles');
+
+        unmount();
+
         renderExplorer({
+            section: 'roles',
             source: {
                 label: 'Live server layout',
                 snapshot: createExplorerSnapshot(),
@@ -108,10 +131,25 @@ describe('DashboardStructureExplorer', () => {
         });
 
         expect(screen.getByRole('treeitem', { name: 'Roles/Admin' })).toBeTruthy();
-        expect(screen.getByRole('treeitem', { name: 'Categories/General/general' })).toBeTruthy();
-        expect(screen.getByText('Entity key')).toBeTruthy();
-        expect(screen.getByText('role:role-admin')).toBeTruthy();
-        expect(screen.getByRole('button', { name: 'Tree' }).getAttribute('aria-pressed')).toBe('true');
+        expect(screen.queryByRole('treeitem', { name: 'Categories/General/general' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Roles, 2' }).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('keeps channel and category permission overrides in the detail inspector', () => {
+        renderExplorer({
+            section: 'channels',
+            selectedEntityKey: 'category:category-general',
+            source: {
+                label: 'Live server layout',
+                snapshot: createExplorerSnapshot({ withCategoryOverride: true }),
+                type: 'live',
+            },
+        });
+
+        expect(screen.getByRole('region', { name: 'Permission overrides' })).toBeTruthy();
+        expect(screen.getByText('Admin')).toBeTruthy();
+        expect(screen.getByText('Allow bitfield')).toBeTruthy();
+        expect(screen.getByText('1024')).toBeTruthy();
     });
 
     it('explains JSON diff requirements before a source is loaded', () => {
@@ -168,6 +206,7 @@ describe('DashboardStructureExplorer', () => {
                 overlayMode='none'
                 preflightByRunId={{}}
                 runs={[]}
+                section='channels'
                 selectedEntityKey={undefined}
                 source={{
                     canonicalJson,
@@ -184,6 +223,7 @@ describe('DashboardStructureExplorer', () => {
                 onLoadActions={vi.fn()}
                 onLoadLive={vi.fn()}
                 onOverlayModeChange={vi.fn()}
+                onSectionChange={vi.fn()}
                 onSelectedEntityKeyChange={vi.fn()}
             />
         );
@@ -357,6 +397,7 @@ function renderExplorer(overrides: Partial<Parameters<typeof DashboardStructureE
             overlayMode='none'
             preflightByRunId={{}}
             runs={[]}
+            section='channels'
             selectedEntityKey={undefined}
             comparisonTarget={{ label: 'No comparison', type: 'none' }}
             source={{ label: 'No snapshot', type: 'none' }}
@@ -369,6 +410,7 @@ function renderExplorer(overrides: Partial<Parameters<typeof DashboardStructureE
             onLoadActions={vi.fn()}
             onLoadLive={vi.fn()}
             onOverlayModeChange={vi.fn()}
+            onSectionChange={vi.fn()}
             onSelectedEntityKeyChange={vi.fn()}
             {...overrides}
         />
@@ -393,7 +435,9 @@ function createExplorerCanonicalJson({ channelName = 'general' }: { channelName?
     )}\n`;
 }
 
-function createExplorerSnapshot(): DashboardStructureExplorerSnapshot {
+function createExplorerSnapshot({
+    withCategoryOverride = false,
+}: { withCategoryOverride?: boolean } = {}): DashboardStructureExplorerSnapshot {
     return {
         exportedAt: '2026-07-09T10:00:00.000Z',
         guildId: 'guild-1',
@@ -423,7 +467,9 @@ function createExplorerSnapshot(): DashboardStructureExplorerSnapshot {
                 id: 'category-general',
                 name: 'General',
                 parentId: null,
-                permissionOverwrites: [],
+                permissionOverwrites: withCategoryOverride
+                    ? [{ id: 'role-admin', type: 0, allow: '1024', deny: '0' }]
+                    : [],
                 position: 1,
                 type: 4,
             },

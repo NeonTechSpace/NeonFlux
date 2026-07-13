@@ -52,7 +52,7 @@ export function DashboardStructureExplorerDetails({
                 {metadata.kind === 'role' ? (
                     <>
                         <DetailValue
-                            label='Permissions'
+                            label='Permission bitfield'
                             value={String(readItemValue(metadata.item, 'permissions') ?? 'unknown')}
                         />
                         <DetailValue label='Hoist' value={String(readItemValue(metadata.item, 'hoist') ?? false)} />
@@ -63,6 +63,10 @@ export function DashboardStructureExplorerDetails({
                     </>
                 ) : null}
             </dl>
+
+            {metadata.kind === 'channel' || metadata.kind === 'category' ? (
+                <PermissionOverrideDetails metadata={metadata} source={source} />
+            ) : null}
 
             {metadata.badges.length > 0 ? (
                 <section className='border-t border-[var(--dash-border)] py-3' aria-label='Change markers'>
@@ -104,6 +108,48 @@ export function DashboardStructureExplorerDetails({
                 </section>
             ) : null}
         </aside>
+    );
+}
+
+function PermissionOverrideDetails({
+    metadata,
+    source,
+}: {
+    metadata: DashboardStructureExplorerPathMetadata;
+    source: DashboardStructureExplorerSource;
+}) {
+    const overwrites = readPermissionOverwrites(metadata.item);
+
+    return (
+        <section className='border-t border-[var(--dash-border)] py-3' aria-label='Permission overrides'>
+            <div className='flex items-baseline justify-between gap-3'>
+                <p className='text-xs font-medium text-[var(--dash-text-subtle)]'>Permission overrides</p>
+                <span className='font-mono text-[0.6875rem] text-[var(--dash-text-subtle)]'>{overwrites.length}</span>
+            </div>
+            {overwrites.length === 0 ? (
+                <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>No explicit overrides.</p>
+            ) : (
+                <div className='mt-2 divide-y divide-[var(--dash-border)] border-y border-[var(--dash-border)]'>
+                    {overwrites.map((overwrite) => (
+                        <article key={`${overwrite.type}:${overwrite.id}`} className='py-3'>
+                            <div className='flex min-w-0 items-baseline justify-between gap-3'>
+                                <p className='min-w-0 truncate text-sm font-semibold text-[var(--dash-text)]'>
+                                    {formatPermissionTarget(overwrite.id, overwrite.type, source)}
+                                </p>
+                                <span className='shrink-0 text-xs text-[var(--dash-text-subtle)]'>
+                                    {overwrite.type === 0 ? 'Role' : overwrite.type === 1 ? 'Member' : 'Unknown'}
+                                </span>
+                            </div>
+                            <dl className='mt-1 divide-y divide-[var(--dash-border)]'>
+                                <DetailValue label='Target ID' value={overwrite.id} />
+                                <DetailValue label='Allow bitfield' value={formatPermissionBits(overwrite.allow)} />
+                                <DetailValue label='Deny bitfield' value={formatPermissionBits(overwrite.deny)} />
+                            </dl>
+                        </article>
+                    ))}
+                </div>
+            )}
+        </section>
     );
 }
 
@@ -191,6 +237,24 @@ function readActionChanges(action: DashboardStructureExplorerAction): Array<{
 
 function readItemValue(item: unknown, field: string): unknown {
     return item && typeof item === 'object' ? (item as Record<string, unknown>)[field] : undefined;
+}
+
+function readPermissionOverwrites(
+    item: DashboardStructureExplorerPathMetadata['item']
+): Array<{ allow: string; deny: string; id: string; type: number }> {
+    if (!item || !('permissionOverwrites' in item)) return [];
+    return item.permissionOverwrites;
+}
+
+function formatPermissionTarget(id: string, type: number, source: DashboardStructureExplorerSource): string {
+    if (type === 0 && id === source.snapshot?.guildId) return '@everyone';
+    if (type === 0) return source.snapshot?.roles.find((role) => role.id === id)?.name ?? 'Unknown role';
+    if (type === 1) return 'Server member';
+    return 'Unknown permission target';
+}
+
+function formatPermissionBits(value: string): string {
+    return value === '0' ? 'None (0)' : value;
 }
 
 function formatStatus(status: string): string {

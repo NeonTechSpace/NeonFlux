@@ -197,6 +197,44 @@ export type PostedMessageRecord = {
     updatedAt: Date;
 };
 
+export type DashboardPostingOperationStatus = 'queued' | 'running' | 'unknown' | 'sent' | 'permanent_failure';
+
+export type DashboardPostingOperationRecord = {
+    actorDisplayName: string | null;
+    actorUsername: string | null;
+    actorUserId: string;
+    attemptCount: number;
+    completedAt: Date | null;
+    contentLength: number;
+    createdAt: Date;
+    embedCount: number;
+    errorCode: string | null;
+    guildId: string;
+    id: string;
+    messageId: string | null;
+    nextAttemptAt: Date | null;
+    requestKey: string;
+    requestedChannelId: string;
+    sentChannelId: string | null;
+    status: DashboardPostingOperationStatus;
+    updatedAt: Date;
+};
+
+export type DashboardPostingOperationWorkerRecord = DashboardPostingOperationRecord & {
+    content: string | null;
+    embeds: unknown[];
+    externalChannelId: string | null;
+    externalMessageId: string | null;
+    leaseExpiresAt: Date | null;
+    leaseId: string | null;
+    leaseOwner: string | null;
+    sendStartedAt: Date | null;
+};
+
+export type DashboardPostingOperationRepositoryError =
+    | GuildFeatureRepositoryError
+    | { type: 'conflict'; field: 'requestKey' };
+
 export type PostingRepositoryError = GuildFeatureRepositoryError | { type: 'conflict'; field: 'name' | 'updatedAt' };
 
 export type GuildCommandPermissionRuleTargetType = 'category' | 'command';

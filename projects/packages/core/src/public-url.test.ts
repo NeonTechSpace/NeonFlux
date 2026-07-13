@@ -3,24 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { buildPublicWebUrl } from './public-url.js';
 
 describe('buildPublicWebUrl', () => {
-    it('builds an app URL from the public origin and path', () => {
+    it('builds app URLs and normalizes the public origin', () => {
         const result = buildPublicWebUrl({
             publicWebUrl: 'https://neonflux.example',
             path: '/dashboard',
         });
-
-        expect(result.isOk()).toBe(true);
-        expect(result._unsafeUnwrap()).toBe('https://neonflux.example/dashboard');
-    });
-
-    it('normalizes a trailing slash on the public origin', () => {
-        const result = buildPublicWebUrl({
+        const normalized = buildPublicWebUrl({
             publicWebUrl: ' https://neonflux.example/ ',
             path: '/dashboard',
         });
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toBe('https://neonflux.example/dashboard');
+        expect(normalized._unsafeUnwrap()).toBe('https://neonflux.example/dashboard');
     });
 
     it('encodes record search params and skips nullish params', () => {

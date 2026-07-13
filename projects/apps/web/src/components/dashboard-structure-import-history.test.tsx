@@ -1,18 +1,23 @@
 // @vitest-environment jsdom
 /* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
-import { createEmptyDecisionSummary } from '../server/dashboard-structure-contracts.js';
+import {
+    createEmptyDecisionSummary,
+    getDashboardStructureDeleteApprovalText,
+} from '../server/dashboard-structure-contracts.js';
+import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 
 afterEach(cleanup);
 
 describe('Server Blueprint action inspection', () => {
-    it('opens action details inline on Deploy instead of selecting a hidden Explorer item', () => {
+    it('keeps raw action details secondary while selecting the canonical Explorer item', () => {
         const run = createRun();
         render(
             <DashboardStructureImportHistory
@@ -37,9 +42,11 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.getByRole('complementary', { name: 'Action details: Neon Space' }).textContent).toContain(
             'update role'
         );
-        expect(screen.getByText('role-target-1')).toBeTruthy();
+        expect(screen.getAllByText('role-target-1').length).toBeGreaterThan(1);
+        expect(screen.getByRole('button', { name: 'Roles, 0' }).getAttribute('aria-pressed')).toBe('true');
         fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-        expect(screen.queryByRole('complementary')).toBeNull();
+        expect(screen.queryByRole('complementary', { name: 'Action details: Neon Space' })).toBeNull();
+        expect(screen.getByRole('complementary', { name: 'Blueprint inspector' })).toBeTruthy();
     });
 
     it('does not offer controls for an execution owned by another protocol', () => {
@@ -119,13 +126,149 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.queryByRole('button', { name: 'Continue to final check' })).toBeNull();
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
     });
+
+    it('offers only the live safety check after plan approval', () => {
+        const onPreflight = vi.fn();
+        const run = createRun({ status: 'approved' });
+
+        renderHistory(run, { onPreflight });
+
+        expect(screen.getByRole('button', { name: 'Run safety check' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Run safety check' }));
+        expect(onPreflight).toHaveBeenCalledWith(run);
+    });
+
+    it('surfaces a stale action as the next blocker and selects its Roles detail', () => {
+        const run = createRun({ status: 'approved' });
+        renderHistory(run, { preflightByRunId: { [run.id]: createPreflight({ status: 'stale' }) } });
+
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Review first blocker' }));
+
+        expect(screen.getByRole('button', { name: 'Roles, 0' }).getAttribute('aria-pressed')).toBe('true');
+        expect(
+            within(screen.getByRole('complementary', { name: 'Blueprint inspector' })).getByText('update role')
+        ).toBeTruthy();
+    });
+
+    it('routes inspected channel and role actions to their owned Explorer sections', () => {
+        const run = createRun({
+            actions: [
+                {
+                    id: 'channel-action',
+                    sequence: 1,
+                    actionType: 'update',
+                    targetType: 'channel',
+                    targetId: 'channel-1',
+                    label: 'general',
+                    details: { changes: [{ field: 'name', before: 'chat', after: 'general' }] },
+                },
+                {
+                    id: 'role-action',
+                    sequence: 2,
+                    actionType: 'update',
+                    targetType: 'role',
+                    targetId: 'role-1',
+                    label: 'Members',
+                    details: { changes: [{ field: 'permissions', before: '0', after: '1' }] },
+                },
+            ],
+            actionCount: 2,
+            executionActionCount: 2,
+        });
+        renderHistory(run);
+
+        const inspectButtons = screen.getAllByRole('button', { name: 'Inspect' });
+        fireEvent.click(inspectButtons[0]);
+        expect(screen.getByRole('button', { name: 'Channels, 0' }).getAttribute('aria-pressed')).toBe('true');
+        expect(
+            within(screen.getByRole('complementary', { name: 'Blueprint inspector' })).getByText('update channel')
+        ).toBeTruthy();
+
+        fireEvent.click(inspectButtons[1]);
+        expect(screen.getByRole('button', { name: 'Roles, 0' }).getAttribute('aria-pressed')).toBe('true');
+        expect(
+            within(screen.getByRole('complementary', { name: 'Blueprint inspector' })).getByText('update role')
+        ).toBeTruthy();
+    });
+
+    it('requires plan-bound destructive confirmation before exposing Apply', () => {
+        const run = createRun({
+            status: 'approved',
+            deleteActionCount: 1,
+            deleteSetDigest: 'delete-digest',
+        });
+        const preflight = createPreflight({ status: 'destructive-approval-required' });
+        render(<ControlledHistory run={run} preflight={preflight} />);
+
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+        const input = screen.getByLabelText('Confirm 1 irreversible delete');
+        fireEvent.change(input, {
+            target: { value: getDashboardStructureDeleteApprovalText(run.id, 1, run.deleteSetDigest ?? '') },
+        });
+
+        expect(screen.getByRole('button', { name: 'Apply 1 change, including 1 deletion' })).toBeTruthy();
+    });
+
+    it('requires a refreshed check when expired or older than a failed-before-mutation attempt', () => {
+        const execution = {
+            id: 'execution-1',
+            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+            status: 'failed_before_mutation' as const,
+            phase: 'complete' as const,
+            completedActions: 0,
+            failedActions: 1,
+            totalActions: 1,
+            createdAt: '2026-07-13T10:00:00.000Z',
+            updatedAt: '2026-07-13T10:01:00.000Z',
+        };
+        const run = createRun({ status: 'approved', execution });
+        const view = renderHistory(run, {
+            preflightByRunId: {
+                [run.id]: createPreflight({ checkedAt: '2026-07-13T10:00:00.000Z' }),
+            },
+        });
+
+        expect(screen.getByRole('button', { name: 'Refresh safety check' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+
+        view.rerender(
+            historyElement(run, {
+                preflightByRunId: {
+                    [run.id]: createPreflight({
+                        checkedAt: '2026-07-13T10:02:00.000Z',
+                        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                    }),
+                },
+            })
+        );
+        expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeTruthy();
+
+        view.rerender(
+            historyElement(createRun({ status: 'approved' }), {
+                preflightByRunId: {
+                    'run-1': createPreflight({ expiresAt: '2025-01-01T00:00:00.000Z' }),
+                },
+            })
+        );
+        expect(screen.getByRole('button', { name: 'Refresh safety check' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+    });
 });
 
 function renderHistory(
     run: DashboardStructureImportRun,
     overrides: Partial<Parameters<typeof DashboardStructureImportHistory>[0]> = {}
-): void {
-    render(
+) {
+    return render(historyElement(run, overrides));
+}
+
+function historyElement(
+    run: DashboardStructureImportRun,
+    overrides: Partial<Parameters<typeof DashboardStructureImportHistory>[0]> = {}
+) {
+    return (
         <DashboardStructureImportHistory
             runs={[run]}
             latestRun={run}
@@ -143,6 +286,56 @@ function renderHistory(
             {...overrides}
         />
     );
+}
+
+function ControlledHistory({
+    run,
+    preflight,
+}: {
+    run: DashboardStructureImportRun;
+    preflight: DashboardStructurePreflightView;
+}) {
+    const [confirmation, setConfirmation] = useState('');
+
+    return historyElement(run, {
+        preflightByRunId: { [run.id]: preflight },
+        deleteConfirmationByRunId: { [run.id]: confirmation },
+        onDeleteConfirmationChange: (_runId, value) => setConfirmation(value),
+    });
+}
+
+function createPreflight({
+    checkedAt = '2026-07-13T10:00:00.000Z',
+    expiresAt = new Date(Date.now() + 60_000).toISOString(),
+    status = 'ready',
+}: {
+    checkedAt?: string;
+    expiresAt?: string;
+    status?: DashboardStructurePreflightView['actions'][number]['status'];
+}): DashboardStructurePreflightView {
+    return {
+        summary: {
+            total: 1,
+            ready: status === 'ready' ? 1 : 0,
+            stale: status === 'stale' ? 1 : 0,
+            mappingRequired: status === 'mapping-required' ? 1 : 0,
+            destructiveApprovalRequired: status === 'destructive-approval-required' ? 1 : 0,
+            unsupported: status === 'unsupported' ? 1 : 0,
+            invalidPlan: status === 'invalid-plan' ? 1 : 0,
+        },
+        actions: [
+            {
+                actionId: 'action-1',
+                actionType: 'update',
+                targetType: 'role',
+                targetId: 'role-target-1',
+                status,
+                message: status === 'ready' ? 'Ready.' : 'Needs attention.',
+            },
+        ],
+        checkedAt,
+        expiresAt,
+    };
 }
 
 function createRun(overrides: Partial<DashboardStructureImportRun> = {}): DashboardStructureImportRun {

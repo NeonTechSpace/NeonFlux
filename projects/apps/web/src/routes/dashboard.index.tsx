@@ -3,9 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { DashboardPageContent } from '../components/dashboard-index-page.js';
 import { loadDashboardRouteData } from '../server/dashboard-route-data.js';
 
-const createRoute = createFileRoute('/dashboard/');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/')({
     loader: () => loadDashboardRouteData(),
     component: DashboardPage,
 });

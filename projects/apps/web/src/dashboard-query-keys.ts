@@ -31,6 +31,10 @@ export function getDashboardPostingChannelsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-channels'] as const;
 }
 
+export function getDashboardPostingOperationsQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'posting-operations'] as const;
+}
+
 export function getDashboardPostingTemplatesQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-templates'] as const;
 }

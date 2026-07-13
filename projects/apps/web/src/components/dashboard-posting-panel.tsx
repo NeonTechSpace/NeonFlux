@@ -3,10 +3,11 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { getDashboardAuditEventsBaseQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardPostingChannelsQueryKey, getDashboardPostingOperationsQueryKey } from '../dashboard-query-keys.js';
 import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
+    readDashboardPostingOperationsRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
 import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
@@ -32,6 +33,10 @@ import {
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import {
+    DashboardPostingOperationHistory,
+    getDashboardPostingOperationConfirmationMessage,
+} from './dashboard-posting-operation-status.js';
+import {
     dashboardFieldClassName,
     dashboardPrimaryActionClassName,
     DashboardStatus,
@@ -53,7 +58,9 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
     const [embedJson, setEmbedJson] = useState('');
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
-    const [deliveryUncertain, setDeliveryUncertain] = useState(false);
+    const [activeOperationId, setActiveOperationId] = useState<string>();
+    const [acknowledgedUnknownId, setAcknowledgedUnknownId] = useState<string>();
+    const [retryRequestKey, setRetryRequestKey] = useState<string>();
     const previewEmbedsResult = getActiveEmbeds({
         mode: embedMode,
         draft: embedDraft,
@@ -79,6 +86,44 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         staleTime: 30_000,
     });
 
+    const operationsQuery = useQuery({
+        queryKey: getDashboardPostingOperationsQueryKey(guildId),
+        queryFn: async () => {
+            const result = await readDashboardPostingOperationsRouteData({ data: { guildId } });
+            if (result.type !== 'operations') throw new Error('Could not load posting status.');
+            return result.operations;
+        },
+        refetchInterval: (query) =>
+            query.state.data?.some((operation) => operation.status === 'queued' || operation.status === 'running')
+                ? 2_000
+                : false,
+    });
+    const requestedActiveOperation = operationsQuery.data?.find((operation) => operation.id === activeOperationId);
+    const latestOperation = operationsQuery.data?.[0];
+    const latestUnresolvedOperation =
+        latestOperation?.status === 'queued' ||
+        latestOperation?.status === 'running' ||
+        latestOperation?.status === 'unknown'
+            ? latestOperation
+            : undefined;
+    const activeOperation = requestedActiveOperation ?? latestUnresolvedOperation;
+    const unknownRequiresCheck = activeOperation?.status === 'unknown' && acknowledgedUnknownId !== activeOperation.id;
+    const operationMessage: PostingFormMessage | undefined = activeOperation
+        ? {
+              type:
+                  activeOperation.status === 'sent'
+                      ? 'success'
+                      : activeOperation.status === 'permanent_failure'
+                        ? 'error'
+                        : 'warning',
+              text: getDashboardPostingOperationConfirmationMessage(
+                  activeOperation,
+                  getPostingChannelLabel(channelsQuery.data ?? [], activeOperation.requestedChannelId)
+              ),
+          }
+        : undefined;
+    const displayedFormMessage = operationMessage ?? formMessage;
+
     const mutation = useMutation({
         mutationFn: (payload: {
             channelId: string;
@@ -98,67 +143,63 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             }),
         onSuccess: async (result, payload) => {
             switch (result.type) {
-                case 'sent':
-                    setDeliveryUncertain(false);
-                    setContent('');
-                    setEmbedDraft(createEmptyDashboardEmbedDraft());
-                    setEmbedJson('');
-                    setFormMessage({ type: 'success', text: `Message sent to ${payload.channelLabel}.` });
-                    await queryClient.invalidateQueries({
-                        queryKey: getDashboardAuditEventsBaseQueryKey(guildId),
-                    });
-                    return;
-
-                case 'delivery-unknown':
-                    setDeliveryUncertain(true);
+                case 'operation':
+                    setRetryRequestKey(undefined);
+                    setActiveOperationId(result.operation.id);
+                    setAcknowledgedUnknownId(undefined);
                     setFormMessage({
-                        type: 'warning',
-                        text: 'Delivery could not be confirmed. Check the channel before starting another attempt.',
+                        type: result.operation.status === 'sent' ? 'success' : 'warning',
+                        text: getDashboardPostingOperationConfirmationMessage(result.operation, payload.channelLabel),
+                    });
+                    await queryClient.invalidateQueries({
+                        queryKey: getDashboardPostingOperationsQueryKey(guildId),
                     });
                     return;
 
                 case 'invalid-message':
+                    setRetryRequestKey(undefined);
                     setFormMessage({ type: 'error', text: result.message });
                     return;
 
                 case 'auth-required':
+                    setRetryRequestKey(undefined);
                     setFormMessage({ type: 'error', text: 'Sign in again before posting.' });
                     return;
 
                 case 'not-found':
+                    setRetryRequestKey(undefined);
                     setFormMessage({ type: 'error', text: 'This server is not available for this account.' });
                     return;
 
-                case 'bot-token-missing':
-                    setFormMessage({ type: 'error', text: 'Dashboard posting is not configured for this deployment.' });
+                case 'request-conflict':
+                    setRetryRequestKey(undefined);
+                    setFormMessage({ type: 'error', text: 'This posting attempt conflicts with an existing request.' });
+                    return;
+
+                case 'database-error':
+                    setFormMessage({
+                        type: 'warning',
+                        text: 'Queueing could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
+                    });
                     return;
 
                 case 'deployment-config-not-found':
-                case 'database-error':
                 case 'guild-lookup-failed':
+                    setRetryRequestKey(undefined);
                     setFormMessage({ type: 'error', text: 'Could not post this message. Try again.' });
                     return;
             }
         },
         onError: () => {
-            setDeliveryUncertain(true);
             setFormMessage({
                 type: 'warning',
-                text: 'Delivery could not be confirmed. Check the channel before starting another attempt.',
+                text: 'Queueing could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
             });
         },
     });
 
     function submitMessage(event: FormEvent<HTMLFormElement>): void {
         event.preventDefault();
-
-        if (deliveryUncertain) {
-            setFormMessage({
-                type: 'warning',
-                text: 'Check the channel, then explicitly start a new attempt if the message is absent.',
-            });
-            return;
-        }
 
         const parsedEmbeds = getActiveEmbeds({
             mode: embedMode,
@@ -184,12 +225,14 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             return;
         }
 
+        const requestKey = retryRequestKey ?? crypto.randomUUID();
+        setRetryRequestKey(requestKey);
         mutation.mutate({
             channelId: trimmedChannelId,
             channelLabel: getPostingChannelLabel(channelsQuery.data ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
             embeds: parsedEmbeds.embeds,
-            requestKey: crypto.randomUUID(),
+            requestKey,
         });
     }
 
@@ -324,36 +367,29 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     <div className='flex flex-wrap items-center gap-3'>
                         <motion.button
                             type='submit'
-                            disabled={mutation.isPending || deliveryUncertain}
+                            disabled={
+                                mutation.isPending ||
+                                activeOperation?.status === 'queued' ||
+                                activeOperation?.status === 'running' ||
+                                unknownRequiresCheck
+                            }
                             className={primaryButtonClassName}
                             {...dashboardTactile}>
-                            {mutation.isPending ? 'Sending…' : 'Send message'}
+                            {mutation.isPending ? 'Queueing…' : 'Queue message'}
                         </motion.button>
-                        {deliveryUncertain ? (
-                            <motion.button
-                                type='button'
-                                onClick={() => {
-                                    setDeliveryUncertain(false);
-                                    setFormMessage({ type: 'warning', text: 'A new posting attempt is ready.' });
-                                }}
-                                className={warningButtonClassName}
-                                {...dashboardTactile}>
-                                Start new attempt
-                            </motion.button>
-                        ) : null}
                     </div>
                     <AnimatePresence initial={false} mode='popLayout'>
-                        {formMessage ? (
+                        {displayedFormMessage ? (
                             <motion.div
-                                key={`${formMessage.type}:${formMessage.text}`}
+                                key={`${displayedFormMessage.type}:${displayedFormMessage.text}`}
                                 data-dashboard-motion='confirmation'
                                 className='mt-3'
                                 variants={dashboardConfirmationVariants}
                                 initial='initial'
                                 animate='enter'
                                 transition={dashboardConfirmationTransition}>
-                                <DashboardStatus tone={getFormMessageTone(formMessage.type)}>
-                                    {formMessage.text}
+                                <DashboardStatus tone={getFormMessageTone(displayedFormMessage.type)}>
+                                    {displayedFormMessage.text}
                                 </DashboardStatus>
                             </motion.div>
                         ) : (
@@ -365,11 +401,33 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                                 initial='initial'
                                 animate='enter'
                                 transition={dashboardConfirmationTransition}>
-                                Sending is immediate. If delivery cannot be confirmed, NeonFlux stops before another
-                                attempt can begin.
+                                Queueing is durable. You can leave this page while the connected bot delivers the
+                                message.
                             </motion.p>
                         )}
                     </AnimatePresence>
+                    {activeOperation?.status === 'unknown' ? (
+                        <label className='mt-3 flex items-start gap-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                            <input
+                                type='checkbox'
+                                className='mt-1'
+                                checked={acknowledgedUnknownId === activeOperation.id}
+                                onChange={(event) => {
+                                    setAcknowledgedUnknownId(
+                                        event.currentTarget.checked ? activeOperation.id : undefined
+                                    );
+                                }}
+                            />
+                            <span>
+                                I checked the channel and accept that another attempt could still create a duplicate.
+                            </span>
+                        </label>
+                    ) : null}
+                    <DashboardPostingOperationHistory
+                        channels={channelsQuery.data ?? []}
+                        operations={operationsQuery.data ?? []}
+                        hasError={operationsQuery.isError}
+                    />
                 </DashboardSurface>
             </aside>
         </form>
@@ -483,5 +541,3 @@ function getFormMessageTone(type: PostingFormMessage['type']): 'danger' | 'succe
 
 const fieldClassName = `${dashboardFieldClassName} min-h-28 resize-y py-2 text-base`;
 const primaryButtonClassName = `${dashboardPrimaryActionClassName} inline-flex items-center justify-center`;
-const warningButtonClassName =
-    'inline-flex min-h-11 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-warning)] px-4 text-sm font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-warning-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-warning)]';

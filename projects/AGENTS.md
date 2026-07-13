@@ -29,6 +29,15 @@
 - Changes to Blueprint persisted action-ledger or normalization semantics, reference or ID-map transitions, provider outcome or replay classification, enqueue, claim, attempt, checkpoint, control, finalization, or progress semantics must bump the shared execution protocol in `convex/runtime_contract_model.ts`, `packages/db/src/runtime-contract.ts`, and `apps/web/src/dashboard-structure-execution-protocol.ts`. Persist the protocol on every execution and fence every execution boundary against it. Mixed backend, consumer, browser, or durable-row versions must fail closed. Do not add compatibility branches.
 - Do not reintroduce startup migrations, application Postgres bootstrap, source-export tooling, or import/smoke scripts in application or Docker paths.
 
+## Product and interaction direction
+
+- Organize user-facing workflows around the user's intent, current decision, and next safe action rather than internal services, persistence stages, or protocol terminology.
+- Keep necessary safety gates, but present them as one ordered, understandable state model. Explain why progress is blocked, what remains safe, and the exact action that resolves each blocker.
+- Use progressive disclosure. Put the common path and decision-relevant information first. Keep raw payloads, identifiers, logs, and protocol details available as secondary technical inspection rather than the primary interface.
+- Match the representation to the problem. Use scoped navigation, hierarchy, diff views, filters, summaries, and contextual details for large or structured change sets instead of stacking unrelated domains or reducing them to flat lists and serialized data.
+- Treat the selected tenant, guild, account, resource, or comparable authority scope as a hard state boundary. Reuse confirmed data only within the same scope, retain useful per-scope caches when safe, and reset transient selections, drafts, errors, pagination, and busy state when scope changes.
+- When users reasonably expect external changes to appear live, reconcile them promptly and make freshness, reconnecting, degraded transport, and retained-last-confirmed behavior visible. A non-critical failure may remain non-blocking, but it must not become silent or make stale data look authoritative.
+
 ## Security and observability
 
 - Re-check authorization at the authoritative boundary. Minimize scopes and keep guild/user ownership explicit.

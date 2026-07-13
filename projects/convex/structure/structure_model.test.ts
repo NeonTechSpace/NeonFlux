@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { GenericId } from 'convex/values';
 
 import {
     buildBackupSortCursor,
@@ -12,7 +11,6 @@ import {
     buildStructureDriftLeaseClearPatch,
     buildStructureScheduledDriftResultPatch,
     buildStructureImportActionDocument,
-    buildStructureImportRunDocument,
     chooseLatestStructureDriftBaselineBackup,
     classifyStructureImportExecutionReclaim,
     classifyStructureExecutionPreMutationAuthorization,
@@ -30,16 +28,10 @@ import {
     validateStructureExecutionIdMapTransition,
     validateStructureExecutionProgressTransition,
     validateStructureImportDecisionSequences,
-    toStructureBackupRecord,
-    toStructureImportActionRecord,
-    toStructureImportRunRecord,
     toStructureObservedEventStateRecord,
 } from './structure_model.js';
 
 const now = '2026-06-28T12:00:00.000Z';
-const backupId = 'backup-1' as GenericId<'structureBackups'>;
-const runId = 'run-1' as GenericId<'structureImportRuns'>;
-const actionId = 'action-1' as GenericId<'structureImportActions'>;
 
 describe('structure model', () => {
     it('requires retry preflight to postdate a failed-before-mutation execution', () => {
@@ -396,7 +388,6 @@ describe('structure model', () => {
             source: 'manual',
             status: 'succeeded',
         });
-        expect(toStructureBackupRecord({ ...backup, _id: backupId }).id).toBe(backupId);
         expect(invalid).toStrictEqual({ error: { field: 'structure', type: 'invalid-value' }, ok: false });
     });
 
@@ -574,33 +565,6 @@ describe('structure model', () => {
                 { classification: 'update', sequence: 2 },
             ])
         ).toBe(false);
-    });
-
-    it('builds clean v3 import runs', () => {
-        const run = unwrap(
-            buildStructureImportRunDocument(
-                {
-                    createdByUserId: 'actor-1',
-                    deleteActionCount: 0,
-                    guildId: 'guild-1',
-                    plan: { summary: { creates: 1 } },
-                    planDigest: 'plan-digest',
-                    planVersion: 3,
-                    policy: 'merge',
-                    requestedSnapshotDigest: 'snapshot-digest',
-                    sourceBackupId: 'backup-1',
-                },
-                now
-            )
-        );
-
-        expect(toStructureImportRunRecord({ ...run, _id: runId })).toMatchObject({
-            deleteActionCount: 0,
-            deleteSetDigest: null,
-            id: runId,
-            sourceBackupId: backupId,
-            status: 'building',
-        });
     });
 
     it('recalculates next automatic backup time when cadence changes', () => {
@@ -847,27 +811,6 @@ describe('structure model', () => {
             updatedAt: now,
         });
         expect(mismatch).toBeNull();
-    });
-
-    it('builds import action records with null optional target ids', () => {
-        const action = unwrap(
-            buildStructureImportActionDocument(
-                {
-                    actionType: 'create',
-                    details: { name: 'announcements' },
-                    runId: 'run-1',
-                    sequence: 0,
-                    targetType: 'channel',
-                },
-                now
-            )
-        );
-
-        expect(toStructureImportActionRecord({ ...action, _id: actionId })).toMatchObject({
-            id: actionId,
-            runId,
-            targetId: null,
-        });
     });
 
     it('rejects import action records without an explicit sequence', () => {

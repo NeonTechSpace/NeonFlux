@@ -12,6 +12,7 @@ import type {
     DashboardAuditSearchScope,
     DashboardPostMessageResult,
     DashboardPostingChannelsResult,
+    DashboardPostingOperationsResult,
 } from './dashboard-posting.server.js';
 import type { DashboardGuildOverviewResult } from './dashboard-overview.server.js';
 
@@ -213,6 +214,17 @@ export const postDashboardMessageRouteData = createServerFn({ method: 'POST' })
         setResponseHeader('Cache-Control', 'no-store');
 
         return postDashboardGuildMessage(getRequest(), data);
+    });
+
+export const readDashboardPostingOperationsRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardPostingOperationsResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardGuildPostingOperations } = await import('./dashboard-posting.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        return loadDashboardGuildPostingOperations(getRequest(), data.guildId);
     });
 
 export const readDashboardGuildOverviewRouteData = createServerFn({ method: 'GET' })

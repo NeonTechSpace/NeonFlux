@@ -225,7 +225,7 @@ function toPreflightAction(action: StructureImportActionRecord): DashboardStruct
     };
 }
 
-export function matchesReviewedStructureExecutionActions(
+function matchesReviewedStructureExecutionActions(
     plan: Record<string, unknown>,
     actions: StructureImportActionRecord[]
 ): boolean {

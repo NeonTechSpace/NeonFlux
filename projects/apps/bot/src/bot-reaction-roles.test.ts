@@ -128,6 +128,7 @@ function createContext(): BotFeatureHandlerContext {
         client: {} as BotFeatureHandlerContext['client'],
         db: {} as BotFeatureHandlerContext['db'],
         guildDefconOverride: 'auto',
+        logger: { warn: vi.fn() },
         mode: { instanceMode: 'multi' },
     };
 }

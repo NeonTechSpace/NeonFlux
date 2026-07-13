@@ -6,25 +6,6 @@ import {
 } from './dashboard-structure-explorer-diff.js';
 import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 
-describe('formatDashboardStructureExplorerSnapshotJson', () => {
-    it('formats normalized snapshots as stable two-space JSON with a trailing newline', () => {
-        const first = formatDashboardStructureExplorerSnapshotJson(createSnapshot());
-        const second = formatDashboardStructureExplorerSnapshotJson({
-            channels: createSnapshot().channels,
-            roles: createSnapshot().roles,
-            categories: createSnapshot().categories,
-            version: 1,
-            exportedAt: '2026-07-09T10:00:00.000Z',
-            guildId: 'guild-1',
-            guildName: 'NeonSpace',
-        });
-
-        expect(first).toBe(second);
-        expect(first.endsWith('\n')).toBe(true);
-        expect(first).toContain('\n  "categories": [');
-    });
-});
-
 describe('buildDashboardStructureExplorerJsonDiff', () => {
     it('builds a file diff for changed server blueprint JSON', () => {
         const before = formatDashboardStructureExplorerSnapshotJson(createSnapshot());

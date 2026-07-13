@@ -2,8 +2,6 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { DashboardPlaceholderRoute } from '../../../../components/dashboard-placeholder-route.js';
 
-const createRoute = createFileRoute('/dashboard/$guildId/community/giveaways');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/$guildId/community/giveaways')({
     component: () => <DashboardPlaceholderRoute categoryId='community' itemId='giveaways' />,
 });

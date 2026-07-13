@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchDashboardConvexToken } from './dashboard-live-invalidation.js';
+import { fetchDashboardConvexToken } from './dashboard-live-provider.js';
 
 afterEach(() => {
     vi.useRealTimers();

@@ -4,14 +4,14 @@ import { createHash } from 'node:crypto';
 
 import { loadWebConfig } from '@neonflux/config';
 import {
-    beginDashboardPostingOperation,
-    completeDashboardPostingOperation,
+    enqueueDashboardPostingOperation,
     listBotActionEventPageByGuildId,
+    listDashboardPostingOperationsByGuild,
+    normalizeDashboardPostingPayload as normalizeDashboardPostingPayloadForQueue,
 } from '@neonflux/db';
-import type { BotActionEventSearchScope } from '@neonflux/db';
+import type { BotActionEventSearchScope, DashboardPostingOperationRecord } from '@neonflux/db';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
-import { sendFluxerBotGuildChannelMessage } from '@neonflux/fluxer/messages';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
@@ -28,12 +28,6 @@ export type DashboardPostMessageInput = {
     requestKey: string;
 };
 
-type DashboardPostedMessage = {
-    id: string;
-    guildId: string;
-    channelId: string;
-};
-
 export type DashboardPostingChannel = {
     id: string;
     name: string;
@@ -48,8 +42,8 @@ export type DashboardAuditSearchScope = BotActionEventSearchScope;
 
 export type DashboardPostMessageResult =
     | {
-          type: 'sent';
-          message: DashboardPostedMessage;
+          type: 'operation';
+          operation: DashboardPostingOperation;
       }
     | {
           type: 'invalid-message';
@@ -60,8 +54,31 @@ export type DashboardPostMessageResult =
     | { type: 'deployment-config-not-found' }
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' }
-    | { type: 'bot-token-missing' }
-    | { type: 'delivery-unknown' };
+    | { type: 'request-conflict' };
+
+export type DashboardPostingOperation = {
+    id: string;
+    attemptCount: number;
+    completedAt?: string;
+    contentLength: number;
+    createdAt: string;
+    embedCount: number;
+    errorCode?: string;
+    messageId?: string;
+    requestKey: string;
+    requestedChannelId: string;
+    sentChannelId?: string;
+    status: DashboardPostingOperationRecord['status'];
+    updatedAt: string;
+};
+
+export type DashboardPostingOperationsResult =
+    | { type: 'operations'; operations: DashboardPostingOperation[] }
+    | { type: 'auth-required' }
+    | { type: 'not-found' }
+    | { type: 'deployment-config-not-found' }
+    | { type: 'database-error' }
+    | { type: 'guild-lookup-failed' };
 
 export type DashboardAuditEvent = {
     id: string;
@@ -148,96 +165,40 @@ export async function postDashboardGuildMessage(
         return payloadResult;
     }
 
-    const payload = payloadResult.payload;
+    const queuePayload = normalizeDashboardPostingPayloadForQueue(payloadResult.payload);
+    if (queuePayload.isErr()) {
+        return { type: 'invalid-message', message: 'Message content and embeds must be valid JSON under 128 KiB.' };
+    }
+    const payload: NormalizedPostMessagePayload = {
+        channelId: payloadResult.payload.channelId,
+        ...queuePayload.value,
+    };
     const requestKey = input.requestKey.trim();
 
     if (!requestKey || requestKey.length > 128) {
         return { type: 'invalid-message', message: 'Start a new posting attempt and try again.' };
     }
 
-    const botToken = loadWebConfig().fluxerBotToken;
-
-    if (!botToken) {
-        return { type: 'bot-token-missing' };
-    }
-
-    const [actorProfile, channelName] = await Promise.all([
-        resolveAuthenticatedActorProfile(authContextResult.value),
-        resolveDashboardPostingChannelName({
-            botToken,
-            guildId: guildPageData.guild.id,
-            channelId: payload.channelId,
-        }),
-    ]);
+    const actorProfile = await resolveAuthenticatedActorProfile(authContextResult.value);
     const database = await getWebDb();
     const payloadHash = hashDashboardPostingPayload(payload);
-    const beginResult = await beginDashboardPostingOperation(database.db, {
+    const enqueueResult = await enqueueDashboardPostingOperation(database.db, {
+        ...(actorProfile?.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
+        ...(actorProfile?.username ? { actorUsername: actorProfile.username } : {}),
         actorUserId: authContextResult.value.fluxerUserId,
+        ...(payload.content ? { content: payload.content } : {}),
+        embeds: payload.embeds,
         guildId: guildPageData.guild.id,
         payloadHash,
         requestKey,
         requestedChannelId: payload.channelId,
     });
 
-    if (beginResult.isErr()) {
-        return { type: 'database-error' };
+    if (enqueueResult.isErr()) {
+        return enqueueResult.error.type === 'conflict' ? { type: 'request-conflict' } : { type: 'database-error' };
     }
 
-    if (!beginResult.value.shouldSend) {
-        return beginResult.value.status === 'sent' && beginResult.value.messageId && beginResult.value.sentChannelId
-            ? {
-                  type: 'sent',
-                  message: {
-                      channelId: beginResult.value.sentChannelId,
-                      guildId: guildPageData.guild.id,
-                      id: beginResult.value.messageId,
-                  },
-              }
-            : { type: 'delivery-unknown' };
-    }
-
-    const sendResult = await sendFluxerBotGuildChannelMessage({
-        botToken,
-        guildId: guildPageData.guild.id,
-        channelId: payload.channelId,
-        ...(payload.content ? { content: payload.content } : {}),
-        ...(payload.embeds.length > 0
-            ? { embeds: payload.embeds as Parameters<typeof sendFluxerBotGuildChannelMessage>[0]['embeds'] }
-            : {}),
-    });
-
-    if (sendResult.isErr()) {
-        return { type: 'delivery-unknown' };
-    }
-
-    const sentMessage: DashboardPostedMessage = {
-        id: sendResult.value.id,
-        guildId: guildPageData.guild.id,
-        channelId: sendResult.value.channelId,
-    };
-    const completionResult = await completeDashboardPostingOperation(database.db, {
-        actorUserId: authContextResult.value.fluxerUserId,
-        auditMetadata: {
-            ...(channelName ? { channelName } : {}),
-            ...toDashboardAuditActorMetadata(actorProfile),
-            contentLength: payload.content?.length ?? 0,
-            embedCount: payload.embeds.length,
-        },
-        guildId: sentMessage.guildId,
-        messageId: sentMessage.id,
-        payloadHash,
-        requestKey,
-        sentChannelId: sentMessage.channelId,
-    });
-
-    if (completionResult.isErr()) {
-        return { type: 'delivery-unknown' };
-    }
-
-    return {
-        type: 'sent',
-        message: sentMessage,
-    };
+    return { type: 'operation', operation: toDashboardPostingOperation(enqueueResult.value.operation) };
 }
 
 function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): string {
@@ -250,23 +211,6 @@ function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): str
             })
         )
         .digest('hex');
-}
-
-async function resolveDashboardPostingChannelName(input: {
-    botToken: string;
-    guildId: string;
-    channelId: string;
-}): Promise<string | undefined> {
-    const structureResult = await readFluxerBotGuildStructure({
-        botToken: input.botToken,
-        guildId: input.guildId,
-    });
-
-    if (structureResult.isErr()) {
-        return undefined;
-    }
-
-    return structureResult.value.channels.find((channel) => channel.id === input.channelId)?.name ?? undefined;
 }
 
 export async function loadDashboardGuildAuditEventsPage(
@@ -336,6 +280,23 @@ export async function loadDashboardGuildPostingChannels(
         type: 'channels',
         channels: toDashboardPostingChannels(structureResult.value.channels, structureResult.value.categories),
     };
+}
+
+export async function loadDashboardGuildPostingOperations(
+    request: Request,
+    guildId: string
+): Promise<DashboardPostingOperationsResult> {
+    const guildPageData = await loadDashboardGuildPageData(request, guildId);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+
+    const database = await getWebDb();
+    const operations = await listDashboardPostingOperationsByGuild(database.db, {
+        guildId: guildPageData.guild.id,
+        limit: 20,
+    });
+    return operations.isErr()
+        ? { type: 'database-error' }
+        : { type: 'operations', operations: operations.value.map(toDashboardPostingOperation) };
 }
 
 function normalizePostMessagePayload(
@@ -488,17 +449,6 @@ function toDashboardAuditActorProfile(user: FluxerCurrentUser): DashboardAuditAc
     };
 }
 
-function toDashboardAuditActorMetadata(actorProfile: DashboardAuditActorProfile | undefined): DashboardAuditMetadata {
-    if (!actorProfile) {
-        return {};
-    }
-
-    return {
-        actorUsername: actorProfile.username,
-        ...(actorProfile.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
-    };
-}
-
 function toDashboardPostingChannels(
     channels: FluxerGuildChannel[],
     categories: FluxerGuildChannel[]
@@ -518,6 +468,24 @@ function toDashboardPostingChannels(
             ...(channel.position !== null ? { position: channel.position } : {}),
         }))
         .sort(compareDashboardPostingChannels);
+}
+
+function toDashboardPostingOperation(operation: DashboardPostingOperationRecord): DashboardPostingOperation {
+    return {
+        id: operation.id,
+        attemptCount: operation.attemptCount,
+        ...(operation.completedAt ? { completedAt: operation.completedAt.toISOString() } : {}),
+        contentLength: operation.contentLength,
+        createdAt: operation.createdAt.toISOString(),
+        embedCount: operation.embedCount,
+        ...(operation.errorCode ? { errorCode: operation.errorCode } : {}),
+        ...(operation.messageId ? { messageId: operation.messageId } : {}),
+        requestKey: operation.requestKey,
+        requestedChannelId: operation.requestedChannelId,
+        ...(operation.sentChannelId ? { sentChannelId: operation.sentChannelId } : {}),
+        status: operation.status,
+        updatedAt: operation.updatedAt.toISOString(),
+    };
 }
 
 function compareDashboardPostingChannels(left: DashboardPostingChannel, right: DashboardPostingChannel): number {

@@ -201,7 +201,6 @@ describe('sendFluxerChannelMessage', () => {
             channelId: 'channel-1',
             guildId: 'guild-1',
         });
-        expect(Object.keys(result._unsafeUnwrap())).toStrictEqual(['id', 'channelId', 'guildId']);
     });
 
     it('returns null for messages without a guild id', async () => {

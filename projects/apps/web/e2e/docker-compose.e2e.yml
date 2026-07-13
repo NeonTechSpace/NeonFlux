@@ -1,0 +1,9 @@
+services:
+    convex-db:
+        restart: 'no'
+
+    backend:
+        restart: 'no'
+
+    dashboard:
+        profiles: ['e2e-dashboard-disabled']

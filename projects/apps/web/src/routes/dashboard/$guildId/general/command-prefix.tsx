@@ -6,9 +6,7 @@ import {
     readDashboardCommandSettingsRouteData,
 } from '../../../../server/dashboard-guild-route-data.js';
 
-const createRoute = createFileRoute('/dashboard/$guildId/general/command-prefix');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/$guildId/general/command-prefix')({
     loader: ({ params }) =>
         readDashboardCommandSettingsRouteData({
             data: {

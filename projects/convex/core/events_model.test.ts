@@ -7,9 +7,7 @@ import {
     decodeBotActionEventCursor,
     encodeBotActionEventCursor,
     normalizeBotActionEventCursor,
-    normalizeBotActionEventLimit,
     normalizeBotActionEventSearch,
-    normalizeRequiredGuildId,
     toBotActionEventRecord,
 } from './events_model.js';
 
@@ -94,9 +92,7 @@ describe('bot action event model', () => {
         });
     });
 
-    it('normalizes guild id, cursor, limits, and search input', () => {
-        expect(normalizeRequiredGuildId(' guild-1 ')).toEqual({ ok: true, value: 'guild-1' });
-        expect(normalizeRequiredGuildId(' ')).toEqual({ error: 'missing-guild-id', ok: false });
+    it('normalizes bounded cursor and search input', () => {
         expect(normalizeBotActionEventCursor(' opaque-cursor ')).toEqual({
             ok: true,
             value: 'opaque-cursor',
@@ -105,9 +101,6 @@ describe('bot action event model', () => {
             error: 'invalid-cursor',
             ok: false,
         });
-        expect(normalizeBotActionEventLimit(undefined)).toBe(25);
-        expect(normalizeBotActionEventLimit(0)).toBe(1);
-        expect(normalizeBotActionEventLimit(250)).toBe(100);
         expect(normalizeBotActionEventSearch({ search: '', searchScope: 'invalid' })).toEqual({
             scope: 'all',
             tokens: [],

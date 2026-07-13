@@ -13,34 +13,38 @@ type WatchCallback = () => void;
 
 type MockLiveClient = {
     callback?: WatchCallback;
-    close: ReturnType<typeof vi.fn>;
     localQueryResult: ReturnType<typeof vi.fn>;
-    setAuth: ReturnType<typeof vi.fn>;
     unsubscribe: ReturnType<typeof vi.fn>;
-    watchQuery: ReturnType<typeof vi.fn>;
 };
 
 const unmountViews: Array<() => void> = [];
 
-const mocks = vi.hoisted(() => ({
-    fetchToken: vi.fn(),
-    httpClient: vi.fn(),
-    httpQuery: vi.fn(),
-    liveClient: vi.fn(),
-    liveClients: [] as MockLiveClient[],
-}));
+const mocks = vi.hoisted(() => {
+    const liveClient = vi.fn();
+    return {
+        fetchToken: vi.fn(),
+        httpClient: vi.fn(),
+        httpQuery: vi.fn(),
+        liveClient,
+        liveClients: [] as MockLiveClient[],
+        restartLiveTransport: vi.fn(),
+        sharedLiveClient: { watchQuery: liveClient },
+    };
+});
 
 vi.mock('convex/browser', () => ({
     ConvexHttpClient: mocks.httpClient,
 }));
 
-vi.mock('convex/react', () => ({
-    ConvexReactClient: mocks.liveClient,
-}));
-
-vi.mock('./dashboard-live-invalidation.js', () => ({
+vi.mock('./dashboard-live-provider.js', () => ({
     fetchDashboardConvexToken: mocks.fetchToken,
     readDashboardConvexUrl: () => 'https://dashboard-progress.convex.cloud',
+    useDashboardLive: () => ({
+        client: mocks.sharedLiveClient,
+        confirmManageableGuildScope: vi.fn(),
+        restart: mocks.restartLiveTransport,
+        status: { authentication: 'authenticated', generation: 1, phase: 'connected' },
+    }),
 }));
 
 describe('Server Blueprint progress transport', () => {
@@ -52,23 +56,21 @@ describe('Server Blueprint progress transport', () => {
             return { query: mocks.httpQuery };
         });
         mocks.liveClients.length = 0;
-        mocks.liveClient.mockReset().mockImplementation(function MockReactClient() {
+        mocks.restartLiveTransport.mockReset();
+        mocks.liveClient.mockReset().mockImplementation(function MockWatchQuery() {
             const client: MockLiveClient = {
-                close: vi.fn().mockResolvedValue(undefined),
                 localQueryResult: vi.fn(() => undefined),
-                setAuth: vi.fn(),
                 unsubscribe: vi.fn(),
-                watchQuery: vi.fn(),
             };
-            client.watchQuery.mockReturnValue({
+            const watch = {
                 localQueryResult: client.localQueryResult,
                 onUpdate: (callback: WatchCallback) => {
                     client.callback = callback;
                     return client.unsubscribe;
                 },
-            });
+            };
             mocks.liveClients.push(client);
-            return client;
+            return watch;
         });
     });
 
@@ -162,6 +164,7 @@ describe('Server Blueprint progress transport', () => {
         await waitFor(() => expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2'));
         expect(stalledSignal?.aborted).toBe(true);
         expect(mocks.fetchToken).toHaveBeenCalledTimes(2);
+        expect(mocks.restartLiveTransport).toHaveBeenCalledOnce();
         expect(screen.getByTestId('issue').textContent).toBe('none');
     });
 

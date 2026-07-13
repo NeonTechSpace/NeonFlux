@@ -10,9 +10,8 @@ import {
 } from '../dashboard-guild-preview.js';
 import { getGuildIdParam, loadDashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
 
-const createRoute = createFileRoute('/dashboard/$guildId');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/$guildId')({
+    codeSplitGroupings: [['component'], ['pendingComponent']],
     loader: ({ params }) =>
         loadDashboardGuildRouteData({
             data: {

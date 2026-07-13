@@ -14,8 +14,7 @@ import {
     type MessageTemplateDocument,
     type PostedMessageDocument,
 } from './posting_model.js';
-import { internal } from '../_generated/api.js';
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 type PostingQueryCtx = QueryCtx;
 type PostingMutationCtx = MutationCtx;
 
@@ -33,8 +32,6 @@ type StoredPostedMessageDocument = PostedMessageDocument & {
 };
 
 const allowedPostingServices = ['bot', 'web'] as const;
-const dashboardPostingOperationRetentionMs = 30 * 24 * 60 * 60 * 1000;
-const dashboardPostingOperationPruneBatchSize = 100;
 const auditInputValidator = v.object({
     action: v.string(),
     actorUserId: v.optional(v.string()),
@@ -61,141 +58,6 @@ const postedMessageRecordValidator = v.object({
     purpose: v.string(),
     templateId: v.union(v.string(), v.null()),
     updatedAt: v.string(),
-});
-const dashboardPostingOperationStatusValidator = v.union(v.literal('unknown'), v.literal('sent'));
-const dashboardPostingOperationBeginValidator = v.object({
-    messageId: v.optional(v.string()),
-    sentChannelId: v.optional(v.string()),
-    shouldSend: v.boolean(),
-    status: dashboardPostingOperationStatusValidator,
-});
-
-export const beginDashboardPostingOperation = mutation({
-    args: {
-        actorUserId: v.string(),
-        guildId: v.string(),
-        payloadHash: v.string(),
-        requestKey: v.string(),
-        requestedChannelId: v.string(),
-    },
-    returns: dashboardPostingOperationBeginValidator,
-    handler: async (ctx: PostingMutationCtx, args) => {
-        await requireNeonFluxService(ctx, ['web'] as const);
-        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        await requireGuildDocument(ctx, guildId);
-        const requestKey = normalizeBoundedIdentifier(args.requestKey, 'request-key', 128);
-        const payloadHash = normalizeBoundedIdentifier(args.payloadHash, 'payload-hash', 128);
-        const actorUserId = normalizeBoundedIdentifier(args.actorUserId, 'actor-user-id', 128);
-        const requestedChannelId = normalizeBoundedIdentifier(args.requestedChannelId, 'channel-id', 128);
-        const existing = await ctx.db
-            .query('dashboardPostingOperations')
-            .withIndex('by_guild_request', (query) => query.eq('guildId', guildId).eq('requestKey', requestKey))
-            .unique();
-
-        if (existing) {
-            if (
-                existing.actorUserId !== actorUserId ||
-                existing.payloadHash !== payloadHash ||
-                existing.requestedChannelId !== requestedChannelId
-            ) {
-                throw new Error('posting-request-key-conflict');
-            }
-
-            return {
-                ...(existing.messageId ? { messageId: existing.messageId } : {}),
-                ...(existing.sentChannelId ? { sentChannelId: existing.sentChannelId } : {}),
-                shouldSend: false,
-                status: existing.status,
-            };
-        }
-
-        const now = new Date();
-        const timestamp = now.toISOString();
-        await ctx.db.insert('dashboardPostingOperations', {
-            actorUserId,
-            createdAt: timestamp,
-            expiresAt: new Date(now.getTime() + dashboardPostingOperationRetentionMs).toISOString(),
-            guildId,
-            payloadHash,
-            requestKey,
-            requestedChannelId,
-            status: 'unknown',
-            updatedAt: timestamp,
-        });
-
-        return { shouldSend: true, status: 'unknown' as const };
-    },
-});
-
-export const completeDashboardPostingOperation = mutation({
-    args: {
-        actorUserId: v.string(),
-        auditMetadata: v.optional(v.any()),
-        guildId: v.string(),
-        messageId: v.string(),
-        payloadHash: v.string(),
-        requestKey: v.string(),
-        sentChannelId: v.string(),
-    },
-    returns: postedMessageRecordValidator,
-    handler: async (ctx: PostingMutationCtx, args) => {
-        await requireNeonFluxService(ctx, ['web'] as const);
-        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const requestKey = normalizeBoundedIdentifier(args.requestKey, 'request-key', 128);
-        const operation = await ctx.db
-            .query('dashboardPostingOperations')
-            .withIndex('by_guild_request', (query) => query.eq('guildId', guildId).eq('requestKey', requestKey))
-            .unique();
-
-        if (
-            operation?.actorUserId !== args.actorUserId ||
-            operation.payloadHash !== args.payloadHash ||
-            operation.requestedChannelId !== args.sentChannelId
-        ) {
-            throw new Error('posting-operation-mismatch');
-        }
-
-        if (
-            operation.status === 'sent' &&
-            (operation.messageId !== args.messageId || operation.sentChannelId !== args.sentChannelId)
-        ) {
-            throw new Error('posting-operation-already-completed');
-        }
-
-        const postedMessage = await recordPostedMessageInMutation(ctx, {
-            channelId: args.sentChannelId,
-            createdByUserId: args.actorUserId,
-            guildId,
-            messageId: args.messageId,
-            purpose: 'dashboard',
-        });
-        const now = new Date().toISOString();
-        await ctx.db.patch('dashboardPostingOperations', operation._id, {
-            completedAt: operation.completedAt ?? now,
-            messageId: args.messageId,
-            sentChannelId: args.sentChannelId,
-            status: 'sent',
-            updatedAt: now,
-        });
-
-        if (operation.status !== 'sent') {
-            await recordBotActionEventInMutation(ctx, {
-                action: 'message.sent',
-                actorUserId: args.actorUserId,
-                feature: 'posting',
-                guildId,
-                metadata: {
-                    ...(isPlainRecord(args.auditMetadata) ? args.auditMetadata : {}),
-                    channelId: args.sentChannelId,
-                    messageId: args.messageId,
-                    source: 'dashboard',
-                },
-                targetId: args.messageId,
-            });
-        }
-
-        return postedMessage;
-    },
 });
 
 export const upsertMessageTemplate = mutation({
@@ -296,30 +158,6 @@ export const recordPostedMessage = mutation({
     handler: async (ctx: PostingMutationCtx, args) => {
         await requireNeonFluxService(ctx, allowedPostingServices);
         return recordPostedMessageInMutation(ctx, args);
-    },
-});
-
-export const pruneDashboardPostingOperations = internalMutation({
-    args: {},
-    returns: v.object({ deletedCount: v.number(), hasMore: v.boolean() }),
-    handler: async (ctx: PostingMutationCtx) => {
-        const now = new Date().toISOString();
-        const expired = await ctx.db
-            .query('dashboardPostingOperations')
-            .withIndex('by_expires', (query) => query.lte('expiresAt', now))
-            .take(dashboardPostingOperationPruneBatchSize + 1);
-        const batch = expired.slice(0, dashboardPostingOperationPruneBatchSize);
-
-        for (const operation of batch) {
-            await ctx.db.delete('dashboardPostingOperations', operation._id);
-        }
-
-        const hasMore = expired.length > batch.length;
-        if (hasMore) {
-            await ctx.scheduler.runAfter(0, internal.posting.posting.pruneDashboardPostingOperations, {});
-        }
-
-        return { deletedCount: batch.length, hasMore };
     },
 });
 
@@ -453,7 +291,7 @@ async function findPostedMessageDocument(
         .unique();
 }
 
-async function recordPostedMessageInMutation(
+export async function recordPostedMessageInMutation(
     ctx: PostingMutationCtx,
     args: {
         channelId: string;
@@ -499,7 +337,7 @@ async function recordPostedMessageInMutation(
     return toPostedMessageRecord({ ...document, _id: id });
 }
 
-async function requireGuildDocument(ctx: PostingMutationCtx, guildId: string): Promise<StoredGuildDocument> {
+export async function requireGuildDocument(ctx: PostingMutationCtx, guildId: string): Promise<StoredGuildDocument> {
     const guild = await ctx.db
         .query('guilds')
         .withIndex('by_guild_id', (query) => query.eq('guildId', guildId))
@@ -532,14 +370,4 @@ function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function normalizeBoundedIdentifier(value: string, label: string, maxLength: number): string {
-    const normalized = value.trim();
-
-    if (!normalized || normalized.length > maxLength) {
-        throw new Error(`invalid-${label}`);
-    }
-
-    return normalized;
 }

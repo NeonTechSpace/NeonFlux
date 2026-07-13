@@ -49,7 +49,7 @@ const operation = {
 };
 
 describe('reaction-role operation database adapters', () => {
-    it('maps operation dates and forwards normalized publish inputs', async () => {
+    it('maps operation dates and forwards publish inputs to Convex', async () => {
         const db = createConvexDb([{ type: 'accepted', operation }]);
 
         const result = await requestReactionRolePublishOperation(db, {

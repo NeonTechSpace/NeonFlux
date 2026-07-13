@@ -3,9 +3,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 import { getRequiredDefaultDashboardSubNavigationTo } from '../../../../dashboard-categories.js';
 import { getGuildIdParam } from '../../../../server/dashboard-guild-route-data.js';
 
-const createRoute = createFileRoute('/dashboard/$guildId/insights/');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/$guildId/insights/')({
     beforeLoad: ({ params }) => {
         throw redirect({
             to: getRequiredDefaultDashboardSubNavigationTo('insights'),

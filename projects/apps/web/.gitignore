@@ -10,5 +10,8 @@ dist-ssr
 .wrangler
 .output
 .vinxi
+.e2e-runtime
+playwright-report
+test-results
 __unconfig*
 todos.json

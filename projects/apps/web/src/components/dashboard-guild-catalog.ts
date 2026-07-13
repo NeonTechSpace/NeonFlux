@@ -1,13 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@neonflux/convex-api';
-import { ConvexReactClient } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 
 import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildCatalogRouteData } from '../server/dashboard-guild-catalog-route-data.js';
 import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
-import { fetchDashboardConvexToken, readDashboardConvexUrl } from './dashboard-live-invalidation.js';
+import { useDashboardLive } from './dashboard-live-provider.js';
 
 const dashboardGuildCatalogRefreshIntervalMs = 15_000;
 
@@ -16,22 +15,9 @@ type DashboardCatalogLiveState = {
     version: number;
 };
 
-type DashboardCatalogLiveWatch = {
-    localQueryResult: () => DashboardCatalogLiveState | undefined;
-    onUpdate: (callback: () => void) => () => void;
-};
-
-type DashboardCatalogLiveClient = {
-    close: () => Promise<void>;
-    setAuth: (fetchToken: (args: { forceRefreshToken: boolean }) => Promise<string | null | undefined>) => void;
-    watchQuery: (
-        query: typeof api.dashboard_catalog.readDashboardCatalogState,
-        args: Record<string, never>
-    ) => DashboardCatalogLiveWatch;
-};
-
 export function useDashboardGuildCatalog(initialCatalog: DashboardGuildCatalog | undefined) {
     const queryClient = useQueryClient();
+    const { confirmManageableGuildScope } = useDashboardLive();
     const [loaderCatalog] = useState(initialCatalog);
     const [initialSeedApplied, setInitialSeedApplied] = useState(initialCatalog === undefined);
 
@@ -68,8 +54,20 @@ export function useDashboardGuildCatalog(initialCatalog: DashboardGuildCatalog |
         };
     }, [initialSeedApplied, loaderCatalog, queryClient]);
 
+    const catalog = initialSeedApplied ? catalogQuery.data : loaderCatalog;
+    const manageableGuildScope =
+        catalog?.guilds
+            .map((guild) => guild.id)
+            .sort()
+            .join(',') ?? '';
+
+    useEffect(() => {
+        if (!catalog) return;
+        confirmManageableGuildScope(catalog.guilds.map((guild) => guild.id));
+    }, [catalog, confirmManageableGuildScope, manageableGuildScope]);
+
     return {
-        data: initialSeedApplied ? catalogQuery.data : loaderCatalog,
+        data: catalog,
     };
 }
 
@@ -92,6 +90,7 @@ function useDashboardGuildCatalogLiveInvalidation(enabled: boolean): void {
     const queryClient = useQueryClient();
     const liveTransportActive = useDashboardLiveTransportActive();
     const previousLiveTransportActiveRef = useRef(liveTransportActive);
+    const { client } = useDashboardLive();
 
     useEffect(() => {
         const becameActive = liveTransportActive && previousLiveTransportActiveRef.current === false;
@@ -105,16 +104,9 @@ function useDashboardGuildCatalogLiveInvalidation(enabled: boolean): void {
             void queryClient.invalidateQueries({ queryKey: getDashboardGuildCatalogQueryKey() });
         }
 
-        const convexUrl = readDashboardConvexUrl();
-
-        if (!convexUrl) {
-            return undefined;
-        }
-
-        const client = new ConvexReactClient(convexUrl, { logger: false }) as DashboardCatalogLiveClient;
+        if (!client) return undefined;
         let knownSignal: string | undefined;
 
-        client.setAuth(() => fetchDashboardConvexToken());
         const watch = client.watchQuery(api.dashboard_catalog.readDashboardCatalogState, {});
 
         function handleCatalogStateUpdate(): void {
@@ -143,7 +135,6 @@ function useDashboardGuildCatalogLiveInvalidation(enabled: boolean): void {
 
         return () => {
             unsubscribe();
-            void client.close();
         };
-    }, [enabled, liveTransportActive, queryClient]);
+    }, [client, enabled, liveTransportActive, queryClient]);
 }

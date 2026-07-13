@@ -22,8 +22,6 @@ const convexMock = vi.hoisted(() => {
 
     return {
         client: {
-            close: vi.fn(() => Promise.resolve()),
-            setAuth: vi.fn(),
             watchQuery: vi.fn(() => ({
                 localQueryResult: () => states,
                 onUpdate: (callback: () => void) => {
@@ -43,10 +41,14 @@ const convexMock = vi.hoisted(() => {
     };
 });
 
-vi.mock('convex/react', () => ({
-    ConvexReactClient: function MockConvexReactClient() {
-        return convexMock.client;
-    },
+vi.mock('./dashboard-live-provider.js', () => ({
+    readDashboardConvexUrl: () => 'https://neonflux.convex.cloud',
+    useDashboardLive: () => ({
+        client: convexMock.client,
+        confirmManageableGuildScope: vi.fn(),
+        restart: vi.fn(),
+        status: { authentication: 'authenticated', generation: 1, phase: 'connected' },
+    }),
 }));
 
 vi.mock('./dashboard-live-activity.js', () => ({

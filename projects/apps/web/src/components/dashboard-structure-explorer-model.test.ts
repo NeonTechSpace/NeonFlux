@@ -13,25 +13,28 @@ import type {
 
 describe('buildDashboardStructureExplorerModel', () => {
     it('builds root hierarchy with normalized role and channel ordering', () => {
-        const model = buildDashboardStructureExplorerModel({ snapshot: createSnapshot() });
+        const channelModel = buildDashboardStructureExplorerModel({ section: 'channels', snapshot: createSnapshot() });
+        const roleModel = buildDashboardStructureExplorerModel({ section: 'roles', snapshot: createSnapshot() });
 
-        expect(model.paths).toContain('Roles/');
-        expect(model.paths).toContain('Categories/');
-        expect(model.paths).toContain('Uncategorized Channels/');
-        expect(model.preparedInput.paths).not.toContain('Roles/');
-        expect(model.preparedInput.paths).not.toContain('Categories/');
-        expect(model.preparedInput.paths).not.toContain('Uncategorized Channels/');
-        expect(model.preparedInput.paths.every((path) => !path.includes('['))).toBe(true);
-        expect(indexOfEntity(model, 'role:role-admin')).toBeLessThan(indexOfEntity(model, 'role:role-member'));
-        expect(indexOfEntity(model, 'role:role-member')).toBeLessThan(indexOfEntity(model, 'role:guild-1'));
-        expect(indexOfEntity(model, 'channel:channel-general')).toBeLessThan(
-            indexOfEntity(model, 'channel:channel-updates')
+        expect(roleModel.paths).toContain('Roles/');
+        expect(roleModel.paths).not.toContain('Categories/');
+        expect(channelModel.paths).not.toContain('Roles/');
+        expect(channelModel.paths).toContain('Categories/');
+        expect(channelModel.paths).toContain('Uncategorized Channels/');
+        expect(roleModel.preparedInput.paths).not.toContain('Roles/');
+        expect(channelModel.preparedInput.paths).not.toContain('Categories/');
+        expect(channelModel.preparedInput.paths).not.toContain('Uncategorized Channels/');
+        expect(channelModel.preparedInput.paths.every((path) => !path.includes('['))).toBe(true);
+        expect(indexOfEntity(roleModel, 'role:role-admin')).toBeLessThan(indexOfEntity(roleModel, 'role:role-member'));
+        expect(indexOfEntity(roleModel, 'role:role-member')).toBeLessThan(indexOfEntity(roleModel, 'role:guild-1'));
+        expect(indexOfEntity(channelModel, 'channel:channel-general')).toBeLessThan(
+            indexOfEntity(channelModel, 'channel:channel-updates')
         );
-        expect(model.pathMetadata.get(pathForEntity(model, 'role:role-admin'))?.label).toBe('Admin');
+        expect(roleModel.pathMetadata.get(pathForEntity(roleModel, 'role:role-admin'))?.label).toBe('Admin');
     });
 
     it('places channels under categories or uncategorized fallback', () => {
-        const model = buildDashboardStructureExplorerModel({ snapshot: createSnapshot() });
+        const model = buildDashboardStructureExplorerModel({ section: 'channels', snapshot: createSnapshot() });
 
         expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-general'))).toMatchObject({
             entityKey: 'channel:channel-general',
@@ -74,7 +77,11 @@ describe('buildDashboardStructureExplorerModel', () => {
                 targetType: 'channel',
             }),
         ];
-        const model = buildDashboardStructureExplorerModel({ actions, snapshot: createSnapshot() });
+        const model = buildDashboardStructureExplorerModel({
+            actions,
+            section: 'channels',
+            snapshot: createSnapshot(),
+        });
 
         expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-lobby'))?.badges).toEqual(
             expect.arrayContaining(['move', 'permissions', 'update'])
@@ -104,6 +111,7 @@ describe('buildDashboardStructureExplorerModel', () => {
                     targetType: 'role',
                 }),
             ],
+            section: 'roles',
             snapshot: createSnapshot(),
         });
 
@@ -119,6 +127,7 @@ describe('buildDashboardStructureExplorerModel', () => {
 
     it('keeps unsafe names from breaking tree paths', () => {
         const model = buildDashboardStructureExplorerModel({
+            section: 'channels',
             snapshot: {
                 ...createSnapshot(),
                 categories: [{ ...createSnapshot().categories[0], name: 'Ops/Live\u0000' }],
@@ -132,6 +141,7 @@ describe('buildDashboardStructureExplorerModel', () => {
 
     it('keeps duplicate display names unique without exposing ids', () => {
         const model = buildDashboardStructureExplorerModel({
+            section: 'roles',
             snapshot: {
                 ...createSnapshot(),
                 roles: [
@@ -184,7 +194,7 @@ describe('buildDashboardStructureExplorerModel', () => {
                 },
             }
         );
-        const model = buildDashboardStructureExplorerModel({ actions, snapshot: createSnapshot() });
+        const model = buildDashboardStructureExplorerModel({ actions, section: 'roles', snapshot: createSnapshot() });
 
         expect(model.pathMetadata.get(pathForEntity(model, 'role:role-member'))?.badges).toEqual(
             expect.arrayContaining(['delete', 'destructive'])

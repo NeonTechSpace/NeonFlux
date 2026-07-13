@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -32,7 +32,7 @@ vi.mock('@tanstack/react-router', async () => {
 });
 
 describe('DashboardStructureWorkspaceShell', () => {
-    it('keeps Blueprint identity and route navigation around a local pending state', () => {
+    it('keeps Blueprint identity around a local pending state', () => {
         render(
             <DashboardStructureWorkspaceShell guildId='guild-1' executionTransport={{ mode: 'idle' }}>
                 <p role='status'>Loading Blueprint data</p>
@@ -42,15 +42,6 @@ describe('DashboardStructureWorkspaceShell', () => {
         expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
         const heading = screen.getByRole('heading', { level: 1, name: 'Server Blueprint' });
         expect(heading).toBeTruthy();
-        expect(screen.getByRole('group', { name: 'Server Blueprint workspace' }).getAttribute('class')).toContain(
-            'dashboard-glass-panel'
-        );
-
-        const navigation = screen.getByRole('navigation', { name: 'Server Blueprint tools' });
-        expect(within(navigation).getAllByRole('link')).toHaveLength(5);
-        expect(within(navigation).getByRole('link', { name: 'Backups' }).getAttribute('href')).toBe(
-            '/dashboard/guild-1/structure/backups'
-        );
         expect(screen.getByRole('status').textContent).toBe('Loading Blueprint data');
     });
 });

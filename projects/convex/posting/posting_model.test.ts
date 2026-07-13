@@ -1,15 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    buildMessageTemplateDocument,
-    buildPostedMessageDocument,
-    normalizeMessageTemplateLimit,
-    normalizePostedMessageLookupInput,
-    normalizeRequiredGuildId,
-    normalizeRequiredTemplateId,
-    toMessageTemplateRecord,
-    toPostedMessageRecord,
-} from './posting_model.js';
+import { buildMessageTemplateDocument, buildPostedMessageDocument } from './posting_model.js';
 
 describe('posting model', () => {
     it('normalizes message template input to the app-facing contract', () => {
@@ -36,21 +27,6 @@ describe('posting model', () => {
                 name: 'Release update',
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
-        });
-
-        if (!document.ok) {
-            throw new Error('Expected normalized message template.');
-        }
-
-        expect(toMessageTemplateRecord({ ...document.value, _id: 'template-1' })).toEqual({
-            content: 'Ship it',
-            createdAt: '2026-07-03T08:00:00.000Z',
-            createdByUserId: 'user-1',
-            embeds: [{ title: 'Release' }],
-            guildId: 'guild-1',
-            id: 'template-1',
-            name: 'Release update',
-            updatedAt: '2026-07-03T08:00:00.000Z',
         });
     });
 
@@ -153,22 +129,6 @@ describe('posting model', () => {
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
-
-        if (!document.ok) {
-            throw new Error('Expected normalized posted message.');
-        }
-
-        expect(toPostedMessageRecord({ ...document.value, _id: 'posted-1' })).toEqual({
-            channelId: 'channel-1',
-            createdAt: '2026-07-03T08:00:00.000Z',
-            createdByUserId: 'user-1',
-            guildId: 'guild-1',
-            id: 'posted-1',
-            messageId: 'message-1',
-            purpose: 'manual',
-            templateId: 'template-1',
-            updatedAt: '2026-07-03T08:00:00.000Z',
-        });
     });
 
     it('preserves posted message created timestamp on update', () => {
@@ -198,21 +158,5 @@ describe('posting model', () => {
                 updatedAt: '2026-07-03T08:00:00.000Z',
             },
         });
-    });
-
-    it('normalizes lookup and limit helpers', () => {
-        expect(normalizePostedMessageLookupInput({ channelId: ' c ', guildId: ' g ', messageId: ' m ' })).toEqual({
-            ok: true,
-            value: {
-                channelId: 'c',
-                guildId: 'g',
-                messageId: 'm',
-            },
-        });
-        expect(normalizeRequiredGuildId(' guild-1 ')).toEqual({ ok: true, value: 'guild-1' });
-        expect(normalizeRequiredTemplateId(' template-1 ')).toEqual({ ok: true, value: 'template-1' });
-        expect(normalizeMessageTemplateLimit(undefined)).toBe(50);
-        expect(normalizeMessageTemplateLimit(0)).toBe(1);
-        expect(normalizeMessageTemplateLimit(500)).toBe(100);
     });
 });

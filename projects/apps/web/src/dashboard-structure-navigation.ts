@@ -1,4 +1,4 @@
-export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
+type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
 
 export type DashboardStructureNavigationTo =
     | '/dashboard/$guildId/structure/current'

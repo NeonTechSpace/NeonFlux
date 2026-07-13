@@ -35,72 +35,6 @@ type ConvexPostedMessageRecord = {
     updatedAt: string;
 };
 
-export type DashboardPostingOperationBegin = {
-    messageId?: string;
-    sentChannelId?: string;
-    shouldSend: boolean;
-    status: 'unknown' | 'sent';
-};
-
-export async function beginDashboardPostingOperation(
-    db: PostingDb,
-    input: {
-        actorUserId: string;
-        guildId: string;
-        payloadHash: string;
-        requestKey: string;
-        requestedChannelId: string;
-    }
-): Promise<Result<DashboardPostingOperationBegin, PostingRepositoryError>> {
-    const normalized = normalizeDashboardPostingOperationInput(input);
-    if (normalized.isErr()) return err(normalized.error);
-
-    try {
-        return ok(await db.client.mutation(api.posting.beginDashboardPostingOperation, normalized.value));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function completeDashboardPostingOperation(
-    db: PostingDb,
-    input: {
-        actorUserId: string;
-        auditMetadata?: Record<string, unknown>;
-        guildId: string;
-        messageId: string;
-        payloadHash: string;
-        requestKey: string;
-        sentChannelId: string;
-    }
-): Promise<Result<PostedMessageRecord, PostingRepositoryError>> {
-    const normalized = normalizeDashboardPostingOperationInput({
-        actorUserId: input.actorUserId,
-        guildId: input.guildId,
-        payloadHash: input.payloadHash,
-        requestKey: input.requestKey,
-        requestedChannelId: input.sentChannelId,
-    });
-    const messageId = normalizeRequiredText(input.messageId, 'messageId');
-    if (normalized.isErr()) return err(normalized.error);
-    if (messageId.isErr()) return err(messageId.error);
-
-    try {
-        const record = await db.client.mutation(api.posting.completeDashboardPostingOperation, {
-            actorUserId: normalized.value.actorUserId,
-            ...(input.auditMetadata ? { auditMetadata: input.auditMetadata } : {}),
-            guildId: normalized.value.guildId,
-            messageId: messageId.value,
-            payloadHash: normalized.value.payloadHash,
-            requestKey: normalized.value.requestKey,
-            sentChannelId: normalized.value.requestedChannelId,
-        });
-        return ok(toPostedMessageRecord(record));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
 export async function upsertMessageTemplate(
     db: PostingDb,
     input: {
@@ -365,43 +299,6 @@ function normalizePostedMessageInput(input: {
     };
 
     return ok(normalizedInput);
-}
-
-function normalizeDashboardPostingOperationInput(input: {
-    actorUserId: string;
-    guildId: string;
-    payloadHash: string;
-    requestKey: string;
-    requestedChannelId: string;
-}): Result<
-    {
-        actorUserId: string;
-        guildId: string;
-        payloadHash: string;
-        requestKey: string;
-        requestedChannelId: string;
-    },
-    PostingRepositoryError
-> {
-    const actorUserId = normalizeRequiredText(input.actorUserId, 'actorUserId');
-    const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const payloadHash = normalizeRequiredText(input.payloadHash, 'payloadHash');
-    const requestKey = normalizeRequiredText(input.requestKey, 'requestKey');
-    const requestedChannelId = normalizeRequiredText(input.requestedChannelId, 'channelId');
-
-    if (actorUserId.isErr()) return err(actorUserId.error);
-    if (guildId.isErr()) return err(guildId.error);
-    if (payloadHash.isErr()) return err(payloadHash.error);
-    if (requestKey.isErr()) return err(requestKey.error);
-    if (requestedChannelId.isErr()) return err(requestedChannelId.error);
-
-    return ok({
-        actorUserId: actorUserId.value,
-        guildId: guildId.value,
-        payloadHash: payloadHash.value,
-        requestKey: requestKey.value,
-        requestedChannelId: requestedChannelId.value,
-    });
 }
 
 function normalizeTemplateLimit(limit: number | undefined): number {

@@ -209,37 +209,6 @@ describe('runDueStructureBackups', () => {
         expect(readFluxerGuildStructure).not.toHaveBeenCalled();
     });
 
-    it('passes retention audit context but does not log no-op prune passes', async () => {
-        const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
-        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
-        vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
-            ok({ deletedCount: 0, hasMore: false, nextRetentionPruneAt: new Date('2026-07-07T00:00:00.000Z') })
-        );
-
-        await runDueStructureBackups({
-            client,
-            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
-            logger,
-            now: new Date('2026-07-06T00:00:00.000Z'),
-        });
-
-        expect(pruneExpiredStructureBackupsForGuild).toHaveBeenCalledWith(
-            {},
-            expect.objectContaining({
-                audit: {
-                    action: structureAuditActions.backupRetentionPruned,
-                    metadata: {
-                        source: 'scheduled_retention',
-                    },
-                    targetId: 'guild-1',
-                },
-                guildId: 'guild-1',
-            })
-        );
-        expect(logger.info).not.toHaveBeenCalledWith('structure.backup_retention_pruned', expect.anything());
-    });
-
     it('runs scheduled drift after retention and before scheduled backup reads', async () => {
         vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
         vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([]));

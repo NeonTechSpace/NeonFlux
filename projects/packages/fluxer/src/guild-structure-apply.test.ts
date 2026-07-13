@@ -1,11 +1,7 @@
 import { Client, type Client as FluxerClient } from '@fluxerjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    applyFluxerBotGuildStructureAction,
-    applyFluxerBotGuildStructureActions,
-    applyFluxerBotGuildStructureUpdate,
-} from './guild-structure-apply.js';
+import { applyFluxerBotGuildStructureAction, applyFluxerBotGuildStructureActions } from './guild-structure-apply.js';
 import {
     createFluxerGuildStructureRestClient,
     GUILD_STRUCTURE_REST_TIMEOUT_MS,
@@ -1253,31 +1249,6 @@ describe('applyFluxerBotGuildStructureAction', () => {
                 hoist: true,
                 mentionable: true,
             },
-        });
-    });
-
-    it('keeps the update shim compatible with single-field name edits', async () => {
-        const edit = vi.fn().mockResolvedValue(undefined);
-
-        mockClientLogin({
-            channels: {
-                fetch: vi.fn().mockResolvedValue({ edit }),
-            },
-        });
-        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
-
-        const result = await applyFluxerBotGuildStructureUpdate({
-            botToken: 'bot-token',
-            guildId: 'guild-1',
-            targetType: 'channel',
-            targetId: 'channel-1',
-            knownTargetIds: ['channel-1'],
-            changes: [{ field: 'name', after: 'announcements' }],
-        });
-
-        expect(result.isOk()).toBe(true);
-        expect(edit).toHaveBeenCalledWith({
-            name: 'announcements',
         });
     });
 

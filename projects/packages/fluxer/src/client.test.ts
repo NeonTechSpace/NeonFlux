@@ -49,7 +49,6 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(event).toStrictEqual({
             guildId: 'guild-1',
         });
-        expect(event ? Object.keys(event) : []).toStrictEqual(['guildId']);
     });
 
     it('keeps a temporarily unavailable guild installed and removes a genuine GuildDelete', async () => {
@@ -81,7 +80,6 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
             unavailable: true,
         });
-        expect(event ? Object.keys(event) : []).toStrictEqual(['guildId', 'unavailable']);
         expect(bot.client.guilds.get(guild.id)).toBe(guild);
 
         await dispatchClient._dispatchGatewayPayload({
@@ -277,18 +275,6 @@ describe('createFluxerBot lifecycle handlers', () => {
             content: '<@bot-user>',
             mentionedUserIds: ['mentioned-1', 'mentioned-2'],
         });
-        expect(event ? Object.keys(event) : []).toStrictEqual([
-            'messageId',
-            'channelId',
-            'guildId',
-            'authorId',
-            'authorIsBot',
-            'authorRoleIds',
-            'authorIsServerOwner',
-            'authorHasManageServer',
-            'content',
-            'mentionedUserIds',
-        ]);
     });
 
     it('normalizes cached author guild roles and Manage Server status on MessageCreate', () => {

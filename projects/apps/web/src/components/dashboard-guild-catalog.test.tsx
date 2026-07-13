@@ -19,8 +19,6 @@ const convexMock = vi.hoisted(() => {
 
     return {
         client: {
-            close: vi.fn(() => Promise.resolve()),
-            setAuth: vi.fn(),
             watchQuery: vi.fn(() => ({
                 localQueryResult: () => state,
                 onUpdate: (callback: () => void) => {
@@ -29,6 +27,7 @@ const convexMock = vi.hoisted(() => {
                 },
             })),
         },
+        confirmManageableGuildScope: vi.fn(),
         publish(nextState: CatalogLiveState) {
             state = nextState;
             onUpdate?.();
@@ -40,10 +39,13 @@ const convexMock = vi.hoisted(() => {
     };
 });
 
-vi.mock('convex/react', () => ({
-    ConvexReactClient: function MockConvexReactClient() {
-        return convexMock.client;
-    },
+vi.mock('./dashboard-live-provider.js', () => ({
+    useDashboardLive: () => ({
+        client: convexMock.client,
+        confirmManageableGuildScope: convexMock.confirmManageableGuildScope,
+        restart: vi.fn(),
+        status: { authentication: 'authenticated', generation: 1, phase: 'connected' },
+    }),
 }));
 
 vi.mock('./dashboard-live-activity.js', () => ({

@@ -2,9 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { DashboardStructureRouteSurface } from '../../../../components/dashboard-structure-panel.js';
 
-const createRoute = createFileRoute('/dashboard/$guildId/structure/backups');
-
-export const Route = createRoute({
+export const Route = createFileRoute('/dashboard/$guildId/structure/backups')({
     component: DashboardStructureBackupsRoute,
 });
 

@@ -15,7 +15,9 @@ function readMaxWorkers(): number {
 export default defineConfig({
     test: {
         include: [
-            'apps/**/*.{test,spec}.{ts,tsx}',
+            'apps/bot/**/*.{test,spec}.{ts,tsx}',
+            'apps/web/src/**/*.{test,spec}.{ts,tsx}',
+            'apps/web/e2e/support/**/*.{test,spec}.ts',
             'convex/**/*.{test,spec}.ts',
             'packages/**/*.{test,spec}.ts',
             'scripts/**/*.{test,spec}.ts',
