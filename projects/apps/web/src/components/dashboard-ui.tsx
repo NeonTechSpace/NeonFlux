@@ -1,6 +1,7 @@
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from 'react';
 
 export type DashboardPageWidth = 'focused' | 'standard' | 'wide' | 'full';
+type DashboardPageSurface = 'glass' | 'transparent';
 type DashboardSurfaceElement = 'article' | 'div' | 'section';
 type DashboardSurfaceTone = 'default' | 'glass' | 'raised' | 'subtle';
 type DashboardSurfacePadding = 'none' | 'compact' | 'normal';
@@ -60,6 +61,7 @@ export function DashboardFeaturePage({
     status,
     titleId,
     width = 'standard',
+    surface = 'transparent',
     children,
 }: {
     title: string;
@@ -71,11 +73,18 @@ export function DashboardFeaturePage({
     status?: ReactNode;
     titleId?: string;
     width?: DashboardPageWidth;
+    surface?: DashboardPageSurface;
     children: ReactNode;
 }) {
     return (
         <section className='min-h-full min-w-0 px-4 pt-1 pb-8 sm:px-6 lg:px-8' aria-labelledby={titleId}>
-            <div className='mx-auto w-full max-w-[100rem] min-w-0'>
+            <div
+                role={surface === 'glass' ? 'group' : undefined}
+                aria-label={surface === 'glass' ? `${title} workspace` : undefined}
+                className={joinClassNames(
+                    'mx-auto w-full max-w-[100rem] min-w-0',
+                    surface === 'glass' ? 'dashboard-glass-panel px-4 pb-5 sm:px-6 sm:pb-6 lg:px-8' : ''
+                )}>
                 <DashboardPageHeader
                     title={title}
                     description={description}

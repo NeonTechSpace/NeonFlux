@@ -40,7 +40,11 @@ describe('DashboardStructureWorkspaceShell', () => {
         );
 
         expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-        expect(screen.getByRole('heading', { level: 1, name: 'Server Blueprint' })).toBeTruthy();
+        const heading = screen.getByRole('heading', { level: 1, name: 'Server Blueprint' });
+        expect(heading).toBeTruthy();
+        expect(screen.getByRole('group', { name: 'Server Blueprint workspace' }).getAttribute('class')).toContain(
+            'dashboard-glass-panel'
+        );
 
         const navigation = screen.getByRole('navigation', { name: 'Server Blueprint tools' });
         expect(within(navigation).getAllByRole('link')).toHaveLength(5);

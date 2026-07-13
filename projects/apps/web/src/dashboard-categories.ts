@@ -12,14 +12,20 @@ import {
     Globe,
     HelpCircle,
     KeyRound,
+    Logs,
+    MessageSquarePlus,
     MessageSquareText,
     Radio,
     ScrollText,
     ServerCog,
     Settings2,
+    ShieldAlert,
     ShieldCheck,
+    SmilePlus,
     Sparkles,
+    Terminal,
     TicketCheck,
+    TrendingUp,
     Trophy,
     UserRoundCog,
     UsersRound,
@@ -187,7 +193,7 @@ const dashboardNavigationSettings = [
                 'Message Builder',
                 'Compose, preview, and post Fluxer messages.',
                 '/dashboard/$guildId/messaging/message-builder',
-                MessageSquareText,
+                MessageSquarePlus,
                 'full'
             ),
         ],
@@ -205,7 +211,7 @@ const dashboardNavigationSettings = [
                 'Automod',
                 'Planned automated moderation rules.',
                 '/dashboard/$guildId/moderation/automod',
-                Bot
+                ShieldAlert
             ),
             placeholder(
                 'cases',
@@ -259,7 +265,8 @@ const dashboardNavigationSettings = [
                 'Reaction Roles',
                 'Build reaction-backed role menus.',
                 '/dashboard/$guildId/access/reaction-roles',
-                ShieldCheck
+                SmilePlus,
+                'full'
             ),
             placeholder(
                 'role-reconciliation',
@@ -337,7 +344,7 @@ const dashboardNavigationSettings = [
                 'Growth Tracking',
                 'Planned member movement analytics.',
                 '/dashboard/$guildId/insights/growth-tracking',
-                ChartNoAxesCombined
+                TrendingUp
             ),
             placeholder(
                 'invite-tracker',
@@ -377,8 +384,8 @@ const dashboardNavigationSettings = [
                 'Command Prefix',
                 'Change the bot command prefix.',
                 '/dashboard/$guildId/general/command-prefix',
-                Settings2,
-                'focused'
+                Terminal,
+                'full'
             ),
         ],
     },
@@ -403,7 +410,7 @@ const dashboardNavigationSettings = [
                 'Logging Destinations',
                 'Planned server-event logging destinations.',
                 '/dashboard/$guildId/events/logging-destinations',
-                BellDot
+                Logs
             ),
         ],
     },

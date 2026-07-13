@@ -4,6 +4,7 @@ import {
     dashboardCategories,
     dashboardNavigationEntries,
     getDashboardCategorySubNavigation,
+    getDashboardNavigationJob,
     getDashboardNavigationEntry,
     getRequiredDefaultDashboardSubNavigationTo,
 } from './dashboard-categories.js';
@@ -46,6 +47,20 @@ describe('dashboard categories', () => {
                 .flatMap((entry) => entry.subNavigation)
                 .every((item) => item.status === 'implemented')
         ).toBe(true);
+    });
+
+    it('gives implemented task destinations full workspaces and distinct icons', () => {
+        const implementedItems = dashboardNavigationEntries.flatMap((entry) => entry.subNavigation);
+        const widths = Object.fromEntries(implementedItems.map((item) => [item.id, item.pageWidth]));
+
+        expect(widths).toMatchObject({
+            'reaction-roles': 'full',
+            'command-prefix': 'full',
+        });
+
+        for (const item of implementedItems) {
+            expect(item.icon).not.toBe(getDashboardNavigationJob(item.navigationJobId).icon);
+        }
     });
 
     it('redirects legacy category indexes to available capabilities when possible', () => {

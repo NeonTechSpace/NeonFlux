@@ -48,6 +48,7 @@ export function DashboardStructureWorkspaceShell({
             icon={<GitBranch className='size-5' aria-hidden='true' />}
             titleId='server-blueprint-title'
             width='full'
+            surface='glass'
             navigation={<DashboardStructureNavigation guildId={guildId} />}
             status={activeExecution ? <AnimatePresence initial={false}>{activeExecution}</AnimatePresence> : undefined}>
             {children}
