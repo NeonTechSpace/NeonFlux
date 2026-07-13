@@ -1,5 +1,7 @@
 import { Outlet, createFileRoute } from '@tanstack/react-router';
 
+import { DashboardRouteFrame } from '../components/dashboard-layout.js';
+
 const createRoute = createFileRoute('/dashboard');
 
 const dashboardLayoutRouteOptions = {
@@ -9,5 +11,9 @@ const dashboardLayoutRouteOptions = {
 export const Route = createRoute(dashboardLayoutRouteOptions);
 
 function DashboardLayout() {
-    return <Outlet />;
+    return (
+        <DashboardRouteFrame>
+            <Outlet />
+        </DashboardRouteFrame>
+    );
 }
