@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
     FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
     isFluxerGuildStructureSnapshotJsonWithinByteLimit,
-} from '@neonflux/fluxer/guild-structure-diff';
+} from '@neonflux/fluxer/guild-structure-snapshot';
 
 import {
     applyDashboardStructureImportRunRouteData,
@@ -72,7 +72,7 @@ export function useDashboardStructureImportState({
     }: {
         backupId: string;
         intent?: 'backup' | 'restore';
-    }): Promise<void> {
+    }): Promise<boolean> {
         setStatus(undefined);
         setBusyAction(`backup-import:${backupId}`);
 
@@ -87,7 +87,7 @@ export function useDashboardStructureImportState({
                           ? { tone: 'error', message: 'This backup does not have server blueprint JSON.' }
                           : toErrorStatus(result.type)
                 );
-                return;
+                return false;
             }
 
             setActionPagesByRunId((current) => ({
@@ -103,8 +103,10 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
+            return true;
         } catch {
             setStatus(toUnexpectedErrorStatus());
+            return false;
         } finally {
             setBusyAction(undefined);
         }

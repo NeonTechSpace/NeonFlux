@@ -10,6 +10,7 @@ import { assertStructureExecutionRunLedger } from './structure_import_execution_
 import { assertCurrentStructureExecutionProtocol } from './structure_import_execution_protocol.js';
 import {
     isStructureImportDecisionLedgerComplete,
+    isStructureImportRetryPreflightFresh,
     resolveStructureExecutionIdMap,
     validateStructureImportDecisionSequences,
 } from './structure_model.js';
@@ -309,6 +310,11 @@ export const enqueueStructureImportExecution = mutation({
             .withIndex('by_run_approved', (q) => q.eq('runId', args.runId))
             .order('desc')
             .first();
+        const latestExecution = await ctx.db
+            .query('structureImportExecutions')
+            .withIndex('by_run_created', (q) => q.eq('runId', args.runId))
+            .order('desc')
+            .first();
         if (
             !preflight ||
             !approval ||
@@ -316,6 +322,10 @@ export const enqueueStructureImportExecution = mutation({
             preflight.planDigest !== run.planDigest ||
             preflight.preflightDigest !== args.preflightDigest ||
             preflight.expiresAt <= args.now ||
+            !isStructureImportRetryPreflightFresh({
+                latestExecution,
+                preflightCheckedAt: preflight.checkedAt,
+            }) ||
             approval.planDigest !== run.planDigest ||
             (run.deleteActionCount > 0 &&
                 (approval.deleteSetDigest !== run.deleteSetDigest ||

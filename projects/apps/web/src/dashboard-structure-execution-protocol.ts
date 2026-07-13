@@ -1,1 +1,1 @@
-export const STRUCTURE_EXECUTION_PROTOCOL_VERSION = 3 as const;
+export const STRUCTURE_EXECUTION_PROTOCOL_VERSION = 4 as const;

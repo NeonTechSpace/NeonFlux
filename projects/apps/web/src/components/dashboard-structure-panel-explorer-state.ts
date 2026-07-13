@@ -90,13 +90,13 @@ export function useDashboardStructureExplorerState({
         }
     }
 
-    function inspectImportJson(): void {
+    function inspectImportJson(): boolean {
         setStatus(undefined);
 
         const snapshot = parseDashboardStructureExplorerSnapshot(importJson);
         if (!snapshot) {
             setStatus({ tone: 'error', message: 'Import JSON could not be parsed as a server blueprint.' });
-            return;
+            return false;
         }
 
         setExplorerSourceAndResetComparison({
@@ -108,6 +108,7 @@ export function useDashboardStructureExplorerState({
         });
         setSelectedExplorerEntityKey(undefined);
         setStatus({ tone: 'neutral', message: 'Import JSON loaded in explorer.' });
+        return true;
     }
 
     function compareExplorerImportJson(): void {

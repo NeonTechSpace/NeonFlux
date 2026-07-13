@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
 import {
     createEmptyDecisionSummary,
@@ -49,6 +50,43 @@ describe('DashboardStructureApplyControls', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change, including 1 deletion' }));
         expect(onApply).toHaveBeenCalledWith(run);
     });
+
+    it('requires a safety check newer than a failed-before-mutation execution', async () => {
+        const expiresAt = new Date(Date.now() + 60_000).toISOString();
+        const run = createRun({
+            execution: {
+                id: 'execution-1',
+                protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+                status: 'failed_before_mutation',
+                phase: 'complete',
+                completedActions: 0,
+                failedActions: 1,
+                totalActions: 1,
+                createdAt: '2026-07-13T10:00:00.000Z',
+                updatedAt: '2026-07-13T10:01:00.000Z',
+            },
+        });
+        const view = renderControls({
+            run,
+            preflightReport: createPreflight({ checkedAt: '2026-07-13T10:00:00.000Z', expiresAt }),
+        });
+
+        expect(screen.getByRole('alert').textContent).toContain('Fresh safety check required');
+        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+
+        view.rerender(
+            <DashboardStructureApplyControls
+                run={run}
+                busyAction={undefined}
+                preflightReport={createPreflight({ checkedAt: '2026-07-13T10:02:00.000Z', expiresAt })}
+                deleteConfirmation=''
+                onPreflight={vi.fn()}
+                onDeleteConfirmationChange={vi.fn()}
+                onApply={vi.fn()}
+            />
+        );
+        expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeTruthy();
+    });
 });
 
 function renderControls({
@@ -73,7 +111,7 @@ function renderControls({
     );
 }
 
-function createRun(): DashboardStructureImportRun {
+function createRun(overrides: Partial<DashboardStructureImportRun> = {}): DashboardStructureImportRun {
     return {
         id: 'run-1',
         status: 'approved',
@@ -82,6 +120,7 @@ function createRun(): DashboardStructureImportRun {
         summary: { creates: 0, updates: 0, deletes: 1, roles: 1, categories: 0, channels: 0 },
         actionCount: 1,
         executionActionCount: 1,
+        planBlockerCount: 0,
         actions: [],
         policy: 'synchronize',
         decisionSummary: createEmptyDecisionSummary(),
@@ -89,14 +128,17 @@ function createRun(): DashboardStructureImportRun {
         planDigest: 'plan-digest',
         deleteActionCount: 1,
         deleteSetDigest: 'delete-digest',
+        ...overrides,
     };
 }
 
 function createPreflight({
     destructiveApprovalRequired = 0,
+    checkedAt = '2026-07-13T10:00:00.000Z',
     expiresAt = new Date(Date.now() + 60_000).toISOString(),
 }: {
     destructiveApprovalRequired?: number;
+    checkedAt?: string;
     expiresAt?: string;
 }): DashboardStructurePreflightView {
     return {
@@ -119,7 +161,7 @@ function createPreflight({
                 message: 'Ready.',
             },
         ],
-        checkedAt: '2026-07-13T10:00:00.000Z',
+        checkedAt,
         expiresAt,
     };
 }

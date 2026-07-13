@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import {
     FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
     isFluxerGuildStructureSnapshotJsonWithinByteLimit,
-} from '@neonflux/fluxer/guild-structure-diff';
+} from '@neonflux/fluxer/guild-structure-snapshot';
 
 import type {
     DashboardStructureActionPageInput,

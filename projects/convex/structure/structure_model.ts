@@ -1049,6 +1049,16 @@ export function isStructureExecutionMutationAuthorizedForLease(input: {
     );
 }
 
+export function isStructureImportRetryPreflightFresh(input: {
+    latestExecution?: { status: string; updatedAt: string } | null;
+    preflightCheckedAt: string;
+}): boolean {
+    return (
+        input.latestExecution?.status !== 'failed_before_mutation' ||
+        input.preflightCheckedAt > input.latestExecution.updatedAt
+    );
+}
+
 export function resolveExpiredStructureImportControl(controlRequest: unknown): 'paused' | 'cancelled' {
     return controlRequest === 'cancel' ? 'cancelled' : 'paused';
 }

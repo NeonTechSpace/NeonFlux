@@ -93,6 +93,17 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.getByText(/immediately check the live server again/i)).toBeTruthy();
     });
 
+    it('does not offer approval while the plan has blocked decisions', () => {
+        const onApprove = vi.fn();
+        const run = createRun({ status: 'review_ready', planBlockerCount: 2 });
+
+        renderHistory(run, { onApprove });
+
+        expect(screen.queryByRole('button', { name: 'Continue to final check' })).toBeNull();
+        expect(screen.getByRole('alert').textContent).toContain('2 blocked decisions');
+        expect(onApprove).not.toHaveBeenCalled();
+    });
+
     it('does not offer approval or apply when the blueprint already matches', () => {
         const run = createRun({
             status: 'review_ready',
@@ -143,6 +154,7 @@ function createRun(overrides: Partial<DashboardStructureImportRun> = {}): Dashbo
         summary: { creates: 0, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 0 },
         actionCount: 1,
         executionActionCount: 1,
+        planBlockerCount: 0,
         actions: [
             {
                 id: 'action-1',

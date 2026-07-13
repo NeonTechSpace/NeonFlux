@@ -44,7 +44,12 @@ export function DashboardStructureApplyControls({
     const preflightExpired = preflightReport?.expiresAt
         ? preflightExpiry.expiresAt !== preflightReport.expiresAt || preflightExpiry.expired
         : false;
-    const canApply = preflightReport ? isDashboardStructurePreflightReady(preflightReport) && !preflightExpired : false;
+    const retryPreflightRequired =
+        run.execution?.status === 'failed_before_mutation' &&
+        (!preflightReport?.checkedAt || preflightReport.checkedAt <= run.execution.updatedAt);
+    const canApply = preflightReport
+        ? isDashboardStructurePreflightReady(preflightReport) && !preflightExpired && !retryPreflightRequired
+        : false;
     const hardBlockerCount = preflightReport ? countDashboardStructurePreflightHardBlockers(preflightReport) : 0;
     const confirmationMatches = !hasDestructiveApproval || deleteConfirmation.trim() === expectedDeleteText;
 
@@ -117,6 +122,10 @@ export function DashboardStructureApplyControls({
                         </button>
                     </div>
                 </div>
+            ) : retryPreflightRequired ? (
+                <DashboardStatus tone='warning' title='Fresh safety check required' role='alert'>
+                    Run the safety check again after the failed deployment before applying this reviewed result.
+                </DashboardStatus>
             ) : preflightExpired ? (
                 <DashboardStatus tone='warning' title='Safety check expired' role='alert'>
                     Run the safety check again before applying this reviewed result.

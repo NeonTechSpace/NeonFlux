@@ -519,6 +519,7 @@ function createImportRun(overrides: Partial<DashboardStructureImportRun> = {}): 
         },
         actionCount: 1,
         executionActionCount: 1,
+        planBlockerCount: 0,
         actions: [],
         policy: 'synchronize',
         decisionSummary: {

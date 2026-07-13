@@ -168,6 +168,7 @@ export type DashboardStructureImportRun = {
     summary: DashboardStructurePlan['summary'];
     actionCount: number;
     executionActionCount: number;
+    planBlockerCount: number;
     actions: DashboardStructureImportAction[];
     requestedSnapshot?: DashboardStructureSnapshot;
     requestedSnapshotStoredAt?: string;
@@ -1495,6 +1496,7 @@ function toDashboardImportRun(
     if (!planDigest) throw new Error('invalid-server-blueprint-v3-digest');
     const actionCount = summary.creates + summary.updates + summary.deletes;
     const executionActionCount = readExecutionActionCount(record.plan);
+    const planBlockerCount = Array.isArray(record.plan.blockers) ? record.plan.blockers.length : 1;
 
     return {
         id: record.id,
@@ -1505,6 +1507,7 @@ function toDashboardImportRun(
         summary,
         actionCount,
         executionActionCount,
+        planBlockerCount,
         actions: shouldInlineImportActions(executionActionCount, actions) ? actions.map(toDashboardImportAction) : [],
         ...(requestedSnapshot ? { requestedSnapshot } : {}),
         ...(requestedSnapshot && requestedSnapshotStoredAt ? { requestedSnapshotStoredAt } : {}),

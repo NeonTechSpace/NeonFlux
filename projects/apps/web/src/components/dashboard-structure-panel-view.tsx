@@ -340,7 +340,7 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
                 busyAction={workspace.busyAction}
                 onCheckLatest={workspace.onCheckLatestDrift}
                 onCreateBackup={workspace.onCreateBackup}
-                onCreateDryRun={workspace.onDriftCreateDryRun}
+                onCreateDryRun={(backup) => workspace.onCreateRestoreDryRun(backup.id)}
                 onReviewScheduledDrift={workspace.onReviewScheduledDrift}
                 onSelectAction={workspace.explorer.selectDriftAction}
             />
@@ -515,7 +515,7 @@ function DeploySource({
                     />
                     <button
                         type='button'
-                        onClick={workspace.explorer.inspectImportJson}
+                        onClick={workspace.onInspectImportJson}
                         disabled={!workspace.importJson.trim() || Boolean(workspace.busyAction)}
                         className={`mt-3 ${dashboardSecondaryActionClassName}`}>
                         Inspect source
@@ -852,10 +852,10 @@ export type DashboardStructurePanelViewProps = {
     onCreateRestoreDryRun: (backupId: string) => void;
     onDeleteConfirmationChange: (runId: string, confirmation: string) => void;
     onDownloadCurrentStructure: () => void;
-    onDriftCreateDryRun: (backup: DashboardStructureBackupSummary) => void;
     onImportJsonChange: Dispatch<SetStateAction<string>>;
     onImportStructureFile: (file: File | undefined) => Promise<void>;
     onInspectCurrentLayout: () => void;
+    onInspectImportJson: () => void;
     onLoadMoreBackups: () => void;
     onLoadRunActions: (run: DashboardStructureImportRun) => void;
     onLoadRunDecisions: (run: DashboardStructureImportRun) => void;

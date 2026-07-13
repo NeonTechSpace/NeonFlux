@@ -2,7 +2,7 @@ import { api } from '@neonflux/convex-api';
 
 import type { ConvexServiceDbClient } from './convex.js';
 
-export const STRUCTURE_EXECUTION_PROTOCOL_VERSION = 3 as const;
+export const STRUCTURE_EXECUTION_PROTOCOL_VERSION = 4 as const;
 export const CONVEX_RUNTIME_CONTRACT_TIMEOUT_MS = 10_000;
 
 type ConvexRuntimeContractErrorOptions = {

@@ -161,7 +161,7 @@ function ImportRunCard({
     const isActionBusy = busyAction === `actions:${run.id}`;
     const isRecoveryBusy = busyAction === `recovery:${run.id}`;
     const hasChanges = run.executionActionCount > 0;
-    const canApprove = run.status === 'review_ready' && !run.execution && hasChanges;
+    const canApprove = run.status === 'review_ready' && !run.execution && hasChanges && run.planBlockerCount === 0;
     const canPreflight =
         hasChanges &&
         run.status === 'approved' &&
@@ -193,6 +193,15 @@ function ImportRunCard({
             {!hasChanges ? (
                 <p className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-success)]/35 bg-[var(--dash-success-soft)] p-3 text-sm font-semibold text-[var(--dash-success)]'>
                     Already matches — no deployment is needed.
+                </p>
+            ) : null}
+            {run.planBlockerCount > 0 ? (
+                <p
+                    role='alert'
+                    className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-3 text-sm text-[var(--dash-danger)]'>
+                    This plan has {run.planBlockerCount} blocked{' '}
+                    {run.planBlockerCount === 1 ? 'decision.' : 'decisions.'} Resolve the source blueprint and create a
+                    new plan before continuing.
                 </p>
             ) : null}
             <DecisionSummary

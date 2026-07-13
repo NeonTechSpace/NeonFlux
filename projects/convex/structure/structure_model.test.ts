@@ -19,6 +19,7 @@ import {
     isStructureBackupRetentionEligible,
     isStructureExecutionMutationAuthorizedForLease,
     isStructureImportDecisionLedgerComplete,
+    isStructureImportRetryPreflightFresh,
     resolveExpiredStructureImportControl,
     resolveStructureExecutionMutationAuthorization,
     resolveStructureAttemptCompletionStatus,
@@ -41,6 +42,43 @@ const runId = 'run-1' as GenericId<'structureImportRuns'>;
 const actionId = 'action-1' as GenericId<'structureImportActions'>;
 
 describe('structure model', () => {
+    it('requires retry preflight to postdate a failed-before-mutation execution', () => {
+        const failedExecution = {
+            status: 'failed_before_mutation',
+            updatedAt: '2026-06-28T12:01:00.000Z',
+        };
+
+        expect(
+            isStructureImportRetryPreflightFresh({
+                latestExecution: failedExecution,
+                preflightCheckedAt: '2026-06-28T12:00:00.000Z',
+            })
+        ).toBe(false);
+        expect(
+            isStructureImportRetryPreflightFresh({
+                latestExecution: failedExecution,
+                preflightCheckedAt: failedExecution.updatedAt,
+            })
+        ).toBe(false);
+        expect(
+            isStructureImportRetryPreflightFresh({
+                latestExecution: failedExecution,
+                preflightCheckedAt: '2026-06-28T12:02:00.000Z',
+            })
+        ).toBe(true);
+        expect(
+            isStructureImportRetryPreflightFresh({
+                latestExecution: { ...failedExecution, status: 'cancelled' },
+                preflightCheckedAt: '2026-06-28T12:00:00.000Z',
+            })
+        ).toBe(true);
+        expect(
+            isStructureImportRetryPreflightFresh({
+                preflightCheckedAt: '2026-06-28T12:00:00.000Z',
+            })
+        ).toBe(true);
+    });
+
     it('requires a fresh matching live fingerprint before the first provider mutation', () => {
         const boundary = {
             completedMutationSteps: 0,

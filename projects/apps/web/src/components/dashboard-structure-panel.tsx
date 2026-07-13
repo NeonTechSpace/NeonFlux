@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS } from '@neonflux/fluxer/guild-structure-diff';
+import { FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS } from '@neonflux/fluxer/guild-structure-snapshot';
 import { createContext, use, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -537,11 +537,16 @@ function DashboardStructureController({
             onApprovePlan: (run) => void imports.reviewAndPreflight(run),
             onCreateBackup: () => void createBackup(),
             onCreatePlan: () => void imports.createPlan(),
-            onCreateRestoreDryRun: (backupId) => void imports.createDryRunFromBackupId({ backupId, intent: 'restore' }),
+            onCreateRestoreDryRun: (backupId) => {
+                void (async () => {
+                    const created = await imports.createDryRunFromBackupId({ backupId, intent: 'restore' });
+                    if (!created) return;
+                    await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
+                })();
+            },
             onDeleteConfirmationChange: (runId, confirmation) =>
                 imports.setDeleteConfirmationByRunId((current) => ({ ...current, [runId]: confirmation })),
             onDownloadCurrentStructure: () => void downloadCurrentStructure(),
-            onDriftCreateDryRun: (backup) => void importBackup(backup),
             onImportJsonChange: (value) => {
                 setImportJson(value);
                 imports.clearRoleMappings();
@@ -566,6 +571,10 @@ function DashboardStructureController({
                     await explorer.loadLiveExplorerSnapshot();
                     await navigate({ to: '/dashboard/$guildId/structure/compare', params: { guildId } });
                 })();
+            },
+            onInspectImportJson: () => {
+                if (!explorer.inspectImportJson()) return;
+                void navigate({ to: '/dashboard/$guildId/structure/compare', params: { guildId } });
             },
             onLoadMoreBackups: () => void loadMoreBackups(),
             onLoadRunActions: (run) => void imports.loadRunActions(run),
