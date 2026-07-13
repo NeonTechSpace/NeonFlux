@@ -1,4 +1,5 @@
 import {
+    Client,
     Events,
     GatewayOpcodes,
     PermissionFlags,
@@ -7,8 +8,8 @@ import {
     type GuildBan,
     type GuildMember,
     type Message,
-    type MessageReaction,
     type PartialMessage,
+    type Role,
     type User,
 } from '@fluxerjs/core';
 import type { AppLogger } from '@neonflux/core/logging';
@@ -24,7 +25,6 @@ import {
     type FluxerBotMessageEvent,
     type FluxerBotMessageDeletedEvent,
     type FluxerBotMessageUpdatedEvent,
-    type FluxerBotReactionEvent,
     type FluxerBotRoleEvent,
     type FluxerBotVoiceStateEvent,
 } from './client.js';
@@ -51,46 +51,64 @@ describe('createFluxerBot lifecycle handlers', () => {
         });
     });
 
-    it('keeps a temporarily unavailable guild installed and removes a genuine GuildDelete', async () => {
-        const guildDeleted = vi.fn<(event: { guildId: string; unavailable: boolean }) => void>();
+    it('routes available, unavailable, and permanent-delete guild lifecycle events separately', () => {
+        const guildAvailable = vi.fn<(event: FluxerBotGuildEvent) => void>();
+        const guildUnavailable = vi.fn<(event: FluxerBotGuildEvent) => void>();
+        const guildDeleted = vi.fn<(event: FluxerBotGuildEvent) => void>();
         const bot = createFluxerBot(createConfig(), createLogger(), {
+            guildAvailable,
+            guildUnavailable,
             guildDeleted,
         });
         const guild = createGuild('guild-1');
-        const dispatchClient = bot.client as unknown as {
-            _dispatchGatewayPayload(payload: {
-                d: { id: string; unavailable: boolean };
-                op: typeof GatewayOpcodes.Dispatch;
-                s: number;
-                t: 'GUILD_DELETE';
-            }): Promise<void>;
-        };
-        bot.client.guilds.set(guild.id, guild);
 
-        await dispatchClient._dispatchGatewayPayload({
+        bot.client.emit(Events.GuildUnavailable, guild);
+        bot.client.emit(Events.GuildAvailable, guild);
+        bot.client.emit(Events.GuildDelete, guild);
+
+        expect(guildUnavailable).toHaveBeenCalledWith({ guildId: guild.id });
+        expect(guildAvailable).toHaveBeenCalledWith({ guildId: guild.id });
+        expect(guildDeleted).toHaveBeenCalledWith({ guildId: guild.id });
+    });
+
+    it('retains a known guild for an unavailable gateway delete and removes it for a permanent delete', async () => {
+        const client = new Client({ gatewayDeferHandlers: false, waitForGuilds: false });
+        const guild = createGuild('guild-1', { available: true });
+        const guildUnavailable = vi.fn();
+        const guildDeleted = vi.fn();
+        const dispatch = (payload: unknown) =>
+            (client as unknown as { handleDispatch(payload: unknown): Promise<void> }).handleDispatch(payload);
+        client.guilds.set(guild.id, guild);
+        client.on(Events.GuildUnavailable, guildUnavailable);
+        client.on(Events.GuildDelete, guildDeleted);
+
+        await dispatch({
             d: { id: guild.id, unavailable: true },
             op: GatewayOpcodes.Dispatch,
             s: 1,
             t: 'GUILD_DELETE',
         });
-
-        const event = guildDeleted.mock.calls[0]?.[0];
-
-        expect(event).toStrictEqual({
-            guildId: 'guild-1',
-            unavailable: true,
-        });
-        expect(bot.client.guilds.get(guild.id)).toBe(guild);
-
-        await dispatchClient._dispatchGatewayPayload({
-            d: { id: guild.id, unavailable: false },
+        await dispatch({
+            d: { id: guild.id, unavailable: true },
             op: GatewayOpcodes.Dispatch,
             s: 2,
             t: 'GUILD_DELETE',
         });
 
-        expect(guildDeleted).toHaveBeenLastCalledWith({ guildId: guild.id, unavailable: false });
-        expect(bot.client.guilds.has(guild.id)).toBe(false);
+        expect(client.guilds.get(guild.id)).toBe(guild);
+        expect(guild.available).toBe(false);
+        expect(guildUnavailable).toHaveBeenCalledExactlyOnceWith(guild);
+        expect(guildDeleted).not.toHaveBeenCalled();
+
+        await dispatch({
+            d: { id: guild.id, unavailable: false },
+            op: GatewayOpcodes.Dispatch,
+            s: 3,
+            t: 'GUILD_DELETE',
+        });
+
+        expect(client.guilds.has(guild.id)).toBe(false);
+        expect(guildDeleted).toHaveBeenCalledWith(guild);
     });
 
     it('calls guildUpdated with only the new guild id on GuildUpdate', () => {
@@ -127,7 +145,9 @@ describe('createFluxerBot lifecycle handlers', () => {
 
         expect(() => {
             bot.client.emit(Events.GuildCreate, createGuild('guild-1'));
-            bot.client.emit(Events.GuildDelete, createGuild('guild-1'), false);
+            bot.client.emit(Events.GuildUnavailable, createGuild('guild-1'));
+            bot.client.emit(Events.GuildAvailable, createGuild('guild-1'));
+            bot.client.emit(Events.GuildDelete, createGuild('guild-1'));
         }).not.toThrow();
         expect(logger.error).not.toHaveBeenCalled();
     });
@@ -177,9 +197,11 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(multiBot.client.options.cache).toStrictEqual({
             channels: 5_000,
             guilds: 0,
+            members: 5_000,
             messages: 0,
             users: 10_000,
         });
+        expect(multiBot.client.options.rest?.retryPolicy).toBeTypeOf('function');
         expect(singleBot.client.options.cache?.guilds).toBe(1);
     });
 
@@ -393,51 +415,6 @@ describe('createFluxerBot lifecycle handlers', () => {
         });
     });
 
-    it('calls reaction handlers with normalized reaction data', () => {
-        const reactionAdded = vi.fn<(event: FluxerBotReactionEvent) => void>();
-        const reactionRemoved = vi.fn<(event: FluxerBotReactionEvent) => void>();
-        const bot = createFluxerBot(createConfig(), createLogger(), {
-            reactionAdded,
-            reactionRemoved,
-        });
-
-        bot.client.emit(
-            Events.MessageReactionAdd,
-            createReaction(),
-            createUser('user-1'),
-            'message-1',
-            'channel-1',
-            undefined,
-            'reactor-1'
-        );
-        bot.client.emit(
-            Events.MessageReactionRemove,
-            createReaction({ emojiIdentifier: 'emoji:2' }),
-            createUser('user-2'),
-            'message-2',
-            'channel-2',
-            undefined,
-            ''
-        );
-
-        expect(reactionAdded.mock.calls[0]?.[0]).toStrictEqual({
-            messageId: 'message-1',
-            channelId: 'channel-1',
-            guildId: 'guild-1',
-            userId: 'reactor-1',
-            userIsBot: false,
-            emojiKey: 'emoji:1',
-        });
-        expect(reactionRemoved.mock.calls[0]?.[0]).toStrictEqual({
-            messageId: 'message-2',
-            channelId: 'channel-2',
-            guildId: 'guild-1',
-            userId: 'user-2',
-            userIsBot: false,
-            emojiKey: 'emoji:2',
-        });
-    });
-
     it('calls member handlers with normalized member data', () => {
         const memberJoined = vi.fn<(event: FluxerBotMemberEvent) => void>();
         const memberUpdated = vi.fn<(event: FluxerBotMemberEvent) => void>();
@@ -501,10 +478,11 @@ describe('createFluxerBot lifecycle handlers', () => {
         });
 
         bot.client.emit(Events.GuildRoleCreate, createRoleEvent('role-1'));
-        bot.client.emit(Events.GuildRoleUpdate, createRoleEvent('role-2'));
+        bot.client.emit(Events.GuildRoleUpdate, { role: createRoleEvent('role-2'), oldRole: null });
         bot.client.emit(Events.GuildRoleDelete, {
-            guild_id: 'guild-1',
-            role_id: 'role-3',
+            guildId: 'guild-1',
+            roleId: 'role-3',
+            role: null,
         });
 
         expect(roleCreated.mock.calls[0]?.[0]).toStrictEqual({
@@ -730,14 +708,6 @@ function createUser(id: string, overrides: Partial<User> = {}): User {
     } as User;
 }
 
-function createReaction(overrides: Partial<MessageReaction> = {}): MessageReaction {
-    return {
-        guildId: 'guild-1',
-        emojiIdentifier: 'emoji:1',
-        ...overrides,
-    } as MessageReaction;
-}
-
 function createMember(roleIds: string[]): GuildMember {
     return {
         id: 'member-1',
@@ -755,13 +725,11 @@ function createBan(userId: string): GuildBan {
     } as GuildBan;
 }
 
-function createRoleEvent(roleId: string) {
+function createRoleEvent(roleId: string): Role {
     return {
-        guild_id: 'guild-1',
-        role: {
-            id: roleId,
-        },
-    };
+        guildId: 'guild-1',
+        id: roleId,
+    } as Role;
 }
 
 function createChannel(id: string, type: number): Channel {

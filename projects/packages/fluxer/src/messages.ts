@@ -3,8 +3,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
 import { readFluxerGuildStructure } from './guild-structure.js';
-
-export * from './message-reaction-emojis.js';
+import { fluxerSafeRestOptions } from './rest-retry-policy.js';
 
 export type SendFluxerChannelMessageInput = {
     allowedMentions?: MessageSendOptions['allowedMentions'];
@@ -40,40 +39,6 @@ export type EditFluxerGuildChannelMessageInput = EditFluxerChannelMessageInput &
 };
 
 export type EditFluxerBotGuildChannelMessageInput = Omit<EditFluxerGuildChannelMessageInput, 'client'> & {
-    botToken: string;
-};
-
-export type ReactFluxerChannelMessageInput = {
-    client: FluxerBot['client'];
-    channelId: string;
-    messageId: string;
-    emoji: string;
-};
-
-export type ReactFluxerGuildChannelMessageInput = ReactFluxerChannelMessageInput & {
-    guildId: string;
-};
-
-export type ReactFluxerBotGuildChannelMessageInput = Omit<ReactFluxerGuildChannelMessageInput, 'client'> & {
-    botToken: string;
-};
-
-export type RemoveFluxerChannelMessageReactionInput = {
-    client: FluxerBot['client'];
-    channelId: string;
-    messageId: string;
-    emoji: string;
-    userId: string;
-};
-
-export type RemoveFluxerGuildChannelMessageReactionInput = RemoveFluxerChannelMessageReactionInput & {
-    guildId: string;
-};
-
-export type RemoveFluxerBotGuildChannelMessageReactionInput = Omit<
-    RemoveFluxerGuildChannelMessageReactionInput,
-    'client' | 'userId'
-> & {
     botToken: string;
 };
 
@@ -118,39 +83,7 @@ export type EditFluxerBotGuildChannelMessageError =
     | { type: 'missing-input'; field: 'botToken' }
     | { type: 'login-failed'; error: unknown };
 
-export type ReactFluxerChannelMessageError =
-    | { type: 'missing-input'; field: 'channelId' | 'messageId' | 'emoji' }
-    | { type: 'react-failed'; error: unknown };
-
-export type ReactFluxerGuildChannelMessageError =
-    | ReactFluxerChannelMessageError
-    | { type: 'missing-input'; field: 'guildId' }
-    | { type: 'channel-not-in-guild' }
-    | { type: 'guild-lookup-failed'; error?: unknown };
-
-export type ReactFluxerBotGuildChannelMessageError =
-    | ReactFluxerGuildChannelMessageError
-    | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown };
-
-export type RemoveFluxerChannelMessageReactionError =
-    | { type: 'missing-input'; field: 'channelId' | 'messageId' | 'emoji' | 'userId' }
-    | { type: 'unsupported'; feature: 'message-reaction-removal' }
-    | { type: 'remove-reaction-failed'; error: unknown };
-
-export type RemoveFluxerGuildChannelMessageReactionError =
-    | RemoveFluxerChannelMessageReactionError
-    | { type: 'missing-input'; field: 'guildId' }
-    | { type: 'channel-not-in-guild' }
-    | { type: 'guild-lookup-failed'; error?: unknown };
-
-export type RemoveFluxerBotGuildChannelMessageReactionError =
-    | RemoveFluxerGuildChannelMessageReactionError
-    | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown }
-    | { type: 'bot-user-unavailable' };
-
-type ReactableMessageChannel = {
+type EditableMessageChannel = {
     messages: {
         fetch(messageId: string): Promise<{
             id?: string;
@@ -161,8 +94,6 @@ type ReactableMessageChannel = {
                 channelId: string;
                 guildId?: string | null;
             }>;
-            react(emoji: string): Promise<void>;
-            removeReaction?(emoji: string, userId?: string): Promise<void>;
         }>;
     };
 };
@@ -176,7 +107,7 @@ export async function sendFluxerBotChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false });
+    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
 
     try {
         await client.login(botToken);
@@ -204,7 +135,7 @@ export async function sendFluxerBotGuildChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false });
+    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
 
     try {
         await client.login(botToken);
@@ -233,7 +164,7 @@ export async function editFluxerBotGuildChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false });
+    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
 
     try {
         await client.login(botToken);
@@ -246,69 +177,6 @@ export async function editFluxerBotGuildChannelMessage(
             messageId: input.messageId,
             ...(input.content ? { content: input.content } : {}),
             ...(input.embeds ? { embeds: input.embeds } : {}),
-        });
-    } catch (error) {
-        return err({ type: 'login-failed', error });
-    } finally {
-        await client.destroy().catch(() => undefined);
-    }
-}
-
-export async function reactFluxerBotGuildChannelMessage(
-    input: ReactFluxerBotGuildChannelMessageInput
-): Promise<Result<void, ReactFluxerBotGuildChannelMessageError>> {
-    const botToken = input.botToken.trim();
-
-    if (!botToken) {
-        return err({ type: 'missing-input', field: 'botToken' });
-    }
-
-    const client = new Client({ gatewayDebug: false });
-
-    try {
-        await client.login(botToken);
-
-        return await reactFluxerGuildChannelMessage({
-            client,
-            guildId: input.guildId,
-            channelId: input.channelId,
-            messageId: input.messageId,
-            emoji: input.emoji,
-        });
-    } catch (error) {
-        return err({ type: 'login-failed', error });
-    } finally {
-        await client.destroy().catch(() => undefined);
-    }
-}
-
-export async function removeFluxerBotGuildChannelMessageReaction(
-    input: RemoveFluxerBotGuildChannelMessageReactionInput
-): Promise<Result<void, RemoveFluxerBotGuildChannelMessageReactionError>> {
-    const botToken = input.botToken.trim();
-
-    if (!botToken) {
-        return err({ type: 'missing-input', field: 'botToken' });
-    }
-
-    const client = new Client({ gatewayDebug: false });
-
-    try {
-        await client.login(botToken);
-
-        const botUserId = getClientUserId(client);
-
-        if (!botUserId) {
-            return err({ type: 'bot-user-unavailable' });
-        }
-
-        return await removeFluxerGuildChannelMessageReaction({
-            client,
-            guildId: input.guildId,
-            channelId: input.channelId,
-            messageId: input.messageId,
-            emoji: input.emoji,
-            userId: botUserId,
         });
     } catch (error) {
         return err({ type: 'login-failed', error });
@@ -353,42 +221,6 @@ export async function sendFluxerGuildChannelMessage(
     return sendFluxerChannelMessage(input);
 }
 
-export async function reactFluxerGuildChannelMessage(
-    input: ReactFluxerGuildChannelMessageInput
-): Promise<Result<void, ReactFluxerGuildChannelMessageError>> {
-    const guildId = input.guildId.trim();
-    const channelId = input.channelId.trim();
-
-    if (!guildId) {
-        return err({ type: 'missing-input', field: 'guildId' });
-    }
-
-    const structureResult = await readFluxerGuildStructure({
-        client: input.client,
-        guildId,
-    });
-
-    if (structureResult.isErr()) {
-        switch (structureResult.error.type) {
-            case 'missing-input':
-                return err({ type: 'missing-input', field: 'guildId' });
-
-            case 'fetch-failed':
-                return err({ type: 'guild-lookup-failed', error: structureResult.error.error });
-
-            case 'unavailable-or-not-found':
-            case 'invalid-response':
-                return err({ type: 'guild-lookup-failed' });
-        }
-    }
-
-    if (!structureResult.value.channels.some((channel) => channel.id === channelId)) {
-        return err({ type: 'channel-not-in-guild' });
-    }
-
-    return reactFluxerChannelMessage(input);
-}
-
 export async function editFluxerGuildChannelMessage(
     input: EditFluxerGuildChannelMessageInput
 ): Promise<Result<FluxerSentMessage, EditFluxerGuildChannelMessageError>> {
@@ -423,42 +255,6 @@ export async function editFluxerGuildChannelMessage(
     }
 
     return editFluxerChannelMessage(input);
-}
-
-export async function removeFluxerGuildChannelMessageReaction(
-    input: RemoveFluxerGuildChannelMessageReactionInput
-): Promise<Result<void, RemoveFluxerGuildChannelMessageReactionError>> {
-    const guildId = input.guildId.trim();
-    const channelId = input.channelId.trim();
-
-    if (!guildId) {
-        return err({ type: 'missing-input', field: 'guildId' });
-    }
-
-    const structureResult = await readFluxerGuildStructure({
-        client: input.client,
-        guildId,
-    });
-
-    if (structureResult.isErr()) {
-        switch (structureResult.error.type) {
-            case 'missing-input':
-                return err({ type: 'missing-input', field: 'guildId' });
-
-            case 'fetch-failed':
-                return err({ type: 'guild-lookup-failed', error: structureResult.error.error });
-
-            case 'unavailable-or-not-found':
-            case 'invalid-response':
-                return err({ type: 'guild-lookup-failed' });
-        }
-    }
-
-    if (!structureResult.value.channels.some((channel) => channel.id === channelId)) {
-        return err({ type: 'channel-not-in-guild' });
-    }
-
-    return removeFluxerChannelMessageReaction(input);
 }
 
 export async function sendFluxerChannelMessage(
@@ -540,7 +336,7 @@ export async function editFluxerChannelMessage(
     try {
         const channel = await input.client.channels.resolve(channelId);
 
-        if (!isReactableMessageChannel(channel)) {
+        if (!isEditableMessageChannel(channel)) {
             return err({ type: 'edit-failed', error: new Error('Message channel is not fetchable.') });
         }
 
@@ -562,88 +358,7 @@ export async function editFluxerChannelMessage(
     }
 }
 
-export async function reactFluxerChannelMessage(
-    input: ReactFluxerChannelMessageInput
-): Promise<Result<void, ReactFluxerChannelMessageError>> {
-    const channelId = input.channelId.trim();
-    const messageId = input.messageId.trim();
-    const emoji = input.emoji.trim();
-
-    if (!channelId) {
-        return err({ type: 'missing-input', field: 'channelId' });
-    }
-
-    if (!messageId) {
-        return err({ type: 'missing-input', field: 'messageId' });
-    }
-
-    if (!emoji) {
-        return err({ type: 'missing-input', field: 'emoji' });
-    }
-
-    try {
-        const channel = await input.client.channels.resolve(channelId);
-
-        if (!isReactableMessageChannel(channel)) {
-            return err({ type: 'react-failed', error: new Error('Message channel is not fetchable.') });
-        }
-
-        const message = await channel.messages.fetch(messageId);
-
-        await message.react(emoji);
-
-        return ok(undefined);
-    } catch (error) {
-        return err({ type: 'react-failed', error });
-    }
-}
-
-export async function removeFluxerChannelMessageReaction(
-    input: RemoveFluxerChannelMessageReactionInput
-): Promise<Result<void, RemoveFluxerChannelMessageReactionError>> {
-    const channelId = input.channelId.trim();
-    const messageId = input.messageId.trim();
-    const emoji = input.emoji.trim();
-    const userId = input.userId.trim();
-
-    if (!channelId) {
-        return err({ type: 'missing-input', field: 'channelId' });
-    }
-
-    if (!messageId) {
-        return err({ type: 'missing-input', field: 'messageId' });
-    }
-
-    if (!emoji) {
-        return err({ type: 'missing-input', field: 'emoji' });
-    }
-
-    if (!userId) {
-        return err({ type: 'missing-input', field: 'userId' });
-    }
-
-    try {
-        const channel = await input.client.channels.resolve(channelId);
-
-        if (!isReactableMessageChannel(channel)) {
-            return err({ type: 'remove-reaction-failed', error: new Error('Message channel is not fetchable.') });
-        }
-
-        const message = await channel.messages.fetch(messageId);
-
-        if (typeof message.removeReaction !== 'function') {
-            return err({ type: 'unsupported', feature: 'message-reaction-removal' });
-        }
-
-        await message.removeReaction(emoji, userId);
-
-        return ok(undefined);
-    } catch (error) {
-        return err({ type: 'remove-reaction-failed', error });
-    }
-}
-
-function isReactableMessageChannel(channel: unknown): channel is ReactableMessageChannel {
+function isEditableMessageChannel(channel: unknown): channel is EditableMessageChannel {
     if (typeof channel !== 'object' || channel === null) {
         return false;
     }
@@ -651,10 +366,4 @@ function isReactableMessageChannel(channel: unknown): channel is ReactableMessag
     const possibleChannel = channel as { messages?: { fetch?: unknown } };
 
     return typeof possibleChannel.messages?.fetch === 'function';
-}
-
-function getClientUserId(client: Client): string | undefined {
-    const userId = (client as { user?: { id?: unknown } }).user?.id?.toString().trim();
-
-    return userId === '' ? undefined : userId;
 }

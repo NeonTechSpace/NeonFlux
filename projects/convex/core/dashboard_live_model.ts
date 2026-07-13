@@ -1,7 +1,6 @@
 export const dashboardLiveAreas = [
     'overview',
     'commands',
-    'reaction_roles',
     'posting',
     'import_export',
     'structure',
@@ -23,7 +22,6 @@ const dashboardLiveAreaSet = new Set<string>(dashboardLiveAreas);
 const featureAreaMap = new Map<string, readonly DashboardLiveArea[]>([
     ['import_export', ['import_export', 'structure']],
     ['posting', ['posting']],
-    ['reaction_roles', ['reaction_roles']],
     ['settings', ['commands']],
 ]);
 

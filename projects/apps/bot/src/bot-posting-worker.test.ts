@@ -114,6 +114,19 @@ describe('dashboard posting worker', () => {
         expect(sendMessage).not.toHaveBeenCalled();
     });
 
+    it.each([5, 998])('rejects non-text Fluxer channel type %s before starting a send', async (channelType) => {
+        vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(createOperation()));
+        readStructure.mockResolvedValue(
+            ok({ channels: [{ id: 'channel-1', name: 'not-text', type: channelType }], guildId: 'guild-1', roles: [] })
+        );
+
+        const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ errorCode: 'channel_not_postable', status: 'permanent_failure' });
+        expect(markDashboardPostingOperationSendStarted).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+    });
+
     it('finalizes a persisted external message without sending again', async () => {
         const operation = createOperation({ externalChannelId: 'channel-1', externalMessageId: 'message-1' });
         vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(operation));

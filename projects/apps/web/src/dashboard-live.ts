@@ -1,7 +1,6 @@
 const dashboardLiveAreas = [
     'overview',
     'commands',
-    'reaction_roles',
     'posting',
     'import_export',
     'structure',

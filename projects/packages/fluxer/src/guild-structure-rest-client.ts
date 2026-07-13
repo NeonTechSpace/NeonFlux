@@ -1,5 +1,7 @@
 import { Client } from '@fluxerjs/core';
 
+import { fluxerReadOnlyRetryPolicy } from './rest-retry-policy.js';
+
 export const GUILD_STRUCTURE_REST_TIMEOUT_MS = 15_000;
 
 export function createFluxerGuildStructureRestClient(botToken: string): Client {
@@ -7,6 +9,7 @@ export function createFluxerGuildStructureRestClient(botToken: string): Client {
         gatewayDebug: false,
         rest: {
             retries: 0,
+            retryPolicy: fluxerReadOnlyRetryPolicy,
             timeout: GUILD_STRUCTURE_REST_TIMEOUT_MS,
         },
     });

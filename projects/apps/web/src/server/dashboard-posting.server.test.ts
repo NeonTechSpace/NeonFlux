@@ -137,6 +137,22 @@ describe('dashboard posting', () => {
                         permissionOverwrites: [],
                     },
                     {
+                        id: 'announcement-1',
+                        name: 'Announcements',
+                        type: 5,
+                        parentId: null,
+                        position: 4,
+                        permissionOverwrites: [],
+                    },
+                    {
+                        id: 'link-1',
+                        name: 'External',
+                        type: 998,
+                        parentId: null,
+                        position: 5,
+                        permissionOverwrites: [],
+                    },
+                    {
                         id: 'channel-1',
                         name: 'general',
                         type: 0,

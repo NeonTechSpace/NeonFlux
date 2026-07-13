@@ -1,16 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-function readMaxWorkers(): number {
-    const rawValue = process.env.VITEST_MAX_WORKERS;
-
-    if (!rawValue) {
-        return 6;
-    }
-
-    const parsedValue = Number(rawValue);
-
-    return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : 6;
-}
+import { readMaxWorkers } from './vitest-worker-policy';
 
 export default defineConfig({
     test: {

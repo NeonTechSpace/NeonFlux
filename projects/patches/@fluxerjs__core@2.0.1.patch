@@ -1,0 +1,920 @@
+diff --git a/dist/client.d.mts b/dist/client.d.mts
+index d7173f099142d22f41c0e13f516bc94450aeb4ed..47de027608817a7ab9e6124c4fb7200bd60014db 100644
+--- a/dist/client.d.mts
++++ b/dist/client.d.mts
+@@ -1,4 +1,4 @@
+-export { C as CacheSizeLimits, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, H as Events } from './subpath-message-Acbzr5HA.mjs';
++export { C as CacheSizeLimits, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, H as Events } from './subpath-message-Yo0CfERf.mjs';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import 'events';
+diff --git a/dist/client.d.ts b/dist/client.d.ts
+index bc6369a34b9e1f3d83507014ead7734f70d535dc..1aac6856e76e955542d57f5e33caf0bf3d9e2aa5 100644
+--- a/dist/client.d.ts
++++ b/dist/client.d.ts
+@@ -1,4 +1,4 @@
+-export { C as CacheSizeLimits, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, H as Events } from './subpath-message-Acbzr5HA.js';
++export { C as CacheSizeLimits, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, H as Events } from './subpath-message-Yo0CfERf.js';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import 'events';
+diff --git a/dist/client.js b/dist/client.js
+index d95c729a994dd53ff250d96c25fac32a721ccc6e..b03f2c78543ddaa1b8dee6212d7afc8f731f1027 100644
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -485,6 +485,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3222,6 +3224,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4360,13 +4364,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4375,7 +4416,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4396,11 +4438,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4819,7 +4869,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/client.mjs b/dist/client.mjs
+index 4d5e714c3489e235f3417152e84d9487cb632163..0759c00e68bf94a499ac4c9a810a779abc66c91c 100644
+--- a/dist/client.mjs
++++ b/dist/client.mjs
+@@ -461,6 +461,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3206,6 +3208,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4348,13 +4352,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4363,7 +4404,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4384,11 +4426,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4810,7 +4860,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/cluster.d.mts b/dist/cluster.d.mts
+index 9f254ee94ee12116407bed7663fa534a8d718178..5628d0fb4716d56464da6f4fd9691f81f350d965 100644
+--- a/dist/cluster.d.mts
++++ b/dist/cluster.d.mts
+@@ -1,5 +1,5 @@
+ import { EventEmitter } from 'events';
+-import { F as DiscoveryOrigin, u as ClientOptions, r as Client } from './subpath-message-Acbzr5HA.mjs';
++import { F as DiscoveryOrigin, u as ClientOptions, r as Client } from './subpath-message-Yo0CfERf.mjs';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import '@fluxerjs/rest';
+diff --git a/dist/cluster.d.ts b/dist/cluster.d.ts
+index c96e2c99025ee111d0b91fe3ed3ea20caef98dc1..16e4b0cddcdc4ca2eda81edf34e0ecbf21633d19 100644
+--- a/dist/cluster.d.ts
++++ b/dist/cluster.d.ts
+@@ -1,5 +1,5 @@
+ import { EventEmitter } from 'events';
+-import { F as DiscoveryOrigin, u as ClientOptions, r as Client } from './subpath-message-Acbzr5HA.js';
++import { F as DiscoveryOrigin, u as ClientOptions, r as Client } from './subpath-message-Yo0CfERf.js';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import '@fluxerjs/rest';
+diff --git a/dist/cluster.js b/dist/cluster.js
+index ee9f0db3518711b99ba3c4cf4ea94f4d43599ed6..006dd8efb85b002392ac73f93c1af0b61879298e 100644
+--- a/dist/cluster.js
++++ b/dist/cluster.js
+@@ -49,6 +49,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3225,6 +3227,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4363,13 +4367,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4378,7 +4419,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4399,11 +4441,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4822,7 +4872,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/cluster.mjs b/dist/cluster.mjs
+index 057150a0494dbfa77250c9ab046b40b34cc8f59a..7608fc926de1ea19fb1256ee5fc335c560d7615f 100644
+--- a/dist/cluster.mjs
++++ b/dist/cluster.mjs
+@@ -20,6 +20,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3207,6 +3209,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4349,13 +4353,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4364,7 +4405,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4385,11 +4427,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4811,7 +4861,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index 7f9f2cad6b6a408b8e6317b9f023c29afb309c5f..0d3719fffd5a48a344479938c4f086db7fb87047 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -1,4 +1,4 @@
+-export { A as AllowedMentions, a as AllowedMentionsOptions, b as AttachmentUploadCompleteItem, c as AttachmentUploadCompleteResponse, d as AttachmentUploadPlanItem, e as AttachmentUploadPlanResponse, f as AuditLogEntryPayload, g as AuditLogFetchPayload, B as Base, h as BulkFetchMessagesChannelResult, i as BulkFetchMessagesOptions, j as BulkFetchMessagesRequest, k as BulkFetchMessagesResult, C as CacheSizeLimits, l as CategoryChannel, m as Channel, n as ChannelEditOptions, o as ChannelInviteCreateOptions, p as ChannelManager, q as ChannelSlowmodePayload, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, v as ClientUser, w as CollectedReaction, D as DEFAULT_CACHE_LIMITS, x as DEFAULT_INSTANCE_ENDPOINTS, y as DMChannel, z as DiscoveryApplicationOptions, E as DiscoveryApplicationPayload, F as DiscoveryOrigin, G as DiscoveryStatusPayload, H as Events, I as ExpressionCreateOptions, J as ExpressionEditOptions, K as FetchMessagesOptions, L as FetchPinnedMessagesOptions, M as FetchedUserWithProfile, N as Guild, O as GuildBan, P as GuildChannel, Q as GuildEmoji, R as GuildEmojisUpdatePayload, S as GuildMember, T as GuildMemberEditOptions, U as GuildMemberManager, V as GuildMemberRoleManager, W as GuildMemberSearchHit, X as GuildMemberSearchOptions, Y as GuildMemberSearchPayload, Z as GuildRoleDeletePayload, _ as GuildSticker, $ as Invite, a0 as InviteDeletePayload, a1 as LinkChannel, a2 as Message, a3 as MessageAttachmentEdit, a4 as MessageCollector, a5 as MessageCollectorEndReason, a6 as MessageCollectorOptions, a7 as MessageDeleteBulkPayload, a8 as MessageEditOptions, a9 as MessageManager, aa as MessageReaction, ab as MessageReactionPayload, ac as MessageReactionRemoveAllPayload, ad as MessageReactionRemoveEmojiPayload, ae as MessageReplyTarget, af as MessageSendOptions, ag as PackBulkCreatePayload, ah as PackCreateOptions, ai as PackDashboardPayload, aj as PackDashboardSectionPayload, ak as PackEditOptions, al as PackEmojiPayload, am as PackInviteCreateOptions, an as PackInvitePayload, ao as PackManager, ap as PackStickerPayload, aq as PackSummaryPayload, ar as PartialMessage, as as PartialUserGuildPayload, at as PinnedMessagesPage, au as PresenceUpdateOptions, av as PresenceUpdatePayload, aw as ProfilePayload, ax as ReactionCollector, ay as ReactionCollectorEndReason, az as ReactionCollectorOptions, aA as ReactionEmojiPayload, aB as ReplyOptions, aC as ResolvedInstance, aD as Role, aE as RoleCreateOptions, aF as RoleEditOptions, aG as RoleResolvable, aH as RtcRegionPayload, aI as StickerCreateOptions, aJ as StickerEditOptions, aK as SudoVerificationOptions, aL as TextChannel, aM as TypingStartPayload, aN as UploadFileForSend, aO as User, aP as UserManager, aQ as VanityURLPayload, aR as VoiceChannel, aS as Webhook, aT as WebhookEditOptions, aU as WebhookMessageEditOptions, aV as WebhookSendOptions, aW as inviteUrl, aX as normalizeApiOrigin, aY as parseInstanceDiscovery, aZ as resolveInstanceEndpoints, a_ as toAttachmentUploadCompleteBody, a$ as toAttachmentUploadPlanBody, b0 as toBulkFetchWire, b1 as toChannelEditBody, b2 as toChannelInviteBody, b3 as toDiscoveryApplicationPayload, b4 as toDiscoveryBody, b5 as toDiscoveryStatusPayload, b6 as toEmojiCreateBody, b7 as toEmojiEditBody, b8 as toMemberEditBody, b9 as toMemberSearchBody, ba as toMessageAttachmentEditWire, bb as toPackInviteBody, bc as toPackSummaryPayload, bd as toPresenceWire, be as toProfilePayload, bf as toStickerCreateBody, bg as toStickerEditBody, bh as toSudoBody } from './subpath-message-Acbzr5HA.mjs';
++export { A as AllowedMentions, a as AllowedMentionsOptions, b as AttachmentUploadCompleteItem, c as AttachmentUploadCompleteResponse, d as AttachmentUploadPlanItem, e as AttachmentUploadPlanResponse, f as AuditLogEntryPayload, g as AuditLogFetchPayload, B as Base, h as BulkFetchMessagesChannelResult, i as BulkFetchMessagesOptions, j as BulkFetchMessagesRequest, k as BulkFetchMessagesResult, C as CacheSizeLimits, l as CategoryChannel, m as Channel, n as ChannelEditOptions, o as ChannelInviteCreateOptions, p as ChannelManager, q as ChannelSlowmodePayload, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, v as ClientUser, w as CollectedReaction, D as DEFAULT_CACHE_LIMITS, x as DEFAULT_INSTANCE_ENDPOINTS, y as DMChannel, z as DiscoveryApplicationOptions, E as DiscoveryApplicationPayload, F as DiscoveryOrigin, G as DiscoveryStatusPayload, H as Events, I as ExpressionCreateOptions, J as ExpressionEditOptions, K as FetchMessagesOptions, L as FetchPinnedMessagesOptions, M as FetchedUserWithProfile, N as Guild, O as GuildBan, P as GuildChannel, Q as GuildEmoji, R as GuildEmojisUpdatePayload, S as GuildMember, T as GuildMemberEditOptions, U as GuildMemberManager, V as GuildMemberRoleManager, W as GuildMemberSearchHit, X as GuildMemberSearchOptions, Y as GuildMemberSearchPayload, Z as GuildRoleDeletePayload, _ as GuildSticker, $ as Invite, a0 as InviteDeletePayload, a1 as LinkChannel, a2 as Message, a3 as MessageAttachmentEdit, a4 as MessageCollector, a5 as MessageCollectorEndReason, a6 as MessageCollectorOptions, a7 as MessageDeleteBulkPayload, a8 as MessageEditOptions, a9 as MessageManager, aa as MessageReaction, ab as MessageReactionPayload, ac as MessageReactionRemoveAllPayload, ad as MessageReactionRemoveEmojiPayload, ae as MessageReplyTarget, af as MessageSendOptions, ag as PackBulkCreatePayload, ah as PackCreateOptions, ai as PackDashboardPayload, aj as PackDashboardSectionPayload, ak as PackEditOptions, al as PackEmojiPayload, am as PackInviteCreateOptions, an as PackInvitePayload, ao as PackManager, ap as PackStickerPayload, aq as PackSummaryPayload, ar as PartialMessage, as as PartialUserGuildPayload, at as PinnedMessagesPage, au as PresenceUpdateOptions, av as PresenceUpdatePayload, aw as ProfilePayload, ax as ReactionCollector, ay as ReactionCollectorEndReason, az as ReactionCollectorOptions, aA as ReactionEmojiPayload, aB as ReplyOptions, aC as ResolvedInstance, aD as Role, aE as RoleCreateOptions, aF as RoleEditOptions, aG as RoleResolvable, aH as RtcRegionPayload, aI as StickerCreateOptions, aJ as StickerEditOptions, aK as SudoVerificationOptions, aL as TextChannel, aM as TypingStartPayload, aN as UploadFileForSend, aO as User, aP as UserManager, aQ as VanityURLPayload, aR as VoiceChannel, aS as Webhook, aT as WebhookEditOptions, aU as WebhookMessageEditOptions, aV as WebhookSendOptions, aW as inviteUrl, aX as normalizeApiOrigin, aY as parseInstanceDiscovery, aZ as resolveInstanceEndpoints, a_ as toAttachmentUploadCompleteBody, a$ as toAttachmentUploadPlanBody, b0 as toBulkFetchWire, b1 as toChannelEditBody, b2 as toChannelInviteBody, b3 as toDiscoveryApplicationPayload, b4 as toDiscoveryBody, b5 as toDiscoveryStatusPayload, b6 as toEmojiCreateBody, b7 as toEmojiEditBody, b8 as toMemberEditBody, b9 as toMemberSearchBody, ba as toMessageAttachmentEditWire, bb as toPackInviteBody, bc as toPackSummaryPayload, bd as toPresenceWire, be as toProfilePayload, bf as toStickerCreateBody, bg as toStickerEditBody, bh as toSudoBody } from './subpath-message-Yo0CfERf.mjs';
+ export { APIAllowedMentions, APIBulkMessageFetchRequest, APIBulkMessageFetchResponse, APIBulkMessageFetchResponseChannel, APIGuildMemberSearchResponse, APIInstance, APIInstanceEndpoints, APIWellKnownFluxer, AllowedMentionType, AuditLogActionType, ChannelType, ContentWarningLevel, GatewayOpcodes, GuildMemberProfileFlags, GuildNSFWLevel, GuildOperations, InviteType, MessageAttachmentFlags, MessageFlags, MessageReferenceType, MessageType, OverwriteType, PublicUserFlags, RelationshipType, Routes, SplashCardAlignment, SystemChannelFlags } from '@fluxerjs/types';
+ export { AttachmentBuilder, EmbedBuilder, MessagePayload } from '@fluxerjs/builders';
+ export { ErrorCodes, FluxerError, FluxerErrorOptions, MessageFlagsBitField, MessageFlagsBits, MessageFlagsResolvable, MessageFlagsString, PermissionFlags, PermissionResolvable, PermissionString, PermissionsBitField, UserFlagsBitField, UserFlagsBits, UserFlagsResolvable, UserFlagsString, parsePrefixCommand, parseUserMention, resolvePermissionsToBitfield, resolveTenorToImageUrl } from '@fluxerjs/util';
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index d4d664b992184fa2a4ec33348318cd1e8661ef7f..ccf275cb2345f0ce074729bf012b73c8470a286a 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,4 +1,4 @@
+-export { A as AllowedMentions, a as AllowedMentionsOptions, b as AttachmentUploadCompleteItem, c as AttachmentUploadCompleteResponse, d as AttachmentUploadPlanItem, e as AttachmentUploadPlanResponse, f as AuditLogEntryPayload, g as AuditLogFetchPayload, B as Base, h as BulkFetchMessagesChannelResult, i as BulkFetchMessagesOptions, j as BulkFetchMessagesRequest, k as BulkFetchMessagesResult, C as CacheSizeLimits, l as CategoryChannel, m as Channel, n as ChannelEditOptions, o as ChannelInviteCreateOptions, p as ChannelManager, q as ChannelSlowmodePayload, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, v as ClientUser, w as CollectedReaction, D as DEFAULT_CACHE_LIMITS, x as DEFAULT_INSTANCE_ENDPOINTS, y as DMChannel, z as DiscoveryApplicationOptions, E as DiscoveryApplicationPayload, F as DiscoveryOrigin, G as DiscoveryStatusPayload, H as Events, I as ExpressionCreateOptions, J as ExpressionEditOptions, K as FetchMessagesOptions, L as FetchPinnedMessagesOptions, M as FetchedUserWithProfile, N as Guild, O as GuildBan, P as GuildChannel, Q as GuildEmoji, R as GuildEmojisUpdatePayload, S as GuildMember, T as GuildMemberEditOptions, U as GuildMemberManager, V as GuildMemberRoleManager, W as GuildMemberSearchHit, X as GuildMemberSearchOptions, Y as GuildMemberSearchPayload, Z as GuildRoleDeletePayload, _ as GuildSticker, $ as Invite, a0 as InviteDeletePayload, a1 as LinkChannel, a2 as Message, a3 as MessageAttachmentEdit, a4 as MessageCollector, a5 as MessageCollectorEndReason, a6 as MessageCollectorOptions, a7 as MessageDeleteBulkPayload, a8 as MessageEditOptions, a9 as MessageManager, aa as MessageReaction, ab as MessageReactionPayload, ac as MessageReactionRemoveAllPayload, ad as MessageReactionRemoveEmojiPayload, ae as MessageReplyTarget, af as MessageSendOptions, ag as PackBulkCreatePayload, ah as PackCreateOptions, ai as PackDashboardPayload, aj as PackDashboardSectionPayload, ak as PackEditOptions, al as PackEmojiPayload, am as PackInviteCreateOptions, an as PackInvitePayload, ao as PackManager, ap as PackStickerPayload, aq as PackSummaryPayload, ar as PartialMessage, as as PartialUserGuildPayload, at as PinnedMessagesPage, au as PresenceUpdateOptions, av as PresenceUpdatePayload, aw as ProfilePayload, ax as ReactionCollector, ay as ReactionCollectorEndReason, az as ReactionCollectorOptions, aA as ReactionEmojiPayload, aB as ReplyOptions, aC as ResolvedInstance, aD as Role, aE as RoleCreateOptions, aF as RoleEditOptions, aG as RoleResolvable, aH as RtcRegionPayload, aI as StickerCreateOptions, aJ as StickerEditOptions, aK as SudoVerificationOptions, aL as TextChannel, aM as TypingStartPayload, aN as UploadFileForSend, aO as User, aP as UserManager, aQ as VanityURLPayload, aR as VoiceChannel, aS as Webhook, aT as WebhookEditOptions, aU as WebhookMessageEditOptions, aV as WebhookSendOptions, aW as inviteUrl, aX as normalizeApiOrigin, aY as parseInstanceDiscovery, aZ as resolveInstanceEndpoints, a_ as toAttachmentUploadCompleteBody, a$ as toAttachmentUploadPlanBody, b0 as toBulkFetchWire, b1 as toChannelEditBody, b2 as toChannelInviteBody, b3 as toDiscoveryApplicationPayload, b4 as toDiscoveryBody, b5 as toDiscoveryStatusPayload, b6 as toEmojiCreateBody, b7 as toEmojiEditBody, b8 as toMemberEditBody, b9 as toMemberSearchBody, ba as toMessageAttachmentEditWire, bb as toPackInviteBody, bc as toPackSummaryPayload, bd as toPresenceWire, be as toProfilePayload, bf as toStickerCreateBody, bg as toStickerEditBody, bh as toSudoBody } from './subpath-message-Acbzr5HA.js';
++export { A as AllowedMentions, a as AllowedMentionsOptions, b as AttachmentUploadCompleteItem, c as AttachmentUploadCompleteResponse, d as AttachmentUploadPlanItem, e as AttachmentUploadPlanResponse, f as AuditLogEntryPayload, g as AuditLogFetchPayload, B as Base, h as BulkFetchMessagesChannelResult, i as BulkFetchMessagesOptions, j as BulkFetchMessagesRequest, k as BulkFetchMessagesResult, C as CacheSizeLimits, l as CategoryChannel, m as Channel, n as ChannelEditOptions, o as ChannelInviteCreateOptions, p as ChannelManager, q as ChannelSlowmodePayload, r as Client, s as ClientEventMethods, t as ClientEvents, u as ClientOptions, v as ClientUser, w as CollectedReaction, D as DEFAULT_CACHE_LIMITS, x as DEFAULT_INSTANCE_ENDPOINTS, y as DMChannel, z as DiscoveryApplicationOptions, E as DiscoveryApplicationPayload, F as DiscoveryOrigin, G as DiscoveryStatusPayload, H as Events, I as ExpressionCreateOptions, J as ExpressionEditOptions, K as FetchMessagesOptions, L as FetchPinnedMessagesOptions, M as FetchedUserWithProfile, N as Guild, O as GuildBan, P as GuildChannel, Q as GuildEmoji, R as GuildEmojisUpdatePayload, S as GuildMember, T as GuildMemberEditOptions, U as GuildMemberManager, V as GuildMemberRoleManager, W as GuildMemberSearchHit, X as GuildMemberSearchOptions, Y as GuildMemberSearchPayload, Z as GuildRoleDeletePayload, _ as GuildSticker, $ as Invite, a0 as InviteDeletePayload, a1 as LinkChannel, a2 as Message, a3 as MessageAttachmentEdit, a4 as MessageCollector, a5 as MessageCollectorEndReason, a6 as MessageCollectorOptions, a7 as MessageDeleteBulkPayload, a8 as MessageEditOptions, a9 as MessageManager, aa as MessageReaction, ab as MessageReactionPayload, ac as MessageReactionRemoveAllPayload, ad as MessageReactionRemoveEmojiPayload, ae as MessageReplyTarget, af as MessageSendOptions, ag as PackBulkCreatePayload, ah as PackCreateOptions, ai as PackDashboardPayload, aj as PackDashboardSectionPayload, ak as PackEditOptions, al as PackEmojiPayload, am as PackInviteCreateOptions, an as PackInvitePayload, ao as PackManager, ap as PackStickerPayload, aq as PackSummaryPayload, ar as PartialMessage, as as PartialUserGuildPayload, at as PinnedMessagesPage, au as PresenceUpdateOptions, av as PresenceUpdatePayload, aw as ProfilePayload, ax as ReactionCollector, ay as ReactionCollectorEndReason, az as ReactionCollectorOptions, aA as ReactionEmojiPayload, aB as ReplyOptions, aC as ResolvedInstance, aD as Role, aE as RoleCreateOptions, aF as RoleEditOptions, aG as RoleResolvable, aH as RtcRegionPayload, aI as StickerCreateOptions, aJ as StickerEditOptions, aK as SudoVerificationOptions, aL as TextChannel, aM as TypingStartPayload, aN as UploadFileForSend, aO as User, aP as UserManager, aQ as VanityURLPayload, aR as VoiceChannel, aS as Webhook, aT as WebhookEditOptions, aU as WebhookMessageEditOptions, aV as WebhookSendOptions, aW as inviteUrl, aX as normalizeApiOrigin, aY as parseInstanceDiscovery, aZ as resolveInstanceEndpoints, a_ as toAttachmentUploadCompleteBody, a$ as toAttachmentUploadPlanBody, b0 as toBulkFetchWire, b1 as toChannelEditBody, b2 as toChannelInviteBody, b3 as toDiscoveryApplicationPayload, b4 as toDiscoveryBody, b5 as toDiscoveryStatusPayload, b6 as toEmojiCreateBody, b7 as toEmojiEditBody, b8 as toMemberEditBody, b9 as toMemberSearchBody, ba as toMessageAttachmentEditWire, bb as toPackInviteBody, bc as toPackSummaryPayload, bd as toPresenceWire, be as toProfilePayload, bf as toStickerCreateBody, bg as toStickerEditBody, bh as toSudoBody } from './subpath-message-Yo0CfERf.js';
+ export { APIAllowedMentions, APIBulkMessageFetchRequest, APIBulkMessageFetchResponse, APIBulkMessageFetchResponseChannel, APIGuildMemberSearchResponse, APIInstance, APIInstanceEndpoints, APIWellKnownFluxer, AllowedMentionType, AuditLogActionType, ChannelType, ContentWarningLevel, GatewayOpcodes, GuildMemberProfileFlags, GuildNSFWLevel, GuildOperations, InviteType, MessageAttachmentFlags, MessageFlags, MessageReferenceType, MessageType, OverwriteType, PublicUserFlags, RelationshipType, Routes, SplashCardAlignment, SystemChannelFlags } from '@fluxerjs/types';
+ export { AttachmentBuilder, EmbedBuilder, MessagePayload } from '@fluxerjs/builders';
+ export { ErrorCodes, FluxerError, FluxerErrorOptions, MessageFlagsBitField, MessageFlagsBits, MessageFlagsResolvable, MessageFlagsString, PermissionFlags, PermissionResolvable, PermissionString, PermissionsBitField, UserFlagsBitField, UserFlagsBits, UserFlagsResolvable, UserFlagsString, parsePrefixCommand, parseUserMention, resolvePermissionsToBitfield, resolveTenorToImageUrl } from '@fluxerjs/util';
+diff --git a/dist/index.js b/dist/index.js
+index b29b3837997c2b26dd403bd65bdc66e1b45d55a5..c9b7910a9cff2a0c91ef2c4f072756d69f72331c 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -594,6 +594,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3339,6 +3341,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4477,13 +4481,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4492,7 +4533,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4513,11 +4555,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4936,7 +4986,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 7e9502bb74f89fc36f8b1e46371ef4739d15ac9d..f0cda4bd0e3eef10cce6a0f98c24618bd0e6942e 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -468,6 +468,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+@@ -3221,6 +3223,8 @@ var Guild = class extends Base {
+   client;
+   /** Snowflake ID of this guild. */
+   id;
++  /** Whether the guild is currently available through the gateway. */
++  available = true;
+   /** Guild name. */
+   name;
+   /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -4363,13 +4367,50 @@ function normalizeGuildPayload(raw) {
+ }
+ 
+ // src/client/eventHandlers/guilds.ts
++function markGuildUnavailable(client, id) {
++  const guild = client.guilds.get(id);
++  if (!guild || guild.available === false) return;
++  guild.available = false;
++  client.emit(Events.GuildUnavailable, guild);
++}
++function refreshRecoveredGuild(guild, data) {
++  guild._patch(data);
++  if (data.roles !== void 0) {
++    guild.roles.clear();
++    for (const role of data.roles) {
++      guild.roles.set(role.id, new Role(guild.client, role, guild.id));
++    }
++  }
++  if (data.channels !== void 0) {
++    const recoveredChannelIds = new Set(data.channels.map((channel) => channel.id));
++    for (const channel of guild.channels.values()) {
++      guild.client.channels.delete(channel.id);
++      if (!recoveredChannelIds.has(channel.id)) guild.client._clearMessageCache(channel.id);
++    }
++    guild.channels.clear();
++  }
++}
+ var guildHandlers = {
+   GUILD_CREATE(client, d) {
++    const raw = d;
++    if (raw.unavailable === true) {
++      if (typeof raw.id === "string") {
++        try {
++          markGuildUnavailable(client, raw.id);
++        } finally {
++          client._onGuildReceived(raw.id);
++        }
++      }
++      return;
++    }
+     const guildData = normalizeGuildPayload(d);
+     if (!guildData) return;
+-    const guild = new Guild(client, guildData);
+-    client.guilds.set(guild.id, guild);
+     const g = d;
++    const existing = client.guilds.get(guildData.id);
++    const recovered = existing?.available === false;
++    const guild = recovered && existing ? existing : new Guild(client, guildData);
++    if (recovered) refreshRecoveredGuild(guild, g);
++    client.guilds.set(guild.id, guild);
+     for (const ch of g.channels ?? []) {
+       const channel = Channel.from(client, ch);
+       if (channel) {
+@@ -4378,7 +4419,8 @@ var guildHandlers = {
+       }
+     }
+     for (const m of g.members ?? []) cacheMember2(client, guild, m);
+-    client.emit(Events.GuildCreate, guild);
++    if (recovered) guild.available = true;
++    client.emit(recovered ? Events.GuildAvailable : Events.GuildCreate, guild);
+     if (g.voice_states?.length) {
+       client.emit(Events.VoiceStatesSync, { guildId: guild.id, voiceStates: g.voice_states });
+     }
+@@ -4399,11 +4441,19 @@ var guildHandlers = {
+     client.emit(Events.GuildUpdate, updated, updated);
+   },
+   GUILD_DELETE(client, d) {
+-    const { id } = d;
+-    const guild = client.guilds.get(id);
+-    if (!guild) return;
+-    client.guilds.delete(id);
+-    client.emit(Events.GuildDelete, guild);
++    const { id, unavailable } = d;
++    try {
++      if (unavailable === true) {
++        markGuildUnavailable(client, id);
++        return;
++      }
++      const guild = client.guilds.get(id);
++      if (!guild) return;
++      client.guilds.delete(id);
++      client.emit(Events.GuildDelete, guild);
++    } finally {
++      client._onGuildReceived(id);
++    }
+   }
+ };
+ 
+@@ -4825,7 +4875,12 @@ function emitClientError(client, err) {
+ function shouldDeferGatewayDispatchUntilReady(client, payload) {
+   if (client.options.waitForGuilds !== true || client.readyAt !== null) return false;
+   if (payload.op !== 0 || !payload.t) return false;
+-  return payload.t !== "GUILD_CREATE";
++  if (payload.t === "GUILD_CREATE") return false;
++  if (payload.t === "GUILD_DELETE") {
++    const data = payload.d;
++    if (typeof data?.id === "string" && client._pendingGuildIds?.has(data.id)) return false;
++  }
++  return true;
+ }
+ function handleGatewayDispatch(client, payload, deferred) {
+   if (payload.op !== 0 || !payload.t) return Promise.resolve();
+diff --git a/dist/message.d.mts b/dist/message.d.mts
+index 80f0d58a374246bc8b7aa0eed2acaa659365c1d0..b3c7ef9dde5c18632c62dabd4f82d9fc1a37bff8 100644
+--- a/dist/message.d.mts
++++ b/dist/message.d.mts
+@@ -1,4 +1,4 @@
+-export { a2 as Message, a8 as MessageEditOptions, af as MessageSendOptions, ar as PartialMessage, aB as ReplyOptions } from './subpath-message-Acbzr5HA.mjs';
++export { a2 as Message, a8 as MessageEditOptions, af as MessageSendOptions, ar as PartialMessage, aB as ReplyOptions } from './subpath-message-Yo0CfERf.mjs';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import 'events';
+diff --git a/dist/message.d.ts b/dist/message.d.ts
+index 622ff58e22b0c2624a151444c8142aeb553a5cb5..a05330a5bf3ba96398a8da4372eb4c6c39eb4aef 100644
+--- a/dist/message.d.ts
++++ b/dist/message.d.ts
+@@ -1,4 +1,4 @@
+-export { a2 as Message, a8 as MessageEditOptions, af as MessageSendOptions, ar as PartialMessage, aB as ReplyOptions } from './subpath-message-Acbzr5HA.js';
++export { a2 as Message, a8 as MessageEditOptions, af as MessageSendOptions, ar as PartialMessage, aB as ReplyOptions } from './subpath-message-Yo0CfERf.js';
+ import '@fluxerjs/collection';
+ import '@fluxerjs/types';
+ import 'events';
+diff --git a/dist/message.js b/dist/message.js
+index 365248109465e862eac46cf02f6cfe45d691593c..a856ce7a6e15e48da2048e0f76bb3781ccf09e19 100644
+--- a/dist/message.js
++++ b/dist/message.js
+@@ -246,6 +246,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+diff --git a/dist/message.mjs b/dist/message.mjs
+index b5c2be8caea261be64f6893eca149697001f2868..4cacf192d8c82e10a93c548962c18c1b666218df 100644
+--- a/dist/message.mjs
++++ b/dist/message.mjs
+@@ -223,6 +223,8 @@ var Events = {
+   MessageReactionRemoveAll: "messageReactionRemoveAll",
+   MessageReactionRemoveEmoji: "messageReactionRemoveEmoji",
+   GuildCreate: "guildCreate",
++  GuildAvailable: "guildAvailable",
++  GuildUnavailable: "guildUnavailable",
+   GuildUpdate: "guildUpdate",
+   GuildDelete: "guildDelete",
+   GuildBanAdd: "guildBanAdd",
+diff --git a/dist/subpath-message-Acbzr5HA.d.mts b/dist/subpath-message-Yo0CfERf.d.mts
+similarity index 99%
+rename from dist/subpath-message-Acbzr5HA.d.mts
+rename to dist/subpath-message-Yo0CfERf.d.mts
+index 69f1501aad58c6471089bf9f0fb8e959f6a1107e..d4e94a6f96402b37589685e3d22af78305c5cefc 100644
+--- a/dist/subpath-message-Acbzr5HA.d.mts
++++ b/dist/subpath-message-Yo0CfERf.d.mts
+@@ -1002,6 +1002,8 @@ declare class Guild extends Base {
+     readonly client: Client;
+     /** Snowflake ID of this guild. */
+     readonly id: string;
++    /** Whether the guild is currently available through the gateway. */
++    available: boolean;
+     /** Guild name. */
+     name: string;
+     /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -2392,6 +2394,8 @@ declare const Events: {
+     readonly MessageReactionRemoveAll: "messageReactionRemoveAll";
+     readonly MessageReactionRemoveEmoji: "messageReactionRemoveEmoji";
+     readonly GuildCreate: "guildCreate";
++    readonly GuildAvailable: "guildAvailable";
++    readonly GuildUnavailable: "guildUnavailable";
+     readonly GuildUpdate: "guildUpdate";
+     readonly GuildDelete: "guildDelete";
+     readonly GuildBanAdd: "guildBanAdd";
+@@ -2460,6 +2464,8 @@ interface ClientEvents {
+     [Events.MessageReactionRemoveAll]: [payload: MessageReactionRemoveAllPayload];
+     [Events.MessageReactionRemoveEmoji]: [payload: MessageReactionRemoveEmojiPayload];
+     [Events.GuildCreate]: [guild: Guild];
++    [Events.GuildAvailable]: [guild: Guild];
++    [Events.GuildUnavailable]: [guild: Guild];
+     [Events.GuildUpdate]: [oldGuild: Guild, newGuild: Guild];
+     [Events.GuildDelete]: [guild: Guild];
+     /** Emitted when any channel type is created. */
+diff --git a/dist/subpath-message-Acbzr5HA.d.ts b/dist/subpath-message-Yo0CfERf.d.ts
+similarity index 99%
+rename from dist/subpath-message-Acbzr5HA.d.ts
+rename to dist/subpath-message-Yo0CfERf.d.ts
+index 69f1501aad58c6471089bf9f0fb8e959f6a1107e..d4e94a6f96402b37589685e3d22af78305c5cefc 100644
+--- a/dist/subpath-message-Acbzr5HA.d.ts
++++ b/dist/subpath-message-Yo0CfERf.d.ts
+@@ -1002,6 +1002,8 @@ declare class Guild extends Base {
+     readonly client: Client;
+     /** Snowflake ID of this guild. */
+     readonly id: string;
++    /** Whether the guild is currently available through the gateway. */
++    available: boolean;
+     /** Guild name. */
+     name: string;
+     /** Icon hash (use {@link iconURL} to get full CDN URL). */
+@@ -2392,6 +2394,8 @@ declare const Events: {
+     readonly MessageReactionRemoveAll: "messageReactionRemoveAll";
+     readonly MessageReactionRemoveEmoji: "messageReactionRemoveEmoji";
+     readonly GuildCreate: "guildCreate";
++    readonly GuildAvailable: "guildAvailable";
++    readonly GuildUnavailable: "guildUnavailable";
+     readonly GuildUpdate: "guildUpdate";
+     readonly GuildDelete: "guildDelete";
+     readonly GuildBanAdd: "guildBanAdd";
+@@ -2460,6 +2464,8 @@ interface ClientEvents {
+     [Events.MessageReactionRemoveAll]: [payload: MessageReactionRemoveAllPayload];
+     [Events.MessageReactionRemoveEmoji]: [payload: MessageReactionRemoveEmojiPayload];
+     [Events.GuildCreate]: [guild: Guild];
++    [Events.GuildAvailable]: [guild: Guild];
++    [Events.GuildUnavailable]: [guild: Guild];
+     [Events.GuildUpdate]: [oldGuild: Guild, newGuild: Guild];
+     [Events.GuildDelete]: [guild: Guild];
+     /** Emitted when any channel type is created. */

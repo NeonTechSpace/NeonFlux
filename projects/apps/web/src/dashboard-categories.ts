@@ -21,7 +21,6 @@ import {
     Settings2,
     ShieldAlert,
     ShieldCheck,
-    SmilePlus,
     Sparkles,
     Terminal,
     TicketCheck,
@@ -77,7 +76,6 @@ export type DashboardSubNavigationTo =
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
     | '/dashboard/$guildId/access/dashboard-access'
-    | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
     | '/dashboard/$guildId/community/giveaways'
@@ -236,7 +234,7 @@ const dashboardNavigationSettings = [
         label: 'Roles & Access',
         path: 'access',
         to: '/dashboard/$guildId/access',
-        description: 'Role automation, grants, verification, and reaction roles.',
+        description: 'Role automation, grants, and verification.',
         icon: ShieldCheck,
         items: [
             placeholder(
@@ -259,14 +257,6 @@ const dashboardNavigationSettings = [
                 'Planned dashboard permission management.',
                 '/dashboard/$guildId/access/dashboard-access',
                 UsersRound
-            ),
-            implemented(
-                'reaction-roles',
-                'Reaction Roles',
-                'Build reaction-backed role menus.',
-                '/dashboard/$guildId/access/reaction-roles',
-                SmilePlus,
-                'full'
             ),
             placeholder(
                 'role-reconciliation',

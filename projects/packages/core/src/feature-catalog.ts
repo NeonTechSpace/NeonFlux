@@ -129,13 +129,6 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         dashboardConfigs: [dashboardConfig('audit.events', 'events', 'Audit events', true)],
     },
     {
-        id: 'reaction_roles',
-        label: 'Reaction roles',
-        kinds: ['dashboard-config', 'event-handler'],
-        dashboardConfigs: [dashboardConfig('reaction_roles.settings', 'access', 'Reaction roles settings', true)],
-        eventHandlers: [eventHandler('reaction_roles.events', ['reaction.added', 'reaction.removed'], true)],
-    },
-    {
         id: 'import_export',
         label: 'Import and export',
         kinds: ['dashboard-config', 'event-handler'],

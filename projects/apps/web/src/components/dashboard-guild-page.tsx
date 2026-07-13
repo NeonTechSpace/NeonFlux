@@ -25,7 +25,6 @@ import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
-import { DashboardReactionRolesPanel } from './dashboard-reaction-roles-panel.js';
 import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
 import { DashboardStructureNavigation } from './dashboard-structure-workspace-shell.js';
 import { DashboardFeaturePage } from './dashboard-ui.js';
@@ -35,7 +34,6 @@ const fluxerLoginPath = '/auth/fluxer/login';
 const commandLiveArea = ['commands'] as const satisfies readonly DashboardLiveArea[];
 const overviewLiveArea = ['overview'] as const satisfies readonly DashboardLiveArea[];
 const messagingLiveArea = ['posting'] as const satisfies readonly DashboardLiveArea[];
-const reactionRolesLiveArea = ['reaction_roles'] as const satisfies readonly DashboardLiveArea[];
 const auditLiveArea = ['audit'] as const satisfies readonly DashboardLiveArea[];
 
 type AuthorizedDashboardGuildRouteData = Extract<DashboardGuildRouteData, { type: 'guild' }>;
@@ -228,17 +226,6 @@ export function DashboardGuildMessageBuilderCategory() {
     });
 
     return <DashboardPostingPanel guildId={data.guild.id} />;
-}
-
-export function DashboardGuildReactionRolesCategory() {
-    const data = useDashboardGuildData();
-
-    useDashboardLiveInvalidation({
-        guildId: data.guild.id,
-        areas: reactionRolesLiveArea,
-    });
-
-    return <DashboardReactionRolesPanel guildId={data.guild.id} />;
 }
 
 export function DashboardGuildAuditEventsCategory() {

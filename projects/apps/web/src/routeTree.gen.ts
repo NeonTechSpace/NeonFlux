@@ -78,7 +78,6 @@ import { Route as DashboardGuildIdCommunityProfileBuilderRouteImport } from './r
 import { Route as DashboardGuildIdCommunityGiveawaysRouteImport } from './routes/dashboard/$guildId/community/giveaways'
 import { Route as DashboardGuildIdAccessVerificationRouteImport } from './routes/dashboard/$guildId/access/verification'
 import { Route as DashboardGuildIdAccessRoleReconciliationRouteImport } from './routes/dashboard/$guildId/access/role-reconciliation'
-import { Route as DashboardGuildIdAccessReactionRolesRouteImport } from './routes/dashboard/$guildId/access/reaction-roles'
 import { Route as DashboardGuildIdAccessDashboardAccessRouteImport } from './routes/dashboard/$guildId/access/dashboard-access'
 import { Route as DashboardGuildIdAccessCommandAccessRouteImport } from './routes/dashboard/$guildId/access/command-access'
 import { Route as DashboardGuildIdAccessAutorolesRouteImport } from './routes/dashboard/$guildId/access/autoroles'
@@ -474,12 +473,6 @@ const DashboardGuildIdAccessRoleReconciliationRoute =
     path: '/role-reconciliation',
     getParentRoute: () => DashboardGuildIdAccessRoute,
   } as any)
-const DashboardGuildIdAccessReactionRolesRoute =
-  DashboardGuildIdAccessReactionRolesRouteImport.update({
-    id: '/reaction-roles',
-    path: '/reaction-roles',
-    getParentRoute: () => DashboardGuildIdAccessRoute,
-  } as any)
 const DashboardGuildIdAccessDashboardAccessRoute =
   DashboardGuildIdAccessDashboardAccessRouteImport.update({
     id: '/dashboard-access',
@@ -532,7 +525,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
   '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
-  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
   '/dashboard/$guildId/community/giveaways': typeof DashboardGuildIdCommunityGiveawaysRoute
@@ -593,7 +585,6 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
   '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
-  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
   '/dashboard/$guildId/community/giveaways': typeof DashboardGuildIdCommunityGiveawaysRoute
@@ -669,7 +660,6 @@ export interface FileRoutesById {
   '/dashboard/$guildId/access/autoroles': typeof DashboardGuildIdAccessAutorolesRoute
   '/dashboard/$guildId/access/command-access': typeof DashboardGuildIdAccessCommandAccessRoute
   '/dashboard/$guildId/access/dashboard-access': typeof DashboardGuildIdAccessDashboardAccessRoute
-  '/dashboard/$guildId/access/reaction-roles': typeof DashboardGuildIdAccessReactionRolesRoute
   '/dashboard/$guildId/access/role-reconciliation': typeof DashboardGuildIdAccessRoleReconciliationRoute
   '/dashboard/$guildId/access/verification': typeof DashboardGuildIdAccessVerificationRoute
   '/dashboard/$guildId/community/giveaways': typeof DashboardGuildIdCommunityGiveawaysRoute
@@ -746,7 +736,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
     | '/dashboard/$guildId/access/dashboard-access'
-    | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
     | '/dashboard/$guildId/community/giveaways'
@@ -807,7 +796,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
     | '/dashboard/$guildId/access/dashboard-access'
-    | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
     | '/dashboard/$guildId/community/giveaways'
@@ -882,7 +870,6 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/access/autoroles'
     | '/dashboard/$guildId/access/command-access'
     | '/dashboard/$guildId/access/dashboard-access'
-    | '/dashboard/$guildId/access/reaction-roles'
     | '/dashboard/$guildId/access/role-reconciliation'
     | '/dashboard/$guildId/access/verification'
     | '/dashboard/$guildId/community/giveaways'
@@ -1420,13 +1407,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdAccessRoleReconciliationRouteImport
       parentRoute: typeof DashboardGuildIdAccessRoute
     }
-    '/dashboard/$guildId/access/reaction-roles': {
-      id: '/dashboard/$guildId/access/reaction-roles'
-      path: '/reaction-roles'
-      fullPath: '/dashboard/$guildId/access/reaction-roles'
-      preLoaderRoute: typeof DashboardGuildIdAccessReactionRolesRouteImport
-      parentRoute: typeof DashboardGuildIdAccessRoute
-    }
     '/dashboard/$guildId/access/dashboard-access': {
       id: '/dashboard/$guildId/access/dashboard-access'
       path: '/dashboard-access'
@@ -1455,7 +1435,6 @@ interface DashboardGuildIdAccessRouteChildren {
   DashboardGuildIdAccessAutorolesRoute: typeof DashboardGuildIdAccessAutorolesRoute
   DashboardGuildIdAccessCommandAccessRoute: typeof DashboardGuildIdAccessCommandAccessRoute
   DashboardGuildIdAccessDashboardAccessRoute: typeof DashboardGuildIdAccessDashboardAccessRoute
-  DashboardGuildIdAccessReactionRolesRoute: typeof DashboardGuildIdAccessReactionRolesRoute
   DashboardGuildIdAccessRoleReconciliationRoute: typeof DashboardGuildIdAccessRoleReconciliationRoute
   DashboardGuildIdAccessVerificationRoute: typeof DashboardGuildIdAccessVerificationRoute
   DashboardGuildIdAccessIndexRoute: typeof DashboardGuildIdAccessIndexRoute
@@ -1468,8 +1447,6 @@ const DashboardGuildIdAccessRouteChildren: DashboardGuildIdAccessRouteChildren =
       DashboardGuildIdAccessCommandAccessRoute,
     DashboardGuildIdAccessDashboardAccessRoute:
       DashboardGuildIdAccessDashboardAccessRoute,
-    DashboardGuildIdAccessReactionRolesRoute:
-      DashboardGuildIdAccessReactionRolesRoute,
     DashboardGuildIdAccessRoleReconciliationRoute:
       DashboardGuildIdAccessRoleReconciliationRoute,
     DashboardGuildIdAccessVerificationRoute:

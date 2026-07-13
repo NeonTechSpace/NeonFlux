@@ -13,7 +13,6 @@ type BotInstallationDatabase = Parameters<typeof upsertBotInstallation>[0];
 
 export type BotInstallationEvent = {
     guildId: string | null | undefined;
-    unavailable?: boolean;
 };
 
 export type BotInstallationSyncResult =
@@ -75,7 +74,7 @@ export async function removeBotInstallationEvent(
 ): Promise<Result<BotInstallationSyncResult, BotInstallationSyncError>> {
     const guildId = normalizeGuildId(event.guildId);
 
-    if (event.unavailable === true || !guildId || !shouldProcessBotGuildEvent(mode, { guildId })) {
+    if (!guildId || !shouldProcessBotGuildEvent(mode, { guildId })) {
         return ok({ status: 'ignored' });
     }
 

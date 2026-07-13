@@ -9,9 +9,8 @@ export type BotFeatureEvent =
           guildId: string;
       }
     | {
-          type: 'guild.lifecycle.deleted';
+          type: 'guild.lifecycle.available' | 'guild.lifecycle.unavailable' | 'guild.lifecycle.deleted';
           guildId: string;
-          unavailable?: boolean;
       }
     | {
           type: 'guild.lifecycle.updated';
@@ -43,23 +42,6 @@ export type BotFeatureEvent =
           content: string;
           mentionedUserIds: readonly string[];
           oldContent: string | null;
-      }
-    | {
-          type: 'message.deleted';
-          messageId: string;
-          channelId: string;
-          guildId: string | null;
-          authorId: string | null;
-          content: string | null;
-      }
-    | {
-          type: 'reaction.added' | 'reaction.removed';
-          messageId: string;
-          channelId: string;
-          guildId: string | null;
-          userId: string;
-          userIsBot?: boolean;
-          emojiKey: string;
       }
     | {
           type: 'member.joined' | 'member.updated' | 'member.left';
@@ -119,8 +101,6 @@ export type BotFeatureRouteHandledAction =
     | 'command.help'
     | 'command.ping'
     | 'commands.prefix_change'
-    | 'event.reaction_roles.transition_queued'
-    | 'event.reaction_roles.external_delete_cleanup_queued'
     | 'event.import_export.structure_observed';
 
 export type BotFeatureRouteResult =

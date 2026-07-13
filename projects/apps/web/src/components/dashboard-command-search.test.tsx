@@ -97,7 +97,7 @@ describe('DashboardCommandSearch', () => {
         fireEvent.change(searchInput, { target: { value: 'beta' } });
 
         const betaGuild = screen.getByRole('link', { name: /Beta Guild/u });
-        expect(betaGuild.getAttribute('href')).toBe('/dashboard/guild-2/access/reaction-roles');
+        expect(betaGuild.getAttribute('href')).toBe('/dashboard/guild-2/messaging/message-builder');
         expect(betaGuild.getAttribute('data-preview-guild')).toBe('guild-2');
         expect(betaGuild.getAttribute('data-preview-source-guild')).toBe('guild-1');
         expect(document.body.textContent).not.toContain('guild-2');
@@ -160,7 +160,7 @@ function renderCommandSearch() {
                 { id: 'guild-1', name: 'Alpha Guild' },
                 { id: 'guild-2', name: 'Beta Guild' },
             ]}
-            pathname='/dashboard/guild-1/access/reaction-roles'>
+            pathname='/dashboard/guild-1/messaging/message-builder'>
             <DashboardCommandSearchTrigger />
         </DashboardCommandSearch>
     );

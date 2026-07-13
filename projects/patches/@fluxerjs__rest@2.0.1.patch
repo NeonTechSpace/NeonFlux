@@ -1,0 +1,1443 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index c5c92bc9e8a740a971d5d155108e7907da091581..1d23fd7b52331cfbdce9a61013f9caeaa196b9ad 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -1,8 +1,8 @@
+ import { EventEmitter } from 'events';
+ import { Routes, APIErrorBody, RateLimitErrorBody } from '@fluxerjs/types';
+ export { Routes } from '@fluxerjs/types';
+-import { R as RequestOptions } from './subpath-request-manager-C0rw3SDo.mjs';
+-export { A as AttachmentData, a as AttachmentPayload, b as RequestManager, c as RestOptions, d as buildFormData } from './subpath-request-manager-C0rw3SDo.mjs';
++import { R as RetryPolicy, a as RequestOptions } from './subpath-request-manager-GLjs8dV4.mjs';
++export { A as AttachmentData, b as AttachmentPayload, c as RequestManager, d as RestOptions, e as RetryPolicyContext, f as buildFormData } from './subpath-request-manager-GLjs8dV4.mjs';
+ 
+ interface RESTOptions {
+     api?: string;
+@@ -10,6 +10,8 @@ interface RESTOptions {
+     authPrefix?: 'Bot' | 'Bearer';
+     timeout?: number;
+     retries?: number;
++    /** Select the retry budget for each logical request. */
++    retryPolicy?: RetryPolicy;
+     userAgent?: string;
+ }
+ /** HTTP client for the Fluxer API. */
+@@ -94,4 +96,4 @@ declare const DEFAULT_API = "https://api.fluxer.app";
+ declare const DEFAULT_VERSION = "1";
+ declare const DEFAULT_USER_AGENT = "fluxerjs (https://github.com/fluxerjs/core)";
+ 
+-export { DEFAULT_API, DEFAULT_USER_AGENT, DEFAULT_VERSION, FluxerAPIError, HTTPError, REST, type RESTOptions, RateLimitError, RateLimitManager, type RateLimitState, RequestOptions, closeSharedFetch, sharedFetch };
++export { DEFAULT_API, DEFAULT_USER_AGENT, DEFAULT_VERSION, FluxerAPIError, HTTPError, REST, type RESTOptions, RateLimitError, RateLimitManager, type RateLimitState, RequestOptions, RetryPolicy, closeSharedFetch, sharedFetch };
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index ea07b318094390d06840a026708df28398e4edde..533274b3850ebbc6f7c1acd416f5e6c83c01152b 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,8 +1,8 @@
+ import { EventEmitter } from 'events';
+ import { Routes, APIErrorBody, RateLimitErrorBody } from '@fluxerjs/types';
+ export { Routes } from '@fluxerjs/types';
+-import { R as RequestOptions } from './subpath-request-manager-C0rw3SDo.js';
+-export { A as AttachmentData, a as AttachmentPayload, b as RequestManager, c as RestOptions, d as buildFormData } from './subpath-request-manager-C0rw3SDo.js';
++import { R as RetryPolicy, a as RequestOptions } from './subpath-request-manager-GLjs8dV4.js';
++export { A as AttachmentData, b as AttachmentPayload, c as RequestManager, d as RestOptions, e as RetryPolicyContext, f as buildFormData } from './subpath-request-manager-GLjs8dV4.js';
+ 
+ interface RESTOptions {
+     api?: string;
+@@ -10,6 +10,8 @@ interface RESTOptions {
+     authPrefix?: 'Bot' | 'Bearer';
+     timeout?: number;
+     retries?: number;
++    /** Select the retry budget for each logical request. */
++    retryPolicy?: RetryPolicy;
+     userAgent?: string;
+ }
+ /** HTTP client for the Fluxer API. */
+@@ -94,4 +96,4 @@ declare const DEFAULT_API = "https://api.fluxer.app";
+ declare const DEFAULT_VERSION = "1";
+ declare const DEFAULT_USER_AGENT = "fluxerjs (https://github.com/fluxerjs/core)";
+ 
+-export { DEFAULT_API, DEFAULT_USER_AGENT, DEFAULT_VERSION, FluxerAPIError, HTTPError, REST, type RESTOptions, RateLimitError, RateLimitManager, type RateLimitState, RequestOptions, closeSharedFetch, sharedFetch };
++export { DEFAULT_API, DEFAULT_USER_AGENT, DEFAULT_VERSION, FluxerAPIError, HTTPError, REST, type RESTOptions, RateLimitError, RateLimitManager, type RateLimitState, RequestOptions, RetryPolicy, closeSharedFetch, sharedFetch };
+diff --git a/dist/index.js b/dist/index.js
+index 7f8ec639a6d87da349df9e812fe7e488ad625c01..55dd349158e5d3800eddb45b4dc96abd1dadb14d 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -40,6 +40,94 @@ module.exports = __toCommonJS(src_exports);
+ var import_events = require("events");
+ var import_types = require("@fluxerjs/types");
+ 
++// src/errors/index.ts
++function isRetryableStatus(status) {
++  return status === 429 || status >= 500 && status < 600;
++}
++var STATUS_HINTS = {
++  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
++  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
++  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
++};
++var HTTPError = class _HTTPError extends Error {
++  statusCode;
++  body;
++  method;
++  path;
++  constructor(statusCode, body, context) {
++    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
++    super(`HTTP ${statusCode}: ${detail}`);
++    this.name = "HTTPError";
++    this.statusCode = statusCode;
++    this.body = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _HTTPError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var FluxerAPIError = class _FluxerAPIError extends Error {
++  code;
++  statusCode;
++  errors;
++  method;
++  path;
++  rawBody;
++  constructor(body, statusCode, context) {
++    super(body.message);
++    this.name = "FluxerAPIError";
++    this.code = body.code;
++    this.statusCode = statusCode;
++    this.errors = body.errors;
++    this.rawBody = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var RateLimitError = class _RateLimitError extends FluxerAPIError {
++  retryAfter;
++  global;
++  constructor(body, statusCode, context) {
++    super(body, statusCode, context);
++    this.retryAfter = body.retry_after;
++    this.global = body.global ?? false;
++    this.name = "RateLimitError";
++    Object.setPrototypeOf(this, _RateLimitError.prototype);
++  }
++};
++
++// src/fetch/sharedFetch.ts
++var import_undici = require("undici");
++var sharedAgent = null;
++function getSharedAgent() {
++  sharedAgent ??= new import_undici.Agent({
++    keepAliveTimeout: 3e4,
++    keepAliveMaxTimeout: 6e4,
++    connections: 32,
++    pipelining: 1
++  });
++  return sharedAgent;
++}
++function sharedFetch(input, init) {
++  const undiciInit = {
++    ...init,
++    dispatcher: getSharedAgent()
++  };
++  return (0, import_undici.fetch)(input, undiciInit);
++}
++async function closeSharedFetch() {
++  if (!sharedAgent) return;
++  const agent = sharedAgent;
++  sharedAgent = null;
++  await agent.close();
++}
++
+ // src/RateLimitManager.ts
+ var RateLimitManager = class _RateLimitManager {
+   buckets = /* @__PURE__ */ new Map();
+@@ -107,67 +195,12 @@ var RateLimitManager = class _RateLimitManager {
+   }
+ };
+ 
+-// src/errors/index.ts
+-function isRetryableStatus(status) {
+-  return status === 429 || status >= 500 && status < 600;
+-}
+-var STATUS_HINTS = {
+-  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
+-  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
+-  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
+-};
+-var HTTPError = class _HTTPError extends Error {
+-  statusCode;
+-  body;
+-  method;
+-  path;
+-  constructor(statusCode, body, context) {
+-    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
+-    super(`HTTP ${statusCode}: ${detail}`);
+-    this.name = "HTTPError";
+-    this.statusCode = statusCode;
+-    this.body = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _HTTPError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var FluxerAPIError = class _FluxerAPIError extends Error {
+-  code;
+-  statusCode;
+-  errors;
+-  method;
+-  path;
+-  rawBody;
+-  constructor(body, statusCode, context) {
+-    super(body.message);
+-    this.name = "FluxerAPIError";
+-    this.code = body.code;
+-    this.statusCode = statusCode;
+-    this.errors = body.errors;
+-    this.rawBody = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var RateLimitError = class _RateLimitError extends FluxerAPIError {
+-  retryAfter;
+-  global;
+-  constructor(body, statusCode, context) {
+-    super(body, statusCode, context);
+-    this.retryAfter = body.retry_after;
+-    this.global = body.global ?? false;
+-    this.name = "RateLimitError";
+-    Object.setPrototypeOf(this, _RateLimitError.prototype);
+-  }
+-};
++// src/utils/constants.ts
++var DEFAULT_API = "https://api.fluxer.app";
++var DEFAULT_VERSION = "1";
++var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
++var REQUEST_TIMEOUT = 15e3;
++var MAX_RETRIES = 3;
+ 
+ // src/utils/files.ts
+ function toFormDataFile(data, filename) {
+@@ -198,42 +231,10 @@ function buildFormData(payloadJson, files) {
+   return form;
+ }
+ 
+-// src/fetch/sharedFetch.ts
+-var import_undici = require("undici");
+-var sharedAgent = null;
+-function getSharedAgent() {
+-  sharedAgent ??= new import_undici.Agent({
+-    keepAliveTimeout: 3e4,
+-    keepAliveMaxTimeout: 6e4,
+-    connections: 32,
+-    pipelining: 1
+-  });
+-  return sharedAgent;
+-}
+-function sharedFetch(input, init) {
+-  const undiciInit = {
+-    ...init,
+-    dispatcher: getSharedAgent()
+-  };
+-  return (0, import_undici.fetch)(input, undiciInit);
+-}
+-async function closeSharedFetch() {
+-  if (!sharedAgent) return;
+-  const agent = sharedAgent;
+-  sharedAgent = null;
+-  await agent.close();
+-}
+-
+-// src/utils/constants.ts
+-var DEFAULT_API = "https://api.fluxer.app";
+-var DEFAULT_VERSION = "1";
+-var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
+-var REQUEST_TIMEOUT = 15e3;
+-var MAX_RETRIES = 3;
+-
+ // src/RequestManager.ts
+ var ROUTE_HASH_CACHE_MAX = 1e3;
+ var SNOWFLAKE_RE = /\d{17,19}/g;
++var WEBHOOK_TOKEN_RE = /(\/webhooks\/:id\/)[^/]+/;
+ function abortError() {
+   const err = new Error("The operation was aborted");
+   err.name = "AbortError";
+@@ -296,6 +297,22 @@ function parseRateLimitBody(text, headers) {
+ function backoffMs(attempt) {
+   return 500 * (attempt + 1);
+ }
++function validateRetryCount(value, source) {
++  if (!Number.isSafeInteger(value) || value < 0) {
++    throw new RangeError(`${source} must be a non-negative safe integer`);
++  }
++  return value;
++}
++function getRetryPolicyRouteKey(route, routeHash) {
++  if (route.startsWith("http")) {
++    try {
++      return `${new URL(route).origin}/:external`;
++    } catch {
++      return ":external";
++    }
++  }
++  return routeHash.replace(/[?#].*$/, "").replace(WEBHOOK_TOKEN_RE, "$1:token");
++}
+ function formatErrorChain(err, maxDepth = 4) {
+   const parts = [];
+   let current = err;
+@@ -311,12 +328,14 @@ var RequestManager = class {
+   rateLimiter = new RateLimitManager();
+   routeHashCache = /* @__PURE__ */ new Map();
+   constructor(options) {
++    const retries = validateRetryCount(options.retries ?? MAX_RETRIES, "retries");
+     this.options = {
+       api: options.api ?? DEFAULT_API,
+       version: options.version ?? DEFAULT_VERSION,
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+-      retries: options.retries ?? MAX_RETRIES,
++      retries,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     };
+   }
+@@ -391,12 +410,13 @@ var RequestManager = class {
+   }
+   async request(method, route, options = {}) {
+     const routeHash = this.getRouteHash(route);
++    const retries = this.resolveRetries(method, getRetryPolicyRouteKey(route, routeHash));
+     const url = route.startsWith("http") ? route : `${this.baseUrl}${route}`;
+     const body = this.buildBody(options);
+     const headers = this.buildHeaders(options, body);
+     const userSignal = options.signal;
+     let lastError = null;
+-    for (let attempt = 0; attempt <= this.options.retries; attempt++) {
++    for (let attempt = 0; attempt <= retries; attempt++) {
+       if (userSignal?.aborted) throw abortError();
+       const wait = this.rateLimiter.getWaitTime(routeHash);
+       if (wait > 0) await sleep(wait, userSignal);
+@@ -435,7 +455,7 @@ var RequestManager = class {
+             response.status,
+             { method, path: route }
+           );
+-          if (attempt < this.options.retries) {
++          if (attempt < retries) {
+             lastError = err;
+             await sleep(retryMs, userSignal);
+             continue;
+@@ -444,7 +464,7 @@ var RequestManager = class {
+         }
+         if (!response.ok) {
+           const err = await this.parseError(response, method, route);
+-          if (err.isRetryable && attempt < this.options.retries) {
++          if (err.isRetryable && attempt < retries) {
+             lastError = err;
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -455,7 +475,7 @@ var RequestManager = class {
+       } catch (err) {
+         if (isAbortError(err)) {
+           if (userSignal?.aborted) throw err;
+-          if (timedOut && attempt < this.options.retries) {
++          if (timedOut && attempt < retries) {
+             lastError = err instanceof Error ? err : new Error(String(err));
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -468,7 +488,7 @@ var RequestManager = class {
+         const wrapped = err instanceof Error ? err : new Error(String(err));
+         const detail = formatErrorChain(wrapped);
+         lastError = attempt > 0 ? new Error(`Retry ${attempt} failed: ${detail}`, { cause: wrapped }) : detail === wrapped.message ? wrapped : new Error(detail, { cause: wrapped });
+-        if (attempt < this.options.retries) {
++        if (attempt < retries) {
+           await sleep(backoffMs(attempt), userSignal);
+           continue;
+         }
+@@ -480,6 +500,15 @@ var RequestManager = class {
+     }
+     throw lastError ?? new Error("Request failed");
+   }
++  resolveRetries(method, routeKey) {
++    const retries = this.options.retryPolicy?.({
++      method,
++      routeKey,
++      defaultRetries: this.options.retries
++    });
++    if (retries === void 0) return this.options.retries;
++    return validateRetryCount(retries, "Retry policy result");
++  }
+ };
+ 
+ // src/REST.ts
+@@ -494,6 +523,7 @@ var REST = class extends import_events.EventEmitter {
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+       retries: options.retries ?? MAX_RETRIES,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     });
+   }
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 18bac9635e56273e098016421e94ad838da677d8..6aa96dbeab61793e639e0ed8f8fe39eb6fcd3633 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -2,6 +2,94 @@
+ import { EventEmitter } from "events";
+ import { Routes } from "@fluxerjs/types";
+ 
++// src/errors/index.ts
++function isRetryableStatus(status) {
++  return status === 429 || status >= 500 && status < 600;
++}
++var STATUS_HINTS = {
++  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
++  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
++  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
++};
++var HTTPError = class _HTTPError extends Error {
++  statusCode;
++  body;
++  method;
++  path;
++  constructor(statusCode, body, context) {
++    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
++    super(`HTTP ${statusCode}: ${detail}`);
++    this.name = "HTTPError";
++    this.statusCode = statusCode;
++    this.body = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _HTTPError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var FluxerAPIError = class _FluxerAPIError extends Error {
++  code;
++  statusCode;
++  errors;
++  method;
++  path;
++  rawBody;
++  constructor(body, statusCode, context) {
++    super(body.message);
++    this.name = "FluxerAPIError";
++    this.code = body.code;
++    this.statusCode = statusCode;
++    this.errors = body.errors;
++    this.rawBody = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var RateLimitError = class _RateLimitError extends FluxerAPIError {
++  retryAfter;
++  global;
++  constructor(body, statusCode, context) {
++    super(body, statusCode, context);
++    this.retryAfter = body.retry_after;
++    this.global = body.global ?? false;
++    this.name = "RateLimitError";
++    Object.setPrototypeOf(this, _RateLimitError.prototype);
++  }
++};
++
++// src/fetch/sharedFetch.ts
++import { Agent, fetch as undiciFetch } from "undici";
++var sharedAgent = null;
++function getSharedAgent() {
++  sharedAgent ??= new Agent({
++    keepAliveTimeout: 3e4,
++    keepAliveMaxTimeout: 6e4,
++    connections: 32,
++    pipelining: 1
++  });
++  return sharedAgent;
++}
++function sharedFetch(input, init) {
++  const undiciInit = {
++    ...init,
++    dispatcher: getSharedAgent()
++  };
++  return undiciFetch(input, undiciInit);
++}
++async function closeSharedFetch() {
++  if (!sharedAgent) return;
++  const agent = sharedAgent;
++  sharedAgent = null;
++  await agent.close();
++}
++
+ // src/RateLimitManager.ts
+ var RateLimitManager = class _RateLimitManager {
+   buckets = /* @__PURE__ */ new Map();
+@@ -69,67 +157,12 @@ var RateLimitManager = class _RateLimitManager {
+   }
+ };
+ 
+-// src/errors/index.ts
+-function isRetryableStatus(status) {
+-  return status === 429 || status >= 500 && status < 600;
+-}
+-var STATUS_HINTS = {
+-  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
+-  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
+-  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
+-};
+-var HTTPError = class _HTTPError extends Error {
+-  statusCode;
+-  body;
+-  method;
+-  path;
+-  constructor(statusCode, body, context) {
+-    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
+-    super(`HTTP ${statusCode}: ${detail}`);
+-    this.name = "HTTPError";
+-    this.statusCode = statusCode;
+-    this.body = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _HTTPError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var FluxerAPIError = class _FluxerAPIError extends Error {
+-  code;
+-  statusCode;
+-  errors;
+-  method;
+-  path;
+-  rawBody;
+-  constructor(body, statusCode, context) {
+-    super(body.message);
+-    this.name = "FluxerAPIError";
+-    this.code = body.code;
+-    this.statusCode = statusCode;
+-    this.errors = body.errors;
+-    this.rawBody = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var RateLimitError = class _RateLimitError extends FluxerAPIError {
+-  retryAfter;
+-  global;
+-  constructor(body, statusCode, context) {
+-    super(body, statusCode, context);
+-    this.retryAfter = body.retry_after;
+-    this.global = body.global ?? false;
+-    this.name = "RateLimitError";
+-    Object.setPrototypeOf(this, _RateLimitError.prototype);
+-  }
+-};
++// src/utils/constants.ts
++var DEFAULT_API = "https://api.fluxer.app";
++var DEFAULT_VERSION = "1";
++var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
++var REQUEST_TIMEOUT = 15e3;
++var MAX_RETRIES = 3;
+ 
+ // src/utils/files.ts
+ function toFormDataFile(data, filename) {
+@@ -160,42 +193,10 @@ function buildFormData(payloadJson, files) {
+   return form;
+ }
+ 
+-// src/fetch/sharedFetch.ts
+-import { Agent, fetch as undiciFetch } from "undici";
+-var sharedAgent = null;
+-function getSharedAgent() {
+-  sharedAgent ??= new Agent({
+-    keepAliveTimeout: 3e4,
+-    keepAliveMaxTimeout: 6e4,
+-    connections: 32,
+-    pipelining: 1
+-  });
+-  return sharedAgent;
+-}
+-function sharedFetch(input, init) {
+-  const undiciInit = {
+-    ...init,
+-    dispatcher: getSharedAgent()
+-  };
+-  return undiciFetch(input, undiciInit);
+-}
+-async function closeSharedFetch() {
+-  if (!sharedAgent) return;
+-  const agent = sharedAgent;
+-  sharedAgent = null;
+-  await agent.close();
+-}
+-
+-// src/utils/constants.ts
+-var DEFAULT_API = "https://api.fluxer.app";
+-var DEFAULT_VERSION = "1";
+-var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
+-var REQUEST_TIMEOUT = 15e3;
+-var MAX_RETRIES = 3;
+-
+ // src/RequestManager.ts
+ var ROUTE_HASH_CACHE_MAX = 1e3;
+ var SNOWFLAKE_RE = /\d{17,19}/g;
++var WEBHOOK_TOKEN_RE = /(\/webhooks\/:id\/)[^/]+/;
+ function abortError() {
+   const err = new Error("The operation was aborted");
+   err.name = "AbortError";
+@@ -258,6 +259,22 @@ function parseRateLimitBody(text, headers) {
+ function backoffMs(attempt) {
+   return 500 * (attempt + 1);
+ }
++function validateRetryCount(value, source) {
++  if (!Number.isSafeInteger(value) || value < 0) {
++    throw new RangeError(`${source} must be a non-negative safe integer`);
++  }
++  return value;
++}
++function getRetryPolicyRouteKey(route, routeHash) {
++  if (route.startsWith("http")) {
++    try {
++      return `${new URL(route).origin}/:external`;
++    } catch {
++      return ":external";
++    }
++  }
++  return routeHash.replace(/[?#].*$/, "").replace(WEBHOOK_TOKEN_RE, "$1:token");
++}
+ function formatErrorChain(err, maxDepth = 4) {
+   const parts = [];
+   let current = err;
+@@ -273,12 +290,14 @@ var RequestManager = class {
+   rateLimiter = new RateLimitManager();
+   routeHashCache = /* @__PURE__ */ new Map();
+   constructor(options) {
++    const retries = validateRetryCount(options.retries ?? MAX_RETRIES, "retries");
+     this.options = {
+       api: options.api ?? DEFAULT_API,
+       version: options.version ?? DEFAULT_VERSION,
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+-      retries: options.retries ?? MAX_RETRIES,
++      retries,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     };
+   }
+@@ -353,12 +372,13 @@ var RequestManager = class {
+   }
+   async request(method, route, options = {}) {
+     const routeHash = this.getRouteHash(route);
++    const retries = this.resolveRetries(method, getRetryPolicyRouteKey(route, routeHash));
+     const url = route.startsWith("http") ? route : `${this.baseUrl}${route}`;
+     const body = this.buildBody(options);
+     const headers = this.buildHeaders(options, body);
+     const userSignal = options.signal;
+     let lastError = null;
+-    for (let attempt = 0; attempt <= this.options.retries; attempt++) {
++    for (let attempt = 0; attempt <= retries; attempt++) {
+       if (userSignal?.aborted) throw abortError();
+       const wait = this.rateLimiter.getWaitTime(routeHash);
+       if (wait > 0) await sleep(wait, userSignal);
+@@ -397,7 +417,7 @@ var RequestManager = class {
+             response.status,
+             { method, path: route }
+           );
+-          if (attempt < this.options.retries) {
++          if (attempt < retries) {
+             lastError = err;
+             await sleep(retryMs, userSignal);
+             continue;
+@@ -406,7 +426,7 @@ var RequestManager = class {
+         }
+         if (!response.ok) {
+           const err = await this.parseError(response, method, route);
+-          if (err.isRetryable && attempt < this.options.retries) {
++          if (err.isRetryable && attempt < retries) {
+             lastError = err;
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -417,7 +437,7 @@ var RequestManager = class {
+       } catch (err) {
+         if (isAbortError(err)) {
+           if (userSignal?.aborted) throw err;
+-          if (timedOut && attempt < this.options.retries) {
++          if (timedOut && attempt < retries) {
+             lastError = err instanceof Error ? err : new Error(String(err));
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -430,7 +450,7 @@ var RequestManager = class {
+         const wrapped = err instanceof Error ? err : new Error(String(err));
+         const detail = formatErrorChain(wrapped);
+         lastError = attempt > 0 ? new Error(`Retry ${attempt} failed: ${detail}`, { cause: wrapped }) : detail === wrapped.message ? wrapped : new Error(detail, { cause: wrapped });
+-        if (attempt < this.options.retries) {
++        if (attempt < retries) {
+           await sleep(backoffMs(attempt), userSignal);
+           continue;
+         }
+@@ -442,6 +462,15 @@ var RequestManager = class {
+     }
+     throw lastError ?? new Error("Request failed");
+   }
++  resolveRetries(method, routeKey) {
++    const retries = this.options.retryPolicy?.({
++      method,
++      routeKey,
++      defaultRetries: this.options.retries
++    });
++    if (retries === void 0) return this.options.retries;
++    return validateRetryCount(retries, "Retry policy result");
++  }
+ };
+ 
+ // src/REST.ts
+@@ -456,6 +485,7 @@ var REST = class extends EventEmitter {
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+       retries: options.retries ?? MAX_RETRIES,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     });
+   }
+diff --git a/dist/request-manager.d.mts b/dist/request-manager.d.mts
+index b14096197b2115b0795a31930dfda2e3f9cb6d37..fd88dd9f5eb468ab153075d21259e0590664f215 100644
+--- a/dist/request-manager.d.mts
++++ b/dist/request-manager.d.mts
+@@ -1 +1 @@
+-export { b as RequestManager, R as RequestOptions, c as RestOptions } from './subpath-request-manager-C0rw3SDo.mjs';
++export { c as RequestManager, a as RequestOptions, d as RestOptions, R as RetryPolicy, e as RetryPolicyContext } from './subpath-request-manager-GLjs8dV4.mjs';
+diff --git a/dist/request-manager.d.ts b/dist/request-manager.d.ts
+index a5231eeff1f351da894c9931d99fcaf7bcc89f47..fadfe0aa0a7539a3e26ae6ed6db285f31643afda 100644
+--- a/dist/request-manager.d.ts
++++ b/dist/request-manager.d.ts
+@@ -1 +1 @@
+-export { b as RequestManager, R as RequestOptions, c as RestOptions } from './subpath-request-manager-C0rw3SDo.js';
++export { c as RequestManager, a as RequestOptions, d as RestOptions, R as RetryPolicy, e as RetryPolicyContext } from './subpath-request-manager-GLjs8dV4.js';
+diff --git a/dist/request-manager.js b/dist/request-manager.js
+index ba1e07d907a939ac6f461c4327a2b8c74643aad9..d0aa122930ece1be54ab00b062f445f899a89fd9 100644
+--- a/dist/request-manager.js
++++ b/dist/request-manager.js
+@@ -24,6 +24,88 @@ __export(subpath_request_manager_exports, {
+ });
+ module.exports = __toCommonJS(subpath_request_manager_exports);
+ 
++// src/errors/index.ts
++function isRetryableStatus(status) {
++  return status === 429 || status >= 500 && status < 600;
++}
++var STATUS_HINTS = {
++  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
++  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
++  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
++};
++var HTTPError = class _HTTPError extends Error {
++  statusCode;
++  body;
++  method;
++  path;
++  constructor(statusCode, body, context) {
++    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
++    super(`HTTP ${statusCode}: ${detail}`);
++    this.name = "HTTPError";
++    this.statusCode = statusCode;
++    this.body = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _HTTPError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var FluxerAPIError = class _FluxerAPIError extends Error {
++  code;
++  statusCode;
++  errors;
++  method;
++  path;
++  rawBody;
++  constructor(body, statusCode, context) {
++    super(body.message);
++    this.name = "FluxerAPIError";
++    this.code = body.code;
++    this.statusCode = statusCode;
++    this.errors = body.errors;
++    this.rawBody = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var RateLimitError = class _RateLimitError extends FluxerAPIError {
++  retryAfter;
++  global;
++  constructor(body, statusCode, context) {
++    super(body, statusCode, context);
++    this.retryAfter = body.retry_after;
++    this.global = body.global ?? false;
++    this.name = "RateLimitError";
++    Object.setPrototypeOf(this, _RateLimitError.prototype);
++  }
++};
++
++// src/fetch/sharedFetch.ts
++var import_undici = require("undici");
++var sharedAgent = null;
++function getSharedAgent() {
++  sharedAgent ??= new import_undici.Agent({
++    keepAliveTimeout: 3e4,
++    keepAliveMaxTimeout: 6e4,
++    connections: 32,
++    pipelining: 1
++  });
++  return sharedAgent;
++}
++function sharedFetch(input, init) {
++  const undiciInit = {
++    ...init,
++    dispatcher: getSharedAgent()
++  };
++  return (0, import_undici.fetch)(input, undiciInit);
++}
++
+ // src/RateLimitManager.ts
+ var RateLimitManager = class _RateLimitManager {
+   buckets = /* @__PURE__ */ new Map();
+@@ -91,67 +173,12 @@ var RateLimitManager = class _RateLimitManager {
+   }
+ };
+ 
+-// src/errors/index.ts
+-function isRetryableStatus(status) {
+-  return status === 429 || status >= 500 && status < 600;
+-}
+-var STATUS_HINTS = {
+-  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
+-  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
+-  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
+-};
+-var HTTPError = class _HTTPError extends Error {
+-  statusCode;
+-  body;
+-  method;
+-  path;
+-  constructor(statusCode, body, context) {
+-    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
+-    super(`HTTP ${statusCode}: ${detail}`);
+-    this.name = "HTTPError";
+-    this.statusCode = statusCode;
+-    this.body = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _HTTPError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var FluxerAPIError = class _FluxerAPIError extends Error {
+-  code;
+-  statusCode;
+-  errors;
+-  method;
+-  path;
+-  rawBody;
+-  constructor(body, statusCode, context) {
+-    super(body.message);
+-    this.name = "FluxerAPIError";
+-    this.code = body.code;
+-    this.statusCode = statusCode;
+-    this.errors = body.errors;
+-    this.rawBody = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var RateLimitError = class _RateLimitError extends FluxerAPIError {
+-  retryAfter;
+-  global;
+-  constructor(body, statusCode, context) {
+-    super(body, statusCode, context);
+-    this.retryAfter = body.retry_after;
+-    this.global = body.global ?? false;
+-    this.name = "RateLimitError";
+-    Object.setPrototypeOf(this, _RateLimitError.prototype);
+-  }
+-};
++// src/utils/constants.ts
++var DEFAULT_API = "https://api.fluxer.app";
++var DEFAULT_VERSION = "1";
++var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
++var REQUEST_TIMEOUT = 15e3;
++var MAX_RETRIES = 3;
+ 
+ // src/utils/files.ts
+ function toFormDataFile(data, filename) {
+@@ -182,36 +209,10 @@ function buildFormData(payloadJson, files) {
+   return form;
+ }
+ 
+-// src/fetch/sharedFetch.ts
+-var import_undici = require("undici");
+-var sharedAgent = null;
+-function getSharedAgent() {
+-  sharedAgent ??= new import_undici.Agent({
+-    keepAliveTimeout: 3e4,
+-    keepAliveMaxTimeout: 6e4,
+-    connections: 32,
+-    pipelining: 1
+-  });
+-  return sharedAgent;
+-}
+-function sharedFetch(input, init) {
+-  const undiciInit = {
+-    ...init,
+-    dispatcher: getSharedAgent()
+-  };
+-  return (0, import_undici.fetch)(input, undiciInit);
+-}
+-
+-// src/utils/constants.ts
+-var DEFAULT_API = "https://api.fluxer.app";
+-var DEFAULT_VERSION = "1";
+-var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
+-var REQUEST_TIMEOUT = 15e3;
+-var MAX_RETRIES = 3;
+-
+ // src/RequestManager.ts
+ var ROUTE_HASH_CACHE_MAX = 1e3;
+ var SNOWFLAKE_RE = /\d{17,19}/g;
++var WEBHOOK_TOKEN_RE = /(\/webhooks\/:id\/)[^/]+/;
+ function abortError() {
+   const err = new Error("The operation was aborted");
+   err.name = "AbortError";
+@@ -274,6 +275,22 @@ function parseRateLimitBody(text, headers) {
+ function backoffMs(attempt) {
+   return 500 * (attempt + 1);
+ }
++function validateRetryCount(value, source) {
++  if (!Number.isSafeInteger(value) || value < 0) {
++    throw new RangeError(`${source} must be a non-negative safe integer`);
++  }
++  return value;
++}
++function getRetryPolicyRouteKey(route, routeHash) {
++  if (route.startsWith("http")) {
++    try {
++      return `${new URL(route).origin}/:external`;
++    } catch {
++      return ":external";
++    }
++  }
++  return routeHash.replace(/[?#].*$/, "").replace(WEBHOOK_TOKEN_RE, "$1:token");
++}
+ function formatErrorChain(err, maxDepth = 4) {
+   const parts = [];
+   let current = err;
+@@ -289,12 +306,14 @@ var RequestManager = class {
+   rateLimiter = new RateLimitManager();
+   routeHashCache = /* @__PURE__ */ new Map();
+   constructor(options) {
++    const retries = validateRetryCount(options.retries ?? MAX_RETRIES, "retries");
+     this.options = {
+       api: options.api ?? DEFAULT_API,
+       version: options.version ?? DEFAULT_VERSION,
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+-      retries: options.retries ?? MAX_RETRIES,
++      retries,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     };
+   }
+@@ -369,12 +388,13 @@ var RequestManager = class {
+   }
+   async request(method, route, options = {}) {
+     const routeHash = this.getRouteHash(route);
++    const retries = this.resolveRetries(method, getRetryPolicyRouteKey(route, routeHash));
+     const url = route.startsWith("http") ? route : `${this.baseUrl}${route}`;
+     const body = this.buildBody(options);
+     const headers = this.buildHeaders(options, body);
+     const userSignal = options.signal;
+     let lastError = null;
+-    for (let attempt = 0; attempt <= this.options.retries; attempt++) {
++    for (let attempt = 0; attempt <= retries; attempt++) {
+       if (userSignal?.aborted) throw abortError();
+       const wait = this.rateLimiter.getWaitTime(routeHash);
+       if (wait > 0) await sleep(wait, userSignal);
+@@ -413,7 +433,7 @@ var RequestManager = class {
+             response.status,
+             { method, path: route }
+           );
+-          if (attempt < this.options.retries) {
++          if (attempt < retries) {
+             lastError = err;
+             await sleep(retryMs, userSignal);
+             continue;
+@@ -422,7 +442,7 @@ var RequestManager = class {
+         }
+         if (!response.ok) {
+           const err = await this.parseError(response, method, route);
+-          if (err.isRetryable && attempt < this.options.retries) {
++          if (err.isRetryable && attempt < retries) {
+             lastError = err;
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -433,7 +453,7 @@ var RequestManager = class {
+       } catch (err) {
+         if (isAbortError(err)) {
+           if (userSignal?.aborted) throw err;
+-          if (timedOut && attempt < this.options.retries) {
++          if (timedOut && attempt < retries) {
+             lastError = err instanceof Error ? err : new Error(String(err));
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -446,7 +466,7 @@ var RequestManager = class {
+         const wrapped = err instanceof Error ? err : new Error(String(err));
+         const detail = formatErrorChain(wrapped);
+         lastError = attempt > 0 ? new Error(`Retry ${attempt} failed: ${detail}`, { cause: wrapped }) : detail === wrapped.message ? wrapped : new Error(detail, { cause: wrapped });
+-        if (attempt < this.options.retries) {
++        if (attempt < retries) {
+           await sleep(backoffMs(attempt), userSignal);
+           continue;
+         }
+@@ -458,6 +478,15 @@ var RequestManager = class {
+     }
+     throw lastError ?? new Error("Request failed");
+   }
++  resolveRetries(method, routeKey) {
++    const retries = this.options.retryPolicy?.({
++      method,
++      routeKey,
++      defaultRetries: this.options.retries
++    });
++    if (retries === void 0) return this.options.retries;
++    return validateRetryCount(retries, "Retry policy result");
++  }
+ };
+ // Annotate the CommonJS export names for ESM import in node:
+ 0 && (module.exports = {
+diff --git a/dist/request-manager.mjs b/dist/request-manager.mjs
+index cb6e8ccd205f4415b988f911170b5789c6db9a02..7e823f7ccf3e3b5d9103944e11bcf781fee4279d 100644
+--- a/dist/request-manager.mjs
++++ b/dist/request-manager.mjs
+@@ -1,3 +1,85 @@
++// src/errors/index.ts
++function isRetryableStatus(status) {
++  return status === 429 || status >= 500 && status < 600;
++}
++var STATUS_HINTS = {
++  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
++  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
++  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
++};
++var HTTPError = class _HTTPError extends Error {
++  statusCode;
++  body;
++  method;
++  path;
++  constructor(statusCode, body, context) {
++    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
++    super(`HTTP ${statusCode}: ${detail}`);
++    this.name = "HTTPError";
++    this.statusCode = statusCode;
++    this.body = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _HTTPError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var FluxerAPIError = class _FluxerAPIError extends Error {
++  code;
++  statusCode;
++  errors;
++  method;
++  path;
++  rawBody;
++  constructor(body, statusCode, context) {
++    super(body.message);
++    this.name = "FluxerAPIError";
++    this.code = body.code;
++    this.statusCode = statusCode;
++    this.errors = body.errors;
++    this.rawBody = body;
++    this.method = context?.method;
++    this.path = context?.path;
++    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
++  }
++  get isRetryable() {
++    return isRetryableStatus(this.statusCode);
++  }
++};
++var RateLimitError = class _RateLimitError extends FluxerAPIError {
++  retryAfter;
++  global;
++  constructor(body, statusCode, context) {
++    super(body, statusCode, context);
++    this.retryAfter = body.retry_after;
++    this.global = body.global ?? false;
++    this.name = "RateLimitError";
++    Object.setPrototypeOf(this, _RateLimitError.prototype);
++  }
++};
++
++// src/fetch/sharedFetch.ts
++import { Agent, fetch as undiciFetch } from "undici";
++var sharedAgent = null;
++function getSharedAgent() {
++  sharedAgent ??= new Agent({
++    keepAliveTimeout: 3e4,
++    keepAliveMaxTimeout: 6e4,
++    connections: 32,
++    pipelining: 1
++  });
++  return sharedAgent;
++}
++function sharedFetch(input, init) {
++  const undiciInit = {
++    ...init,
++    dispatcher: getSharedAgent()
++  };
++  return undiciFetch(input, undiciInit);
++}
++
+ // src/RateLimitManager.ts
+ var RateLimitManager = class _RateLimitManager {
+   buckets = /* @__PURE__ */ new Map();
+@@ -65,67 +147,12 @@ var RateLimitManager = class _RateLimitManager {
+   }
+ };
+ 
+-// src/errors/index.ts
+-function isRetryableStatus(status) {
+-  return status === 429 || status >= 500 && status < 600;
+-}
+-var STATUS_HINTS = {
+-  502: "Bad Gateway \u2014 Fluxer API may be temporarily unavailable.",
+-  503: "Service Unavailable \u2014 Fluxer API is down or overloaded. Try again later.",
+-  504: "Gateway Timeout \u2014 Fluxer API did not respond in time."
+-};
+-var HTTPError = class _HTTPError extends Error {
+-  statusCode;
+-  body;
+-  method;
+-  path;
+-  constructor(statusCode, body, context) {
+-    const detail = body?.trim() || STATUS_HINTS[statusCode] || "No body";
+-    super(`HTTP ${statusCode}: ${detail}`);
+-    this.name = "HTTPError";
+-    this.statusCode = statusCode;
+-    this.body = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _HTTPError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var FluxerAPIError = class _FluxerAPIError extends Error {
+-  code;
+-  statusCode;
+-  errors;
+-  method;
+-  path;
+-  rawBody;
+-  constructor(body, statusCode, context) {
+-    super(body.message);
+-    this.name = "FluxerAPIError";
+-    this.code = body.code;
+-    this.statusCode = statusCode;
+-    this.errors = body.errors;
+-    this.rawBody = body;
+-    this.method = context?.method;
+-    this.path = context?.path;
+-    Object.setPrototypeOf(this, _FluxerAPIError.prototype);
+-  }
+-  get isRetryable() {
+-    return isRetryableStatus(this.statusCode);
+-  }
+-};
+-var RateLimitError = class _RateLimitError extends FluxerAPIError {
+-  retryAfter;
+-  global;
+-  constructor(body, statusCode, context) {
+-    super(body, statusCode, context);
+-    this.retryAfter = body.retry_after;
+-    this.global = body.global ?? false;
+-    this.name = "RateLimitError";
+-    Object.setPrototypeOf(this, _RateLimitError.prototype);
+-  }
+-};
++// src/utils/constants.ts
++var DEFAULT_API = "https://api.fluxer.app";
++var DEFAULT_VERSION = "1";
++var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
++var REQUEST_TIMEOUT = 15e3;
++var MAX_RETRIES = 3;
+ 
+ // src/utils/files.ts
+ function toFormDataFile(data, filename) {
+@@ -156,36 +183,10 @@ function buildFormData(payloadJson, files) {
+   return form;
+ }
+ 
+-// src/fetch/sharedFetch.ts
+-import { Agent, fetch as undiciFetch } from "undici";
+-var sharedAgent = null;
+-function getSharedAgent() {
+-  sharedAgent ??= new Agent({
+-    keepAliveTimeout: 3e4,
+-    keepAliveMaxTimeout: 6e4,
+-    connections: 32,
+-    pipelining: 1
+-  });
+-  return sharedAgent;
+-}
+-function sharedFetch(input, init) {
+-  const undiciInit = {
+-    ...init,
+-    dispatcher: getSharedAgent()
+-  };
+-  return undiciFetch(input, undiciInit);
+-}
+-
+-// src/utils/constants.ts
+-var DEFAULT_API = "https://api.fluxer.app";
+-var DEFAULT_VERSION = "1";
+-var DEFAULT_USER_AGENT = `fluxerjs (https://github.com/fluxerjs/core)`;
+-var REQUEST_TIMEOUT = 15e3;
+-var MAX_RETRIES = 3;
+-
+ // src/RequestManager.ts
+ var ROUTE_HASH_CACHE_MAX = 1e3;
+ var SNOWFLAKE_RE = /\d{17,19}/g;
++var WEBHOOK_TOKEN_RE = /(\/webhooks\/:id\/)[^/]+/;
+ function abortError() {
+   const err = new Error("The operation was aborted");
+   err.name = "AbortError";
+@@ -248,6 +249,22 @@ function parseRateLimitBody(text, headers) {
+ function backoffMs(attempt) {
+   return 500 * (attempt + 1);
+ }
++function validateRetryCount(value, source) {
++  if (!Number.isSafeInteger(value) || value < 0) {
++    throw new RangeError(`${source} must be a non-negative safe integer`);
++  }
++  return value;
++}
++function getRetryPolicyRouteKey(route, routeHash) {
++  if (route.startsWith("http")) {
++    try {
++      return `${new URL(route).origin}/:external`;
++    } catch {
++      return ":external";
++    }
++  }
++  return routeHash.replace(/[?#].*$/, "").replace(WEBHOOK_TOKEN_RE, "$1:token");
++}
+ function formatErrorChain(err, maxDepth = 4) {
+   const parts = [];
+   let current = err;
+@@ -263,12 +280,14 @@ var RequestManager = class {
+   rateLimiter = new RateLimitManager();
+   routeHashCache = /* @__PURE__ */ new Map();
+   constructor(options) {
++    const retries = validateRetryCount(options.retries ?? MAX_RETRIES, "retries");
+     this.options = {
+       api: options.api ?? DEFAULT_API,
+       version: options.version ?? DEFAULT_VERSION,
+       authPrefix: options.authPrefix ?? "Bot",
+       timeout: options.timeout ?? REQUEST_TIMEOUT,
+-      retries: options.retries ?? MAX_RETRIES,
++      retries,
++      ...options.retryPolicy ? { retryPolicy: options.retryPolicy } : {},
+       userAgent: options.userAgent ?? DEFAULT_USER_AGENT
+     };
+   }
+@@ -343,12 +362,13 @@ var RequestManager = class {
+   }
+   async request(method, route, options = {}) {
+     const routeHash = this.getRouteHash(route);
++    const retries = this.resolveRetries(method, getRetryPolicyRouteKey(route, routeHash));
+     const url = route.startsWith("http") ? route : `${this.baseUrl}${route}`;
+     const body = this.buildBody(options);
+     const headers = this.buildHeaders(options, body);
+     const userSignal = options.signal;
+     let lastError = null;
+-    for (let attempt = 0; attempt <= this.options.retries; attempt++) {
++    for (let attempt = 0; attempt <= retries; attempt++) {
+       if (userSignal?.aborted) throw abortError();
+       const wait = this.rateLimiter.getWaitTime(routeHash);
+       if (wait > 0) await sleep(wait, userSignal);
+@@ -387,7 +407,7 @@ var RequestManager = class {
+             response.status,
+             { method, path: route }
+           );
+-          if (attempt < this.options.retries) {
++          if (attempt < retries) {
+             lastError = err;
+             await sleep(retryMs, userSignal);
+             continue;
+@@ -396,7 +416,7 @@ var RequestManager = class {
+         }
+         if (!response.ok) {
+           const err = await this.parseError(response, method, route);
+-          if (err.isRetryable && attempt < this.options.retries) {
++          if (err.isRetryable && attempt < retries) {
+             lastError = err;
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -407,7 +427,7 @@ var RequestManager = class {
+       } catch (err) {
+         if (isAbortError(err)) {
+           if (userSignal?.aborted) throw err;
+-          if (timedOut && attempt < this.options.retries) {
++          if (timedOut && attempt < retries) {
+             lastError = err instanceof Error ? err : new Error(String(err));
+             await sleep(backoffMs(attempt), userSignal);
+             continue;
+@@ -420,7 +440,7 @@ var RequestManager = class {
+         const wrapped = err instanceof Error ? err : new Error(String(err));
+         const detail = formatErrorChain(wrapped);
+         lastError = attempt > 0 ? new Error(`Retry ${attempt} failed: ${detail}`, { cause: wrapped }) : detail === wrapped.message ? wrapped : new Error(detail, { cause: wrapped });
+-        if (attempt < this.options.retries) {
++        if (attempt < retries) {
+           await sleep(backoffMs(attempt), userSignal);
+           continue;
+         }
+@@ -432,6 +452,15 @@ var RequestManager = class {
+     }
+     throw lastError ?? new Error("Request failed");
+   }
++  resolveRetries(method, routeKey) {
++    const retries = this.options.retryPolicy?.({
++      method,
++      routeKey,
++      defaultRetries: this.options.retries
++    });
++    if (retries === void 0) return this.options.retries;
++    return validateRetryCount(retries, "Retry policy result");
++  }
+ };
+ export {
+   RequestManager
+diff --git a/dist/subpath-request-manager-C0rw3SDo.d.mts b/dist/subpath-request-manager-GLjs8dV4.d.mts
+similarity index 63%
+rename from dist/subpath-request-manager-C0rw3SDo.d.mts
+rename to dist/subpath-request-manager-GLjs8dV4.d.mts
+index fd2100a0f75a5881b1bc066af682f3b1c0dcb45b..a29594e22b5c07eb5faaf02ba8fcfee9b99287cf 100644
+--- a/dist/subpath-request-manager-C0rw3SDo.d.mts
++++ b/dist/subpath-request-manager-GLjs8dV4.d.mts
+@@ -18,12 +18,27 @@ interface RequestOptions {
+     /** Aborts the request when triggered (e.g. shutdown). Combined with the client timeout. */
+     signal?: AbortSignal;
+ }
++/** Context used to choose the retry budget for one logical request. */
++interface RetryPolicyContext {
++    /** HTTP method supplied to the request manager. */
++    method: string;
++    /** Sanitized route metadata for policy matching. */
++    routeKey: string;
++    /** Validated fallback retry budget from the REST configuration. */
++    defaultRetries: number;
++}
++/**
++ * Resolves the retry budget for one logical request.
++ * Return `undefined` to retain the configured default.
++ */
++type RetryPolicy = (context: RetryPolicyContext) => number | undefined;
+ interface RestOptions {
+     api: string;
+     version: string;
+     authPrefix: 'Bot' | 'Bearer';
+     timeout: number;
+     retries: number;
++    retryPolicy?: RetryPolicy;
+     userAgent: string;
+ }
+ declare class RequestManager {
+@@ -42,6 +57,7 @@ declare class RequestManager {
+     private parseError;
+     private parseSuccess;
+     request<T>(method: string, route: string, options?: RequestOptions): Promise<T>;
++    private resolveRetries;
+ }
+ 
+-export { type AttachmentData as A, type RequestOptions as R, type AttachmentPayload as a, RequestManager as b, type RestOptions as c, buildFormData as d };
++export { type AttachmentData as A, type RetryPolicy as R, type RequestOptions as a, type AttachmentPayload as b, RequestManager as c, type RestOptions as d, type RetryPolicyContext as e, buildFormData as f };
+diff --git a/dist/subpath-request-manager-C0rw3SDo.d.ts b/dist/subpath-request-manager-GLjs8dV4.d.ts
+similarity index 63%
+rename from dist/subpath-request-manager-C0rw3SDo.d.ts
+rename to dist/subpath-request-manager-GLjs8dV4.d.ts
+index fd2100a0f75a5881b1bc066af682f3b1c0dcb45b..a29594e22b5c07eb5faaf02ba8fcfee9b99287cf 100644
+--- a/dist/subpath-request-manager-C0rw3SDo.d.ts
++++ b/dist/subpath-request-manager-GLjs8dV4.d.ts
+@@ -18,12 +18,27 @@ interface RequestOptions {
+     /** Aborts the request when triggered (e.g. shutdown). Combined with the client timeout. */
+     signal?: AbortSignal;
+ }
++/** Context used to choose the retry budget for one logical request. */
++interface RetryPolicyContext {
++    /** HTTP method supplied to the request manager. */
++    method: string;
++    /** Sanitized route metadata for policy matching. */
++    routeKey: string;
++    /** Validated fallback retry budget from the REST configuration. */
++    defaultRetries: number;
++}
++/**
++ * Resolves the retry budget for one logical request.
++ * Return `undefined` to retain the configured default.
++ */
++type RetryPolicy = (context: RetryPolicyContext) => number | undefined;
+ interface RestOptions {
+     api: string;
+     version: string;
+     authPrefix: 'Bot' | 'Bearer';
+     timeout: number;
+     retries: number;
++    retryPolicy?: RetryPolicy;
+     userAgent: string;
+ }
+ declare class RequestManager {
+@@ -42,6 +57,7 @@ declare class RequestManager {
+     private parseError;
+     private parseSuccess;
+     request<T>(method: string, route: string, options?: RequestOptions): Promise<T>;
++    private resolveRetries;
+ }
+ 
+-export { type AttachmentData as A, type RequestOptions as R, type AttachmentPayload as a, RequestManager as b, type RestOptions as c, buildFormData as d };
++export { type AttachmentData as A, type RetryPolicy as R, type RequestOptions as a, type AttachmentPayload as b, RequestManager as c, type RestOptions as d, type RetryPolicyContext as e, buildFormData as f };

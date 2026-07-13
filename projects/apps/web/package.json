@@ -26,9 +26,6 @@
         "check": "pnpm format:check && pnpm lint && pnpm typecheck"
     },
     "dependencies": {
-        "@dnd-kit/core": "^6.3.1",
-        "@dnd-kit/sortable": "^10.0.0",
-        "@dnd-kit/utilities": "^3.2.2",
         "@fontsource/outfit": "^5.2.8",
         "@fontsource/roboto-mono": "^5.2.9",
         "@neonflux/config": "workspace:*",

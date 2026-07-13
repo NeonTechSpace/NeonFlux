@@ -1,6 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
+import { isFluxerGuildUnavailable } from './guild-availability.js';
 import { mapPlatformError, requireTextInputs, runGuildAction, type FluxerPlatformError } from './platform-shared.js';
 
 type MutableGuildChannel = {
@@ -10,11 +11,11 @@ type MutableGuildChannel = {
 };
 
 type EditableGuildChannel = {
-    edit(options: { name?: string; user_limit?: number | null }): Promise<unknown>;
+    edit(options: { name?: string; userLimit?: number | null }): Promise<unknown>;
 };
 
 type ChannelPositionableGuild = {
-    setChannelPositions(updates: Array<{ id: string; parent_id?: string | null; position?: number }>): Promise<unknown>;
+    setChannelPositions(updates: Array<{ id: string; parentId?: string | null; position?: number }>): Promise<unknown>;
 };
 
 type ChannelPositionInput = {
@@ -27,7 +28,7 @@ type RolePositionableGuild = {
 };
 
 type EditableGuildMember = {
-    edit(options: { communication_disabled_until?: string | null; timeout_reason?: string | null }): Promise<unknown>;
+    edit(options: { communicationDisabledUntil?: string | null; timeoutReason?: string | null }): Promise<unknown>;
 };
 
 type CreateChannelInput = {
@@ -84,8 +85,6 @@ type RolePositionInput = {
 export function createMemberPlatform(client: FluxerBot['client']) {
     return {
         read: (input: { guildId: string; userId: string }) => readMember(client, input),
-        addRole: (input: { guildId: string; userId: string; roleId: string }) => addMemberRole(client, input),
-        removeRole: (input: { guildId: string; userId: string; roleId: string }) => removeMemberRole(client, input),
         move: (input: { guildId: string; userId: string; channelId: string | null }) => moveMember(client, input),
     };
 }
@@ -130,13 +129,13 @@ async function setChannelPositions(
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
+        const guild = await fetchAvailableGuild(client, input.guildId);
         if (!isChannelPositionableGuild(guild)) return err({ type: 'not-found' });
 
         await guild.setChannelPositions(
             input.positions.map((position) => ({
                 id: position.channelId.trim(),
-                parent_id: position.parentId?.trim() ?? null,
+                parentId: position.parentId?.trim() ?? null,
                 position: position.position,
             }))
         );
@@ -166,7 +165,7 @@ async function readMember(
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
+        const guild = await fetchAvailableGuild(client, input.guildId);
 
         if (!guild) {
             return err({ type: 'not-found' });
@@ -189,50 +188,6 @@ async function readMember(
     }
 }
 
-async function addMemberRole(
-    client: FluxerBot['client'],
-    input: { guildId: string; userId: string; roleId: string }
-): Promise<Result<void, FluxerPlatformError>> {
-    return updateMemberRole(client, input, 'add');
-}
-
-async function removeMemberRole(
-    client: FluxerBot['client'],
-    input: { guildId: string; userId: string; roleId: string }
-): Promise<Result<void, FluxerPlatformError>> {
-    return updateMemberRole(client, input, 'remove');
-}
-
-async function updateMemberRole(
-    client: FluxerBot['client'],
-    input: { guildId: string; userId: string; roleId: string },
-    action: 'add' | 'remove'
-): Promise<Result<void, FluxerPlatformError>> {
-    const inputResult = requireTextInputs(input, ['guildId', 'userId', 'roleId']);
-
-    if (inputResult.isErr()) {
-        return err(inputResult.error);
-    }
-
-    try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
-
-        if (!guild) {
-            return err({ type: 'not-found' });
-        }
-
-        if (action === 'add') {
-            await guild.addRoleToMember(input.userId.trim(), input.roleId.trim());
-        } else {
-            await guild.removeRoleFromMember(input.userId.trim(), input.roleId.trim());
-        }
-
-        return ok(undefined);
-    } catch (error) {
-        return err(mapPlatformError(error));
-    }
-}
-
 async function moveMember(
     client: FluxerBot['client'],
     input: { guildId: string; userId: string; channelId: string | null }
@@ -244,7 +199,7 @@ async function moveMember(
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
+        const guild = await fetchAvailableGuild(client, input.guildId);
 
         if (!guild) {
             return err({ type: 'not-found' });
@@ -273,8 +228,8 @@ async function banMember(
 
     return runGuildAction(client, input.guildId, (guild) =>
         guild.ban(input.userId.trim(), {
-            ...(input.reason ? { reason: input.reason } : {}),
-            ...(input.deleteMessageDays ? { delete_message_days: input.deleteMessageDays } : {}),
+            ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+            ...(input.deleteMessageDays ? { deleteMessageDays: input.deleteMessageDays } : {}),
         })
     );
 }
@@ -341,7 +296,7 @@ async function editMemberTimeout(
     communicationDisabledUntil: string | null
 ): Promise<Result<void, FluxerPlatformError>> {
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
+        const guild = await fetchAvailableGuild(client, input.guildId);
 
         if (!guild) {
             return err({ type: 'not-found' });
@@ -355,8 +310,8 @@ async function editMemberTimeout(
 
         const reason = input.reason?.trim();
         await member.edit({
-            communication_disabled_until: communicationDisabledUntil,
-            ...(reason ? { timeout_reason: reason } : {}),
+            communicationDisabledUntil,
+            ...(reason ? { timeoutReason: reason } : {}),
         });
 
         return ok(undefined);
@@ -493,7 +448,7 @@ async function editChannel(
         if (name || input.userLimit !== undefined) {
             await channel.edit({
                 ...(name ? { name } : {}),
-                ...(input.userLimit !== undefined ? { user_limit: input.userLimit } : {}),
+                ...(input.userLimit !== undefined ? { userLimit: input.userLimit } : {}),
             });
         }
 
@@ -501,13 +456,13 @@ async function editChannel(
             const guildId = input.guildId?.trim();
             if (!guildId) return err({ type: 'missing-input', field: 'guildId' });
 
-            const guild = await client.guilds.fetch(guildId);
+            const guild = await fetchAvailableGuild(client, guildId);
             if (!isChannelPositionableGuild(guild)) return err({ type: 'not-found' });
 
             await guild.setChannelPositions([
                 {
                     id: input.channelId.trim(),
-                    ...(input.parentId !== undefined ? { parent_id: normalizedParentId } : {}),
+                    ...(input.parentId !== undefined ? { parentId: normalizedParentId } : {}),
                     ...(input.position !== undefined ? { position: input.position } : {}),
                 },
             ]);
@@ -637,6 +592,7 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
     try {
         const guildId = input.guildId.trim();
         const roleId = input.roleId.trim();
+        if (isCachedGuildUnavailable(client, guildId)) return err({ type: 'not-found' });
 
         if (Object.keys(options).length > 0) {
             await client.rest.patch(`/guilds/${guildId}/roles/${roleId}`, {
@@ -646,7 +602,7 @@ async function editRole(client: FluxerBot['client'], input: EditRoleInput): Prom
         }
 
         if (input.position !== undefined) {
-            const guild = await client.guilds.fetch(guildId);
+            const guild = await fetchAvailableGuild(client, guildId);
             if (!isRolePositionableGuild(guild)) return err({ type: 'not-found' });
 
             await guild.setRolePositions([{ id: roleId, position: input.position }]);
@@ -681,7 +637,7 @@ async function setRolePositions(
     }
 
     try {
-        const guild = await client.guilds.fetch(input.guildId.trim());
+        const guild = await fetchAvailableGuild(client, input.guildId);
 
         if (!guild || !isRolePositionableGuild(guild)) {
             return err({ type: 'not-found' });
@@ -713,6 +669,7 @@ async function deleteRole(
     try {
         const guildId = input.guildId.trim();
         const roleId = input.roleId.trim();
+        if (isCachedGuildUnavailable(client, guildId)) return err({ type: 'not-found' });
         await client.rest.delete(`/guilds/${guildId}/roles/${roleId}`, { auth: true });
 
         return ok(undefined);
@@ -723,6 +680,16 @@ async function deleteRole(
 
 function isEditableGuildChannel(channel: unknown): channel is EditableGuildChannel {
     return hasFunction(channel, 'edit');
+}
+
+async function fetchAvailableGuild(client: FluxerBot['client'], guildId: string) {
+    const guild = await client.guilds.fetch(guildId.trim());
+    return isFluxerGuildUnavailable(guild) ? null : guild;
+}
+
+function isCachedGuildUnavailable(client: FluxerBot['client'], guildId: string): boolean {
+    const guilds = (client as unknown as { guilds?: { get?(id: string): { available?: boolean } | undefined } }).guilds;
+    return isFluxerGuildUnavailable(guilds?.get?.(guildId));
 }
 
 function isMutableGuildChannel(channel: unknown): channel is MutableGuildChannel {

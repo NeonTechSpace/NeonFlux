@@ -1,6 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
+import { isFluxerGuildUnavailable } from './guild-availability.js';
 
 export type FluxerPlatformError =
     | { type: 'missing-input'; field: string }
@@ -26,7 +27,7 @@ export async function runGuildAction<TValue>(
     try {
         const guild = await client.guilds.fetch(normalizedGuildId);
 
-        if (!guild) {
+        if (isFluxerGuildUnavailable(guild)) {
             return err({ type: 'not-found' });
         }
 

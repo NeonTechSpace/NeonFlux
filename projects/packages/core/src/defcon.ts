@@ -15,7 +15,6 @@ export const DEFCON_FEATURE_CATEGORY = {
     posting: 'posting',
     prefix: 'prefix',
     profileBuilder: 'profile_builder',
-    reactionRoles: 'reaction_roles',
     roleReconciliation: 'role_reconciliation',
     suggestions: 'suggestions',
     tickets: 'tickets',

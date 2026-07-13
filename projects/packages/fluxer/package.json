@@ -22,10 +22,6 @@
             "types": "./src/guild-structure-snapshot.ts",
             "import": "./dist/guild-structure-snapshot.js"
         },
-        "./guild-emojis": {
-            "types": "./src/guild-emojis.ts",
-            "import": "./dist/guild-emojis.js"
-        },
         "./guilds": {
             "types": "./src/guilds.ts",
             "import": "./dist/guilds.js"
@@ -61,7 +57,7 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
-        "@fluxerjs/core": "^1.4.0",
+        "@fluxerjs/core": "2.0.1",
         "@neonflux/core": "workspace:*",
         "neverthrow": "^8.2.0"
     },

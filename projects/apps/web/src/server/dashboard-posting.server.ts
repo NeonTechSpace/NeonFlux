@@ -140,7 +140,7 @@ type DashboardAuditEventsInput = {
     searchOffsetMinutes?: number;
 };
 
-const postableChannelTypes = new Set([0, 5]);
+const postableChannelTypes = new Set([0]);
 const dashboardAuditPageSize = 40;
 
 export async function postDashboardGuildMessage(

@@ -17,12 +17,6 @@ const BOT_FEATURE_MODULES = [
         commands: commandsByCategory('settings'),
         eventTypes: ['message.created'],
     },
-    {
-        id: 'reaction_roles',
-        order: 130,
-        commands: [],
-        eventTypes: ['reaction.added', 'reaction.removed'],
-    },
     plannedModule('posting', 170, [], []),
     {
         id: 'import_export',

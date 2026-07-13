@@ -42,7 +42,7 @@ describe('readFluxerGuildStructure', () => {
                     name: 'Member',
                     position: 1,
                     color: 12_345,
-                    permissions: createPermissions('1024'),
+                    permissions: createPermissions(1024n),
                     hoist: false,
                     mentionable: true,
                 }),
@@ -226,6 +226,21 @@ describe('readFluxerGuildStructure', () => {
         expect(result._unsafeUnwrapErr()).toStrictEqual({
             type: 'unavailable-or-not-found',
         } satisfies ReadFluxerGuildStructureError);
+    });
+
+    it('does not read a guild retained in the cache while it is unavailable', async () => {
+        const guild = createGuild({ available: false });
+        const result = await readFluxerGuildStructure({
+            client: createClient(createFetchGuildMock(Promise.resolve(guild))),
+            guildId: 'guild-1',
+        });
+
+        expect(result.isErr()).toBe(true);
+        expect(result._unsafeUnwrapErr()).toStrictEqual({
+            type: 'unavailable-or-not-found',
+        } satisfies ReadFluxerGuildStructureError);
+        expect(guild.fetchRoles).not.toHaveBeenCalled();
+        expect(guild.fetchChannels).not.toHaveBeenCalled();
     });
 
     it('maps guild fetch rejections to fetch-failed', async () => {
@@ -434,10 +449,12 @@ function createGuild(
         channelsResult?: Promise<GuildChannel[]>;
         rawRoles?: unknown[];
         botRoleIds?: string[];
+        available?: boolean;
     } = {}
 ): TestGuild {
     return {
         id: 'guild-1',
+        available: options.available ?? true,
         client: options.rawRoles
             ? {
                   rest: {
@@ -464,7 +481,7 @@ type MockRole = {
     name: string;
     position: number;
     color: number;
-    permissions: { valueOf(): string };
+    permissions: { valueOf(): string | bigint };
     hoist: boolean;
     mentionable: boolean;
 };
@@ -490,7 +507,7 @@ function createRoleFromRaw(overrides: Record<string, unknown>): Role {
     } as unknown as Role;
 }
 
-function createPermissions(bitfield: string): { valueOf(): string } {
+function createPermissions(bitfield: string | bigint): { valueOf(): string | bigint } {
     return {
         valueOf: () => bitfield,
     };

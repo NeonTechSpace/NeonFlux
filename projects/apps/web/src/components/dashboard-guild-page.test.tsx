@@ -77,8 +77,8 @@ describe('DashboardGuildPendingPage', () => {
                     guildId='guild-2'
                     preview={{ id: 'guild-2', name: 'Target Guild', mode: 'multi' }}
                     sourcePreview={{ id: 'guild-1', name: 'Current Guild', mode: 'multi' }}
-                    pathname='/dashboard/guild-2/access/reaction-roles'
-                    activeCategoryId='access'
+                    pathname='/dashboard/guild-2/messaging/message-builder'
+                    activeCategoryId='messaging'
                 />
             )
         );
@@ -89,16 +89,16 @@ describe('DashboardGuildPendingPage', () => {
         expect(screen.getByLabelText('Current Guild, current server').getAttribute('aria-current')).toBe('page');
         expect(screen.getByLabelText('Target Guild, opening').getAttribute('aria-busy')).toBe('true');
         expect(screen.queryByRole('link', { name: 'Target Guild, opening' })).toBeNull();
-        const accessLinks = within(sidebar).getAllByRole('link', { name: 'Members & Access' });
-        expect(accessLinks.length).toBeGreaterThan(0);
-        expect(new Set(accessLinks.map((link) => link.getAttribute('href')))).toEqual(
-            new Set(['/dashboard/guild-1/access/reaction-roles'])
+        const messagingLinks = within(sidebar).getAllByRole('link', { name: 'Create & Deliver' });
+        expect(messagingLinks.length).toBeGreaterThan(0);
+        expect(new Set(messagingLinks.map((link) => link.getAttribute('href')))).toEqual(
+            new Set(['/dashboard/guild-1/messaging/message-builder'])
         );
-        expect(screen.getByRole('heading', { name: 'Reaction Roles' })).toBeTruthy();
-        expect(screen.getByText('Build reaction-backed role menus.')).toBeTruthy();
-        expect(screen.getByRole('article', { name: 'Loading Reaction Roles controls' })).toBeTruthy();
-        const pendingFeature = screen.getByRole('region', { name: 'Reaction Roles' });
-        expect(within(pendingFeature).getByText('Members & Access')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
+        expect(screen.getByText('Compose, preview, and post Fluxer messages.')).toBeTruthy();
+        expect(screen.getByRole('article', { name: 'Loading Message Builder controls' })).toBeTruthy();
+        const pendingFeature = screen.getByRole('region', { name: 'Message Builder' });
+        expect(within(pendingFeature).getByText('Create & Deliver')).toBeTruthy();
     });
 
     it('keeps the exact Blueprint surface identity while switching servers', () => {

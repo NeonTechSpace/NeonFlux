@@ -6,10 +6,6 @@ export function getDashboardCommandSettingsQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'command-settings'] as const;
 }
 
-export function getDashboardReactionRolesSettingsQueryKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'reaction-roles-settings'] as const;
-}
-
 export function getDashboardAuditEventsBaseQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'audit-events'] as const;
 }

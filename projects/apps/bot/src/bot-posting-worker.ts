@@ -26,7 +26,7 @@ const leaseTtlMs = 60_000;
 const retryDelayMs = 2_000;
 const maxRetryDelayMs = 60_000;
 const maxPreSendAttempts = 5;
-const postableChannelTypes = new Set([0, 5]);
+const postableChannelTypes = new Set([0]);
 
 export async function runNextDashboardPostingOperation(
     context: BotFeatureHandlerContext,

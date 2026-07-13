@@ -14,7 +14,6 @@ import type {
 } from './bot-feature-types.js';
 import { trackGrowthOverviewEvent, type BotGrowthMemberEvent } from './bot-growth-tracking.js';
 import { routeMessageCreatedEvent } from './bot-message-created-router.js';
-import { routeReactionRoleEvent, routeReactionRoleMessageDeleted } from './bot-reaction-roles.js';
 import { recordObservedStructureEvent } from './bot-structure-observer.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
@@ -32,27 +31,24 @@ export async function routeBotFeatureEvent(
     try {
         switch (event.type) {
             case 'guild.lifecycle.created':
+            case 'guild.lifecycle.available':
                 return mapInstallationSyncResult(
                     await recordBotInstallationEvent(context.db, context.mode, { guildId: event.guildId }),
                     event.type
                 );
             case 'guild.lifecycle.deleted':
                 return mapInstallationSyncResult(
-                    await removeBotInstallationEvent(context.db, context.mode, {
-                        guildId: event.guildId,
-                        ...(event.unavailable !== undefined ? { unavailable: event.unavailable } : {}),
-                    }),
+                    await removeBotInstallationEvent(context.db, context.mode, { guildId: event.guildId }),
                     event.type
                 );
+            case 'guild.lifecycle.unavailable':
+                return routeIgnoredEvent(context, event);
             case 'member.joined':
                 return await routeGrowthTrackingEvent(context, { ...event, type: 'member.joined' });
             case 'member.left':
                 return await routeGrowthTrackingEvent(context, { ...event, type: 'member.left' });
             case 'message.created':
                 return await routeMessageCreatedEvent(context, event);
-            case 'reaction.added':
-            case 'reaction.removed':
-                return await routeReactionEvent(context, event);
             case 'guild.lifecycle.updated':
             case 'role.created':
             case 'role.updated':
@@ -67,26 +63,10 @@ export async function routeBotFeatureEvent(
             case 'ban.removed':
             case 'voice_state.updated':
                 return routeIgnoredEvent(context, event);
-            case 'message.deleted':
-                return await routeReactionRoleDeletedEvent(context, event);
         }
     } catch {
         return err('handler-error');
     }
-}
-
-async function routeReactionRoleDeletedEvent(
-    context: BotFeatureHandlerContext,
-    event: Extract<BotFeatureEvent, { type: 'message.deleted' }>
-): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
-    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
-        return ok({ eventType: event.type, status: 'ignored', reason: 'guild-not-processable' });
-    }
-    const result = await routeReactionRoleMessageDeleted(context, event);
-    if (result.isErr()) return err(result.error);
-    return result.value.status === 'applied'
-        ? handledActionResult(event.type, result.value.action)
-        : ok({ eventType: event.type, status: 'ignored', reason: result.value.reason });
 }
 
 async function routeGrowthTrackingEvent(
@@ -110,35 +90,6 @@ async function routeGrowthTrackingEvent(
     return ok({
         eventType: event.type,
         status: 'handled',
-    });
-}
-
-async function routeReactionEvent(
-    context: BotFeatureHandlerContext,
-    event: Extract<BotFeatureEvent, { type: 'reaction.added' | 'reaction.removed' }>
-): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
-    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
-        return ok({
-            eventType: event.type,
-            status: 'ignored',
-            reason: 'guild-not-processable',
-        });
-    }
-
-    const result = await routeReactionRoleEvent(context, event);
-
-    if (result.isErr()) {
-        return err(result.error);
-    }
-
-    if (result.value.status === 'applied') {
-        return handledActionResult(event.type, result.value.action);
-    }
-
-    return ok({
-        eventType: event.type,
-        status: 'ignored',
-        reason: result.value.reason,
     });
 }
 

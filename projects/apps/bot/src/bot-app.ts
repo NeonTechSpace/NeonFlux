@@ -18,7 +18,6 @@ import {
 } from './bot-feature-router.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
-import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
 import { startStructureImportExecutionWorker } from './bot-structure-import-worker.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
@@ -41,7 +40,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void> } | undefined;
-    let reactionRoleScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
     let structureImportWorker: { stop(): Promise<void> } | undefined;
 
@@ -111,6 +109,18 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             guildId: event.guildId,
                         });
                     },
+                    async guildAvailable(event) {
+                        await routeAndLogFeatureEvent({
+                            type: 'guild.lifecycle.available',
+                            guildId: event.guildId,
+                        });
+                    },
+                    async guildUnavailable(event) {
+                        await routeAndLogFeatureEvent({
+                            type: 'guild.lifecycle.unavailable',
+                            guildId: event.guildId,
+                        });
+                    },
                     async guildsReady(event) {
                         const result = await reconcileBotInstallationsWithRetry(database.db, deploymentMode, {
                             guildIds: event.guildIds,
@@ -134,7 +144,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                         await routeAndLogFeatureEvent({
                             type: 'guild.lifecycle.deleted',
                             guildId: event.guildId,
-                            unavailable: event.unavailable,
                         });
                     },
                     async guildUpdated(event) {
@@ -154,38 +163,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             type: 'message.updated',
                             ...toMessageFeatureFields(event),
                             oldContent: event.oldContent,
-                        });
-                    },
-                    async messageDeleted(event) {
-                        await routeAndLogFeatureEvent({
-                            type: 'message.deleted',
-                            messageId: event.messageId,
-                            channelId: event.channelId,
-                            guildId: event.guildId,
-                            authorId: event.authorId,
-                            content: event.content,
-                        });
-                    },
-                    async reactionAdded(event) {
-                        await routeAndLogFeatureEvent({
-                            type: 'reaction.added',
-                            messageId: event.messageId,
-                            channelId: event.channelId,
-                            guildId: event.guildId,
-                            userId: event.userId,
-                            ...(event.userIsBot !== undefined ? { userIsBot: event.userIsBot } : {}),
-                            emojiKey: event.emojiKey,
-                        });
-                    },
-                    async reactionRemoved(event) {
-                        await routeAndLogFeatureEvent({
-                            type: 'reaction.removed',
-                            messageId: event.messageId,
-                            channelId: event.channelId,
-                            guildId: event.guildId,
-                            userId: event.userId,
-                            ...(event.userIsBot !== undefined ? { userIsBot: event.userIsBot } : {}),
-                            emojiKey: event.emojiKey,
                         });
                     },
                     async memberJoined(event) {
@@ -301,10 +278,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     context: createFeatureHandlerContext(),
                     logger,
                 });
-                reactionRoleScheduler = startReactionRoleScheduler({
-                    context: createFeatureHandlerContext(),
-                    logger,
-                });
                 structureBackupScheduler = startStructureBackupScheduler({
                     client: bot.client,
                     database,
@@ -323,7 +296,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             bot?.stopIntake();
             await installationRepairScheduler?.stop();
             await postingScheduler?.stop();
-            await reactionRoleScheduler?.stop();
             await structureBackupScheduler?.stop();
             await structureImportWorker?.stop();
             await bot?.stop();
@@ -418,6 +390,7 @@ function logFeatureRouteResult(
 function logFeatureRouteFailure(logger: AppLogger, errorValue: BotFeatureRouteError, event: BotFeatureEvent): void {
     switch (event.type) {
         case 'guild.lifecycle.created':
+        case 'guild.lifecycle.available':
             logger.error('bot.installation_record_failed', {
                 guildId: event.guildId,
                 error: errorValue,
@@ -438,10 +411,8 @@ function logFeatureRouteFailure(logger: AppLogger, errorValue: BotFeatureRouteEr
             });
             return;
         case 'guild.lifecycle.updated':
+        case 'guild.lifecycle.unavailable':
         case 'message.updated':
-        case 'message.deleted':
-        case 'reaction.added':
-        case 'reaction.removed':
         case 'member.joined':
         case 'member.updated':
         case 'member.left':
@@ -466,6 +437,8 @@ function logFeatureRouteFailure(logger: AppLogger, errorValue: BotFeatureRouteEr
 function getFeatureEventLogContext(event: BotFeatureEvent): Record<string, unknown> {
     switch (event.type) {
         case 'guild.lifecycle.created':
+        case 'guild.lifecycle.available':
+        case 'guild.lifecycle.unavailable':
         case 'guild.lifecycle.deleted':
         case 'guild.lifecycle.updated':
             return {
@@ -486,25 +459,6 @@ function getFeatureEventLogContext(event: BotFeatureEvent): Record<string, unkno
                 mentionedUserCount: event.mentionedUserIds.length,
                 contentLength: event.content.length,
                 ...(event.type === 'message.updated' ? { oldContentLength: event.oldContent?.length ?? null } : {}),
-            };
-
-        case 'message.deleted':
-            return {
-                messageId: event.messageId,
-                channelId: event.channelId,
-                guildId: event.guildId,
-                authorId: event.authorId,
-                contentLength: event.content?.length ?? null,
-            };
-
-        case 'reaction.added':
-        case 'reaction.removed':
-            return {
-                messageId: event.messageId,
-                channelId: event.channelId,
-                guildId: event.guildId,
-                userId: event.userId,
-                emojiKey: event.emojiKey,
             };
 
         case 'member.joined':

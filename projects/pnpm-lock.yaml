@@ -5,7 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@fluxerjs/core@1.4.0': cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2
+  '@fluxerjs/core@2.0.1': 8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3
+  '@fluxerjs/rest@2.0.1': a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496
 
 importers:
 
@@ -93,15 +94,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@dnd-kit/core':
-        specifier: ^6.3.1
-        version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@dnd-kit/sortable':
-        specifier: ^10.0.0
-        version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
-      '@dnd-kit/utilities':
-        specifier: ^3.2.2
-        version: 3.2.2(react@19.2.7)
       '@fontsource/outfit':
         specifier: ^5.2.8
         version: 5.2.8
@@ -373,8 +365,8 @@ importers:
   packages/fluxer:
     dependencies:
       '@fluxerjs/core':
-        specifier: ^1.4.0
-        version: 1.4.0(patch_hash=cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2)
+        specifier: 2.0.1
+        version: 2.0.1(patch_hash=8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3)
       '@neonflux/core':
         specifier: workspace:*
         version: link:../core
@@ -587,28 +579,6 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
-
-  '@dnd-kit/accessibility@3.1.1':
-    resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
-    peerDependencies:
-      react: '>=16.8.0'
-
-  '@dnd-kit/core@6.3.1':
-    resolution: {integrity: sha512-xkGBRQQab4RLwgXxoqETICr6S5JlogafbhNsidmrkVv2YRs5MLwpjoF2qpiGjQt8S9AoxtIV603s0GIUpY5eYQ==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-
-  '@dnd-kit/sortable@10.0.0':
-    resolution: {integrity: sha512-+xqhmIIzvAYMGfBYYnbKuNicfSsk4RksY2XdmJhT+HAC01nix6fHCztU68jooFiMUB01Ky3F0FyOvhG/BZrWkg==}
-    peerDependencies:
-      '@dnd-kit/core': ^6.3.0
-      react: '>=16.8.0'
-
-  '@dnd-kit/utilities@3.2.2':
-    resolution: {integrity: sha512-+MKAJEOfaBe5SmV6t34p80MMKhjvUz0vRrvVJbPT0WElzaOJ/1xs+D+KDv+tD/NE5ujfrChEcshd4fLn0wpiqg==}
-    peerDependencies:
-      react: '>=16.8.0'
 
   '@electric-sql/pglite@0.5.3':
     resolution: {integrity: sha512-iTTYbA5Uesrl+N7zss0J5LopT7KE4j9aymYo+EZZh+rZbARQCUQOs+n2pay64JRUpc3fCkpfrniTNJnvYzOE+g==}
@@ -1061,27 +1031,27 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@fluxerjs/builders@1.4.0':
-    resolution: {integrity: sha512-cNRz88OP/6AVLbFwRTMXfCwdnytBXoJrXq349t84UvZpENJv9dXTZEsZLaRXMJq5oY2PijjgD6cTp1F8PLOVLw==}
+  '@fluxerjs/builders@2.0.0':
+    resolution: {integrity: sha512-0qWHW1NkfCnsH48sBCYgF1Uw4nO61hrZA4mlXMTRqYIWJ43+pyPYjtVURnqVK6Hdyucm2JOzsdWkL2ebefk12g==}
 
-  '@fluxerjs/collection@1.4.0':
-    resolution: {integrity: sha512-glMPFBXpSzu3S73orgRkLzawDG8LNh/JEvJDmpLTMaus/SzBaDyt2qXoD+8xzgE+4Gl2BkVdI7/PjPB/UPN/Rg==}
+  '@fluxerjs/collection@2.0.0':
+    resolution: {integrity: sha512-NF2Qwh5uTcyp4DI6T8vWz70uUH8NxvijQwyqMYc9H8fhJZYFoWoL1iUrFu8D9pH2THEDvlSAUw7ees90iU8axA==}
 
-  '@fluxerjs/core@1.4.0':
-    resolution: {integrity: sha512-PhmBeRCb3aBIFfDSpym48OsUrzXc0xF8JiyhDly5iL+dUayjyRIh9mia1xR8+lE48tlMCcPiU3q5LvuGq4hojQ==}
+  '@fluxerjs/core@2.0.1':
+    resolution: {integrity: sha512-ySxsxQou6Mi+6dshzcay1zhEbTV+/FmYcT4BEazVTDF5ZXN0DTg+iH59MeRHOvj4+CZ4l77aO59pC68edHUSzQ==}
     engines: {node: '>=18.0.0'}
 
-  '@fluxerjs/rest@1.4.0':
-    resolution: {integrity: sha512-hu3W5/QqXQUXbtjEwIo2Pv3Mh+HIzFrSXNmKtHPcPwiYICKo+F9BmYT+UFv0EvzYWUhKTCb1fi1hIKeJOcF4eQ==}
+  '@fluxerjs/rest@2.0.1':
+    resolution: {integrity: sha512-Bl4FYBJ4V3t7cDcgYYMOuAAHlgCsF8XHjllXLJiEUQ82YD2gJmfK/9JbmOz0NF5n4+BznjnFfCzN7MocoshkyA==}
 
-  '@fluxerjs/types@1.4.0':
-    resolution: {integrity: sha512-hQGEtEev9xfYp96UQoeSHd7BsnpNBbKgqYMWVHozAkolTKKJJduFDlDmPVLtBJQZlgrdq0fBzL4VJa4h1Ffalw==}
+  '@fluxerjs/types@2.0.0':
+    resolution: {integrity: sha512-p7KXabbP7HEvrlvhmqdLavcAjeW5KssaD1y7ykY66aSv72rJJVIMtey3VNjOZKKmWyH27IQMDWX1nilVEpjamg==}
 
-  '@fluxerjs/util@1.4.0':
-    resolution: {integrity: sha512-BSGop6K9OHnpCwL2oBkZ84qnRLe4og2KOKnCcCboul9lRIQ51JNc9A2ytGIR1dsp+B5aupw7jHprMGxt8nAx/g==}
+  '@fluxerjs/util@2.0.0':
+    resolution: {integrity: sha512-ciu6UZeqtIyyk3Y0q9qVyUWn6TtUZkewCe0ibLapV4a8Bfp4OLhJTXRauwWF6a6M6AK26D20MZJ6/zCGEugPsQ==}
 
-  '@fluxerjs/ws@1.4.0':
-    resolution: {integrity: sha512-H4ovRj0acmRBsJIeHa37A5eMah4Hb9Vqty4KnseD7QSCYa76vAgH/GqDVmlcWu/0c+vtn6zx0xR+Tx1jxSxoeA==}
+  '@fluxerjs/ws@2.0.1':
+    resolution: {integrity: sha512-JxCi1MHOqWu2g52Rl/CPtUjWWTgtXq7UKVvWY1+BToVl3LMpbOQlplAXsfT0OQUif/DpzTCijZ/cWiKQY/7VNg==}
 
   '@fontsource/outfit@5.2.8':
     resolution: {integrity: sha512-rXC6g0MqD7cOBjht0bMqc43qM6lRqDLML9KXsmg9uykz0wLQhy8Z/ajrMG6iyoT3NJR+MYgU+OEHp7uHoTb+Yw==}
@@ -6650,31 +6620,6 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dnd-kit/accessibility@3.1.1(react@19.2.7)':
-    dependencies:
-      react: 19.2.7
-      tslib: 2.8.1
-
-  '@dnd-kit/core@6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
-    dependencies:
-      '@dnd-kit/accessibility': 3.1.1(react@19.2.7)
-      '@dnd-kit/utilities': 3.2.2(react@19.2.7)
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
-      tslib: 2.8.1
-
-  '@dnd-kit/sortable@10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)':
-    dependencies:
-      '@dnd-kit/core': 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@dnd-kit/utilities': 3.2.2(react@19.2.7)
-      react: 19.2.7
-      tslib: 2.8.1
-
-  '@dnd-kit/utilities@3.2.2(react@19.2.7)':
-    dependencies:
-      react: 19.2.7
-      tslib: 2.8.1
-
   '@electric-sql/pglite@0.5.3':
     optional: true
 
@@ -7017,39 +6962,40 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@fluxerjs/builders@1.4.0':
+  '@fluxerjs/builders@2.0.0':
     dependencies:
-      '@fluxerjs/types': 1.4.0
-      '@fluxerjs/util': 1.4.0
+      '@fluxerjs/types': 2.0.0
+      '@fluxerjs/util': 2.0.0
 
-  '@fluxerjs/collection@1.4.0': {}
+  '@fluxerjs/collection@2.0.0': {}
 
-  '@fluxerjs/core@1.4.0(patch_hash=cfeddae8dd8043ed0303038c35ff221b52bc54d67a6dc81ea516a7f4c9588ff2)':
+  '@fluxerjs/core@2.0.1(patch_hash=8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3)':
     dependencies:
-      '@fluxerjs/builders': 1.4.0
-      '@fluxerjs/collection': 1.4.0
-      '@fluxerjs/rest': 1.4.0
-      '@fluxerjs/types': 1.4.0
-      '@fluxerjs/util': 1.4.0
-      '@fluxerjs/ws': 1.4.0
+      '@fluxerjs/builders': 2.0.0
+      '@fluxerjs/collection': 2.0.0
+      '@fluxerjs/rest': 2.0.1(patch_hash=a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496)
+      '@fluxerjs/types': 2.0.0
+      '@fluxerjs/util': 2.0.0
+      '@fluxerjs/ws': 2.0.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@fluxerjs/rest@1.4.0':
+  '@fluxerjs/rest@2.0.1(patch_hash=a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496)':
     dependencies:
-      '@fluxerjs/types': 1.4.0
+      '@fluxerjs/types': 2.0.0
+      undici: 7.28.0
 
-  '@fluxerjs/types@1.4.0': {}
+  '@fluxerjs/types@2.0.0': {}
 
-  '@fluxerjs/util@1.4.0':
+  '@fluxerjs/util@2.0.0':
     dependencies:
-      '@fluxerjs/types': 1.4.0
+      '@fluxerjs/types': 2.0.0
 
-  '@fluxerjs/ws@1.4.0':
+  '@fluxerjs/ws@2.0.1':
     dependencies:
-      '@fluxerjs/types': 1.4.0
-      '@fluxerjs/util': 1.4.0
+      '@fluxerjs/types': 2.0.0
+      '@fluxerjs/util': 2.0.0
       ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil

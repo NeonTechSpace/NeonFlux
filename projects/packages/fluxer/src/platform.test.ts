@@ -204,211 +204,6 @@ describe('createFluxerPlatform', () => {
         expect(edit).toHaveBeenCalledWith({ content: 'Plain text only', embeds: [] });
     });
 
-    it('rejects blank reaction emoji before fetching the message', async () => {
-        const resolve = vi.fn();
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve,
-                },
-            })
-        );
-
-        const result = await platform.messages.react({
-            channelId: 'channel-1',
-            messageId: 'message-1',
-            emoji: '   ',
-        });
-
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'missing-input',
-            field: 'emoji',
-        } satisfies FluxerPlatformError);
-        expect(resolve).not.toHaveBeenCalled();
-    });
-
-    it('removes a specific user reaction through the normalized messages port', async () => {
-        const removeReaction = vi.fn<(emoji: string, userId: string) => Promise<void>>().mockResolvedValue(undefined);
-        const fetch = vi.fn().mockResolvedValue({
-            id: 'message-1',
-            channelId: 'channel-1',
-            guildId: 'guild-1',
-            removeReaction,
-        });
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch,
-                        },
-                    }),
-                },
-            })
-        );
-
-        const result = await platform.messages.removeReaction({
-            channelId: ' channel-1 ',
-            messageId: ' message-1 ',
-            emoji: ' 🎉 ',
-            userId: ' user-1 ',
-        });
-
-        expect(result.isOk()).toBe(true);
-        expect(fetch).toHaveBeenCalledWith('message-1');
-        expect(removeReaction).toHaveBeenCalledWith('🎉', 'user-1');
-    });
-
-    it('removes an entire emoji reaction through the normalized messages port', async () => {
-        const removeReactionEmoji = vi.fn<(emoji: string) => Promise<void>>().mockResolvedValue(undefined);
-        const fetch = vi.fn().mockResolvedValue({
-            id: 'message-1',
-            channelId: 'channel-1',
-            guildId: 'guild-1',
-            removeReactionEmoji,
-        });
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch,
-                        },
-                    }),
-                },
-            })
-        );
-
-        const result = await platform.messages.removeReactionEmoji({
-            channelId: ' channel-1 ',
-            messageId: ' message-1 ',
-            emoji: ' 🎉 ',
-        });
-
-        expect(result.isOk()).toBe(true);
-        expect(fetch).toHaveBeenCalledWith('message-1');
-        expect(removeReactionEmoji).toHaveBeenCalledWith('🎉');
-    });
-
-    it('returns unsupported when user reaction removal is not exposed by the SDK object', async () => {
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch: vi.fn().mockResolvedValue({
-                                id: 'message-1',
-                                channelId: 'channel-1',
-                                guildId: 'guild-1',
-                            }),
-                        },
-                    }),
-                },
-            })
-        );
-
-        const result = await platform.messages.removeReaction({
-            channelId: 'channel-1',
-            messageId: 'message-1',
-            emoji: '🎉',
-            userId: 'user-1',
-        });
-
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'unsupported',
-            feature: 'message-reaction-removal',
-        } satisfies FluxerPlatformError);
-    });
-
-    it('lists users for a message reaction through the normalized messages port', async () => {
-        const fetchReactionUsers = vi.fn().mockResolvedValue(
-            new Map([
-                ['user-1', { id: 'user-1', bot: false }],
-                ['bot-1', { id: 'bot-1', bot: true }],
-            ])
-        );
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch: vi.fn().mockResolvedValue({
-                                id: 'message-1',
-                                channelId: 'channel-1',
-                                guildId: 'guild-1',
-                                reactions: {
-                                    cache: new Map([
-                                        [
-                                            '🎉',
-                                            {
-                                                emoji: { name: '🎉', identifier: '🎉' },
-                                                users: { fetch: fetchReactionUsers },
-                                            },
-                                        ],
-                                    ]),
-                                },
-                            }),
-                        },
-                    }),
-                },
-            })
-        );
-
-        const result = await platform.messages.listReactionUsers({
-            channelId: 'channel-1',
-            messageId: 'message-1',
-            emoji: '🎉',
-            limit: 100,
-            after: 'cursor-user',
-        });
-
-        expect(result.isOk()).toBe(true);
-        expect(result._unsafeUnwrap()).toStrictEqual([
-            { id: 'user-1', bot: false },
-            { id: 'bot-1', bot: true },
-        ]);
-        expect(fetchReactionUsers).toHaveBeenCalledWith({
-            limit: 100,
-            after: 'cursor-user',
-        });
-    });
-
-    it('returns unsupported when reaction users are not exposed by the SDK object', async () => {
-        const platform = createFluxerPlatform(
-            createClient({
-                channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch: vi.fn().mockResolvedValue({
-                                id: 'message-1',
-                                channelId: 'channel-1',
-                                guildId: 'guild-1',
-                                reactions: {
-                                    cache: new Map([['🎉', { emoji: { name: '🎉' } }]]),
-                                },
-                            }),
-                        },
-                    }),
-                },
-            })
-        );
-
-        const result = await platform.messages.listReactionUsers({
-            channelId: 'channel-1',
-            messageId: 'message-1',
-            emoji: '🎉',
-            limit: 100,
-        });
-
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'unsupported',
-            feature: 'message-reaction-users',
-        } satisfies FluxerPlatformError);
-    });
-
     it('rejects blank moderation targets before fetching the guild', async () => {
         const fetch = vi.fn();
         const platform = createFluxerPlatform(
@@ -430,6 +225,21 @@ describe('createFluxerPlatform', () => {
             field: 'userId',
         } satisfies FluxerPlatformError);
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('passes v2 camelCase ban options through the moderation port', async () => {
+        const ban = vi.fn().mockResolvedValue(undefined);
+        const platform = createFluxerPlatform(createClient({ guilds: { fetch: vi.fn().mockResolvedValue({ ban }) } }));
+
+        const result = await platform.moderation.ban({
+            guildId: ' guild-1 ',
+            userId: ' user-1 ',
+            reason: ' cleanup ',
+            deleteMessageDays: 2,
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(ban).toHaveBeenCalledWith('user-1', { reason: 'cleanup', deleteMessageDays: 2 });
     });
 
     it('times out members through the normalized moderation port', async () => {
@@ -458,8 +268,8 @@ describe('createFluxerPlatform', () => {
         expect(result.isOk()).toBe(true);
         expect(fetchMember).toHaveBeenCalledWith('user-1');
         expect(edit).toHaveBeenCalledWith({
-            communication_disabled_until: '2026-06-26T12:30:00.000Z',
-            timeout_reason: 'slow down',
+            communicationDisabledUntil: '2026-06-26T12:30:00.000Z',
+            timeoutReason: 'slow down',
         });
     });
 
@@ -485,8 +295,8 @@ describe('createFluxerPlatform', () => {
 
         expect(result.isOk()).toBe(true);
         expect(edit).toHaveBeenCalledWith({
-            communication_disabled_until: null,
-            timeout_reason: 'served',
+            communicationDisabledUntil: null,
+            timeoutReason: 'served',
         });
     });
 
@@ -716,9 +526,9 @@ describe('createFluxerPlatform', () => {
         expect(result.isOk()).toBe(true);
         expect(edit).toHaveBeenCalledWith({
             name: 'New Room',
-            user_limit: 4,
+            userLimit: 4,
         });
-        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parent_id: 'category-1', position: 3 }]);
+        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parentId: 'category-1', position: 3 }]);
     });
 
     it('rejects invalid channel edit payloads before fetching the channel', async () => {
@@ -777,10 +587,9 @@ describe('createFluxerPlatform', () => {
             })
         );
 
-        const result = await platform.members.addRole({
+        const result = await platform.members.read({
             guildId: 'guild-1',
             userId: 'user-1',
-            roleId: 'role-1',
         });
 
         expect(result.isErr()).toBe(true);
@@ -909,6 +718,21 @@ describe('createFluxerPlatform', () => {
             type: 'operation-failed',
             error: sdkError,
         } satisfies FluxerPlatformError);
+    });
+
+    it('uses the v2 bulkDelete channel method', async () => {
+        const bulkDelete = vi.fn().mockResolvedValue(['message-1']);
+        const platform = createFluxerPlatform(
+            createClient({ channels: { fetch: vi.fn().mockResolvedValue({ bulkDelete }) } })
+        );
+
+        const result = await platform.messages.bulkDelete({
+            channelId: ' channel-1 ',
+            messageIds: [' message-1 '],
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(bulkDelete).toHaveBeenCalledWith(['message-1']);
     });
 });
 

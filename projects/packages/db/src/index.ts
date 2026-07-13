@@ -1,6 +1,5 @@
 // Runtime database boundary. App code imports Convex-backed operations and
 // app-facing type contracts from here.
-export { reactionRoleMessageModes, reactionRoleMessageSources } from './contracts-reaction-roles.js';
 export {
     STRUCTURE_IMPORT_EXPORT_FEATURE,
     structureAuditActions,
@@ -58,27 +57,6 @@ export type {
     WebSessionRecord,
     WebSessionRepositoryError,
 } from './contracts.js';
-export type {
-    ReactionRoleAssignmentRecord,
-    ReactionRoleMessageMode,
-    ReactionRoleMessageRecord,
-    ReactionRoleMessageSource,
-    ReactionRoleMessageWithOptions,
-    ReactionRoleMaintenanceResult,
-    ReactionRoleMemberReconciliation,
-    ReactionRoleMemberStateRecord,
-    ReactionRoleMemberTransitionResult,
-    ReactionRoleDesiredConfig,
-    ReactionRoleOperationRecord,
-    ReactionRoleOperationRequestResult,
-    ReactionRoleOperationRetryResult,
-    ReactionRoleOperationStatus,
-    ReactionRoleOperationType,
-    ReactionRoleOptionMatch,
-    ReactionRoleOptionRecord,
-    ReactionRoleReconciliationItemRecord,
-    ReactionRolesRepositoryError,
-} from './contracts-reaction-roles.js';
 export type {
     StructureBackupRecord,
     StructureBackupRetentionPruneRecord,
@@ -177,53 +155,6 @@ export {
     readDashboardPostingOperationForWorker,
     recordDashboardPostingOperationExternalMessage,
 } from './runtime-posting-operations.js';
-export {
-    findEnabledReactionRoleOptionByReaction,
-    findReactionRoleMessage,
-    findReactionRoleMessageWithOptions,
-    findReactionRoleOption,
-    listActiveReactionRoleAssignmentsByGuildMessageUser,
-    listActiveReactionRoleAssignmentsByGuildUser,
-    listReactionRoleMessagesByGuildId,
-} from './runtime-reaction-roles.js';
-export {
-    blockReactionRoleReconciliationItem,
-    claimNextReactionRoleOperation,
-    completeReactionRoleDeleteOperation,
-    completeReactionRolePublishOperation,
-    completeReactionRoleReconciliationItem,
-    completeReactionRoleSaveOperation,
-    deferReactionRoleOperation,
-    listPendingReactionRoleReconciliationItems,
-    listReactionRoleOperationsByGuildId,
-    maintainReactionRoleState,
-    markReactionRoleOperationNeedsAttention,
-    markReactionRoleOperationSending,
-    recordReactionRoleOperationExternalMessage,
-    requestReactionRoleDeleteOperation,
-    requestReactionRoleExternalMessageDeleted,
-    requestReactionRolePublishOperation,
-    requestReactionRoleSaveOperation,
-    retryReactionRoleOperation,
-    snapshotReactionRoleOperationAssignments,
-} from './runtime-reaction-role-operations.js';
-export {
-    blockReactionRoleMemberState,
-    claimNextReactionRoleMemberState,
-    completeReactionRoleMemberState,
-    deferReactionRoleMemberState,
-    hasActiveReactionRoleMemberLease,
-    isReactionRoleGuildRunnable,
-    loadReactionRoleMemberReconciliation,
-    requestReactionRoleMemberTransition,
-    retryBlockedReactionRoleMemberStates,
-} from './runtime-reaction-role-members.js';
-export {
-    acquireReactionRoleUserLease,
-    hasOtherActiveReactionRoleAssignment,
-    releaseReactionRoleUserLease,
-    renewReactionRoleUserLease,
-} from './runtime-reaction-role-user-leases.js';
 export {
     claimDueStructureBackupSetting,
     claimDueStructureDriftSetting,

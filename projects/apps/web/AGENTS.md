@@ -39,7 +39,7 @@ This file is the durable product, design, interaction, and client-state authorit
 - Every dashboard feature uses one responsive frame: 16px mobile gutters, 24px intermediate gutters, 32px desktop gutters, and a bounded workspace up to 100rem.
 - Use one route-header rhythm: icon crest, category eyebrow, one `h1`, concise description, then optional subnavigation or status. The task body starts below this invariant frame.
 - Pending, cached, resolved, empty, and error views retain the same route identity, width, and header geometry. Async completion must not snap from a category shell or narrow placeholder into the real feature layout.
-- Operational workspaces use the full available task column by default. Narrow only a genuinely focused reading, confirmation, or small-form flow. Do not make Reaction Roles, Command Prefix, Blueprint, or future substantial tools look arbitrarily half-width.
+- Operational workspaces use the full available task column by default. Narrow only a genuinely focused reading, confirmation, or small-form flow. Do not make Command Prefix, Blueprint, or future substantial tools look arbitrarily half-width.
 - Feature-specific composers, resource lists, forms, previews, timelines, trees, explorers, and builders may have distinct task bodies. They must not invent distinct page chrome, spacing systems, heading hierarchy, or color language.
 - Subnavigation destinations use task-specific Lucide icons. Do not repeat the parent job icon for several children. The parent communicates the domain and each child icon identifies the concrete tool.
 - Zero-signal workflows render one useful, truthful first-use state with a clear action. Do not stack an empty metric layer, repeated introduction, and another empty card.

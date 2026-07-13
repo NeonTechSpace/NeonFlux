@@ -541,7 +541,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
 
         expect(result.isOk()).toBe(true);
         expect(edit).not.toHaveBeenCalled();
-        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parent_id: 'category-1', position: 4 }]);
+        expect(setChannelPositions).toHaveBeenCalledWith([{ id: 'channel-1', parentId: 'category-1', position: 4 }]);
     });
 
     it('applies role position updates except for @everyone', async () => {
@@ -1005,11 +1005,11 @@ describe('applyFluxerBotGuildStructureAction', () => {
 
         expect(result.isOk()).toBe(true);
         expect(setChannelPositions).toHaveBeenCalledWith([
-            { id: 'target-category-a', parent_id: null, position: 0 },
-            { id: 'target-category-b', parent_id: null, position: 1 },
-            { id: 'target-channel-a-1', parent_id: 'target-category-a', position: 0 },
-            { id: 'target-channel-a-2', parent_id: 'target-category-a', position: 1 },
-            { id: 'target-channel-b', parent_id: 'target-category-b', position: 0 },
+            { id: 'target-category-a', parentId: null, position: 0 },
+            { id: 'target-category-b', parentId: null, position: 1 },
+            { id: 'target-channel-a-1', parentId: 'target-category-a', position: 0 },
+            { id: 'target-channel-a-2', parentId: 'target-category-a', position: 1 },
+            { id: 'target-channel-b', parentId: 'target-category-b', position: 0 },
         ]);
         expect(result._unsafeUnwrap().actions).toStrictEqual([{ id: 'action-channel-order', status: 'applied' }]);
     });

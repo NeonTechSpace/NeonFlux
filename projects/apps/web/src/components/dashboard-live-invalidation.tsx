@@ -8,7 +8,6 @@ import {
     getDashboardCommandSettingsQueryKey,
     getDashboardOverviewQueryKey,
     getDashboardPostingTemplatesQueryKey,
-    getDashboardReactionRolesSettingsQueryKey,
     getDashboardStructureExecutionProgressBaseQueryKey,
     getDashboardStructureSettingsQueryKey,
 } from '../dashboard-query-keys.js';
@@ -144,10 +143,6 @@ function invalidateDashboardLiveArea(
 
         case 'commands':
             invalidateOnce(destination, getDashboardCommandSettingsQueryKey(guildId));
-            return;
-
-        case 'reaction_roles':
-            invalidateOnce(destination, getDashboardReactionRolesSettingsQueryKey(guildId));
             return;
 
         case 'posting':

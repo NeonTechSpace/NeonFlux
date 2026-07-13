@@ -2,6 +2,7 @@ import type { Client, Guild, GuildChannel, Role } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
+import { isFluxerGuildUnavailable } from './guild-availability.js';
 
 const GUILD_CATEGORY_CHANNEL_TYPE = 4;
 
@@ -115,7 +116,7 @@ export async function readFluxerGuildStructure(
         return err(guildResult.error);
     }
 
-    if (!guildResult.value) {
+    if (!guildResult.value || isFluxerGuildUnavailable(guildResult.value)) {
         return err({ type: 'unavailable-or-not-found' });
     }
 
@@ -478,13 +479,12 @@ function normalizeGuildName(guild: Guild, fallback: string): string {
 }
 
 function getPermissionBitfield(permissions: unknown): string | undefined {
-    if (!isObject(permissions) || typeof permissions.valueOf !== 'function') {
-        return undefined;
-    }
+    const value =
+        isObject(permissions) && typeof permissions.valueOf === 'function' ? permissions.valueOf() : permissions;
 
-    const value = permissions.valueOf();
-
-    return typeof value === 'string' ? value : undefined;
+    if (typeof value === 'bigint' && value >= 0n) return value.toString();
+    if (typeof value === 'string' && /^\d+$/.test(value)) return value;
+    return undefined;
 }
 
 function normalizeChannels(
