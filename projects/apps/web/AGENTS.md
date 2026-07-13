@@ -11,6 +11,7 @@
 
 ## Rendering and interaction
 
+- Treat guild identity as a hard client-state boundary across every dashboard feature and view. Query keys and retained server data must be guild-scoped: reuse cached data only for the currently targeted guild, keep each guild's cache available when returning to it, and remount or reset transient drafts, errors, pagination, selections, and busy state when the guild changes. Never render feature data retained from the previously selected guild.
 - Prefer server data, render-time derivation, and stable query caches before client effects. Use `useEffect` only to synchronize an external system and `useLayoutEffect` only for unavoidable pre-paint DOM work.
 - Protected initial data loads through route loaders or server functions. Known route/list data should render headers, names, icons, and IDs immediately.
 - The router uses instant pending (`defaultPendingMs: 0`, `defaultPendingMinMs: 0`), but stable docs/dashboard shells remain mounted.

@@ -11,28 +11,33 @@ import {
 } from './dashboard-structure-progress.js';
 
 const dashboardStructureRequestTimeoutMs = 12_000;
+type DashboardStructureSettingsRequest = Promise<Awaited<ReturnType<typeof readDashboardStructureSettingsRouteData>>>;
 
 export function useDashboardStructureWorkspaceQueries(guildId: string) {
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
-    const [settingsRequestOutstanding, setSettingsRequestOutstanding] = useState(false);
-    const settingsRequestRef =
-        useRef<Promise<Awaited<ReturnType<typeof readDashboardStructureSettingsRouteData>>>>(undefined);
+    const [settingsRequestGuildIds, setSettingsRequestGuildIds] = useState<ReadonlySet<string>>(() => new Set());
+    const settingsRequestByGuildIdRef = useRef(new Map<string, DashboardStructureSettingsRequest>());
     // Operational request fencing does not change the guild-scoped query identity.
     // eslint-disable-next-line @tanstack/query/exhaustive-deps
     const settingsQuery = useQuery({
         queryKey,
         queryFn: async () => {
-            if (settingsRequestRef.current) {
+            if (settingsRequestByGuildIdRef.current.has(guildId)) {
                 throw new DashboardStructureRequestError('BLUEPRINT_LOAD_REQUEST_IN_FLIGHT');
             }
             const request = readDashboardStructureSettingsRouteData({ data: { guildId } });
-            settingsRequestRef.current = request;
-            setSettingsRequestOutstanding(true);
+            settingsRequestByGuildIdRef.current.set(guildId, request);
+            setSettingsRequestGuildIds((current) => new Set(current).add(guildId));
             void request
                 .finally(() => {
-                    if (settingsRequestRef.current === request) {
-                        settingsRequestRef.current = undefined;
-                        setSettingsRequestOutstanding(false);
+                    if (settingsRequestByGuildIdRef.current.get(guildId) === request) {
+                        settingsRequestByGuildIdRef.current.delete(guildId);
+                        setSettingsRequestGuildIds((current) => {
+                            if (!current.has(guildId)) return current;
+                            const next = new Set(current);
+                            next.delete(guildId);
+                            return next;
+                        });
                     }
                 })
                 .catch(() => undefined);
@@ -62,7 +67,7 @@ export function useDashboardStructureWorkspaceQueries(guildId: string) {
         executionProgress,
         queryKey,
         retrySettings: () => {
-            if (settingsRequestOutstanding) {
+            if (settingsRequestGuildIds.has(guildId)) {
                 window.location.reload();
                 return;
             }
@@ -70,6 +75,6 @@ export function useDashboardStructureWorkspaceQueries(guildId: string) {
             void settingsQuery.refetch();
         },
         settingsQuery,
-        settingsRequestOutstanding,
+        settingsRequestOutstanding: settingsRequestGuildIds.has(guildId),
     };
 }

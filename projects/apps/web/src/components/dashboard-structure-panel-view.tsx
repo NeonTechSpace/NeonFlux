@@ -145,6 +145,13 @@ function CurrentSurface({ workspace }: { workspace: DashboardStructurePanelViewP
                     </button>
                     <button
                         type='button'
+                        onClick={workspace.onDownloadCurrentStructure}
+                        disabled={Boolean(workspace.busyAction)}
+                        className={dashboardSecondaryActionClassName}>
+                        {workspace.busyAction === 'export' ? 'Preparing JSON' : 'Download JSON'}
+                    </button>
+                    <button
+                        type='button'
                         onClick={latestBackup ? workspace.onCheckLatestDrift : workspace.onCreateBackup}
                         disabled={Boolean(workspace.busyAction)}
                         className={dashboardPrimaryActionClassName}>
@@ -246,13 +253,6 @@ function BackupsSurface({ workspace }: { workspace: DashboardStructurePanelViewP
                     <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{scheduleCopy}</p>
                 </div>
                 <div className='flex flex-wrap gap-2'>
-                    <button
-                        type='button'
-                        onClick={workspace.onDownloadCurrentStructure}
-                        disabled={Boolean(workspace.busyAction)}
-                        className={dashboardSecondaryActionClassName}>
-                        {workspace.busyAction === 'export' ? 'Preparing JSON' : 'Download JSON'}
-                    </button>
                     <button
                         type='button'
                         onClick={workspace.onCreateBackup}

@@ -291,7 +291,9 @@ function DashboardGuildView({
             activeCategoryId={activeCategoryId}
             mode={catalog?.mode ?? data.mode}
             botInviteUrl={catalog?.botInviteUrl ?? data.botInviteUrl}>
-            <DashboardGuildDataContext value={data}>{children}</DashboardGuildDataContext>
+            <DashboardGuildDataContext key={data.guild.id} value={data}>
+                {children}
+            </DashboardGuildDataContext>
         </DashboardGuildFrame>
     );
 }

@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -208,6 +209,55 @@ describe('DashboardGuildPendingPage', () => {
         expect(navigate).not.toHaveBeenCalled();
     });
 
+    it('resets feature-local state across guilds without clearing either guild cache', () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const guildOneKey = ['dashboard', 'guild', 'guild-1', 'test'] as const;
+        const guildTwoKey = ['dashboard', 'guild', 'guild-2', 'test'] as const;
+        queryClient.setQueryData(guildOneKey, 'guild-one-cache');
+        queryClient.setQueryData(guildTwoKey, 'guild-two-cache');
+
+        const view = render(
+            <QueryClientProvider client={queryClient}>
+                <DashboardGuildPageContent
+                    data={{
+                        type: 'guild',
+                        mode: 'multi',
+                        guild: { id: 'guild-1', name: 'Guild One' },
+                        manageableGuilds: [
+                            { id: 'guild-1', name: 'Guild One' },
+                            { id: 'guild-2', name: 'Guild Two' },
+                        ],
+                    }}>
+                    <GuildLocalDraft />
+                </DashboardGuildPageContent>
+            </QueryClientProvider>
+        );
+        renderedPages.push(view);
+        fireEvent.click(screen.getByRole('button', { name: 'Edit guild-local draft' }));
+        expect(screen.getByText('Draft: edited')).toBeTruthy();
+
+        view.rerender(
+            <QueryClientProvider client={queryClient}>
+                <DashboardGuildPageContent
+                    data={{
+                        type: 'guild',
+                        mode: 'multi',
+                        guild: { id: 'guild-2', name: 'Guild Two' },
+                        manageableGuilds: [
+                            { id: 'guild-1', name: 'Guild One' },
+                            { id: 'guild-2', name: 'Guild Two' },
+                        ],
+                    }}>
+                    <GuildLocalDraft />
+                </DashboardGuildPageContent>
+            </QueryClientProvider>
+        );
+
+        expect(screen.getByText('Draft: initial')).toBeTruthy();
+        expect(queryClient.getQueryData(guildOneKey)).toBe('guild-one-cache');
+        expect(queryClient.getQueryData(guildTwoKey)).toBe('guild-two-cache');
+    });
+
     it('offers retry without presenting stale guild details when the shell access read fails', () => {
         renderedPages.push(
             render(
@@ -230,3 +280,15 @@ describe('DashboardGuildPendingPage', () => {
         expect(invalidateRouter).toHaveBeenCalledTimes(1);
     });
 });
+
+function GuildLocalDraft() {
+    const [draft, setDraft] = useState('initial');
+    return (
+        <div>
+            <p>Draft: {draft}</p>
+            <button type='button' onClick={() => setDraft('edited')}>
+                Edit guild-local draft
+            </button>
+        </div>
+    );
+}
