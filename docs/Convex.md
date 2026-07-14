@@ -134,7 +134,7 @@ pnpm convex:typecheck
 pnpm convex:codegen:check
 ```
 
-Deploy from the protected `Deploy Convex` workflow or an equivalent trusted operator shell:
+Deploy from a trusted operator shell with the exact target identified and the required deployment credentials loaded:
 
 ```sh
 pnpm convex:deploy

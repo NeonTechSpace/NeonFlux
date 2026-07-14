@@ -12,13 +12,13 @@ const expectedFixtureEnvPath = resolve(webDirectory, '.e2e-runtime', 'convex', '
 const providerStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
 const pnpmEntrypoint = process.env.npm_execpath;
 
-if (!pnpmEntrypoint) throw new Error('Authenticated Playwright must be started through a pnpm script.');
+if (!pnpmEntrypoint) throw new Error('Signed-in browser tests must be started through a pnpm script.');
 
-const orchestrationEnvironment = {
+const testEnvironment = {
     ...withoutProjectCredentials(process.env),
     NEONFLUX_E2E_EPHEMERAL_SENTINEL: e2eEphemeralSentinel,
 };
-requireEphemeralSentinel(orchestrationEnvironment);
+requireEphemeralSentinel(testEnvironment);
 
 let primaryError: unknown;
 
@@ -39,7 +39,7 @@ try {
     await runPnpm(
         ['--filter', 'neonflux-web', 'exec', 'playwright', 'test', '--config', 'playwright.authenticated.config.ts'],
         {
-            ...orchestrationEnvironment,
+            ...testEnvironment,
             ...fixtureEnvironment,
             NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
             NEONFLUX_E2E_PROVIDER_STATE_PATH: providerStatePath,

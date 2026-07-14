@@ -11,13 +11,13 @@ const statePath = resolve(webDirectory, '.e2e-runtime', 'convex', 'state.json');
 const expectedFixtureEnvPath = resolve(webDirectory, '.e2e-runtime', 'convex', 'fixture.env');
 const pnpmEntrypoint = process.env.npm_execpath;
 
-if (!pnpmEntrypoint) throw new Error('The authenticated E2E runner must be started through a pnpm script.');
+if (!pnpmEntrypoint) throw new Error('Signed-in service tests must be started through a pnpm script.');
 
-const orchestrationEnvironment = {
+const testEnvironment = {
     ...withoutProjectCredentials(process.env),
     NEONFLUX_E2E_EPHEMERAL_SENTINEL: e2eEphemeralSentinel,
 };
-requireEphemeralSentinel(orchestrationEnvironment);
+requireEphemeralSentinel(testEnvironment);
 
 const state = validateEphemeralConvexState(
     JSON.parse(await readFile(statePath, 'utf8')) as unknown,
@@ -27,14 +27,11 @@ if (resolve(state.fixtureEnvPath) !== expectedFixtureEnvPath) {
     throw new Error('Ephemeral Convex state references an unowned fixture env file.');
 }
 const runtimeEnvironment = parseOwnedRuntimeEnvironment(await readFile(state.fixtureEnvPath, 'utf8'));
-await runPnpm(
-    ['exec', 'vitest', 'run', 'apps/web/e2e/support/authenticated-production-composition.test.ts', '--maxWorkers=1'],
-    {
-        ...orchestrationEnvironment,
-        ...runtimeEnvironment,
-        NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
-    }
-);
+await runPnpm(['exec', 'vitest', 'run', 'apps/web/e2e/support/authenticated-services.test.ts', '--maxWorkers=1'], {
+    ...testEnvironment,
+    ...runtimeEnvironment,
+    NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
+});
 
 function parseOwnedRuntimeEnvironment(source: string): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {};

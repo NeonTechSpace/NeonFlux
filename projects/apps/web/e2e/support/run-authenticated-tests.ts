@@ -3,7 +3,7 @@ import { readFile, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runAuthenticatedJourneyOrchestration } from './authenticated-orchestration.js';
+import { runAuthenticatedTests } from './authenticated-test-runner.js';
 import {
     assertConvexCliEnvironmentContainsNoPrivateCredentials,
     e2eEphemeralSentinel,
@@ -18,15 +18,15 @@ const expectedRuntimeEnvPath = resolve(webDirectory, '.e2e-runtime', 'convex', '
 const providerStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
 const pnpmEntrypoint = process.env.npm_execpath;
 
-if (!pnpmEntrypoint) throw new Error('Authenticated journeys must be started through a pnpm script.');
+if (!pnpmEntrypoint) throw new Error('Signed-in tests must be started through a pnpm script.');
 
-const orchestrationEnvironment = {
+const testEnvironment = {
     ...withoutProjectCredentials(process.env),
     NEONFLUX_E2E_EPHEMERAL_SENTINEL: e2eEphemeralSentinel,
 };
-requireEphemeralSentinel(orchestrationEnvironment);
+requireEphemeralSentinel(testEnvironment);
 
-await runAuthenticatedJourneyOrchestration({
+await runAuthenticatedTests({
     cleanup: async (started) => {
         const errors: unknown[] = [];
         try {
@@ -36,26 +36,26 @@ await runAuthenticatedJourneyOrchestration({
         }
         if (started) {
             try {
-                await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:stop'], orchestrationEnvironment);
+                await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:stop'], testEnvironment);
             } catch (error) {
                 errors.push(error);
             }
         }
         if (errors.length === 1) throw errors[0];
-        if (errors.length > 1) throw new AggregateError(errors, 'Owned authenticated journey cleanup failed.');
+        if (errors.length > 1) throw new AggregateError(errors, 'Signed-in test cleanup failed.');
     },
     phases: [
-        { name: 'Convex codegen drift', run: runCodegenDriftCheck },
+        { name: 'Generate and verify Convex API files', run: runCodegenDriftCheck },
         {
-            name: 'production composition',
-            run: () => runPnpm(['--filter', 'neonflux-web', 'e2e:authenticated:composition'], orchestrationEnvironment),
+            name: 'Run signed-in service tests',
+            run: () => runPnpm(['--filter', 'neonflux-web', 'e2e:authenticated:services'], testEnvironment),
         },
         {
-            name: 'authenticated browser',
-            run: () => runPnpm(['--filter', 'neonflux-web', 'e2e:authenticated:browser'], orchestrationEnvironment),
+            name: 'Run signed-in browser tests',
+            run: () => runPnpm(['--filter', 'neonflux-web', 'e2e:authenticated:browser'], testEnvironment),
         },
     ],
-    start: () => runPnpm(['--filter', 'neonflux-web', 'e2e:convex:start'], orchestrationEnvironment),
+    start: () => runPnpm(['--filter', 'neonflux-web', 'e2e:convex:start'], testEnvironment),
 });
 
 async function runCodegenDriftCheck(): Promise<void> {
@@ -69,10 +69,10 @@ async function runCodegenDriftCheck(): Promise<void> {
     const runtimeEnvironment = parseOwnedEnvironment(await readFile(state.runtimeEnvPath, 'utf8'));
     assertConvexCliEnvironmentContainsNoPrivateCredentials(runtimeEnvironment);
     await runPnpm(['exec', 'convex', 'codegen', '--typecheck', 'enable'], {
-        ...orchestrationEnvironment,
+        ...testEnvironment,
         ...runtimeEnvironment,
     });
-    await runCommand('git', ['diff', '--exit-code', '--', 'convex/_generated'], orchestrationEnvironment);
+    await runCommand('git', ['diff', '--exit-code', '--', 'convex/_generated'], testEnvironment);
 }
 
 function parseOwnedEnvironment(source: string): NodeJS.ProcessEnv {

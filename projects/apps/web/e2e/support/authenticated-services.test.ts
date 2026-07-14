@@ -67,14 +67,14 @@ vi.mock('../../src/server/bot-read-client.server.js', async (importActual) => ({
 }));
 
 const enabled = process.env.NEONFLUX_E2E_AUTHENTICATED === 'neonflux-e2e-ephemeral-v1';
-const guildId = 'e2e-composition-guild-1';
-const userId = 'e2e-composition-user-1';
-const sessionId = 'composition0123456789abcdefghijklmnopqrstuv';
+const guildId = 'e2e-services-guild-1';
+const userId = 'e2e-services-user-1';
+const sessionId = 'services0123456789abcdefghijklmnopqrstuvwx';
 let botDatabase: RuntimeDbClient;
 let webDatabase: RuntimeDbClient;
 let authenticatedRequest: Request;
 
-describe.runIf(enabled)('authenticated production composition with owned Convex and fake provider', () => {
+describe.runIf(enabled)('signed-in services with owned Convex and a fake provider', () => {
     beforeAll(async () => {
         const config = loadRuntimeConfig(process.env);
         botDatabase = await createRuntimeDb(config, { serviceName: 'bot' });
@@ -225,12 +225,10 @@ describe.runIf(enabled)('authenticated production composition with owned Convex 
             resolution: 'duplicate_risk_accepted',
             resolvedByUserId: userId,
         });
-        expect(sendMessage).toHaveBeenCalledWith(
-            expect.objectContaining({
-                channelId: 'channel-1',
-                message: expect.objectContaining({ allowedMentions: { parse: [] } }),
-            })
-        );
+        expect(sendMessage).toHaveBeenCalledWith({
+            channelId: 'channel-1',
+            message: { content: 'Success', embeds: [] },
+        });
     }, 60_000);
 
     it('rejects a stale Blueprint target, then restores, applies, and verifies a fresh approved plan', async () => {
@@ -414,6 +412,7 @@ function blueprintSnapshot(roleName: string) {
                 color: 0,
                 hoist: false,
                 id: 'role-1',
+                hierarchyRank: 0,
                 mentionable: false,
                 name: roleName,
                 permissions: '0',

@@ -9,7 +9,7 @@ import {
 } from './ephemeral-state.js';
 
 describe('ephemeral Convex ownership guards', () => {
-    it('requires the exact sentinel before mutable orchestration', () => {
+    it('requires the exact sentinel before starting temporary test services', () => {
         expect(() => requireEphemeralSentinel({})).toThrow(/sentinel/u);
         expect(() => requireEphemeralSentinel({ NEONFLUX_E2E_EPHEMERAL_SENTINEL: 'almost' })).toThrow(/sentinel/u);
         expect(() => requireEphemeralSentinel({ NEONFLUX_E2E_EPHEMERAL_SENTINEL: e2eEphemeralSentinel })).not.toThrow();

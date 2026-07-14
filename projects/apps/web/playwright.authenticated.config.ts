@@ -7,9 +7,10 @@ const webPort = readPort(process.env.NEONFLUX_E2E_WEB_PORT, 4174);
 const baseURL = `http://127.0.0.1:${String(webPort)}`;
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const providerStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
+const isCI = Boolean(process.env.CI);
 
 if (process.env.NEONFLUX_E2E_AUTHENTICATED !== sentinel) {
-    throw new Error('Refusing authenticated Playwright without the ephemeral authenticated-test sentinel.');
+    throw new Error('Refusing signed-in browser tests without the temporary-test sentinel.');
 }
 
 const requiredFixtureKeys = [
@@ -39,13 +40,14 @@ export default defineConfig({
     fullyParallel: false,
     forbidOnly: true,
     outputDir: '.e2e-runtime/authenticated-test-results',
-    reporter: [['line']],
+    reporter: isCI ? [['line'], ['github']] : [['line']],
     retries: process.env.CI ? 1 : 0,
     timeout: 60_000,
     use: {
         ...devices['Desktop Chrome'],
         baseURL,
-        trace: 'retain-on-failure',
+        screenshot: 'only-on-failure',
+        trace: isCI ? 'off' : 'retain-on-failure',
     },
     webServer: {
         command: 'pnpm e2e:serve',
@@ -67,7 +69,7 @@ function authenticatedWebEnvironment(port: number, statePath: string): Record<st
     };
     for (const key of requiredFixtureKeys) {
         const value = process.env[key];
-        if (!value) throw new Error(`Authenticated Playwright requires ${key} from the owned fixture environment.`);
+        if (!value) throw new Error(`Signed-in browser tests require ${key} from the owned fixture environment.`);
         environment[key] = value;
     }
     return environment;

@@ -2,13 +2,16 @@ import { defineConfig, devices } from '@playwright/test';
 
 const webPort = readPort(process.env.NEONFLUX_E2E_WEB_PORT, 4173);
 const baseURL = `http://127.0.0.1:${String(webPort)}`;
+const isCI = Boolean(process.env.CI);
 
 export default defineConfig({
     testDir: './e2e/specs',
     fullyParallel: false,
     forbidOnly: true,
     outputDir: '.e2e-runtime/test-results',
-    reporter: [['line']],
+    reporter: isCI
+        ? [['line'], ['github'], ['html', { open: 'never', outputFolder: '.e2e-runtime/public-playwright-report' }]]
+        : [['line']],
     retries: process.env.CI ? 1 : 0,
     timeout: 30_000,
     use: {

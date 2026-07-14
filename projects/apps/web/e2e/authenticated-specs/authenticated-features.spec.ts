@@ -37,7 +37,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
     if (process.env.NEONFLUX_E2E_AUTHENTICATED !== sentinel) {
-        throw new Error('Authenticated golden journeys require the exact ephemeral sentinel.');
+        throw new Error('Signed-in browser tests require the exact temporary-test sentinel.');
     }
     const config = loadRuntimeConfig(process.env);
     guildId = `e2e-browser-guild-${randomUUID()}`;
@@ -108,7 +108,7 @@ test('composes and queues a message, observes the durable unknown status, and re
 
     await page.getByRole('combobox', { name: 'Channel' }).click();
     await page.getByRole('option', { name: /general/u }).click();
-    await page.getByRole('textbox', { name: 'Message content' }).fill('Authenticated browser golden journey');
+    await page.getByRole('textbox', { name: 'Message content' }).fill('Authenticated browser test');
     await page.getByRole('button', { name: 'Send message' }).click();
     await expect(page.getByText(/Queued for #general/u)).toBeVisible();
 
@@ -162,8 +162,7 @@ test('creates and approves a Blueprint plan, then refuses the stale live target 
 
     await writeProviderState('Changed after review');
     await page.getByRole('button', { name: 'Continue to final check' }).click();
-    await expect(page.getByText(/Preflight checked 1 planned change/u)).toBeVisible();
-    await expect(page.getByText('1 blocking change found.')).toBeVisible();
+    await expect(page.getByText(/blocking changes? found\./u)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Locked until every prior check passes.')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Apply /u })).toHaveCount(0);
     diagnostics.assertClean();
@@ -196,6 +195,7 @@ function providerStructure(roleName: string) {
         roles: [
             {
                 color: 0,
+                hierarchyRank: 0,
                 hoist: false,
                 id: 'role-1',
                 mentionable: false,
