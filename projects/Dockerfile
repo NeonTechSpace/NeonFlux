@@ -77,7 +77,7 @@ FROM runtime-base AS bot
 ENV APP_ENV=production
 ENV NODE_ENV=production
 
-COPY --link --chown=node:node --from=build-bot /deploy/bot ./
+COPY --link --chown=1000:1000 --from=build-bot /deploy/bot ./
 
 USER node
 
@@ -90,7 +90,7 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-COPY --link --chown=node:node --from=build-web /app/apps/web/.output ./.output
+COPY --link --chown=1000:1000 --from=build-web /app/apps/web/.output ./.output
 
 USER node
 

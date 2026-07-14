@@ -142,12 +142,12 @@ jobs:
               run: pnpm test:ci
 
             - name: Publish unit-test summary
-              if: matrix.task == 'unit-tests' && always()
+              if: matrix.task == 'unit-tests' && always() && !cancelled()
               working-directory: projects
               run: pnpm test:ci:summary
 
             - name: Fail when unit tests failed
-              if: matrix.task == 'unit-tests' && always() && steps.unit-tests.outcome != 'success'
+              if: matrix.task == 'unit-tests' && always() && !cancelled() && steps.unit-tests.outcome != 'success'
               run: |
                   echo "::error title=Unit tests failed::Review the published test summary for failing files."
                   exit 1
@@ -172,7 +172,7 @@ jobs:
               run: pnpm test:e2e:web
 
             - name: Publish public browser-test summary
-              if: matrix.task == 'public-browser' && always()
+              if: matrix.task == 'public-browser' && always() && !cancelled()
               env:
                   TEST_OUTCOME: ${{ steps.public-browser.outcome }}
               shell: bash
@@ -192,7 +192,7 @@ jobs:
                   retention-days: 7
 
             - name: Fail when public browser tests failed
-              if: matrix.task == 'public-browser' && always() && steps.public-browser.outcome != 'success'
+              if: matrix.task == 'public-browser' && always() && !cancelled() && steps.public-browser.outcome != 'success'
               run: |
                   echo "::error title=Public browser tests failed::Review the summary and uploaded failure artifacts."
                   exit 1
@@ -210,7 +210,7 @@ jobs:
               run: pnpm --filter neonflux-web e2e:authenticated
 
             - name: Publish signed-in feature-test summary
-              if: matrix.task == 'signed-in-features' && always()
+              if: matrix.task == 'signed-in-features' && always() && !cancelled()
               env:
                   TEST_OUTCOME: ${{ steps.signed-in-features.outcome }}
               shell: bash
@@ -228,7 +228,9 @@ jobs:
                   retention-days: 7
 
             - name: Fail when signed-in feature tests failed
-              if: matrix.task == 'signed-in-features' && always() && steps.signed-in-features.outcome != 'success'
+              if: >-
+                  matrix.task == 'signed-in-features' && always() && !cancelled() &&
+                  steps.signed-in-features.outcome != 'success'
               run: |
                   echo "::error title=Signed-in feature tests failed::Review the summary and safe screenshot artifacts."
                   exit 1
@@ -272,8 +274,15 @@ jobs:
                   if [ "$COMPONENT" = "bot" ]; then
                     docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
                       --entrypoint node "$image" --input-type=module --eval '
-                        const { access } = await import("node:fs/promises");
+                        const { access, stat } = await import("node:fs/promises");
+                        if (process.getuid() !== 1000 || process.getgid() !== 1000) {
+                          throw new Error(`Expected runtime UID/GID 1000:1000, received ${process.getuid()}:${process.getgid()}`);
+                        }
                         await access("dist/index.js");
+                        const entrypoint = await stat("dist/index.js");
+                        if (entrypoint.uid !== 1000 || entrypoint.gid !== 1000) {
+                          throw new Error(`Expected bot entrypoint ownership 1000:1000, received ${entrypoint.uid}:${entrypoint.gid}`);
+                        }
                         await Promise.all([
                           import("@neonflux/blueprint"),
                           import("@neonflux/config"),
@@ -293,6 +302,14 @@ jobs:
 
                   for attempt in $(seq 1 20); do
                     if docker exec "$container" node --input-type=module --eval '
+                      const { stat } = await import("node:fs/promises");
+                      if (process.getuid() !== 1000 || process.getgid() !== 1000) {
+                        throw new Error(`Expected runtime UID/GID 1000:1000, received ${process.getuid()}:${process.getgid()}`);
+                      }
+                      const entrypoint = await stat(".output/server/index.mjs");
+                      if (entrypoint.uid !== 1000 || entrypoint.gid !== 1000) {
+                        throw new Error(`Expected web entrypoint ownership 1000:1000, received ${entrypoint.uid}:${entrypoint.gid}`);
+                      }
                       const response = await fetch("http://127.0.0.1:3000/");
                       if (response.status >= 500) process.exit(1);
                     '; then
@@ -311,7 +328,7 @@ jobs:
                   exit 1
 
             - name: Publish production image summary
-              if: matrix.task == 'production-image' && always()
+              if: matrix.task == 'production-image' && always() && !cancelled()
               env:
                   BUILD_OUTCOME: ${{ steps.production-image.outcome }}
                   COMPONENT: ${{ matrix.component }}
@@ -337,7 +354,7 @@ jobs:
 
             - name: Fail when production image validation failed
               if: >-
-                  matrix.task == 'production-image' && always() &&
+                  matrix.task == 'production-image' && always() && !cancelled() &&
                   (steps.production-image.outcome != 'success' || steps.production-smoke.outcome != 'success')
               run: |
                   echo "::error title=Production image validation failed::Review the build record and production image summary."

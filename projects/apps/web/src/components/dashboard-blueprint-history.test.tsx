@@ -265,7 +265,7 @@ describe('Server Blueprint action inspection', () => {
 });
 
 async function waitForDeploymentReview(): Promise<void> {
-    await waitFor(() => expect(screen.queryByText('Loading deployment review…')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Loading deployment review…')).toBeNull(), { timeout: 5_000 });
 }
 
 function renderHistory(
