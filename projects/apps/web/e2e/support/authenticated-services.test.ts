@@ -69,7 +69,7 @@ vi.mock('../../src/server/bot-read-client.server.js', async (importActual) => ({
 const enabled = process.env.NEONFLUX_E2E_AUTHENTICATED === 'neonflux-e2e-ephemeral-v1';
 const guildId = 'e2e-services-guild-1';
 const userId = 'e2e-services-user-1';
-const sessionId = 'services0123456789abcdefghijklmnopqrstuvwx';
+const sessionId = 'services0123456789abcdefghijklmnopqrstuvwxy';
 let botDatabase: RuntimeDbClient;
 let webDatabase: RuntimeDbClient;
 let authenticatedRequest: Request;
@@ -113,7 +113,9 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             sessionId,
             sessionSecret: process.env.SESSION_SECRET,
         });
-        if (cookie.isErr()) throw new Error('Could not create the signed E2E session cookie.');
+        if (cookie.isErr()) {
+            throw new Error(`Could not create the signed E2E session cookie: ${cookie.error}.`);
+        }
         authenticatedRequest = new Request(`http://127.0.0.1/dashboard/${guildId}`, {
             headers: { Cookie: cookie.value.split(';')[0] ?? '' },
         });
