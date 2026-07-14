@@ -2,10 +2,11 @@
 /* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
+import { getDashboardStructureRunsQueryKey } from '../dashboard-query-keys.js';
 import type { DashboardStructureSurface } from './dashboard-structure-panel-view.js';
 import { useDashboardStructureWorkspaceQueries } from './dashboard-structure-workspace-queries.js';
 
@@ -64,6 +65,30 @@ describe('Blueprint workspace queries', () => {
             guildOneRequest.resolve(createBackupsResult());
             queryClient.clear();
         }
+    });
+
+    it('reuses a read that outlives query cancellation during route replacement', async () => {
+        const runsRequest = createDeferred<ReturnType<typeof createRunsResult>>();
+        mocks.readStatus.mockResolvedValue(createStatusResult());
+        mocks.readRuns.mockReturnValue(runsRequest.promise);
+        const queryClient = createQueryClient();
+
+        render(
+            <TestQueryProvider queryClient={queryClient}>
+                <QueryState guildId='guild-1' surface='runs' />
+            </TestQueryProvider>
+        );
+        await waitFor(() => expect(mocks.readRuns).toHaveBeenCalledTimes(1));
+
+        await act(async () => {
+            await queryClient.cancelQueries({ queryKey: getDashboardStructureRunsQueryKey('guild-1') });
+            const refetch = queryClient.refetchQueries({ queryKey: getDashboardStructureRunsQueryKey('guild-1') });
+            runsRequest.resolve(createRunsResult());
+            await refetch;
+        });
+
+        expect(await screen.findByText('guild-1:success')).toBeTruthy();
+        expect(mocks.readRuns).toHaveBeenCalledTimes(1);
     });
 
     it.each([

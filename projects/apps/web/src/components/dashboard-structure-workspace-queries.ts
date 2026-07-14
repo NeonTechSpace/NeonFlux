@@ -54,11 +54,9 @@ export function useDashboardStructureWorkspaceQueries(guildId: string, surface: 
         expectedType: TExpected,
         createRequest: () => Promise<T>
     ): Promise<Extract<T, { type: TExpected }>> {
-        if (requestByKeyRef.current.has(key)) {
-            throw new DashboardStructureRequestError('BLUEPRINT_LOAD_REQUEST_IN_FLIGHT');
-        }
+        const existingRequest = requestByKeyRef.current.get(key) as Promise<T> | undefined;
         const result = await withDashboardStructureRequestTimeout(
-            trackRequest(key, createRequest()),
+            existingRequest ?? trackRequest(key, createRequest()),
             dashboardStructureRequestTimeoutMs
         );
         if (result.type !== expectedType) {

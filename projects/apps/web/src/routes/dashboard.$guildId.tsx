@@ -14,7 +14,6 @@ import { getGuildIdParam, loadDashboardGuildRouteData } from '../server/dashboar
 import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 
 export const Route = createFileRoute('/dashboard/$guildId')({
-    codeSplitGroupings: [['component'], ['pendingComponent']],
     loader: ({ params }) =>
         loadDashboardGuildRouteData({
             data: {

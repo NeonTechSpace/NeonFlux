@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 
 const MAX_RENDER_PIXELS = 320_000;
 const FRAME_INTERVAL_MS = 1000 / 30;
+const INITIAL_TIME_RANGE_SECONDS = 60;
 
 const vertexShaderSource = `
 attribute vec2 a_position;
@@ -73,6 +74,7 @@ interface FluidRenderer {
 export function DashboardFluidField({ motionEnabled }: { motionEnabled: boolean }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const elapsedSecondsRef = useRef(0);
+    const initialTimeRef = useRef<number | null>(null);
     const rendererRef = useRef<FluidRenderer | null>(null);
 
     useEffect(() => {
@@ -81,6 +83,9 @@ export function DashboardFluidField({ motionEnabled }: { motionEnabled: boolean 
         if (!canvas) {
             return;
         }
+
+        initialTimeRef.current ??= Math.random() * INITIAL_TIME_RANGE_SECONDS;
+        elapsedSecondsRef.current = initialTimeRef.current;
 
         const renderer = createFluidRenderer(canvas, () => elapsedSecondsRef.current);
 

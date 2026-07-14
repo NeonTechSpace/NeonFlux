@@ -17,6 +17,11 @@ import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 const renderedPages: RenderResult[] = [];
 const invalidateRouter = vi.fn(() => Promise.resolve());
 const navigate = vi.fn(() => Promise.resolve());
+let routerState = {
+    isLoading: false,
+    location: { pathname: '/dashboard/guild-2' },
+    resolvedLocation: { pathname: '/dashboard/guild-2' },
+};
 
 beforeEach(() => {
     vi.stubEnv('VITE_CONVEX_URL', '');
@@ -49,6 +54,7 @@ vi.mock('@tanstack/react-router', async () => {
         Outlet: () => null,
         useRouter: () => ({ invalidate: invalidateRouter }),
         useNavigate: () => navigate,
+        useRouterState: ({ select }: { select: (state: typeof routerState) => unknown }) => select(routerState),
         useLocation: ({ select }: { select?: (location: { pathname: string }) => unknown } = {}) =>
             select ? select({ pathname: '/dashboard/guild-2' }) : { pathname: '/dashboard/guild-2' },
     };
@@ -59,6 +65,11 @@ describe('DashboardGuildPendingPage', () => {
         for (const renderedPage of renderedPages.splice(0)) {
             renderedPage.unmount();
         }
+        routerState = {
+            isLoading: false,
+            location: { pathname: '/dashboard/guild-2' },
+            resolvedLocation: { pathname: '/dashboard/guild-2' },
+        };
         vi.clearAllMocks();
     });
 
@@ -181,6 +192,36 @@ describe('DashboardGuildPendingPage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Retry settings' }));
 
         expect(invalidateRouter).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders the target pending island immediately during same-server navigation', () => {
+        routerState = {
+            isLoading: true,
+            location: { pathname: '/dashboard/guild-2/structure/backups' },
+            resolvedLocation: { pathname: '/dashboard/guild-2' },
+        };
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+        renderedPages.push(
+            render(
+                <QueryClientProvider client={queryClient}>
+                    <DashboardGuildPageContent
+                        data={{
+                            type: 'guild',
+                            mode: 'multi',
+                            guild: { id: 'guild-2', name: 'Guild Two' },
+                            manageableGuilds: [{ id: 'guild-2', name: 'Guild Two' }],
+                        }}>
+                        <p>Previous feature content</p>
+                    </DashboardGuildPageContent>
+                </QueryClientProvider>
+            )
+        );
+
+        expect(screen.getByRole('heading', { name: 'Server Blueprint' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
+        expect(screen.getByRole('article', { name: 'Loading Protected versions data' })).toBeTruthy();
+        expect(screen.queryByText('Previous feature content')).toBeNull();
     });
 
     it('leaves an active workbench when refreshed access no longer includes that server', async () => {

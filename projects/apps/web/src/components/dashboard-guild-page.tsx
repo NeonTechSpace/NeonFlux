@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from '@tanstack/react-router';
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { createContext, use, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
@@ -7,6 +7,7 @@ import type { DashboardGuildPreview } from '../dashboard-guild-preview.js';
 import { dashboardStructureIdentity, dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
 import {
     getDashboardCategory,
+    getDashboardCategoryIdFromPathname,
     getDashboardCategorySubNavigation,
     getDashboardNavigationJob,
 } from '../dashboard-categories.js';
@@ -273,6 +274,12 @@ function DashboardGuildView({
     children: ReactNode;
 }) {
     const navigate = useNavigate();
+    const pendingPathname = useRouterState({
+        select: (state) =>
+            state.isLoading && state.location.pathname !== state.resolvedLocation?.pathname
+                ? state.location.pathname
+                : undefined,
+    });
     const initialGuilds = data.manageableGuilds ?? [data.guild];
     const catalogQuery = useDashboardGuildCatalog({
         guilds: initialGuilds,
@@ -293,17 +300,32 @@ function DashboardGuildView({
 
     const displayGuild = activeGuild ?? data.guild;
     const displayGuilds = activeGuild && catalog ? catalog.guilds : initialGuilds;
+    const guildPath = `/dashboard/${data.guild.id}`;
+    const sameGuildPendingPathname =
+        pendingPathname === guildPath || pendingPathname?.startsWith(`${guildPath}/`) ? pendingPathname : undefined;
+    const pendingCategoryId = sameGuildPendingPathname
+        ? getDashboardCategoryIdFromPathname(data.guild.id, sameGuildPendingPathname)
+        : undefined;
 
     return (
         <DashboardGuildFrame
             guild={displayGuild}
             manageableGuilds={displayGuilds}
             guildId={data.guild.id}
-            activeCategoryId={activeCategoryId}
+            activeCategoryId={pendingCategoryId ?? activeCategoryId}
             mode={catalog?.mode ?? data.mode}
-            botInviteUrl={catalog?.botInviteUrl ?? data.botInviteUrl}>
+            botInviteUrl={catalog?.botInviteUrl ?? data.botInviteUrl}
+            isLoading={Boolean(sameGuildPendingPathname)}>
             <DashboardGuildDataContext key={data.guild.id} value={data}>
-                {children}
+                {pendingCategoryId ? (
+                    <DashboardPendingCategory
+                        activeCategoryId={pendingCategoryId}
+                        pathname={sameGuildPendingPathname}
+                        guildId={data.guild.id}
+                    />
+                ) : (
+                    children
+                )}
             </DashboardGuildDataContext>
         </DashboardGuildFrame>
     );
