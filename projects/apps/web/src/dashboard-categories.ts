@@ -203,15 +203,15 @@ export const dashboardCapabilities = dashboardNavigationSettings.flatMap((settin
 );
 
 export const dashboardNavigationEntries = dashboardNavigationJobs.map((job): DashboardNavigationEntry => {
-    const subNavigation = dashboardCapabilities.filter((item) => item.navigationJobId === job.id);
-    const defaultSubNavigationTo = subNavigation.at(0)?.to;
+    const jobSubNavigation = dashboardCapabilities.filter((item) => item.navigationJobId === job.id);
+    const defaultSubNavigationTo = jobSubNavigation.at(0)?.to;
     const directCategory = getDirectNavigationCategory(job.id);
 
     return {
         category: job,
         ...(defaultSubNavigationTo ? { defaultSubNavigationTo } : {}),
         linkTo: defaultSubNavigationTo ?? directCategory?.to ?? '/dashboard/$guildId',
-        subNavigation,
+        subNavigation: jobSubNavigation,
         type: 'direct',
     };
 });
