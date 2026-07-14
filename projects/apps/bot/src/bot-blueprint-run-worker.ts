@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import {
     createBlueprintSnapshotFingerprintInput,
+    canonicalJsonStringify,
     deriveBlueprintCursorAuthority,
     normalizeBlueprintPersistedPlanAuthority,
     normalizeBlueprintPlanStep,
@@ -206,7 +207,7 @@ export async function runNextBlueprintRun(input: {
         }
         const authorizationStructure = toBlueprintSnapshot(authorizationSnapshot.value);
         const liveFingerprint = createHash('sha256')
-            .update(JSON.stringify(createBlueprintSnapshotFingerprintInput(authorizationStructure)))
+            .update(canonicalJsonStringify(createBlueprintSnapshotFingerprintInput(authorizationStructure)))
             .digest('hex');
         const authorization = await authorizeBlueprintRunMutation(input.database.db, {
             runId: run.id,

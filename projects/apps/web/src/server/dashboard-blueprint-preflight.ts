@@ -1,16 +1,16 @@
+import { isBlueprintPreflightReportReady } from '@neonflux/blueprint';
+import type {
+    BlueprintPreflightReport,
+    BlueprintPreflightReportStep,
+    BlueprintPreflightStepStatus,
+} from '@neonflux/blueprint';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer';
 
 import type { DashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
 import type { DashboardBlueprintPolicy } from './dashboard-blueprint-contracts.js';
 import { isObject, stableValueKey } from './dashboard-blueprint-preflight-utils.js';
 
-type DashboardBlueprintPreflightPlanStepStatus =
-    | 'ready'
-    | 'stale'
-    | 'mapping-required'
-    | 'destructive-approval-required'
-    | 'unsupported'
-    | 'invalid-plan';
+type DashboardBlueprintPreflightPlanStepStatus = BlueprintPreflightStepStatus;
 
 export type DashboardBlueprintPreflightInputPlanStep = {
     id: string;
@@ -21,30 +21,9 @@ export type DashboardBlueprintPreflightInputPlanStep = {
     details: Record<string, unknown>;
 };
 
-type DashboardBlueprintPreflightPlanStep = {
-    planStepId: string;
-    actionType: string;
-    targetType: string;
-    targetId?: string;
-    label?: string;
-    status: DashboardBlueprintPreflightPlanStepStatus;
-    message: string;
-};
+type DashboardBlueprintPreflightPlanStep = BlueprintPreflightReportStep;
 
-type DashboardBlueprintPreflightSummary = {
-    total: number;
-    ready: number;
-    stale: number;
-    mappingRequired: number;
-    destructiveApprovalRequired: number;
-    unsupported: number;
-    invalidPlan: number;
-};
-
-export type DashboardBlueprintPreflightReport = {
-    summary: DashboardBlueprintPreflightSummary;
-    steps: DashboardBlueprintPreflightPlanStep[];
-};
+export type DashboardBlueprintPreflightReport = BlueprintPreflightReport;
 
 export function countDashboardBlueprintPreflightHardBlockers(report: DashboardBlueprintPreflightReport): number {
     return (
@@ -53,10 +32,7 @@ export function countDashboardBlueprintPreflightHardBlockers(report: DashboardBl
 }
 
 export function isDashboardBlueprintPreflightReady(report: DashboardBlueprintPreflightReport): boolean {
-    return (
-        countDashboardBlueprintPreflightHardBlockers(report) === 0 &&
-        report.summary.ready + report.summary.destructiveApprovalRequired === report.summary.total
-    );
+    return isBlueprintPreflightReportReady(report);
 }
 
 export function prependDashboardBlueprintProjectionBlocker(

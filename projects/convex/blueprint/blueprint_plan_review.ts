@@ -1,3 +1,7 @@
+import {
+    isBlueprintPreflightReportReady,
+    normalizeBlueprintPreflightReport,
+} from '@neonflux/blueprint/preflight-report';
 import { v, type GenericId } from 'convex/values';
 
 import { mutation, query, type MutationCtx } from '../_generated/server.js';
@@ -237,12 +241,26 @@ export const recordBlueprintPlanPreflight = mutation({
         if (plan?.planDigest !== args.planDigest) throw new Error('blueprint-plan-preflight-stale');
         if (plan.status !== 'approved' || args.expiresAt <= args.checkedAt)
             throw new Error('blueprint-plan-preflight-state-invalid');
-        const { audit, ...document } = args;
+        const report = normalizeBlueprintPreflightReport(args.report);
+        if (report.type === 'invalid') throw new Error('blueprint-plan-preflight-report-invalid');
+        if ((args.status === 'ready') !== isBlueprintPreflightReportReady(report.value)) {
+            throw new Error('blueprint-plan-preflight-state-invalid');
+        }
+        const document = {
+            checkedAt: args.checkedAt,
+            expiresAt: args.expiresAt,
+            liveFingerprint: args.liveFingerprint,
+            planDigest: args.planDigest,
+            preflightDigest: args.preflightDigest,
+            report: report.value,
+            planId: args.planId,
+            status: args.status,
+        };
         const id = await ctx.db.insert('blueprintPlanPreflights', document);
         await recordBlueprintAuditInMutation(
             ctx,
             plan.guildId,
-            audit ?? { action: 'blueprint.plan_preflight_checked' },
+            args.audit ?? { action: 'blueprint.plan_preflight_checked' },
             args.checkedAt,
             String(plan._id)
         );

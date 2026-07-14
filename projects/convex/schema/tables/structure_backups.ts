@@ -14,8 +14,8 @@ export const structureBackupsTable = defineTable({
     name: v.string(),
     roleCount: v.number(),
     sortKey: v.string(),
-    source: v.string(),
-    status: v.string(),
+    source: v.union(v.literal('manual'), v.literal('scheduled'), v.literal('restore_point')),
+    status: v.union(v.literal('succeeded'), v.literal('failed')),
     structure: v.optional(jsonValue),
 })
     .index('by_guild_created', ['guildId', 'createdAt'])

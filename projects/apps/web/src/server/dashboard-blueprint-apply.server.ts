@@ -204,7 +204,7 @@ function mapRepositoryError(error: { type: string }): DashboardBlueprintErrorRes
 }
 
 function mapEnqueueRepositoryError(error: { type: string }): DashboardBlueprintApplyResult {
-    if (error.type === 'blueprint-run-review-obsolete') return { type: 'review-stale' };
+    if (error.type === 'blueprint-run-review-stale') return { type: 'review-stale' };
     if (error.type === 'blueprint-guild-run-active') return { type: 'run-active' };
     if (error.type === 'blueprint-run-empty') return { type: 'nothing-to-apply' };
     return mapRepositoryError(error);

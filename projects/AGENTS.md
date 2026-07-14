@@ -46,6 +46,8 @@ When instructions, implementation, schemas, generated contracts, and tests disag
 - Retention jobs validate configuration before deletion, use one cutoff per run, process bounded dependency-safe batches, protect active, recoverable, and unknown records, and fence concurrent work. Feature-specific retention belongs with its durable contract.
 - Workspace packages may expose source for development and built artifacts for production only through explicit resolver conditions. Validate the real production consumer command; production must not depend on TypeScript source.
 - Persisted Blueprint plan or run semantics and protocol changes require one coordinated protocol bump and Convex, bot, and web cutover. Mixed backend, consumer, browser, or durable-row versions fail closed. Add no compatibility branch unless requested.
+- Generic Convex JSON validators are storage envelopes, not domain validation. Successful Blueprint snapshots, persisted plan authority, plan steps, and preflight reports must pass the canonical `@neonflux/blueprint` parser at the Convex write boundary. Workers validate persisted authority again before provider access.
+- Keep Blueprint plans, ordered steps, decisions, approvals, expiring preflights, runs, run attempts, observations, and structure backups as separate durable concepts. Successful backup rows own a canonical snapshot; failed capture rows may omit it. Do not collapse distinct lifecycles for naming or document-count convenience.
 - Application startup and container entrypoints must not depend on migrations, destructive resets, source-only package resolution, or smoke helpers.
 
 ## Security and observability

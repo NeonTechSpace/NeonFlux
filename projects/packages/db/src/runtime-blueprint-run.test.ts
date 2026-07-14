@@ -21,7 +21,7 @@ describe('Blueprint run runtime boundary', () => {
     });
 
     it.each([
-        ['blueprint-run-review-obsolete', 'blueprint-run-review-obsolete'],
+        ['blueprint-run-review-stale', 'blueprint-run-review-stale'],
         ['blueprint-guild-run-active', 'blueprint-guild-run-active'],
         ['blueprint-run-empty', 'blueprint-run-empty'],
     ] as const)('preserves the %s enqueue conflict', async (message, type) => {

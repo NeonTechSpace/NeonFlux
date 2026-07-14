@@ -75,7 +75,7 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it.each([
-        [{ type: 'blueprint-run-review-obsolete' }, { type: 'review-stale' }],
+        [{ type: 'blueprint-run-review-stale' }, { type: 'review-stale' }],
         [{ type: 'blueprint-guild-run-active' }, { type: 'run-active' }],
     ] as const)('preserves an actionable enqueue conflict for the UI', async (repositoryError, expected) => {
         vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([{ actionType: 'create' }])));

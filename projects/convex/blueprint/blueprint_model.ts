@@ -1,3 +1,8 @@
+import {
+    normalizeBlueprintPlanStep,
+    normalizeBlueprintPersistedPlanAuthority,
+} from '@neonflux/blueprint/runtime-contracts';
+import { normalizeBlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 import type { GenericId } from 'convex/values';
 
 export const STRUCTURE_BACKUP_SOURCE = {
@@ -10,6 +15,9 @@ export const STRUCTURE_BACKUP_STATUS = {
     failed: 'failed',
     succeeded: 'succeeded',
 } as const;
+
+type StructureBackupSource = (typeof STRUCTURE_BACKUP_SOURCE)[keyof typeof STRUCTURE_BACKUP_SOURCE];
+type StructureBackupStatus = (typeof STRUCTURE_BACKUP_STATUS)[keyof typeof STRUCTURE_BACKUP_STATUS];
 
 export const STRUCTURE_BACKUP_NAME_MAX_LENGTH = 120;
 export const STRUCTURE_BACKUP_RETENTION_DAYS_DEFAULT = 180;
@@ -60,8 +68,8 @@ export type StructureBackupDocument = {
     name: string;
     roleCount: number;
     sortKey: string;
-    source: string;
-    status: string;
+    source: StructureBackupSource;
+    status: StructureBackupStatus;
     structure?: Record<string, unknown>;
 };
 
@@ -189,8 +197,8 @@ export type StructureBackupRecord = {
     id: string;
     name: string;
     roleCount: number;
-    source: string;
-    status: string;
+    source: StructureBackupSource;
+    status: StructureBackupStatus;
     structure: Record<string, unknown> | null;
 };
 
@@ -321,6 +329,9 @@ export function buildStructureBackupDocument(
     if (!source) return { error: { field: 'source', type: 'invalid-value' }, ok: false };
     if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
     if (status === STRUCTURE_BACKUP_STATUS.succeeded && !structure) {
+        return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
+    }
+    if (structure && normalizeBlueprintSnapshot(structure).type === 'invalid') {
         return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
     }
 
@@ -642,7 +653,9 @@ export function buildBlueprintPlanDocument(
     if (!policy) return { error: { field: 'policy', type: 'invalid-value' }, ok: false };
     if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
     if (input.planVersion !== 3) return { error: { field: 'planVersion', type: 'invalid-value' }, ok: false };
-    if (!plan) return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
+    if (!plan || normalizeBlueprintPersistedPlanAuthority(plan).type === 'invalid') {
+        return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
+    }
     if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
     if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
 
@@ -693,6 +706,17 @@ export function buildBlueprintPlanStepDocument(
     if (sequence === undefined) return { error: { field: 'sequence', type: 'invalid-value' }, ok: false };
     if (!normalizedActionType) return { error: { field: 'actionType', type: 'invalid-value' }, ok: false };
     if (!normalizedTargetType) return { error: { field: 'targetType', type: 'invalid-value' }, ok: false };
+    if (
+        normalizeBlueprintPlanStep({
+            actionType: normalizedActionType,
+            details,
+            label: details.label,
+            targetId,
+            targetType: normalizedTargetType,
+        }).type === 'invalid'
+    ) {
+        return { error: { field: 'details', type: 'invalid-value' }, ok: false };
+    }
 
     return {
         ok: true,
@@ -1004,15 +1028,9 @@ export function resolveBlueprintRunMutationAuthorization(input: {
     const authorization = classifyBlueprintRunPreMutationAuthorization(input);
     if (authorization === 'authorization_required') return { type: 'invalid_snapshot' };
     if (authorization !== 'authorized') return { type: authorization };
-    const structure = normalizeRecord(input.structure);
-    if (
-        !structure ||
-        !Array.isArray(structure.roles) ||
-        !Array.isArray(structure.categories) ||
-        !Array.isArray(structure.channels)
-    ) {
-        return { type: 'invalid_snapshot' };
-    }
+    const snapshot = normalizeBlueprintSnapshot(input.structure);
+    if (snapshot.type === 'invalid') return { type: 'invalid_snapshot' };
+    const structure = snapshot.snapshot;
     return {
         type: 'authorized',
         runPatch: {
@@ -1176,7 +1194,7 @@ function isDriftDueAndClaimable(existing: StructureBackupSettingsDocument | unde
     return !Number.isFinite(parsedLeaseExpiresAt) || parsedLeaseExpiresAt <= parsedNow;
 }
 
-function normalizeBackupSource(value: string | null | undefined): string | undefined {
+function normalizeBackupSource(value: string | null | undefined): StructureBackupSource | undefined {
     const source = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_SOURCE.manual;
     return source === STRUCTURE_BACKUP_SOURCE.manual ||
         source === STRUCTURE_BACKUP_SOURCE.scheduled ||
@@ -1190,7 +1208,7 @@ function normalizeBackupSortKey(value: string | null | undefined, createdAt: str
     return normalized ?? buildBackupSortCursor({ createdAt, id: '00000000-0000-4000-8000-000000000000' });
 }
 
-function normalizeBackupStatus(value: string | null | undefined): string | undefined {
+function normalizeBackupStatus(value: string | null | undefined): StructureBackupStatus | undefined {
     const status = normalizeOptionalString(value) ?? STRUCTURE_BACKUP_STATUS.succeeded;
     return status === STRUCTURE_BACKUP_STATUS.succeeded || status === STRUCTURE_BACKUP_STATUS.failed
         ? status

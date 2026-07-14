@@ -18,6 +18,12 @@
             "production": "./dist/action-authority.js",
             "import": "./dist/action-authority.js"
         },
+        "./canonical-json": {
+            "types": "./src/canonical-json.ts",
+            "development": "./src/canonical-json.ts",
+            "production": "./dist/canonical-json.js",
+            "import": "./dist/canonical-json.js"
+        },
         "./channel-projection": {
             "types": "./src/channel-projection.ts",
             "development": "./src/channel-projection.ts",
@@ -59,6 +65,12 @@
             "development": "./src/plan-builders.ts",
             "production": "./dist/plan-builders.js",
             "import": "./dist/plan-builders.js"
+        },
+        "./preflight-report": {
+            "types": "./src/preflight-report.ts",
+            "development": "./src/preflight-report.ts",
+            "production": "./dist/preflight-report.js",
+            "import": "./dist/preflight-report.js"
         },
         "./protocol": {
             "types": "./src/protocol.ts",

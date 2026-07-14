@@ -25,7 +25,7 @@ import { createSessionCookie, createSessionId, SESSION_COOKIE_NAME } from '../..
 import { observePageDiagnostics } from '../support/page-diagnostics.js';
 
 const sentinel = 'neonflux-e2e-ephemeral-v1';
-const userId = 'e2e-user-1';
+const userId = 'e2e-browser-user-1';
 const webDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const providerStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
 let guildId: string;
@@ -40,7 +40,7 @@ test.beforeAll(async () => {
         throw new Error('Authenticated golden journeys require the exact ephemeral sentinel.');
     }
     const config = loadRuntimeConfig(process.env);
-    guildId = `e2e-guild-${randomUUID()}`;
+    guildId = `e2e-browser-guild-${randomUUID()}`;
     const sessionId = createSessionId();
     botDatabase = await createRuntimeDb(config, { serviceName: 'bot' });
     webDatabase = await createRuntimeDb(config, { serviceName: 'web' });

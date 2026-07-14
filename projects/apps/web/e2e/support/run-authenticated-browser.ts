@@ -20,12 +20,9 @@ const orchestrationEnvironment = {
 };
 requireEphemeralSentinel(orchestrationEnvironment);
 
-let started = false;
 let primaryError: unknown;
 
 try {
-    await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:start'], orchestrationEnvironment);
-    started = true;
     const state = validateEphemeralConvexState(
         JSON.parse(await readFile(statePath, 'utf8')) as unknown,
         workspaceDirectory
@@ -56,13 +53,6 @@ try {
     } catch (cleanupError) {
         primaryError = combineCleanupError(primaryError, cleanupError);
     }
-    if (started) {
-        try {
-            await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:stop'], orchestrationEnvironment);
-        } catch (cleanupError) {
-            primaryError = combineCleanupError(primaryError, cleanupError);
-        }
-    }
 }
 
 if (primaryError) throw primaryError;
@@ -75,7 +65,12 @@ function combineCleanupError(primary: unknown, cleanup: unknown): unknown {
 
 function createInitialProviderState() {
     return {
-        guild: { id: 'e2e-guild-1', name: 'E2E Guild', owner_id: 'e2e-user-1', permissions: '32' },
+        guild: {
+            id: 'e2e-browser-guild-bootstrap',
+            name: 'E2E Browser Guild',
+            owner_id: 'e2e-browser-user-1',
+            permissions: '32',
+        },
         sentinel: e2eEphemeralSentinel,
         structure: providerStructure('Original'),
     };
@@ -94,8 +89,8 @@ function providerStructure(roleName: string) {
                 type: 0,
             },
         ],
-        guildId: 'e2e-guild-1',
-        guildName: 'E2E Guild',
+        guildId: 'e2e-browser-guild-bootstrap',
+        guildName: 'E2E Browser Guild',
         roles: [
             {
                 color: 0,

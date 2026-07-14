@@ -336,7 +336,7 @@ export type BlueprintRepositoryError =
     | { type: 'backend-incompatible' }
     | { type: 'blueprint-restore-point-recovery-window-active' }
     | { type: 'blueprint-restore-point-run-active' }
-    | { type: 'blueprint-run-review-obsolete' }
+    | { type: 'blueprint-run-review-stale' }
     | { type: 'blueprint-guild-run-active' }
     | { type: 'blueprint-run-empty' };
 

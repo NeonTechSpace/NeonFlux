@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { canonicalJsonStringify } from '@neonflux/blueprint';
+
 import { isDashboardBlueprintPolicy } from './dashboard-blueprint-contracts.js';
 import type { DashboardBlueprintPolicy } from './dashboard-blueprint-contracts.js';
 
@@ -31,7 +33,7 @@ function readPersistedMappings(plan: Record<string, unknown>, key: string): Reco
 }
 
 export function blueprintPlanDigest(fingerprintInput: unknown): string {
-    return createHash('sha256').update(JSON.stringify(fingerprintInput)).digest('hex');
+    return createHash('sha256').update(canonicalJsonStringify(fingerprintInput)).digest('hex');
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

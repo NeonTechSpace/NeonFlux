@@ -13,55 +13,28 @@ const pnpmEntrypoint = process.env.npm_execpath;
 
 if (!pnpmEntrypoint) throw new Error('The authenticated E2E runner must be started through a pnpm script.');
 
-const mutableEnvironment = {
+const orchestrationEnvironment = {
     ...withoutProjectCredentials(process.env),
     NEONFLUX_E2E_EPHEMERAL_SENTINEL: e2eEphemeralSentinel,
 };
-requireEphemeralSentinel(mutableEnvironment);
+requireEphemeralSentinel(orchestrationEnvironment);
 
-let started = false;
-let primaryError: unknown;
-
-try {
-    await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:start'], mutableEnvironment);
-    started = true;
-    const state = validateEphemeralConvexState(
-        JSON.parse(await readFile(statePath, 'utf8')) as unknown,
-        workspaceDirectory
-    );
-    if (resolve(state.fixtureEnvPath) !== expectedFixtureEnvPath) {
-        throw new Error('Ephemeral Convex state references an unowned fixture env file.');
-    }
-    const runtimeEnvironment = parseOwnedRuntimeEnvironment(await readFile(state.fixtureEnvPath, 'utf8'));
-    await runPnpm(
-        [
-            'exec',
-            'vitest',
-            'run',
-            'apps/web/e2e/support/authenticated-production-composition.test.ts',
-            '--maxWorkers=1',
-        ],
-        {
-            ...mutableEnvironment,
-            ...runtimeEnvironment,
-            NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
-        }
-    );
-} catch (error) {
-    primaryError = error;
-} finally {
-    if (started) {
-        try {
-            await runPnpm(['--filter', 'neonflux-web', 'e2e:convex:stop'], mutableEnvironment);
-        } catch (cleanupError) {
-            primaryError = primaryError
-                ? new AggregateError([primaryError, cleanupError], 'Authenticated E2E and owned cleanup both failed.')
-                : cleanupError;
-        }
-    }
+const state = validateEphemeralConvexState(
+    JSON.parse(await readFile(statePath, 'utf8')) as unknown,
+    workspaceDirectory
+);
+if (resolve(state.fixtureEnvPath) !== expectedFixtureEnvPath) {
+    throw new Error('Ephemeral Convex state references an unowned fixture env file.');
 }
-
-if (primaryError) throw primaryError;
+const runtimeEnvironment = parseOwnedRuntimeEnvironment(await readFile(state.fixtureEnvPath, 'utf8'));
+await runPnpm(
+    ['exec', 'vitest', 'run', 'apps/web/e2e/support/authenticated-production-composition.test.ts', '--maxWorkers=1'],
+    {
+        ...orchestrationEnvironment,
+        ...runtimeEnvironment,
+        NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
+    }
+);
 
 function parseOwnedRuntimeEnvironment(source: string): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {};

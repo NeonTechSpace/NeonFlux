@@ -1,3 +1,5 @@
+import { diffBlueprintSnapshot } from '@neonflux/blueprint/diff';
+import type { BlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,6 +12,7 @@ import {
     buildStructureDriftLeaseClaimPatch,
     buildStructureDriftLeaseClearPatch,
     buildStructureScheduledDriftResultPatch,
+    buildBlueprintPlanDocument,
     buildBlueprintPlanStepDocument,
     chooseLatestStructureDriftBaselineBackup,
     classifyBlueprintRunReclaim,
@@ -32,6 +35,49 @@ import {
 } from './blueprint_model.js';
 
 const now = '2026-06-28T12:00:00.000Z';
+const emptySnapshot: BlueprintSnapshot = { version: 1, roles: [], categories: [], channels: [] };
+const populatedSnapshot: BlueprintSnapshot = {
+    version: 1,
+    roles: [
+        {
+            color: 0,
+            hoist: false,
+            id: 'role-1',
+            mentionable: false,
+            name: 'Member',
+            permissions: '0',
+            position: 0,
+        },
+    ],
+    categories: [
+        {
+            id: 'category-1',
+            name: 'Community',
+            parentId: null,
+            permissionOverwrites: [],
+            position: 0,
+            type: 4,
+        },
+    ],
+    channels: [
+        {
+            id: 'channel-1',
+            name: 'general',
+            parentId: 'category-1',
+            permissionOverwrites: [],
+            position: 0,
+            type: 0,
+        },
+        {
+            id: 'channel-2',
+            name: 'random',
+            parentId: 'category-1',
+            permissionOverwrites: [],
+            position: 1,
+            type: 0,
+        },
+    ],
+};
 
 describe('structure model', () => {
     it('requires retry preflight to postdate a failed-before-mutation run', () => {
@@ -128,12 +174,7 @@ describe('structure model', () => {
             ...boundary,
             leaseId: 'lease-1',
             liveFingerprint: 'live-1',
-            structure: {
-                version: 1,
-                roles: [{ id: 'role-1' }],
-                categories: [{ id: 'category-1' }],
-                channels: [{ id: 'channel-1' }, { id: 'channel-2' }],
-            },
+            structure: populatedSnapshot,
         });
         expect(authorized).toMatchObject({
             type: 'authorized',
@@ -145,11 +186,7 @@ describe('structure model', () => {
                 roleCount: 1,
                 categoryCount: 1,
                 channelCount: 2,
-                structure: {
-                    roles: [{ id: 'role-1' }],
-                    categories: [{ id: 'category-1' }],
-                    channels: [{ id: 'channel-1' }, { id: 'channel-2' }],
-                },
+                structure: populatedSnapshot,
             },
         });
         expect(
@@ -374,13 +411,13 @@ describe('structure model', () => {
                 {
                     createdByUserId: ' actor-1 ',
                     guildId: ' guild-1 ',
-                    structure: { roles: [{ id: 'role-1' }] },
+                    structure: emptySnapshot,
                     source: ' manual ',
                 },
                 now
             )
         );
-        const invalid = buildStructureBackupDocument({ guildId: 'guild-1', structure: [] as never }, now);
+        const invalid = buildStructureBackupDocument({ guildId: 'guild-1', structure: { roles: [] } }, now);
 
         expect(backup).toMatchObject({
             createdByUserId: 'actor-1',
@@ -398,7 +435,7 @@ describe('structure model', () => {
                     guildId: 'guild-1',
                     serverName: 'NeonSpace',
                     source: 'restore_point',
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 now
             )
@@ -407,7 +444,7 @@ describe('structure model', () => {
             {
                 guildId: 'guild-1',
                 source: 'legacy_restore',
-                structure: { roles: [] },
+                structure: emptySnapshot,
             },
             now
         );
@@ -425,7 +462,7 @@ describe('structure model', () => {
                 {
                     guildId: 'guild-1',
                     sortKey: buildBackupSortCursor({ createdAt: now, id: 'backup-1' }),
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 now
             )
@@ -435,7 +472,7 @@ describe('structure model', () => {
                 {
                     guildId: 'guild-1',
                     sortKey: buildBackupSortCursor({ createdAt: now, id: 'backup-2' }),
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 now
             )
@@ -456,7 +493,7 @@ describe('structure model', () => {
                     guildId: 'guild-1',
                     source: 'manual',
                     sortKey: buildBackupSortCursor({ createdAt: '2026-06-27T12:00:00.000Z', id: 'backup-1' }),
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 '2026-06-27T12:00:00.000Z'
             )
@@ -467,7 +504,7 @@ describe('structure model', () => {
                     guildId: 'guild-1',
                     source: 'scheduled',
                     sortKey: buildBackupSortCursor({ createdAt: '2026-06-28T12:00:00.000Z', id: 'backup-2' }),
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 now
             )
@@ -478,7 +515,7 @@ describe('structure model', () => {
                     guildId: 'guild-1',
                     source: 'restore_point',
                     sortKey: buildBackupSortCursor({ createdAt: '2026-06-29T12:00:00.000Z', id: 'backup-3' }),
-                    structure: { roles: [] },
+                    structure: emptySnapshot,
                 },
                 '2026-06-29T12:00:00.000Z'
             )
@@ -828,6 +865,91 @@ describe('structure model', () => {
             error: { field: 'sequence', type: 'invalid-value' },
             ok: false,
         });
+    });
+
+    it('requires canonical Blueprint plan authority and target-specific step details before persistence', () => {
+        const requested: BlueprintSnapshot = {
+            ...emptySnapshot,
+            categories: [
+                {
+                    id: 'source-category',
+                    name: 'Announcements',
+                    parentId: null,
+                    permissionOverwrites: [],
+                    position: 0,
+                    type: 4,
+                },
+            ],
+        };
+        const plan = diffBlueprintSnapshot(emptySnapshot, requested, { policy: 'merge' });
+        const persistedPlan = {
+            blockers: plan.blockers,
+            fingerprintInput: plan.fingerprintInput,
+            knownTargetKinds: plan.knownTargetKinds,
+            planStepCount: plan.steps.length,
+            planVersion: 3,
+            policy: plan.policy,
+            projectedSnapshot: plan.projectedSnapshot,
+            requestedSnapshot: requested,
+            requestedSnapshotVersion: 1,
+            roleProjection: plan.roleProjection,
+            sourceTargetMap: plan.sourceTargetMap,
+            steps: plan.steps,
+            summary: plan.summary,
+        };
+        const document = buildBlueprintPlanDocument(
+            {
+                deleteStepCount: 0,
+                guildId: 'guild-1',
+                plan: persistedPlan,
+                planDigest: 'plan-digest',
+                planVersion: 3,
+                policy: 'merge',
+                requestedSnapshotDigest: 'snapshot-digest',
+            },
+            now
+        );
+        const invalidPlan = buildBlueprintPlanDocument(
+            {
+                deleteStepCount: 0,
+                guildId: 'guild-1',
+                plan: { ...persistedPlan, fingerprintInput: {} },
+                planDigest: 'plan-digest',
+                planVersion: 3,
+                policy: 'merge',
+                requestedSnapshotDigest: 'snapshot-digest',
+            },
+            now
+        );
+        const step = plan.steps[0];
+        if (!step) throw new Error('expected-planner-step');
+        const persistedStep = buildBlueprintPlanStepDocument(
+            {
+                actionType: step.actionType,
+                details: step.details,
+                planId: 'plan-1',
+                sequence: 0,
+                targetId: step.targetId,
+                targetType: step.targetType,
+            },
+            now
+        );
+        const invalidStep = buildBlueprintPlanStepDocument(
+            {
+                actionType: step.actionType,
+                details: { label: step.label },
+                planId: 'plan-1',
+                sequence: 0,
+                targetId: step.targetId,
+                targetType: step.targetType,
+            },
+            now
+        );
+
+        expect(document.ok).toBe(true);
+        expect(invalidPlan).toStrictEqual({ error: { field: 'plan', type: 'invalid-value' }, ok: false });
+        expect(persistedStep.ok).toBe(true);
+        expect(invalidStep).toStrictEqual({ error: { field: 'details', type: 'invalid-value' }, ok: false });
     });
 
     it('increments observed event state and reads malformed counters as zero', () => {

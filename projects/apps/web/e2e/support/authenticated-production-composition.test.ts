@@ -22,6 +22,7 @@ import {
     createDashboardBlueprintPlan,
 } from '../../src/server/dashboard-blueprint-plans.server.js';
 import { preflightDashboardBlueprintPlan } from '../../src/server/dashboard-blueprint-preflight.server.js';
+import { isDashboardBlueprintPreflightReady } from '../../src/server/dashboard-blueprint-preflight.js';
 import { loadDashboardGuildAccess } from '../../src/server/dashboard-guild-access.server.js';
 import {
     postDashboardGuildMessage,
@@ -66,9 +67,9 @@ vi.mock('../../src/server/bot-read-client.server.js', async (importActual) => ({
 }));
 
 const enabled = process.env.NEONFLUX_E2E_AUTHENTICATED === 'neonflux-e2e-ephemeral-v1';
-const guildId = 'e2e-guild-1';
-const userId = 'e2e-user-1';
-const sessionId = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
+const guildId = 'e2e-composition-guild-1';
+const userId = 'e2e-composition-user-1';
+const sessionId = 'composition0123456789abcdefghijklmnopqrstuv';
 let botDatabase: RuntimeDbClient;
 let webDatabase: RuntimeDbClient;
 let authenticatedRequest: Request;
@@ -225,7 +226,10 @@ describe.runIf(enabled)('authenticated production composition with owned Convex 
             resolvedByUserId: userId,
         });
         expect(sendMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ allowedMentions: { parse: [] }, channelId: 'channel-1' })
+            expect.objectContaining({
+                channelId: 'channel-1',
+                message: expect.objectContaining({ allowedMentions: { parse: [] } }),
+            })
         );
     }, 60_000);
 
@@ -273,7 +277,7 @@ describe.runIf(enabled)('authenticated production composition with owned Convex 
         if (freshPreflight.type !== 'preflight' || !freshPreflight.preflightDigest) {
             throw new Error('Expected ready preflight.');
         }
-        expect(freshPreflight.report.summary.stale).toBe(0);
+        expect(isDashboardBlueprintPreflightReady(freshPreflight.report)).toBe(true);
         const queued = await applyDashboardBlueprintPlan(authenticatedRequest, {
             guildId,
             planId: freshPlan.plan.id,
@@ -329,6 +333,7 @@ describe.runIf(enabled)('authenticated production composition with owned Convex 
         if (preflight.type !== 'preflight' || !preflight.preflightDigest) {
             throw new Error('Expected ready ambiguous-case preflight.');
         }
+        expect(isDashboardBlueprintPreflightReady(preflight.report)).toBe(true);
         expect(
             (
                 await applyDashboardBlueprintPlan(authenticatedRequest, {

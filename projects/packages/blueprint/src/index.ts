@@ -1,4 +1,5 @@
 export * from './action-authority.js';
+export * from './canonical-json.js';
 export * from './channel-projection.js';
 export * from './contracts.js';
 export * from './diff.js';
@@ -6,6 +7,7 @@ export * from './provider-steps.js';
 export * from './identity.js';
 export * from './plan.js';
 export * from './plan-builders.js';
+export * from './preflight-report.js';
 export * from './protocol.js';
 export * from './role-projection.js';
 export * from './runtime-contracts.js';

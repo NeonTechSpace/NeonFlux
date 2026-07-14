@@ -65,6 +65,8 @@ const protectedRestorePointRunStatuses = [
     'outcome_unknown',
 ] as const;
 const nullableString = v.union(v.string(), v.null());
+const backupSourceValidator = v.union(v.literal('manual'), v.literal('scheduled'), v.literal('restore_point'));
+const backupStatusValidator = v.union(v.literal('succeeded'), v.literal('failed'));
 export const auditInputValidator = v.object({
     action: v.string(),
     actorUserId: v.optional(v.union(v.string(), v.null())),
@@ -82,8 +84,8 @@ const backupRecordValidator = v.object({
     id: v.string(),
     name: v.string(),
     roleCount: v.number(),
-    source: v.string(),
-    status: v.string(),
+    source: backupSourceValidator,
+    status: backupStatusValidator,
     structure: v.union(v.any(), v.null()),
 });
 const backupSummaryRecordValidator = v.object({
@@ -97,8 +99,8 @@ const backupSummaryRecordValidator = v.object({
     id: v.string(),
     name: v.string(),
     roleCount: v.number(),
-    source: v.string(),
-    status: v.string(),
+    source: backupSourceValidator,
+    status: backupStatusValidator,
 });
 const backupSettingsValidator = v.object({
     cadenceWeeks: v.number(),
@@ -951,7 +953,7 @@ export const listBlueprintPlanStepsByPlanIdPage = query({
 async function recordBackupAttempt(
     ctx: StructureMutationCtx,
     guildId: string,
-    status: string,
+    status: (typeof STRUCTURE_BACKUP_STATUS)[keyof typeof STRUCTURE_BACKUP_STATUS],
     errorMessage: string | undefined,
     now: string
 ): Promise<void> {
@@ -1005,8 +1007,8 @@ async function findBackupById(
 async function findLatestBackupBySourceAndStatus(
     ctx: StructureQueryCtx,
     guildId: string,
-    source: string,
-    status: string
+    source: (typeof STRUCTURE_BACKUP_SOURCE)[keyof typeof STRUCTURE_BACKUP_SOURCE],
+    status: (typeof STRUCTURE_BACKUP_STATUS)[keyof typeof STRUCTURE_BACKUP_STATUS]
 ): Promise<StoredBackupDocument | null> {
     return await ctx.db
         .query('structureBackups')

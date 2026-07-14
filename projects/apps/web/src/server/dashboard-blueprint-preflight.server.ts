@@ -232,18 +232,27 @@ function matchesReviewedPlanSteps(plan: Record<string, unknown>, steps: Blueprin
         if (!isObject(value)) return false;
         const details = isObject(value.details) ? value.details : undefined;
         const step = steps[sequence];
-        if (!details || step.sequence !== sequence || typeof value.label !== 'string') return false;
+        if (
+            !details ||
+            step.sequence !== sequence ||
+            typeof value.label !== 'string' ||
+            typeof value.actionType !== 'string' ||
+            typeof value.targetType !== 'string' ||
+            (value.targetId !== undefined && typeof value.targetId !== 'string')
+        ) {
+            return false;
+        }
         return (
             blueprintPlanDigest({
                 actionType: value.actionType,
                 details,
-                targetId: value.targetId,
+                ...('targetId' in value ? { targetId: value.targetId } : {}),
                 targetType: value.targetType,
             }) ===
             blueprintPlanDigest({
                 actionType: step.actionType,
                 details: toJsonRecord(step.details),
-                targetId: step.targetId ?? undefined,
+                ...(step.targetId ? { targetId: step.targetId } : {}),
                 targetType: step.targetType,
             })
         );

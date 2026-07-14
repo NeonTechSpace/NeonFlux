@@ -1,4 +1,4 @@
-import { normalizeBlueprintSnapshot, toBlueprintSnapshot } from '@neonflux/blueprint';
+import { canonicalJsonStringify, normalizeBlueprintSnapshot, toBlueprintSnapshot } from '@neonflux/blueprint';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 export async function verifyProjectedStructureSnapshot(
@@ -16,8 +16,8 @@ export async function verifyProjectedStructureSnapshot(
     const current = await readFluxerBotGuildStructure({ botToken, guildId });
     if (current.isErr()) return { status: 'read_failed' };
     const actual = toBlueprintSnapshot(current.value);
-    const expectedFingerprint = stableKey(resolveSnapshotIds(projected.snapshot, idMap, guildId));
-    const actualFingerprint = stableKey({
+    const expectedFingerprint = canonicalJsonStringify(resolveSnapshotIds(projected.snapshot, idMap, guildId));
+    const actualFingerprint = canonicalJsonStringify({
         roles: actual.roles,
         categories: actual.categories,
         channels: actual.channels,
@@ -53,18 +53,6 @@ function resolveSnapshotIds(snapshot: Record<string, unknown>, idMap: Record<str
             };
         });
     return { roles: resolveItems(roles), categories: resolveItems(categories), channels: resolveItems(channels) };
-}
-
-function stableKey(value: unknown): string {
-    if (Array.isArray(value)) return JSON.stringify(value.map(stableKey).sort());
-    if (isObject(value))
-        return JSON.stringify(
-            Object.entries(value)
-                .filter(([key]) => !['exportedAt', 'guildId', 'guildName'].includes(key))
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, item]) => [key, stableKey(item)])
-        );
-    return JSON.stringify(value);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

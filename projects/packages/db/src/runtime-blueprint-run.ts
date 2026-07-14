@@ -318,7 +318,7 @@ function requiredPositiveInteger(value: unknown): number {
 
 function mapBlueprintRunEnqueueError(error: unknown): BlueprintRepositoryError {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('blueprint-run-review-obsolete')) return { type: 'blueprint-run-review-obsolete' };
+    if (message.includes('blueprint-run-review-stale')) return { type: 'blueprint-run-review-stale' };
     if (message.includes('blueprint-guild-run-active')) return { type: 'blueprint-guild-run-active' };
     if (message.includes('blueprint-run-empty')) return { type: 'blueprint-run-empty' };
     return { type: 'database-error' };
