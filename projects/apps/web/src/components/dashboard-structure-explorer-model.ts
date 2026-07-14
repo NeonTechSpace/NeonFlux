@@ -89,10 +89,11 @@ export type BuildDashboardStructureExplorerModelInput = {
 
 const roots = {
     blocked: 'Blocked / Unsupported',
-    categories: 'Categories',
     roles: 'Roles',
-    uncategorized: 'Uncategorized Channels',
+    uncategorized: 'Uncategorized',
 } as const;
+
+const channelTopLevelScope = 'channel-top-level';
 
 export function parseDashboardStructureExplorerSnapshot(value: string): DashboardStructureExplorerSnapshot | undefined {
     try {
@@ -164,8 +165,7 @@ export function buildDashboardStructureExplorerModel({
     snapshot,
 }: BuildDashboardStructureExplorerModelInput): DashboardStructureExplorerModel {
     const visibleActions = actions.filter((action) => sectionForTargetType(action.targetType) === section);
-    const paths: string[] =
-        section === 'roles' ? [`${roots.roles}/`] : [`${roots.categories}/`, `${roots.uncategorized}/`];
+    const paths: string[] = section === 'roles' ? [`${roots.roles}/`] : [`${roots.uncategorized}/`];
     const pathMetadata = new Map<string, DashboardStructureExplorerPathMetadata>();
     const entityPathByKey = new Map<DashboardStructureExplorerEntityKey, string>();
     const actionsByKey = groupActionsByEntityKey(visibleActions);
@@ -175,11 +175,11 @@ export function buildDashboardStructureExplorerModel({
     if (section === 'roles') {
         addRootMetadata(pathMetadata, roots.roles);
     } else {
-        addRootMetadata(pathMetadata, roots.categories);
+        segments.allocate(channelTopLevelScope, roots.uncategorized);
+        segments.allocate(channelTopLevelScope, roots.blocked);
         addRootMetadata(pathMetadata, roots.uncategorized);
     }
 
-    const categoriesById = new Map((snapshot?.categories ?? []).map((category) => [category.id, category]));
     const categoryPathById = new Map<string, string>();
 
     if (section === 'roles') {
@@ -205,7 +205,7 @@ export function buildDashboardStructureExplorerModel({
         for (const category of sortChannels(snapshot?.categories ?? [])) {
             const key = entityKey('category', category.id);
             const label = toDisplayLabel(category.name ?? category.id);
-            const path = `${roots.categories}/${segments.allocate(roots.categories, label)}/`;
+            const path = `${segments.allocate(channelTopLevelScope, label)}/`;
             categoryPathById.set(category.id, path.slice(0, -1));
             addEntityPath({
                 actionsByKey,
@@ -222,9 +222,8 @@ export function buildDashboardStructureExplorerModel({
 
         for (const channel of sortChannels(snapshot?.channels ?? [])) {
             const key = entityKey('channel', channel.id);
-            const parentCategory = channel.parentId ? categoriesById.get(channel.parentId) : undefined;
-            const rootPath = parentCategory
-                ? (categoryPathById.get(parentCategory.id) ?? roots.uncategorized)
+            const rootPath = channel.parentId
+                ? (categoryPathById.get(channel.parentId) ?? roots.uncategorized)
                 : roots.uncategorized;
             const label = toDisplayLabel(channel.name ?? channel.id);
             const path = `${rootPath}/${segments.allocate(rootPath, label)}`;
@@ -243,7 +242,14 @@ export function buildDashboardStructureExplorerModel({
         }
     }
 
-    addMissingActionTargets({ actionsByKey, entityPathByKey, pathMetadata, paths, segments });
+    addMissingActionTargets({
+        actionsByKey,
+        categoryPathById,
+        entityPathByKey,
+        pathMetadata,
+        paths,
+        segments,
+    });
     addBlockedShortcuts({ actions: visibleActions, pathMetadata, paths, segments });
     addUnmatchedPreflightWarnings(preflightReport, warnings);
 
@@ -318,12 +324,42 @@ function addEntityPath(input: {
 
 function addMissingActionTargets(input: {
     actionsByKey: Map<DashboardStructureExplorerEntityKey, DashboardStructureExplorerAction[]>;
+    categoryPathById: Map<string, string>;
     entityPathByKey: Map<DashboardStructureExplorerEntityKey, string>;
     pathMetadata: Map<string, DashboardStructureExplorerPathMetadata>;
     paths: string[];
     segments: PathSegmentAllocator;
 }): void {
-    for (const [key, actions] of input.actionsByKey) {
+    const missingTargets = [...input.actionsByKey].filter(([key]) => !input.entityPathByKey.has(key));
+
+    for (const [key, actions] of missingTargets) {
+        if (!key.startsWith('category:')) continue;
+
+        const [, id] = key.split(':') as ['category', string];
+        const representative = actions[0];
+        const item = readActionItem(representative);
+        const explorerItem = isChannel(item) ? item : undefined;
+        const label = toDisplayLabel(readActionLabel(representative, item, id));
+        const path = `${input.segments.allocate(channelTopLevelScope, label)}/`;
+
+        input.categoryPathById.set(id, path.slice(0, -1));
+        input.paths.push(path);
+        input.entityPathByKey.set(key, path);
+        setPathMetadata(input.pathMetadata, path, {
+            actions,
+            badges: badgesForActions(actions),
+            entityKey: key,
+            id,
+            ...(explorerItem ? { item: explorerItem } : {}),
+            kind: 'category',
+            label,
+            path,
+            position: typeof item?.position === 'number' ? item.position : undefined,
+            risks: risksForActions(actions),
+        });
+    }
+
+    for (const [key, actions] of missingTargets) {
         if (input.entityPathByKey.has(key)) continue;
 
         const [kind, id] = key.split(':') as ['category' | 'channel' | 'role', string];
@@ -331,8 +367,17 @@ function addMissingActionTargets(input: {
         const item = readActionItem(representative);
         const explorerItem = isRole(item) || isChannel(item) ? item : undefined;
         const label = toDisplayLabel(readActionLabel(representative, item, id));
-        const rootPath = kind === 'role' ? roots.roles : kind === 'category' ? roots.categories : roots.uncategorized;
-        const path = `${rootPath}/${input.segments.allocate(rootPath, label)}${kind === 'category' ? '/' : ''}`;
+        const parentId =
+            kind === 'channel' && (typeof item?.parentId === 'string' || item?.parentId === null)
+                ? item.parentId
+                : undefined;
+        const rootPath =
+            kind === 'role'
+                ? roots.roles
+                : parentId
+                  ? (input.categoryPathById.get(parentId) ?? roots.uncategorized)
+                  : roots.uncategorized;
+        const path = `${rootPath}/${input.segments.allocate(rootPath, label)}`;
 
         input.paths.push(path);
         input.entityPathByKey.set(key, path);
@@ -344,6 +389,7 @@ function addMissingActionTargets(input: {
             ...(explorerItem ? { item: explorerItem } : {}),
             kind,
             label,
+            ...(kind === 'channel' ? { parentId } : {}),
             path,
             position: typeof item?.position === 'number' ? item.position : undefined,
             risks: risksForActions(actions),
@@ -557,6 +603,17 @@ function entityKey(type: 'category' | 'channel' | 'role', id: string): Dashboard
 
 function createTreePathComparator(pathOrder: Map<string, number>) {
     return (left: { path: string }, right: { path: string }): number => {
+        const leftTopLevelOrder = pathOrder.get(readTopLevelDirectoryPath(left.path));
+        const rightTopLevelOrder = pathOrder.get(readTopLevelDirectoryPath(right.path));
+
+        if (leftTopLevelOrder !== undefined && rightTopLevelOrder !== undefined) {
+            if (leftTopLevelOrder !== rightTopLevelOrder) return leftTopLevelOrder - rightTopLevelOrder;
+        } else if (leftTopLevelOrder !== undefined) {
+            return -1;
+        } else if (rightTopLevelOrder !== undefined) {
+            return 1;
+        }
+
         const leftOrder = pathOrder.get(left.path);
         const rightOrder = pathOrder.get(right.path);
 
@@ -566,6 +623,12 @@ function createTreePathComparator(pathOrder: Map<string, number>) {
 
         return left.path.localeCompare(right.path);
     };
+}
+
+function readTopLevelDirectoryPath(path: string): string {
+    const separatorIndex = path.indexOf('/');
+
+    return `${separatorIndex === -1 ? path : path.slice(0, separatorIndex)}/`;
 }
 
 type PathSegmentAllocator = ReturnType<typeof createPathSegmentAllocator>;

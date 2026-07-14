@@ -3,6 +3,7 @@ import type {
     DashboardStructureExplorerAction,
     DashboardStructureExplorerPathMetadata,
 } from './dashboard-structure-explorer-model.js';
+import { formatDashboardStructureChannelType } from './dashboard-structure-explorer-channel-types.js';
 
 export function DashboardStructureExplorerDetails({
     metadata,
@@ -46,8 +47,11 @@ export function DashboardStructureExplorerDetails({
                 {metadata.kind === 'channel' || metadata.kind === 'category' ? (
                     <DetailValue
                         label='Channel type'
-                        value={String(readItemValue(metadata.item, 'type') ?? 'unknown')}
+                        value={formatDashboardStructureChannelType(readItemValue(metadata.item, 'type'))}
                     />
+                ) : null}
+                {metadata.kind === 'channel' && readItemValue(metadata.item, 'type') === 998 ? (
+                    <LinkUrlDetail item={metadata.item} />
                 ) : null}
                 {metadata.kind === 'role' ? (
                     <>
@@ -109,6 +113,11 @@ export function DashboardStructureExplorerDetails({
             ) : null}
         </aside>
     );
+}
+
+function LinkUrlDetail({ item }: { item: DashboardStructureExplorerPathMetadata['item'] }) {
+    const url = readItemValue(item, 'url');
+    return typeof url === 'string' && url.length > 0 ? <DetailValue label='Link URL' value={url} /> : null;
 }
 
 function PermissionOverrideDetails({

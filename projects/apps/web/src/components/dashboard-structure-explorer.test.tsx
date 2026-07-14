@@ -12,12 +12,14 @@ import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 
 vi.mock('@pierre/trees/react', () => ({
-    FileTree: ({ model }: { model: MockTreeModel }) => (
-        <div aria-label='Mock blueprint tree' role='tree'>
+    FileTree: ({ model, ...props }: { 'data-blueprint-structure-tree'?: string; model: MockTreeModel }) => (
+        <div aria-label='Mock blueprint tree' role='tree' {...props}>
             {model.paths.map((path) => (
                 <button
                     key={path}
                     type='button'
+                    data-item-path={path}
+                    data-type='item'
                     role='treeitem'
                     aria-selected={model.selectedPaths.includes(path)}
                     onClick={() => model.selectPath(path)}>
@@ -110,7 +112,7 @@ describe('DashboardStructureExplorer', () => {
             },
         });
 
-        expect(screen.getByRole('treeitem', { name: 'Categories/General/general' })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: /general, Text channel$/ })).toBeTruthy();
         expect(screen.queryByRole('treeitem', { name: 'Roles/Admin' })).toBeNull();
         expect(screen.getByText('Entity key')).toBeTruthy();
         expect(screen.getByText('category:category-general')).toBeTruthy();
@@ -131,7 +133,7 @@ describe('DashboardStructureExplorer', () => {
         });
 
         expect(screen.getByRole('treeitem', { name: 'Roles/Admin' })).toBeTruthy();
-        expect(screen.queryByRole('treeitem', { name: 'Categories/General/general' })).toBeNull();
+        expect(screen.queryByRole('treeitem', { name: /general, Text channel$/ })).toBeNull();
         expect(screen.getByRole('button', { name: 'Roles, 2' }).getAttribute('aria-pressed')).toBe('true');
     });
 
@@ -150,6 +152,76 @@ describe('DashboardStructureExplorer', () => {
         expect(screen.getByText('Admin')).toBeTruthy();
         expect(screen.getByText('Allow bitfield')).toBeTruthy();
         expect(screen.getByText('1024')).toBeTruthy();
+        expect(screen.getByText('Category (4)')).toBeTruthy();
+    });
+
+    it('identifies channel types per full path and exposes semantic inspector details', () => {
+        const snapshot = createExplorerSnapshot();
+        snapshot.categories.push({
+            id: 'category-media',
+            name: 'Media',
+            parentId: null,
+            permissionOverwrites: [],
+            position: 2,
+            type: 4,
+        });
+        snapshot.channels.push(
+            {
+                id: 'channel-voice',
+                name: 'shared',
+                parentId: 'category-general',
+                permissionOverwrites: [],
+                position: 2,
+                type: 2,
+            },
+            {
+                id: 'channel-link',
+                name: 'shared',
+                parentId: 'category-media',
+                permissionOverwrites: [],
+                position: 1,
+                type: 998,
+                url: 'https://example.com/community',
+            },
+            {
+                id: 'channel-unknown',
+                name: 'mystery',
+                parentId: null,
+                permissionOverwrites: [],
+                position: 3,
+                type: 123,
+            }
+        );
+
+        const { unmount } = renderExplorer({
+            selectedEntityKey: 'channel:channel-link',
+            source: { label: 'Live server layout', snapshot, type: 'live' },
+        });
+
+        expect(screen.getByRole('treeitem', { name: /general, Text channel$/ })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: /shared, Voice channel$/ })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: /shared, Link channel$/ })).toBeTruthy();
+        expect(screen.getByRole('treeitem', { name: /mystery, Unknown \(123\) channel$/ })).toBeTruthy();
+        expect(screen.getByText('Link (998)')).toBeTruthy();
+        expect(screen.getByText('https://example.com/community')).toBeTruthy();
+
+        unmount();
+
+        const { unmount: unmountVoiceView } = renderExplorer({
+            selectedEntityKey: 'channel:channel-voice',
+            source: { label: 'Live server layout', snapshot, type: 'live' },
+        });
+
+        expect(screen.getByText('Voice (2)')).toBeTruthy();
+
+        unmountVoiceView();
+
+        renderExplorer({
+            selectedEntityKey: 'channel:channel-unknown',
+            source: { label: 'Live server layout', snapshot, type: 'live' },
+        });
+
+        expect(screen.getByText('Unknown (123)')).toBeTruthy();
     });
 
     it('explains JSON diff requirements before a source is loaded', () => {
@@ -349,6 +421,7 @@ describe('DashboardStructureExplorer', () => {
         expect(screen.getByText('Drift preview is capped. Create a dry-run to inspect every action.')).toBeTruthy();
         expect(screen.getByText('permissionOverwrites')).toBeTruthy();
         expect(screen.getByText('Changes permissions.')).toBeTruthy();
+        expect(screen.getByText('Text (0)')).toBeTruthy();
     });
 
     it('shows the unloaded plan action CTA', () => {

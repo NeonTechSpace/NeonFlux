@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
-import { getDashboardStructureDeployStage } from './dashboard-structure-deploy-stage.js';
+import {
+    canStartNewBlueprintDeployment,
+    getDashboardStructureDeployStage,
+} from './dashboard-structure-deploy-stage.js';
 
 describe('getDashboardStructureDeployStage', () => {
     it('treats an execution as authoritative over a stale plan status', () => {
@@ -22,4 +25,26 @@ describe('getDashboardStructureDeployStage', () => {
 
         expect(getDashboardStructureDeployStage(run)).toBe(3);
     });
+
+    it.each(['queued', 'running', 'paused', 'partially_applied', 'needs_reconciliation', 'outcome_unknown'] as const)(
+        'does not allow a new source while an execution is %s',
+        (status) => {
+            const run = {
+                execution: { status },
+            } as DashboardStructureImportRun;
+
+            expect(canStartNewBlueprintDeployment(run)).toBe(false);
+        }
+    );
+
+    it.each(['succeeded', 'failed_before_mutation', 'cancelled'] as const)(
+        'allows a new source after an execution is %s',
+        (status) => {
+            const run = {
+                execution: { status },
+            } as DashboardStructureImportRun;
+
+            expect(canStartNewBlueprintDeployment(run)).toBe(true);
+        }
+    );
 });

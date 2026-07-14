@@ -14,7 +14,10 @@ import {
     renameDashboardStructureBackupRouteData,
     saveDashboardStructureBackupSettingsRouteData,
 } from '../server/dashboard-structure-route-data.js';
-import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
+import type {
+    DashboardStructureBackupSummary,
+    DashboardStructureImportRun,
+} from '../server/dashboard-structure.server.js';
 import type { DashboardStructurePolicy } from '../server/dashboard-structure-contracts.js';
 import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
@@ -46,6 +49,10 @@ import {
 
 const structureLiveArea = ['import_export', 'structure'] as const;
 const DashboardStructureWorkspaceContext = createContext<DashboardStructurePanelViewProps | undefined>(undefined);
+type DashboardStructureDeployFlow =
+    | { type: 'latest' }
+    | { type: 'choose' }
+    | { type: 'run'; run: DashboardStructureImportRun };
 
 export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
@@ -111,6 +118,7 @@ function DashboardStructureController({
     const queryKey = getDashboardStructureSettingsQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
     const [structurePolicy, setStructurePolicy] = useState<DashboardStructurePolicy>('synchronize');
+    const [deployFlow, setDeployFlow] = useState<DashboardStructureDeployFlow>({ type: 'latest' });
     const [backupJson, setBackupJson] = useState('');
     const [status, setStatus] = useState<PanelStatus | undefined>();
     const [busyAction, setBusyAction] = useState<StructureBusyAction | undefined>();
@@ -381,7 +389,9 @@ function DashboardStructureController({
             return;
         }
 
-        await imports.createDryRunFromBackupId({ backupId: backup.id, intent: 'restore' });
+        const createdRun = await imports.createDryRunFromBackupId({ backupId: backup.id, intent: 'restore' });
+        if (!createdRun) return;
+        setDeployFlow({ type: 'run', run: createdRun });
         await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
     }
 
@@ -432,18 +442,28 @@ function DashboardStructureController({
                 return;
             }
 
-            setImportJson(result.backupJson);
-            imports.clearRoleMappings();
-            setStatus({
-                tone: 'neutral',
-                message: 'Backup loaded as the deployment source. Choose how it should apply.',
-            });
+            beginDeploySource(result.backupJson);
             await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
         } catch {
             setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);
         }
+    }
+
+    function beginDeploySource(sourceJson = ''): void {
+        setDeployFlow({ type: 'choose' });
+        setImportJson(sourceJson);
+        setStructurePolicy('synchronize');
+        imports.clearRoleMappings();
+        setStatus(
+            sourceJson
+                ? {
+                      tone: 'neutral',
+                      message: 'Backup loaded as the deployment source. Choose how it should apply.',
+                  }
+                : undefined
+        );
     }
 
     if (!settingsQuery.data && settingsQuery.isPending) return children({ type: 'loading' });
@@ -462,6 +482,12 @@ function DashboardStructureController({
             : {}),
     }));
     const latestRun = importRuns.at(0);
+    const deployRun =
+        deployFlow.type === 'latest'
+            ? latestRun
+            : deployFlow.type === 'run'
+              ? (importRuns.find((run) => run.id === deployFlow.run.id) ?? deployFlow.run)
+              : undefined;
     const backupSettings = settingsQuery.data.backupSettings;
     const enabledDraft = backupEnabled ?? backupSettings.enabled;
     const cadenceDraft = backupCadenceWeeks ?? backupSettings.cadenceWeeks;
@@ -497,13 +523,15 @@ function DashboardStructureController({
                     : undefined,
             executionTransport: executionProgress.transport,
             explorer,
+            deployChoosingSource: deployFlow.type === 'choose',
+            deployRun,
             structurePolicy,
             importJson,
             importRuns,
             latestRun,
             observedState: settingsQuery.data.observedState,
             preflightByRunId: imports.preflightByRunId,
-            restoreShortcutBackupId: latestRun?.execution?.restorePointBackupId,
+            restoreShortcutBackupId: deployRun?.execution?.restorePointBackupId,
             roleMappingConflicts: imports.roleMappingConflicts,
             roleMappings: imports.roleMappings,
             retentionDraft,
@@ -536,11 +564,17 @@ function DashboardStructureController({
             onCheckLatestDrift: () => void driftActions.check(),
             onApprovePlan: (run) => void imports.reviewAndPreflight(run),
             onCreateBackup: () => void createBackup(),
-            onCreatePlan: () => void imports.createPlan(),
+            onCreatePlan: () => {
+                void (async () => {
+                    const createdRun = await imports.createPlan();
+                    if (createdRun) setDeployFlow({ type: 'run', run: createdRun });
+                })();
+            },
             onCreateRestoreDryRun: (backupId) => {
                 void (async () => {
-                    const created = await imports.createDryRunFromBackupId({ backupId, intent: 'restore' });
-                    if (!created) return;
+                    const createdRun = await imports.createDryRunFromBackupId({ backupId, intent: 'restore' });
+                    if (!createdRun) return;
+                    setDeployFlow({ type: 'run', run: createdRun });
                     await navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
                 })();
             },
@@ -586,16 +620,17 @@ function DashboardStructureController({
             onRetrySettingsRefresh: () => {
                 retrySettings();
             },
-            onRecoveryPlan: (run) => void imports.createRecoveryPlan(run),
+            onStartNewBlueprintDeployment: () => beginDeploySource(),
+            onRecoveryPlan: (run) => {
+                void (async () => {
+                    const createdRun = await imports.createRecoveryPlan(run);
+                    if (createdRun) setDeployFlow({ type: 'run', run: createdRun });
+                })();
+            },
             onReviewScheduledDrift: (baselineBackupId) => void driftActions.reviewScheduled(baselineBackupId),
             onSaveBackupSettings: (value) => void saveBackupSettings(value),
             onSetBackupJsonAsImportJson: () => {
-                setImportJson(backupJson);
-                imports.clearRoleMappings();
-                setStatus({
-                    tone: 'neutral',
-                    message: 'Backup loaded as the deployment source. Choose how it should apply.',
-                });
+                beginDeploySource(backupJson);
                 void navigate({ to: '/dashboard/$guildId/structure/deploy', params: { guildId } });
             },
         },

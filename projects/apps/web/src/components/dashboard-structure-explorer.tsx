@@ -1,7 +1,7 @@
 import { FileTree, useFileTree, useFileTreeSelection } from '@pierre/trees/react';
 import { GitCompareArrows } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
@@ -24,6 +24,10 @@ import type {
     DashboardStructureExplorerSection,
     DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
+import {
+    buildDashboardStructureChannelTypeCss,
+    useDashboardStructureChannelTypeAccessibilityLabels,
+} from './dashboard-structure-explorer-channel-types.js';
 import { DashboardStructureExplorerDetails } from './dashboard-structure-explorer-details.js';
 import { dashboardCompactFieldClassName, dashboardQuietActionClassName } from './dashboard-ui.js';
 
@@ -449,6 +453,8 @@ function StructureExplorerTreeInstance({
     selectedPath: string | undefined;
     onSelectedPathChange: (path: string) => void;
 }) {
+    const treeContainerRef = useRef<HTMLDivElement>(null);
+    const channelTypeCss = useMemo(() => buildDashboardStructureChannelTypeCss(explorerModel), [explorerModel]);
     const { model } = useFileTree({
         fileTreeSearchMode: 'expand-matches',
         initialExpansion: 'open',
@@ -468,9 +474,12 @@ function StructureExplorerTreeInstance({
                 background: rgba(56, 189, 248, 0.18);
                 color: #f8fafc;
             }
+            ${channelTypeCss}
         `,
     });
     const selectedPaths = useFileTreeSelection(model);
+
+    useDashboardStructureChannelTypeAccessibilityLabels(treeContainerRef, explorerModel);
 
     useEffect(() => {
         if (!selectedPath) return;
@@ -486,17 +495,20 @@ function StructureExplorerTreeInstance({
     }, [onSelectedPathChange, selectedPath, selectedPaths]);
 
     return (
-        <FileTree
-            model={model}
-            style={
-                {
-                    '--trees-border-color-override': '#262626',
-                    '--trees-fg-override': '#d4d4d8',
-                    '--trees-selected-bg-override': 'rgba(56, 189, 248, 0.18)',
-                    height: '22rem',
-                } as CSSProperties
-            }
-        />
+        <div ref={treeContainerRef}>
+            <FileTree
+                data-blueprint-structure-tree='true'
+                model={model}
+                style={
+                    {
+                        '--trees-border-color-override': '#262626',
+                        '--trees-fg-override': '#d4d4d8',
+                        '--trees-selected-bg-override': 'rgba(56, 189, 248, 0.18)',
+                        height: '22rem',
+                    } as CSSProperties
+                }
+            />
+        </div>
     );
 }
 

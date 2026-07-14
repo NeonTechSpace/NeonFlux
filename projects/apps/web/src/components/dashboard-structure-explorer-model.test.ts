@@ -19,12 +19,15 @@ describe('buildDashboardStructureExplorerModel', () => {
         expect(roleModel.paths).toContain('Roles/');
         expect(roleModel.paths).not.toContain('Categories/');
         expect(channelModel.paths).not.toContain('Roles/');
-        expect(channelModel.paths).toContain('Categories/');
-        expect(channelModel.paths).toContain('Uncategorized Channels/');
+        expect(channelModel.paths).not.toContain('Categories/');
+        expect(channelModel.paths).toContain('Uncategorized/');
+        expect(channelModel.paths).toContain('General/');
         expect(roleModel.preparedInput.paths).not.toContain('Roles/');
         expect(channelModel.preparedInput.paths).not.toContain('Categories/');
-        expect(channelModel.preparedInput.paths).not.toContain('Uncategorized Channels/');
+        expect(channelModel.preparedInput.paths).not.toContain('Uncategorized/');
+        expect(channelModel.preparedInput.paths[0]).toBe('Uncategorized/lobby');
         expect(channelModel.preparedInput.paths.every((path) => !path.includes('['))).toBe(true);
+        expect(indexOfPath(channelModel, 'Uncategorized/')).toBeLessThan(indexOfPath(channelModel, 'General/'));
         expect(indexOfEntity(roleModel, 'role:role-admin')).toBeLessThan(indexOfEntity(roleModel, 'role:role-member'));
         expect(indexOfEntity(roleModel, 'role:role-member')).toBeLessThan(indexOfEntity(roleModel, 'role:guild-1'));
         expect(indexOfEntity(channelModel, 'channel:channel-general')).toBeLessThan(
@@ -36,6 +39,9 @@ describe('buildDashboardStructureExplorerModel', () => {
     it('places channels under categories or uncategorized fallback', () => {
         const model = buildDashboardStructureExplorerModel({ section: 'channels', snapshot: createSnapshot() });
 
+        expect(pathForEntity(model, 'category:category-general')).toBe('General/');
+        expect(pathForEntity(model, 'channel:channel-general')).toBe('General/general');
+        expect(pathForEntity(model, 'channel:channel-lobby')).toBe('Uncategorized/lobby');
         expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-general'))).toMatchObject({
             entityKey: 'channel:channel-general',
             kind: 'channel',
@@ -48,6 +54,60 @@ describe('buildDashboardStructureExplorerModel', () => {
             label: 'lobby',
             parentId: 'missing-category',
         });
+    });
+
+    it('uses action item parents to keep deleted channels under deleted categories', () => {
+        const deletedCategory = {
+            ...createSnapshot().categories[0],
+            id: 'category-archive',
+            name: 'Archive',
+            position: 2,
+        };
+        const deletedChannel = {
+            ...createSnapshot().channels[0],
+            id: 'channel-old-updates',
+            name: 'old-updates',
+            parentId: deletedCategory.id,
+        };
+        const model = buildDashboardStructureExplorerModel({
+            actions: [
+                createAction({
+                    actionType: 'delete',
+                    details: { before: deletedChannel },
+                    id: 'delete-channel',
+                    label: deletedChannel.name,
+                    targetId: deletedChannel.id,
+                    targetType: 'channel',
+                }),
+                createAction({
+                    actionType: 'delete',
+                    details: { before: deletedCategory },
+                    id: 'delete-category',
+                    label: deletedCategory.name,
+                    targetId: deletedCategory.id,
+                    targetType: 'category',
+                }),
+            ],
+            section: 'channels',
+            snapshot: { ...createSnapshot(), categories: [], channels: [] },
+        });
+
+        expect(pathForEntity(model, 'category:category-archive')).toBe('Archive/');
+        expect(pathForEntity(model, 'channel:channel-old-updates')).toBe('Archive/old-updates');
+        expect(model.pathMetadata.get(pathForEntity(model, 'channel:channel-old-updates'))).toMatchObject({
+            parentId: 'category-archive',
+        });
+    });
+
+    it('does not fabricate entities for an empty channels snapshot', () => {
+        const model = buildDashboardStructureExplorerModel({
+            section: 'channels',
+            snapshot: { ...createSnapshot(), categories: [], channels: [] },
+        });
+
+        expect(model.entityPathByKey.size).toBe(0);
+        expect(model.preparedInput.paths).toEqual([]);
+        expect(model.defaultSelectedPath).toBeUndefined();
     });
 
     it('attaches action, move, permission, blocked, failed, and retry badges', () => {
@@ -156,6 +216,41 @@ describe('buildDashboardStructureExplorerModel', () => {
         expect(model.preparedInput.paths.every((path) => !path.includes('role-a') && !path.includes('role-b'))).toBe(
             true
         );
+    });
+
+    it('keeps a real Uncategorized category distinct from the fallback folder', () => {
+        const model = buildDashboardStructureExplorerModel({
+            section: 'channels',
+            snapshot: {
+                ...createSnapshot(),
+                categories: [{ ...createSnapshot().categories[0], name: 'Uncategorized' }],
+            },
+        });
+
+        expect(pathForEntity(model, 'category:category-general')).toBe('Uncategorized (2)/');
+        expect(pathForEntity(model, 'channel:channel-general')).toBe('Uncategorized (2)/general');
+        expect(pathForEntity(model, 'channel:channel-lobby')).toBe('Uncategorized/lobby');
+    });
+
+    it('keeps real categories distinct from the blocked-action shortcut', () => {
+        const model = buildDashboardStructureExplorerModel({
+            actions: [
+                createAction({
+                    actionType: 'update',
+                    details: { changes: [{ field: 'type', before: 0, after: 5 }] },
+                    targetId: 'channel-general',
+                    targetType: 'channel',
+                }),
+            ],
+            section: 'channels',
+            snapshot: {
+                ...createSnapshot(),
+                categories: [{ ...createSnapshot().categories[0], name: 'Blocked / Unsupported' }],
+            },
+        });
+
+        expect(pathForEntity(model, 'category:category-general')).toBe('Blocked Unsupported (2)/');
+        expect(model.paths).toContain('Blocked / Unsupported/');
     });
 
     it('converts drift/import actions and attaches preflight statuses', () => {

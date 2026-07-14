@@ -16,3 +16,9 @@ export function getDashboardStructureDeployStage(
     if (run.status === 'approved') return 3;
     return 1;
 }
+
+export function canStartNewBlueprintDeployment(run: DashboardStructureImportRun | undefined): boolean {
+    if (!run?.execution) return true;
+
+    return ['succeeded', 'failed_before_mutation', 'cancelled'].includes(run.execution.status);
+}

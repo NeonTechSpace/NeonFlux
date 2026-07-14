@@ -72,7 +72,7 @@ export function useDashboardStructureImportState({
     }: {
         backupId: string;
         intent?: 'backup' | 'restore';
-    }): Promise<boolean> {
+    }): Promise<DashboardStructureImportRun | undefined> {
         setStatus(undefined);
         setBusyAction(`backup-import:${backupId}`);
 
@@ -87,7 +87,7 @@ export function useDashboardStructureImportState({
                           ? { tone: 'error', message: 'This backup does not have server blueprint JSON.' }
                           : toErrorStatus(result.type)
                 );
-                return false;
+                return undefined;
             }
 
             setActionPagesByRunId((current) => ({
@@ -103,10 +103,10 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
-            return true;
+            return result.importRun;
         } catch {
             setStatus(toUnexpectedErrorStatus());
-            return false;
+            return undefined;
         } finally {
             setBusyAction(undefined);
         }
@@ -282,7 +282,7 @@ export function useDashboardStructureImportState({
         }
     }
 
-    async function createPlan(): Promise<void> {
+    async function createPlan(): Promise<DashboardStructureImportRun | undefined> {
         setStatus(undefined);
 
         if (!isFluxerGuildStructureSnapshotJsonWithinByteLimit(importJson)) {
@@ -290,7 +290,7 @@ export function useDashboardStructureImportState({
                 tone: 'error',
                 message: `Blueprint JSON must be ${String(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 1024 / 1024)} MiB or smaller.`,
             });
-            return;
+            return undefined;
         }
 
         setBusyAction('plan');
@@ -344,14 +344,14 @@ export function useDashboardStructureImportState({
                         message:
                             'Choose which existing role matches each ambiguous source role, then create the plan again.',
                     });
-                    return;
+                    return undefined;
                 }
                 setStatus(
                     result.type === 'invalid-input'
                         ? { tone: 'error', message: result.message }
                         : toErrorStatus(result.type)
                 );
-                return;
+                return undefined;
             }
 
             setRoleMappingConflicts([]);
@@ -366,8 +366,10 @@ export function useDashboardStructureImportState({
             });
             await refreshSettings();
             await refreshAuditEvents();
+            return result.importRun;
         } catch {
             setStatus(toUnexpectedErrorStatus());
+            return undefined;
         } finally {
             setBusyAction(undefined);
         }
@@ -414,7 +416,9 @@ export function useDashboardStructureImportState({
         }
     }
 
-    async function createRecoveryPlan(run: DashboardStructureImportRun): Promise<void> {
+    async function createRecoveryPlan(
+        run: DashboardStructureImportRun
+    ): Promise<DashboardStructureImportRun | undefined> {
         setStatus(undefined);
         setBusyAction(`recovery:${run.id}`);
 
@@ -434,7 +438,7 @@ export function useDashboardStructureImportState({
                             }
                           : toErrorStatus(result.type)
                 );
-                return;
+                return undefined;
             }
 
             setActionPagesByRunId((current) => ({
@@ -448,8 +452,10 @@ export function useDashboardStructureImportState({
                 }.`,
             });
             await refreshSettings();
+            return result.importRun;
         } catch {
             setStatus(toUnexpectedErrorStatus());
+            return undefined;
         } finally {
             setBusyAction(undefined);
         }

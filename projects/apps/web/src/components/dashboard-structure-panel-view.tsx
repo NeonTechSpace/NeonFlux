@@ -14,7 +14,10 @@ import { DashboardStructureBackupSettings as BackupSettings } from './dashboard-
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
 import { DashboardStructureBackupStatus as BackupStatus } from './dashboard-structure-backup-status.js';
 import { DashboardStructureDriftPanel as DriftPanel } from './dashboard-structure-drift-panel.js';
-import { getDashboardStructureDeployStage } from './dashboard-structure-deploy-stage.js';
+import {
+    canStartNewBlueprintDeployment,
+    getDashboardStructureDeployStage,
+} from './dashboard-structure-deploy-stage.js';
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { DashboardStructureImportHistory } from './dashboard-structure-import-history.js';
 import {
@@ -97,7 +100,7 @@ export function DashboardStructurePanelView({
             {surface === 'current' ? <CurrentSurface workspace={workspace} /> : null}
             {surface === 'backups' ? <BackupsSurface workspace={workspace} /> : null}
             {surface === 'compare' ? <CompareSurface workspace={workspace} /> : null}
-            {surface === 'deploy' ? <DeploySurface workspace={workspace} forceSourceDetails={false} /> : null}
+            {surface === 'deploy' ? <DeploySurface workspace={workspace} /> : null}
             {surface === 'runs' ? <RunsSurface workspace={workspace} includeDetails /> : null}
         </motion.div>
     );
@@ -372,14 +375,8 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
     );
 }
 
-function DeploySurface({
-    workspace,
-    forceSourceDetails,
-}: {
-    workspace: DashboardStructurePanelViewProps;
-    forceSourceDetails: boolean;
-}) {
-    const stage = getDashboardStructureDeployStage(workspace.latestRun);
+function DeploySurface({ workspace }: { workspace: DashboardStructurePanelViewProps }) {
+    const stage = workspace.deployChoosingSource ? 1 : getDashboardStructureDeployStage(workspace.deployRun);
 
     return (
         <section aria-labelledby='blueprint-deploy-heading'>
@@ -409,14 +406,12 @@ function DeploySurface({
                 ))}
             </ol>
 
-            {stage === 1 || forceSourceDetails ? (
-                <DeploySource workspace={workspace} forceDetailsOpen={forceSourceDetails} />
-            ) : null}
-            {stage > 1 && workspace.latestRun ? (
+            {stage === 1 ? <DeploySource workspace={workspace} forceDetailsOpen={false} /> : null}
+            {stage > 1 && workspace.deployRun ? (
                 <div className='pt-6'>
                     <DashboardStructureImportHistory
-                        runs={[workspace.latestRun]}
-                        latestRun={workspace.latestRun}
+                        runs={[workspace.deployRun]}
+                        latestRun={workspace.deployRun}
                         busyAction={workspace.busyAction}
                         preflightByRunId={workspace.preflightByRunId}
                         deleteConfirmationByRunId={workspace.deleteConfirmationByRunId}
@@ -431,15 +426,15 @@ function DeploySurface({
                     />
                 </div>
             ) : null}
-            {stage > 1 && canStartNewBlueprintDeployment(workspace.latestRun) ? (
-                <details className='mt-6 border-y border-[var(--dash-border)]'>
-                    <summary
-                        data-dashboard-disclosure
-                        className='cursor-pointer list-none py-4 text-sm font-semibold text-[var(--dash-primary)] marker:hidden'>
+            {stage > 1 && canStartNewBlueprintDeployment(workspace.deployRun) ? (
+                <div className='mt-6 border-y border-[var(--dash-border)]'>
+                    <button
+                        type='button'
+                        onClick={workspace.onStartNewBlueprintDeployment}
+                        className='w-full py-4 text-left text-sm font-semibold text-[var(--dash-primary)]'>
                         Start over with another blueprint
-                    </summary>
-                    <DeploySource workspace={workspace} forceDetailsOpen={false} />
-                </details>
+                    </button>
+                </div>
             ) : null}
             {workspace.executionProgressIssue ? (
                 <ExecutionProgressIssue
@@ -743,13 +738,6 @@ function formatRunStatus(run: DashboardStructureImportRun): string {
     }
 }
 
-function canStartNewBlueprintDeployment(run: DashboardStructureImportRun | undefined): boolean {
-    if (!run) return true;
-    if (!run.execution) return true;
-
-    return ['succeeded', 'failed_before_mutation', 'cancelled'].includes(run.execution.status);
-}
-
 function ExecutionProgressIssue({
     code,
     message,
@@ -811,6 +799,8 @@ export type DashboardStructurePanelViewProps = {
     deleteConfirmBackupId: string | undefined;
     deleteConfirmationByRunId: Record<string, string>;
     driftState: DriftState | undefined;
+    deployChoosingSource: boolean;
+    deployRun: DashboardStructureImportRun | undefined;
     editingBackupId: string | undefined;
     editingBackupName: string;
     enabledDraft: boolean;
@@ -866,6 +856,7 @@ export type DashboardStructurePanelViewProps = {
     onPreflightRun: (run: DashboardStructureImportRun) => void;
     onRetryExecutionProgress: () => void;
     onRetrySettingsRefresh: () => void;
+    onStartNewBlueprintDeployment: () => void;
     onStructurePolicyChange: (policy: DashboardStructurePolicy) => void;
     onRoleMappingChange: (sourceId: string, targetId: string) => void;
     onRecoveryPlan: (run: DashboardStructureImportRun) => void;
