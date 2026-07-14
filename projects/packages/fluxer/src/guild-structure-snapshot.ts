@@ -58,6 +58,30 @@ export function toFluxerGuildStructureSnapshot(
     };
 }
 
+export function toFluxerGuildStructureExportSnapshot(
+    structure: FluxerGuildStructure,
+    exportedAt = new Date().toISOString()
+): FluxerGuildStructureSnapshot {
+    const snapshot = toFluxerGuildStructureSnapshot(structure, exportedAt);
+    const botRoleIds = new Set(snapshot.roles.filter((role) => role.protectionReason === 'bot').map((role) => role.id));
+
+    if (botRoleIds.size === 0) return snapshot;
+
+    const omitBotRoleOverwrites = (channel: FluxerGuildChannel): FluxerGuildChannel => ({
+        ...channel,
+        permissionOverwrites: channel.permissionOverwrites.filter(
+            (overwrite) => overwrite.type !== 0 || !botRoleIds.has(overwrite.id)
+        ),
+    });
+
+    return {
+        ...snapshot,
+        roles: snapshot.roles.filter((role) => !botRoleIds.has(role.id)),
+        categories: snapshot.categories.map(omitBotRoleOverwrites),
+        channels: snapshot.channels.map(omitBotRoleOverwrites),
+    };
+}
+
 export function createFluxerGuildStructureSnapshotFingerprintInput(
     snapshot: FluxerGuildStructureSnapshot
 ): FluxerGuildStructureSnapshotFingerprintInput {

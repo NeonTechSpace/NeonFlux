@@ -489,7 +489,7 @@ function DeploySource({
                 onChange={(event) => {
                     void workspace.onImportStructureFile(event.currentTarget.files?.[0]);
                 }}
-                className='mt-3 block w-full max-w-2xl bg-transparent px-0 py-3 text-sm text-[var(--dash-text-muted)] file:mr-4 file:rounded-[var(--dash-radius-control)] file:border-0 file:bg-[var(--dash-surface-raised)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--dash-text)] hover:file:bg-[var(--dash-surface-selected)]'
+                className='mt-3 block w-full max-w-2xl cursor-pointer bg-transparent px-0 py-3 text-sm text-[var(--dash-text-muted)] file:mr-4 file:cursor-pointer file:rounded-[var(--dash-radius-control)] file:border-0 file:bg-[var(--dash-surface-raised)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--dash-text)] hover:file:bg-[var(--dash-surface-selected)]'
             />
             <details
                 className='mt-4 max-w-2xl border-y border-[var(--dash-border)]'

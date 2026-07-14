@@ -59,6 +59,7 @@ import {
     DashboardStructureAmbiguousIdentityError,
     diffDashboardStructureSnapshot,
     normalizeDashboardStructureSnapshot,
+    toDashboardStructureExportSnapshot,
     toDashboardStructureSnapshot,
 } from './dashboard-structure-diff.js';
 import type { DashboardStructurePlan, DashboardStructureSnapshot } from './dashboard-structure-diff.js';
@@ -562,7 +563,7 @@ export async function downloadDashboardStructureExport(
 
     if (structureResult.isErr()) return { type: 'structure-read-failed' };
 
-    const snapshot = toDashboardStructureSnapshot(structureResult.value);
+    const snapshot = toDashboardStructureExportSnapshot(structureResult.value);
 
     return {
         type: 'structure-export-created',
@@ -1056,7 +1057,7 @@ async function createDashboardStructureBackup(
         return { type: 'structure-read-failed' };
     }
 
-    const snapshot = toDashboardStructureSnapshot(structureResult.value);
+    const snapshot = toDashboardStructureExportSnapshot(structureResult.value);
     const database = await getWebDb();
     const backupResult = await createStructureBackup(database.db, {
         audit: createStructureAuditPayload(context, structureAuditActions.backupCreated, undefined, {

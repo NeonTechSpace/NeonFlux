@@ -42,6 +42,7 @@ export {
     FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
     isFluxerGuildStructureSnapshotJsonWithinByteLimit,
     normalizeFluxerGuildStructureSnapshot,
+    toFluxerGuildStructureExportSnapshot,
     toFluxerGuildStructureSnapshot,
     type FluxerGuildStructureSnapshot,
     type FluxerGuildStructureSnapshotFingerprintInput,

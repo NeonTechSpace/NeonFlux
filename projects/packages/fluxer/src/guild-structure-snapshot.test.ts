@@ -5,8 +5,10 @@ import {
     FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
     isFluxerGuildStructureSnapshotJsonWithinByteLimit,
     normalizeFluxerGuildStructureSnapshot,
+    toFluxerGuildStructureExportSnapshot,
     type FluxerGuildStructureSnapshot,
 } from './guild-structure-snapshot.js';
+import type { FluxerGuildStructure } from './guild-structure.js';
 
 const validRole = {
     id: 'role-1',
@@ -26,6 +28,68 @@ const validChannel = {
     position: 1,
     permissionOverwrites: [],
 };
+
+describe('guild structure export snapshots', () => {
+    it('omits bot roles and their role overwrites while preserving portable structure', () => {
+        const structure: FluxerGuildStructure = {
+            guildId: 'guild-1',
+            guildName: 'Guild 1',
+            roles: [
+                { ...validRole, id: 'guild-1', name: '@everyone', position: 0 },
+                validRole,
+                {
+                    ...validRole,
+                    id: 'bot-role',
+                    name: 'Blueprint Bot',
+                    protected: true,
+                    protectionReason: 'bot',
+                },
+                {
+                    ...validRole,
+                    id: 'managed-role',
+                    name: 'Managed',
+                    protected: true,
+                    protectionReason: 'managed',
+                },
+            ],
+            categories: [
+                {
+                    ...validChannel,
+                    id: 'category-1',
+                    name: 'Team',
+                    type: 4,
+                    permissionOverwrites: [
+                        { id: 'bot-role', type: 0, allow: '8', deny: '0' },
+                        { id: 'managed-role', type: 0, allow: '0', deny: '8' },
+                    ],
+                },
+            ],
+            channels: [
+                {
+                    ...validChannel,
+                    parentId: 'category-1',
+                    permissionOverwrites: [
+                        { id: 'bot-role', type: 0, allow: '8', deny: '0' },
+                        { id: 'bot-role', type: 1, allow: '4', deny: '0' },
+                        { id: 'role-1', type: 0, allow: '0', deny: '8' },
+                    ],
+                },
+            ],
+        };
+
+        const snapshot = toFluxerGuildStructureExportSnapshot(structure, '2026-07-14T10:00:00.000Z');
+
+        expect(snapshot.roles.map((role) => role.id)).toStrictEqual(['guild-1', 'role-1', 'managed-role']);
+        expect(snapshot.categories[0]?.permissionOverwrites).toStrictEqual([
+            { id: 'managed-role', type: 0, allow: '0', deny: '8' },
+        ]);
+        expect(snapshot.channels[0]?.permissionOverwrites).toStrictEqual([
+            { id: 'bot-role', type: 1, allow: '4', deny: '0' },
+            { id: 'role-1', type: 0, allow: '0', deny: '8' },
+        ]);
+        expect(normalizeFluxerGuildStructureSnapshot(snapshot)).toStrictEqual({ type: 'valid', snapshot });
+    });
+});
 
 describe('guild structure snapshot input bounds', () => {
     it('measures the JSON limit in UTF-8 bytes', () => {

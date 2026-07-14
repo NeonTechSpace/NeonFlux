@@ -21,6 +21,7 @@ import {
     createFluxerGuildStructureSnapshotFingerprintInput,
     deriveFluxerBotGuildStructureCursorAuthority,
     readFluxerBotGuildStructure,
+    toFluxerGuildStructureExportSnapshot,
     toFluxerGuildStructureSnapshot,
 } from '@neonflux/fluxer';
 
@@ -146,7 +147,7 @@ export async function runNextStructureImportExecution(input: {
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            structure: toFluxerGuildStructureSnapshot(restoreSnapshot.value),
+            structure: toFluxerGuildStructureExportSnapshot(restoreSnapshot.value),
         });
         if (restorePoint.isErr()) {
             await finalizeStructureImportExecution(input.database.db, {

@@ -25,6 +25,7 @@ import {
     readFluxerGuildStructure,
     type FluxerBot,
     summarizeFluxerGuildStructurePlanFields,
+    toFluxerGuildStructureExportSnapshot,
     toFluxerGuildStructureSnapshot,
     type FluxerGuildStructure,
 } from '@neonflux/fluxer';
@@ -466,5 +467,5 @@ function toStructureBackupPayload(
     channels: unknown[];
     roles: unknown[];
 } {
-    return toFluxerGuildStructureSnapshot(structure, exportedAt);
+    return toFluxerGuildStructureExportSnapshot(structure, exportedAt);
 }

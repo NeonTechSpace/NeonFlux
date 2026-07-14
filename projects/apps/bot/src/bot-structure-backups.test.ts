@@ -82,7 +82,7 @@ describe('runDueStructureBackups', () => {
             ok([createBackupSettings('guild-success'), createBackupSettings('guild-failed')])
         );
         vi.mocked(readFluxerGuildStructure)
-            .mockResolvedValueOnce(ok(createFluxerStructure('guild-success')))
+            .mockResolvedValueOnce(ok(createFluxerStructure('guild-success', { includeBotRole: true })))
             .mockResolvedValueOnce(err({ type: 'unavailable-or-not-found' }));
         vi.mocked(createStructureBackup).mockResolvedValue(ok(createBackupRecord()));
 
@@ -108,6 +108,10 @@ describe('runDueStructureBackups', () => {
         );
         expect(claimDueStructureBackupSetting).toHaveBeenCalledTimes(2);
         expect(clearStructureBackupSettingLease).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(createStructureBackup).mock.calls[0]?.[1].structure).toMatchObject({
+            roles: [{ id: 'role-1' }],
+            channels: [{ permissionOverwrites: [] }],
+        });
         expect(vi.mocked(clearStructureBackupSettingLease).mock.calls[0]?.[1]?.guildId).toBe('guild-success');
         expect(typeof vi.mocked(clearStructureBackupSettingLease).mock.calls[0]?.[1]?.leaseId).toBe('string');
         expect(createStructureBackup).toHaveBeenNthCalledWith(
@@ -393,7 +397,7 @@ function createBackupSettings(guildId: string) {
     };
 }
 
-function createFluxerStructure(guildId: string) {
+function createFluxerStructure(guildId: string, input: { includeBotRole?: boolean } = {}) {
     return {
         guildId,
         guildName: guildId,
@@ -407,6 +411,21 @@ function createFluxerStructure(guildId: string) {
                 hoist: false,
                 mentionable: false,
             },
+            ...(input.includeBotRole
+                ? [
+                      {
+                          id: 'bot-role',
+                          name: 'Blueprint Bot',
+                          position: 2,
+                          color: 0,
+                          permissions: '8',
+                          hoist: true,
+                          mentionable: false,
+                          protected: true as const,
+                          protectionReason: 'bot' as const,
+                      },
+                  ]
+                : []),
         ],
         categories: [],
         channels: [
@@ -416,7 +435,9 @@ function createFluxerStructure(guildId: string) {
                 type: 0,
                 parentId: null,
                 position: 1,
-                permissionOverwrites: [],
+                permissionOverwrites: input.includeBotRole
+                    ? [{ id: 'bot-role', type: 0 as const, allow: '8', deny: '0' }]
+                    : [],
             },
         ],
     };

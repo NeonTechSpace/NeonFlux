@@ -22,6 +22,7 @@ import {
     deriveFluxerBotGuildStructureCursorAuthority,
     normalizeFluxerGuildStructureSnapshot,
     readFluxerBotGuildStructure,
+    toFluxerGuildStructureExportSnapshot,
     toFluxerGuildStructureSnapshot,
 } from '@neonflux/fluxer';
 
@@ -45,6 +46,7 @@ vi.mock('@neonflux/fluxer', () => ({
     deriveFluxerBotGuildStructureCursorAuthority: vi.fn(),
     normalizeFluxerGuildStructureSnapshot: vi.fn(),
     readFluxerBotGuildStructure: vi.fn(),
+    toFluxerGuildStructureExportSnapshot: vi.fn(),
     toFluxerGuildStructureSnapshot: vi.fn(),
 }));
 
@@ -60,6 +62,12 @@ describe('structure import execution worker', () => {
             ok({ kind: 'authorized', execution: workerExecution() })
         );
         vi.mocked(createFluxerGuildStructureSnapshotFingerprintInput).mockReturnValue({
+            version: 1,
+            roles: [],
+            categories: [],
+            channels: [],
+        });
+        vi.mocked(toFluxerGuildStructureExportSnapshot).mockReturnValue({
             version: 1,
             roles: [],
             categories: [],
@@ -236,6 +244,13 @@ describe('structure import execution worker', () => {
                 leaseOwner: 'worker',
             })
         ).resolves.toBe('progressed');
+        expect(toFluxerGuildStructureExportSnapshot).toHaveBeenCalledOnce();
+        expect(ensureStructureImportRestorePoint).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                structure: { version: 1, roles: [], categories: [], channels: [] },
+            })
+        );
         expect(startStructureImportActionAttempt).toHaveBeenCalledBefore(
             vi.mocked(completeAndCheckpointStructureImportActionAttempt)
         );
@@ -278,21 +293,20 @@ describe('structure import execution worker', () => {
         vi.mocked(readFluxerBotGuildStructure)
             .mockResolvedValueOnce(ok({ guildName: 'restore-state' } as never))
             .mockResolvedValueOnce(ok({ guildName: 'changed-before-mutation' } as never));
-        vi.mocked(toFluxerGuildStructureSnapshot)
-            .mockReturnValueOnce({
-                version: 1,
-                guildName: 'restore-state',
-                roles: [],
-                categories: [],
-                channels: [],
-            })
-            .mockReturnValueOnce({
-                version: 1,
-                guildName: 'changed-before-mutation',
-                roles: [],
-                categories: [],
-                channels: [],
-            });
+        vi.mocked(toFluxerGuildStructureExportSnapshot).mockReturnValueOnce({
+            version: 1,
+            guildName: 'restore-state',
+            roles: [],
+            categories: [],
+            channels: [],
+        });
+        vi.mocked(toFluxerGuildStructureSnapshot).mockReturnValueOnce({
+            version: 1,
+            guildName: 'changed-before-mutation',
+            roles: [],
+            categories: [],
+            channels: [],
+        });
         vi.mocked(authorizeStructureImportExecutionMutation).mockResolvedValue(
             ok({ kind: 'rejected', reason: 'live_fingerprint_stale', execution })
         );
