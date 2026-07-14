@@ -7,6 +7,7 @@
     },
     "scripts": {
         "dev": "vite dev --port 3000",
+        "generate:docs": "fumadocs-mdx",
         "generate-routes": "tsr generate",
         "build": "vite build && node ../../scripts/check-dashboard-bundle-boundaries.mjs --assets .output/public/assets",
         "start": "node ../../scripts/start-web.mjs",
@@ -21,7 +22,7 @@
         "e2e:convex:stop": "tsx e2e/support/ephemeral-convex.ts stop",
         "e2e:convex:status": "tsx e2e/support/ephemeral-convex.ts status",
         "test": "vitest run",
-        "typecheck": "fumadocs-mdx && tsc --noEmit",
+        "typecheck": "pnpm generate:docs && tsc --noEmit",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",

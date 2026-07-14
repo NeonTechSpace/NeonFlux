@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24.18.0-slim AS base
+FROM node:24.18.0-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime-base
+
+WORKDIR /app
+
+FROM runtime-base AS build-base
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
-WORKDIR /app
-
 RUN corepack enable
 
-FROM base AS package-manifests
+FROM build-base AS package-manifests
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
@@ -36,6 +38,9 @@ RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/s
 
 FROM deps AS build-bot
 
+ARG TARGETARCH
+ARG TARGETOS
+
 COPY tsconfig.json tsconfig.base.json tsconfig.eslint.json ./
 COPY convex ./convex
 COPY packages/blueprint ./packages/blueprint
@@ -48,6 +53,8 @@ COPY packages/messaging ./packages/messaging
 COPY apps/bot ./apps/bot
 
 RUN pnpm -r --filter @neonflux/bot... build
+RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/store,sharing=locked \
+    pnpm --filter @neonflux/bot deploy --prod --legacy /deploy/bot
 
 FROM deps AS build-web
 
@@ -62,55 +69,31 @@ COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
 COPY apps/web ./apps/web
 COPY scripts/check-dashboard-bundle-boundaries.mjs ./scripts/check-dashboard-bundle-boundaries.mjs
-COPY scripts/start-web.mjs ./scripts/start-web.mjs
 
 RUN pnpm -r --filter neonflux-web... build
 
-FROM package-manifests AS production-deps
-
-ARG TARGETARCH
-ARG TARGETOS
-
-RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/store,sharing=locked \
-    pnpm install --frozen-lockfile --prod --store-dir /pnpm/store
-
-FROM base AS bot
+FROM runtime-base AS bot
 
 ENV APP_ENV=production
 ENV NODE_ENV=production
 
-COPY --from=production-deps /app ./
-COPY --from=build-bot /app/apps/bot/dist ./apps/bot/dist
-COPY --from=build-bot /app/convex/_generated ./convex/_generated
-COPY --from=build-bot /app/packages/blueprint/dist ./packages/blueprint/dist
-COPY --from=build-bot /app/packages/config/dist ./packages/config/dist
-COPY --from=build-bot /app/packages/convex/dist ./packages/convex/dist
-COPY --from=build-bot /app/packages/core/dist ./packages/core/dist
-COPY --from=build-bot /app/packages/fluxer/dist ./packages/fluxer/dist
-COPY --from=build-bot /app/packages/db/dist ./packages/db/dist
-COPY --from=build-bot /app/packages/messaging/dist ./packages/messaging/dist
+COPY --link --chown=node:node --from=build-bot /deploy/bot ./
 
-CMD ["node", "--enable-source-maps", "apps/bot/dist/index.js"]
+USER node
 
-FROM base AS web
+CMD ["node", "--enable-source-maps", "dist/index.js"]
+
+FROM runtime-base AS web
 
 ENV APP_ENV=production
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-COPY --from=production-deps /app ./
-COPY --from=build-web /app/apps/web/.output ./apps/web/.output
-COPY --from=build-web /app/scripts/start-web.mjs ./scripts/start-web.mjs
-COPY --from=build-web /app/convex/_generated ./convex/_generated
-COPY --from=build-web /app/packages/blueprint/dist ./packages/blueprint/dist
-COPY --from=build-web /app/packages/config/dist ./packages/config/dist
-COPY --from=build-web /app/packages/convex/dist ./packages/convex/dist
-COPY --from=build-web /app/packages/core/dist ./packages/core/dist
-COPY --from=build-web /app/packages/fluxer/dist ./packages/fluxer/dist
-COPY --from=build-web /app/packages/db/dist ./packages/db/dist
-COPY --from=build-web /app/packages/messaging/dist ./packages/messaging/dist
+COPY --link --chown=node:node --from=build-web /app/apps/web/.output ./.output
+
+USER node
 
 EXPOSE 3000
 
-CMD ["node", "scripts/start-web.mjs"]
+CMD ["node", ".output/server/index.mjs"]

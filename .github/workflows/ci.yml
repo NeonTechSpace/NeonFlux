@@ -14,9 +14,10 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    matrix:
+    checks:
         name: ${{ matrix.name }}
         runs-on: ubuntu-latest
+        timeout-minutes: ${{ matrix.timeout }}
         strategy:
             fail-fast: true
             matrix:
@@ -24,29 +25,37 @@ jobs:
                     - name: Check formatting, unused files, and migration rules
                       task: formatting-rules
                       runtime: node
+                      timeout: 10
                     - name: Lint TypeScript and React
                       task: lint
                       runtime: node
+                      timeout: 10
                     - name: Type-check and build packages and apps
                       task: typecheck-build
                       runtime: node
+                      timeout: 20
                     - name: Run unit tests
                       task: unit-tests
                       runtime: node
+                      timeout: 15
                     - name: Public browser tests
                       task: public-browser
                       runtime: node
+                      timeout: 15
                     - name: Signed-in feature tests
                       task: signed-in-features
                       runtime: node
+                      timeout: 30
                     - name: Build and inspect the bot image
                       task: production-image
                       runtime: docker
                       component: bot
+                      timeout: 30
                     - name: Build and inspect the web image
                       task: production-image
                       runtime: docker
                       component: web
+                      timeout: 30
 
         steps:
             - name: Check out repository
@@ -54,7 +63,7 @@ jobs:
 
             - name: Set up Node.js
               if: matrix.runtime == 'node'
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version-file: "projects/package.json"
 
@@ -91,25 +100,35 @@ jobs:
               working-directory: projects
               run: pnpm install --frozen-lockfile
 
-            - name: Check formatting and repository rules
+            - name: Check formatting
               if: matrix.task == 'formatting-rules'
               working-directory: projects
-              run: |
-                  pnpm format:check
-                  pnpm guard:migration-clean
-                  pnpm knip
+              run: pnpm format:check
+
+            - name: Check migration rules
+              if: matrix.task == 'formatting-rules'
+              working-directory: projects
+              run: pnpm guard:migration-clean
+
+            - name: Find unused files and dependencies
+              if: matrix.task == 'formatting-rules'
+              working-directory: projects
+              run: pnpm knip:ci
 
             - name: Lint workspace
               if: matrix.task == 'lint'
               working-directory: projects
               run: pnpm lint:ci
 
-            - name: Typecheck workspace and build applications
+            - name: Type-check workspace
               if: matrix.task == 'typecheck-build'
               working-directory: projects
-              run: |
-                  pnpm typecheck:ci
-                  pnpm build:apps
+              run: pnpm typecheck:ci
+
+            - name: Build applications
+              if: matrix.task == 'typecheck-build'
+              working-directory: projects
+              run: pnpm build:apps
 
             - name: Verify generated web routes are committed
               if: matrix.task == 'typecheck-build'
@@ -135,7 +154,7 @@ jobs:
 
             - name: Restore Playwright browser cache
               if: matrix.task == 'public-browser' || matrix.task == 'signed-in-features'
-              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                   path: ~/.cache/ms-playwright
                   key: playwright-${{ runner.os }}-chromium-${{ hashFiles('projects/pnpm-lock.yaml') }}
@@ -162,7 +181,7 @@ jobs:
 
             - name: Upload public browser failure artifacts
               if: matrix.task == 'public-browser' && always() && steps.public-browser.outcome == 'failure'
-              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: public-browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
                   path: |
@@ -200,7 +219,7 @@ jobs:
 
             - name: Upload signed-in browser failure screenshots
               if: matrix.task == 'signed-in-features' && always() && steps.signed-in-features.outcome == 'failure'
-              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: signed-in-browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
                   path: projects/apps/web/.e2e-runtime/authenticated-test-results/**/*.png
@@ -216,11 +235,13 @@ jobs:
 
             - name: Set up Docker Buildx
               if: matrix.task == 'production-image'
-              uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
             - name: Build production image without publishing
               if: matrix.task == 'production-image'
-              uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+              id: production-image
+              continue-on-error: true
+              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
               with:
                   context: ./projects
                   file: ./projects/Dockerfile
@@ -233,54 +254,91 @@ jobs:
                   cache-from: type=gha,scope=neonflux-${{ matrix.component }}
                   cache-to: type=gha,scope=neonflux-${{ matrix.component }},mode=max
 
-            - name: Smoke bot runtime package resolution
-              if: matrix.component == 'bot'
-              run: |
-                  docker run --rm --network none --workdir /app/apps/bot --entrypoint node neonflux-bot:ci --input-type=module --eval '
-                    const { access } = await import("node:fs/promises");
-                    await access("dist/index.js");
-                    await Promise.all([
-                      import("@neonflux/blueprint"),
-                      import("@neonflux/config"),
-                      import("@neonflux/convex"),
-                      import("@neonflux/core"),
-                      import("@neonflux/db"),
-                      import("@neonflux/fluxer")
-                    ]);
-                  '
-
-            - name: Smoke web runtime package resolution
-              if: matrix.component == 'web'
-              run: |
-                  docker run --rm --network none --workdir /app/apps/web --entrypoint node neonflux-web:ci --input-type=module --eval '
-                    const { access } = await import("node:fs/promises");
-                    await Promise.all([
-                      access(".output/server/index.mjs"),
-                      access("../../scripts/start-web.mjs"),
-                      import("@neonflux/blueprint"),
-                      import("@neonflux/config"),
-                      import("@neonflux/convex"),
-                      import("@neonflux/convex-api"),
-                      import("@neonflux/core"),
-                      import("@neonflux/db"),
-                      import("@neonflux/fluxer"),
-                      import("@neonflux/messaging")
-                    ]);
-                  '
-
-    check:
-        name: Check workspace
-        runs-on: ubuntu-latest
-        needs: matrix
-        if: always()
-
-        steps:
-            - name: Require every CI leg to pass
+            - name: Inspect production image runtime
+              if: matrix.task == 'production-image' && steps.production-image.outcome == 'success'
+              id: production-smoke
+              continue-on-error: true
               env:
-                  MATRIX_RESULT: ${{ needs.matrix.result }}
+                  COMPONENT: ${{ matrix.component }}
               shell: bash
               run: |
-                  if [ "$MATRIX_RESULT" != "success" ]; then
-                    echo "::error title=CI matrix did not succeed::Matrix result was $MATRIX_RESULT."
+                  image="neonflux-${COMPONENT}:ci"
+                  user="$(docker image inspect --format '{{.Config.User}}' "$image")"
+                  if [ "$user" != "node" ]; then
+                    echo "Expected the image runtime user to be node, received: ${user:-<empty>}" >&2
                     exit 1
                   fi
+
+                  if [ "$COMPONENT" = "bot" ]; then
+                    docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+                      --entrypoint node "$image" --input-type=module --eval '
+                        const { access } = await import("node:fs/promises");
+                        await access("dist/index.js");
+                        await Promise.all([
+                          import("@neonflux/blueprint"),
+                          import("@neonflux/config"),
+                          import("@neonflux/convex"),
+                          import("@neonflux/core"),
+                          import("@neonflux/db"),
+                          import("@neonflux/fluxer")
+                        ]);
+                      '
+                    exit 0
+                  fi
+
+                  container="neonflux-web-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+                  trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+                  docker run --detach --name "$container" --network none --read-only \
+                    --tmpfs /tmp:rw,noexec,nosuid,size=16m -e HOST=127.0.0.1 -e PORT=3000 "$image" >/dev/null
+
+                  for attempt in $(seq 1 20); do
+                    if docker exec "$container" node --input-type=module --eval '
+                      const response = await fetch("http://127.0.0.1:3000/");
+                      if (response.status >= 500) process.exit(1);
+                    '; then
+                      exit 0
+                    fi
+
+                    if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]; then
+                      docker logs "$container"
+                      exit 1
+                    fi
+                    sleep 1
+                  done
+
+                  docker logs "$container"
+                  echo "Web image did not serve its public entrypoint within 20 seconds." >&2
+                  exit 1
+
+            - name: Publish production image summary
+              if: matrix.task == 'production-image' && always()
+              env:
+                  BUILD_OUTCOME: ${{ steps.production-image.outcome }}
+                  COMPONENT: ${{ matrix.component }}
+                  SMOKE_OUTCOME: ${{ steps.production-smoke.outcome }}
+              shell: bash
+              run: |
+                  image="neonflux-${COMPONENT}:ci"
+                  if docker image inspect "$image" >/dev/null 2>&1; then
+                    size_bytes="$(docker image inspect --format '{{.Size}}' "$image")"
+                    user="$(docker image inspect --format '{{.Config.User}}' "$image")"
+                  else
+                    size_bytes="unavailable"
+                    user="unavailable"
+                  fi
+
+                  {
+                    printf '## %s production image\n\n' "$COMPONENT"
+                    printf -- '- Build: `%s`\n' "$BUILD_OUTCOME"
+                    printf -- '- Runtime smoke: `%s`\n' "${SMOKE_OUTCOME:-skipped}"
+                    printf -- '- Runtime user: `%s`\n' "$user"
+                    printf -- '- Image size: `%s bytes`\n' "$size_bytes"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Fail when production image validation failed
+              if: >-
+                  matrix.task == 'production-image' && always() &&
+                  (steps.production-image.outcome != 'success' || steps.production-smoke.outcome != 'success')
+              run: |
+                  echo "::error title=Production image validation failed::Review the build record and production image summary."
+                  exit 1

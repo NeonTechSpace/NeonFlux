@@ -2,6 +2,9 @@
     "name": "@neonflux/blueprint",
     "version": "0.1.0",
     "private": true,
+    "files": [
+        "dist"
+    ],
     "type": "module",
     "main": "./dist/index.js",
     "types": "./src/index.ts",

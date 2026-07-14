@@ -13,7 +13,7 @@ const config = defineConfig({
     envDir: '../..',
     resolve: { tsconfigPaths: true },
     ssr: {
-        external: ['tslib'],
+        noExternal: ['tslib'],
     },
     plugins: [
         mdx(),
