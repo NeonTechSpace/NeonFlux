@@ -84,7 +84,7 @@ jobs:
 
             - name: Install Playwright Chromium
               working-directory: projects
-              run: pnpm exec playwright install --with-deps chromium
+              run: pnpm --filter neonflux-web exec playwright install --with-deps chromium
 
             - name: Run public web journeys
               working-directory: projects
