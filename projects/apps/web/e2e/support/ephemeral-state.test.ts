@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     assertConvexCliEnvironmentContainsNoPrivateCredentials,
+    createConvexPublicAuthEnvironment,
     e2eEphemeralSentinel,
     requireEphemeralSentinel,
     validateEphemeralConvexState,
@@ -44,6 +45,36 @@ describe('ephemeral Convex ownership guards', () => {
         expect(() => assertConvexCliEnvironmentContainsNoPrivateCredentials({ session_secret: 'secret' })).toThrow(
             /session_secret/u
         );
+    });
+
+    it('creates only public auth values for the ephemeral Convex deployment', () => {
+        const environment = createConvexPublicAuthEnvironment(
+            (['BOT', 'WEB', 'USER'] as const).map((provider) => ({
+                audience: `audience-${provider.toLowerCase()}`,
+                issuer: `https://${provider.toLowerCase()}.e2e.invalid/`,
+                jwks: `data:application/json,public-${provider.toLowerCase()}`,
+                provider,
+            }))
+        );
+
+        expect(Object.keys(environment)).toHaveLength(9);
+        expect(environment).toMatchObject({
+            NEONFLUX_BOT_AUTH_JWT_AUDIENCE: 'audience-bot',
+            NEONFLUX_USER_AUTH_JWT_ISSUER: 'https://user.e2e.invalid/',
+            NEONFLUX_WEB_AUTH_JWT_JWKS: 'data:application/json,public-web',
+        });
+        expect(Object.keys(environment).some((key) => key.endsWith('_PRIVATE_KEY'))).toBe(false);
+    });
+
+    it('rejects incomplete or duplicate ephemeral auth providers', () => {
+        const provider = {
+            audience: 'audience-bot',
+            issuer: 'https://bot.e2e.invalid/',
+            jwks: 'data:application/json,public-bot',
+            provider: 'BOT' as const,
+        };
+        expect(() => createConvexPublicAuthEnvironment([provider])).toThrow(/exactly one/u);
+        expect(() => createConvexPublicAuthEnvironment([provider, provider, provider])).toThrow(/exactly one/u);
     });
 });
 

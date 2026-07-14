@@ -22,6 +22,13 @@ export type EphemeralConvexState = {
     workspaceDirectory: string;
 };
 
+export type EphemeralPublicAuthProvider = {
+    audience: string;
+    issuer: string;
+    jwks: string;
+    provider: 'BOT' | 'USER' | 'WEB';
+};
+
 export function requireEphemeralSentinel(environment: NodeJS.ProcessEnv): void {
     if (environment.NEONFLUX_E2E_EPHEMERAL_SENTINEL !== e2eEphemeralSentinel) {
         throw new Error('Refusing the E2E operation without the ephemeral-test sentinel.');
@@ -37,6 +44,32 @@ export function assertConvexCliEnvironmentContainsNoPrivateCredentials(environme
         );
     });
     if (leakedKey) throw new Error(`Refusing to pass private fixture credential ${leakedKey} to Convex.`);
+}
+
+export function createConvexPublicAuthEnvironment(
+    providers: readonly EphemeralPublicAuthProvider[]
+): Record<string, string> {
+    const expectedProviders = ['BOT', 'WEB', 'USER'] as const;
+    const providersByKind = new Map(providers.map((provider) => [provider.provider, provider]));
+    if (providersByKind.size !== expectedProviders.length || providers.length !== expectedProviders.length) {
+        throw new Error('Ephemeral Convex auth requires exactly one bot, web, and user provider.');
+    }
+
+    const values: Record<string, string> = {};
+    for (const providerKind of expectedProviders) {
+        const provider = providersByKind.get(providerKind);
+        if (!provider) throw new Error(`Ephemeral Convex auth is missing the ${providerKind.toLowerCase()} provider.`);
+        for (const [suffix, value] of [
+            ['AUDIENCE', provider.audience],
+            ['ISSUER', provider.issuer],
+            ['JWKS', provider.jwks],
+        ] as const) {
+            if (!value.trim()) throw new Error(`Ephemeral Convex auth ${providerKind}_${suffix} is empty.`);
+            values[`NEONFLUX_${providerKind}_AUTH_JWT_${suffix}`] = value;
+        }
+    }
+    assertConvexCliEnvironmentContainsNoPrivateCredentials(values);
+    return values;
 }
 
 export function validateEphemeralConvexState(value: unknown, expectedWorkspace: string): EphemeralConvexState {

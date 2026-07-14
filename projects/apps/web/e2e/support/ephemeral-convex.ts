@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
     assertConvexCliEnvironmentContainsNoPrivateCredentials,
+    createConvexPublicAuthEnvironment,
     e2eEphemeralSentinel,
     e2eProjectPrefix,
     requireEphemeralSentinel,
@@ -91,6 +92,7 @@ async function start(): Promise<void> {
             flag: 'wx',
             mode: 0o600,
         });
+        await configureConvexAuthEnvironment(state, adminKey, credentials);
         await deployFunctions(state);
     } catch (error) {
         try {
@@ -220,6 +222,26 @@ async function deployFunctions(state: EphemeralConvexState): Promise<void> {
     );
 }
 
+async function configureConvexAuthEnvironment(
+    state: EphemeralConvexState,
+    adminKey: string,
+    credentials: FixtureCredentials
+): Promise<void> {
+    assertOwnedState(state);
+    const pnpmEntrypoint = process.env.npm_execpath;
+    if (!pnpmEntrypoint) throw new Error('The E2E Convex launcher must be started through a pnpm script.');
+    const environment = createSelfHostedConvexEnvironment(state, adminKey);
+    const publicAuthEnvironment = createConvexPublicAuthEnvironment(credentials.providers);
+    for (const [name, value] of Object.entries(publicAuthEnvironment)) {
+        await run(
+            process.execPath,
+            [pnpmEntrypoint, 'exec', 'convex', 'env', 'set', name, value],
+            workspaceDirectory,
+            environment
+        );
+    }
+}
+
 function createDockerEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     const isolatedEnvironment = { ...environment };
     for (const key of Object.keys(isolatedEnvironment)) {
@@ -330,12 +352,8 @@ function createRuntimeEnvironment(
     const values: Record<string, string> = {
         CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
         CONVEX_SELF_HOSTED_URL: backendOrigin,
+        ...createConvexPublicAuthEnvironment(credentials.providers),
     };
-    for (const provider of credentials.providers) {
-        values[`NEONFLUX_${provider.provider}_AUTH_JWT_AUDIENCE`] = provider.audience;
-        values[`NEONFLUX_${provider.provider}_AUTH_JWT_ISSUER`] = provider.issuer;
-        values[`NEONFLUX_${provider.provider}_AUTH_JWT_JWKS`] = provider.jwks;
-    }
     assertConvexCliEnvironmentContainsNoPrivateCredentials(values);
     return serializeEnvironment(values);
 }
@@ -400,6 +418,16 @@ function createIsolatedRuntimeEnvironment(environment: NodeJS.ProcessEnv): NodeJ
     }
     assertConvexCliEnvironmentContainsNoPrivateCredentials(isolated);
     return isolated;
+}
+
+function createSelfHostedConvexEnvironment(state: EphemeralConvexState, adminKey: string): NodeJS.ProcessEnv {
+    const environment: NodeJS.ProcessEnv = {
+        ...createIsolatedRuntimeEnvironment(process.env),
+        CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
+        CONVEX_SELF_HOSTED_URL: `http://127.0.0.1:${String(state.backendPort)}`,
+    };
+    assertConvexCliEnvironmentContainsNoPrivateCredentials(environment);
+    return environment;
 }
 
 async function findFreePort(): Promise<number> {
