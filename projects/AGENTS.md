@@ -32,6 +32,7 @@
 ## Product and interaction direction
 
 - Organize user-facing workflows around the user's intent, current decision, and next safe action rather than internal services, persistence stages, or protocol terminology.
+- Before implementing a user-facing feature with asynchronous work, define its stable identity and static chrome, smallest independently loading data islands, source and cache ownership, cold/cached/refreshing/empty/error/mutation states, retry behavior, and client-code boundary. Parent shells must not statically import leaf-only feature implementations or optional heavy tools merely to coordinate navigation or pending UI.
 - Keep necessary safety gates, but present them as one ordered, understandable state model. Explain why progress is blocked, what remains safe, and the exact action that resolves each blocker.
 - Use progressive disclosure. Put the common path and decision-relevant information first. Keep raw payloads, identifiers, logs, and protocol details available as secondary technical inspection rather than the primary interface.
 - Match the representation to the problem. Use scoped navigation, hierarchy, diff views, filters, summaries, and contextual details for large or structured change sets instead of stacking unrelated domains or reducing them to flat lists and serialized data.
