@@ -8,24 +8,24 @@ import {
 import type {
     BotFeatureEvent,
     BotFeatureHandlerContext,
+    BotFeatureRoutingContext,
     BotFeatureRouteError,
     BotFeatureRouteHandledAction,
     BotFeatureRouteResult,
 } from './bot-feature-types.js';
-import { trackGrowthOverviewEvent, type BotGrowthMemberEvent } from './bot-growth-tracking.js';
 import { routeMessageCreatedEvent } from './bot-message-created-router.js';
 import { recordObservedStructureEvent } from './bot-structure-observer.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 export type {
     BotFeatureEvent,
-    BotFeatureHandlerContext,
+    BotFeatureRoutingContext,
     BotFeatureRouteError,
     BotFeatureRouteResult,
 } from './bot-feature-types.js';
 
 export async function routeBotFeatureEvent(
-    context: BotFeatureHandlerContext,
+    context: BotFeatureRoutingContext,
     event: BotFeatureEvent
 ): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
     try {
@@ -44,9 +44,9 @@ export async function routeBotFeatureEvent(
             case 'guild.lifecycle.unavailable':
                 return routeIgnoredEvent(context, event);
             case 'member.joined':
-                return await routeGrowthTrackingEvent(context, { ...event, type: 'member.joined' });
+                return routeGrowthTrackingEvent(context, event);
             case 'member.left':
-                return await routeGrowthTrackingEvent(context, { ...event, type: 'member.left' });
+                return routeGrowthTrackingEvent(context, event);
             case 'message.created':
                 return await routeMessageCreatedEvent(context, event);
             case 'guild.lifecycle.updated':
@@ -69,21 +69,34 @@ export async function routeBotFeatureEvent(
     }
 }
 
-async function routeGrowthTrackingEvent(
-    context: BotFeatureHandlerContext,
-    event: BotGrowthMemberEvent
-): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
-    const result = await trackGrowthOverviewEvent(context, event);
-
-    if (result.isErr()) {
-        return err(result.error);
-    }
-
-    if (result.value.status === 'ignored') {
+function routeGrowthTrackingEvent(
+    context: BotFeatureRoutingContext,
+    event: Extract<BotFeatureEvent, { type: 'member.joined' | 'member.left' }>
+): Result<BotFeatureRouteResult, BotFeatureRouteError> {
+    if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
         return ok({
             eventType: event.type,
             status: 'ignored',
-            reason: result.value.reason,
+            reason: 'guild-not-processable',
+        });
+    }
+
+    const admission = context.growthTelemetry.enqueue(
+        event.type === 'member.joined'
+            ? {
+                  guildId: event.guildId,
+                  membershipStartedAt: event.joinedAt,
+                  type: event.type,
+                  userId: event.userId,
+              }
+            : { guildId: event.guildId, type: event.type, userId: event.userId }
+    );
+
+    if (admission !== 'accepted') {
+        return ok({
+            eventType: event.type,
+            status: 'ignored',
+            reason: admission === 'overloaded' ? 'telemetry-overloaded' : 'telemetry-stopped',
         });
     }
 

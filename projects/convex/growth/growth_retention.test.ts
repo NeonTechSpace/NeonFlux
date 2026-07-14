@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    dailyGrowthRetentionDays,
     executeGrowthRetentionBatch,
     growthRetentionBatchSize,
     growthRetentionCutoff,
     nextGrowthRetentionKind,
-    rawGrowthRetentionDays,
     type GrowthRetentionKind,
     type GrowthRetentionOperations,
 } from './growth_retention.js';
@@ -15,12 +13,10 @@ describe('growth retention', () => {
     it('uses server-time cutoffs with separate raw and aggregate lifetimes', () => {
         const now = '2026-07-10T12:00:00.000Z';
 
-        expect(rawGrowthRetentionDays).toBe(120);
-        expect(dailyGrowthRetentionDays).toBe(400);
-        expect(growthRetentionCutoff('member-events', now)).toBe('2026-03-12T12:00:00.000Z');
-        expect(growthRetentionCutoff('message-days', now)).toBe('2026-03-12');
-        expect(growthRetentionCutoff('daily-aggregates', now)).toBe('2025-06-05');
-        expect(growthRetentionCutoff('inactive-invites', now)).toBe('');
+        expect(growthRetentionCutoff('member-events', now, 90)).toBe('2026-04-11T12:00:00.000Z');
+        expect(growthRetentionCutoff('message-receipts', now, 90)).toBe('2026-04-11T12:00:00.000Z');
+        expect(growthRetentionCutoff('daily-aggregates', now, 90)).toBe('2026-04-11');
+        expect(growthRetentionCutoff('inactive-invites', now, 90)).toBe('');
     });
 
     it('deletes one bounded page and self-schedules the same kind while more rows remain', async () => {
@@ -29,11 +25,12 @@ describe('growth retention', () => {
         const result = await executeGrowthRetentionBatch(operations, {
             kind: 'member-events',
             now: '2026-07-10T12:00:00.000Z',
+            retentionDays: 90,
         });
 
         expect(operations.loadExpiredIds).toHaveBeenCalledWith(
             'member-events',
-            '2026-03-12T12:00:00.000Z',
+            '2026-04-11T12:00:00.000Z',
             growthRetentionBatchSize + 1
         );
         expect(operations.deleteIds).toHaveBeenCalledWith(
@@ -50,8 +47,8 @@ describe('growth retention', () => {
     });
 
     it('advances through every retention source and stops after inactive invites drain', async () => {
-        expect(nextGrowthRetentionKind('member-events')).toBe('message-days');
-        expect(nextGrowthRetentionKind('message-days')).toBe('daily-aggregates');
+        expect(nextGrowthRetentionKind('member-events')).toBe('message-receipts');
+        expect(nextGrowthRetentionKind('message-receipts')).toBe('daily-aggregates');
         expect(nextGrowthRetentionKind('daily-aggregates')).toBe('inactive-invites');
         expect(nextGrowthRetentionKind('inactive-invites')).toBeNull();
 
@@ -59,6 +56,7 @@ describe('growth retention', () => {
         const result = await executeGrowthRetentionBatch(operations, {
             kind: 'inactive-invites',
             now: '2026-07-10T12:00:00.000Z',
+            retentionDays: 90,
         });
 
         expect(operations.schedule).not.toHaveBeenCalled();

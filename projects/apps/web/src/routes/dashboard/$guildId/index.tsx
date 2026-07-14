@@ -1,11 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildOverviewCategory } from '../../../components/dashboard-guild-page.js';
+import { DashboardGuildOverviewRoute } from '../../../components/dashboard-guild-overview-route.js';
 
 export const Route = createFileRoute('/dashboard/$guildId/')({
     component: DashboardGuildOverviewRoute,
 });
-
-function DashboardGuildOverviewRoute() {
-    return <DashboardGuildOverviewCategory />;
-}

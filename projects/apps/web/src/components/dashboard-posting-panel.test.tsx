@@ -158,6 +158,30 @@ describe('DashboardPostingPanel', () => {
 
         expect((message as HTMLTextAreaElement).value).toBe('Template content');
     });
+
+    it('keeps failed posting reads visible while their explicit retries are in flight', async () => {
+        vi.mocked(readDashboardPostingChannelsRouteData)
+            .mockResolvedValueOnce({ type: 'database-error' })
+            .mockImplementationOnce(() => new Promise(() => undefined));
+        vi.mocked(readDashboardPostingOperationsRouteData)
+            .mockResolvedValueOnce({ type: 'database-error' })
+            .mockImplementationOnce(() => new Promise(() => undefined));
+        vi.mocked(readDashboardPostingTemplatesRouteData)
+            .mockResolvedValueOnce({ type: 'database-error' })
+            .mockImplementationOnce(() => new Promise(() => undefined));
+
+        renderPanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry channels' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry delivery status' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry templates' }));
+
+        await waitFor(() => {
+            const retryingButtons = screen.getAllByRole<HTMLButtonElement>('button', { name: 'Retrying…' });
+            expect(retryingButtons).toHaveLength(3);
+            expect(retryingButtons.every((button) => button.disabled)).toBe(true);
+        });
+    });
 });
 
 function renderPanel() {

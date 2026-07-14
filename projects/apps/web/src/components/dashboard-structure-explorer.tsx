@@ -6,15 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 import type {
     DashboardStructureDriftResult,
-    DashboardStructureImportAction,
     DashboardStructureImportRun,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { buildDashboardStructureExplorerJsonDiff } from './dashboard-structure-explorer-diff.js';
 import { DashboardStructureExplorerJsonDiffView } from './dashboard-structure-explorer-json-diff.js';
 import {
     buildDashboardStructureExplorerModel,
-    readDashboardStructureExplorerEntityKey,
     toDashboardStructureExplorerActions,
 } from './dashboard-structure-explorer-model.js';
 import type {
@@ -22,8 +20,12 @@ import type {
     DashboardStructureExplorerEntityKey,
     DashboardStructureExplorerModel,
     DashboardStructureExplorerSection,
-    DashboardStructureExplorerSnapshot,
 } from './dashboard-structure-explorer-model.js';
+import type {
+    DashboardStructureExplorerComparisonTarget,
+    DashboardStructureExplorerOverlayMode,
+    DashboardStructureExplorerSource,
+} from './dashboard-structure-explorer-types.js';
 import {
     buildDashboardStructureChannelTypeCss,
     useDashboardStructureChannelTypeAccessibilityLabels,
@@ -31,23 +33,11 @@ import {
 import { DashboardStructureExplorerDetails } from './dashboard-structure-explorer-details.js';
 import { dashboardCompactFieldClassName, dashboardQuietActionClassName } from './dashboard-ui.js';
 
-export type DashboardStructureExplorerSource = {
-    canonicalJson?: string;
-    detail?: string;
-    label: string;
-    snapshot?: DashboardStructureExplorerSnapshot;
-    type: 'backup' | 'import-json' | 'live' | 'none' | 'requested-final-state';
-};
-
-export type DashboardStructureExplorerComparisonTarget = {
-    canonicalJson?: string;
-    detail?: string;
-    label: string;
-    snapshot?: DashboardStructureExplorerSnapshot;
-    type: 'backup' | 'import-json' | 'live' | 'none' | 'requested-final-state';
-};
-
-export type DashboardStructureExplorerOverlayMode = 'drift' | 'none' | `run:${string}`;
+export type {
+    DashboardStructureExplorerComparisonTarget,
+    DashboardStructureExplorerOverlayMode,
+    DashboardStructureExplorerSource,
+} from './dashboard-structure-explorer-types.js';
 
 type DriftState = Extract<DashboardStructureDriftResult, { type: 'structure-drift' }>;
 
@@ -510,12 +500,6 @@ function StructureExplorerTreeInstance({
             />
         </div>
     );
-}
-
-export function readDashboardStructureExplorerActionEntityKey(
-    action: Pick<DashboardStructureImportAction, 'targetId' | 'targetType'>
-): DashboardStructureExplorerEntityKey | undefined {
-    return readDashboardStructureExplorerEntityKey(action);
 }
 
 function readOverlayActions({

@@ -10,6 +10,11 @@ import {
 } from '../server/dashboard-posting-templates-route-data.js';
 import type { DashboardMessageTemplate } from '../server/dashboard-posting-templates.server.js';
 import {
+    canRetryDashboardGuildRead,
+    DashboardGuildReadError,
+    readDashboardGuildReadFailureType,
+} from './dashboard-guild-read-error.js';
+import {
     dashboardConfirmationTransition,
     dashboardConfirmationVariants,
     dashboardTactile,
@@ -46,6 +51,7 @@ export function DashboardPostingTemplateControls({
     const [templateName, setTemplateName] = useState('');
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [confirmation, setConfirmation] = useState<TemplateConfirmation>();
+    const [templatesRetrying, setTemplatesRetrying] = useState(false);
 
     const templatesQuery = useQuery({
         queryKey: getDashboardPostingTemplatesQueryKey(guildId),
@@ -58,12 +64,17 @@ export function DashboardPostingTemplateControls({
             });
 
             if (result.type !== 'templates') {
-                throw new Error('Could not load posting templates.');
+                throw new DashboardGuildReadError(result.type);
             }
 
             return result.templates;
         },
+        retry: false,
     });
+    const templateFailureType = templatesQuery.isError
+        ? readDashboardGuildReadFailureType(templatesQuery.error)
+        : undefined;
+    const templatesUnavailable = templatesQuery.isError || templatesRetrying;
     const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
     const selectedTemplate = useMemo(
         () => templates.find((template) => template.id === selectedTemplateId),
@@ -267,7 +278,7 @@ export function DashboardPostingTemplateControls({
                             setConfirmation(undefined);
                         }}
                         className={fieldClassName}
-                        disabled={templatesQuery.isPending || templatesQuery.isError || templates.length === 0}>
+                        disabled={templatesQuery.isPending || templatesUnavailable || templates.length === 0}>
                         <option value=''>
                             {templatesQuery.isPending
                                 ? 'Loading templates...'
@@ -288,7 +299,7 @@ export function DashboardPostingTemplateControls({
                         type='button'
                         onClick={applySelectedTemplate}
                         disabled={
-                            templatesQuery.isError ||
+                            templatesUnavailable ||
                             !selectedTemplate ||
                             deleteMutation.isPending ||
                             saveMutation.isPending
@@ -318,16 +329,18 @@ export function DashboardPostingTemplateControls({
                         type='button'
                         onClick={deleteSelectedTemplate}
                         disabled={
-                            templatesQuery.isError ||
+                            templatesUnavailable ||
                             !selectedTemplate ||
                             deleteMutation.isPending ||
                             saveMutation.isPending
                         }
                         className={dangerButtonClassName}
                         {...dashboardTactile}>
-                        {confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate?.id
-                            ? 'Confirm delete'
-                            : 'Delete'}
+                        {deleteMutation.isPending
+                            ? 'Deleting…'
+                            : confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate?.id
+                              ? 'Confirm delete'
+                              : 'Delete'}
                     </motion.button>
                     {confirmation?.type === 'delete' && confirmation.templateId === selectedTemplate?.id ? (
                         <motion.button
@@ -361,7 +374,7 @@ export function DashboardPostingTemplateControls({
                     <motion.button
                         type='button'
                         onClick={saveCurrentTemplate}
-                        disabled={templatesQuery.isError || saveMutation.isPending || deleteMutation.isPending}
+                        disabled={templatesUnavailable || saveMutation.isPending || deleteMutation.isPending}
                         className={secondaryButtonClassName}
                         {...dashboardTactile}>
                         {saveMutation.isPending ? 'Saving…' : 'Save current'}
@@ -369,21 +382,52 @@ export function DashboardPostingTemplateControls({
                 </div>
             </div>
             <AnimatePresence initial={false}>
-                {templatesQuery.isError ? (
-                    <motion.p
+                {templatesUnavailable ? (
+                    <motion.div
                         role='alert'
                         data-dashboard-motion='confirmation'
-                        className='text-sm text-[var(--dash-danger)]'
+                        className='flex flex-wrap items-center gap-2 text-sm text-[var(--dash-danger)]'
                         variants={dashboardConfirmationVariants}
                         initial='initial'
                         animate='enter'
                         transition={dashboardConfirmationTransition}>
-                        Templates could not be loaded. Reload them before saving or deleting.
-                    </motion.p>
+                        <span>{getTemplateLoadErrorMessage(templateFailureType ?? 'database-error')}</span>
+                        {templatesRetrying ||
+                        (templateFailureType && canRetryDashboardGuildRead(templateFailureType)) ? (
+                            <button
+                                type='button'
+                                onClick={() => {
+                                    if (templatesRetrying) return;
+                                    setTemplatesRetrying(true);
+                                    void templatesQuery.refetch().finally(() => setTemplatesRetrying(false));
+                                }}
+                                disabled={templatesRetrying}
+                                aria-busy={templatesRetrying || undefined}
+                                className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
+                                {templatesRetrying ? 'Retrying…' : 'Retry templates'}
+                            </button>
+                        ) : null}
+                    </motion.div>
                 ) : null}
             </AnimatePresence>
         </section>
     );
+}
+
+function getTemplateLoadErrorMessage(type: string): string {
+    switch (type) {
+        case 'auth-required':
+            return 'Sign in again to load templates before saving or deleting.';
+        case 'not-found':
+            return 'Templates are unavailable because this server is no longer accessible.';
+        case 'deployment-config-not-found':
+            return 'Templates are unavailable because this deployment is not fully configured.';
+        case 'database-error':
+        case 'guild-lookup-failed':
+            return 'Templates could not be loaded. Retry before saving or deleting.';
+        default:
+            return 'Templates could not be loaded.';
+    }
 }
 
 const fieldClassName = `${dashboardFieldClassName} py-2`;

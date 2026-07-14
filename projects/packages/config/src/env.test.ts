@@ -8,12 +8,14 @@ import { loadBotConfig, loadConvexConfig, loadRuntimeConfig, loadWebConfig, requ
 
 const originalCwd = process.cwd();
 const originalFluxerBotInviteUrl = process.env.FLUXER_BOT_INVITE_URL;
+const originalFluxerBotToken = process.env.FLUXER_BOT_TOKEN;
 const originalFluxerAppId = process.env.FLUXER_APP_ID;
 const tempEnvDirs: string[] = [];
 
 afterEach(() => {
     process.chdir(originalCwd);
     restoreProcessEnvValue('FLUXER_BOT_INVITE_URL', originalFluxerBotInviteUrl);
+    restoreProcessEnvValue('FLUXER_BOT_TOKEN', originalFluxerBotToken);
     restoreProcessEnvValue('FLUXER_APP_ID', originalFluxerAppId);
 
     for (const dir of tempEnvDirs.splice(0)) {
@@ -49,6 +51,18 @@ describe('loadBotConfig', () => {
         expect('singleGuildId' in config).toBe(false);
     });
 
+    it('uses a loopback read service in development and an explicit private bind in production', () => {
+        expect(loadBotConfig({})).toMatchObject({ botReadHost: '127.0.0.1', botReadPort: 3001 });
+        expect(
+            loadBotConfig({
+                APP_ENV: 'production',
+                NEONFLUX_BOT_READ_HOST: '10.0.0.2',
+                NEONFLUX_BOT_READ_PORT: '4100',
+            })
+        ).toMatchObject({ botReadHost: '10.0.0.2', botReadPort: 4100 });
+        expect(() => loadBotConfig({ NEONFLUX_BOT_READ_PORT: '70000' })).toThrow(/NEONFLUX_BOT_READ_PORT/u);
+    });
+
     it('loads and normalizes the optional public web origin', () => {
         const config = loadBotConfig({
             PUBLIC_WEB_URL: ' https://neonflux.example/ ',
@@ -74,6 +88,10 @@ describe('loadBotConfig', () => {
         expect(loadBotConfig({ FLUXER_BOT_CUSTOM_STATUS: '   ' }).fluxerBotCustomStatusText).toBeUndefined();
     });
 
+    it('keeps the Fluxer bot credential in bot config', () => {
+        expect(loadBotConfig({ FLUXER_BOT_TOKEN: ' bot-token ' }).fluxerBotToken).toBe('bot-token');
+    });
+
     it('rejects malformed, non-http, or non-origin public web URLs', () => {
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
         expect(() => loadBotConfig({ PUBLIC_WEB_URL: 'ftp://neonflux.example' })).toThrow(/PUBLIC_WEB_URL/u);
@@ -92,31 +110,46 @@ describe('loadWebConfig', () => {
             FLUXER_APP_ID: ' app-id ',
             FLUXER_BOT_INVITE_URL:
                 ' https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8 ',
-            FLUXER_BOT_TOKEN: ' bot-token ',
             FLUXER_CLIENT_SECRET: ' client-secret ',
             FLUXER_OAUTH_REDIRECT_URL: ' redirect-url ',
             FLUXER_TOKEN_ENCRYPTION_KEY: ' encryption-key ',
             SESSION_SECRET: ' session-secret ',
+            NEONFLUX_BOT_READ_URL: ' http://bot:3001 ',
         });
 
         expect(config).toMatchObject({
             fluxerAppId: 'app-id',
             fluxerBotInviteUrl:
                 'https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
-            fluxerBotToken: 'bot-token',
             fluxerClientSecret: 'client-secret',
             fluxerOauthRedirectUrl: 'redirect-url',
             fluxerTokenEncryptionKey: 'encryption-key',
             sessionSecret: 'session-secret',
+            botReadUrl: 'http://bot:3001',
         });
         expect('instanceMode' in config).toBe(false);
         expect('singleGuildId' in config).toBe(false);
         expect('ownerIds' in config).toBe(false);
         expect('publicWebUrl' in config).toBe(false);
+        expect('fluxerBotToken' in config).toBe(false);
+    });
+
+    it('never returns a bot credential even when the parent environment contains one', () => {
+        const config = loadWebConfig({ FLUXER_BOT_TOKEN: 'must-stay-bot-owned' });
+
+        expect('fluxerBotToken' in config).toBe(false);
     });
 
     it('omits a blank bot invite URL', () => {
         expect(loadWebConfig({ FLUXER_BOT_INVITE_URL: '   ' }).fluxerBotInviteUrl).toBeUndefined();
+    });
+
+    it('defaults the web read service only in development and validates configured origins', () => {
+        expect(loadWebConfig({}).botReadUrl).toBe('http://127.0.0.1:3001');
+        expect(loadWebConfig({ APP_ENV: 'production' }).botReadUrl).toBeUndefined();
+        expect(() => loadWebConfig({ NEONFLUX_BOT_READ_URL: 'http://bot:3001/path' })).toThrow(
+            /NEONFLUX_BOT_READ_URL/u
+        );
     });
 
     it('rejects malformed and non-http bot invite URLs', () => {
@@ -135,6 +168,7 @@ describe('loadWebConfig', () => {
             join(tempDir, '.env'),
             [
                 'FLUXER_APP_ID=file-app',
+                'FLUXER_BOT_TOKEN=must-not-enter-web-runtime',
                 'FLUXER_BOT_INVITE_URL=https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8',
             ].join('\n')
         );
@@ -150,6 +184,7 @@ describe('loadWebConfig', () => {
 
         expect(config.fluxerAppId).toBe('runtime-app');
         expect(config.fluxerBotInviteUrl).toBeUndefined();
+        expect(process.env.FLUXER_BOT_TOKEN).toBeUndefined();
     });
 });
 

@@ -8,14 +8,20 @@
     "exports": {
         ".": {
             "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
             "import": "./dist/index.js"
         },
         "./client": {
             "types": "./src/client.ts",
+            "development": "./src/client.ts",
+            "production": "./dist/client.js",
             "import": "./dist/client.js"
         },
         "./jwt": {
             "types": "./src/jwt.ts",
+            "development": "./src/jwt.ts",
+            "production": "./dist/jwt.js",
             "import": "./dist/jwt.js"
         }
     },

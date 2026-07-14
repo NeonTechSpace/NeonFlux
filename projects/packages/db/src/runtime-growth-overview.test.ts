@@ -17,6 +17,7 @@ const memberEvent = {
     id: 'member-event-1',
     inviteCode: 'alpha',
     inviterUserId: 'inviter-1',
+    membershipStartedAt: '2026-07-03T08:00:00.000Z',
     occurredAt: '2026-07-03T08:00:00.000Z',
     userId: 'user-1',
 };
@@ -39,6 +40,7 @@ const messageActivity = {
     activityDate: '2026-07-03',
     guildId: 'guild-1',
     shard: 12,
+    status: 'recorded' as const,
 };
 const overview = {
     trackingStartedAt: '2026-07-01T00:00:00.000Z',
@@ -80,6 +82,7 @@ describe('Convex growth overview database functions', () => {
             guildId: ' guild-1 ',
             inviteCode: ' alpha ',
             inviterUserId: ' inviter-1 ',
+            membershipStartedAt: new Date('2026-07-03T08:00:00.000Z'),
             occurredAt: new Date('2026-07-03T08:00:00.000Z'),
             userId: ' user-1 ',
         });
@@ -91,6 +94,7 @@ describe('Convex growth overview database functions', () => {
             guildId: 'guild-1',
             inviteCode: 'alpha',
             inviterUserId: 'inviter-1',
+            membershipStartedAt: '2026-07-03T08:00:00.000Z',
             occurredAt: '2026-07-03T08:00:00.000Z',
             userId: 'user-1',
         });
@@ -114,6 +118,7 @@ describe('Convex growth overview database functions', () => {
                 },
             ],
             observedAt: new Date('2026-07-03T08:00:00.000Z'),
+            membershipStartedAt: new Date('2026-07-03T08:00:00.000Z'),
             userId: ' user-1 ',
         });
 
@@ -134,6 +139,7 @@ describe('Convex growth overview database functions', () => {
                 },
             ],
             observedAt: '2026-07-03T08:00:00.000Z',
+            membershipStartedAt: '2026-07-03T08:00:00.000Z',
             userId: 'user-1',
         });
     });
@@ -213,6 +219,37 @@ describe('Convex growth overview database functions', () => {
         });
     });
 
+    it('forwards one cancellation signal through all growth telemetry requests', async () => {
+        const signal = new AbortController().signal;
+        const db = createConvexDb({
+            mutationResults: [memberEvent, memberEvent, messageActivity],
+            queryResults: [{ baselineObserved: true, snapshots: [inviteSnapshot] }],
+        });
+
+        await recordGuildMemberFlowEvent(db, { eventType: 'leave', guildId: 'guild-1', userId: 'user-1' }, { signal });
+        await recordGuildMemberJoinWithInviteSnapshots(
+            db,
+            {
+                attributionStatus: 'attributed',
+                guildId: 'guild-1',
+                invites: [],
+                membershipStartedAt: new Date('2026-07-03T08:00:00.000Z'),
+                userId: 'user-1',
+            },
+            { signal }
+        );
+        await listGuildInviteSnapshots(db, { guildId: 'guild-1' }, { signal });
+        await recordGuildMessageActivity(db, { guildId: 'guild-1', messageId: 'message-1' }, { signal });
+
+        expect(db.client.mutationCalls.map(({ options }) => options)).toStrictEqual([
+            { signal },
+            { signal },
+            { signal },
+        ]);
+        expect(db.client.queryCalls).toHaveLength(1);
+        expect(db.client.queryCalls[0]?.options).toStrictEqual({ signal });
+    });
+
     it('maps validation failures before calling Convex', async () => {
         const db = createConvexDb({});
 
@@ -230,6 +267,7 @@ describe('Convex growth overview database functions', () => {
             attributionStatus: 'attributed',
             guildId: 'guild-1',
             invites: [{ code: 'alpha', uses: -1 }],
+            membershipStartedAt: new Date('2026-07-03T08:00:00.000Z'),
             userId: 'user-1',
         });
         const invalidDays = await loadGuildOverviewAggregate(db, {
@@ -281,6 +319,7 @@ function toMemberEventRecord(record: typeof memberEvent) {
         id: record.id,
         inviteCode: record.inviteCode,
         inviterUserId: record.inviterUserId,
+        membershipStartedAt: new Date(record.membershipStartedAt),
         occurredAt: new Date(record.occurredAt),
         userId: record.userId,
     };
@@ -309,6 +348,7 @@ function toMessageActivityRecord(record: typeof messageActivity) {
         activityDate: record.activityDate,
         guildId: record.guildId,
         shard: record.shard,
+        status: record.status,
     };
 }
 
@@ -319,8 +359,8 @@ function createConvexDb(input: {
     queryResults?: unknown[];
 }): ConvexDatabase & {
     client: {
-        mutationCalls: Array<{ args: unknown; reference: unknown }>;
-        queryCalls: Array<{ args: unknown; reference: unknown }>;
+        mutationCalls: Array<{ args: unknown; options: unknown; reference: unknown }>;
+        queryCalls: Array<{ args: unknown; options: unknown; reference: unknown }>;
     };
 } {
     const mutationErrors = [...(input.mutationErrors ?? [])];
@@ -328,18 +368,18 @@ function createConvexDb(input: {
     const queryErrors = [...(input.queryErrors ?? [])];
     const queryResults = [...(input.queryResults ?? [])];
     const client = {
-        mutationCalls: [] as Array<{ args: unknown; reference: unknown }>,
-        queryCalls: [] as Array<{ args: unknown; reference: unknown }>,
-        mutation(reference: unknown, args: unknown): Promise<unknown> {
-            this.mutationCalls.push({ args, reference });
+        mutationCalls: [] as Array<{ args: unknown; options: unknown; reference: unknown }>,
+        queryCalls: [] as Array<{ args: unknown; options: unknown; reference: unknown }>,
+        mutation(reference: unknown, args: unknown, options?: unknown): Promise<unknown> {
+            this.mutationCalls.push({ args, options, reference });
             const error = mutationErrors.shift();
 
             if (error) return Promise.reject(error);
 
             return Promise.resolve(mutationResults.shift());
         },
-        query(reference: unknown, args: unknown): Promise<unknown> {
-            this.queryCalls.push({ args, reference });
+        query(reference: unknown, args: unknown, options?: unknown): Promise<unknown> {
+            this.queryCalls.push({ args, options, reference });
             const error = queryErrors.shift();
 
             if (error) return Promise.reject(error);

@@ -1,18 +1,47 @@
 import type { DashboardPostingChannel, DashboardPostingOperation } from '../server/dashboard-posting.server.js';
 import { formatDashboardChannelLabel } from './dashboard-channel-picker.js';
-import { DashboardStatus } from './dashboard-ui.js';
+import { dashboardSecondaryActionClassName, DashboardStatus } from './dashboard-ui.js';
 
 export function DashboardPostingOperationHistory({
     channels,
     hasError,
+    errorMessage = 'Recent delivery status is unavailable.',
+    isPending,
+    isRetrying = false,
+    onRetry,
     operations,
 }: {
     channels: DashboardPostingChannel[];
     hasError: boolean;
+    errorMessage?: string;
+    isPending: boolean;
+    isRetrying?: boolean;
+    onRetry?: () => void;
     operations: DashboardPostingOperation[];
 }) {
+    if (isPending) {
+        return (
+            <p role='status' className='mt-4 text-xs text-[var(--dash-text-subtle)]'>
+                Loading recent delivery…
+            </p>
+        );
+    }
     if (hasError) {
-        return <p className='mt-4 text-xs text-[var(--dash-text-subtle)]'>Recent delivery status is unavailable.</p>;
+        return (
+            <div className='mt-4 flex flex-wrap items-center gap-2'>
+                <p className='text-xs text-[var(--dash-text-subtle)]'>{errorMessage}</p>
+                {onRetry ? (
+                    <button
+                        type='button'
+                        onClick={onRetry}
+                        disabled={isRetrying}
+                        aria-busy={isRetrying || undefined}
+                        className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
+                        {isRetrying ? 'Retrying…' : 'Retry delivery status'}
+                    </button>
+                ) : null}
+            </div>
+        );
     }
     if (operations.length === 0) return null;
 

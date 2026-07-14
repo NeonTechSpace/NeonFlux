@@ -174,6 +174,22 @@ describe('DashboardAuditEventsPanel', () => {
             expect(url.searchParams.get('retained')).toBe('value');
         });
     });
+
+    it('keeps the audit failure visible while an explicit retry is in flight', async () => {
+        vi.mocked(readDashboardAuditEventsRouteData)
+            .mockResolvedValueOnce({ type: 'database-error' })
+            .mockImplementationOnce(() => new Promise(() => undefined));
+        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({ type: 'channels', channels: [] });
+
+        renderAuditPanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry audit events' }));
+        const retrying = await screen.findByRole<HTMLButtonElement>('button', { name: 'Retrying…' });
+
+        expect(retrying.disabled).toBe(true);
+        expect(retrying.getAttribute('aria-busy')).toBe('true');
+        expect(screen.getByRole('alert')).toBeTruthy();
+    });
 });
 
 function renderAuditPanel(): void {

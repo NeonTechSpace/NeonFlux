@@ -1,11 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardStructureRouteSurface } from '../../../../components/dashboard-structure-panel.js';
+import { DashboardStructureCurrentRoute } from '../../../../components/dashboard-structure-current-route.js';
 
 export const Route = createFileRoute('/dashboard/$guildId/structure/current')({
     component: DashboardStructureCurrentRoute,
 });
-
-function DashboardStructureCurrentRoute() {
-    return <DashboardStructureRouteSurface surface='current' />;
-}

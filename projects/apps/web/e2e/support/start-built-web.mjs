@@ -81,7 +81,6 @@ function createSafeWebEnvironment(environment, webPort) {
         FLUXER_APP_ID: 'neonflux-e2e-public',
         FLUXER_BOT_CUSTOM_STATUS: '',
         FLUXER_BOT_INVITE_URL: '',
-        FLUXER_BOT_TOKEN: '',
         FLUXER_CLIENT_SECRET: '',
         FLUXER_OAUTH_REDIRECT_URL: `http://127.0.0.1:${String(webPort)}/auth/fluxer/callback`,
         FLUXER_TOKEN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',

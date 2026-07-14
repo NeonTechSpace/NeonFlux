@@ -3,21 +3,21 @@ import { useEffect, useMemo, useState } from 'react';
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import {
     DashboardStructureActionInspector,
     DashboardStructureActionPreview,
 } from './dashboard-structure-action-inspection.js';
 import { readDashboardStructureDeployReadiness } from './dashboard-structure-deploy-readiness.js';
+import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import {
-    DashboardStructureExplorer,
-    readDashboardStructureExplorerActionEntityKey,
-} from './dashboard-structure-explorer.js';
-import { readDashboardStructureExplorerSection } from './dashboard-structure-explorer-model.js';
+    readDashboardStructureExplorerEntityKey as readDashboardStructureExplorerActionEntityKey,
+    readDashboardStructureExplorerSection,
+} from './dashboard-structure-explorer-snapshot.js';
 import type {
     DashboardStructureExplorerEntityKey,
     DashboardStructureExplorerSection,
-} from './dashboard-structure-explorer-model.js';
+} from './dashboard-structure-explorer-snapshot.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-structure-panel-requested-snapshot.js';
 import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';

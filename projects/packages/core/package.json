@@ -8,30 +8,44 @@
     "exports": {
         ".": {
             "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
             "import": "./dist/index.js"
         },
         "./logging": {
             "types": "./src/logging/logger.ts",
+            "development": "./src/logging/logger.ts",
+            "production": "./dist/logging/logger.js",
             "import": "./dist/logging/logger.js"
         },
         "./mode": {
             "types": "./src/mode.ts",
+            "development": "./src/mode.ts",
+            "production": "./dist/mode.js",
             "import": "./dist/mode.js"
         },
         "./defcon": {
             "types": "./src/defcon.ts",
+            "development": "./src/defcon.ts",
+            "production": "./dist/defcon.js",
             "import": "./dist/defcon.js"
         },
         "./feature-catalog": {
             "types": "./src/feature-catalog.ts",
+            "development": "./src/feature-catalog.ts",
+            "production": "./dist/feature-catalog.js",
             "import": "./dist/feature-catalog.js"
         },
         "./command-prefix": {
             "types": "./src/command-prefix.ts",
+            "development": "./src/command-prefix.ts",
+            "production": "./dist/command-prefix.js",
             "import": "./dist/command-prefix.js"
         },
         "./public-url": {
             "types": "./src/public-url.ts",
+            "development": "./src/public-url.ts",
+            "production": "./dist/public-url.js",
             "import": "./dist/public-url.js"
         }
     },

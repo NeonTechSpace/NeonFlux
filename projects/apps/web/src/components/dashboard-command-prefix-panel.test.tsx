@@ -2,7 +2,7 @@
 
 import { DEFAULT_COMMAND_PREFIX } from '@neonflux/core/command-prefix';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,6 +13,7 @@ import {
 } from '../server/dashboard-guild-route-data.js';
 import type * as DashboardGuildRouteDataModule from '../server/dashboard-guild-route-data.js';
 import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
+import { DashboardCommandPrefixRouteContent } from './dashboard-command-prefix-route-content.js';
 
 vi.mock('../server/dashboard-guild-route-data.js', async (importActual) => {
     const actual = await importActual<typeof DashboardGuildRouteDataModule>();
@@ -72,6 +73,48 @@ describe('DashboardCommandPrefixSettingsPanel', () => {
     });
 });
 
+describe('DashboardCommandPrefixRouteContent', () => {
+    afterEach(() => {
+        for (const renderedPanel of renderedPanels.splice(0)) renderedPanel.unmount();
+        vi.clearAllMocks();
+    });
+
+    it('keeps the form structure available while the authoritative prefix is loading', async () => {
+        const settingsRequest = createDeferred<{
+            type: 'settings';
+            commandSettings: { prefix: string; isDefaultPrefix: boolean };
+        }>();
+        vi.mocked(readDashboardCommandSettingsRouteData).mockReturnValue(settingsRequest.promise);
+        renderRouteContent();
+
+        expect(screen.getByLabelText<HTMLInputElement>('New prefix').disabled).toBe(true);
+        expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Save prefix' }).disabled).toBe(true);
+
+        settingsRequest.resolve({
+            type: 'settings',
+            commandSettings: { prefix: DEFAULT_COMMAND_PREFIX, isDefaultPrefix: true },
+        });
+        await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('New prefix').disabled).toBe(false));
+    });
+
+    it('shows a busy retry and prevents duplicate settings reads', async () => {
+        const retryRequest = createDeferred<{ type: 'database-error' }>();
+        vi.mocked(readDashboardCommandSettingsRouteData)
+            .mockResolvedValueOnce({ type: 'database-error' })
+            .mockReturnValueOnce(retryRequest.promise);
+        renderRouteContent();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry settings' }));
+        const retryButton = await screen.findByRole<HTMLButtonElement>('button', { name: 'Retrying…' });
+        expect(retryButton.disabled).toBe(true);
+        fireEvent.click(retryButton);
+        expect(readDashboardCommandSettingsRouteData).toHaveBeenCalledTimes(2);
+
+        retryRequest.resolve({ type: 'database-error' });
+        expect(await screen.findByRole('button', { name: 'Retry settings' })).toBeTruthy();
+    });
+});
+
 function renderPrefixPanel(): { queryClient: QueryClient } {
     vi.mocked(readDashboardCommandSettingsRouteData).mockResolvedValue({
         type: 'settings',
@@ -99,4 +142,23 @@ function renderPrefixPanel(): { queryClient: QueryClient } {
     );
 
     return { queryClient };
+}
+
+function renderRouteContent(): void {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderedPanels.push(
+        render(
+            <QueryClientProvider client={queryClient}>
+                <DashboardCommandPrefixRouteContent guildId='guild-1' />
+            </QueryClientProvider>
+        )
+    );
+}
+
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((settle) => {
+        resolve = settle;
+    });
+    return { promise, resolve };
 }

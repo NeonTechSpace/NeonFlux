@@ -3,12 +3,10 @@ import { persist } from 'zustand/middleware';
 import { mutative } from 'zustand-mutative';
 
 export type DashboardDisplayPreferencesState = {
-    desktopGuildSelectorOpen: boolean;
     fluidBlobsEnabled: boolean;
     guildSelectorSortByName: boolean;
     particlesEnabled: boolean;
     reducedEffectsEnabled: boolean;
-    setDesktopGuildSelectorOpen: (open: boolean) => void;
     setFluidBlobsEnabled: (enabled: boolean) => void;
     setGuildSelectorSortByName: (sortByName: boolean) => void;
     setParticlesEnabled: (enabled: boolean) => void;
@@ -45,15 +43,10 @@ export function resolveDashboardDisplayEffects({
 export const useDashboardDisplayPreferences = create<DashboardDisplayPreferencesState>()(
     persist(
         mutative((set) => ({
-            desktopGuildSelectorOpen: false,
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
             reducedEffectsEnabled: false,
-            setDesktopGuildSelectorOpen: (open) =>
-                set((state) => {
-                    state.desktopGuildSelectorOpen = open;
-                }),
             setFluidBlobsEnabled: (enabled) =>
                 set((state) => {
                     state.fluidBlobsEnabled = enabled;
@@ -74,20 +67,18 @@ export const useDashboardDisplayPreferences = create<DashboardDisplayPreferences
         {
             name: 'neonflux-dashboard-display-preferences',
             migrate: (persistedState) => ({
-                desktopGuildSelectorOpen: readBoolean(persistedState, 'desktopGuildSelectorOpen', false),
                 fluidBlobsEnabled: readBoolean(persistedState, 'fluidBlobsEnabled', true),
                 guildSelectorSortByName: readBoolean(persistedState, 'guildSelectorSortByName', false),
                 particlesEnabled: readBoolean(persistedState, 'particlesEnabled', true),
                 reducedEffectsEnabled: readBoolean(persistedState, 'reducedEffectsEnabled', false),
             }),
             partialize: (state) => ({
-                desktopGuildSelectorOpen: state.desktopGuildSelectorOpen,
                 fluidBlobsEnabled: state.fluidBlobsEnabled,
                 guildSelectorSortByName: state.guildSelectorSortByName,
                 particlesEnabled: state.particlesEnabled,
                 reducedEffectsEnabled: state.reducedEffectsEnabled,
             }),
-            version: 5,
+            version: 6,
         }
     )
 );

@@ -7,6 +7,7 @@ import {
     getDashboardAuditEventsBaseQueryKey,
     getDashboardCommandSettingsQueryKey,
     getDashboardOverviewQueryKey,
+    getDashboardPostingOperationsQueryKey,
     getDashboardPostingTemplatesQueryKey,
     getDashboardStructureExecutionProgressBaseQueryKey,
     getDashboardStructureQueryKey,
@@ -146,7 +147,8 @@ function invalidateDashboardLiveArea(
             return;
 
         case 'posting':
-            invalidateOnce(destination, getDashboardPostingTemplatesQueryKey(guildId));
+            invalidateOnce(`${destination}-templates`, getDashboardPostingTemplatesQueryKey(guildId));
+            invalidateOnce(`${destination}-operations`, getDashboardPostingOperationsQueryKey(guildId));
             return;
 
         case 'import_export':

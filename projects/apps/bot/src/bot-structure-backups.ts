@@ -35,12 +35,14 @@ type StructureBackupScheduler = {
     stop(): Promise<void>;
 };
 
+type StructureBackupClock = () => Date;
+
 type RunDueStructureBackupsInput = {
     client: FluxerBot['client'];
+    clock?: StructureBackupClock;
     database: RuntimeDbClient;
     leaseOwner?: string;
     logger: AppLogger;
-    now?: Date;
 };
 
 const structureBackupSchedulerIntervalMs = 60 * 60 * 1000;
@@ -78,20 +80,20 @@ export function startStructureBackupScheduler(input: RunDueStructureBackupsInput
 
 export async function runDueStructureBackups({
     client,
+    clock = readCurrentTime,
     database,
     leaseOwner = `structure-backup-run:${randomUUID()}`,
     logger,
-    now = new Date(),
 }: RunDueStructureBackupsInput): Promise<void> {
-    await runDueStructureBackupRetention({ database, logger, now });
-    await runDueStructureDriftMonitoring({ client, database, leaseOwner, logger, now });
+    await runDueStructureBackupRetention({ clock, database, logger });
+    await runDueStructureDriftMonitoring({ client, clock, database, leaseOwner, logger });
 
     const processedGuildIds = new Set<string>();
 
     for (let batchIndex = 0; batchIndex < structureBackupMaxBatchesPerRun; batchIndex += 1) {
         const settingsResult = await listDueStructureBackupSettings(database.db, {
             limit: structureBackupBatchLimit,
-            now,
+            now: clock(),
         });
 
         if (settingsResult.isErr()) {
@@ -105,12 +107,13 @@ export async function runDueStructureBackups({
         for (const settings of dueSettings) {
             processedGuildIds.add(settings.guildId);
             const leaseId = randomUUID();
+            const claimNow = clock();
             const claimResult = await claimDueStructureBackupSetting(database.db, {
                 guildId: settings.guildId,
-                leaseExpiresAt: new Date(now.getTime() + structureBackupLeaseTtlMs),
+                leaseExpiresAt: new Date(claimNow.getTime() + structureBackupLeaseTtlMs),
                 leaseId,
                 leaseOwner,
-                now,
+                now: claimNow,
             });
 
             if (claimResult.isErr()) {
@@ -143,7 +146,7 @@ export async function runDueStructureBackups({
                     continue;
                 }
 
-                const snapshot = toStructureBackupPayload(structureResult.value, now.toISOString());
+                const snapshot = toStructureBackupPayload(structureResult.value, clock().toISOString());
                 const backupResult = await createStructureBackup(database.db, {
                     guildId: settings.guildId,
                     serverName: structureResult.value.guildName,
@@ -165,7 +168,7 @@ export async function runDueStructureBackups({
                 const clearResult = await clearStructureBackupSettingLease(database.db, {
                     guildId: settings.guildId,
                     leaseId,
-                    now,
+                    now: clock(),
                 });
 
                 if (clearResult.isErr()) {
@@ -189,19 +192,19 @@ export async function runDueStructureBackups({
 
 async function runDueStructureDriftMonitoring({
     client,
+    clock,
     database,
     leaseOwner,
     logger,
-    now,
 }: Required<
-    Pick<RunDueStructureBackupsInput, 'client' | 'database' | 'leaseOwner' | 'logger' | 'now'>
+    Pick<RunDueStructureBackupsInput, 'client' | 'clock' | 'database' | 'leaseOwner' | 'logger'>
 >): Promise<void> {
     const processedGuildIds = new Set<string>();
 
     for (let batchIndex = 0; batchIndex < structureBackupMaxBatchesPerRun; batchIndex += 1) {
         const settingsResult = await listDueStructureDriftSettings(database.db, {
             limit: structureDriftBatchLimit,
-            now,
+            now: clock(),
         });
 
         if (settingsResult.isErr()) {
@@ -215,12 +218,13 @@ async function runDueStructureDriftMonitoring({
         for (const settings of dueSettings) {
             processedGuildIds.add(settings.guildId);
             const leaseId = randomUUID();
+            const claimNow = clock();
             const claimResult = await claimDueStructureDriftSetting(database.db, {
                 guildId: settings.guildId,
-                leaseExpiresAt: new Date(now.getTime() + structureBackupLeaseTtlMs),
+                leaseExpiresAt: new Date(claimNow.getTime() + structureBackupLeaseTtlMs),
                 leaseId,
                 leaseOwner,
-                now,
+                now: claimNow,
             });
 
             if (claimResult.isErr()) {
@@ -233,12 +237,12 @@ async function runDueStructureDriftMonitoring({
             if (!claimResult.value) continue;
 
             try {
-                await checkScheduledStructureDrift({ client, database, guildId: settings.guildId, logger, now });
+                await checkScheduledStructureDrift({ client, clock, database, guildId: settings.guildId, logger });
             } finally {
                 const clearResult = await clearStructureDriftSettingLease(database.db, {
                     guildId: settings.guildId,
                     leaseId,
-                    now,
+                    now: clock(),
                 });
 
                 if (clearResult.isErr()) {
@@ -262,10 +266,10 @@ async function runDueStructureDriftMonitoring({
 
 async function checkScheduledStructureDrift(input: {
     client: FluxerBot['client'];
+    clock: StructureBackupClock;
     database: RuntimeDbClient;
     guildId: string;
     logger: AppLogger;
-    now: Date;
 }): Promise<void> {
     const baselineResult = await findLatestStructureDriftBaselineBackupByGuildId(input.database.db, {
         guildId: input.guildId,
@@ -303,7 +307,7 @@ async function checkScheduledStructureDrift(input: {
         return;
     }
 
-    const liveSnapshot = toFluxerGuildStructureSnapshot(structureResult.value, input.now.toISOString());
+    const liveSnapshot = toFluxerGuildStructureSnapshot(structureResult.value, input.clock().toISOString());
     const plan = diffFluxerGuildStructureSnapshot(liveSnapshot, baselineSnapshot.snapshot, { policy: 'merge' });
     const changeCount = countFluxerGuildStructurePlanChanges(plan.summary);
     const status = changeCount > 0 ? structureScheduledDriftStatuses.changed : structureScheduledDriftStatuses.clean;
@@ -333,10 +337,10 @@ async function checkScheduledStructureDrift(input: {
 
 async function recordScheduledDrift(
     input: {
+        clock: StructureBackupClock;
         database: RuntimeDbClient;
         guildId: string;
         logger: AppLogger;
-        now: Date;
     },
     result: {
         baseline?: StructureBackupRecord;
@@ -360,7 +364,7 @@ async function recordScheduledDrift(
         guildId: input.guildId,
         ...(result.hasMorePreview !== undefined ? { hasMorePreview: result.hasMorePreview } : {}),
         ...(result.liveCounts ? { liveCounts: result.liveCounts } : {}),
-        now: input.now,
+        now: input.clock(),
         status: result.status,
         ...(result.summary ? { summary: result.summary } : {}),
     });
@@ -413,13 +417,13 @@ function toScheduledDriftAudit(
 }
 
 async function runDueStructureBackupRetention(input: {
+    clock: StructureBackupClock;
     database: RuntimeDbClient;
     logger: AppLogger;
-    now: Date;
 }): Promise<void> {
     const settingsResult = await listDueStructureBackupRetentionSettings(input.database.db, {
         limit: structureBackupRetentionBatchLimit,
-        now: input.now,
+        now: input.clock(),
     });
 
     if (settingsResult.isErr()) {
@@ -438,7 +442,7 @@ async function runDueStructureBackupRetention(input: {
             },
             guildId: settings.guildId,
             limit: structureBackupRetentionDeleteLimit,
-            now: input.now,
+            now: input.clock(),
         });
 
         if (pruneResult.isErr()) {
@@ -468,4 +472,8 @@ function toStructureBackupPayload(
     roles: unknown[];
 } {
     return toFluxerGuildStructureExportSnapshot(structure, exportedAt);
+}
+
+function readCurrentTime(): Date {
+    return new Date();
 }

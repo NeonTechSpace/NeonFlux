@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildAuditEventsCategory } from '../../../../components/dashboard-guild-page.js';
+import { DashboardGuildAuditEventsRoute } from '../../../../components/dashboard-guild-audit-events-route.js';
 
 export const Route = createFileRoute('/dashboard/$guildId/events/audit-events')({
-    component: DashboardGuildAuditEventsCategory,
+    component: DashboardGuildAuditEventsRoute,
 });

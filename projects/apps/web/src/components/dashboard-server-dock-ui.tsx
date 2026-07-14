@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { Grid2X2, Plus, Server } from 'lucide-react';
 import { motion } from 'motion/react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
 
@@ -20,7 +21,7 @@ export function DashboardServerDockActionTile({
     href: string;
     label: string;
     icon: 'all' | 'invite';
-    onClick: () => void;
+    onClick: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
     const Icon = icon === 'all' ? Grid2X2 : Plus;
     const content = (

@@ -80,6 +80,7 @@ export type GuildMemberFlowEventRecord = {
     id: string;
     inviteCode: string | null;
     inviterUserId: string | null;
+    membershipStartedAt: Date | null;
     occurredAt: Date;
     userId: string;
 };
@@ -104,6 +105,7 @@ export type GuildMessageActivityRecord = {
     activityDate: string;
     guildId: string;
     shard: number;
+    status: 'duplicate' | 'recorded';
 };
 
 export type GuildInviteSnapshotState = {

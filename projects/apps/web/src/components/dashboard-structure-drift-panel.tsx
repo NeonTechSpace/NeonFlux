@@ -1,7 +1,7 @@
 import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { formatBackupSource, formatDate, formatStatus } from './dashboard-structure-panel-format.js';
 import { countPlanChanges } from './dashboard-structure-panel-status.js';

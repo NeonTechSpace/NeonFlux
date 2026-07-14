@@ -1,16 +1,15 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import {
     formatDashboardStructureExecutionPhase,
     formatDashboardStructureExecutionState,
 } from '../server/dashboard-structure-contracts.js';
-import { DashboardStructureDeployReview } from './dashboard-structure-deploy-review.js';
 import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
 import {
     dashboardConfirmationTransition,
@@ -47,6 +46,12 @@ export type StructureBusyAction =
     | `apply:${string}`
     | `control:${string}`
     | `recovery:${string}`;
+
+const DashboardStructureDeployReview = lazy(() =>
+    import('./dashboard-structure-deploy-review.js').then((module) => ({
+        default: module.DashboardStructureDeployReview,
+    }))
+);
 
 export function DashboardStructureImportHistory({
     runs,
@@ -202,19 +207,26 @@ function ImportRunCard({
             ) : null}
             {run.verification ? <VerificationResult verification={run.verification} /> : null}
             {hasChanges ? (
-                <DashboardStructureDeployReview
-                    run={run}
-                    busyAction={busyAction}
-                    preflightReport={preflightReport}
-                    deleteConfirmation={deleteConfirmation}
-                    onDeleteConfirmationChange={onDeleteConfirmationChange}
-                    onApprove={onApprove}
-                    onPreflight={onPreflight}
-                    onApply={onApply}
-                    onLoadActions={onLoadActions}
-                    onLoadDecisions={onLoadDecisions}
-                    onInspectAction={onInspectAction}
-                />
+                <Suspense
+                    fallback={
+                        <p role='status' className='mt-3 text-sm text-[var(--dash-text-muted)]'>
+                            Loading deployment review…
+                        </p>
+                    }>
+                    <DashboardStructureDeployReview
+                        run={run}
+                        busyAction={busyAction}
+                        preflightReport={preflightReport}
+                        deleteConfirmation={deleteConfirmation}
+                        onDeleteConfirmationChange={onDeleteConfirmationChange}
+                        onApprove={onApprove}
+                        onPreflight={onPreflight}
+                        onApply={onApply}
+                        onLoadActions={onLoadActions}
+                        onLoadDecisions={onLoadDecisions}
+                        onInspectAction={onInspectAction}
+                    />
+                </Suspense>
             ) : null}
             <AnimatePresence initial={false} mode='popLayout'>
                 {canRecover ? (

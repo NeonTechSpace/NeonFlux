@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardGuildMessageBuilderCategory } from '../../../../components/dashboard-guild-page.js';
+import { DashboardGuildMessageBuilderRoute } from '../../../../components/dashboard-guild-message-builder-route.js';
 
 export const Route = createFileRoute('/dashboard/$guildId/messaging/message-builder')({
-    component: DashboardGuildMessageBuilderCategory,
+    component: DashboardGuildMessageBuilderRoute,
 });

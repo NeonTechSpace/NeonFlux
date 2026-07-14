@@ -1,4 +1,4 @@
-import type { DashboardStructureExplorerSource } from './dashboard-structure-explorer.js';
+import type { DashboardStructureExplorerSource } from './dashboard-structure-explorer-types.js';
 import type {
     DashboardStructureExplorerAction,
     DashboardStructureExplorerPathMetadata,

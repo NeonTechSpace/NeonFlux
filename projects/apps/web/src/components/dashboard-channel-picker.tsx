@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { dashboardFieldClassName } from './dashboard-ui.js';
+import { dashboardFieldClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 export type DashboardPickerChannel = {
     id: string;
@@ -11,6 +11,8 @@ export type DashboardPickerChannel = {
 export function DashboardChannelPicker({
     channels,
     hasError,
+    errorMessage = 'Could not load channels.',
+    isRetrying = false,
     isLoading,
     isOpen,
     label = 'Channel',
@@ -19,12 +21,15 @@ export function DashboardChannelPicker({
     selectedChannelId,
     onBlur,
     onFocus,
+    onRetry,
     onSearchChange,
     onSelect,
 }: {
     channels: DashboardPickerChannel[];
     hasError: boolean;
+    errorMessage?: string;
     isLoading: boolean;
+    isRetrying?: boolean;
     isOpen: boolean;
     label?: string;
     listboxId?: string;
@@ -32,6 +37,7 @@ export function DashboardChannelPicker({
     selectedChannelId: string;
     onBlur: () => void;
     onFocus: () => void;
+    onRetry?: () => void;
     onSearchChange: (search: string) => void;
     onSelect: (channel: DashboardPickerChannel) => void;
 }) {
@@ -141,7 +147,21 @@ export function DashboardChannelPicker({
             </label>
 
             {isLoading ? <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>Loading channels...</p> : null}
-            {hasError ? <p className='text-xs leading-5 text-[var(--dash-danger)]'>Could not load channels.</p> : null}
+            {hasError ? (
+                <div className='flex flex-wrap items-center gap-2'>
+                    <p className='text-xs leading-5 text-[var(--dash-danger)]'>{errorMessage}</p>
+                    {onRetry ? (
+                        <button
+                            type='button'
+                            onClick={onRetry}
+                            disabled={isRetrying}
+                            aria-busy={isRetrying || undefined}
+                            className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
+                            {isRetrying ? 'Retrying…' : 'Retry channels'}
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
 
             {isOpen && !isLoading && !hasError ? (
                 <ul

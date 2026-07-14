@@ -19,6 +19,10 @@ import type { ConvexDatabase } from './convex.js';
 
 type GrowthOverviewDb = ConvexDatabase;
 
+export type GrowthOverviewRequestOptions = {
+    signal?: AbortSignal;
+};
+
 type ConvexGuildMemberFlowEventRecord = {
     attributionStatus: GuildInviteAttributionStatus;
     eventType: GuildMemberFlowEventType;
@@ -26,6 +30,7 @@ type ConvexGuildMemberFlowEventRecord = {
     id: string;
     inviteCode: string | null;
     inviterUserId: string | null;
+    membershipStartedAt: string | null;
     occurredAt: string;
     userId: string;
 };
@@ -50,6 +55,7 @@ type ConvexGuildMessageActivityRecord = {
     activityDate: string;
     guildId: string;
     shard: number;
+    status: 'duplicate' | 'recorded';
 };
 
 type ConvexGuildOverviewAggregate = Omit<GuildOverviewAggregate, 'trackingStartedAt'> & {
@@ -64,16 +70,20 @@ export async function recordGuildMemberFlowEvent(
         guildId: string;
         inviteCode?: string;
         inviterUserId?: string;
+        membershipStartedAt?: Date;
         occurredAt?: Date;
         userId: string;
-    }
+    },
+    options?: GrowthOverviewRequestOptions
 ): Promise<Result<GuildMemberFlowEventRecord, GrowthOverviewRepositoryError>> {
     const normalizedInput = normalizeMemberFlowInput(input);
 
     if (normalizedInput.isErr()) return err(normalizedInput.error);
 
     try {
-        const event = await db.client.mutation(api.growth_overview.recordGuildMemberFlowEvent, normalizedInput.value);
+        const event = options
+            ? await db.client.mutation(api.growth_overview.recordGuildMemberFlowEvent, normalizedInput.value, options)
+            : await db.client.mutation(api.growth_overview.recordGuildMemberFlowEvent, normalizedInput.value);
 
         return ok(toGuildMemberFlowEventRecord(event));
     } catch {
@@ -90,8 +100,10 @@ export async function recordGuildMemberJoinWithInviteSnapshots(
         inviterUserId?: string;
         invites: readonly GuildInviteSnapshotInput[];
         observedAt?: Date;
+        membershipStartedAt: Date;
         userId: string;
-    }
+    },
+    options?: GrowthOverviewRequestOptions
 ): Promise<Result<GuildMemberFlowEventRecord, GrowthOverviewRepositoryError>> {
     const member = normalizeMemberFlowInput({
         attributionStatus: input.attributionStatus,
@@ -99,7 +111,8 @@ export async function recordGuildMemberJoinWithInviteSnapshots(
         guildId: input.guildId,
         ...(input.inviteCode === undefined ? {} : { inviteCode: input.inviteCode }),
         ...(input.inviterUserId === undefined ? {} : { inviterUserId: input.inviterUserId }),
-        ...(input.observedAt === undefined ? {} : { occurredAt: input.observedAt }),
+        occurredAt: input.membershipStartedAt,
+        membershipStartedAt: input.membershipStartedAt,
         userId: input.userId,
     });
     const inviteSync = normalizeInviteSyncInput({
@@ -110,20 +123,25 @@ export async function recordGuildMemberJoinWithInviteSnapshots(
 
     if (member.isErr()) return err(member.error);
     if (inviteSync.isErr()) return err(inviteSync.error);
+    if (!member.value.membershipStartedAt) return err({ field: 'membershipStartedAt', type: 'missing-input' });
     if (!member.value.attributionStatus || member.value.attributionStatus === 'not-applicable') {
         return err({ field: 'attributionStatus', type: 'invalid-value' });
     }
 
     try {
-        const event = await db.client.mutation(api.growth_overview.recordGuildMemberJoinWithInviteSnapshots, {
+        const args = {
             attributionStatus: member.value.attributionStatus,
             guildId: member.value.guildId,
             invites: inviteSync.value.invites,
             userId: member.value.userId,
+            membershipStartedAt: member.value.membershipStartedAt,
             ...(member.value.inviteCode === undefined ? {} : { inviteCode: member.value.inviteCode }),
             ...(member.value.inviterUserId === undefined ? {} : { inviterUserId: member.value.inviterUserId }),
             ...(inviteSync.value.observedAt === undefined ? {} : { observedAt: inviteSync.value.observedAt }),
-        });
+        };
+        const event = options
+            ? await db.client.mutation(api.growth_overview.recordGuildMemberJoinWithInviteSnapshots, args, options)
+            : await db.client.mutation(api.growth_overview.recordGuildMemberJoinWithInviteSnapshots, args);
 
         return ok(toGuildMemberFlowEventRecord(event));
     } catch {
@@ -150,16 +168,19 @@ export async function syncGuildInviteSnapshots(
 
 export async function listGuildInviteSnapshots(
     db: GrowthOverviewDb,
-    input: { guildId: string }
+    input: { guildId: string },
+    options?: GrowthOverviewRequestOptions
 ): Promise<Result<GuildInviteSnapshotState, GrowthOverviewRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
 
     if (guildId.isErr()) return err(guildId.error);
 
     try {
-        const state = await db.client.query(api.growth_overview.listGuildInviteSnapshots, {
-            guildId: guildId.value,
-        });
+        const state = await db.client.query(
+            api.growth_overview.listGuildInviteSnapshots,
+            { guildId: guildId.value },
+            options
+        );
 
         return ok({
             baselineObserved: state.baselineObserved,
@@ -172,7 +193,8 @@ export async function listGuildInviteSnapshots(
 
 export async function recordGuildMessageActivity(
     db: GrowthOverviewDb,
-    input: { guildId: string; messageId: string; occurredAt?: Date }
+    input: { guildId: string; messageId: string; occurredAt?: Date },
+    options?: GrowthOverviewRequestOptions
 ): Promise<Result<GuildMessageActivityRecord, GrowthOverviewRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const messageId = normalizeRequiredText(input.messageId, 'messageId');
@@ -183,11 +205,14 @@ export async function recordGuildMessageActivity(
     if (occurredAt.isErr()) return err(occurredAt.error);
 
     try {
-        const activity = await db.client.mutation(api.growth_overview.recordGuildMessageActivity, {
+        const args = {
             guildId: guildId.value,
             messageId: messageId.value,
             ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
-        });
+        };
+        const activity = options
+            ? await db.client.mutation(api.growth_overview.recordGuildMessageActivity, args, options)
+            : await db.client.mutation(api.growth_overview.recordGuildMessageActivity, args);
 
         return ok(toGuildMessageActivityRecord(activity));
     } catch {
@@ -226,6 +251,7 @@ function normalizeMemberFlowInput(input: {
     guildId: string;
     inviteCode?: string;
     inviterUserId?: string;
+    membershipStartedAt?: Date;
     occurredAt?: Date;
     userId: string;
 }): Result<
@@ -235,6 +261,7 @@ function normalizeMemberFlowInput(input: {
         guildId: string;
         inviteCode?: string;
         inviterUserId?: string;
+        membershipStartedAt?: string;
         occurredAt?: string;
         userId: string;
     },
@@ -246,6 +273,9 @@ function normalizeMemberFlowInput(input: {
     const attributionStatus =
         input.attributionStatus === undefined ? ok(undefined) : normalizeAttributionStatus(input.attributionStatus);
     const occurredAt = input.occurredAt ? normalizeDate(input.occurredAt, 'occurredAt') : ok(undefined);
+    const membershipStartedAt = input.membershipStartedAt
+        ? normalizeDate(input.membershipStartedAt, 'membershipStartedAt')
+        : ok(undefined);
     const inviteCode = normalizeOptionalText(input.inviteCode);
     const inviterUserId = normalizeOptionalText(input.inviterUserId);
 
@@ -254,6 +284,7 @@ function normalizeMemberFlowInput(input: {
     if (eventType.isErr()) return err(eventType.error);
     if (attributionStatus.isErr()) return err(attributionStatus.error);
     if (occurredAt.isErr()) return err(occurredAt.error);
+    if (membershipStartedAt.isErr()) return err(membershipStartedAt.error);
 
     return ok({
         ...(attributionStatus.value === undefined ? {} : { attributionStatus: attributionStatus.value }),
@@ -261,6 +292,7 @@ function normalizeMemberFlowInput(input: {
         guildId: guildId.value,
         ...(inviteCode === undefined ? {} : { inviteCode }),
         ...(inviterUserId === undefined ? {} : { inviterUserId }),
+        ...(membershipStartedAt.value === undefined ? {} : { membershipStartedAt: membershipStartedAt.value }),
         ...(occurredAt.value === undefined ? {} : { occurredAt: occurredAt.value }),
         userId: userId.value,
     });
@@ -363,6 +395,7 @@ function toGuildMemberFlowEventRecord(record: ConvexGuildMemberFlowEventRecord):
         id: record.id,
         inviteCode: record.inviteCode,
         inviterUserId: record.inviterUserId,
+        membershipStartedAt: record.membershipStartedAt ? new Date(record.membershipStartedAt) : null,
         occurredAt: new Date(record.occurredAt),
         userId: record.userId,
     };
@@ -391,6 +424,7 @@ function toGuildMessageActivityRecord(record: ConvexGuildMessageActivityRecord):
         activityDate: record.activityDate,
         guildId: record.guildId,
         shard: record.shard,
+        status: record.status,
     };
 }
 

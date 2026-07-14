@@ -1,7 +1,7 @@
 import { parseDiffFromFile } from '@pierre/diffs';
 import type { FileDiffMetadata } from '@pierre/diffs';
 
-import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
+export { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-json.js';
 
 const dashboardStructureExplorerDiffInlineCharLimit = 250_000;
 
@@ -23,10 +23,6 @@ export type DashboardStructureExplorerJsonDiff = {
           type: 'same';
       }
 );
-
-export function formatDashboardStructureExplorerSnapshotJson(snapshot: DashboardStructureExplorerSnapshot): string {
-    return `${JSON.stringify(sortJsonValue(snapshot), null, 2)}\n`;
-}
 
 export function buildDashboardStructureExplorerJsonDiff({
     after,
@@ -81,17 +77,6 @@ export function buildDashboardStructureExplorerJsonDiff({
         ),
         type: 'diff',
     };
-}
-
-function sortJsonValue(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortJsonValue);
-    if (!value || typeof value !== 'object') return value;
-
-    const sortedEntries = Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entryValue]) => [key, sortJsonValue(entryValue)] as const);
-
-    return Object.fromEntries(sortedEntries);
 }
 
 function toJsonFileName(label: string): string {

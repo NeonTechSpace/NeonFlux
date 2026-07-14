@@ -14,6 +14,7 @@ export type GuildMemberFlowEventDocument = {
     guildId: string;
     inviteCode?: string;
     inviterUserId?: string;
+    membershipStartedAt?: string;
     occurredAt: string;
     userId: string;
 };
@@ -77,6 +78,7 @@ export function buildGuildMemberFlowEventDocument(
         guildId?: string | null;
         inviteCode?: string | null;
         inviterUserId?: string | null;
+        membershipStartedAt?: string | null;
         occurredAt?: string | null;
         userId?: string | null;
     },
@@ -94,11 +96,24 @@ export function buildGuildMemberFlowEventDocument(
 
     const inviteCode = normalizeOptionalString(input.inviteCode);
     const inviterUserId = normalizeOptionalString(input.inviterUserId);
+    const membershipStartedAt =
+        input.membershipStartedAt === undefined || input.membershipStartedAt === null
+            ? undefined
+            : normalizeTimestamp(input.membershipStartedAt);
     const attributionStatus = normalizeAttributionStatus(
         input.attributionStatus ?? (eventType.value === 'leave' ? 'not-applicable' : 'unavailable')
     );
 
     if (!attributionStatus.ok) return attributionStatus;
+    if (input.membershipStartedAt !== undefined && input.membershipStartedAt !== null && !membershipStartedAt) {
+        return { error: { field: 'membershipStartedAt', type: 'invalid-value' }, ok: false };
+    }
+    if (eventType.value === 'join' && !membershipStartedAt) {
+        return { error: { field: 'membershipStartedAt', type: 'missing-input' }, ok: false };
+    }
+    if (eventType.value === 'leave' && membershipStartedAt) {
+        return { error: { field: 'membershipStartedAt', type: 'invalid-value' }, ok: false };
+    }
 
     return {
         ok: true,
@@ -108,6 +123,7 @@ export function buildGuildMemberFlowEventDocument(
             guildId: guildId.value,
             ...(inviteCode === undefined ? {} : { inviteCode }),
             ...(inviterUserId === undefined ? {} : { inviterUserId }),
+            ...(membershipStartedAt === undefined ? {} : { membershipStartedAt }),
             occurredAt,
             userId: userId.value,
         },
@@ -183,6 +199,7 @@ export function toGuildMemberFlowEventRecord(document: GuildMemberFlowEventDocum
         id: document._id,
         inviteCode: document.inviteCode ?? null,
         inviterUserId: document.inviterUserId ?? null,
+        membershipStartedAt: document.membershipStartedAt ?? null,
     };
 }
 

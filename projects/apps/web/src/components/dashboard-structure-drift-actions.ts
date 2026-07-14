@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import { readDashboardStructureDriftRouteData } from '../server/dashboard-structure-route-data.js';
-import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureBackupSummary } from '../server/dashboard-structure-model.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { countPlanChanges, toDriftErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
 import type { DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
@@ -14,7 +14,7 @@ export function createDashboardStructureDriftActions({
 }: {
     guildId: string;
     setBusyAction: Dispatch<SetStateAction<StructureBusyAction | undefined>>;
-    setDriftState: Dispatch<SetStateAction<DriftState | undefined>>;
+    setDriftState?: Dispatch<SetStateAction<DriftState | undefined>>;
     setStatus: Dispatch<SetStateAction<PanelStatus | undefined>>;
 }) {
     async function run(input: { baselineBackupId?: string; busyAction: StructureBusyAction }): Promise<void> {
@@ -30,12 +30,12 @@ export function createDashboardStructureDriftActions({
             });
 
             if (result.type !== 'structure-drift') {
-                setDriftState(undefined);
+                setDriftState?.(undefined);
                 setStatus(toDriftErrorStatus(result.type));
                 return;
             }
 
-            setDriftState(result);
+            setDriftState?.(result);
             const count = countPlanChanges(result.summary);
             setStatus(
                 count === 0
@@ -46,7 +46,7 @@ export function createDashboardStructureDriftActions({
                       }
             );
         } catch {
-            setDriftState(undefined);
+            setDriftState?.(undefined);
             setStatus(toUnexpectedErrorStatus());
         } finally {
             setBusyAction(undefined);

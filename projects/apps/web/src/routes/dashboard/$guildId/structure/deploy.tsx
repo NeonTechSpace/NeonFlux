@@ -1,11 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardStructureRouteSurface } from '../../../../components/dashboard-structure-panel.js';
+import { DashboardStructureDeployRoute } from '../../../../components/dashboard-structure-deploy-route.js';
 
 export const Route = createFileRoute('/dashboard/$guildId/structure/deploy')({
     component: DashboardStructureDeployRoute,
 });
-
-function DashboardStructureDeployRoute() {
-    return <DashboardStructureRouteSurface surface='deploy' />;
-}

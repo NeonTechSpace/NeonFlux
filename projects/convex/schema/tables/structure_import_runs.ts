@@ -24,5 +24,6 @@ export const structureImportRunsTable = defineTable({
     ),
     updatedAt: timestamp,
 })
+    .index('by_updated', ['updatedAt'])
     .index('by_guild_created', ['guildId', 'createdAt'])
     .index('by_guild_status', ['guildId', 'status']);

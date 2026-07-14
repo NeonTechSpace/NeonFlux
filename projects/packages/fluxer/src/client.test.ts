@@ -22,6 +22,7 @@ import {
     type FluxerBotChannelEvent,
     type FluxerBotGuildEvent,
     type FluxerBotMemberEvent,
+    type FluxerBotMemberJoinedEvent,
     type FluxerBotMessageEvent,
     type FluxerBotMessageDeletedEvent,
     type FluxerBotMessageUpdatedEvent,
@@ -287,6 +288,7 @@ describe('createFluxerBot lifecycle handlers', () => {
 
         expect(event).toStrictEqual({
             messageId: 'message-1',
+            createdAt: new Date('2026-07-14T01:02:03.000Z'),
             channelId: 'channel-1',
             guildId: 'guild-1',
             authorId: 'author-1',
@@ -374,6 +376,7 @@ describe('createFluxerBot lifecycle handlers', () => {
 
         expect(messageUpdated.mock.calls[0]?.[0]).toStrictEqual({
             messageId: 'message-1',
+            createdAt: new Date('2026-07-14T01:02:03.000Z'),
             channelId: 'channel-1',
             guildId: 'guild-1',
             authorId: 'author-1',
@@ -416,7 +419,7 @@ describe('createFluxerBot lifecycle handlers', () => {
     });
 
     it('calls member handlers with normalized member data', () => {
-        const memberJoined = vi.fn<(event: FluxerBotMemberEvent) => void>();
+        const memberJoined = vi.fn<(event: FluxerBotMemberJoinedEvent) => void>();
         const memberUpdated = vi.fn<(event: FluxerBotMemberEvent) => void>();
         const memberLeft = vi.fn<(event: FluxerBotMemberEvent) => void>();
         const bot = createFluxerBot(createConfig(), createLogger(), {
@@ -433,6 +436,7 @@ describe('createFluxerBot lifecycle handlers', () => {
             guildId: 'guild-1',
             userId: 'member-1',
             roleIds: ['role-1'],
+            joinedAt: new Date('2026-07-13T01:02:03.000Z'),
         });
         expect(memberUpdated.mock.calls[0]?.[0]).toStrictEqual({
             guildId: 'guild-1',
@@ -681,6 +685,7 @@ function createGuild(id: string, overrides: Record<string, unknown> = {}): Guild
 function createMessage(overrides: Partial<Message> = {}): Message {
     return {
         id: 'message-1',
+        createdAt: new Date('2026-07-14T01:02:03.000Z'),
         channelId: 'channel-1',
         guildId: 'guild-1',
         author: createUser('author-1'),
@@ -711,6 +716,7 @@ function createUser(id: string, overrides: Partial<User> = {}): User {
 function createMember(roleIds: string[]): GuildMember {
     return {
         id: 'member-1',
+        joinedAt: new Date('2026-07-13T01:02:03.000Z'),
         guild: createGuild('guild-1'),
         roles: {
             roleIds,

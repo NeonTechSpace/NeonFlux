@@ -27,6 +27,7 @@ describe('contextless mention state', () => {
 function createMessageEvent(): BotMessageCreatedEvent {
     return {
         type: 'message.created',
+        createdAt: new Date('2026-07-14T01:02:03.000Z'),
         messageId: 'message-1',
         channelId: 'channel-1',
         guildId: 'guild-1',

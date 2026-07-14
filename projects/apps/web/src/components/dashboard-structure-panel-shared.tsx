@@ -1,7 +1,7 @@
 import { RotateCcw } from 'lucide-react';
 
 import type { PanelStatus } from './dashboard-structure-panel-types.js';
-import { dashboardSecondaryActionClassName, DashboardStatus, DashboardSurface } from './dashboard-ui.js';
+import { dashboardSecondaryActionClassName, DashboardStatus } from './dashboard-ui.js';
 
 export function MiniCount({ label, value }: { label: string; value: number }) {
     return (
@@ -61,10 +61,16 @@ export function RestorePointShortcutNotice({
 
 export function DashboardStructureLoading() {
     return (
-        <DashboardSurface as='article' tone='subtle' aria-label='Loading server blueprint tools'>
-            <div className='h-5 w-44 animate-pulse rounded bg-[var(--dash-surface-selected)]' />
-            <div className='mt-3 h-4 w-64 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-            <div className='mt-5 h-32 animate-pulse rounded bg-[var(--dash-surface-muted)]' />
-        </DashboardSurface>
+        <div
+            role='status'
+            aria-label='Loading server blueprint data'
+            className='flex min-h-12 items-center gap-3 py-4 text-sm text-[var(--dash-text-muted)]'>
+            <span
+                data-dashboard-loading='pulse'
+                className='size-2 shrink-0 animate-pulse rounded-full bg-[var(--dash-primary)]'
+                aria-hidden='true'
+            />
+            Loading Blueprint data…
+        </div>
     );
 }

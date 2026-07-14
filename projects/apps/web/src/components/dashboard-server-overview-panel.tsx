@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { motion } from 'motion/react';
-import type { ReactNode } from 'react';
-import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { lazy, Suspense, useState } from 'react';
 
 import { getDashboardOverviewQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildOverviewRouteData } from '../server/dashboard-guild-route-data.js';
@@ -14,17 +14,26 @@ import {
 } from './dashboard-motion.js';
 import {
     dashboardDangerActionClassName,
+    dashboardSecondaryActionClassName,
     DashboardEmptyState,
     DashboardErrorState,
     DashboardSurface,
     DashboardToolbar,
 } from './dashboard-ui.js';
+import {
+    canRetryDashboardGuildRead,
+    DashboardGuildReadError,
+    readDashboardGuildReadFailureType,
+} from './dashboard-guild-read-error.js';
 
-type MemberFlowChartDay = DashboardGuildOverview['memberFlow']['graph'][number] & {
-    leaveLoss: number;
-};
+const DashboardServerOverviewCharts = lazy(() =>
+    import('./dashboard-server-overview-charts.js').then((module) => ({
+        default: module.DashboardServerOverviewCharts,
+    }))
+);
 
 export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
+    const [retrying, setRetrying] = useState(false);
     const overviewQuery = useQuery({
         queryKey: getDashboardOverviewQueryKey(guildId),
         queryFn: async () => {
@@ -35,30 +44,54 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
             });
 
             if (result.type !== 'overview') {
-                throw new Error('Could not load server overview.');
+                throw new DashboardGuildReadError(result.type);
             }
 
             return result.overview;
         },
+        retry: false,
     });
     const overview = overviewQuery.data;
 
-    if (overviewQuery.isPending) {
+    if (overviewQuery.isPending && !retrying) {
         return <DashboardServerOverviewLoading />;
     }
 
     if (overviewQuery.isError || !overview) {
+        const failureType = readDashboardGuildReadFailureType(overviewQuery.error);
+        const retryable = canRetryDashboardGuildRead(failureType);
+
         return (
             <DashboardErrorState
                 title='Overview unavailable'
-                description='The latest server activity could not be loaded.'
+                description={getOverviewFailureDescription(failureType)}
                 action={
-                    <button
-                        type='button'
-                        onClick={() => void overviewQuery.refetch()}
-                        className={dashboardDangerActionClassName}>
-                        Try again
-                    </button>
+                    failureType === 'auth-required' ? (
+                        <a
+                            href='/auth/fluxer/login'
+                            className={`${dashboardSecondaryActionClassName} inline-flex items-center`}>
+                            Sign in again
+                        </a>
+                    ) : failureType === 'not-found' ? (
+                        <Link
+                            to='/dashboard'
+                            className={`${dashboardSecondaryActionClassName} inline-flex items-center`}>
+                            Choose server
+                        </Link>
+                    ) : retryable ? (
+                        <button
+                            type='button'
+                            onClick={() => {
+                                if (retrying) return;
+                                setRetrying(true);
+                                void overviewQuery.refetch().finally(() => setRetrying(false));
+                            }}
+                            disabled={retrying}
+                            aria-busy={retrying || undefined}
+                            className={dashboardDangerActionClassName}>
+                            {retrying ? 'Retrying…' : 'Retry overview'}
+                        </button>
+                    ) : undefined
                 }
             />
         );
@@ -76,10 +109,9 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
             {hasActivity ? (
                 <>
                     <OverviewSummary overview={overview} refreshedAt={overviewQuery.dataUpdatedAt} />
-                    <div className='grid gap-4 xl:grid-cols-2'>
-                        <MemberFlowChart overview={overview} />
-                        <MessageActivityChart overview={overview} />
-                    </div>
+                    <Suspense fallback={<OverviewChartsLoading />}>
+                        <DashboardServerOverviewCharts overview={overview} />
+                    </Suspense>
                 </>
             ) : (
                 <OverviewFirstUse />
@@ -88,34 +120,49 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
     );
 }
 
-export function DashboardServerOverviewLoading() {
+function getOverviewFailureDescription(type: ReturnType<typeof readDashboardGuildReadFailureType>): string {
+    switch (type) {
+        case 'auth-required':
+            return 'Your session expired before the latest server activity could be loaded.';
+        case 'not-found':
+            return 'This server is no longer available for this account.';
+        case 'deployment-config-not-found':
+            return 'Dashboard activity is unavailable because this deployment is not fully configured.';
+        case 'bot-token-missing':
+            return 'Dashboard activity is unavailable because bot access is not configured.';
+        case 'database-error':
+        case 'guild-lookup-failed':
+            return 'The latest server activity could not be loaded. The rest of the server dashboard remains available.';
+    }
+}
+
+function OverviewChartsLoading() {
     return (
-        <section className='space-y-5' aria-label='Loading server overview'>
-            <DashboardSurface as='div'>
-                <div className='h-4 w-52 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                <div className='mt-5 grid gap-3 md:grid-cols-2'>
-                    {Array.from({ length: 2 }, (_, index) => (
-                        <div
-                            key={index}
-                            className='space-y-3 border-[var(--dash-border)] first:border-l-0 md:border-l md:pl-4'>
-                            <div className='h-3 w-24 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                            <div className='h-7 w-16 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                            <div className='h-3 w-32 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                        </div>
-                    ))}
-                </div>
-            </DashboardSurface>
-            <div className='grid gap-4 xl:grid-cols-2'>
-                <DashboardSurface as='div' className='h-80'>
-                    <div className='h-4 w-36 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                    <div className='mt-5 h-60 animate-pulse rounded bg-[rgba(19,24,35,0.7)]' />
+        <div className='grid gap-4 xl:grid-cols-2' role='status' aria-label='Loading activity charts'>
+            {['Member flow', 'Message activity'].map((title) => (
+                <DashboardSurface key={title}>
+                    <h3 className='text-lg font-semibold text-[var(--dash-text)]'>{title}</h3>
+                    <div className='mt-4 flex h-64 items-center text-sm text-[var(--dash-text-muted)]'>
+                        Loading chart…
+                    </div>
                 </DashboardSurface>
-                <DashboardSurface as='div' className='h-80'>
-                    <div className='h-4 w-36 animate-pulse rounded bg-[var(--dash-surface-raised)]' />
-                    <div className='mt-5 h-60 animate-pulse rounded bg-[rgba(19,24,35,0.7)]' />
-                </DashboardSurface>
+            ))}
+        </div>
+    );
+}
+
+function DashboardServerOverviewLoading() {
+    return (
+        <DashboardSurface as='section' tone='glass' padding='compact' aria-label='Loading server overview'>
+            <div role='status' className='flex min-h-12 items-center gap-3 text-sm text-[var(--dash-text-muted)]'>
+                <span
+                    data-dashboard-loading='pulse'
+                    className='size-2 shrink-0 animate-pulse rounded-full bg-[var(--dash-primary)]'
+                    aria-hidden='true'
+                />
+                Loading server activity…
             </div>
-        </section>
+        </DashboardSurface>
     );
 }
 
@@ -190,232 +237,6 @@ function SummaryMetric({ label, value, detail }: { label: string; value: string;
     );
 }
 
-function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
-    if (!overview.dataHealth.hasMemberFlow) {
-        return (
-            <ChartPanel title='Member flow' legendItems={[]}>
-                <DashboardEmptyState
-                    title='No member movement yet'
-                    description='Joins and leaves will be charted after they are observed.'
-                />
-            </ChartPanel>
-        );
-    }
-
-    const chartData = overview.memberFlow.graph.map((day) => ({
-        ...day,
-        leaveLoss: -day.leaves,
-    }));
-    const domain = getMemberFlowDomain(chartData);
-
-    return (
-        <ChartPanel
-            title='Member flow'
-            legendItems={[
-                { label: 'Joins', className: 'bg-[var(--dash-live)]' },
-                { label: 'Leaves', className: 'bg-[var(--dash-creative)]' },
-                { label: 'Net', className: 'bg-[var(--dash-text-muted)]' },
-            ]}>
-            <ResponsiveContainer width='100%' height='100%'>
-                <LineChart data={chartData} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
-                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
-                    <XAxis
-                        dataKey='date'
-                        minTickGap={24}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
-                        tickFormatter={formatChartDate}
-                    />
-                    <YAxis
-                        domain={domain}
-                        allowDecimals={false}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
-                        tickFormatter={(value) => String(Math.abs(Number(value)))}
-                    />
-                    <Tooltip
-                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
-                        contentStyle={chartTooltipStyle}
-                        labelStyle={chartTooltipLabelStyle}
-                        itemStyle={chartTooltipItemStyle}
-                        formatter={formatMemberFlowTooltipValue}
-                        labelFormatter={formatLongChartDate}
-                    />
-                    <Line
-                        type='monotone'
-                        dataKey='joins'
-                        name='Joins'
-                        stroke='var(--dash-live)'
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                    />
-                    <Line
-                        type='monotone'
-                        dataKey='leaveLoss'
-                        name='Leaves'
-                        stroke='var(--dash-creative)'
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                    />
-                    <Line
-                        type='monotone'
-                        dataKey='netGrowth'
-                        name='Net'
-                        stroke='var(--dash-text-muted)'
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                    />
-                </LineChart>
-            </ResponsiveContainer>
-        </ChartPanel>
-    );
-}
-
-function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }) {
-    if (!overview.dataHealth.hasMessageActivity) {
-        return (
-            <ChartPanel title='Message activity' legendItems={[]}>
-                <DashboardEmptyState
-                    title='No message activity yet'
-                    description='Daily message counts will appear after activity is observed.'
-                />
-            </ChartPanel>
-        );
-    }
-
-    const domain = getMessageActivityDomain(overview.messages.graph);
-
-    return (
-        <ChartPanel title='Message activity' legendItems={[{ label: 'Messages', className: 'bg-[var(--dash-live)]' }]}>
-            <ResponsiveContainer width='100%' height='100%'>
-                <AreaChart data={overview.messages.graph} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
-                    <defs>
-                        <linearGradient id='messageActivityFill' x1='0' y1='0' x2='0' y2='1'>
-                            <stop offset='5%' stopColor='var(--dash-live)' stopOpacity={0.34} />
-                            <stop offset='95%' stopColor='var(--dash-live)' stopOpacity={0.02} />
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
-                    <XAxis
-                        dataKey='date'
-                        minTickGap={24}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
-                        tickFormatter={formatChartDate}
-                    />
-                    <YAxis
-                        domain={domain}
-                        allowDecimals={false}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
-                    />
-                    <Tooltip
-                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
-                        contentStyle={chartTooltipStyle}
-                        labelStyle={chartTooltipLabelStyle}
-                        itemStyle={chartTooltipItemStyle}
-                        formatter={formatMessageTooltipValue}
-                        labelFormatter={formatLongChartDate}
-                    />
-                    <Area
-                        type='monotone'
-                        dataKey='messageCount'
-                        name='Messages'
-                        stroke='var(--dash-live)'
-                        strokeWidth={2}
-                        fill='url(#messageActivityFill)'
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                    />
-                </AreaChart>
-            </ResponsiveContainer>
-        </ChartPanel>
-    );
-}
-
-function ChartPanel({
-    title,
-    legendItems,
-    children,
-}: {
-    title: string;
-    legendItems: Array<{ label: string; className: string }>;
-    children: ReactNode;
-}) {
-    return (
-        <DashboardSurface>
-            <div className='flex flex-wrap items-start justify-between gap-3'>
-                <h3 className='text-lg font-semibold text-[var(--dash-text)]'>{title}</h3>
-                {legendItems.length > 0 ? <ChartLegend items={legendItems} /> : null}
-            </div>
-            <div className='mt-4 h-64'>{children}</div>
-        </DashboardSurface>
-    );
-}
-
-function ChartLegend({ items }: { items: Array<{ label: string; className: string }> }) {
-    return (
-        <div className='flex flex-wrap gap-3 text-xs font-semibold text-[var(--dash-text-muted)]' aria-hidden='true'>
-            {items.map((item) => (
-                <span key={item.label} className='inline-flex items-center gap-1'>
-                    <span className={`size-2 rounded-full ${item.className}`} />
-                    {item.label}
-                </span>
-            ))}
-        </div>
-    );
-}
-
-const chartTooltipStyle = {
-    backgroundColor: 'rgb(7 8 11)',
-    border: '1px solid rgb(34 41 56)',
-    borderRadius: '8px',
-    color: 'rgb(244 247 251)',
-};
-const chartTooltipLabelStyle = {
-    color: 'rgb(244 247 251)',
-    fontWeight: 600,
-};
-const chartTooltipItemStyle = {
-    color: 'rgb(177 186 200)',
-};
-
-function getMemberFlowDomain(data: MemberFlowChartDay[]): [number, number] {
-    const maxMagnitude = Math.max(
-        0,
-        ...data.map((day) => Math.max(Math.abs(day.joins), Math.abs(day.leaveLoss), Math.abs(day.netGrowth)))
-    );
-    const domain = maxMagnitude === 0 ? 1 : maxMagnitude;
-
-    return [-domain, domain];
-}
-
-function getMessageActivityDomain(data: DashboardGuildOverview['messages']['graph']): [number, number] {
-    const maxMessages = Math.max(0, ...data.map((day) => day.messageCount));
-
-    return [0, maxMessages === 0 ? 1 : maxMessages];
-}
-
-function formatMemberFlowTooltipValue(value: unknown, name: unknown): [string, string] {
-    const numericValue = typeof value === 'number' ? value : Number(value);
-    const label = typeof name === 'string' ? name : 'Value';
-
-    return [Number.isFinite(numericValue) ? String(Math.abs(numericValue)) : String(value), label];
-}
-
-function formatMessageTooltipValue(value: unknown): [string, string] {
-    const numericValue = typeof value === 'number' ? value : Number(value);
-
-    return [Number.isFinite(numericValue) ? String(numericValue) : String(value), 'Messages'];
-}
-
 function formatMessageSummary(overview: DashboardGuildOverview): string | undefined {
     const activeDays = overview.messages.graph.filter((day) => day.messageCount > 0).length;
 
@@ -442,32 +263,5 @@ function formatRefreshTime(value: number): string {
         : date.toLocaleTimeString(undefined, {
               hour: 'numeric',
               minute: '2-digit',
-          });
-}
-
-function formatChartDate(value: unknown): string {
-    const text = String(value);
-    const date = new Date(`${text}T00:00:00.000Z`);
-
-    return Number.isNaN(date.getTime())
-        ? text
-        : date.toLocaleDateString(undefined, {
-              month: 'short',
-              day: 'numeric',
-              timeZone: 'UTC',
-          });
-}
-
-function formatLongChartDate(value: unknown): string {
-    const text = String(value);
-    const date = new Date(`${text}T00:00:00.000Z`);
-
-    return Number.isNaN(date.getTime())
-        ? text
-        : date.toLocaleDateString(undefined, {
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-              timeZone: 'UTC',
           });
 }

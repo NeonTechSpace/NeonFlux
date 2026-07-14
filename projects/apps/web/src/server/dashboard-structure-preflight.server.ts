@@ -1,6 +1,5 @@
 import '@tanstack/react-start/server-only';
 
-import { loadWebConfig } from '@neonflux/config';
 import {
     findStructureImportRunWithActionsByGuildId,
     recordStructureImportPreflight,
@@ -8,11 +7,11 @@ import {
     structureImportRunStatuses,
 } from '@neonflux/db';
 import type { StructureImportActionRecord } from '@neonflux/db';
-import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
+import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
 import { createStructureAuditInput, loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
-import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
+import type { DashboardStructureErrorResult } from './dashboard-structure-model.js';
 import {
     createDashboardStructureSnapshotFingerprintInput,
     diffDashboardStructureSnapshot,
@@ -93,16 +92,13 @@ export async function preflightDashboardStructureImportRun(
         return { type: 'not-preflightable', status: 'invalid-v3-plan' };
     }
 
-    const botToken = loadWebConfig().fluxerBotToken;
+    const currentResult = await readDashboardBotGuildStructure(context.guild.id);
 
-    if (!botToken) return { type: 'bot-token-missing' };
-
-    const currentResult = await readFluxerBotGuildStructure({
-        botToken,
-        guildId: context.guild.id,
-    });
-
-    if (currentResult.isErr()) return { type: 'structure-read-failed' };
+    if (currentResult.isErr()) {
+        return currentResult.error === 'not-configured'
+            ? { type: 'bot-token-missing' }
+            : { type: 'structure-read-failed' };
+    }
 
     const currentSnapshot = toDashboardStructureSnapshot(currentResult.value);
     const projectionCheck = checkDashboardStructurePlanProjection(currentSnapshot, importRunResult.value.plan);

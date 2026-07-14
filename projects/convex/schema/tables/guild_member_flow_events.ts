@@ -15,10 +15,12 @@ export const guildMemberFlowEventsTable = defineTable({
     guildId: v.string(),
     inviteCode: optionalString,
     inviterUserId: optionalString,
+    membershipStartedAt: optionalString,
     occurredAt: timestamp,
     userId: v.string(),
 })
     .index('by_guild_event', ['guildId', 'eventType'])
     .index('by_guild_occurred', ['guildId', 'occurredAt'])
     .index('by_guild_user', ['guildId', 'userId'])
+    .index('by_guild_user_membership', ['guildId', 'userId', 'membershipStartedAt'])
     .index('by_occurred', ['occurredAt']);

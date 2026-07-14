@@ -53,7 +53,6 @@ describe('DashboardGuildSelector', () => {
         window.localStorage.clear();
         vi.unstubAllGlobals();
         useDashboardDisplayPreferences.setState({
-            desktopGuildSelectorOpen: false,
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
@@ -66,7 +65,7 @@ describe('DashboardGuildSelector', () => {
             <DashboardGuildSelector
                 guilds={createGuilds()}
                 activeGuildId='guild-1'
-                pathname='/dashboard/guild-1/access/autoroles'
+                pathname='/dashboard/guild-1/events/audit-events'
                 botInviteUrl='https://web.fluxer.app/oauth2/authorize?client_id=1517169145576165376&scope=bot&permissions=8'
             />
         );
@@ -116,12 +115,12 @@ describe('DashboardGuildSelector', () => {
         expect(screen.queryByRole('searchbox', { name: 'Search servers' })).toBeNull();
     });
 
-    it('preserves the nested path, closes after ordinary selection, and restores trigger focus', async () => {
+    it('preserves the nested path and closes without refocusing the departing trigger', async () => {
         renderGuildSelector(
             <DashboardGuildSelector
                 guilds={createGuilds()}
                 activeGuildId='guild-1'
-                pathname='/dashboard/guild-1/access/autoroles'
+                pathname='/dashboard/guild-1/events/audit-events'
             />
         );
 
@@ -129,7 +128,7 @@ describe('DashboardGuildSelector', () => {
         fireEvent.click(trigger);
         const nextGuild = screen.getByRole('link', { name: 'Guild Two' });
 
-        expect(nextGuild.getAttribute('href')).toBe('/dashboard/guild-2/access/autoroles');
+        expect(nextGuild.getAttribute('href')).toBe('/dashboard/guild-2/events/audit-events');
         expect(nextGuild.getAttribute('data-preview-guild')).toBe('guild-2');
         expect(nextGuild.getAttribute('data-preview-source-guild')).toBe('guild-1');
 
@@ -137,7 +136,7 @@ describe('DashboardGuildSelector', () => {
         fireEvent.click(nextGuild);
 
         await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Switch server' })).toBeNull());
-        await waitFor(() => expect(trigger.matches(':focus')).toBe(true));
+        expect(trigger.matches(':focus')).toBe(false);
     });
 
     it('leaves the dock open for modified server-link activation', () => {

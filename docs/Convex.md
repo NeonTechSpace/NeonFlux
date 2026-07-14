@@ -1,209 +1,201 @@
-# Convex Self-Hosting Guide
+# Convex Operations Guide
 
-This guide is for running Convex yourself instead of using a hosted Convex deployment.
+NeonFlux uses Convex as its only durable application database and as the live dashboard transport. Hosted Convex is the default. The self-hosted stack at the end of this guide is optional.
 
-NeonFlux uses Convex as its durable runtime store. This guide covers optional self-hosted Convex infrastructure.
+Run workspace commands from `projects`.
 
-## Defaults
+## Environment ownership
 
-- Prefer hosted Convex unless self-hosting is required.
-- Stack: Convex backend, Convex dashboard, dedicated Convex Postgres.
-- Postgres default: `postgres:17-alpine`. Convex docs say Postgres 17 is tested.
-- Postgres 18 is unvalidated until Convex documents support or this repo records a passing smoke test.
-- Do not share the NeonFlux app database with Convex.
-- Do not add new durable NeonFlux app domains to Convex without an ownership, lifecycle, retention, deletion, and rollback plan.
+Copy `.env.example` to `.env` and keep the application configuration there. NeonFlux's config loader searches upward for `.env` and does not load `.env.local`.
 
-## Convex Runtime Config
+Convex tooling may generate the ignored `.env.local` file when linking a development deployment. That file follows Convex CLI convention. It is not NeonFlux's application source of truth. Keep `CONVEX_DEPLOYMENT`, `CONVEX_URL`, `CONVEX_SITE_URL`, and `VITE_CONVEX_URL` in `.env`, and remove conflicting duplicate values instead of maintaining two configurations.
 
-Runtime-facing values:
+Connection values:
 
 ```dotenv
+CONVEX_DEPLOYMENT=
+CONVEX_DEPLOY_KEY=
 CONVEX_URL=
+CONVEX_SITE_URL=
 VITE_CONVEX_URL=
-NEONFLUX_AUTH_JWT_ISSUER=
-NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
-NEONFLUX_AUTH_JWT_JWKS=
-NEONFLUX_AUTH_JWT_PRIVATE_KEY=
 ```
 
-Deployment-facing values:
+- `CONVEX_URL` is used by server-side bot and web clients.
+- `CONVEX_SITE_URL` is the deployment HTTP Actions origin.
+- `VITE_CONVEX_URL` is browser-safe and powers dashboard subscriptions.
+- `CONVEX_DEPLOY_KEY` is a deployment secret. Do not expose it to browser code.
+
+## Three isolated JWT providers
+
+Convex auth has three custom RS256 providers. Configuration is all-or-nothing: if any provider value expresses auth intent, every bot, web, and user issuer/audience/JWKS value must be valid. The three issuers must be distinct and cannot be Fluxer-owned hosts.
 
 ```dotenv
-CONVEX_DEPLOYMENT=
-CONVEX_DEPLOY_KEY=
+NEONFLUX_BOT_AUTH_JWT_ISSUER=
+NEONFLUX_BOT_AUTH_JWT_AUDIENCE=neonflux-convex-bot
+NEONFLUX_BOT_AUTH_JWT_JWKS=
+NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY=
+
+NEONFLUX_WEB_AUTH_JWT_ISSUER=
+NEONFLUX_WEB_AUTH_JWT_AUDIENCE=neonflux-convex-web
+NEONFLUX_WEB_AUTH_JWT_JWKS=
+NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY=
+
+NEONFLUX_USER_AUTH_JWT_ISSUER=
+NEONFLUX_USER_AUTH_JWT_AUDIENCE=neonflux-convex-user
+NEONFLUX_USER_AUTH_JWT_JWKS=
+NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY=
 ```
 
-`CONVEX_DEPLOY_KEY` is for deploy/codegen automation only and must not be exposed to browser code.
+Choose stable, distinct NeonFlux issuer URLs. The issuer is a JWT identity string. Only the web user's public JWKS endpoint is exposed for browser-token verification compatibility.
 
-Convex-backed runtime and deploy commands fail fast through `requireConvexConfig` when required connection/auth values are missing.
-
-## Convex Deployment Link
-
-Run deployment commands from `projects`.
-
-Required local values before codegen or deploy:
-
-```dotenv
-CONVEX_DEPLOYMENT=
-CONVEX_DEPLOY_KEY=
-NEONFLUX_AUTH_JWT_ISSUER=
-NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
-NEONFLUX_AUTH_JWT_JWKS=
-```
-
-`NEONFLUX_AUTH_JWT_ISSUER` is the stable `iss` claim for NeonFlux-issued Convex JWTs. It is separate from Fluxer OAuth URLs and does not need to be publicly fetchable when `NEONFLUX_AUTH_JWT_JWKS` is set.
-
-Prefer `NEONFLUX_AUTH_JWT_JWKS=data:application/json,...` with the public JWKS for local dev and deployment. Convex deploy/codegen environments should receive issuer, audience, and public JWKS only. `NEONFLUX_AUTH_JWT_PRIVATE_KEY` stays server-only for web, bot, and service signing.
-
-Generate a new server-only signing key if this environment does not already have one:
+Generate one private key for each provider:
 
 ```sh
 pnpm generate:convex-private-key
+pnpm generate:convex-private-key
+pnpm generate:convex-private-key
 ```
 
-Store the output in `NEONFLUX_AUTH_JWT_PRIVATE_KEY`. Then generate the public JWKS data URI from the current server-only signing key:
+Assign the outputs to the bot, web, and user private-key variables, then generate each public JWKS data URI:
 
 ```sh
-pnpm --silent generate:convex-jwks
+pnpm --silent generate:convex-jwks bot
+pnpm --silent generate:convex-jwks web
+pnpm --silent generate:convex-jwks user
 ```
 
-Dry-run the public Convex auth env update before applying it:
+The generator reads the matching issuer, audience, and private key from `.env`. Put each output in its matching `*_JWKS` variable.
 
-```sh
-pnpm convex:configure-auth-env -- --issuer http://localhost:3000/auth --deployment <CONVEX_DEPLOYMENT>
-```
+Convex receives only the three public tuples: issuer, audience, and JWKS. Private JWT keys, `SESSION_SECRET`, `FLUXER_BOT_TOKEN`, `FLUXER_CLIENT_SECRET`, and `FLUXER_TOKEN_ENCRYPTION_KEY` remain application secrets.
 
-For deployed environments, use that environment's stable NeonFlux issuer instead of `localhost`. This command only mutates Convex env when `--apply --confirm-apply-target <target>` is added and the confirmation target exactly matches the selected deployment. It sends issuer, audience, and public JWKS only. It does not send `NEONFLUX_AUTH_JWT_PRIVATE_KEY` to Convex.
+## Runtime boundaries
 
-Apply only after the dry-run output targets the intended deployment:
+- The bot signs bot-service JWTs for bot-scoped Convex functions.
+- The web server signs web-service JWTs for its Convex functions.
+- After validating the session and current Fluxer permissions, the web server issues a short-lived user JWT scoped to manageable guild ids at `/auth/convex/token`.
+- `/.well-known/jwks.json` exposes the user provider's public JWKS only.
+- The internal bot-read service verifies a short-lived web-service JWT. This lets web request live Fluxer structure without receiving the bot token.
 
-```sh
-pnpm convex:configure-auth-env -- --issuer <stable-NeonFlux-issuer> --deployment <target> --apply --confirm-apply-target <target>
-```
+The production Compose environment gives `FLUXER_BOT_TOKEN` only to the bot container. The web config loader also removes that variable before reading local web configuration.
 
-After target Convex env is updated, make the local shell or protected deploy environment use the same public auth values. Then validate and redeploy so `auth.config.ts` is evaluated with those values:
+## Configure a target
 
-```sh
-pnpm convex:validate-auth-config
-pnpm convex:check-auth-env -- --compare-deploy-env
-pnpm convex:deploy
-```
-
-For protected environments, set the same public auth values in protected environment variables and use the protected Convex deploy workflow instead of a local shell. After the deployment updates auth config, prove the target auth env is configured and run a bounded local/dev Convex check with:
-
-```sh
-pnpm convex:check-auth-env
-pnpm convex:dev:once
-```
-
-`pnpm convex:check-auth-env` first checks required env names, then validates the public issuer, audience, and JWKS values without printing JWKS content. It rejects Fluxer-owned issuers and any public JWKS value that exposes private key parameters.
-
-For GitHub codegen/deploy jobs, store `NEONFLUX_AUTH_JWT_ISSUER`, `NEONFLUX_AUTH_JWT_AUDIENCE`, and `NEONFLUX_AUTH_JWT_JWKS` as protected environment or repository variables. Keep only `CONVEX_DEPLOY_KEY` in secrets for Convex deploy automation.
-
-Validate deploy/codegen auth config from the current process environment without reading local `.env` private signing material:
+First validate the current public auth values without contacting Convex:
 
 ```sh
 pnpm convex:validate-auth-config
 ```
 
-Generate typed Convex API files:
+Dry-run the nine public auth values against an explicit deployment:
+
+```sh
+pnpm convex:configure-auth-env -- --deployment <target>
+```
+
+The command reads all provider values from `.env`. It does not accept the old single-provider `--issuer` argument. Apply only after the output names the intended target:
+
+```sh
+pnpm convex:configure-auth-env -- --deployment <target> --apply --confirm-apply-target <target>
+```
+
+The apply path strips all three private keys from the child Convex process. It refuses an ambient target and refuses a confirmation string that differs from the selected deployment.
+
+Verify the configured target and, for deploy environments, compare it with the current protected process environment:
+
+```sh
+pnpm convex:check-auth-env -- --deployment <target>
+pnpm convex:check-auth-env -- --deployment <target> --compare-deploy-env
+```
+
+The readiness check validates values without printing JWKS payloads. It rejects missing providers, duplicate/Fluxer issuers, malformed public RSA keys, and any JWKS containing private parameters.
+
+## Historical retention
+
+`NEONFLUX_DATA_RETENTION_DAYS` defaults to `90` and accepts whole numbers from `1` through `730`. It governs the Convex-owned growth-history and historical audit/Blueprint drains.
+
+Dry-run and apply it with the same explicit-target fence:
+
+```sh
+pnpm convex:configure-runtime-env -- --deployment <target>
+pnpm convex:configure-runtime-env -- --deployment <target> --apply --confirm-apply-target <target>
+```
+
+Invalid values fail before a delete. Daily jobs use bounded transactions and continue until each eligible range is empty. Completed Blueprint history is deleted child-first. Active, paused, reconciliation-required, and outcome-unknown executions are protected.
+
+Authentication-state and dashboard-posting cleanup use their own lifecycle-specific retention policies.
+
+## Code generation and deploy
+
+The wrapper validates public auth configuration before `dev`, `codegen`, or `deploy`, and strips every private JWT key before spawning the Convex CLI.
 
 ```sh
 pnpm convex:codegen
 pnpm convex:typecheck
-```
-
-Check generated API drift in CI or another trusted environment:
-
-```sh
 pnpm convex:codegen:check
 ```
 
-Deploy Convex functions only from the protected `Deploy Convex` GitHub workflow or an equivalent trusted operator shell:
+Deploy from the protected `Deploy Convex` workflow or an equivalent trusted operator shell:
 
 ```sh
 pnpm convex:deploy
 ```
 
-The current codebase uses Convex for durable web and bot runtime state and removes old app Postgres and Drizzle infrastructure. Do not add dual DB runtime or Postgres fallback paths.
+For development, `pnpm dev` runs one checked Convex upload before starting all watchers. A bounded one-shot upload is also available:
 
-## Convex Auth Bridge
-
-Fluxer OAuth remains the web login flow. After the existing web session is valid, NeonFlux issues short-lived Convex JWTs signed with `NEONFLUX_AUTH_JWT_PRIVATE_KEY`.
-
-Fluxer-owned OAuth hosts such as `web.fluxer.app` are not valid NeonFlux JWT issuers. Use a NeonFlux issuer and configure Convex with the matching public JWKS through `NEONFLUX_AUTH_JWT_JWKS`. Convex auth config fails closed when JWT auth is enabled without that public JWKS value.
-
-Optional public JWKS endpoint for diagnostics/compatibility:
-
-```text
-/.well-known/jwks.json
+```sh
+pnpm convex:dev:once
 ```
 
-Server-only browser token endpoint:
+## Guarded data reset
 
-```text
-/auth/convex/token
+`pnpm convex:reset-data` builds an empty snapshot from the current schema and imports it with `--replace-all`. Non-dry-run execution requires an explicit deployment and `--yes`. Only the exact default `--deployment dev` target is exempt from `--confirm-production-reset`. Named, cross-project, and production targets require the extra confirmation because their environment cannot be inferred safely from a name.
+
+```sh
+pnpm convex:reset-data -- --deployment dev --dry-run
+pnpm convex:reset-data -- --deployment dev --yes
+
+pnpm convex:reset-data -- --prod --confirm-production-reset --dry-run
+pnpm convex:reset-data -- --prod --confirm-production-reset --yes
 ```
 
-The token endpoint returns `{ token, expiresAt }`, sends `Cache-Control: no-store`, and derives manageable guild scope on the server. It must never expose Fluxer OAuth access tokens, refresh tokens, auth codes, cookies, encrypted payloads, or JWT private key material.
+The wrapper rejects `--deployment local` and does not infer a destructive target from ambient Convex state. Upload current functions and schema before a development reset so the deployment and generated snapshot agree.
 
-## Configuration
+## Optional self-hosting
 
-Use one Convex instance per project/environment.
+Use one isolated Convex instance per NeonFlux environment. The optional stack is [`projects/docker-compose.convex.yml`](../projects/docker-compose.convex.yml) and contains:
 
-```env
-# Use latest only for local tests. Pin production.
+- the Convex backend.
+- the Convex dashboard.
+- dedicated PostgreSQL 17 storage used only by Convex.
+
+Do not share this PostgreSQL database with a separate application store or add a dual-write fallback.
+
+```dotenv
+# Pin production. Latest is suitable only for local evaluation.
 CONVEX_REV=latest
 
-# Database name is INSTANCE_NAME with "-" replaced by "_".
 CONVEX_INSTANCE_NAME=neonflux-prod
 CONVEX_POSTGRES_DB=neonflux_prod
 CONVEX_INSTANCE_SECRET=<openssl rand -hex 32>
 
-# Dedicated Postgres.
 CONVEX_POSTGRES_USER=convex
 CONVEX_POSTGRES_PASSWORD=<strong password>
 
-# Browser-facing URLs.
 CONVEX_CLOUD_ORIGIN=https://convex-api.example.com
 CONVEX_SITE_ORIGIN=https://convex-site.example.com
 NEXT_PUBLIC_DEPLOYMENT_URL=https://convex-api.example.com
 
-# Local Docker Postgres is not TLS.
 CONVEX_DO_NOT_REQUIRE_SSL=1
 CONVEX_RUST_LOG=info
 
-# Optional direct ports.
 CONVEX_PORT=3210
 CONVEX_SITE_PROXY_PORT=3211
 CONVEX_DASHBOARD_PORT=6791
 ```
 
-- `POSTGRES_URL` must not include the database name.
-- `NEXT_PUBLIC_DEPLOYMENT_URL` must be browser-reachable.
-- Keep `CONVEX_INSTANCE_SECRET` private. Rotating it invalidates admin keys/sessions.
+`POSTGRES_URL` in the Compose stack deliberately omits a database name. Convex derives the configured database from the instance name. `NEXT_PUBLIC_DEPLOYMENT_URL` must be browser-reachable. Keep `CONVEX_INSTANCE_SECRET` private because rotating it invalidates admin keys and sessions.
 
-Generate the instance secret:
-
-```sh
-openssl rand -hex 32
-```
-
-## Docker Compose
-
-Use [projects/docker-compose.convex.yml](../projects/docker-compose.convex.yml).
-
-For reverse-proxy-only deployments, remove `ports` and attach services to the proxy network.
-
-| Public URL                     | Internal target  |
-| ------------------------------ | ---------------- |
-| `convex-api.example.com`       | `backend:3210`   |
-| `convex-site.example.com`      | `backend:3211`   |
-| `convex-dashboard.example.com` | `dashboard:6791` |
-
-## Start
-
-From `projects`:
+Start the optional stack from `projects`:
 
 ```sh
 docker compose -f docker-compose.convex.yml up -d
@@ -212,67 +204,30 @@ curl http://localhost:3210/version
 docker compose -f docker-compose.convex.yml exec backend ./generate_admin_key.sh
 ```
 
-Open `http://localhost:6791` and paste the admin key.
+Open the dashboard at the configured dashboard port and paste the generated admin key. Configure the NeonFlux `.env` connection URLs for this deployment, then use the same guarded auth/runtime configuration and deployment workflow described above.
 
-## Convex Project
+For reverse-proxy-only deployments, remove public Compose ports and attach the services to the proxy network:
 
-In the Convex functions project:
+| Public origin     | Internal target  |
+| ----------------- | ---------------- |
+| Convex API        | `backend:3210`   |
+| HTTP Actions/site | `backend:3211`   |
+| Convex dashboard  | `dashboard:6791` |
 
-```env
-CONVEX_SELF_HOSTED_URL=https://convex-api.example.com
-CONVEX_SELF_HOSTED_ADMIN_KEY=<generated admin key>
-```
+## Backup and upgrade
 
-Use pnpm:
-
-```sh
-pnpm add convex
-pnpm exec convex dev
-pnpm exec convex deploy --env-file .env.local
-```
-
-Use `convex dev` for development and `convex deploy` for production-style deployment.
-
-## Optional Storage
-
-Default storage is Docker volumes. For file-heavy production, use Convex S3-compatible storage env vars. Switching storage providers requires export/import.
-
-## Backup And Upgrade
-
-Before upgrading:
+Before upgrading a self-hosted deployment:
 
 ```sh
 pnpm exec convex export --path ./convex-backup.zip
 ```
 
-Upgrade flow:
+Then:
 
-1. Stop external traffic.
-2. Export data.
-3. Save Convex env vars from dashboard or `convex env list`.
-4. Upgrade backend and dashboard images together.
-5. Watch backend migration logs.
-6. Restore traffic.
+1. stop external traffic.
+2. export data and save Convex environment values.
+3. upgrade backend and dashboard images together.
+4. watch migration logs.
+5. restore traffic only after health checks pass.
 
-Pin a known Convex image version/revision for production. Do not stay on mutable `latest`.
-
-## Troubleshooting
-
-| Problem                      | Check                                                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `BadAdminKey`                | Key came from this backend, `INSTANCE_SECRET` did not change, dashboard and CLI use the same backend. |
-| Backend cannot find Postgres | `CONVEX_INSTANCE_NAME`, `CONVEX_POSTGRES_DB`, derived DB name, and `POSTGRES_URL` without DB name.    |
-| Dashboard cannot connect     | `NEXT_PUBLIC_DEPLOYMENT_URL` is browser-reachable and proxy forwards API traffic to `3210`.           |
-| HTTP actions fail            | Proxy forwards site/action traffic to `3211`. `CONVEX_SITE_ORIGIN` is the public site/action URL.     |
-| Slow queries                 | Keep Convex backend and Postgres in the same region and as close as possible.                         |
-
-## Self-Hosted Experiment Rule
-
-This self-hosted stack is optional infrastructure research. Do not use it to move NeonFlux app data without a new, explicit data-movement plan.
-
-For local or self-hosted experiments:
-
-1. Stand up Convex as an isolated side stack.
-2. Keep NeonFlux app data on the configured Convex runtime unless a new data-movement plan is approved.
-3. Do not create new Postgres-owned app domains or dual-write paths.
-4. Move any durable experiment data only after backup, restore, retention, deletion, and rollback are defined.
+Pin a known Convex revision in production. Moving durable data between hosted and self-hosted targets requires an explicit backup, restore, retention, deletion, and rollback plan.

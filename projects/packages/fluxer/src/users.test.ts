@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { getFluxerCurrentUser, type FluxerUsersFetch } from './users.js';
 
 describe('getFluxerCurrentUser', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('fetches the current user with the access token as a bearer token', async () => {
         let capturedInput: string | URL | undefined;
         let capturedInit: RequestInit | undefined;
@@ -24,6 +28,7 @@ describe('getFluxerCurrentUser', () => {
         expect(capturedInit?.headers).toStrictEqual({
             Authorization: 'Bearer access-token',
         });
+        expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('normalizes the current user response', async () => {
@@ -137,6 +142,26 @@ describe('getFluxerCurrentUser', () => {
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: networkError });
+    });
+
+    it('classifies the bounded request abort as a network error without retrying', async () => {
+        const abortController = new AbortController();
+        const abortError = new DOMException('The operation was aborted.', 'AbortError');
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(abortController.signal);
+        const testFetch = vi.fn<FluxerUsersFetch>((_input, init) => {
+            expect(init?.signal).toBe(abortController.signal);
+            abortController.abort(abortError);
+            return Promise.reject(abortError);
+        });
+
+        const result = await getFluxerCurrentUser({
+            accessToken: 'access-token',
+            fetch: testFetch,
+        });
+
+        expect(timeout).toHaveBeenCalledWith(10_000);
+        expect(testFetch).toHaveBeenCalledOnce();
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: abortError });
     });
 
     it('returns invalid-response for invalid JSON responses', async () => {

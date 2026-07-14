@@ -3,7 +3,7 @@ import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routeBotFeatureEvent } from './bot-feature-router.js';
-import type { BotFeatureHandlerContext } from './bot-feature-types.js';
+import type { BotFeatureHandlerContext, BotFeatureRoutingContext } from './bot-feature-types.js';
 import { recordObservedStructureEvent } from './bot-structure-observer.js';
 
 vi.mock('@neonflux/db', () => ({
@@ -116,9 +116,10 @@ describe('recordObservedStructureEvent', () => {
     });
 });
 
-function createContext(mode: BotFeatureHandlerContext['mode'] = { instanceMode: 'multi' }): BotFeatureHandlerContext {
+function createContext(mode: BotFeatureHandlerContext['mode'] = { instanceMode: 'multi' }): BotFeatureRoutingContext {
     return {
         db: testDb,
+        growthTelemetry: { enqueue: vi.fn(() => 'accepted' as const) },
         mode,
         appEnv: 'production',
         guildDefconOverride: 'auto',

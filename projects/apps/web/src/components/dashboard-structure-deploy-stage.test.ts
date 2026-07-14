@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportRun } from '../server/dashboard-structure-model.js';
 import {
     canStartNewBlueprintDeployment,
     getDashboardStructureDeployStage,

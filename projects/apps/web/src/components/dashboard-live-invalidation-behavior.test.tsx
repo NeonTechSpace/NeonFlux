@@ -6,7 +6,11 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
-import { getDashboardStructureQueryKey } from '../dashboard-query-keys.js';
+import {
+    getDashboardPostingOperationsQueryKey,
+    getDashboardPostingTemplatesQueryKey,
+    getDashboardStructureQueryKey,
+} from '../dashboard-query-keys.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 
 type LiveState = {
@@ -82,6 +86,33 @@ describe('dashboard live invalidation', () => {
 
         expect(invalidateQueries).toHaveBeenCalledExactlyOnceWith({
             queryKey: getDashboardStructureQueryKey('guild-1'),
+        });
+        view.unmount();
+    });
+
+    it('refreshes both posting reads once when a posting signal arrives', () => {
+        vi.stubEnv('VITE_CONVEX_URL', 'https://neonflux.convex.cloud');
+        const queryClient = new QueryClient();
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue();
+
+        const view = render(
+            <QueryClientProvider client={queryClient}>
+                <LiveInvalidationHarness areas={['posting']} />
+            </QueryClientProvider>
+        );
+
+        act(() => {
+            convexMock.publish([
+                { area: 'posting', guildId: 'guild-1', updatedAt: '2026-07-12T12:00:00.000Z', version: 1 },
+            ]);
+        });
+
+        expect(invalidateQueries).toHaveBeenCalledTimes(2);
+        expect(invalidateQueries).toHaveBeenCalledWith({
+            queryKey: getDashboardPostingTemplatesQueryKey('guild-1'),
+        });
+        expect(invalidateQueries).toHaveBeenCalledWith({
+            queryKey: getDashboardPostingOperationsQueryKey('guild-1'),
         });
         view.unmount();
     });

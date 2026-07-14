@@ -1,5 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
+import { createFluxerReadRequestSignal } from './request-policy.js';
+
 const FLUXER_OAUTH_USERINFO_URL = 'https://api.fluxer.app/v1/oauth2/userinfo';
 
 export type FluxerUsersFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -43,6 +45,7 @@ export async function getFluxerCurrentUser(
             headers: {
                 Authorization: `Bearer ${accessToken}`,
             },
+            signal: createFluxerReadRequestSignal(),
         });
     } catch (error) {
         return err({ type: 'network-error', error });

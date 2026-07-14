@@ -12,7 +12,6 @@ import {
 describe('DashboardDisplayControls', () => {
     afterEach(() => {
         useDashboardDisplayPreferences.setState({
-            desktopGuildSelectorOpen: false,
             fluidBlobsEnabled: true,
             guildSelectorSortByName: false,
             particlesEnabled: true,
@@ -61,7 +60,6 @@ describe('DashboardDisplayControls', () => {
             'neonflux-dashboard-display-preferences',
             JSON.stringify({
                 state: {
-                    desktopGuildSelectorOpen: true,
                     guildSelectorSortByName: true,
                     particlesEnabled: false,
                 },
@@ -72,7 +70,6 @@ describe('DashboardDisplayControls', () => {
         await useDashboardDisplayPreferences.persist.rehydrate();
 
         expect(useDashboardDisplayPreferences.getState()).toMatchObject({
-            desktopGuildSelectorOpen: true,
             guildSelectorSortByName: true,
             fluidBlobsEnabled: true,
             particlesEnabled: false,

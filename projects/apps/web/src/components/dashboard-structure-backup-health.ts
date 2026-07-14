@@ -1,7 +1,7 @@
 import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 
 const regularBackupSources = new Set(['manual', 'scheduled']);
 const overdueGraceMs = 2 * 60 * 60 * 1000;

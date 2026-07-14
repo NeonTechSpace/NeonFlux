@@ -6,21 +6,20 @@ import type { DashboardStructurePreflightReport } from '../server/dashboard-stru
 import type {
     DashboardStructureDriftPreviewAction,
     DashboardStructureImportAction,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
+import { readDashboardStructureExplorerEntityKey } from './dashboard-structure-explorer-snapshot.js';
+import type {
+    DashboardStructureExplorerEntityKey,
+    DashboardStructureExplorerSection,
+    DashboardStructureExplorerSnapshot,
+} from './dashboard-structure-explorer-snapshot.js';
 
-export type DashboardStructureExplorerSnapshot = {
-    version?: 1;
-    guildId?: string;
-    guildName?: string;
-    exportedAt?: string;
-    roles: FluxerGuildRole[];
-    categories: FluxerGuildChannel[];
-    channels: FluxerGuildChannel[];
-};
-
-export type DashboardStructureExplorerEntityKey = `role:${string}` | `category:${string}` | `channel:${string}`;
-
-export type DashboardStructureExplorerSection = 'channels' | 'roles';
+export { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-snapshot.js';
+export type {
+    DashboardStructureExplorerEntityKey,
+    DashboardStructureExplorerSection,
+    DashboardStructureExplorerSnapshot,
+} from './dashboard-structure-explorer-snapshot.js';
 
 type DashboardStructureExplorerBadge =
     | 'blocked'
@@ -94,45 +93,6 @@ const roots = {
 } as const;
 
 const channelTopLevelScope = 'channel-top-level';
-
-export function parseDashboardStructureExplorerSnapshot(value: string): DashboardStructureExplorerSnapshot | undefined {
-    try {
-        return normalizeDashboardStructureExplorerSnapshot(JSON.parse(value));
-    } catch {
-        return undefined;
-    }
-}
-
-function normalizeDashboardStructureExplorerSnapshot(value: unknown): DashboardStructureExplorerSnapshot | undefined {
-    if (!isObject(value)) return undefined;
-    if (!Array.isArray(value.roles) || !Array.isArray(value.categories) || !Array.isArray(value.channels)) {
-        return undefined;
-    }
-
-    const roles = value.roles.filter(isRole);
-    const categories = value.categories.filter(isChannel);
-    const channels = value.channels.filter(isChannel);
-
-    if (
-        roles.length !== value.roles.length ||
-        categories.length !== value.categories.length ||
-        channels.length !== value.channels.length
-    ) {
-        return undefined;
-    }
-
-    return {
-        version: 1,
-        ...(typeof value.guildId === 'string' && value.guildId.trim() ? { guildId: value.guildId.trim() } : {}),
-        ...(typeof value.guildName === 'string' && value.guildName.trim() ? { guildName: value.guildName.trim() } : {}),
-        ...(typeof value.exportedAt === 'string' && value.exportedAt.trim()
-            ? { exportedAt: value.exportedAt.trim() }
-            : {}),
-        roles,
-        categories,
-        channels,
-    };
-}
 
 export function toDashboardStructureExplorerActions(
     actions: Array<DashboardStructureDriftPreviewAction | DashboardStructureImportAction>,
@@ -270,22 +230,6 @@ export function buildDashboardStructureExplorerModel({
         preparedInput: prepareFileTreeInput(treePaths, { sort: createTreePathComparator(pathOrder) }),
         warnings,
     };
-}
-
-export function readDashboardStructureExplorerEntityKey(
-    action: Pick<DashboardStructureExplorerAction, 'targetId' | 'targetType'>
-): DashboardStructureExplorerEntityKey | undefined {
-    if (!action.targetId) return undefined;
-    if (action.targetType !== 'role' && action.targetType !== 'category' && action.targetType !== 'channel')
-        return undefined;
-
-    return entityKey(action.targetType, action.targetId);
-}
-
-export function readDashboardStructureExplorerSection(
-    key: DashboardStructureExplorerEntityKey
-): DashboardStructureExplorerSection {
-    return key.startsWith('role:') ? 'roles' : 'channels';
 }
 
 function sectionForTargetType(targetType: string): DashboardStructureExplorerSection {

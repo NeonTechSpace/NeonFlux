@@ -305,6 +305,47 @@ export function DashboardCommandPrefixSettingsPanel({
     );
 }
 
+export function DashboardCommandPrefixLoadingPanel() {
+    return (
+        <DashboardSurface as='section' aria-label='Command prefix setting' aria-busy='true'>
+            <DashboardToolbar>
+                <div>
+                    <p className='text-xs font-semibold tracking-wide text-[var(--dash-text-subtle)] uppercase'>
+                        Current prefix
+                    </p>
+                    <p role='status' className='mt-1 text-sm text-[var(--dash-text-muted)]'>
+                        Loading current prefix…
+                    </p>
+                </div>
+            </DashboardToolbar>
+
+            <div className='mt-4 flex flex-col gap-3'>
+                <label className='space-y-2 text-sm font-semibold text-[var(--dash-text)]'>
+                    <span>New prefix</span>
+                    <input
+                        disabled
+                        value=''
+                        readOnly
+                        className={`${dashboardFieldClassName} text-base`}
+                        aria-describedby='command-prefix-loading-help'
+                    />
+                </label>
+                <p id='command-prefix-loading-help' className='text-xs leading-5 text-[var(--dash-text-muted)]'>
+                    Start with an allowed symbol, then use up to two more letters, numbers, or symbols.
+                </p>
+                <div className='flex flex-wrap items-center gap-3'>
+                    <button
+                        type='button'
+                        disabled
+                        className={`${dashboardPrimaryActionClassName} inline-flex items-center`}>
+                        Save prefix
+                    </button>
+                </div>
+            </div>
+        </DashboardSurface>
+    );
+}
+
 function getPrefixMessageTone(type: 'error' | 'success' | 'warning'): 'danger' | 'success' | 'warning' {
     switch (type) {
         case 'error':

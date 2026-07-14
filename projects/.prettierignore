@@ -17,5 +17,4 @@
 docker-compose.yml
 apps/web/src/routeTree.gen.ts
 convex/_generated
-packages/db/drizzle
 pnpm-lock.yaml

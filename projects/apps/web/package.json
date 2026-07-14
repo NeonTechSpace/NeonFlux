@@ -8,7 +8,7 @@
     "scripts": {
         "dev": "vite dev --port 3000",
         "generate-routes": "tsr generate",
-        "build": "vite build",
+        "build": "vite build && node ../../scripts/check-dashboard-bundle-boundaries.mjs --assets .output/public/assets",
         "start": "node ../../scripts/start-web.mjs",
         "preview": "vite preview",
         "e2e:public": "playwright test --config playwright.config.ts",

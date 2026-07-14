@@ -1,19 +1,16 @@
-import { loadWebConfig } from '@neonflux/config';
-import type { WebConfig } from '@neonflux/config';
 import {
     enqueueDashboardPostingOperation,
     listBotActionEventPageByGuildId,
     listDashboardPostingOperationsByGuild,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
-import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
-import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import {
     loadDashboardGuildAuditEventsPage,
     loadDashboardGuildPostingChannels,
@@ -51,10 +48,6 @@ vi.mock('./fluxer-auth-context.server.js', () => ({
     readAuthenticatedFluxerContext: vi.fn(),
 }));
 
-vi.mock('@neonflux/config', () => ({
-    loadWebConfig: vi.fn(),
-}));
-
 vi.mock('@neonflux/db', async (importActual) => {
     const actual = await importActual<typeof NeonFluxDb>();
 
@@ -66,14 +59,9 @@ vi.mock('@neonflux/db', async (importActual) => {
     };
 });
 
-vi.mock('@neonflux/fluxer/guild-structure', async (importActual) => {
-    const actual = await importActual<typeof FluxerGuildStructure>();
-
-    return {
-        ...actual,
-        readFluxerBotGuildStructure: vi.fn(),
-    };
-});
+vi.mock('./bot-read-client.server.js', () => ({
+    readDashboardBotGuildStructure: vi.fn(),
+}));
 
 vi.mock('@neonflux/fluxer/users', async (importActual) => {
     const actual = await importActual<typeof FluxerUsers>();
@@ -86,7 +74,6 @@ vi.mock('@neonflux/fluxer/users', async (importActual) => {
 
 describe('dashboard posting', () => {
     beforeEach(() => {
-        vi.mocked(loadWebConfig).mockReturnValue(createWebConfig());
         vi.mocked(loadDashboardGuildPageData).mockResolvedValue({
             type: 'guild',
             mode: 'multi',
@@ -114,7 +101,7 @@ describe('dashboard posting', () => {
                 avatar: null,
             })
         );
-        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
+        vi.mocked(readDashboardBotGuildStructure).mockResolvedValue(
             ok({
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -448,40 +435,25 @@ describe('dashboard posting', () => {
                 },
             ],
         });
-        expect(readFluxerBotGuildStructure).toHaveBeenCalledWith({
-            botToken: 'bot-token',
-            guildId: 'authorized-guild',
-        });
+        expect(readDashboardBotGuildStructure).toHaveBeenCalledWith('authorized-guild');
     });
 
-    it('requires the bot token before loading posting channels', async () => {
-        vi.mocked(loadWebConfig).mockReturnValueOnce(createWebConfig({ fluxerBotToken: undefined }));
+    it('reports an unavailable bot read service before loading posting channels', async () => {
+        vi.mocked(readDashboardBotGuildStructure).mockResolvedValueOnce(err('not-configured'));
 
         const result = await loadDashboardGuildPostingChannels(request, 'guild-1');
 
         expect(result).toStrictEqual({ type: 'bot-token-missing' });
-        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
     });
 
     it('maps channel lookup failures without leaking Fluxer errors', async () => {
-        vi.mocked(readFluxerBotGuildStructure).mockResolvedValueOnce(err({ type: 'login-failed', error: 'bad-token' }));
+        vi.mocked(readDashboardBotGuildStructure).mockResolvedValueOnce(err('read-failed'));
 
         const result = await loadDashboardGuildPostingChannels(request, 'guild-1');
 
         expect(result).toStrictEqual({ type: 'guild-lookup-failed' });
     });
 });
-
-function createWebConfig(overrides: Partial<WebConfig> = {}): WebConfig {
-    return {
-        appEnv: 'production',
-        guildDefconOverride: 'auto',
-        logLevel: 'info',
-        nodeEnv: 'test',
-        fluxerBotToken: 'bot-token',
-        ...overrides,
-    };
-}
 
 function createPostingOperationRecord(overrides: { status?: 'queued' | 'sent' } = {}) {
     return {

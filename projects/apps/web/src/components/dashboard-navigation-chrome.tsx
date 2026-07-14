@@ -200,7 +200,7 @@ export function NavigationLoadingIndicator({ compact = false }: { compact?: bool
                     ? 'size-2 shrink-0 animate-pulse rounded-full bg-[var(--dash-primary)]'
                     : 'mb-2 hidden min-h-8 items-center justify-center rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] px-2 text-xs font-semibold text-[var(--dash-text-muted)] lg:flex'
             }>
-            {compact ? <span className='sr-only'>Loading server settings</span> : 'Loading settings'}
+            {compact ? <span className='sr-only'>Loading page</span> : 'Loading page'}
         </span>
     );
 }

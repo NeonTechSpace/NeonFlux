@@ -69,4 +69,5 @@ export const structureImportExecutionsTable = defineTable({
     .index('by_status_retry', ['status', 'retryAt'])
     .index('by_status_protocol_retry', ['status', 'protocolVersion', 'retryAt'])
     .index('by_guild_status', ['guildId', 'status'])
+    .index('by_run_status', ['runId', 'status'])
     .index('by_run_created', ['runId', 'createdAt']);

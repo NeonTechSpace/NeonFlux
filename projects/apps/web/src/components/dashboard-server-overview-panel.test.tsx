@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -63,6 +63,28 @@ describe('DashboardServerOverviewPanel', () => {
         expect(screen.queryByRole('heading', { name: 'No message activity yet' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Common tasks' })).toBeNull();
         expect(screen.queryByRole('region', { name: '30-day activity summary' })).toBeNull();
+    });
+
+    it('shows a busy, single-attempt retry without hiding the scoped error', async () => {
+        vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValueOnce({ type: 'database-error' });
+        let resolveRetry: ((value: { type: 'database-error' }) => void) | undefined;
+        vi.mocked(readDashboardGuildOverviewRouteData).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveRetry = resolve;
+                })
+        );
+
+        renderOverview();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry overview' }));
+        const retrying = await screen.findByRole<HTMLButtonElement>('button', { name: 'Retrying…' });
+
+        expect(retrying.disabled).toBe(true);
+        expect(retrying.getAttribute('aria-busy')).toBe('true');
+        expect(readDashboardGuildOverviewRouteData).toHaveBeenCalledTimes(2);
+
+        resolveRetry?.({ type: 'database-error' });
     });
 });
 

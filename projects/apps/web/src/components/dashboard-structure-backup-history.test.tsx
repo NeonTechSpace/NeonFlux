@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureBackupSummary } from '../server/dashboard-structure-model.js';
 import { DashboardStructureBackupHistory } from './dashboard-structure-backup-history.js';
 
 const backup: DashboardStructureBackupSummary = {

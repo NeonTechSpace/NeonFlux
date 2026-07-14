@@ -10,24 +10,14 @@ import {
 import { readFluxerGuildInvites, type FluxerGuildInvite } from '@neonflux/fluxer';
 import { err, ok, type Result } from 'neverthrow';
 
-import type { BotFeatureHandlerContext, BotMessageCreatedEvent } from './bot-feature-types.js';
+import type { BotFeatureHandlerContext, BotGrowthTelemetryEvent } from './bot-feature-types.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
-type BotMemberJoinedEvent = {
-    type: 'member.joined';
-    guildId: string;
-    userId: string;
-    roleIds: readonly string[];
+type BotGrowthTrackingEvent = BotGrowthTelemetryEvent;
+
+type BotGrowthTrackingOptions = {
+    signal?: AbortSignal;
 };
-
-type BotMemberLeftEvent = Omit<BotMemberJoinedEvent, 'type'> & {
-    type: 'member.left';
-};
-
-export type BotGrowthMemberEvent = BotMemberJoinedEvent | BotMemberLeftEvent;
-
-type BotGrowthTrackingEvent = BotMessageCreatedEvent | BotGrowthMemberEvent;
-const guildInviteTrackingTails = new Map<string, Promise<void>>();
 
 export type BotGrowthTrackingResult =
     | { status: 'tracked' }
@@ -35,45 +25,55 @@ export type BotGrowthTrackingResult =
 
 export async function trackGrowthOverviewEvent(
     context: BotFeatureHandlerContext,
-    event: BotGrowthTrackingEvent
+    event: BotGrowthTrackingEvent,
+    options: BotGrowthTrackingOptions = {}
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
+    options.signal?.throwIfAborted();
     if (!shouldProcessBotGuildEvent(context.mode, { guildId: event.guildId })) {
         return ok({ status: 'ignored', reason: 'guild-not-processable' });
     }
 
     switch (event.type) {
         case 'message.created':
-            return trackMessageActivity(context, event);
+            return trackMessageActivity(context, event, options);
 
         case 'member.joined':
-            return serializeGuildInviteTracking(event.guildId, () => trackMemberJoin(context, event));
+            return trackMemberJoin(context, event, options);
 
         case 'member.left':
-            return trackMemberLeave(context, event);
+            return trackMemberLeave(context, event, options);
     }
 }
 
 async function trackMessageActivity(
     context: BotFeatureHandlerContext,
-    event: BotMessageCreatedEvent
+    event: Extract<BotGrowthTelemetryEvent, { type: 'message.created' }>,
+    options: BotGrowthTrackingOptions
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
     if (event.authorIsBot || !event.guildId) {
         return ok({ status: 'ignored', reason: event.authorIsBot ? 'bot-authored-message' : 'guild-not-processable' });
     }
 
-    const result = await recordGuildMessageActivity(context.db, {
+    const input = {
         guildId: event.guildId,
         messageId: event.messageId,
-    });
+        occurredAt: event.occurredAt,
+    };
+    const result = options.signal
+        ? await recordGuildMessageActivity(context.db, input, { signal: options.signal })
+        : await recordGuildMessageActivity(context.db, input);
 
     return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
 }
 
 async function trackMemberJoin(
     context: BotFeatureHandlerContext,
-    event: Extract<BotGrowthMemberEvent, { type: 'member.joined' }>
+    event: Extract<BotGrowthTelemetryEvent, { type: 'member.joined' }>,
+    options: BotGrowthTrackingOptions
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
-    const previousSnapshotsResult = await listGuildInviteSnapshots(context.db, { guildId: event.guildId });
+    const previousSnapshotsResult = options.signal
+        ? await listGuildInviteSnapshots(context.db, { guildId: event.guildId }, { signal: options.signal })
+        : await listGuildInviteSnapshots(context.db, { guildId: event.guildId });
 
     if (previousSnapshotsResult.isErr()) {
         return err('database-error');
@@ -83,23 +83,28 @@ async function trackMemberJoin(
         client: context.client,
         guildId: event.guildId,
     });
+    options.signal?.throwIfAborted();
 
     if (inviteReadResult.isErr()) {
-        return recordJoin(context, event, { attributionStatus: 'unavailable' });
+        return recordJoin(context, event, { attributionStatus: 'unavailable' }, options);
     }
 
     const currentInvites = inviteReadResult.value;
     const attribution = attributeInviteUsage(previousSnapshotsResult.value, currentInvites);
-    const recordResult = await recordGuildMemberJoinWithInviteSnapshots(context.db, {
+    const input = {
         ...attribution,
         guildId: event.guildId,
         invites: currentInvites.map(toInviteSnapshotInput),
+        membershipStartedAt: event.membershipStartedAt,
         userId: event.userId,
-    });
+    };
+    const recordResult = options.signal
+        ? await recordGuildMemberJoinWithInviteSnapshots(context.db, input, { signal: options.signal })
+        : await recordGuildMemberJoinWithInviteSnapshots(context.db, input);
 
     if (recordResult.isErr()) {
         if (recordResult.error.type === 'database-error') return err('database-error');
-        return recordJoin(context, event, { attributionStatus: 'unavailable' });
+        return recordJoin(context, event, { attributionStatus: 'unavailable' }, options);
     }
 
     return ok({ status: 'tracked' });
@@ -107,14 +112,18 @@ async function trackMemberJoin(
 
 async function trackMemberLeave(
     context: BotFeatureHandlerContext,
-    event: Extract<BotGrowthMemberEvent, { type: 'member.left' }>
+    event: Extract<BotGrowthTelemetryEvent, { type: 'member.left' }>,
+    options: BotGrowthTrackingOptions
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
-    const result = await recordGuildMemberFlowEvent(context.db, {
+    const input = {
         guildId: event.guildId,
         userId: event.userId,
         eventType: 'leave',
         attributionStatus: 'not-applicable',
-    });
+    } as const;
+    const result = options.signal
+        ? await recordGuildMemberFlowEvent(context.db, input, { signal: options.signal })
+        : await recordGuildMemberFlowEvent(context.db, input);
 
     return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
 }
@@ -157,39 +166,29 @@ function attributeInviteUsage(
     return { attributionStatus: 'unavailable' };
 }
 
-async function serializeGuildInviteTracking<T>(guildId: string, operation: () => Promise<T>): Promise<T> {
-    const previous = guildInviteTrackingTails.get(guildId) ?? Promise.resolve();
-    const queued = previous.catch(() => undefined).then(operation);
-    const tail = queued.then(
-        () => undefined,
-        () => undefined
-    );
-    guildInviteTrackingTails.set(guildId, tail);
-
-    try {
-        return await queued;
-    } finally {
-        if (guildInviteTrackingTails.get(guildId) === tail) guildInviteTrackingTails.delete(guildId);
-    }
-}
-
 async function recordJoin(
     context: BotFeatureHandlerContext,
-    event: Extract<BotGrowthMemberEvent, { type: 'member.joined' }>,
+    event: Extract<BotGrowthTelemetryEvent, { type: 'member.joined' }>,
     attribution: {
         attributionStatus: GuildInviteAttributionStatus;
         inviteCode?: string;
         inviterUserId?: string;
-    }
+    },
+    options: BotGrowthTrackingOptions
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
-    const result = await recordGuildMemberFlowEvent(context.db, {
+    const input = {
         guildId: event.guildId,
         userId: event.userId,
         eventType: 'join',
         attributionStatus: attribution.attributionStatus,
+        membershipStartedAt: event.membershipStartedAt,
+        occurredAt: event.membershipStartedAt,
         ...(attribution.inviteCode ? { inviteCode: attribution.inviteCode } : {}),
         ...(attribution.inviterUserId ? { inviterUserId: attribution.inviterUserId } : {}),
-    });
+    } as const;
+    const result = options.signal
+        ? await recordGuildMemberFlowEvent(context.db, input, { signal: options.signal })
+        : await recordGuildMemberFlowEvent(context.db, input);
 
     return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
 }

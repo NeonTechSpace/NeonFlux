@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { type } from 'arktype';
-import { config as loadDotEnv, parse as parseDotEnv } from 'dotenv';
+import { parse as parseDotEnv } from 'dotenv';
 
 const appEnv = type("'development' | 'production'");
 const instanceMode = type("'single' | 'multi'");
@@ -31,6 +31,9 @@ const rawEnv = type({
     'NEONFLUX_BOT_AUTH_JWT_ISSUER?': 'string',
     'NEONFLUX_BOT_AUTH_JWT_JWKS?': 'string',
     'NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY?': 'string',
+    'NEONFLUX_BOT_READ_HOST?': 'string',
+    'NEONFLUX_BOT_READ_PORT?': 'string',
+    'NEONFLUX_BOT_READ_URL?': 'string',
     'NEONFLUX_USER_AUTH_JWT_AUDIENCE?': 'string',
     'NEONFLUX_USER_AUTH_JWT_ISSUER?': 'string',
     'NEONFLUX_USER_AUTH_JWT_JWKS?': 'string',
@@ -102,6 +105,8 @@ export type RuntimeConfig = {
 
 export type BotConfig = RuntimeConfig &
     AppMode & {
+        botReadHost: string;
+        botReadPort: number;
         fluxerBotCustomStatusText?: string;
         fluxerBotToken?: string;
         publicWebUrl?: string;
@@ -109,9 +114,9 @@ export type BotConfig = RuntimeConfig &
     };
 
 export type WebConfig = RuntimeConfig & {
+    botReadUrl?: string;
     fluxerAppId?: string;
     fluxerBotInviteUrl?: string;
-    fluxerBotToken?: string;
     fluxerClientSecret?: string;
     fluxerOauthRedirectUrl?: string;
     fluxerTokenEncryptionKey?: string;
@@ -125,8 +130,12 @@ type ParsedEnv = typeof rawEnv.infer;
 let loadedDotEnvPath: string | undefined;
 
 export function loadLocalEnv(startDir = process.cwd()): string | undefined {
+    return loadLocalEnvWithExclusions(startDir, new Set());
+}
+
+function loadLocalEnvWithExclusions(startDir: string, excludedKeys: ReadonlySet<string>): string | undefined {
     if (loadedDotEnvPath) {
-        loadLocalDotEnvFile(loadedDotEnvPath);
+        loadLocalDotEnvFile(loadedDotEnvPath, excludedKeys);
         return loadedDotEnvPath;
     }
 
@@ -137,7 +146,7 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
         const candidate = join(currentDir, '.env');
 
         if (existsSync(candidate)) {
-            loadLocalDotEnvFile(candidate);
+            loadLocalDotEnvFile(candidate, excludedKeys);
             loadedDotEnvPath = candidate;
             return candidate;
         }
@@ -149,11 +158,11 @@ export function loadLocalEnv(startDir = process.cwd()): string | undefined {
     return undefined;
 }
 
-function loadLocalDotEnvFile(path: string): void {
-    const result = loadDotEnv({ path, override: false, quiet: true });
-    const parsed = result.parsed ?? parseDotEnv(readFileSync(path));
+function loadLocalDotEnvFile(path: string, excludedKeys: ReadonlySet<string>): void {
+    const parsed = parseDotEnv(readFileSync(path));
 
     for (const [key, value] of Object.entries(parsed)) {
+        if (excludedKeys.has(key)) continue;
         const currentValue = process.env[key];
 
         if (currentValue === undefined) {
@@ -199,9 +208,15 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     const fluxerBotCustomStatusText = optionalValue(parsed.FLUXER_BOT_CUSTOM_STATUS);
     const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
+    const botReadHost =
+        optionalValue(parsed.NEONFLUX_BOT_READ_HOST) ??
+        (runtimeConfig.appEnv === 'production' ? '0.0.0.0' : '127.0.0.1');
+    const botReadPort = parsePort(parsed.NEONFLUX_BOT_READ_PORT, 'NEONFLUX_BOT_READ_PORT', 3001);
 
     const botBaseConfig = {
         ...runtimeConfig,
+        botReadHost,
+        botReadPort,
         ...(fluxerBotCustomStatusText ? { fluxerBotCustomStatusText } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(publicWebUrl ? { publicWebUrl } : {}),
@@ -229,11 +244,13 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
 }
 
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
-    const parsed = parseEnv(env);
+    const parsed = parseWebEnv(env);
     const runtimeConfig = createRuntimeConfig(parsed);
+    const configuredBotReadUrl = optionalHttpOrigin(parsed.NEONFLUX_BOT_READ_URL, 'NEONFLUX_BOT_READ_URL');
+    const botReadUrl =
+        configuredBotReadUrl ?? (runtimeConfig.appEnv === 'development' ? 'http://127.0.0.1:3001' : undefined);
     const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
     const fluxerBotInviteUrl = optionalHttpUrl(parsed.FLUXER_BOT_INVITE_URL, 'FLUXER_BOT_INVITE_URL');
-    const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
     const fluxerOauthRedirectUrl = optionalValue(parsed.FLUXER_OAUTH_REDIRECT_URL);
     const fluxerTokenEncryptionKey = optionalValue(parsed.FLUXER_TOKEN_ENCRYPTION_KEY);
@@ -241,9 +258,9 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
 
     return {
         ...runtimeConfig,
+        ...(botReadUrl ? { botReadUrl } : {}),
         ...(fluxerAppId ? { fluxerAppId } : {}),
         ...(fluxerBotInviteUrl ? { fluxerBotInviteUrl } : {}),
-        ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),
         ...(fluxerOauthRedirectUrl ? { fluxerOauthRedirectUrl } : {}),
         ...(fluxerTokenEncryptionKey ? { fluxerTokenEncryptionKey } : {}),
@@ -260,6 +277,21 @@ function parseEnv(env: NodeJS.ProcessEnv): ParsedEnv {
         loadLocalEnv();
     }
 
+    return parseRawEnv(env);
+}
+
+function parseWebEnv(env: NodeJS.ProcessEnv): ParsedEnv {
+    const webEnv = env === process.env ? process.env : { ...env };
+    Reflect.deleteProperty(webEnv, 'FLUXER_BOT_TOKEN');
+
+    if (env === process.env && shouldAutoLoadLocalEnv(env)) {
+        loadLocalEnvWithExclusions(process.cwd(), new Set(['FLUXER_BOT_TOKEN']));
+    }
+
+    return parseRawEnv(webEnv);
+}
+
+function parseRawEnv(env: NodeJS.ProcessEnv): ParsedEnv {
     const parsed = rawEnv(env);
 
     if (parsed instanceof type.errors) {
@@ -490,6 +522,10 @@ function isBase64UrlString(value: unknown): value is string {
 }
 
 function optionalPublicWebUrl(value: string | undefined): string | undefined {
+    return optionalHttpOrigin(value, 'PUBLIC_WEB_URL');
+}
+
+function optionalHttpOrigin(value: string | undefined, name: string): string | undefined {
     const normalizedValue = optionalValue(value);
 
     if (!normalizedValue) {
@@ -501,11 +537,11 @@ function optionalPublicWebUrl(value: string | undefined): string | undefined {
     try {
         url = new URL(normalizedValue);
     } catch {
-        throw new Error('PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin');
+        throw new Error(`${name} must be a valid HTTP or HTTPS origin`);
     }
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-        throw new Error('PUBLIC_WEB_URL must be a valid HTTP or HTTPS origin');
+        throw new Error(`${name} must be a valid HTTP or HTTPS origin`);
     }
 
     if (
@@ -515,10 +551,24 @@ function optionalPublicWebUrl(value: string | undefined): string | undefined {
         url.username.length > 0 ||
         url.password.length > 0
     ) {
-        throw new Error('PUBLIC_WEB_URL must be an origin without path, query, hash, or credentials');
+        throw new Error(`${name} must be an origin without path, query, hash, or credentials`);
     }
 
     return url.origin;
+}
+
+function parsePort(value: string | undefined, name: string, defaultValue: number): number {
+    const normalizedValue = optionalValue(value);
+
+    if (!normalizedValue) return defaultValue;
+
+    const port = Number(normalizedValue);
+
+    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+        throw new Error(`${name} must be an integer between 1 and 65535`);
+    }
+
+    return port;
 }
 
 function requireEnvValue(value: string | undefined, name: string): asserts value is string {

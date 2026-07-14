@@ -12,10 +12,13 @@ import {
 import {
     routeBotFeatureEvent,
     type BotFeatureEvent,
-    type BotFeatureHandlerContext,
+    type BotFeatureRoutingContext,
     type BotFeatureRouteError,
     type BotFeatureRouteResult,
 } from './bot-feature-router.js';
+import { createBotGrowthTelemetryIngestor } from './bot-growth-telemetry-ingestor.js';
+import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
+import { startBotReadServer, type BotReadServer } from './bot-read-server.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
@@ -37,11 +40,13 @@ const INSTALLATION_REPAIR_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
     let bot: FluxerBot | undefined;
+    let botReadServer: BotReadServer | undefined;
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
     let structureImportWorker: { stop(): Promise<void> } | undefined;
+    let growthTelemetry: ReturnType<typeof createBotGrowthTelemetryIngestor> | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
         if (databaseClosed) {
@@ -66,10 +71,14 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
             logger.info('deployment.config', { instanceMode: deploymentMode.instanceMode });
             const customStatusText = resolveBotCustomStatusText(config);
+            const botReadAuth = config.fluxerBotToken ? requireBotReadAuthConfig(config) : undefined;
 
-            const createFeatureHandlerContext = (): BotFeatureHandlerContext => {
+            const createFeatureHandlerContext = (): BotFeatureRoutingContext => {
                 if (!bot) {
                     throw new Error('Fluxer bot is not initialized');
+                }
+                if (!growthTelemetry) {
+                    throw new Error('Growth telemetry is not initialized');
                 }
 
                 const botUserId = bot.client.user?.id;
@@ -81,6 +90,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     guildDefconOverride: config.guildDefconOverride,
                     client: bot.client,
                     logger,
+                    growthTelemetry,
                     ...(botUserId ? { botUserId } : {}),
                 };
             };
@@ -94,6 +104,11 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
                 logFeatureRouteResult(config, logger, result.value, featureEvent);
             };
+
+            growthTelemetry = createBotGrowthTelemetryIngestor({
+                logger,
+                process: (event, signal) => trackGrowthOverviewEvent(createFeatureHandlerContext(), event, { signal }),
+            });
 
             bot = createFluxerBot(
                 {
@@ -171,6 +186,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             guildId: event.guildId,
                             userId: event.userId,
                             roleIds: event.roleIds,
+                            joinedAt: event.joinedAt,
                         });
                     },
                     async memberUpdated(event) {
@@ -267,7 +283,15 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 return false;
             }
 
-            if (config.fluxerBotToken) {
+            if (config.fluxerBotToken && botReadAuth) {
+                botReadServer = await startBotReadServer({
+                    bot,
+                    host: config.botReadHost,
+                    logger,
+                    port: config.botReadPort,
+                    webAuthJwtIssuer: botReadAuth.issuer,
+                    webAuthJwtJwks: botReadAuth.jwks,
+                });
                 installationRepairScheduler = startInstallationRepairScheduler({
                     bot,
                     database,
@@ -294,14 +318,26 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
         },
         async stop() {
             bot?.stopIntake();
+            await botReadServer?.stop();
             await installationRepairScheduler?.stop();
             await postingScheduler?.stop();
             await structureBackupScheduler?.stop();
             await structureImportWorker?.stop();
+            await growthTelemetry?.stop();
             await bot?.stop();
             await closeDatabaseOnce();
         },
     };
+}
+
+function requireBotReadAuthConfig(config: AppConfig): { issuer: string; jwks: string } {
+    const issuer = config.convex?.webAuthJwtIssuer;
+    const jwks = config.convex?.webAuthJwtJwks;
+
+    if (!issuer) throw new Error('NEONFLUX_WEB_AUTH_JWT_ISSUER is required for the bot read server.');
+    if (!jwks) throw new Error('NEONFLUX_WEB_AUTH_JWT_JWKS is required for the bot read server.');
+
+    return { issuer, jwks };
 }
 
 function startInstallationRepairScheduler(input: {
@@ -339,6 +375,7 @@ function startInstallationRepairScheduler(input: {
 function toMessageFeatureFields(event: FluxerBotMessageEvent | FluxerBotMessageUpdatedEvent) {
     return {
         messageId: event.messageId,
+        createdAt: event.createdAt,
         channelId: event.channelId,
         guildId: event.guildId,
         authorId: event.authorId,

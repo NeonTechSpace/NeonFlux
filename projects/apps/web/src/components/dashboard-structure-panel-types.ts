@@ -1,9 +1,9 @@
-import type { DashboardStructureExplorerComparisonTarget } from './dashboard-structure-explorer.js';
+import type { DashboardStructureExplorerComparisonTarget } from './dashboard-structure-explorer-types.js';
 import type {
     DashboardStructureBackupSummary,
     DashboardStructureDriftResult,
     DashboardStructureImportAction,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import type { DashboardStructurePreflightReport } from '../server/dashboard-structure-preflight.js';
 
 export type PanelStatus = {

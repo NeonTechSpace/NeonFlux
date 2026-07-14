@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { listFluxerCurrentUserGuilds, type FluxerGuildsFetch } from './guilds.js';
 
 describe('listFluxerCurrentUserGuilds', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('fetches current user guilds with the access token as a bearer token', async () => {
         let capturedInput: string | URL | undefined;
         let capturedInit: RequestInit | undefined;
@@ -24,6 +28,7 @@ describe('listFluxerCurrentUserGuilds', () => {
         expect(capturedInit?.headers).toStrictEqual({
             Authorization: 'Bearer access-token',
         });
+        expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('includes supported query parameters when provided', async () => {
@@ -161,6 +166,26 @@ describe('listFluxerCurrentUserGuilds', () => {
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: networkError });
+    });
+
+    it('classifies the bounded request abort as a network error without retrying', async () => {
+        const abortController = new AbortController();
+        const abortError = new DOMException('The operation was aborted.', 'AbortError');
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(abortController.signal);
+        const testFetch = vi.fn<FluxerGuildsFetch>((_input, init) => {
+            expect(init?.signal).toBe(abortController.signal);
+            abortController.abort(abortError);
+            return Promise.reject(abortError);
+        });
+
+        const result = await listFluxerCurrentUserGuilds({
+            accessToken: 'access-token',
+            fetch: testFetch,
+        });
+
+        expect(timeout).toHaveBeenCalledWith(10_000);
+        expect(testFetch).toHaveBeenCalledOnce();
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'network-error', error: abortError });
     });
 
     it('returns invalid-response for invalid JSON responses', async () => {

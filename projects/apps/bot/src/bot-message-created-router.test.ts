@@ -1,23 +1,43 @@
-import { recordGuildMessageActivity } from '@neonflux/db';
-import { err } from 'neverthrow';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { BotFeatureHandlerContext, BotMessageCreatedEvent } from './bot-feature-types.js';
+import type { BotFeatureRoutingContext, BotMessageCreatedEvent } from './bot-feature-types.js';
 import { routeMessageCreatedEvent } from './bot-message-created-router.js';
 
-vi.mock('@neonflux/db', () => ({ recordGuildMessageActivity: vi.fn() }));
-
 describe('message-created growth observability', () => {
-    const logger = { warn: vi.fn() };
-    const context: BotFeatureHandlerContext = {
+    it('does not block normal routing when telemetry is saturated', async () => {
+        const enqueue = vi.fn(() => 'overloaded' as const);
+        const result = await routeMessageCreatedEvent(createContext(enqueue), createEvent());
+
+        expect(result._unsafeUnwrap()).toEqual({
+            eventType: 'message.created',
+            reason: 'bot-user-unavailable',
+            status: 'ignored',
+        });
+        expect(enqueue).toHaveBeenCalledWith({
+            authorIsBot: false,
+            guildId: 'guild-1',
+            messageId: 'private-message',
+            occurredAt: new Date('2026-07-14T01:02:03.000Z'),
+            type: 'message.created',
+        });
+        expect(JSON.stringify(enqueue.mock.calls)).not.toContain('private message content');
+    });
+});
+
+function createContext(enqueue: BotFeatureRoutingContext['growthTelemetry']['enqueue']): BotFeatureRoutingContext {
+    return {
         appEnv: 'production',
-        client: {} as BotFeatureHandlerContext['client'],
-        db: {} as BotFeatureHandlerContext['db'],
+        client: {} as BotFeatureRoutingContext['client'],
+        db: {} as BotFeatureRoutingContext['db'],
+        growthTelemetry: { enqueue },
         guildDefconOverride: 'auto',
-        logger,
+        logger: { warn: vi.fn() },
         mode: { instanceMode: 'multi' },
     };
-    const event: BotMessageCreatedEvent = {
+}
+
+function createEvent(): BotMessageCreatedEvent {
+    return {
         authorHasManageServer: false,
         authorId: 'private-author',
         authorIsBot: false,
@@ -25,50 +45,10 @@ describe('message-created growth observability', () => {
         authorRoleIds: ['private-role'],
         channelId: 'private-channel',
         content: 'private message content',
+        createdAt: new Date('2026-07-14T01:02:03.000Z'),
         guildId: 'guild-1',
         mentionedUserIds: [],
         messageId: 'private-message',
         type: 'message.created',
     };
-
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
-    it('warns on a recoverable growth database error and still routes the message', async () => {
-        vi.mocked(recordGuildMessageActivity).mockResolvedValue(err({ type: 'database-error' }));
-
-        const result = await routeMessageCreatedEvent(context, event);
-
-        expect(result._unsafeUnwrap()).toEqual({
-            eventType: 'message.created',
-            reason: 'bot-user-unavailable',
-            status: 'ignored',
-        });
-        expect(logger.warn).toHaveBeenCalledExactlyOnceWith('bot.growth_tracking_failed', {
-            error: 'database-error',
-            eventType: 'message.created',
-            guildId: 'guild-1',
-        });
-    });
-
-    it('normalizes a thrown database-boundary failure without logging its cause and still routes the message', async () => {
-        vi.mocked(recordGuildMessageActivity).mockRejectedValue(
-            new Error('private message content private-author private-message')
-        );
-
-        const result = await routeMessageCreatedEvent(context, event);
-
-        expect(result._unsafeUnwrap()).toEqual({
-            eventType: 'message.created',
-            reason: 'bot-user-unavailable',
-            status: 'ignored',
-        });
-        expect(logger.warn).toHaveBeenCalledExactlyOnceWith('bot.growth_tracking_failed', {
-            error: 'unexpected-error',
-            eventType: 'message.created',
-            guildId: 'guild-1',
-        });
-        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('private');
-    });
-});
+}

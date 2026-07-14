@@ -5,7 +5,7 @@
     "type": "module",
     "main": "./dist/index.js",
     "scripts": {
-        "dev": "tsx watch --include ../../.env src/index.ts",
+        "dev": "tsx watch --conditions=development --include ../../.env src/index.ts",
         "start": "node --enable-source-maps dist/index.js",
         "build": "tsc -p tsconfig.json",
         "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
@@ -13,6 +13,7 @@
     },
     "dependencies": {
         "@neonflux/config": "workspace:*",
+        "@neonflux/convex": "workspace:*",
         "@neonflux/core": "workspace:*",
         "@neonflux/db": "workspace:*",
         "@neonflux/fluxer": "workspace:*",

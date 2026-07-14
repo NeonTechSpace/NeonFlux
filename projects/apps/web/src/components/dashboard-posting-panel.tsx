@@ -12,6 +12,11 @@ import {
 import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
 import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
 import {
+    canRetryDashboardGuildRead,
+    DashboardGuildReadError,
+    readDashboardGuildReadFailureType,
+} from './dashboard-guild-read-error.js';
+import {
     DashboardEmbedBuilder,
     createEmptyDashboardEmbedDraft,
     normalizeDashboardEmbedDraft,
@@ -61,6 +66,8 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const [activeOperationId, setActiveOperationId] = useState<string>();
     const [acknowledgedUnknownId, setAcknowledgedUnknownId] = useState<string>();
     const [retryRequestKey, setRetryRequestKey] = useState<string>();
+    const [channelsRetrying, setChannelsRetrying] = useState(false);
+    const [operationsRetrying, setOperationsRetrying] = useState(false);
     const previewEmbedsResult = getActiveEmbeds({
         mode: embedMode,
         draft: embedDraft,
@@ -78,26 +85,34 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             });
 
             if (result.type !== 'channels') {
-                throw new Error(getChannelLoadErrorMessage(result.type));
+                throw new DashboardGuildReadError(result.type);
             }
 
             return result.channels;
         },
         staleTime: 30_000,
+        retry: false,
     });
 
     const operationsQuery = useQuery({
         queryKey: getDashboardPostingOperationsQueryKey(guildId),
         queryFn: async () => {
             const result = await readDashboardPostingOperationsRouteData({ data: { guildId } });
-            if (result.type !== 'operations') throw new Error('Could not load posting status.');
+            if (result.type !== 'operations') throw new DashboardGuildReadError(result.type);
             return result.operations;
         },
         refetchInterval: (query) =>
             query.state.data?.some((operation) => operation.status === 'queued' || operation.status === 'running')
                 ? 2_000
                 : false,
+        retry: false,
     });
+    const channelsFailureType = channelsQuery.isError
+        ? readDashboardGuildReadFailureType(channelsQuery.error)
+        : undefined;
+    const operationsFailureType = operationsQuery.isError
+        ? readDashboardGuildReadFailureType(operationsQuery.error)
+        : undefined;
     const requestedActiveOperation = operationsQuery.data?.find((operation) => operation.id === activeOperationId);
     const latestOperation = operationsQuery.data?.[0];
     const latestUnresolvedOperation =
@@ -244,13 +259,24 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             <DashboardSurface as='section' tone='glass' className='space-y-5' aria-label='Message composer'>
                 <DashboardChannelPicker
                     channels={channelsQuery.data ?? []}
-                    hasError={channelsQuery.isError}
-                    isLoading={channelsQuery.isPending}
+                    hasError={channelsQuery.isError || channelsRetrying}
+                    errorMessage={getChannelLoadErrorMessage(channelsFailureType ?? 'database-error')}
+                    isLoading={channelsQuery.isPending && !channelsRetrying}
+                    isRetrying={channelsRetrying}
                     isOpen={channelPickerOpen}
                     search={channelSearch}
                     selectedChannelId={selectedChannelId}
                     onBlur={() => setChannelPickerOpen(false)}
                     onFocus={() => setChannelPickerOpen(true)}
+                    onRetry={
+                        channelsRetrying || (channelsFailureType && canRetryDashboardGuildRead(channelsFailureType))
+                            ? () => {
+                                  if (channelsRetrying) return;
+                                  setChannelsRetrying(true);
+                                  void channelsQuery.refetch().finally(() => setChannelsRetrying(false));
+                              }
+                            : undefined
+                    }
                     onSearchChange={(nextSearch) => {
                         setChannelSearch(nextSearch);
                         setSelectedChannelId('');
@@ -426,7 +452,20 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     <DashboardPostingOperationHistory
                         channels={channelsQuery.data ?? []}
                         operations={operationsQuery.data ?? []}
-                        hasError={operationsQuery.isError}
+                        hasError={operationsQuery.isError || operationsRetrying}
+                        errorMessage={getOperationLoadErrorMessage(operationsFailureType ?? 'database-error')}
+                        isPending={operationsQuery.isPending && !operationsRetrying}
+                        isRetrying={operationsRetrying}
+                        onRetry={
+                            operationsRetrying ||
+                            (operationsFailureType && canRetryDashboardGuildRead(operationsFailureType))
+                                ? () => {
+                                      if (operationsRetrying) return;
+                                      setOperationsRetrying(true);
+                                      void operationsQuery.refetch().finally(() => setOperationsRetrying(false));
+                                  }
+                                : undefined
+                        }
                     />
                 </DashboardSurface>
             </aside>
@@ -498,6 +537,22 @@ function getChannelLoadErrorMessage(type: string): string {
         case 'guild-lookup-failed':
         default:
             return 'Could not load channels.';
+    }
+}
+
+function getOperationLoadErrorMessage(type: string): string {
+    switch (type) {
+        case 'auth-required':
+            return 'Sign in again to load recent delivery status.';
+        case 'not-found':
+            return 'Recent delivery status is unavailable because this server is no longer accessible.';
+        case 'deployment-config-not-found':
+            return 'Recent delivery status is unavailable because this deployment is not fully configured.';
+        case 'database-error':
+        case 'guild-lookup-failed':
+            return 'Recent delivery status could not be loaded.';
+        default:
+            return 'Recent delivery status is unavailable.';
     }
 }
 

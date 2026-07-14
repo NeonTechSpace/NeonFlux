@@ -1,10 +1,10 @@
-import { Link, Outlet } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { GitBranch } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 
 import { dashboardStructureIdentity, dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportRun } from '../server/dashboard-structure-model.js';
 import {
     formatDashboardStructureExecutionPhase,
     formatDashboardStructureExecutionState,
@@ -16,15 +16,23 @@ import {
 } from './dashboard-motion.js';
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 import { DashboardFeaturePage } from './dashboard-ui.js';
+import type { DashboardStructureSurface } from './dashboard-structure-surface.js';
+import { DashboardStructurePendingSurface } from './dashboard-structure-surface-state.js';
 
 export function DashboardStructureWorkspaceShell({
     guildId,
+    pendingSurface,
+    failedSurface,
+    onNavigateSurface,
     activeRun,
     executionProgressIssue,
     executionTransport,
     children,
 }: {
     guildId: string;
+    pendingSurface?: DashboardStructureSurface;
+    failedSurface?: DashboardStructureSurface;
+    onNavigateSurface?: (surface: DashboardStructureSurface) => Promise<void>;
     activeRun?: Pick<DashboardStructureImportRun, 'id' | 'execution'>;
     executionProgressIssue?: { code: string; runId: string };
     executionTransport: DashboardStructureProgressTransport;
@@ -49,14 +57,40 @@ export function DashboardStructureWorkspaceShell({
             titleId='server-blueprint-title'
             width='full'
             surface='glass'
-            navigation={<DashboardStructureNavigation guildId={guildId} />}
+            navigation={
+                <DashboardStructureNavigation
+                    guildId={guildId}
+                    pendingSurface={pendingSurface}
+                    onNavigateSurface={onNavigateSurface}
+                />
+            }
             status={activeExecution ? <AnimatePresence initial={false}>{activeExecution}</AnimatePresence> : undefined}>
-            {children}
+            {failedSurface ? (
+                <DashboardStructurePendingSurface
+                    surface={failedSurface}
+                    error={{
+                        diagnosticCode: 'BLUEPRINT_ROUTE_LOAD_FAILED',
+                        retry: () => void onNavigateSurface?.(failedSurface),
+                    }}
+                />
+            ) : pendingSurface ? (
+                <DashboardStructurePendingSurface surface={pendingSurface} />
+            ) : (
+                children
+            )}
         </DashboardFeaturePage>
     );
 }
 
-export function DashboardStructureNavigation({ guildId }: { guildId: string }) {
+export function DashboardStructureNavigation({
+    guildId,
+    pendingSurface,
+    onNavigateSurface,
+}: {
+    guildId: string;
+    pendingSurface?: DashboardStructureSurface;
+    onNavigateSurface?: (surface: DashboardStructureSurface) => Promise<void>;
+}) {
     return (
         <nav
             className='flex min-w-0 gap-6 overflow-x-auto border-b border-[var(--dash-border)]'
@@ -66,24 +100,43 @@ export function DashboardStructureNavigation({ guildId }: { guildId: string }) {
                     key={item.id}
                     to={item.to}
                     params={{ guildId }}
+                    onClick={(event) => {
+                        if (!onNavigateSurface || !isPlainPrimaryClick(event)) return;
+                        event.preventDefault();
+                        void onNavigateSurface(item.id);
+                    }}
                     className='relative flex min-h-11 shrink-0 items-center text-sm font-medium text-[var(--dash-text-muted)] transition-colors hover:text-[var(--dash-text)] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dash-primary)]'
                     activeProps={{ className: 'text-[var(--dash-text)]' }}>
-                    {({ isActive }) => (
-                        <>
-                            {item.label}
-                            {isActive ? (
-                                <motion.span
-                                    layoutId='server-blueprint-active-tool'
-                                    data-dashboard-motion='selection-gel'
-                                    className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
-                                    transition={dashboardSelectionTransition}
-                                />
-                            ) : null}
-                        </>
-                    )}
+                    {({ isActive }) => {
+                        const selected = pendingSurface ? pendingSurface === item.id : isActive;
+                        return (
+                            <>
+                                {item.label}
+                                {selected ? (
+                                    <motion.span
+                                        layoutId='server-blueprint-active-tool'
+                                        data-dashboard-motion='selection-gel'
+                                        className='absolute inset-x-0 bottom-0 h-0.5 bg-[var(--dash-primary)]'
+                                        transition={dashboardSelectionTransition}
+                                    />
+                                ) : null}
+                            </>
+                        );
+                    }}
                 </Link>
             ))}
         </nav>
+    );
+}
+
+function isPlainPrimaryClick(event: MouseEvent<HTMLAnchorElement>): boolean {
+    return (
+        !event.defaultPrevented &&
+        event.button === 0 &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey
     );
 }
 
@@ -203,8 +256,4 @@ function getTransportClassName(mode: DashboardStructureProgressTransport['mode']
         : mode === 'polling' && !hasProgressIssue
           ? 'mt-1 text-xs text-[var(--dash-text-muted)]'
           : 'mt-1 text-xs text-[var(--dash-warning)]';
-}
-
-export function DashboardStructureWorkspaceOutlet() {
-    return <Outlet />;
 }

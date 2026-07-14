@@ -2,7 +2,11 @@ import { createFileRoute, useLocation, useNavigate } from '@tanstack/react-route
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { DashboardGuildPageContent, DashboardGuildPendingPage } from '../components/dashboard-guild-page.js';
+import {
+    DashboardGuildErrorPage,
+    DashboardGuildPageContent,
+    DashboardGuildPendingPage,
+} from '../components/dashboard-guild-page.js';
 import { getDashboardCategoryIdFromPathname } from '../dashboard-categories.js';
 import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 import {
@@ -21,6 +25,7 @@ export const Route = createFileRoute('/dashboard/$guildId')({
             },
         }),
     pendingComponent: DashboardGuildPendingRoute,
+    errorComponent: DashboardGuildErrorRoute,
     component: DashboardGuildPage,
 });
 
@@ -66,6 +71,28 @@ function DashboardGuildPendingRoute() {
             cachedCatalog={queryClient.getQueryData<DashboardGuildCatalog>(getDashboardGuildCatalogQueryKey())}
             pathname={location.pathname}
             activeCategoryId={activeCategoryId}
+        />
+    );
+}
+
+function DashboardGuildErrorRoute({ reset }: { reset: () => void }) {
+    const params = Route.useParams();
+    const location = useLocation();
+    const queryClient = useQueryClient();
+    const guildId = getGuildIdParam(params);
+    const activeCategoryId = getDashboardCategoryIdFromPathname(guildId, location.pathname);
+    const preview = readDashboardGuildPreview(location.state, guildId);
+    const sourcePreview = readDashboardGuildSourcePreview(location.state, guildId);
+
+    return (
+        <DashboardGuildErrorPage
+            guildId={guildId}
+            preview={preview}
+            sourcePreview={sourcePreview}
+            cachedCatalog={queryClient.getQueryData<DashboardGuildCatalog>(getDashboardGuildCatalogQueryKey())}
+            pathname={location.pathname}
+            activeCategoryId={activeCategoryId}
+            onRetry={reset}
         />
     );
 }

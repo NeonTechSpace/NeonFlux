@@ -7,19 +7,18 @@ import {
 import type {
     DashboardStructureImportAction,
     DashboardStructureImportRun,
-} from '../server/dashboard-structure.server.js';
-import { readDashboardStructureExplorerActionEntityKey } from './dashboard-structure-explorer.js';
+} from '../server/dashboard-structure-model.js';
 import type {
     DashboardStructureExplorerComparisonTarget,
     DashboardStructureExplorerOverlayMode,
     DashboardStructureExplorerSource,
-} from './dashboard-structure-explorer.js';
-import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-diff.js';
+} from './dashboard-structure-explorer-types.js';
+import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-structure-explorer-json.js';
 import {
     parseDashboardStructureExplorerSnapshot,
     readDashboardStructureExplorerEntityKey,
     readDashboardStructureExplorerSection,
-} from './dashboard-structure-explorer-model.js';
+} from './dashboard-structure-explorer-snapshot.js';
 import type {
     DashboardStructureExplorerEntityKey,
     DashboardStructureExplorerSection,
@@ -35,19 +34,22 @@ export function useDashboardStructureExplorerState({
     driftState,
     guildId,
     importJson,
+    initialSource,
+    onSourceChange,
     setBusyAction,
     setStatus,
 }: {
     driftState: DriftState | undefined;
     guildId: string;
     importJson: string;
+    initialSource?: DashboardStructureExplorerSource;
+    onSourceChange?: (source: DashboardStructureExplorerSource) => void;
     setBusyAction: (action: StructureBusyAction | undefined) => void;
     setStatus: (status: PanelStatus | undefined) => void;
 }) {
-    const [explorerSource, setExplorerSource] = useState<DashboardStructureExplorerSource>({
-        label: 'No snapshot',
-        type: 'none',
-    });
+    const [explorerSource, setExplorerSource] = useState<DashboardStructureExplorerSource>(
+        initialSource ?? { label: 'No snapshot', type: 'none' }
+    );
     const [explorerComparisonTarget, setExplorerComparisonTarget] =
         useState<DashboardStructureExplorerComparisonTarget>(emptyExplorerComparisonTarget);
     const [explorerOverlayMode, setExplorerOverlayMode] = useState<DashboardStructureExplorerOverlayMode>('none');
@@ -80,6 +82,7 @@ export function useDashboardStructureExplorerState({
 
     function setExplorerSourceAndResetComparison(source: DashboardStructureExplorerSource): void {
         setExplorerSource(source);
+        onSourceChange?.(source);
         setExplorerComparisonTarget(emptyExplorerComparisonTarget);
     }
 
@@ -282,7 +285,7 @@ export function useDashboardStructureExplorerState({
 
     function selectImportAction(_run: DashboardStructureImportRun, action: DashboardStructureImportAction): void {
         setExplorerOverlayMode(`run:${_run.id}`);
-        revealExplorerEntity(readDashboardStructureExplorerActionEntityKey(action));
+        revealExplorerEntity(readDashboardStructureExplorerEntityKey(action));
     }
 
     return {

@@ -191,7 +191,7 @@ export function DashboardGuildSelector({
 
     function handleServerNavigate(event: ReactMouseEvent<HTMLAnchorElement>): void {
         if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-            closeSelector();
+            closeSelector({ restoreFocus: false });
         }
     }
 
@@ -260,6 +260,7 @@ export function DashboardGuildSelector({
                         showTools={showTools}
                         sortByName={sortByName}
                         onClose={() => closeSelector()}
+                        onActionNavigate={handleServerNavigate}
                         onDockKeyDown={handleDockKeyDown}
                         onQueryChange={setQuery}
                         onServerNavigate={handleServerNavigate}
@@ -290,6 +291,7 @@ function DashboardServerDock({
     showTools,
     sortByName,
     onClose,
+    onActionNavigate,
     onDockKeyDown,
     onQueryChange,
     onServerNavigate,
@@ -313,6 +315,7 @@ function DashboardServerDock({
     showTools: boolean;
     sortByName: boolean;
     onClose: () => void;
+    onActionNavigate: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
     onDockKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
     onQueryChange: (query: string) => void;
     onServerNavigate: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
@@ -400,9 +403,14 @@ function DashboardServerDock({
 
             <nav className='shrink-0 border-t border-[var(--dash-border)] p-2 sm:p-3' aria-label='Server actions'>
                 <ul className='space-y-1'>
-                    <DashboardActionTile href='/dashboard' label='All servers' icon='all' onClick={onClose} />
+                    <DashboardActionTile href='/dashboard' label='All servers' icon='all' onClick={onActionNavigate} />
                     {botInviteUrl ? (
-                        <DashboardActionTile href={botInviteUrl} label='Invite bot' icon='invite' onClick={onClose} />
+                        <DashboardActionTile
+                            href={botInviteUrl}
+                            label='Invite bot'
+                            icon='invite'
+                            onClick={onActionNavigate}
+                        />
                     ) : null}
                 </ul>
             </nav>

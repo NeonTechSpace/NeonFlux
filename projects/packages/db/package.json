@@ -8,10 +8,14 @@
     "exports": {
         ".": {
             "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
             "import": "./dist/index.js"
         },
         "./convex": {
             "types": "./src/convex.ts",
+            "development": "./src/convex.ts",
+            "production": "./dist/convex.js",
             "import": "./dist/convex.js"
         }
     },

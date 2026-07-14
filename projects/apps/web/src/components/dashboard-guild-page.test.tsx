@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    DashboardGuildCommandPrefixCategory,
+    DashboardGuildErrorPage,
     DashboardGuildPageContent,
     DashboardGuildPendingPage,
 } from './dashboard-guild-page.js';
@@ -76,10 +76,8 @@ describe('DashboardGuildPendingPage', () => {
     it('keeps exact route identity and scopes loading when no safe guild preview is available', () => {
         renderedPages.push(render(<DashboardGuildPendingPage guildId='untrusted-cold-guild-id' />));
 
-        expect(screen.getByRole('status').textContent).toContain('Loading Server pulse');
+        expect(screen.getByRole('status', { name: 'Loading Server pulse' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Server pulse' })).toBeTruthy();
-        const pendingPanel = screen.getByRole('article', { name: 'Loading Server pulse data' });
-        expect(within(pendingPanel).getByText('Loading current server data')).toBeTruthy();
         expect(screen.getAllByLabelText('Dashboard navigation pending')).toHaveLength(2);
         expect(screen.getAllByRole('main')).toHaveLength(1);
         expect(document.body.textContent).not.toContain('untrusted-cold-guild-id');
@@ -106,7 +104,7 @@ describe('DashboardGuildPendingPage', () => {
         const sidebar = screen.getByRole('complementary');
         expect(within(sidebar).getByRole('button', { name: 'Switch server, currently Guild Two' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
-        expect(screen.getByRole('article', { name: 'Loading Message Builder data' })).toBeTruthy();
+        expect(screen.getByRole('status', { name: 'Loading Message Builder' })).toBeTruthy();
     });
 
     it('keeps the source server current while the target preview is opening', () => {
@@ -145,7 +143,7 @@ describe('DashboardGuildPendingPage', () => {
             new Set(['/dashboard/guild-1/messaging/message-builder'])
         );
         expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
-        expect(screen.getByRole('article', { name: 'Loading Message Builder data' })).toBeTruthy();
+        expect(screen.getByRole('status', { name: 'Loading Message Builder' })).toBeTruthy();
         const pendingFeature = screen.getByRole('region', { name: 'Message Builder' });
         expect(within(pendingFeature).getByText('Create & Deliver')).toBeTruthy();
     });
@@ -166,35 +164,79 @@ describe('DashboardGuildPendingPage', () => {
         expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
     });
 
-    it('keeps an authorized guild shell available when command settings fail to load', () => {
-        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    it('contains a guild route failure inside the trusted frame and exposes retry progress', async () => {
+        let settleRetry: (() => void) | undefined;
+        const retry = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    settleRetry = resolve;
+                })
+        );
 
         renderedPages.push(
             render(
-                <QueryClientProvider client={queryClient}>
-                    <DashboardGuildPageContent
-                        data={{
-                            type: 'guild',
-                            mode: 'multi',
-                            guild: { id: 'guild-1', name: 'Guild One' },
-                            manageableGuilds: [{ id: 'guild-1', name: 'Guild One' }],
-                        }}
-                        activeCategoryId='general'>
-                        <DashboardGuildCommandPrefixCategory commandSettingsResult={{ type: 'database-error' }} />
-                    </DashboardGuildPageContent>
-                </QueryClientProvider>
+                <DashboardGuildErrorPage
+                    guildId='guild-2'
+                    cachedCatalog={{ guilds: [{ id: 'guild-2', name: 'Guild Two' }], mode: 'multi' }}
+                    pathname='/dashboard/guild-2/messaging/message-builder'
+                    activeCategoryId='messaging'
+                    onRetry={retry}
+                />
             )
         );
 
-        expect(screen.getByRole('complementary')).toBeTruthy();
-        expect(screen.getByText(/rest of this server dashboard is still available/i)).toBeTruthy();
+        expect(within(screen.getByRole('complementary')).getByText('Guild Two')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
+        const retryButton = screen.getByRole('button', { name: 'Retry Message Builder' });
+        fireEvent.click(retryButton);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Retry settings' }));
+        expect(retry).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button', { name: 'Retrying...' }).hasAttribute('disabled')).toBe(true);
 
-        expect(invalidateRouter).toHaveBeenCalledTimes(1);
+        settleRetry?.();
+        expect(await screen.findByRole('button', { name: 'Retry Message Builder' })).toBeTruthy();
     });
 
-    it('renders the target pending island immediately during same-server navigation', () => {
+    it('preserves Blueprint runtime state during a same-server leaf transition', () => {
+        routerState = {
+            isLoading: false,
+            location: { pathname: '/dashboard/guild-2/structure/current' },
+            resolvedLocation: { pathname: '/dashboard/guild-2/structure/current' },
+        };
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const page = (
+            <QueryClientProvider client={queryClient}>
+                <DashboardGuildPageContent
+                    data={{
+                        type: 'guild',
+                        mode: 'multi',
+                        guild: { id: 'guild-2', name: 'Guild Two' },
+                        manageableGuilds: [{ id: 'guild-2', name: 'Guild Two' }],
+                    }}
+                    activeCategoryId='structure'>
+                    <BlueprintRuntimeDraftProbe />
+                </DashboardGuildPageContent>
+            </QueryClientProvider>
+        );
+        const view = render(page);
+        renderedPages.push(view);
+        fireEvent.change(screen.getByRole('textbox', { name: 'Blueprint runtime draft' }), {
+            target: { value: 'local import draft' },
+        });
+
+        routerState = {
+            isLoading: true,
+            location: { pathname: '/dashboard/guild-2/structure/backups' },
+            resolvedLocation: { pathname: '/dashboard/guild-2/structure/current' },
+        };
+        view.rerender(page);
+
+        expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Blueprint runtime draft' }).value).toBe(
+            'local import draft'
+        );
+    });
+
+    it('replaces cross-feature content with the target pending island immediately', () => {
         routerState = {
             isLoading: true,
             location: { pathname: '/dashboard/guild-2/structure/backups' },
@@ -211,7 +253,8 @@ describe('DashboardGuildPendingPage', () => {
                             mode: 'multi',
                             guild: { id: 'guild-2', name: 'Guild Two' },
                             manageableGuilds: [{ id: 'guild-2', name: 'Guild Two' }],
-                        }}>
+                        }}
+                        activeCategoryId='overview'>
                         <p>Previous feature content</p>
                     </DashboardGuildPageContent>
                 </QueryClientProvider>
@@ -220,7 +263,7 @@ describe('DashboardGuildPendingPage', () => {
 
         expect(screen.getByRole('heading', { name: 'Server Blueprint' })).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
-        expect(screen.getByRole('article', { name: 'Loading Protected versions data' })).toBeTruthy();
+        expect(screen.getByRole('status', { name: 'Loading Protected versions' })).toBeTruthy();
         expect(screen.queryByText('Previous feature content')).toBeNull();
     });
 
@@ -358,6 +401,17 @@ describe('DashboardGuildPendingPage', () => {
         expect(invalidateRouter).toHaveBeenCalledTimes(1);
     });
 });
+
+function BlueprintRuntimeDraftProbe() {
+    const [draft, setDraft] = useState('');
+
+    return (
+        <label>
+            Blueprint runtime draft
+            <input value={draft} onChange={(event) => setDraft(event.currentTarget.value)} />
+        </label>
+    );
+}
 
 function GuildLocalDraft() {
     const [draft, setDraft] = useState('initial');

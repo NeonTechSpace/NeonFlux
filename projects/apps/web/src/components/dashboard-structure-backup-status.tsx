@@ -1,7 +1,7 @@
 import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import { deriveDashboardStructureBackupHealth } from './dashboard-structure-backup-health.js';
 import { formatDate } from './dashboard-structure-panel-format.js';
 

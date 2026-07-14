@@ -13,7 +13,7 @@ import {
 
 import { getWebDb } from './db.server.js';
 import { createStructureAuditInput, loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
-import type { DashboardStructureErrorResult } from './dashboard-structure-context.server.js';
+import type { DashboardStructureErrorResult } from './dashboard-structure-model.js';
 import { getDashboardStructureDeleteApprovalText } from './dashboard-structure-contracts.js';
 
 export type DashboardStructureApplyInput = {

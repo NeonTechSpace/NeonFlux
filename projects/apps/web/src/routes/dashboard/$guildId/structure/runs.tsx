@@ -1,11 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DashboardStructureRouteSurface } from '../../../../components/dashboard-structure-panel.js';
+import { DashboardStructureRunsRoute } from '../../../../components/dashboard-structure-runs-route.js';
 
-export const Route = createFileRoute('/dashboard/$guildId/structure/runs')({
-    component: DashboardStructureRunsRoute,
-});
-
-function DashboardStructureRunsRoute() {
-    return <DashboardStructureRouteSurface surface='runs' />;
-}
+export const Route = createFileRoute('/dashboard/$guildId/structure/runs')({ component: DashboardStructureRunsRoute });

@@ -12,7 +12,12 @@ const now = '2026-07-03T08:00:00.000Z';
 describe('growth overview model', () => {
     it('normalizes member flow events and defaults attribution status', () => {
         const join = buildGuildMemberFlowEventDocument(
-            { eventType: 'join', guildId: ' guild-1 ', userId: ' user-1 ' },
+            {
+                eventType: 'join',
+                guildId: ' guild-1 ',
+                membershipStartedAt: now,
+                userId: ' user-1 ',
+            },
             now
         );
         const leave = buildGuildMemberFlowEventDocument(
@@ -22,7 +27,7 @@ describe('growth overview model', () => {
 
         expect(join).toMatchObject({
             ok: true,
-            value: { attributionStatus: 'unavailable', eventType: 'join' },
+            value: { attributionStatus: 'unavailable', eventType: 'join', membershipStartedAt: now },
         });
         expect(leave).toMatchObject({
             ok: true,

@@ -19,6 +19,7 @@ export type BotFeatureEvent =
     | {
           type: 'message.created';
           messageId: string;
+          createdAt: Date;
           channelId: string;
           guildId: string | null;
           authorId: string;
@@ -32,6 +33,7 @@ export type BotFeatureEvent =
     | {
           type: 'message.updated';
           messageId: string;
+          createdAt: Date;
           channelId: string;
           guildId: string | null;
           authorId: string;
@@ -44,7 +46,20 @@ export type BotFeatureEvent =
           oldContent: string | null;
       }
     | {
-          type: 'member.joined' | 'member.updated' | 'member.left';
+          type: 'member.joined';
+          guildId: string;
+          userId: string;
+          roleIds: readonly string[];
+          joinedAt: Date;
+      }
+    | {
+          type: 'member.updated';
+          guildId: string;
+          userId: string;
+          roleIds: readonly string[];
+      }
+    | {
+          type: 'member.left';
           guildId: string;
           userId: string;
           roleIds: readonly string[];
@@ -76,6 +91,33 @@ export type BotFeatureEvent =
 
 export type BotMessageCreatedEvent = Extract<BotFeatureEvent, { type: 'message.created' }>;
 
+export type BotGrowthTelemetryEvent =
+    | {
+          type: 'message.created';
+          guildId: string | null;
+          messageId: string;
+          authorIsBot: boolean;
+          occurredAt: Date;
+      }
+    | {
+          type: 'member.joined';
+          guildId: string;
+          userId: string;
+          membershipStartedAt: Date;
+      }
+    | {
+          type: 'member.left';
+          guildId: string;
+          userId: string;
+      };
+
+export type BotGrowthTelemetryAdmission = 'accepted' | 'overloaded' | 'stopped';
+
+export type BotGrowthTelemetryIngestor = {
+    enqueue(event: BotGrowthTelemetryEvent): BotGrowthTelemetryAdmission;
+    stop(): Promise<void>;
+};
+
 export type BotFeatureHandlerContext = {
     db: RuntimeDbClient['db'];
     mode: AppMode;
@@ -86,6 +128,10 @@ export type BotFeatureHandlerContext = {
     botUserId?: string;
 };
 
+export type BotFeatureRoutingContext = BotFeatureHandlerContext & {
+    growthTelemetry: Pick<BotGrowthTelemetryIngestor, 'enqueue'>;
+};
+
 export type BotFeatureRouteIgnoredReason =
     | 'bot-authored-message'
     | 'bot-mentioned-with-context'
@@ -94,7 +140,9 @@ export type BotFeatureRouteIgnoredReason =
     | 'contextless-mention-cooldown'
     | 'defcon-denied'
     | 'guild-not-processable'
-    | 'no-feature-handler';
+    | 'no-feature-handler'
+    | 'telemetry-overloaded'
+    | 'telemetry-stopped';
 
 export type BotFeatureRouteHandledAction =
     | 'bot_mention.contextless_reply'

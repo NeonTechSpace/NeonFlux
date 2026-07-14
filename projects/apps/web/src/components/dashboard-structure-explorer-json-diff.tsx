@@ -3,7 +3,7 @@ import { FileDiff } from '@pierre/diffs/react';
 import type {
     DashboardStructureExplorerComparisonTarget,
     DashboardStructureExplorerSource,
-} from './dashboard-structure-explorer.js';
+} from './dashboard-structure-explorer-types.js';
 import type { DashboardStructureExplorerJsonDiff } from './dashboard-structure-explorer-diff.js';
 
 export function DashboardStructureExplorerJsonDiffView({

@@ -25,4 +25,11 @@ crons.daily(
     { kind: 'member-events' }
 );
 
+crons.daily(
+    'drain historical retention',
+    { hourUTC: 3, minuteUTC: 45 },
+    internal.retention.historical_retention.pruneHistoricalRetentionBatch,
+    {}
+);
+
 export default crons;

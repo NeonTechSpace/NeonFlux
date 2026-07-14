@@ -1,7 +1,7 @@
 import { useForm } from '@tanstack/react-form';
 import { type } from 'arktype';
 
-import type { DashboardStructureBackupSettings as DashboardStructureBackupSettingsRecord } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureBackupSettings as DashboardStructureBackupSettingsRecord } from '../server/dashboard-structure-model.js';
 import { formatDate } from './dashboard-structure-panel-format.js';
 import { dashboardCompactFieldClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 

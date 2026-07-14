@@ -8,19 +8,97 @@ import {
     getConvexSchemaTableNames,
     parseResetDataArgs,
     readFileBuffer,
+    validateResetDataArgs,
     writeEmptyConvexSnapshotZip,
 } from './convex-reset-data.js';
 
 describe('convex reset data script', () => {
-    it('targets development by default and production only with --prod', () => {
-        expect(parseResetDataArgs([])).toStrictEqual({ production: false });
-        expect(parseResetDataArgs(['--prod'])).toStrictEqual({ production: true });
-        expect(parseResetDataArgs(['--', '--prod'])).toStrictEqual({ production: true });
+    it('parses guarded destination arguments', () => {
+        expect(parseResetDataArgs(['--deployment', 'dev', '--yes'])).toStrictEqual({
+            confirmProductionReset: false,
+            convexArgs: ['--deployment', 'dev'],
+            dryRun: false,
+            yes: true,
+        });
+        expect(parseResetDataArgs(['--prod', '--confirm-production-reset', '--dry-run'])).toStrictEqual({
+            confirmProductionReset: true,
+            convexArgs: ['--prod'],
+            dryRun: true,
+            yes: false,
+        });
+        expect(parseResetDataArgs(['--deployment=staging', '--dry-run'])).toStrictEqual({
+            confirmProductionReset: false,
+            convexArgs: ['--deployment=staging'],
+            dryRun: true,
+            yes: false,
+        });
     });
 
-    it('rejects every other option', () => {
-        expect(() => parseResetDataArgs(['--deployment', 'dev'])).toThrow('Unexpected argument: --deployment');
-        expect(() => parseResetDataArgs(['--yes'])).toThrow('Unexpected argument: --yes');
+    it('rejects local deployment resets because the wrapper targets hosted dev or prod deployments', () => {
+        expect(() => parseResetDataArgs(['--deployment', 'local', '--yes'])).toThrow('Refusing --deployment local');
+        expect(() => parseResetDataArgs(['--deployment=local', '--yes'])).toThrow('Refusing --deployment local');
+    });
+
+    it('requires explicit confirmation for destructive and production resets', () => {
+        expect(() => validateResetDataArgs(parseResetDataArgs([]))).toThrow('without an explicit deployment target');
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: ['--deployment', 'dev'],
+                dryRun: false,
+                yes: false,
+            })
+        ).toThrow('without --yes');
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: ['--prod'],
+                dryRun: false,
+                yes: true,
+            })
+        ).toThrow('without --confirm-production-reset');
+
+        for (const target of ['agile-capybara-631', 'other-project:prod', 'production']) {
+            expect(() =>
+                validateResetDataArgs({
+                    confirmProductionReset: false,
+                    convexArgs: ['--deployment', target],
+                    dryRun: false,
+                    yes: true,
+                })
+            ).toThrow('without --confirm-production-reset');
+        }
+    });
+
+    it('allows explicit dev targets and dry-run inspection', () => {
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: [],
+                dryRun: true,
+                yes: false,
+            })
+        ).not.toThrow();
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: false,
+                convexArgs: ['--deployment', 'dev'],
+                dryRun: false,
+                yes: true,
+            })
+        ).not.toThrow();
+
+        expect(() =>
+            validateResetDataArgs({
+                confirmProductionReset: true,
+                convexArgs: ['--deployment=agile-capybara-631'],
+                dryRun: false,
+                yes: true,
+            })
+        ).not.toThrow();
     });
 
     it('enumerates every schema table in stable order and rejects missing definitions', () => {

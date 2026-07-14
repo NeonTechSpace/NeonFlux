@@ -1,4 +1,5 @@
 export * from './client.js';
+export * from './bot-read-contract.js';
 export * from './guild-structure.js';
 export * from './guild-structure-apply.js';
 export * from './guild-structure-apply-validation.js';

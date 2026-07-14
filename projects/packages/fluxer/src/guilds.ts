@@ -1,5 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
+import { createFluxerReadRequestSignal } from './request-policy.js';
+
 const FLUXER_CURRENT_USER_GUILDS_URL = 'https://api.fluxer.app/v1/users/@me/guilds';
 
 export type FluxerGuildsFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -51,6 +53,7 @@ export async function listFluxerCurrentUserGuilds(
             headers: {
                 Authorization: `Bearer ${accessToken}`,
             },
+            signal: createFluxerReadRequestSignal(),
         });
     } catch (error) {
         return err({ type: 'network-error', error });

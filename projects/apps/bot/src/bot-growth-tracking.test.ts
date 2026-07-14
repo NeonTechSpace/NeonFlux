@@ -13,7 +13,7 @@ import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
-import type { BotFeatureHandlerContext, BotFeatureEvent } from './bot-feature-types.js';
+import type { BotFeatureHandlerContext, BotGrowthTelemetryEvent } from './bot-feature-types.js';
 
 vi.mock('@neonflux/db', () => ({
     listGuildInviteSnapshots: vi.fn(),
@@ -53,7 +53,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'other',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result.isOk()).toBe(true);
@@ -69,7 +69,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result.isOk()).toBe(true);
@@ -92,6 +92,7 @@ describe('trackGrowthOverviewEvent', () => {
                     temporary: false,
                 },
             ],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
             userId: 'user-1',
         });
         expect(recordGuildMemberFlowEvent).not.toHaveBeenCalled();
@@ -104,7 +105,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result.isOk()).toBe(true);
@@ -122,7 +123,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledWith(
@@ -140,7 +141,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result.isOk()).toBe(true);
@@ -157,7 +158,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result._unsafeUnwrapErr()).toBe('database-error');
@@ -171,7 +172,7 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
         });
 
         expect(result.isOk()).toBe(true);
@@ -181,6 +182,8 @@ describe('trackGrowthOverviewEvent', () => {
             userId: 'user-1',
             eventType: 'join',
             attributionStatus: 'unavailable',
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
+            occurredAt: new Date('2026-07-14T01:00:00.000Z'),
         });
     });
 
@@ -189,7 +192,6 @@ describe('trackGrowthOverviewEvent', () => {
             type: 'member.left',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
         });
 
         expect(result.isOk()).toBe(true);
@@ -209,6 +211,7 @@ describe('trackGrowthOverviewEvent', () => {
         expect(recordGuildMessageActivity).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
             messageId: 'message-1',
+            occurredAt: new Date('2026-07-14T01:02:03.000Z'),
         });
     });
 
@@ -226,37 +229,70 @@ describe('trackGrowthOverviewEvent', () => {
         expect(recordGuildMessageActivity).not.toHaveBeenCalled();
     });
 
-    it('serializes invite baseline updates for concurrent joins in one guild', async () => {
-        let releaseFirstRead: (() => void) | undefined;
-        const firstRead = new Promise<void>((resolve) => {
-            releaseFirstRead = resolve;
-        });
-        vi.mocked(readFluxerGuildInvites)
-            .mockImplementationOnce(async () => {
-                await firstRead;
-                return ok([createFluxerInvite({ uses: 2 })]);
-            })
-            .mockResolvedValueOnce(ok([createFluxerInvite({ uses: 3 })]));
-
-        const first = trackGrowthOverviewEvent(createContext(createMultiMode()), {
+    it('propagates one processor cancellation signal through every growth repository call', async () => {
+        const signal = new AbortController().signal;
+        const context = createContext(createMultiMode());
+        const join = {
             type: 'member.joined',
             guildId: 'guild-1',
             userId: 'user-1',
-            roleIds: [],
-        });
-        const second = trackGrowthOverviewEvent(createContext(createMultiMode()), {
-            type: 'member.joined',
-            guildId: 'guild-1',
-            userId: 'user-2',
-            roleIds: [],
-        });
+            membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
+        } as const;
 
-        await vi.waitFor(() => expect(listGuildInviteSnapshots).toHaveBeenCalledTimes(1));
-        releaseFirstRead?.();
-        await Promise.all([first, second]);
+        await trackGrowthOverviewEvent(context, createMessageEvent(), { signal });
+        await trackGrowthOverviewEvent(
+            context,
+            { type: 'member.left', guildId: 'guild-1', userId: 'user-2' },
+            { signal }
+        );
+        await trackGrowthOverviewEvent(context, join, { signal });
 
-        expect(listGuildInviteSnapshots).toHaveBeenCalledTimes(2);
-        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledTimes(2);
+        expect(recordGuildMessageActivity).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ messageId: 'message-1' }),
+            { signal }
+        );
+        expect(recordGuildMemberFlowEvent).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ eventType: 'leave' }),
+            { signal }
+        );
+        expect(listGuildInviteSnapshots).toHaveBeenCalledWith(testDb, { guildId: 'guild-1' }, { signal });
+        expect(recordGuildMemberJoinWithInviteSnapshots).toHaveBeenCalledWith(
+            testDb,
+            expect.objectContaining({ userId: 'user-1' }),
+            { signal }
+        );
+    });
+
+    it('does not persist a join when cancellation occurs during the provider read', async () => {
+        const controller = new AbortController();
+        let releaseRead: (() => void) | undefined;
+        vi.mocked(readFluxerGuildInvites).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    releaseRead = () => resolve(ok([createFluxerInvite({ uses: 2 })]));
+                })
+        );
+
+        const tracking = trackGrowthOverviewEvent(
+            createContext(createMultiMode()),
+            {
+                type: 'member.joined',
+                guildId: 'guild-1',
+                userId: 'user-1',
+                membershipStartedAt: new Date('2026-07-14T01:00:00.000Z'),
+            },
+            { signal: controller.signal }
+        );
+        await vi.waitFor(() => expect(readFluxerGuildInvites).toHaveBeenCalledOnce());
+
+        controller.abort(new DOMException('processing deadline reached', 'AbortError'));
+        releaseRead?.();
+
+        await expect(tracking).rejects.toMatchObject({ name: 'AbortError' });
+        expect(recordGuildMemberJoinWithInviteSnapshots).not.toHaveBeenCalled();
+        expect(recordGuildMemberFlowEvent).not.toHaveBeenCalled();
     });
 });
 
@@ -286,20 +322,14 @@ function createMultiMode(): AppMode {
 }
 
 function createMessageEvent(
-    overrides: Partial<Extract<BotFeatureEvent, { type: 'message.created' }>> = {}
-): Extract<BotFeatureEvent, { type: 'message.created' }> {
+    overrides: Partial<Extract<BotGrowthTelemetryEvent, { type: 'message.created' }>> = {}
+): Extract<BotGrowthTelemetryEvent, { type: 'message.created' }> {
     return {
         type: 'message.created',
         messageId: 'message-1',
-        channelId: 'channel-1',
         guildId: 'guild-1',
-        authorId: 'author-1',
         authorIsBot: false,
-        authorRoleIds: [],
-        authorIsServerOwner: false,
-        authorHasManageServer: false,
-        content: 'hello',
-        mentionedUserIds: [],
+        occurredAt: new Date('2026-07-14T01:02:03.000Z'),
         ...overrides,
     };
 }
@@ -346,6 +376,7 @@ function createMemberFlowRecord(overrides: Partial<GuildMemberFlowEventRecord> =
         eventType: 'join',
         inviteCode: 'alpha',
         inviterUserId: 'inviter-1',
+        membershipStartedAt: null,
         attributionStatus: 'attributed',
         occurredAt: new Date('2026-06-26T00:00:00.000Z'),
         ...overrides,
@@ -357,6 +388,7 @@ function createMessageActivityRecord(overrides: Partial<GuildMessageActivityReco
         guildId: 'guild-1',
         activityDate: '2026-06-26',
         shard: 12,
+        status: 'recorded',
         ...overrides,
     };
 }

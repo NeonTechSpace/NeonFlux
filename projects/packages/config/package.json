@@ -8,10 +8,14 @@
     "exports": {
         ".": {
             "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
             "import": "./dist/index.js"
         },
         "./env": {
             "types": "./src/env.ts",
+            "development": "./src/env.ts",
+            "production": "./dist/env.js",
             "import": "./dist/env.js"
         }
     },

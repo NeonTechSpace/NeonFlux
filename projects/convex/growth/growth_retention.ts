@@ -2,16 +2,15 @@ import { v, type GenericId } from 'convex/values';
 
 import { internal } from '../_generated/api.js';
 import { internalMutation, type MutationCtx } from '../_generated/server.js';
+import { dataRetentionCutoff, readDataRetentionDays } from '../retention/retention_policy.js';
 
 export const growthRetentionBatchSize = 200;
-export const rawGrowthRetentionDays = 120;
-export const dailyGrowthRetentionDays = 400;
 
-export type GrowthRetentionKind = 'member-events' | 'message-days' | 'daily-aggregates' | 'inactive-invites';
+export type GrowthRetentionKind = 'member-events' | 'message-receipts' | 'daily-aggregates' | 'inactive-invites';
 
 type GrowthRetentionId =
     | GenericId<'guildMemberFlowEvents'>
-    | GenericId<'guildMessageActivityDays'>
+    | GenericId<'guildMessageActivityReceipts'>
     | GenericId<'guildGrowthDailyAggregates'>
     | GenericId<'guildInviteSnapshots'>;
 
@@ -23,7 +22,7 @@ export type GrowthRetentionOperations = {
 
 const growthRetentionKindValidator = v.union(
     v.literal('member-events'),
-    v.literal('message-days'),
+    v.literal('message-receipts'),
     v.literal('daily-aggregates'),
     v.literal('inactive-invites')
 );
@@ -46,7 +45,7 @@ export const pruneGrowthRetentionBatch = internalMutation({
 
 export async function executeGrowthRetentionBatch(
     operations: GrowthRetentionOperations,
-    input: { kind: GrowthRetentionKind; limit?: number; now: string }
+    input: { kind: GrowthRetentionKind; limit?: number; now: string; retentionDays?: number }
 ): Promise<{
     deletedCount: number;
     hasMore: boolean;
@@ -54,7 +53,7 @@ export async function executeGrowthRetentionBatch(
     scheduledKind: GrowthRetentionKind | null;
 }> {
     const limit = normalizeBatchLimit(input.limit);
-    const cutoff = growthRetentionCutoff(input.kind, input.now);
+    const cutoff = growthRetentionCutoff(input.kind, input.now, input.retentionDays ?? readDataRetentionDays());
     const ids = await operations.loadExpiredIds(input.kind, cutoff, limit + 1);
     const hasMore = ids.length > limit;
     const idsToDelete = ids.slice(0, limit);
@@ -71,19 +70,18 @@ export async function executeGrowthRetentionBatch(
     };
 }
 
-export function growthRetentionCutoff(kind: GrowthRetentionKind, now: string): string {
+export function growthRetentionCutoff(kind: GrowthRetentionKind, now: string, retentionDays: number): string {
     if (kind === 'inactive-invites') return '';
 
-    const retentionDays = kind === 'daily-aggregates' ? dailyGrowthRetentionDays : rawGrowthRetentionDays;
-    const cutoff = new Date(Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-    return kind === 'member-events' ? cutoff : cutoff.slice(0, 10);
+    const cutoff = dataRetentionCutoff(now, retentionDays);
+    return kind === 'daily-aggregates' ? cutoff.slice(0, 10) : cutoff;
 }
 
 export function nextGrowthRetentionKind(kind: GrowthRetentionKind): GrowthRetentionKind | null {
     switch (kind) {
         case 'member-events':
-            return 'message-days';
-        case 'message-days':
+            return 'message-receipts';
+        case 'message-receipts':
             return 'daily-aggregates';
         case 'daily-aggregates':
             return 'inactive-invites';
@@ -100,8 +98,11 @@ function createGrowthRetentionOperations(ctx: MutationCtx): GrowthRetentionOpera
                     case 'member-events':
                         await ctx.db.delete('guildMemberFlowEvents', id as GenericId<'guildMemberFlowEvents'>);
                         break;
-                    case 'message-days':
-                        await ctx.db.delete('guildMessageActivityDays', id as GenericId<'guildMessageActivityDays'>);
+                    case 'message-receipts':
+                        await ctx.db.delete(
+                            'guildMessageActivityReceipts',
+                            id as GenericId<'guildMessageActivityReceipts'>
+                        );
                         break;
                     case 'daily-aggregates':
                         await ctx.db.delete(
@@ -136,11 +137,11 @@ async function loadExpiredGrowthIds(
                     .withIndex('by_occurred', (index) => index.lt('occurredAt', cutoff))
                     .take(limit)
             ).map((row) => row._id);
-        case 'message-days':
+        case 'message-receipts':
             return (
                 await ctx.db
-                    .query('guildMessageActivityDays')
-                    .withIndex('by_date', (index) => index.lt('activityDate', cutoff))
+                    .query('guildMessageActivityReceipts')
+                    .withIndex('by_occurred', (index) => index.lt('occurredAt', cutoff))
                     .take(limit)
             ).map((row) => row._id);
         case 'daily-aggregates':

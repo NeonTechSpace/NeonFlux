@@ -18,10 +18,13 @@ const privateJwkParameters = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth'] as const;
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/u;
 
 export type NeonFluxJwtSignerConfig = {
+    privateKeyPem: string;
+} & NeonFluxJwtVerifierConfig;
+
+export type NeonFluxJwtVerifierConfig = {
     audience: string;
     issuer: string;
     keyId?: string;
-    privateKeyPem: string;
 };
 
 export type NeonFluxUserJwtInput = {
@@ -202,7 +205,7 @@ export async function verifyNeonFluxJwt(config: NeonFluxJwtSignerConfig, token: 
 }
 
 export async function verifyNeonFluxJwtWithRemoteJwks(
-    config: NeonFluxJwtSignerConfig,
+    config: NeonFluxJwtVerifierConfig,
     token: string
 ): Promise<NeonFluxJwtPayload> {
     const jwks = createRemoteJWKSet(new URL('/.well-known/jwks.json', config.issuer));
@@ -211,7 +214,7 @@ export async function verifyNeonFluxJwtWithRemoteJwks(
 }
 
 export async function verifyNeonFluxJwtWithConfiguredJwks(
-    config: NeonFluxJwtSignerConfig,
+    config: NeonFluxJwtVerifierConfig,
     token: string,
     jwksConfig: string
 ): Promise<NeonFluxJwtPayload> {
@@ -219,7 +222,7 @@ export async function verifyNeonFluxJwtWithConfiguredJwks(
 }
 
 export async function verifyNeonFluxJwtWithJwkSet(
-    config: NeonFluxJwtSignerConfig,
+    config: NeonFluxJwtVerifierConfig,
     token: string,
     jwks: JWTVerifyGetKey
 ): Promise<NeonFluxJwtPayload> {

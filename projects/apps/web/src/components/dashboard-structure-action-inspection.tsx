@@ -1,4 +1,4 @@
-import type { DashboardStructureImportAction } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportAction } from '../server/dashboard-structure-model.js';
 import { dashboardQuietActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
 export function DashboardStructureActionInspector({

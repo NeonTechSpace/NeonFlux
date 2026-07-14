@@ -2,7 +2,7 @@ import {
     countDashboardStructurePreflightHardBlockers,
     isDashboardStructurePreflightReady,
 } from '../server/dashboard-structure-preflight.js';
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportRun } from '../server/dashboard-structure-model.js';
 import { getDashboardStructureDeleteApprovalText } from '../server/dashboard-structure-contracts.js';
 import type { DashboardStructurePreflightView } from './dashboard-structure-panel-types.js';
 

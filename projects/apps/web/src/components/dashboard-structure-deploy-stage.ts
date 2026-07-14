@@ -1,4 +1,4 @@
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportRun } from '../server/dashboard-structure-model.js';
 
 export type DashboardStructureDeployStage = 1 | 2 | 3;
 

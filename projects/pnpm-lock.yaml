@@ -75,6 +75,9 @@ importers:
       '@neonflux/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@neonflux/convex':
+        specifier: workspace:*
+        version: link:../../packages/convex
       '@neonflux/core':
         specifier: workspace:*
         version: link:../../packages/core

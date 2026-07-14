@@ -1,61 +1,59 @@
 ---
 title: Overview
-description: A multi functional bot for Fluxer.
+description: Implemented NeonFlux bot and dashboard surfaces.
 ---
 
-NeonFlux is a Fluxer bot with a protected web dashboard.
+NeonFlux is a Fluxer bot with a protected, Convex-backed dashboard. It is an unreleased work in progress; this documentation describes implemented behavior only.
 
 <Accordions type='single' collapsible>
     <Accordion title='Bot' value='bot'>
-        Start with [Bot presence](/docs/topic/bot-presence) for current prefix commands, mention behavior, and DEFCON
-        impact.
+        Start with [Bot presence](/docs/topic/bot-presence) for current prefix, help, ping, mention, and DEFCON
+        behavior.
     </Accordion>
     <Accordion title='Deployment' value='deployment'>
         Start with [Instance modes](/docs/topic/instance-modes), then continue to [Docker](/docs/topic/docker) for
-        runtime setup.
+        runtime ownership.
     </Accordion>
 </Accordions>
 
-## Current status
+## Current bot behavior
 
-The bot can run in two modes:
+The bot currently owns:
 
-| Mode            | Meaning                                     |
-| --------------- | ------------------------------------------- |
-| Single instance | One configured community.                   |
-| Multi instance  | One bot handles many installed communities. |
-
-The dashboard uses Fluxer OAuth. Users only see communities they can manage, and server code re-checks access before meaningful changes. The selected-community overview shows tracked growth and message-activity charts after the bot starts collecting events. Invite attribution lives in the Invite Tracking category. Audit Events supports field-scoped search and scroll-loaded history.
-
-The Messaging category can send plain text and Fluxer embed payloads. Builder mode applies the sidebar color directly from the color picker; Advanced JSON remains available for custom embed arrays.
-
-Moderation has live case, warning, reason, and note commands. Punishments such as ban, kick, timeout, purge, and automod are still planned.
+- installation reconciliation in single- and multi-instance modes;
+- prefix, help, ping, and contextless-mention responses;
+- replay-safe message activity and member-join tracking with invite attribution;
+- explicitly at-least-once member-leave tracking because Fluxer supplies no reliable leave event identity;
+- a bounded, best-effort growth telemetry queue;
+- durable dashboard posting delivery;
+- server-structure observation, backups, drift checks, and reviewed Blueprint execution.
 
 ## Dashboard routes
 
-| Route          | Purpose                 |
-| -------------- | ----------------------- |
-| `/`            | Public homepage.        |
-| `/docs/*`      | Public documentation.   |
-| `/auth/*`      | Fluxer OAuth.           |
-| `/dashboard/*` | Protected dashboard UI. |
+Open `/dashboard` to choose an installed community you can manage. A selected community is managed at `/dashboard/{guildId}`.
 
-Open `/dashboard` to choose a community. A specific community is managed at `/dashboard/{guildId}`.
+| Surface             | Implemented tools                        |
+| ------------------- | ---------------------------------------- |
+| Overview            | Growth and message-activity summaries    |
+| Create & Deliver    | Message Builder                          |
+| Insights & Activity | Audit Events                             |
+| Server Blueprint    | Overview, Backups, Compare, Deploy, Runs |
+| Settings            | Command Prefix                           |
 
-## Planned capabilities
+Features not listed here are not shipped dashboard routes.
 
-- Autorole
-- Dashboard audit events
-- Dashboard server overview and growth tracking
-- Giveaways
-- Import and export roles, channels, categories, emojis, and permissions
-- Invite tracker
-- Logging
-- Moderation punishments and automod
-- Profile and about-me embed builder
-- Reaction roles
-- Suggestion votes
-- Tickets
-- VC generator
-- Verification reaction roles
-- XP and levels
+## Loading behavior
+
+The selected-community shell and feature identity remain visible during navigation. Each feature route loads its code and data independently, and only the unresolved data island shows cold-loading feedback. Confirmed content remains visible during background refresh, while errors and retries stay local to the affected feature.
+
+## Security boundaries
+
+Fluxer OAuth is the web login flow. Server code re-checks current manageable-community access before protected work. The browser receives a short-lived Convex user token scoped to communities the server confirmed.
+
+The Fluxer bot token belongs only to the bot runtime. Dashboard live provider reads cross an authenticated internal bot-read service; web never receives or uses the bot token.
+
+## Telemetry accuracy
+
+Message activity stores a durable receipt keyed by community and message id before incrementing an aggregate. Member joins deduplicate by membership identity. Member leaves can overcount if Fluxer redelivers the same callback because no stable leave event id is available.
+
+Telemetry processing is intentionally best effort so analytics cannot block commands or gateway routing. Overload and persistence failures are logged.

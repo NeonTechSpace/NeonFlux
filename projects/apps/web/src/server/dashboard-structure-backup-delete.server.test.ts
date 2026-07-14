@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getWebDb } from './db.server.js';
 import { loadAuthorizedStructureContext } from './dashboard-structure-context.server.js';
-import { deleteDashboardStructureBackup } from './dashboard-structure.server.js';
+import { deleteDashboardStructureBackup } from './dashboard-structure-backups.server.js';
 
 vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),

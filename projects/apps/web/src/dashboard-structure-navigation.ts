@@ -62,3 +62,13 @@ export const dashboardStructureNavigationItems = [
 export function getDefaultDashboardStructureTo(): DashboardStructureNavigationTo {
     return dashboardStructureNavigationItems[0].to;
 }
+
+export function getDashboardStructureSurfaceTo(surface: DashboardStructureSurface): DashboardStructureNavigationTo {
+    return (
+        dashboardStructureNavigationItems.find((item) => item.id === surface)?.to ?? getDefaultDashboardStructureTo()
+    );
+}
+
+export function readDashboardStructureSurfaceFromPathname(pathname: string): DashboardStructureSurface | undefined {
+    return dashboardStructureNavigationItems.find((item) => pathname.endsWith(`/structure/${item.id}`))?.id;
+}

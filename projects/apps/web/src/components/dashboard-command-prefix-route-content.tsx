@@ -1,30 +1,58 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { getDashboardCommandSettingsQueryKey } from '../dashboard-query-keys.js';
 import type { DashboardCommandSettingsReadResult } from '../server/dashboard-guild-route-data.js';
-import { DashboardCommandPrefixSettingsPanel } from './dashboard-command-prefix-panel.js';
-import { DashboardRouteRetryButton } from './dashboard-route-retry-button.js';
-import { dashboardSecondaryActionClassName, DashboardStatus, DashboardSurface } from './dashboard-ui.js';
+import { readDashboardCommandSettingsRouteData } from '../server/dashboard-guild-route-data.js';
+import {
+    DashboardCommandPrefixLoadingPanel,
+    DashboardCommandPrefixSettingsPanel,
+} from './dashboard-command-prefix-panel.js';
+import {
+    dashboardDangerActionClassName,
+    dashboardSecondaryActionClassName,
+    DashboardStatus,
+    DashboardSurface,
+} from './dashboard-ui.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 
-export function DashboardCommandPrefixRouteContent({
-    guildId,
-    commandSettingsResult,
-}: {
-    guildId: string;
-    commandSettingsResult: DashboardCommandSettingsReadResult;
-}) {
-    if (commandSettingsResult.type === 'settings') {
-        return (
-            <DashboardCommandPrefixSettingsPanel
-                guildId={guildId}
-                commandSettings={commandSettingsResult.commandSettings}
-            />
-        );
+export function DashboardCommandPrefixRouteContent({ guildId }: { guildId: string }) {
+    const [retrying, setRetrying] = useState(false);
+    const commandSettingsQuery = useQuery({
+        queryKey: getDashboardCommandSettingsQueryKey(guildId),
+        queryFn: async () => {
+            const result = await readDashboardCommandSettingsRouteData({ data: { guildId } });
+
+            if (result.type !== 'settings') throw new DashboardCommandSettingsReadError(result.type);
+            return result.commandSettings;
+        },
+        retry: false,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
+
+    if (commandSettingsQuery.isPending && !retrying) {
+        return <DashboardCommandPrefixLoadingPanel />;
     }
 
-    const action = getCommandSettingsFailureAction(commandSettingsResult.type);
+    if (commandSettingsQuery.data) {
+        return <DashboardCommandPrefixSettingsPanel guildId={guildId} commandSettings={commandSettingsQuery.data} />;
+    }
+
+    const failureType =
+        commandSettingsQuery.error instanceof DashboardCommandSettingsReadError
+            ? commandSettingsQuery.error.type
+            : 'database-error';
+    const action = getCommandSettingsFailureAction(failureType, {
+        retry: () => {
+            if (retrying) return;
+            setRetrying(true);
+            void commandSettingsQuery.refetch().finally(() => setRetrying(false));
+        },
+        retrying,
+    });
 
     return (
         <DashboardSurface as='section' aria-label='Command prefix setting'>
@@ -35,7 +63,16 @@ export function DashboardCommandPrefixRouteContent({
     );
 }
 
-function getCommandSettingsFailureAction(type: Exclude<DashboardCommandSettingsReadResult['type'], 'settings'>): {
+class DashboardCommandSettingsReadError extends Error {
+    constructor(readonly type: Exclude<DashboardCommandSettingsReadResult['type'], 'settings'>) {
+        super(`Command settings read failed: ${type}`);
+    }
+}
+
+function getCommandSettingsFailureAction(
+    type: Exclude<DashboardCommandSettingsReadResult['type'], 'settings'>,
+    retryState: { retry: () => void; retrying: boolean }
+): {
     message: string;
     tone: 'danger' | 'warning';
     action: ReactNode;
@@ -71,7 +108,16 @@ function getCommandSettingsFailureAction(type: Exclude<DashboardCommandSettingsR
             return {
                 message: 'Command settings could not be loaded. The rest of this server dashboard is still available.',
                 tone: 'danger',
-                action: <DashboardRouteRetryButton label='Retry settings' />,
+                action: (
+                    <button
+                        type='button'
+                        onClick={retryState.retry}
+                        disabled={retryState.retrying}
+                        aria-busy={retryState.retrying || undefined}
+                        className={dashboardDangerActionClassName}>
+                        {retryState.retrying ? 'Retrying…' : 'Retry settings'}
+                    </button>
+                ),
             };
     }
 }

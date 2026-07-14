@@ -92,7 +92,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         expect(createStructureBackup).toHaveBeenNthCalledWith(
@@ -126,6 +126,46 @@ describe('runDueStructureBackups', () => {
         );
     });
 
+    it('samples fresh time for backup discovery, claim, snapshot, and lease clear', async () => {
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-fresh')]));
+        vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-fresh')));
+        vi.mocked(createStructureBackup).mockResolvedValueOnce(ok(createBackupRecord()));
+        const clock = createAdvancingClock(
+            '2026-07-06T00:00:00.000Z',
+            '2026-07-06T00:01:00.000Z',
+            '2026-07-06T00:02:00.000Z',
+            '2026-07-06T00:03:00.000Z',
+            '2026-07-06T00:04:00.000Z',
+            '2026-07-06T00:05:00.000Z'
+        );
+
+        await runDueStructureBackups({
+            client,
+            clock,
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+        });
+
+        expect(listDueStructureBackupSettings).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:02:00.000Z') })
+        );
+        expect(claimDueStructureBackupSetting).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                leaseExpiresAt: new Date('2026-07-06T00:33:00.000Z'),
+                now: new Date('2026-07-06T00:03:00.000Z'),
+            })
+        );
+        expect(vi.mocked(createStructureBackup).mock.calls[0]?.[1].structure).toMatchObject({
+            exportedAt: '2026-07-06T00:04:00.000Z',
+        });
+        expect(clearStructureBackupSettingLease).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:05:00.000Z') })
+        );
+    });
+
     it('drains due backup settings in batches during one run', async () => {
         vi.mocked(listDueStructureBackupSettings)
             .mockResolvedValueOnce(
@@ -141,7 +181,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         expect(listDueStructureBackupSettings).toHaveBeenCalledTimes(2);
@@ -158,7 +198,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         const claimInput = vi.mocked(claimDueStructureBackupSetting).mock.calls[0]?.[1];
@@ -177,6 +217,12 @@ describe('runDueStructureBackups', () => {
 
     it('runs bounded retention cleanup before scheduled backup reads', async () => {
         const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+        const clock = createAdvancingClock(
+            '2026-07-06T00:00:00.000Z',
+            '2026-07-06T00:01:00.000Z',
+            '2026-07-06T00:02:00.000Z',
+            '2026-07-06T00:03:00.000Z'
+        );
         vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
         vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
         vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
@@ -185,11 +231,15 @@ describe('runDueStructureBackups', () => {
 
         await runDueStructureBackups({
             client,
+            clock,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
-            now: new Date('2026-07-06T00:00:00.000Z'),
         });
 
+        expect(listDueStructureBackupRetentionSettings).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:00:00.000Z') })
+        );
         expect(pruneExpiredStructureBackupsForGuild).toHaveBeenCalledWith(
             {},
             {
@@ -202,7 +252,7 @@ describe('runDueStructureBackups', () => {
                 },
                 guildId: 'guild-1',
                 limit: 100,
-                now: new Date('2026-07-06T00:00:00.000Z'),
+                now: new Date('2026-07-06T00:01:00.000Z'),
             }
         );
         expect(logger.info).toHaveBeenCalledWith('structure.backup_retention_pruned', {
@@ -222,7 +272,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         expect(vi.mocked(pruneExpiredStructureBackupsForGuild).mock.invocationCallOrder[0]).toBeLessThan(
@@ -246,7 +296,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger,
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         const expectedDriftMetadata: unknown = expect.objectContaining({
@@ -279,6 +329,55 @@ describe('runDueStructureBackups', () => {
         });
     });
 
+    it('samples fresh time for drift discovery, claim, snapshot result, and lease clear', async () => {
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-drift')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
+            ok(createBaselineBackup({ guildId: 'guild-drift' }))
+        );
+        vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-drift')));
+        const clock = createAdvancingClock(
+            '2026-07-06T00:00:00.000Z',
+            '2026-07-06T00:01:00.000Z',
+            '2026-07-06T00:02:00.000Z',
+            '2026-07-06T00:03:00.000Z',
+            '2026-07-06T00:04:00.000Z',
+            '2026-07-06T00:05:00.000Z',
+            '2026-07-06T00:06:00.000Z'
+        );
+
+        await runDueStructureBackups({
+            client,
+            clock,
+            database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
+            logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+        });
+
+        expect(listDueStructureDriftSettings).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:01:00.000Z') })
+        );
+        expect(claimDueStructureDriftSetting).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                leaseExpiresAt: new Date('2026-07-06T00:32:00.000Z'),
+                now: new Date('2026-07-06T00:02:00.000Z'),
+            })
+        );
+        expect(recordStructureScheduledDriftResult).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:04:00.000Z') })
+        );
+        expect(clearStructureDriftSettingLease).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:05:00.000Z') })
+        );
+        expect(listDueStructureBackupSettings).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ now: new Date('2026-07-06T00:06:00.000Z') })
+        );
+    });
+
     it('records clean scheduled drift without audit noise', async () => {
         vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-clean')]));
         vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
@@ -291,7 +390,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         const recordInput = vi.mocked(recordStructureScheduledDriftResult).mock.calls[0]?.[1];
@@ -320,7 +419,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         const noBaselineInput = vi.mocked(recordStructureScheduledDriftResult).mock.calls[0]?.[1];
@@ -360,7 +459,7 @@ describe('runDueStructureBackups', () => {
             client,
             database: { db: {}, close: vi.fn() } as unknown as RuntimeDbClient,
             logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-            now: new Date('2026-07-06T00:00:00.000Z'),
+            clock: createFixedClock(),
         });
 
         await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
@@ -394,6 +493,25 @@ function createBackupSettings(guildId: string) {
         lastDriftLiveCounts: null,
         lastDriftHasMorePreview: false,
         retentionDays: 180,
+    };
+}
+
+function createFixedClock(): () => Date {
+    return () => new Date('2026-07-06T00:00:00.000Z');
+}
+
+function createAdvancingClock(...timestamps: string[]): () => Date {
+    let index = 0;
+
+    return () => {
+        const timestamp = timestamps[index];
+        index += 1;
+
+        if (!timestamp) {
+            throw new Error('Test clock exhausted.');
+        }
+
+        return new Date(timestamp);
     };
 }
 

@@ -25,7 +25,7 @@ export type NeonFluxConvexFunctionReference = NeonFluxConvexMutationReference | 
 export type NeonFluxConvexHttpClient = {
     mutation<Mutation extends NeonFluxConvexMutationReference>(
         reference: Mutation,
-        ...args: OptionalRestArgs<Mutation>
+        ...request: OptionalRestArgs<Mutation> | [args: FunctionArgs<Mutation>, options: NeonFluxConvexRequestOptions]
     ): Promise<FunctionReturnType<Mutation>>;
     query<Query extends NeonFluxConvexQueryReference>(
         reference: Query,
@@ -55,9 +55,17 @@ export function createNeonFluxConvexHttpClient(config: NeonFluxConvexClientConfi
     return {
         mutation: async <Mutation extends NeonFluxConvexMutationReference>(
             reference: Mutation,
-            ...args: OptionalRestArgs<Mutation>
+            ...request:
+                | OptionalRestArgs<Mutation>
+                | [args: FunctionArgs<Mutation>, options: NeonFluxConvexRequestOptions]
         ): Promise<FunctionReturnType<Mutation>> =>
-            callConvexFunction(config, 'mutation', reference, readOptionalArgs(args)),
+            callConvexFunction(
+                config,
+                'mutation',
+                reference,
+                readOptionalArgs(request as OptionalRestArgs<Mutation>),
+                request[1]
+            ),
         query: async <Query extends NeonFluxConvexQueryReference>(
             reference: Query,
             args: FunctionArgs<Query>,

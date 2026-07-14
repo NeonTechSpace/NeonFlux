@@ -14,14 +14,16 @@ NeonFlux is designed as a Docker Compose stack with two app services. Convex is 
 
 ## Service roles
 
-| Service | Owns                                                                    |
-| ------- | ----------------------------------------------------------------------- |
-| `bot`   | Fluxer gateway connection, bot lifecycle, deployment behavior bootstrap |
-| `web`   | OAuth login, sessions, dashboard, public docs                           |
+| Service | Owns                                                                                                 |
+| ------- | ---------------------------------------------------------------------------------------------------- |
+| `bot`   | Fluxer token and gateway, deployment bootstrap, provider reads, posting and Blueprint workers        |
+| `web`   | OAuth login, sessions, dashboard authorization, public docs, web-service and user Convex JWT signing |
 
 Both bot and web connect to Convex for durable runtime state. The bot owns deployment behavior bootstrap, including instance mode and public web URL, then writes it through the Convex-backed database boundary.
 
 The web service keeps OAuth and session secrets in env, but reads deployment behavior from Convex. Bot, web-service, and user Convex JWTs use separate issuer/audience/key tuples: the bot receives only the bot private key, the web runtime receives the web-service and user private keys, and Convex receives all three public JWKS values.
+
+The web container never receives `FLUXER_BOT_TOKEN`. Live provider reads cross the private Compose network to the bot-owned read service and authenticate with a short-lived web-service JWT. Do not publish the bot read port.
 
 ## Local development
 
@@ -31,6 +33,10 @@ Local development can run app checks without app Postgres. Smoke tests and produ
     Bot lifecycle persistence, OAuth sessions, dashboard guild access, and token storage require complete Convex
     configuration.
 </Callout>
+
+Keep the complete operator configuration in `projects/.env`. Convex tooling may create an ignored `.env.local` file for deployment metadata, but NeonFlux does not use it as the application configuration source.
+
+Historical growth, audit, and completed Blueprint workflow retention defaults to 90 days. Set `NEONFLUX_DATA_RETENTION_DAYS` to an integer from 1 through 730, then use the guarded `pnpm convex:configure-runtime-env` workflow before deployment.
 
 ## Deployment steps
 

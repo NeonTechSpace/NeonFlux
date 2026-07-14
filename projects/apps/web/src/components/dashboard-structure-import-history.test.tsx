@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
-import type { DashboardStructureImportRun } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureImportRun } from '../server/dashboard-structure-model.js';
 import {
     createEmptyDecisionSummary,
     getDashboardStructureDeleteApprovalText,
@@ -17,7 +17,7 @@ import { DashboardStructureImportHistory } from './dashboard-structure-import-hi
 afterEach(cleanup);
 
 describe('Server Blueprint action inspection', () => {
-    it('keeps raw action details secondary while selecting the canonical Explorer item', () => {
+    it('keeps raw action details secondary while selecting the canonical Explorer item', async () => {
         const run = createRun();
         render(
             <DashboardStructureImportHistory
@@ -36,6 +36,7 @@ describe('Server Blueprint action inspection', () => {
                 onRecoveryPlan={vi.fn()}
             />
         );
+        await waitForDeploymentReview();
 
         fireEvent.click(screen.getByRole('button', { name: 'Inspect' }));
 
@@ -89,11 +90,12 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.getByText(/controls are disabled because this deployment uses a different/i)).toBeTruthy();
     });
 
-    it('turns review into one clear continuation to the final safety check', () => {
+    it('turns review into one clear continuation to the final safety check', async () => {
         const onApprove = vi.fn();
         const run = createRun({ status: 'review_ready' });
 
         renderHistory(run, { onApprove });
+        await waitForDeploymentReview();
         fireEvent.click(screen.getByRole('button', { name: 'Continue to final check' }));
 
         expect(onApprove).toHaveBeenCalledWith(run);
@@ -127,11 +129,12 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
     });
 
-    it('offers only the live safety check after plan approval', () => {
+    it('offers only the live safety check after plan approval', async () => {
         const onPreflight = vi.fn();
         const run = createRun({ status: 'approved' });
 
         renderHistory(run, { onPreflight });
+        await waitForDeploymentReview();
 
         expect(screen.getByRole('button', { name: 'Run safety check' })).toBeTruthy();
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
@@ -139,9 +142,10 @@ describe('Server Blueprint action inspection', () => {
         expect(onPreflight).toHaveBeenCalledWith(run);
     });
 
-    it('surfaces a stale action as the next blocker and selects its Roles detail', () => {
+    it('surfaces a stale action as the next blocker and selects its Roles detail', async () => {
         const run = createRun({ status: 'approved' });
         renderHistory(run, { preflightByRunId: { [run.id]: createPreflight({ status: 'stale' }) } });
+        await waitForDeploymentReview();
 
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Review first blocker' }));
@@ -152,7 +156,7 @@ describe('Server Blueprint action inspection', () => {
         ).toBeTruthy();
     });
 
-    it('routes inspected channel and role actions to their owned Explorer sections', () => {
+    it('routes inspected channel and role actions to their owned Explorer sections', async () => {
         const run = createRun({
             actions: [
                 {
@@ -178,6 +182,7 @@ describe('Server Blueprint action inspection', () => {
             executionActionCount: 2,
         });
         renderHistory(run);
+        await waitForDeploymentReview();
 
         const inspectButtons = screen.getAllByRole('button', { name: 'Inspect' });
         fireEvent.click(inspectButtons[0]);
@@ -193,7 +198,7 @@ describe('Server Blueprint action inspection', () => {
         ).toBeTruthy();
     });
 
-    it('requires plan-bound destructive confirmation before exposing Apply', () => {
+    it('requires plan-bound destructive confirmation before exposing Apply', async () => {
         const run = createRun({
             status: 'approved',
             deleteActionCount: 1,
@@ -201,6 +206,7 @@ describe('Server Blueprint action inspection', () => {
         });
         const preflight = createPreflight({ status: 'destructive-approval-required' });
         render(<ControlledHistory run={run} preflight={preflight} />);
+        await waitForDeploymentReview();
 
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
         const input = screen.getByLabelText('Confirm 1 irreversible delete');
@@ -211,7 +217,7 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.getByRole('button', { name: 'Apply 1 change, including 1 deletion' })).toBeTruthy();
     });
 
-    it('requires a refreshed check when expired or older than a failed-before-mutation attempt', () => {
+    it('requires a refreshed check when expired or older than a failed-before-mutation attempt', async () => {
         const execution = {
             id: 'execution-1',
             protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
@@ -229,6 +235,7 @@ describe('Server Blueprint action inspection', () => {
                 [run.id]: createPreflight({ checkedAt: '2026-07-13T10:00:00.000Z' }),
             },
         });
+        await waitForDeploymentReview();
 
         expect(screen.getByRole('button', { name: 'Refresh safety check' })).toBeTruthy();
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
@@ -256,6 +263,10 @@ describe('Server Blueprint action inspection', () => {
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
     });
 });
+
+async function waitForDeploymentReview(): Promise<void> {
+    await waitFor(() => expect(screen.queryByText('Loading deployment review…')).toBeNull());
+}
 
 function renderHistory(
     run: DashboardStructureImportRun,

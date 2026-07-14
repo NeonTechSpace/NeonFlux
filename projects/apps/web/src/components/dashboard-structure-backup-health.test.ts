@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type {
     DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import { deriveDashboardStructureBackupHealth } from './dashboard-structure-backup-health.js';
 
 const nowMs = Date.parse('2026-07-09T12:00:00.000Z');

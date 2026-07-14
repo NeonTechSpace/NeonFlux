@@ -40,6 +40,7 @@ export type FluxerBotGuildsReadyEvent = {
 
 export type FluxerBotMessageEvent = {
     messageId: string;
+    createdAt: Date;
     channelId: string;
     guildId: string | null;
     authorId: string;
@@ -67,6 +68,10 @@ export type FluxerBotMemberEvent = {
     guildId: string;
     userId: string;
     roleIds: string[];
+};
+
+export type FluxerBotMemberJoinedEvent = FluxerBotMemberEvent & {
+    joinedAt: Date;
 };
 
 export type FluxerBotBanEvent = {
@@ -97,7 +102,7 @@ export type FluxerBotLifecycleHandlers = {
     messageDeleted?: (event: FluxerBotMessageDeletedEvent) => void | Promise<void>;
     messageCreated?: (event: FluxerBotMessageEvent) => void | Promise<void>;
     messageUpdated?: (event: FluxerBotMessageUpdatedEvent) => void | Promise<void>;
-    memberJoined?: (event: FluxerBotMemberEvent) => void | Promise<void>;
+    memberJoined?: (event: FluxerBotMemberJoinedEvent) => void | Promise<void>;
     memberUpdated?: (event: FluxerBotMemberEvent) => void | Promise<void>;
     memberLeft?: (event: FluxerBotMemberEvent) => void | Promise<void>;
     banAdded?: (event: FluxerBotBanEvent) => void | Promise<void>;
@@ -264,7 +269,7 @@ export function createFluxerBot(
             logger,
             'fluxer.member_joined_handler_failed',
             lifecycleHandlers.memberJoined,
-            normalizeMemberEvent(member)
+            normalizeMemberJoinedEvent(member)
         );
     });
 
@@ -443,6 +448,7 @@ function normalizeMessageEvent(message: Message): FluxerBotMessageEvent {
 
     return {
         messageId: message.id,
+        createdAt: message.createdAt,
         channelId: message.channelId,
         guildId: message.guildId,
         authorId: message.author.id,
@@ -477,6 +483,13 @@ function normalizeMemberEvent(member: GuildMember): FluxerBotMemberEvent {
         guildId: member.guild.id,
         userId: member.id,
         roleIds: [...member.roles.roleIds],
+    };
+}
+
+function normalizeMemberJoinedEvent(member: GuildMember): FluxerBotMemberJoinedEvent {
+    return {
+        ...normalizeMemberEvent(member),
+        joinedAt: member.joinedAt,
     };
 }
 

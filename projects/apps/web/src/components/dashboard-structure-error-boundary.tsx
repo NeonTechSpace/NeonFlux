@@ -56,12 +56,14 @@ export function DashboardStructureErrorState({
     diagnosticCode,
     onRetry,
     retryDisabled = false,
+    retrying = false,
 }: {
     title: string;
     message: string;
     diagnosticCode: string;
     onRetry: () => void;
     retryDisabled?: boolean;
+    retrying?: boolean;
 }) {
     return (
         <DashboardStatus
@@ -72,9 +74,10 @@ export function DashboardStructureErrorState({
                 <button
                     type='button'
                     onClick={onRetry}
-                    disabled={retryDisabled}
+                    disabled={retryDisabled || retrying}
+                    aria-busy={retrying || undefined}
                     className={dashboardDangerActionClassName}>
-                    {retryDisabled ? 'Waiting for current read' : 'Retry Blueprint'}
+                    {retrying ? 'Retrying…' : retryDisabled ? 'Waiting for current read' : 'Retry Blueprint'}
                 </button>
             }>
             <p>{message}</p>

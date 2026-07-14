@@ -12,6 +12,7 @@ import {
     toGuildOverviewAggregateFromDaily,
     type GuildGrowthDailyAggregateDocument,
 } from './growth_daily_aggregate_model.js';
+import { recordMemberFlowEventOnce, recordMessageActivityOnce } from './growth_event_integrity.js';
 import {
     buildGuildInviteSnapshotDocument,
     buildGuildMemberFlowEventDocument,
@@ -74,6 +75,7 @@ const memberFlowEventRecordValidator = v.object({
     id: v.string(),
     inviteCode: nullableString,
     inviterUserId: nullableString,
+    membershipStartedAt: nullableString,
     occurredAt: v.string(),
     userId: v.string(),
 });
@@ -104,6 +106,7 @@ const messageActivityRecordValidator = v.object({
     activityDate: v.string(),
     guildId: v.string(),
     shard: v.number(),
+    status: v.union(v.literal('duplicate'), v.literal('recorded')),
 });
 const overviewAggregateValidator = v.object({
     dataHealth: v.object({
@@ -136,6 +139,7 @@ export const recordGuildMemberFlowEvent = mutation({
         guildId: v.string(),
         inviteCode: v.optional(v.string()),
         inviterUserId: v.optional(v.string()),
+        membershipStartedAt: v.optional(v.string()),
         occurredAt: v.optional(v.string()),
         userId: v.string(),
     },
@@ -146,7 +150,14 @@ export const recordGuildMemberFlowEvent = mutation({
         await requireActiveBotInstallation(ctx, guildId);
 
         const document = unwrap(buildGuildMemberFlowEventDocument({ ...args, guildId }, new Date().toISOString()));
-        return await insertGuildMemberFlowEvent(ctx, document);
+        return await recordMemberFlowEventOnce({
+            event: document,
+            findExistingJoin: async () => {
+                const existing = await findExistingMemberJoin(ctx, document);
+                return existing ? toGuildMemberFlowEventRecord(existing) : null;
+            },
+            insertEvent: () => insertGuildMemberFlowEvent(ctx, document),
+        });
     },
 });
 
@@ -175,6 +186,7 @@ export const recordGuildMemberJoinWithInviteSnapshots = mutation({
         inviteCode: v.optional(v.string()),
         inviterUserId: v.optional(v.string()),
         invites: v.array(inviteSnapshotInputValidator),
+        membershipStartedAt: v.string(),
         observedAt: v.optional(v.string()),
         userId: v.string(),
     },
@@ -192,7 +204,8 @@ export const recordGuildMemberJoinWithInviteSnapshots = mutation({
                     guildId,
                     ...(args.inviteCode === undefined ? {} : { inviteCode: args.inviteCode }),
                     ...(args.inviterUserId === undefined ? {} : { inviterUserId: args.inviterUserId }),
-                    occurredAt: observedAt,
+                    membershipStartedAt: args.membershipStartedAt,
+                    occurredAt: args.membershipStartedAt,
                     userId: args.userId,
                 },
                 observedAt
@@ -200,8 +213,15 @@ export const recordGuildMemberJoinWithInviteSnapshots = mutation({
         );
         await requireActiveBotInstallation(ctx, guildId);
 
-        await replaceCurrentInviteSnapshots(ctx, guildId, snapshotsByCode, observedAt);
-        return await insertGuildMemberFlowEvent(ctx, event);
+        return await recordMemberFlowEventOnce({
+            event,
+            findExistingJoin: async () => {
+                const existing = await findExistingMemberJoin(ctx, event);
+                return existing ? toGuildMemberFlowEventRecord(existing) : null;
+            },
+            insertEvent: () => insertGuildMemberFlowEvent(ctx, event),
+            prepareJoin: () => replaceCurrentInviteSnapshots(ctx, guildId, snapshotsByCode, observedAt),
+        });
     },
 });
 
@@ -246,9 +266,26 @@ export const recordGuildMessageActivity = mutation({
 
         const activityDate = occurredAt.slice(0, 10);
         const shard = selectGrowthDailyAggregateShard(`${guildId}:${activityDate}:${messageId}`);
-        await upsertMessageDailyAggregate(ctx, { activityDate, guildId, occurredAt, shard });
-
-        return { activityDate, guildId, shard };
+        const receipt = {
+            activityDate,
+            guildId,
+            messageId,
+            occurredAt,
+            shard,
+        };
+        return await recordMessageActivityOnce({
+            findReceipt: async () => {
+                return await ctx.db
+                    .query('guildMessageActivityReceipts')
+                    .withIndex('by_guild_message', (index) => index.eq('guildId', guildId).eq('messageId', messageId))
+                    .unique();
+            },
+            incrementAggregate: () => upsertMessageDailyAggregate(ctx, { activityDate, guildId, occurredAt, shard }),
+            insertReceipt: async (document) => {
+                await ctx.db.insert('guildMessageActivityReceipts', document);
+            },
+            receipt,
+        });
     },
 });
 
@@ -308,6 +345,23 @@ async function insertGuildMemberFlowEvent(
     await upsertMemberFlowDailyAggregate(ctx, document);
 
     return toGuildMemberFlowEventRecord({ ...document, _id: id });
+}
+
+async function findExistingMemberJoin(
+    ctx: GrowthMutationCtx,
+    document: Parameters<typeof addMemberEventToGuildGrowthDailyAggregate>[1]
+) {
+    if (document.eventType !== 'join' || !document.membershipStartedAt) return null;
+
+    return await ctx.db
+        .query('guildMemberFlowEvents')
+        .withIndex('by_guild_user_membership', (index) =>
+            index
+                .eq('guildId', document.guildId)
+                .eq('userId', document.userId)
+                .eq('membershipStartedAt', document.membershipStartedAt)
+        )
+        .unique();
 }
 
 async function replaceCurrentInviteSnapshots(

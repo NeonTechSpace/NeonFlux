@@ -2,7 +2,6 @@ import '@tanstack/react-start/server-only';
 
 import { createHash } from 'node:crypto';
 
-import { loadWebConfig } from '@neonflux/config';
 import {
     enqueueDashboardPostingOperation,
     listBotActionEventPageByGuildId,
@@ -10,11 +9,11 @@ import {
     normalizeDashboardPostingPayload as normalizeDashboardPostingPayloadForQueue,
 } from '@neonflux/db';
 import type { BotActionEventSearchScope, DashboardPostingOperationRecord } from '@neonflux/db';
-import { readFluxerBotGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
+import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
@@ -261,19 +260,12 @@ export async function loadDashboardGuildPostingChannels(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const botToken = loadWebConfig().fluxerBotToken;
-
-    if (!botToken) {
-        return { type: 'bot-token-missing' };
-    }
-
-    const structureResult = await readFluxerBotGuildStructure({
-        botToken,
-        guildId: guildPageData.guild.id,
-    });
+    const structureResult = await readDashboardBotGuildStructure(guildPageData.guild.id);
 
     if (structureResult.isErr()) {
-        return { type: 'guild-lookup-failed' };
+        return structureResult.error === 'not-configured'
+            ? { type: 'bot-token-missing' }
+            : { type: 'guild-lookup-failed' };
     }
 
     return {

@@ -13,21 +13,27 @@
 - Do not edit generated files manually. Run the owning generator and inspect its diff.
 - Do not stage, commit, describe, bookmark, tag, push, squash, rebase, or otherwise mutate VCS state without explicit permission.
 - Never commit secrets, `.env`, generated `dist`, local database data, or machine-specific absolute paths.
+- Root `.env` is the local application runtime source of truth. An ignored `.env.local` may contain Convex CLI deployment metadata, but application code and scripts must not treat it as configuration. Add environment variables through the typed `packages/config` boundary, `.env.example`, and every affected container/operator path. Use the guarded Convex configuration workflows for values owned by a remote deployment.
 - Keep new or substantially rewritten handwritten production modules focused and generally below 555 LOC.
+- Treat environment class as an authority decision, not a naming convention. Destructive tooling must fail closed for named, qualified, remote, or otherwise ambiguous targets. Require explicit target confirmation and a separate destructive confirmation unless the target is positively established as disposable development state. A dry run, target name substring, or convenient default is not authorization.
 
 ## Architecture and runtime
 
+- Before cross-cutting feature work, establish a concrete ownership map: stable shell, leaf features, durable and transient state owners, async/data boundaries, client-code boundaries, failure containment, and validation evidence. Share code only for a cohesive invariant or genuinely cross-feature lifecycle. Do not create a coordinator, broad context, or catch-all property bag merely because several sibling features are nearby.
 - Convex is the only durable application database. Do not add Postgres, Drizzle, SQLite, `node:sqlite`, local database files, or dual-store fallbacks.
 - Runtime environments are development and production. There is no staging environment.
 - Handle `INSTANCE_MODE` bootstrap and DB-effective mode behavior with explicit `switch` statements.
 - Deployment behavior belongs in the dedicated `deployment_config` row, never copied into entity rows such as `bot_installations`.
-- Keep reusable domain and platform logic in `packages/*`. Bot and web consume it through workspace imports.
+- Keep authoritative shared domain and platform contracts in `packages/*`. Bot and web consume them through workspace imports. Keep one-consumer orchestration local, and do not create a shared package abstraction for hypothetical reuse.
 - Use `neverthrow` for expected recoverable runtime failures. Every importing package declares it directly.
 - Model durable data before changing schema: ownership, authority, lifecycle, cardinality, retention/deletion, access paths, concurrency, and recovery. Each table owns one durable concept.
 - Use guild-scoped generic settings only for small configuration. Give workflows, records, logs, approvals, counters, leases, and user data dedicated tables.
 - For external side effects, make partial failure, idempotency, retries, rate limits, concurrency, crash recovery, and reconciliation explicit. Do not claim cross-system atomicity.
+- Long-lived or externally triggered schedulers and in-memory queues must bound queued and active work. When ordering is keyed, serialize before scarce global capacity is consumed so waiters do not occupy active slots. Apply per-item deadlines, propagate cancellation through boundaries that support it, fence non-cancellable continuations, observe late settlements, and stop within a finite grace period. Never automatically retry a mutation whose external outcome became ambiguous.
+- Retention and deletion jobs must validate configuration before deleting, use one fixed cutoff per run, delete in bounded dependency-safe batches, protect active or unknown-outcome records, and use claims or fencing when concurrent runs are possible. Historical growth, audit, and completed Blueprint workflow data defaults to 90 days through `NEONFLUX_DATA_RETENTION_DAYS`, accepts only integer values from 1 through 730, and has no archive outside that window. Do not conflate this with the separate per-guild structure-backup retention policy.
+- Workspace packages may expose source in development and built artifacts in production only through explicit resolver conditions and fallbacks. Production resolution must not depend on TypeScript source. Validate the actual consumer command with its real environment and production build rather than treating a manually invoked resolver in a different mode as evidence.
 - Changes to Blueprint persisted action-ledger or normalization semantics, reference or ID-map transitions, provider outcome or replay classification, enqueue, claim, attempt, checkpoint, control, finalization, or progress semantics must bump the shared execution protocol in `convex/runtime_contract_model.ts`, `packages/db/src/runtime-contract.ts`, and `apps/web/src/dashboard-structure-execution-protocol.ts`. Persist the protocol on every execution and fence every execution boundary against it. Mixed backend, consumer, browser, or durable-row versions must fail closed. Do not add compatibility branches.
-- Do not reintroduce startup migrations, application Postgres bootstrap, source-export tooling, or import/smoke scripts in application or Docker paths.
+- Do not make application startup or Docker entrypoints depend on migrations, application Postgres bootstrap, source-only package resolution, or import/smoke helpers. Explicit operator and development verification scripts remain outside the runtime path.
 
 ## Product and interaction direction
 
@@ -42,6 +48,7 @@
 ## Security and observability
 
 - Re-check authorization at the authoritative boundary. Minimize scopes and keep guild/user ownership explicit.
+- Treat every internal HTTP or service-to-service call as a trust boundary. Bind privately where practical, bound bodies/concurrency/deadlines, strictly validate request and response contracts, and version the wire protocol when independently deployed consumers can drift. For JWT-authenticated calls, verify the configured issuer and require an endpoint-specific audience plus explicit service subject/claims. Do not automatically retry mutations. Authenticate the end user and guild before the call. Service authentication does not replace resource authorization.
 - Development bot logs should expose useful routing, policy, ignored-reason, and runtime checkpoint information.
 - Never log credentials or expose them through errors, diagnostics, or unintended response fields. Deliberately issuing a scoped token or session cookie from its authoritative authentication boundary is allowed. Keep it minimal, short-lived where possible, and out of unrelated payloads.
 
@@ -64,7 +71,7 @@
 
 ## Validation and completion
 
-- Validate proportionately with focused tests, typechecks, lint, generators, builds, and `git diff --check`. Run `pnpm check` from this folder when practical.
+- Validate proportionately with focused tests, typechecks, lint, generators, builds, and `git diff --check`. Run `pnpm check` from this folder for material cross-cutting or release-affecting changes unless the environment prevents it, and report the exact gap when it cannot run.
 - For meaningful UI changes, inspect the real application when possible and verify loading, error, empty, retry, destructive, and responsive states.
 - Before finalizing material work, perform a hostile review of the complete working-copy diff and relevant surrounding code. Fix in-scope P1/P2 issues and report remaining risks or skipped live validation honestly.
 

@@ -1,7 +1,7 @@
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { BotFeatureHandlerContext } from './bot-feature-types.js';
+import type { BotFeatureRoutingContext } from './bot-feature-types.js';
 import { routeBotFeatureEvent } from './bot-feature-router.js';
 
 const { recordBotInstallationEvent, removeBotInstallationEvent } = vi.hoisted(() => ({
@@ -79,11 +79,12 @@ describe('guild availability routing', () => {
     });
 });
 
-function createContext(): BotFeatureHandlerContext {
+function createContext(): BotFeatureRoutingContext {
     return {
         appEnv: 'production',
-        client: {} as BotFeatureHandlerContext['client'],
-        db: {} as BotFeatureHandlerContext['db'],
+        client: {} as BotFeatureRoutingContext['client'],
+        db: {} as BotFeatureRoutingContext['db'],
+        growthTelemetry: { enqueue: vi.fn(() => 'accepted' as const) },
         guildDefconOverride: 'auto',
         logger: { warn: vi.fn() },
         mode: { instanceMode: 'multi' },

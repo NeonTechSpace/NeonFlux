@@ -5,14 +5,7 @@ import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
-
-export type DashboardStructureErrorResult =
-    | { type: 'auth-required' }
-    | { type: 'not-found' }
-    | { type: 'deployment-config-not-found' }
-    | { type: 'backend-incompatible' }
-    | { type: 'database-error' }
-    | { type: 'guild-lookup-failed' };
+import type { DashboardStructureErrorResult } from './dashboard-structure-model.js';
 
 export type AuthorizedStructureContext = {
     type: 'authorized';

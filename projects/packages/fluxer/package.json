@@ -8,46 +8,74 @@
     "exports": {
         ".": {
             "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
             "import": "./dist/index.js"
+        },
+        "./bot-read-contract": {
+            "types": "./src/bot-read-contract.ts",
+            "development": "./src/bot-read-contract.ts",
+            "production": "./dist/bot-read-contract.js",
+            "import": "./dist/bot-read-contract.js"
         },
         "./guild-structure": {
             "types": "./src/guild-structure.ts",
+            "development": "./src/guild-structure.ts",
+            "production": "./dist/guild-structure.js",
             "import": "./dist/guild-structure.js"
         },
         "./guild-structure-diff": {
             "types": "./src/guild-structure-diff.ts",
+            "development": "./src/guild-structure-diff.ts",
+            "production": "./dist/guild-structure-diff.js",
             "import": "./dist/guild-structure-diff.js"
         },
         "./guild-structure-snapshot": {
             "types": "./src/guild-structure-snapshot.ts",
+            "development": "./src/guild-structure-snapshot.ts",
+            "production": "./dist/guild-structure-snapshot.js",
             "import": "./dist/guild-structure-snapshot.js"
         },
         "./guilds": {
             "types": "./src/guilds.ts",
+            "development": "./src/guilds.ts",
+            "production": "./dist/guilds.js",
             "import": "./dist/guilds.js"
         },
         "./invites": {
             "types": "./src/invites.ts",
+            "development": "./src/invites.ts",
+            "production": "./dist/invites.js",
             "import": "./dist/invites.js"
         },
         "./messages": {
             "types": "./src/messages.ts",
+            "development": "./src/messages.ts",
+            "production": "./dist/messages.js",
             "import": "./dist/messages.js"
         },
         "./oauth": {
             "types": "./src/oauth.ts",
+            "development": "./src/oauth.ts",
+            "production": "./dist/oauth.js",
             "import": "./dist/oauth.js"
         },
         "./platform": {
             "types": "./src/platform.ts",
+            "development": "./src/platform.ts",
+            "production": "./dist/platform.js",
             "import": "./dist/platform.js"
         },
         "./permissions": {
             "types": "./src/permissions.ts",
+            "development": "./src/permissions.ts",
+            "production": "./dist/permissions.js",
             "import": "./dist/permissions.js"
         },
         "./users": {
             "types": "./src/users.ts",
+            "development": "./src/users.ts",
+            "production": "./dist/users.js",
             "import": "./dist/users.js"
         }
     },

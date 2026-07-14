@@ -1,7 +1,8 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { AnimatePresence, motion } from 'motion/react';
-import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getDashboardAuditEventsQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
 import {
@@ -10,6 +11,12 @@ import {
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardAuditEvent, DashboardAuditSearchScope } from '../server/dashboard-posting.server.js';
 import { DashboardAuditEventRow, DashboardAuditEventsLoadMoreRow } from './dashboard-audit-event-row.js';
+import type { DashboardGuildReadFailureType } from './dashboard-guild-read-error.js';
+import {
+    canRetryDashboardGuildRead,
+    DashboardGuildReadError,
+    readDashboardGuildReadFailureType,
+} from './dashboard-guild-read-error.js';
 import {
     dashboardAuditSearchScopes,
     formatDashboardAuditSearchScope,
@@ -39,6 +46,7 @@ const auditVirtualFallbackCount = getDashboardVirtualFallbackCount({
     itemSize: auditRowEstimate,
 });
 export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
+    const [retrying, setRetrying] = useState(false);
     const { search, setSearch, searchScope, setSearchScope, clearFilters } = useDashboardAuditUrlFilters();
     const deferredSearch = useDeferredValue(search.trim());
     const searchOffsetMinutes = new Date().getTimezoneOffset();
@@ -58,12 +66,13 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
             });
 
             if (result.type !== 'events') {
-                throw new Error('Could not load audit events.');
+                throw new DashboardGuildReadError(result.type);
             }
 
             return result;
         },
         getNextPageParam: (lastPage) => lastPage.nextCursor,
+        retry: false,
     });
     const postingChannelsQuery = useQuery({
         queryKey: getDashboardPostingChannelsQueryKey(guildId),
@@ -75,11 +84,12 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
             });
 
             if (result.type !== 'channels') {
-                throw new Error('Could not load channel names.');
+                throw new DashboardGuildReadError(result.type);
             }
 
             return result.channels;
         },
+        retry: false,
     });
     const auditEvents = useMemo(
         () => auditEventsQuery.data?.pages.flatMap((page) => page.auditEvents) ?? [],
@@ -155,9 +165,17 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 hasNextPage={auditEventsQuery.hasNextPage}
                 isLoading={auditEventsQuery.isPending}
                 isFetchingNextPage={auditEventsQuery.isFetchingNextPage}
-                isError={auditEventsQuery.isError}
+                isError={auditEventsQuery.isError || retrying}
+                errorType={
+                    auditEventsQuery.isError ? readDashboardGuildReadFailureType(auditEventsQuery.error) : undefined
+                }
+                isRetrying={retrying}
                 fetchNextPage={auditEventsQuery.fetchNextPage}
-                retry={auditEventsQuery.refetch}
+                retry={() => {
+                    if (retrying) return Promise.resolve();
+                    setRetrying(true);
+                    return auditEventsQuery.refetch().finally(() => setRetrying(false));
+                }}
             />
         </DashboardSurface>
     );
@@ -172,6 +190,8 @@ function AuditEventsBody({
     isLoading,
     isFetchingNextPage,
     isError,
+    errorType,
+    isRetrying,
     fetchNextPage,
     retry,
 }: {
@@ -183,6 +203,8 @@ function AuditEventsBody({
     isLoading: boolean;
     isFetchingNextPage: boolean;
     isError: boolean;
+    errorType?: DashboardGuildReadFailureType;
+    isRetrying: boolean;
     fetchNextPage: () => Promise<unknown>;
     retry: () => Promise<unknown>;
 }) {
@@ -224,7 +246,7 @@ function AuditEventsBody({
         void fetchNextPage();
     }, [events.length, fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex]);
 
-    if (isLoading) {
+    if (isLoading && !isRetrying) {
         return (
             <motion.div
                 className='mt-4 space-y-2'
@@ -245,6 +267,8 @@ function AuditEventsBody({
     }
 
     if (isError && events.length === 0) {
+        const failureType = errorType ?? 'database-error';
+
         return (
             <motion.div
                 className='mt-4'
@@ -254,14 +278,30 @@ function AuditEventsBody({
                 transition={dashboardContentTransition}>
                 <DashboardErrorState
                     title='Audit events unavailable'
-                    description='The persisted event history could not be loaded.'
+                    description={getAuditFailureDescription(failureType)}
                     action={
-                        <button
-                            type='button'
-                            onClick={() => void retry()}
-                            className='min-h-11 rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                            Try again
-                        </button>
+                        failureType === 'auth-required' ? (
+                            <a
+                                href='/auth/fluxer/login'
+                                className={`${dashboardSecondaryActionClassName} inline-flex items-center`}>
+                                Sign in again
+                            </a>
+                        ) : failureType === 'not-found' ? (
+                            <Link
+                                to='/dashboard'
+                                className={`${dashboardSecondaryActionClassName} inline-flex items-center`}>
+                                Choose server
+                            </Link>
+                        ) : canRetryDashboardGuildRead(failureType) ? (
+                            <button
+                                type='button'
+                                onClick={() => void retry()}
+                                disabled={isRetrying}
+                                aria-busy={isRetrying || undefined}
+                                className='min-h-11 rounded-[var(--dash-radius-control)] border border-[var(--dash-danger)] px-3 text-xs font-semibold text-[var(--dash-text)] transition hover:bg-[var(--dash-danger-soft)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none disabled:cursor-wait disabled:opacity-60'>
+                                {isRetrying ? 'Retrying…' : 'Retry audit events'}
+                            </button>
+                        ) : undefined
                     }
                 />
             </motion.div>
@@ -346,6 +386,22 @@ function AuditEventsBody({
             ) : null}
         </>
     );
+}
+
+function getAuditFailureDescription(type: DashboardGuildReadFailureType): string {
+    switch (type) {
+        case 'auth-required':
+            return 'Your session expired before the persisted event history could be loaded.';
+        case 'not-found':
+            return 'This server is no longer available for this account.';
+        case 'deployment-config-not-found':
+            return 'Audit history is unavailable because this deployment is not fully configured.';
+        case 'bot-token-missing':
+            return 'Audit history is unavailable because bot access is not configured.';
+        case 'database-error':
+        case 'guild-lookup-failed':
+            return 'The persisted event history could not be loaded. Other dashboard features remain available.';
+    }
 }
 
 function DashboardAuditEmptyTimeline() {

@@ -1,4 +1,4 @@
-import type { DashboardStructureBackupSummary } from '../server/dashboard-structure.server.js';
+import type { DashboardStructureBackupSummary } from '../server/dashboard-structure-model.js';
 
 export function formatCounts(
     value: Pick<DashboardStructureBackupSummary, 'roleCount' | 'categoryCount' | 'channelCount'>

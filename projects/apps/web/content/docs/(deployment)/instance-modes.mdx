@@ -38,7 +38,7 @@ This avoids asking both services to carry the same behavior flags.
 
 Single instance goes straight to the configured community. Multi instance shows a community picker with only manageable installed communities.
 
-<Callout title='Invite flow is separate' type='info'>
-    If no manageable installed communities are found in multi instance mode, invite flow is handled separately from this
-    first docs foundation.
+<Callout title='Optional invite action' type='info'>
+    Multi-instance navigation shows the bot invite action only when `FLUXER_BOT_INVITE_URL` is configured. The dashboard
+    still lists only communities that are both manageable by the signed-in user and installed for this deployment.
 </Callout>

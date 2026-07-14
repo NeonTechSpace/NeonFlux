@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
     DashboardStructureDriftResult,
     DashboardStructureImportRun,
-} from '../server/dashboard-structure.server.js';
+} from '../server/dashboard-structure-model.js';
 import { buildDashboardStructureChannelTypeCss } from './dashboard-structure-explorer-channel-types.js';
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
 import { buildDashboardStructureExplorerModel } from './dashboard-structure-explorer-model.js';

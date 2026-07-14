@@ -1,6 +1,6 @@
 <h1 align="center">NeonFlux</h1>
 
-<h3 align="center">A multi functional bot for Fluxer</h3>
+<h3 align="center">A Fluxer bot with a protected, Convex-backed web dashboard</h3>
 
 <div align="center">
 
@@ -8,220 +8,181 @@
 
 </div>
 
-<div align="center">
+NeonFlux is an unreleased work in progress. This README lists implemented runtime surfaces rather than roadmap features.
 
-[![Bot Release](https://img.shields.io/static/v1?style=for-the-badge&label=Bot%20Release&message=Pending&logo=github&logoColor=fff&labelColor=0B1221&color=5A1730)](https://github.com/NeonTechSpace/NeonFlux/tags)
-    
-[![Web Release](https://img.shields.io/static/v1?style=for-the-badge&label=Web%20Release&message=Pending&logo=github&logoColor=fff&labelColor=0B1221&color=1E40AF)](https://github.com/NeonTechSpace/NeonFlux/tags)
+## Implemented surfaces
 
-</div>
+The bot currently provides:
 
-## Initial Plan
+- installation reconciliation for single- and multi-instance deployments.
+- configurable prefix, help, ping, and mention responses.
+- replay-safe message activity and member-join tracking, invite attribution, and explicitly at-least-once member-leave tracking.
+- a bounded, best-effort telemetry queue that cannot block command routing.
+- durable dashboard message delivery through a bot-owned worker.
+- server-structure observation, backups, drift checks, and reviewed Blueprint execution.
 
-NeonFlux is planned as a Fluxer bot with a web dashboard and Convex-backed live dashboard data.
+The authenticated dashboard currently ships these guild routes:
 
-It supports two modes:
+- Overview.
+- Messaging → Message Builder.
+- General Settings → Command Prefix.
+- Events & Logs → Audit Events.
+- Server Blueprint → Overview, Backups, Compare, Deploy, and Runs.
 
-- Single instance: one bot for one configured guild.
-- Multi instance: one bot can serve multiple guilds.
+Unlisted dashboard features are not implemented routes.
 
-The planned feature areas are:
+## Workspace
 
-- Autorole
-- Bot installation sync and reconciliation
-- Command help
-- Convex dashboard data
-- Dashboard access for single and multi instance
-- Dashboard audit events
-- Dashboard server overview and growth tracking
-- Docker / GHCR deployment
-- Free game alerts
-- Fumadocs documentation under `/docs`
-- Giveaways
-- Import/export for roles, channels, categories, emojis, and permissions
-- Invite tracker
-- Logging
-- Message and embed posting
-- Moderation
-- OAuth login, sessions, and refreshed permissions
-- Profile / about me embed builder
-- Public/private tickets
-- Public web URL and generated links
-- Reaction roles
-- Suggestion voting
-- Verification reaction roles
-- Voice channel generator
-- XP / levels
+The pnpm workspace lives in `projects`:
 
-The goal is to build the bot in small, clear pieces and keep shared logic reusable between the bot and web app.
+- `apps/bot`: Fluxer gateway process, provider reads, and bot-owned workers.
+- `apps/web`: OAuth, sessions, public docs, and the protected dashboard.
+- `convex`: the only durable application database and live-query functions.
+- `packages/config`: environment parsing and runtime boundaries.
+- `packages/convex`: scoped Convex JWT/client helpers.
+- `packages/db`: the bot/web persistence contract.
+- `packages/core`: shared domain policy.
+- `packages/fluxer`: Fluxer clients and provider adapters.
 
-## Repo Beats
+## Local setup
 
-![Alt](https://repobeats.axiom.co/api/embed/79b0b7006e59290b742ddcd8cacb309dd81e0fff.svg "Repobeats analytics image")
+Use Node 24.18.0 and pnpm 11 from `projects`.
 
-## Star Map
-
-<a href="https://www.star-history.com/?repos=NeonTechSpace%2FNeonFlux&type=date&legend=top-left">
-    <picture>
-        <source
-            media="(prefers-color-scheme: dark)"
-            srcset="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&type=date&legend=top-left&theme=dark" />
-        <source
-            media="(prefers-color-scheme: light)"
-            srcset="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&type=date&legend=top-left" />
-        <img
-            alt="Star History Chart"
-            src="https://api.star-history.com/chart?repos=NeonTechSpace/NeonFlux&type=date&legend=top-left" />
-    </picture>
-</a>
-
-## Project Shape
-
-The main workspace is in `projects`.
-
-- `apps/bot`: Fluxer bot process
-- `apps/web`: web dashboard
-- `packages/config`: shared env parsing
-- `packages/convex`: shared Convex client and JWT helpers
-- `convex`: Convex functions and the generated `@neonflux/convex-api` workspace package
-- `packages/db`: runtime database boundary
-- `packages/core`: shared bot/web rules
-- `packages/fluxer`: Fluxer API and permission helpers
-
-## Environment Setup
-
-Use `pnpm` from the `projects` folder. Environment values live in `projects/.env`. The tracked template is `projects/.env.example`.
-
-Start a local env file:
-
-```bash
+```sh
 cd projects
+pnpm install
 cp .env.example .env
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env`.
+On PowerShell, use `Copy-Item .env.example .env`.
 
-Generate separate secrets for every environment. Do not reuse dev values in production.
+`projects/.env` is the application source of truth. Convex CLI setup may create the ignored `.env.local` file for its own deployment metadata. NeonFlux's config loader searches for `.env`, not `.env.local`. Keep the complete application configuration in `.env` and avoid maintaining conflicting duplicate values.
 
-```bash
+Generate the session and OAuth-token encryption secrets once per environment:
+
+```sh
 pnpm generate:session-secret
 pnpm generate:token-encryption-key
+```
+
+### Convex authentication
+
+Convex authenticates three isolated JWT providers:
+
+| Provider    | Used by                                                | Default audience       |
+| ----------- | ------------------------------------------------------ | ---------------------- |
+| Bot service | Bot-to-Convex calls                                    | `neonflux-convex-bot`  |
+| Web service | Web-to-Convex calls and the internal bot-read boundary | `neonflux-convex-web`  |
+| User        | Browser live subscriptions after server authorization  | `neonflux-convex-user` |
+
+Each provider needs a distinct issuer and RSA key pair. Run the private-key generator three times and assign one output to each of `NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY`, `NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY`, and `NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY`.
+
+```sh
+pnpm generate:convex-private-key
+pnpm generate:convex-private-key
 pnpm generate:convex-private-key
 ```
 
-Put those outputs in `SESSION_SECRET`, `FLUXER_TOKEN_ENCRYPTION_KEY`, and `NEONFLUX_AUTH_JWT_PRIVATE_KEY`.
+After the three private keys, audiences, and distinct issuers are in `.env`, derive their public JWKS values:
 
-After `NEONFLUX_AUTH_JWT_PRIVATE_KEY` and the intended `NEONFLUX_AUTH_JWT_ISSUER` are set, generate the public JWKS value:
-
-```bash
-pnpm --silent generate:convex-jwks
+```sh
+pnpm --silent generate:convex-jwks bot
+pnpm --silent generate:convex-jwks web
+pnpm --silent generate:convex-jwks user
 ```
 
-Put the output in `NEONFLUX_AUTH_JWT_JWKS`. Convex receives issuer, audience, and this public JWKS value only. Do not send `NEONFLUX_AUTH_JWT_PRIVATE_KEY`, `SESSION_SECRET`, Fluxer secrets, or token encryption keys to Convex.
+Store each result in the matching `*_JWKS` variable. Convex receives the three issuer/audience/public-JWKS tuples. It must never receive a private JWT key, the Fluxer bot token, OAuth secrets, session secrets, or token-encryption keys.
 
-### Development
+Validate the local public configuration and dry-run the selected Convex target:
 
-For local development, keep the app issuer local and point OAuth back to localhost:
-
-```dotenv
-APP_ENV=development
-NODE_ENV=development
-PUBLIC_WEB_URL=
-FLUXER_OAUTH_REDIRECT_URL=http://localhost:3000/auth/fluxer/callback
-NEONFLUX_AUTH_JWT_ISSUER=http://localhost:3000/auth
-NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
-CONVEX_DEPLOYMENT=<dev Convex deployment>
-CONVEX_URL=<dev Convex URL>
-VITE_CONVEX_URL=<dev Convex URL>
+```sh
+pnpm convex:validate-auth-config
+pnpm convex:configure-auth-env -- --deployment <target>
+pnpm convex:configure-runtime-env -- --deployment <target>
 ```
 
-Then validate the selected Convex target and run the processes you need:
+The configure commands read `.env`. They mutate nothing without `--apply`, an explicit deployment, and an exact confirmation target:
 
-```bash
-pnpm convex:check-auth-env
+```sh
+pnpm convex:configure-auth-env -- --deployment <target> --apply --confirm-apply-target <target>
+pnpm convex:configure-runtime-env -- --deployment <target> --apply --confirm-apply-target <target>
+pnpm convex:check-auth-env -- --deployment <target> --compare-deploy-env
+```
+
+See [the Convex guide](docs/Convex.md) for the complete target, deployment, retention, and self-hosting workflow.
+
+### Run development
+
+The complete development stack builds shared runtime packages, uploads/checks Convex functions once, then starts Convex, bot, and web watchers:
+
+```sh
+pnpm dev
+```
+
+For isolated work:
+
+```sh
 pnpm dev:bot
 pnpm dev:web
 ```
 
-For dashboard routes, start the bot before the web app so the bot can bootstrap deployment config and runtime guild state. The homepage and docs can run with only `pnpm dev:web`. Local development does not require app Postgres. Convex is the durable store target.
+The public homepage and docs can render with the web process alone. Authenticated dashboard behavior needs configured Convex auth and the bot process: the bot bootstraps deployment state and owns live Fluxer provider reads.
 
-### Production
+## Security boundaries
 
-Production uses the same variable names with production values:
+- The Fluxer bot token belongs to the bot runtime. The web config loader removes it, and the production web container is not given it.
+- Live provider reads go through the bot-owned internal HTTP service. It accepts short-lived web-service JWTs, is loopback-only in direct development, and is private to the Compose network in Docker.
+- Browser Convex tokens are short-lived user tokens whose manageable-guild scope is derived server-side. Token and JWKS responses are non-secret public/auth boundaries. OAuth credentials and private signing material are never returned.
+- Provider mutations use explicit retry and unknown-outcome policy. Non-idempotent actions are not blindly replayed after an ambiguous response.
 
-```dotenv
-APP_ENV=production
-NODE_ENV=production
-PUBLIC_WEB_URL=https://<your NeonFlux web host>
-FLUXER_OAUTH_REDIRECT_URL=https://<your NeonFlux web host>/auth/fluxer/callback
-NEONFLUX_AUTH_JWT_ISSUER=https://<your NeonFlux web host>/auth
-NEONFLUX_AUTH_JWT_AUDIENCE=neonflux-convex
-CONVEX_DEPLOYMENT=<production Convex deployment>
-CONVEX_URL=<production Convex URL>
-VITE_CONVEX_URL=<production Convex URL>
-```
+## Data lifecycle
 
-`NEONFLUX_AUTH_JWT_ISSUER` is a NeonFlux issuer, not the Fluxer OAuth host. Use protected environment variables or a secret store for production secrets. Keep `CONVEX_DEPLOY_KEY` protected for deploy automation.
+`NEONFLUX_DATA_RETENTION_DAYS` configures historical growth, audit, and completed Blueprint workflow retention. It defaults to 90 days and accepts integers from 1 through 730. Convex-owned daily jobs drain expired rows in bounded batches. Active, paused, reconciliation-required, and outcome-unknown Blueprint executions are protected.
 
-Dry-run the public Convex auth update before applying it:
+Message activity uses durable `(guildId, messageId)` receipts before incrementing aggregates. Member joins deduplicate by membership identity. Fluxer member-leave callbacks do not expose a reliable event identity, so leaves remain explicitly at-least-once and can overcount if the provider redelivers them.
 
-```bash
-pnpm convex:configure-auth-env -- --issuer https://<your NeonFlux web host>/auth --deployment <production Convex deployment>
-```
+Growth ingestion is best effort: four writes may run concurrently and at most 1,000 more are queued. Overload, shutdown, or persistence failure is logged without blocking the primary bot event path.
 
-Apply only after the dry-run targets the intended deployment:
+## Reset Convex data
 
-```bash
-pnpm convex:configure-auth-env -- --issuer https://<your NeonFlux web host>/auth --deployment <production Convex deployment> --apply --confirm-apply-target <production Convex deployment>
-pnpm convex:check-auth-env -- --compare-deploy-env
-pnpm convex:deploy
-```
+The reset wrapper replaces every table in the selected deployment with an empty schema-shaped snapshot. It is destructive and refuses ambient non-dry-run targets.
 
-See [docs/Convex.md](docs/Convex.md) for the full Convex auth and deploy workflow.
+Push current functions/schema before resetting a development deployment:
 
-## Convex
-
-NeonFlux uses Convex for durable state and live dashboard data. To self-host Convex separately from NeonFlux app data, see [docs/Convex.md](docs/Convex.md).
-
-### Reset Convex Data
-
-The reset script replaces the selected Convex deployment with an empty snapshot for every table in the current schema. It is destructive. Run it from `projects`. Non-dry-run resets must name an explicit destination with `--deployment dev`, `--deployment <deployment-name>`, or `--prod --confirm-production-reset`. Ambient Convex targets are refused.
-
-After schema or function changes, push the current Convex schema/functions before resetting dev. This prevents stale deployed schema state from keeping old tables or functions around.
-
-```bash
-cd projects
+```sh
 pnpm convex:dev:once
-```
-
-Dry-run the hosted dev reset first:
-
-```bash
 pnpm convex:reset-data -- --deployment dev --dry-run
-```
-
-Reset the hosted dev deployment:
-
-```bash
 pnpm convex:reset-data -- --deployment dev --yes
 ```
 
-Dry-run the production reset first:
+Production additionally requires the explicit production acknowledgement:
 
-```bash
+```sh
 pnpm convex:reset-data -- --prod --confirm-production-reset --dry-run
-```
-
-Reset production only after the current Convex code has been intentionally deployed and the dry-run targets the intended deployment:
-
-```bash
 pnpm convex:reset-data -- --prod --confirm-production-reset --yes
 ```
 
-Do not use `--deployment local` for this wrapper. Convex local imports require a separately created local deployment. Use `--deployment dev` for the hosted dev deployment.
+The wrapper rejects `--deployment local`. A manually created local Convex deployment must be operated with the Convex CLI directly.
+
+## Web architecture and validation
+
+The dashboard keeps guild authorization, selected-guild identity, and stable navigation in parent shells. Each shipped leaf route owns its feature code, query cache, mutations, local loading/error state, and optional heavy tools. Static feature chrome remains visible while the smallest unresolved data island loads. Confirmed data stays visible during background refresh.
+
+After route changes, regenerate the TanStack route tree and run the production build:
+
+```sh
+pnpm --filter neonflux-web generate-routes
+pnpm --filter neonflux-web build
+```
+
+The web build automatically runs the dashboard bundle-boundary guard. It rejects shell-to-leaf and sibling-feature static imports, unexpected optional-tool reachability, development JSX in production chunks, absolute source paths, and entry chunks beyond the accepted ceilings.
+
+Run the complete workspace validation with:
+
+```sh
+pnpm check
+```
 
 ## Docker
 
-Docker users can run NeonFlux with the published GHCR images for the bot and web app.
-
-See [docs/Docker.md](docs/Docker.md) for the Docker Compose guide, including environment setup through [projects/.env.example](projects/.env.example). The main stack is [projects/docker-compose.yml](projects/docker-compose.yml). The optional Convex stack is [projects/docker-compose.convex.yml](projects/docker-compose.convex.yml).
+Use [the Docker guide](docs/Docker.md) and [`projects/.env.example`](projects/.env.example). The app stack is [`projects/docker-compose.yml`](projects/docker-compose.yml). Optional self-hosted Convex infrastructure is [`projects/docker-compose.convex.yml`](projects/docker-compose.convex.yml).

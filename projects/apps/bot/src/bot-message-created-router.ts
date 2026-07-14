@@ -2,14 +2,13 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { sendBotFeatureReply } from './bot-feature-replies.js';
 import type {
-    BotFeatureHandlerContext,
+    BotFeatureRoutingContext,
     BotFeatureRouteError,
     BotFeatureRouteHandledAction,
     BotFeatureRouteResult,
     BotMessageCreatedEvent,
 } from './bot-feature-types.js';
 import { getHelpCommandIntent, routeHelpCommand } from './bot-help-command.js';
-import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
 import {
     authorizeBotPresenceReply,
     getBotPresenceIntent,
@@ -20,7 +19,7 @@ import { getMentionedPrefixCommand, routePrefixChangeCommand } from './bot-prefi
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 export async function routeMessageCreatedEvent(
-    context: BotFeatureHandlerContext,
+    context: BotFeatureRoutingContext,
     event: BotMessageCreatedEvent
 ): Promise<Result<BotFeatureRouteResult, BotFeatureRouteError>> {
     if (event.authorIsBot) {
@@ -45,12 +44,13 @@ export async function routeMessageCreatedEvent(
         });
     }
 
-    try {
-        const growthResult = await trackGrowthOverviewEvent(context, event);
-        if (growthResult.isErr()) warnGrowthTrackingFailure(context, event, 'database-error');
-    } catch {
-        warnGrowthTrackingFailure(context, event, 'unexpected-error');
-    }
+    context.growthTelemetry.enqueue({
+        authorIsBot: event.authorIsBot,
+        guildId: event.guildId,
+        messageId: event.messageId,
+        occurredAt: event.createdAt,
+        type: 'message.created',
+    });
 
     if (prefixChangeCommand) {
         return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);
@@ -101,18 +101,6 @@ export async function routeMessageCreatedEvent(
     }
 
     return sendBotFeatureReply(context, event, getBotPresenceReply(event, intent), getPresenceHandledAction(intent));
-}
-
-function warnGrowthTrackingFailure(
-    context: BotFeatureHandlerContext,
-    event: BotMessageCreatedEvent,
-    error: 'database-error' | 'unexpected-error'
-): void {
-    context.logger.warn('bot.growth_tracking_failed', {
-        error,
-        eventType: event.type,
-        guildId: event.guildId,
-    });
 }
 
 function getPresenceHandledAction(intent: BotPresenceIntent): BotFeatureRouteHandledAction {
