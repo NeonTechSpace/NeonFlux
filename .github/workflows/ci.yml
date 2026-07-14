@@ -123,6 +123,10 @@ jobs:
               working-directory: projects
               run: pnpm install --frozen-lockfile
 
+            - name: Build runtime packages
+              working-directory: projects
+              run: pnpm build:runtime-packages
+
             - name: Run authenticated production-composition journeys
               working-directory: projects
               run: pnpm --filter neonflux-web e2e:authenticated
