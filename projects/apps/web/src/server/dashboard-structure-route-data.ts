@@ -19,6 +19,7 @@ import type {
     DashboardStructureBackupJsonResult,
     DashboardStructureBackupSettingsInput,
     DashboardStructureBackupSettingsResult,
+    DashboardStructureBackupsResult,
     DashboardStructureApprovalInput,
     DashboardStructureApprovalResult,
     DashboardStructureCurrentExportResult,
@@ -28,7 +29,8 @@ import type {
     DashboardStructurePlanResult,
     DashboardStructureRecoveryInput,
     DashboardStructureRecoveryResult,
-    DashboardStructureSettingsResult,
+    DashboardStructureRunsResult,
+    DashboardStructureStatusResult,
 } from './dashboard-structure.server.js';
 import type {
     DashboardStructureDecisionPageInput,
@@ -49,16 +51,50 @@ type DashboardGuildRouteInput = {
     guildId: string;
 };
 
-export const readDashboardStructureSettingsRouteData = createServerFn({ method: 'GET' })
+export const readDashboardStructureStatusRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
-    .handler(async ({ data }): Promise<DashboardStructureSettingsResult> => {
+    .handler(async ({ data }): Promise<DashboardStructureStatusResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { loadDashboardStructureSettings } = await import('./dashboard-structure.server.js');
+        const { loadDashboardStructureStatus } = await import('./dashboard-structure.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
         try {
-            return await loadDashboardStructureSettings(getRequest(), data.guildId);
+            return await loadDashboardStructureStatus(getRequest(), data.guildId);
+        } catch (error) {
+            const { ConvexRuntimeContractError } = await import('@neonflux/db');
+            if (error instanceof ConvexRuntimeContractError) return { type: 'backend-incompatible' };
+            throw error;
+        }
+    });
+
+export const readDashboardStructureBackupsRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardStructureBackupsResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardStructureBackups } = await import('./dashboard-structure.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        try {
+            return await loadDashboardStructureBackups(getRequest(), data.guildId);
+        } catch (error) {
+            const { ConvexRuntimeContractError } = await import('@neonflux/db');
+            if (error instanceof ConvexRuntimeContractError) return { type: 'backend-incompatible' };
+            throw error;
+        }
+    });
+
+export const readDashboardStructureRunsRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardGuildRouteInput)
+    .handler(async ({ data }): Promise<DashboardStructureRunsResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { loadDashboardStructureRuns } = await import('./dashboard-structure.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+
+        try {
+            return await loadDashboardStructureRuns(getRequest(), data.guildId);
         } catch (error) {
             const { ConvexRuntimeContractError } = await import('@neonflux/db');
             if (error instanceof ConvexRuntimeContractError) return { type: 'backend-incompatible' };

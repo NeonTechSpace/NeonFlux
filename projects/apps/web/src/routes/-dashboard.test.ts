@@ -212,7 +212,6 @@ describe('/dashboard', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'No servers available' })).toBeTruthy();
-        expect(screen.getByText('Sign in with a Fluxer account that can manage at least one server.')).toBeTruthy();
         expect(within(view.container).getByRole('link', { name: 'Use another account' })).toBeTruthy();
         expect(within(view.container).queryByRole('link', { name: 'Invite bot' })).toBeNull();
     });

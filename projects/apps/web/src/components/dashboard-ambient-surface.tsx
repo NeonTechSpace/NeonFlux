@@ -54,7 +54,9 @@ export function DashboardAmbientSurface() {
     return (
         <div className='pointer-events-none fixed inset-0 isolate z-0 overflow-hidden' aria-hidden='true'>
             <div className='dashboard-ambient-base absolute inset-0 z-0' />
-            {effects.fluidBlobsEnabled ? <DashboardFluidField motionEnabled={fluidMotionEnabled} /> : null}
+            {effects.fluidBlobsEnabled && pageVisible ? (
+                <DashboardFluidField motionEnabled={fluidMotionEnabled} />
+            ) : null}
             <svg
                 className='absolute inset-0 z-20 size-full opacity-[0.048] mix-blend-overlay'
                 focusable='false'

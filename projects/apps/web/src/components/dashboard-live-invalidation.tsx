@@ -9,7 +9,7 @@ import {
     getDashboardOverviewQueryKey,
     getDashboardPostingTemplatesQueryKey,
     getDashboardStructureExecutionProgressBaseQueryKey,
-    getDashboardStructureSettingsQueryKey,
+    getDashboardStructureQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
 import { readDashboardConvexUrl, useDashboardLive } from './dashboard-live-provider.js';
@@ -150,7 +150,7 @@ function invalidateDashboardLiveArea(
             return;
 
         case 'import_export':
-            invalidateOnce(destination, getDashboardStructureSettingsQueryKey(guildId));
+            invalidateOnce(destination, getDashboardStructureQueryKey(guildId));
             return;
 
         case 'structure_execution':
@@ -158,7 +158,7 @@ function invalidateDashboardLiveArea(
             return;
 
         case 'structure':
-            invalidateOnce(destination, getDashboardStructureSettingsQueryKey(guildId));
+            invalidateOnce(destination, getDashboardStructureQueryKey(guildId));
             return;
 
         case 'audit':
@@ -168,7 +168,7 @@ function invalidateDashboardLiveArea(
 }
 
 function dashboardLiveInvalidationDestination(area: DashboardLiveArea): string {
-    if (area === 'import_export' || area === 'structure') return 'structure-settings';
+    if (area === 'import_export' || area === 'structure') return 'structure';
     if (area === 'structure_execution') return 'structure-execution-progress';
     return area;
 }

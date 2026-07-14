@@ -195,6 +195,7 @@ export {
     enqueueStructureImportExecution,
     ensureStructureImportRestorePoint,
     finalizeStructureImportExecution,
+    findActiveStructureImportExecution,
     findLatestStructureImportApproval,
     findLatestStructureImportExecution,
     findLatestStructureImportPreflight,

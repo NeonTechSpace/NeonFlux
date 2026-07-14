@@ -168,6 +168,34 @@ describe('Server Blueprint progress transport', () => {
         expect(screen.getByTestId('issue').textContent).toBe('none');
     });
 
+    it('exposes pending state while an explicit polling retry is unresolved', async () => {
+        const retryPoll = deferred<ExecutionQueryResult>();
+        mocks.httpQuery.mockResolvedValueOnce(
+            executionQueryResult({ appliedActions: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
+        );
+        renderProgress({ initialExecution: execution(), runId: 'run-1' });
+
+        await waitFor(() => expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2'));
+        const liveClient = mocks.liveClients[0];
+        liveClient.localQueryResult.mockImplementation(() => {
+            throw new Error('live socket read failed');
+        });
+        liveClient.callback?.();
+        mocks.httpQuery.mockRejectedValueOnce(new Error('progress polling unavailable'));
+        fireEvent.click(screen.getByRole('button', { name: 'Retry progress' }));
+        await waitFor(() => expect(screen.getByTestId('issue').textContent).toBe('BLUEPRINT_PROGRESS_READ_FAILED'));
+
+        mocks.httpQuery.mockReturnValueOnce(retryPoll.promise);
+        fireEvent.click(screen.getByRole('button', { name: 'Retry progress' }));
+
+        expect(screen.getByTestId('retrying').textContent).toBe('yes');
+        const queryCallCount = mocks.httpQuery.mock.calls.length;
+        fireEvent.click(screen.getByRole('button', { name: 'Retry progress' }));
+        expect(mocks.httpQuery).toHaveBeenCalledTimes(queryCallCount);
+        retryPoll.resolve(executionQueryResult({ appliedActions: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        await waitFor(() => expect(screen.getByTestId('retrying').textContent).toBe('no'));
+    });
+
     it('expires old transport success and reports a later dual-transport stall', async () => {
         mocks.httpQuery.mockResolvedValue(
             executionQueryResult({ appliedActions: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
@@ -385,6 +413,7 @@ function ProgressProbe({
             <output data-testid='transport'>
                 {progress.transport.mode}:{progress.transport.confirmedAt ? 'confirmed' : 'unconfirmed'}
             </output>
+            <output data-testid='retrying'>{progress.retrying ? 'yes' : 'no'}</output>
             <button type='button' onClick={progress.retry}>
                 Retry progress
             </button>
@@ -459,7 +488,7 @@ function executionQueryResult(overrides: Partial<ExecutionQueryResult> = {}): Ex
 }
 
 function structureSettingsKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'structure-settings'];
+    return ['dashboard', 'guild', guildId, 'structure', 'runs'];
 }
 
 function structureProgressKey(guildId: string, runId: string) {

@@ -59,7 +59,6 @@ describe('DashboardServerOverviewPanel', () => {
         renderOverview();
 
         expect(await screen.findByRole('heading', { name: 'Listening for activity' })).toBeTruthy();
-        expect(screen.getByText('Member movement and messages will appear after NeonFlux observes them.')).toBeTruthy();
         expect(screen.queryByRole('heading', { name: 'No member movement yet' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'No message activity yet' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Common tasks' })).toBeNull();

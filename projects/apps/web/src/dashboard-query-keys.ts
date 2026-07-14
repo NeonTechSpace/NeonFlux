@@ -35,8 +35,20 @@ export function getDashboardPostingTemplatesQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-templates'] as const;
 }
 
-export function getDashboardStructureSettingsQueryKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'structure-settings'] as const;
+export function getDashboardStructureQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'structure'] as const;
+}
+
+export function getDashboardStructureStatusQueryKey(guildId: string) {
+    return [...getDashboardStructureQueryKey(guildId), 'status'] as const;
+}
+
+export function getDashboardStructureBackupsQueryKey(guildId: string) {
+    return [...getDashboardStructureQueryKey(guildId), 'backups'] as const;
+}
+
+export function getDashboardStructureRunsQueryKey(guildId: string) {
+    return [...getDashboardStructureQueryKey(guildId), 'runs'] as const;
 }
 
 export function getDashboardStructureExecutionProgressBaseQueryKey(guildId: string) {

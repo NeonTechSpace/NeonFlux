@@ -137,6 +137,17 @@ export async function findLatestStructureImportExecution(db: StructureDb, input:
     }
 }
 
+export async function findActiveStructureImportExecution(db: StructureDb, input: { guildId: string }) {
+    try {
+        const record = await db.client.query(api.structure.findActiveStructureImportExecution, {
+            guildId: input.guildId,
+        });
+        return record ? ok(toExecution({ ...record, id: record._id })) : ok(null);
+    } catch {
+        return err({ type: 'database-error' } as const);
+    }
+}
+
 export async function recordStructureImportPreflight(
     db: StructureDb,
     input: Omit<StructureImportPreflightRecord, 'id'> & { audit?: StructureAuditInput }

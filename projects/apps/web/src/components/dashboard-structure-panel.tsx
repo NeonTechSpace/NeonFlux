@@ -1,10 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS } from '@neonflux/fluxer/guild-structure-snapshot';
 import { createContext, use, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { getDashboardAuditEventsBaseQueryKey, getDashboardStructureSettingsQueryKey } from '../dashboard-query-keys.js';
+import {
+    getDashboardAuditEventsBaseQueryKey,
+    getDashboardStructureBackupsQueryKey,
+    getDashboardStructureQueryKey,
+    getDashboardStructureRunsQueryKey,
+    getDashboardStructureStatusQueryKey,
+} from '../dashboard-query-keys.js';
 import {
     downloadDashboardStructureExportRouteData,
     exportDashboardStructureRouteData,
@@ -15,6 +21,7 @@ import {
     saveDashboardStructureBackupSettingsRouteData,
 } from '../server/dashboard-structure-route-data.js';
 import type {
+    DashboardStructureBackupSettings,
     DashboardStructureBackupSummary,
     DashboardStructureImportRun,
 } from '../server/dashboard-structure.server.js';
@@ -23,7 +30,6 @@ import { formatDashboardStructureExplorerSnapshotJson } from './dashboard-struct
 import { parseDashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardStructureErrorBoundary } from './dashboard-structure-error-boundary.js';
-import { renderDashboardStructureControllerState } from './dashboard-structure-controller-state.js';
 import type { DashboardStructureControllerState } from './dashboard-structure-controller-state.js';
 import type { StructureBusyAction } from './dashboard-structure-import-history.js';
 import { isBackupPageStateFresh } from './dashboard-structure-panel-backup-state.js';
@@ -32,13 +38,10 @@ import { createDashboardStructureDriftActions } from './dashboard-structure-drif
 import { useDashboardStructureExplorerState } from './dashboard-structure-panel-explorer-state.js';
 import { formatBackupSource, formatCounts, formatDate } from './dashboard-structure-panel-format.js';
 import { useDashboardStructureImportState } from './dashboard-structure-panel-import-state.js';
-import {
-    isTerminalDashboardStructureExecution,
-    readDashboardStructureDiagnosticCode,
-} from './dashboard-structure-progress.js';
+import { readDashboardStructureDiagnosticCode } from './dashboard-structure-progress.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-structure-panel-status.js';
 import type { BackupPageState, DriftState, PanelStatus } from './dashboard-structure-panel-types.js';
-import { DashboardStructurePanelView } from './dashboard-structure-panel-view.js';
+import { DashboardStructurePanelView, DashboardStructurePendingSurface } from './dashboard-structure-panel-view.js';
 import type { DashboardStructureBackupSettingsValue } from './dashboard-structure-backup-settings.js';
 import type { DashboardStructurePanelViewProps, DashboardStructureSurface } from './dashboard-structure-panel-view.js';
 import { useDashboardStructureWorkspaceQueries } from './dashboard-structure-workspace-queries.js';
@@ -53,9 +56,19 @@ type DashboardStructureDeployFlow =
     | { type: 'latest' }
     | { type: 'choose' }
     | { type: 'run'; run: DashboardStructureImportRun };
+const emptyBackupSettings: DashboardStructureBackupSettings = {
+    enabled: false,
+    cadenceWeeks: 1,
+    retentionDays: 180,
+};
+const emptyObservedState = {
+    changedSinceLastBackup: false,
+    observedChangeCount: 0,
+};
 
 export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
+    const surface = useRouterState({ select: (state) => readDashboardStructureSurface(state.location.pathname) });
     useDashboardLiveInvalidation({
         guildId,
         areas: structureLiveArea,
@@ -64,31 +77,36 @@ export function DashboardStructureWorkspace({ guildId }: { guildId: string }) {
     return (
         <DashboardStructureErrorBoundary
             onRetry={() => {
-                void queryClient.invalidateQueries({ queryKey: getDashboardStructureSettingsQueryKey(guildId) });
+                void queryClient.invalidateQueries({ queryKey: getDashboardStructureQueryKey(guildId) });
             }}>
-            <DashboardStructureController guildId={guildId}>
+            <DashboardStructureController guildId={guildId} surface={surface}>
                 {(state) => {
-                    const workspace = state.type === 'ready' ? state.workspace : undefined;
-
                     return (
                         <DashboardStructureWorkspaceShell
                             guildId={guildId}
-                            activeRun={workspace?.importRuns.find(
-                                (run) => run.execution && !isTerminalDashboardStructureExecution(run.execution)
-                            )}
-                            executionProgressIssue={workspace?.executionProgressIssue}
-                            executionTransport={workspace?.executionTransport ?? { mode: 'idle' }}>
+                            activeRun={state.shell.activeRun}
+                            executionProgressIssue={state.shell.executionProgressIssue}
+                            executionTransport={state.shell.executionTransport}>
                             <DashboardStructureErrorBoundary
                                 onRetry={() => {
                                     void queryClient.invalidateQueries({
-                                        queryKey: getDashboardStructureSettingsQueryKey(guildId),
+                                        queryKey: getDashboardStructureQueryKey(guildId),
                                     });
                                 }}>
-                                {renderDashboardStructureControllerState(state, (readyWorkspace) => (
-                                    <DashboardStructureWorkspaceContext value={readyWorkspace}>
+                                {state.type === 'ready' ? (
+                                    <DashboardStructureWorkspaceContext value={state.workspace}>
                                         <DashboardStructureWorkspaceOutlet />
                                     </DashboardStructureWorkspaceContext>
-                                ))}
+                                ) : (
+                                    <DashboardStructurePendingSurface
+                                        surface={surface}
+                                        error={
+                                            state.type === 'error'
+                                                ? { diagnosticCode: state.diagnosticCode, retry: state.retry }
+                                                : undefined
+                                        }
+                                    />
+                                )}
                             </DashboardStructureErrorBoundary>
                         </DashboardStructureWorkspaceShell>
                     );
@@ -106,16 +124,28 @@ export function DashboardStructureRouteSurface({ surface }: { surface: Dashboard
     return <DashboardStructurePanelView {...workspace} surface={surface} />;
 }
 
+function readDashboardStructureSurface(pathname: string): DashboardStructureSurface {
+    if (pathname.endsWith('/backups')) return 'backups';
+    if (pathname.endsWith('/compare')) return 'compare';
+    if (pathname.endsWith('/deploy')) return 'deploy';
+    if (pathname.endsWith('/runs')) return 'runs';
+    return 'current';
+}
+
 function DashboardStructureController({
     guildId,
+    surface,
     children,
 }: {
     guildId: string;
+    surface: DashboardStructureSurface;
     children: (state: DashboardStructureControllerState) => ReactNode;
 }) {
     const queryClient = useQueryClient();
     const navigate = useNavigate();
-    const queryKey = getDashboardStructureSettingsQueryKey(guildId);
+    const backupsQueryKey = getDashboardStructureBackupsQueryKey(guildId);
+    const runsQueryKey = getDashboardStructureRunsQueryKey(guildId);
+    const statusQueryKey = getDashboardStructureStatusQueryKey(guildId);
     const [importJson, setImportJson] = useState('');
     const [structurePolicy, setStructurePolicy] = useState<DashboardStructurePolicy>('synchronize');
     const [deployFlow, setDeployFlow] = useState<DashboardStructureDeployFlow>({ type: 'latest' });
@@ -130,8 +160,18 @@ function DashboardStructureController({
     const [editingBackupId, setEditingBackupId] = useState<string | undefined>();
     const [editingBackupName, setEditingBackupName] = useState('');
     const [deleteConfirmBackupId, setDeleteConfirmBackupId] = useState<string | undefined>();
-    const { activeExecutionRun, executionProgress, retrySettings, settingsQuery } =
-        useDashboardStructureWorkspaceQueries(guildId);
+    const {
+        activeExecutionRun,
+        backupsQuery,
+        executionProgress,
+        needsBackups,
+        needsRuns,
+        retryBackups,
+        retryRuns,
+        retryStatus,
+        runsQuery,
+        statusQuery,
+    } = useDashboardStructureWorkspaceQueries(guildId, surface);
     const explorer = useDashboardStructureExplorerState({
         driftState,
         guildId,
@@ -144,15 +184,22 @@ function DashboardStructureController({
         policy: structurePolicy,
         importJson,
         refreshAuditEvents,
-        refreshSettings,
+        refreshSettings: refreshRuns,
         setBusyAction,
         setStatus,
     });
     const driftActions = createDashboardStructureDriftActions({ guildId, setBusyAction, setDriftState, setStatus });
 
-    async function refreshSettings(options: { resetBackups?: boolean } = {}): Promise<void> {
+    async function refreshBackups(options: { resetBackups?: boolean } = {}): Promise<void> {
         if (options.resetBackups) setBackupPageState(undefined);
-        await queryClient.invalidateQueries({ queryKey });
+        await queryClient.invalidateQueries({ queryKey: backupsQueryKey });
+    }
+
+    async function refreshRuns(): Promise<void> {
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: runsQueryKey }),
+            queryClient.invalidateQueries({ queryKey: statusQueryKey }),
+        ]);
     }
 
     async function refreshAuditEvents(): Promise<void> {
@@ -173,7 +220,7 @@ function DashboardStructureController({
 
             setBackupJson(result.backupJson);
             setStatus({ tone: 'success', message: `Backup created for ${formatCounts(result.backup)}.` });
-            await refreshSettings({ resetBackups: true });
+            await refreshBackups({ resetBackups: true });
             await refreshAuditEvents();
         } catch {
             setStatus(toUnexpectedErrorStatus());
@@ -223,7 +270,7 @@ function DashboardStructureController({
     }
 
     async function saveBackupSettings(draft?: DashboardStructureBackupSettingsValue): Promise<void> {
-        const settings = settingsQuery.data?.backupSettings;
+        const settings = backupsQuery.data?.backupSettings;
         const enabled = draft?.enabled ?? backupEnabled ?? settings?.enabled ?? false;
         const cadenceWeeks = draft?.cadenceWeeks ?? backupCadenceWeeks ?? settings?.cadenceWeeks ?? 1;
         const retentionDays = draft?.retentionDays ?? backupRetentionDays ?? settings?.retentionDays ?? 180;
@@ -256,7 +303,7 @@ function DashboardStructureController({
                       }.`
                     : 'Automatic backups disabled. Manual backups are still available.',
             });
-            await refreshSettings();
+            await refreshBackups();
             await refreshAuditEvents();
         } catch {
             setStatus(toUnexpectedErrorStatus());
@@ -266,15 +313,13 @@ function DashboardStructureController({
     }
 
     async function loadMoreBackups(): Promise<void> {
-        const freshBackups = settingsQuery.data?.backups ?? [];
+        const freshBackups = backupsQuery.data?.backups ?? [];
         const currentPage =
             (backupPageState && isBackupPageStateFresh(backupPageState, freshBackups) ? backupPageState : undefined) ??
-            (settingsQuery.data
+            (backupsQuery.data
                 ? {
                       backups: freshBackups,
-                      ...(settingsQuery.data.backupNextCursor
-                          ? { nextCursor: settingsQuery.data.backupNextCursor }
-                          : {}),
+                      ...(backupsQuery.data.backupNextCursor ? { nextCursor: backupsQuery.data.backupNextCursor } : {}),
                   }
                 : undefined);
         if (!currentPage?.nextCursor) return;
@@ -330,7 +375,7 @@ function DashboardStructureController({
             setEditingBackupId(undefined);
             setEditingBackupName('');
             setStatus({ tone: 'success', message: 'Backup renamed.' });
-            await refreshSettings({ resetBackups: true });
+            await refreshBackups({ resetBackups: true });
             await refreshAuditEvents();
         } catch {
             setStatus(toUnexpectedErrorStatus());
@@ -374,7 +419,7 @@ function DashboardStructureController({
             }));
             setDeleteConfirmBackupId(undefined);
             setStatus({ tone: 'success', message: 'Backup deleted.' });
-            await refreshSettings({ resetBackups: true });
+            await refreshBackups({ resetBackups: true });
             await refreshAuditEvents();
         } catch {
             setStatus(toUnexpectedErrorStatus());
@@ -466,14 +511,37 @@ function DashboardStructureController({
         );
     }
 
-    if (!settingsQuery.data && settingsQuery.isPending) return children({ type: 'loading' });
-
-    if (!settingsQuery.data) {
-        const diagnosticCode = readDashboardStructureDiagnosticCode(settingsQuery.error);
-        return children({ type: 'error', diagnosticCode, retry: retrySettings });
+    const shellActiveRun = activeExecutionRun
+        ? {
+              ...activeExecutionRun,
+              ...(executionProgress.execution ? { execution: executionProgress.execution } : {}),
+          }
+        : undefined;
+    const shell = {
+        ...(shellActiveRun ? { activeRun: shellActiveRun } : {}),
+        ...(executionProgress.issueCode && activeExecutionRun
+            ? { executionProgressIssue: { code: executionProgress.issueCode, runId: activeExecutionRun.id } }
+            : {}),
+        executionTransport: executionProgress.transport,
+    };
+    const requiredQueries = [needsBackups ? backupsQuery : undefined, needsRuns ? runsQuery : undefined].filter(
+        (query): query is typeof backupsQuery | typeof runsQuery => query !== undefined
+    );
+    const coldErrorQuery = requiredQueries.find((query) => !query.data && query.isError);
+    if (coldErrorQuery) {
+        return children({
+            type: 'error',
+            diagnosticCode: readDashboardStructureDiagnosticCode(coldErrorQuery.error),
+            retry: () => {
+                if (needsBackups && !backupsQuery.data) retryBackups();
+                if (needsRuns && !runsQuery.data) retryRuns();
+            },
+            shell,
+        });
     }
+    if (requiredQueries.some((query) => !query.data)) return children({ type: 'loading', shell });
 
-    const importRuns = settingsQuery.data.importRuns.map((run) => ({
+    const importRuns = (runsQuery.data?.importRuns ?? []).map((run) => ({
         ...run,
         actions: imports.actionPagesByRunId[run.id]?.actions ?? run.actions,
         decisions: imports.decisionPagesByRunId[run.id]?.decisions ?? run.decisions,
@@ -488,20 +556,22 @@ function DashboardStructureController({
             : deployFlow.type === 'run'
               ? (importRuns.find((run) => run.id === deployFlow.run.id) ?? deployFlow.run)
               : undefined;
-    const backupSettings = settingsQuery.data.backupSettings;
+    const backupSettings = backupsQuery.data?.backupSettings ?? emptyBackupSettings;
     const enabledDraft = backupEnabled ?? backupSettings.enabled;
     const cadenceDraft = backupCadenceWeeks ?? backupSettings.cadenceWeeks;
     const retentionDraft = backupRetentionDays ?? backupSettings.retentionDays;
     const backupPage =
-        backupPageState && isBackupPageStateFresh(backupPageState, settingsQuery.data.backups)
+        backupPageState && isBackupPageStateFresh(backupPageState, backupsQuery.data?.backups ?? [])
             ? backupPageState
             : {
-                  backups: settingsQuery.data.backups,
-                  ...(settingsQuery.data.backupNextCursor ? { nextCursor: settingsQuery.data.backupNextCursor } : {}),
+                  backups: backupsQuery.data?.backups ?? [],
+                  ...(backupsQuery.data?.backupNextCursor ? { nextCursor: backupsQuery.data.backupNextCursor } : {}),
               };
+    const refreshError = requiredQueries.find((query) => query.isError)?.error ?? statusQuery.error;
 
     return children({
         type: 'ready',
+        shell,
         workspace: {
             backupJson,
             backupPage,
@@ -521,6 +591,7 @@ function DashboardStructureController({
                           runId: activeExecutionRun.id,
                       }
                     : undefined,
+            executionProgressRetrying: executionProgress.retrying,
             executionTransport: executionProgress.transport,
             explorer,
             deployChoosingSource: deployFlow.type === 'choose',
@@ -529,14 +600,14 @@ function DashboardStructureController({
             importJson,
             importRuns,
             latestRun,
-            observedState: settingsQuery.data.observedState,
+            observedState: backupsQuery.data?.observedState ?? emptyObservedState,
             preflightByRunId: imports.preflightByRunId,
             restoreShortcutBackupId: deployRun?.execution?.restorePointBackupId,
             roleMappingConflicts: imports.roleMappingConflicts,
             roleMappings: imports.roleMappings,
             retentionDraft,
-            settingsRefreshIssue: settingsQuery.isError
-                ? { code: readDashboardStructureDiagnosticCode(settingsQuery.error) }
+            settingsRefreshIssue: refreshError
+                ? { code: readDashboardStructureDiagnosticCode(refreshError) }
                 : undefined,
             status,
             onApplyRun: (run) => void imports.applyImportRun(run),
@@ -618,7 +689,9 @@ function DashboardStructureController({
                 executionProgress.retry();
             },
             onRetrySettingsRefresh: () => {
-                retrySettings();
+                if (backupsQuery.isError) retryBackups();
+                if (runsQuery.isError) retryRuns();
+                if (statusQuery.isError) retryStatus();
             },
             onStartNewBlueprintDeployment: () => beginDeploySource(),
             onRecoveryPlan: (run) => {

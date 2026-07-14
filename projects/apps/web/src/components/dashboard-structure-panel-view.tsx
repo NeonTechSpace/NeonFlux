@@ -38,7 +38,12 @@ import {
 import type { DashboardStructureProgressTransport } from './dashboard-structure-execution-progress.js';
 import type { DashboardStructureExplorerPanelState } from './dashboard-structure-panel-explorer-state.js';
 import { formatDate, formatObservedState } from './dashboard-structure-panel-format.js';
-import { RestorePointShortcutNotice, StatusMessage } from './dashboard-structure-panel-shared.js';
+import {
+    DashboardStructureLoading,
+    RestorePointShortcutNotice,
+    StatusMessage,
+} from './dashboard-structure-panel-shared.js';
+import { DashboardStructureErrorState } from './dashboard-structure-error-boundary.js';
 import type {
     BackupPageState,
     DashboardStructurePreflightView,
@@ -47,6 +52,59 @@ import type {
 } from './dashboard-structure-panel-types.js';
 
 export type DashboardStructureSurface = 'current' | 'backups' | 'compare' | 'deploy' | 'runs';
+
+const surfaceIdentity: Record<DashboardStructureSurface, { heading: string; description: string }> = {
+    current: {
+        heading: 'Blueprint overview',
+        description: 'Backup health and observed activity. Inspecting the live layout performs a fresh server read.',
+    },
+    backups: {
+        heading: 'Protected versions',
+        description: 'Create, schedule, retain, and reuse protected server layouts.',
+    },
+    compare: {
+        heading: 'Compare layouts',
+        description: 'Domain changes first. Raw normalized JSON remains an advanced inspection mode.',
+    },
+    deploy: {
+        heading: 'Deploy a blueprint',
+        description: 'Choose the intended result, review every change, then apply with a fresh safety check.',
+    },
+    runs: {
+        heading: 'Deployment runs',
+        description: 'Active work stays at the top; completed runs follow.',
+    },
+};
+
+export function DashboardStructurePendingSurface({
+    surface,
+    error,
+}: {
+    surface: DashboardStructureSurface;
+    error?: { diagnosticCode: string; retry: () => void };
+}) {
+    const identity = surfaceIdentity[surface];
+    return (
+        <section aria-labelledby={`blueprint-${surface}-heading`}>
+            <div className='border-b border-[var(--dash-border)] pb-4'>
+                <h2 id={`blueprint-${surface}-heading`} className='text-lg font-semibold text-[var(--dash-text)]'>
+                    {identity.heading}
+                </h2>
+                <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{identity.description}</p>
+            </div>
+            {error ? (
+                <DashboardStructureErrorState
+                    title={`${identity.heading} could not load`}
+                    message='The dashboard did not receive this Blueprint data slice. Other Blueprint tools remain available.'
+                    diagnosticCode={error.diagnosticCode}
+                    onRetry={error.retry}
+                />
+            ) : (
+                <DashboardStructureLoading />
+            )}
+        </section>
+    );
+}
 
 const dashboardStructureDeploymentPolicies = [
     {
@@ -79,6 +137,7 @@ export function DashboardStructurePanelView({
         <ExecutionProgressIssue
             code={workspace.settingsRefreshIssue.code}
             message='Blueprint data could not refresh. The last confirmed workspace remains visible.'
+            retrying={false}
             retryLabel='Retry Blueprint refresh'
             onRetry={workspace.onRetrySettingsRefresh}
         />
@@ -132,10 +191,10 @@ function CurrentSurface({ workspace }: { workspace: DashboardStructurePanelViewP
             <div className='flex flex-wrap items-end justify-between gap-5 border-b border-[var(--dash-border)] pb-5'>
                 <div>
                     <h2 id='blueprint-current-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                        Blueprint overview
+                        {surfaceIdentity.current.heading}
                     </h2>
                     <p className='mt-1 max-w-2xl text-sm leading-6 text-[var(--dash-text-muted)]'>
-                        Backup health and observed activity. Inspecting the live layout performs a fresh server read.
+                        {surfaceIdentity.current.description}
                     </p>
                 </div>
                 <div className='flex flex-wrap gap-2'>
@@ -251,9 +310,10 @@ function BackupsSurface({ workspace }: { workspace: DashboardStructurePanelViewP
             <div className='flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
                 <div>
                     <h2 id='blueprint-backups-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                        Protected versions
+                        {surfaceIdentity.backups.heading}
                     </h2>
-                    <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{scheduleCopy}</p>
+                    <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{surfaceIdentity.backups.description}</p>
+                    <p className='mt-1 text-xs text-[var(--dash-text-subtle)]'>{scheduleCopy}</p>
                 </div>
                 <div className='flex flex-wrap gap-2'>
                     <button
@@ -330,11 +390,9 @@ function CompareSurface({ workspace }: { workspace: DashboardStructurePanelViewP
             <div className='mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dash-border)] pb-4'>
                 <div>
                     <h2 id='blueprint-compare-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                        Compare layouts
+                        {surfaceIdentity.compare.heading}
                     </h2>
-                    <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                        Domain changes first. Raw normalized JSON remains an advanced inspection mode.
-                    </p>
+                    <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{surfaceIdentity.compare.description}</p>
                 </div>
             </div>
             <DriftPanel
@@ -382,11 +440,9 @@ function DeploySurface({ workspace }: { workspace: DashboardStructurePanelViewPr
         <section aria-labelledby='blueprint-deploy-heading'>
             <div className='border-b border-[var(--dash-border)] pb-4'>
                 <h2 id='blueprint-deploy-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                    Deploy a blueprint
+                    {surfaceIdentity.deploy.heading}
                 </h2>
-                <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                    Choose the intended result, review every change, then apply with a fresh safety check.
-                </p>
+                <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{surfaceIdentity.deploy.description}</p>
             </div>
             <ol className='grid grid-cols-3 border-b border-[var(--dash-border)]' aria-label='Deployment stages'>
                 {['Choose', 'Review', 'Apply'].map((label, index) => (
@@ -440,6 +496,7 @@ function DeploySurface({ workspace }: { workspace: DashboardStructurePanelViewPr
                 <ExecutionProgressIssue
                     code={workspace.executionProgressIssue.code}
                     message={formatExecutionProgressIssue(workspace.executionProgressIssue.code)}
+                    retrying={workspace.executionProgressRetrying}
                     retryLabel='Retry progress'
                     onRetry={workspace.onRetryExecutionProgress}
                 />
@@ -634,11 +691,9 @@ function RunsSurface({
         <section aria-labelledby='blueprint-runs-heading'>
             <div className='border-b border-[var(--dash-border)] pb-4'>
                 <h2 id='blueprint-runs-heading' className='text-lg font-semibold text-[var(--dash-text)]'>
-                    Deployment runs
+                    {surfaceIdentity.runs.heading}
                 </h2>
-                <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>
-                    Active work stays at the top; completed runs follow.
-                </p>
+                <p className='mt-1 text-sm text-[var(--dash-text-muted)]'>{surfaceIdentity.runs.description}</p>
             </div>
             {workspace.importRuns.length === 0 ? (
                 <p className='py-10 text-sm text-[var(--dash-text-muted)]'>No deployment plans yet.</p>
@@ -694,6 +749,7 @@ function RunsSurface({
                                             message={formatExecutionProgressIssue(
                                                 workspace.executionProgressIssue.code
                                             )}
+                                            retrying={workspace.executionProgressRetrying}
                                             retryLabel='Retry progress'
                                             onRetry={workspace.onRetryExecutionProgress}
                                         />
@@ -741,17 +797,20 @@ function formatRunStatus(run: DashboardStructureImportRun): string {
 function ExecutionProgressIssue({
     code,
     message,
+    retrying,
     retryLabel,
     onRetry,
 }: {
     code: string;
     message: string;
+    retrying: boolean;
     retryLabel: string;
     onRetry: () => void;
 }) {
     const retryable =
         code !== 'BLUEPRINT_EXECUTION_PROTOCOL_INCOMPATIBLE' &&
         code !== 'BLUEPRINT_PROGRESS_BACKEND_INCOMPATIBLE' &&
+        code !== 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE' &&
         code !== 'BLUEPRINT_LOAD_BACKEND_INCOMPATIBLE';
 
     return (
@@ -762,8 +821,10 @@ function ExecutionProgressIssue({
                     <button
                         type='button'
                         onClick={onRetry}
+                        disabled={retrying}
+                        aria-live='polite'
                         className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
-                        {retryLabel}
+                        {retrying ? 'Retrying…' : retryLabel}
                     </button>
                 ) : undefined
             }>
@@ -787,6 +848,9 @@ function formatExecutionProgressIssue(code: string): string {
     if (code === 'BLUEPRINT_PROGRESS_BACKEND_INCOMPATIBLE') {
         return 'Deployment progress is unavailable because the Convex backend does not match this NeonFlux build. Deploy the matching backend before continuing.';
     }
+    if (code === 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE') {
+        return 'Deployment progress is unavailable because the web client has no Convex URL. Configure VITE_CONVEX_URL and restart the web server. The queued deployment continues independently.';
+    }
     return 'Deployment progress could not refresh. The last confirmed state remains visible.';
 }
 
@@ -805,6 +869,7 @@ export type DashboardStructurePanelViewProps = {
     editingBackupName: string;
     enabledDraft: boolean;
     executionProgressIssue: { code: string; runId: string } | undefined;
+    executionProgressRetrying: boolean;
     executionTransport: DashboardStructureProgressTransport;
     explorer: DashboardStructureExplorerPanelState;
     importJson: string;

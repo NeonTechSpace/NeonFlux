@@ -1,14 +1,17 @@
 import { createFileRoute, useLocation, useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { DashboardGuildPageContent, DashboardGuildPendingPage } from '../components/dashboard-guild-page.js';
 import { getDashboardCategoryIdFromPathname } from '../dashboard-categories.js';
+import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 import {
     readDashboardGuildPreview,
     readDashboardGuildSourcePreview,
     withoutDashboardGuildTransitionPreviews,
 } from '../dashboard-guild-preview.js';
 import { getGuildIdParam, loadDashboardGuildRouteData } from '../server/dashboard-guild-route-data.js';
+import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 
 export const Route = createFileRoute('/dashboard/$guildId')({
     codeSplitGroupings: [['component'], ['pendingComponent']],
@@ -50,6 +53,7 @@ function DashboardGuildPage() {
 function DashboardGuildPendingRoute() {
     const params = Route.useParams();
     const location = useLocation();
+    const queryClient = useQueryClient();
     const guildId = getGuildIdParam(params);
     const activeCategoryId = getDashboardCategoryIdFromPathname(guildId, location.pathname);
     const preview = readDashboardGuildPreview(location.state, guildId);
@@ -60,6 +64,7 @@ function DashboardGuildPendingRoute() {
             guildId={guildId}
             preview={preview}
             sourcePreview={sourcePreview}
+            cachedCatalog={queryClient.getQueryData<DashboardGuildCatalog>(getDashboardGuildCatalogQueryKey())}
             pathname={location.pathname}
             activeCategoryId={activeCategoryId}
         />

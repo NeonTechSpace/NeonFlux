@@ -4,10 +4,22 @@ import {
     authorizeStructureImportExecutionMutation,
     claimNextStructureImportExecution,
     enqueueStructureImportExecution,
+    findActiveStructureImportExecution,
 } from './runtime-structure-execution.js';
 import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from './runtime-contract.js';
 
 describe('structure execution runtime boundary', () => {
+    it('reads the indexed active execution for the requested guild', async () => {
+        const query = vi.fn().mockResolvedValue(executionRecord({ status: 'running' }));
+
+        const result = await findActiveStructureImportExecution({ client: { query } } as never, {
+            guildId: 'guild-1',
+        });
+
+        expect(result._unsafeUnwrap()).toMatchObject({ guildId: 'guild-1', status: 'running' });
+        expect(query).toHaveBeenCalledWith(expect.anything(), { guildId: 'guild-1' });
+    });
+
     it.each([
         ['structure-execution-review-stale', 'structure-execution-review-stale'],
         ['structure-guild-execution-active', 'structure-guild-execution-active'],

@@ -6,6 +6,7 @@ import {
     createStructureBackup,
     createStructureImportRun,
     deleteStructureBackup,
+    findActiveStructureImportExecution,
     findLatestStructureDriftBaselineBackupByGuildId,
     findLatestStructureImportExecution,
     findLatestStructureImportPreflight,
@@ -254,14 +255,27 @@ type DashboardStructureObservedState = {
     lastObservedAt?: string;
 };
 
-export type DashboardStructureSettingsResult =
+export type DashboardStructureStatusResult =
     | {
-          type: 'settings';
+          type: 'status';
+          activeRun?: Pick<DashboardStructureImportRun, 'id' | 'execution'>;
+      }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureBackupsResult =
+    | {
+          type: 'backups';
           backups: DashboardStructureBackupSummary[];
           backupNextCursor?: string;
           backupSettings: DashboardStructureBackupSettings;
-          importRuns: DashboardStructureImportRun[];
           observedState: DashboardStructureObservedState;
+      }
+    | DashboardStructureErrorResult;
+
+export type DashboardStructureRunsResult =
+    | {
+          type: 'runs';
+          importRuns: DashboardStructureImportRun[];
       }
     | DashboardStructureErrorResult;
 
@@ -448,33 +462,73 @@ export type DashboardStructureActionPageResult =
     | { type: 'invalid-input'; message: string }
     | DashboardStructureErrorResult;
 
-export async function loadDashboardStructureSettings(
+export async function loadDashboardStructureStatus(
     request: Request,
     guildId: string
-): Promise<DashboardStructureSettingsResult> {
+): Promise<DashboardStructureStatusResult> {
     const context = await loadAuthorizedStructureContext(request, guildId);
 
     if (context.type !== 'authorized') return context;
 
     const database = await getWebDb();
-    const backupsResult = await listStructureBackupSummaryPageByGuildId(database.db, {
-        guildId: context.guild.id,
-        limit: dashboardBackupPageSize,
-    });
-    const backupSettingsResult = await findStructureBackupSettingsByGuildId(database.db, {
-        guildId: context.guild.id,
-    });
+    const executionResult = await findActiveStructureImportExecution(database.db, { guildId: context.guild.id });
+    if (executionResult.isErr()) return { type: 'database-error' };
+    if (!executionResult.value) return { type: 'status' };
+
+    return {
+        type: 'status',
+        activeRun: {
+            id: executionResult.value.runId,
+            execution: toDashboardExecution(executionResult.value),
+        },
+    };
+}
+
+export async function loadDashboardStructureBackups(
+    request: Request,
+    guildId: string
+): Promise<DashboardStructureBackupsResult> {
+    const context = await loadAuthorizedStructureContext(request, guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const database = await getWebDb();
+    const [backupsResult, backupSettingsResult, observedStateResult] = await Promise.all([
+        listStructureBackupSummaryPageByGuildId(database.db, {
+            guildId: context.guild.id,
+            limit: dashboardBackupPageSize,
+        }),
+        findStructureBackupSettingsByGuildId(database.db, { guildId: context.guild.id }),
+        findStructureObservedEventStateByGuildId(database.db, { guildId: context.guild.id }),
+    ]);
+
+    if (backupsResult.isErr() || backupSettingsResult.isErr() || observedStateResult.isErr()) {
+        return { type: 'database-error' };
+    }
+
+    return {
+        type: 'backups',
+        backups: backupsResult.value.backups.map(toDashboardBackupSummary),
+        ...(backupsResult.value.nextCursor ? { backupNextCursor: backupsResult.value.nextCursor } : {}),
+        backupSettings: toDashboardBackupSettings(backupSettingsResult.value),
+        observedState: toDashboardObservedState(observedStateResult.value, backupSettingsResult.value),
+    };
+}
+
+export async function loadDashboardStructureRuns(
+    request: Request,
+    guildId: string
+): Promise<DashboardStructureRunsResult> {
+    const context = await loadAuthorizedStructureContext(request, guildId);
+
+    if (context.type !== 'authorized') return context;
+
+    const database = await getWebDb();
     const runsResult = await listStructureImportRunsByGuildId(database.db, {
         guildId: context.guild.id,
         limit: 20,
     });
-    const observedStateResult = await findStructureObservedEventStateByGuildId(database.db, {
-        guildId: context.guild.id,
-    });
-
-    if (backupsResult.isErr() || backupSettingsResult.isErr() || runsResult.isErr() || observedStateResult.isErr()) {
-        return { type: 'database-error' };
-    }
+    if (runsResult.isErr()) return { type: 'database-error' };
 
     const runStateResults = await Promise.all(
         runsResult.value.map(async (run) => {
@@ -490,10 +544,7 @@ export async function loadDashboardStructureSettings(
     }
 
     return {
-        type: 'settings',
-        backups: backupsResult.value.backups.map(toDashboardBackupSummary),
-        ...(backupsResult.value.nextCursor ? { backupNextCursor: backupsResult.value.nextCursor } : {}),
-        backupSettings: toDashboardBackupSettings(backupSettingsResult.value),
+        type: 'runs',
         importRuns: runStateResults.map(({ run, preflight, execution }) => {
             const executionRecord = execution.isOk() ? execution.value : null;
             const recoveryAvailable =
@@ -506,7 +557,6 @@ export async function loadDashboardStructureSettings(
                 ...(recoveryAvailable ? { recoveryAvailable: true } : {}),
             };
         }),
-        observedState: toDashboardObservedState(observedStateResult.value, backupSettingsResult.value),
     };
 }
 

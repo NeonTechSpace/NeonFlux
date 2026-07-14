@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardLiveArea } from '../dashboard-live.js';
-import { getDashboardStructureSettingsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardStructureQueryKey } from '../dashboard-query-keys.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 
 type LiveState = {
@@ -81,7 +81,7 @@ describe('dashboard live invalidation', () => {
         });
 
         expect(invalidateQueries).toHaveBeenCalledExactlyOnceWith({
-            queryKey: getDashboardStructureSettingsQueryKey('guild-1'),
+            queryKey: getDashboardStructureQueryKey('guild-1'),
         });
         view.unmount();
     });

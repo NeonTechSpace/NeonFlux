@@ -28,9 +28,40 @@ describe('DashboardStructurePanelView deploy flow', () => {
         );
         expect(screen.queryByText('Match duplicate blueprint items')).toBeNull();
     });
+
+    it('explains that an unconfigured progress transport cannot be retried', () => {
+        render(
+            <DeployFlowHarness
+                executionProgressIssue={{
+                    code: 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE',
+                    runId: 'run-1',
+                }}
+            />
+        );
+
+        expect(screen.getByText(/web client has no Convex URL/u)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Retry progress' })).toBeNull();
+    });
+
+    it('shows recoverable progress retries as pending', () => {
+        render(
+            <DeployFlowHarness
+                executionProgressIssue={{ code: 'BLUEPRINT_PROGRESS_READ_FAILED', runId: 'run-1' }}
+                executionProgressRetrying
+            />
+        );
+
+        expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Retrying…' }).disabled).toBe(true);
+    });
 });
 
-function DeployFlowHarness() {
+function DeployFlowHarness({
+    executionProgressIssue,
+    executionProgressRetrying = false,
+}: {
+    executionProgressIssue?: DashboardStructurePanelViewProps['executionProgressIssue'];
+    executionProgressRetrying?: boolean;
+} = {}) {
     const run = createImportRun();
     const [choosingSource, setChoosingSource] = useState(false);
     const [importJson, setImportJson] = useState('{"old":true}');
@@ -52,7 +83,8 @@ function DeployFlowHarness() {
         editingBackupId: undefined,
         editingBackupName: '',
         enabledDraft: false,
-        executionProgressIssue: undefined,
+        executionProgressIssue,
+        executionProgressRetrying,
         executionTransport: { mode: 'idle' },
         explorer: {},
         importJson,
@@ -81,6 +113,7 @@ function DeployFlowHarness() {
         onInspectImportJson: () => {},
         onStructurePolicyChange: setPolicy,
         onRoleMappingChange: () => {},
+        onRetryExecutionProgress: () => {},
         onCreatePlan: () => {},
         onStartNewBlueprintDeployment: () => {
             setChoosingSource(true);

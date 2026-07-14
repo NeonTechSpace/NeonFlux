@@ -83,6 +83,7 @@ const backupRecordValidator = v.object({
     name: v.string(),
     roleCount: v.number(),
     source: v.string(),
+    status: v.string(),
     structure: v.union(v.any(), v.null()),
 });
 const backupSummaryRecordValidator = v.object({
@@ -97,6 +98,7 @@ const backupSummaryRecordValidator = v.object({
     name: v.string(),
     roleCount: v.number(),
     source: v.string(),
+    status: v.string(),
 });
 const backupSettingsValidator = v.object({
     cadenceWeeks: v.number(),

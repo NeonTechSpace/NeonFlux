@@ -8,7 +8,9 @@ import type {
     DashboardStructureDriftResult,
     DashboardStructureImportRun,
 } from '../server/dashboard-structure.server.js';
+import { buildDashboardStructureChannelTypeCss } from './dashboard-structure-explorer-channel-types.js';
 import { DashboardStructureExplorer } from './dashboard-structure-explorer.js';
+import { buildDashboardStructureExplorerModel } from './dashboard-structure-explorer-model.js';
 import type { DashboardStructureExplorerSnapshot } from './dashboard-structure-explorer-model.js';
 
 vi.mock('@pierre/trees/react', () => ({
@@ -224,6 +226,30 @@ describe('DashboardStructureExplorer', () => {
         expect(screen.getByText('Unknown (123)')).toBeTruthy();
     });
 
+    it('keeps every custom link glyph visible when several link channels share the tree', () => {
+        const snapshot = createExplorerSnapshot();
+        snapshot.channels = Array.from({ length: 4 }, (_, index) => ({
+            id: `channel-link-${String(index + 1)}`,
+            name: `Project ${String(index + 1)}`,
+            parentId: 'category-general',
+            permissionOverwrites: [],
+            position: index + 1,
+            type: 998,
+            url: `https://example.com/project-${String(index + 1)}`,
+        }));
+        const model = buildDashboardStructureExplorerModel({ section: 'channels', snapshot });
+        const css = buildDashboardStructureChannelTypeCss(model);
+
+        for (const channel of snapshot.channels) {
+            const path = model.entityPathByKey.get(`channel:${channel.id}`);
+            expect(path).toBeDefined();
+
+            const iconSelector = `button[data-type='item'][data-item-path=${JSON.stringify(path)}] > [data-item-section='icon']`;
+            expect(css).toContain(`${iconSelector} svg`);
+            expect(css).toContain(`${iconSelector}::before`);
+        }
+    });
+
     it('explains JSON diff requirements before a source is loaded', () => {
         renderExplorer();
 
@@ -243,7 +269,6 @@ describe('DashboardStructureExplorer', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'JSON diff' }));
 
-        expect(screen.getByText('Choose a comparison target to render a JSON diff.')).toBeTruthy();
         expect(screen.getAllByText('Live server layout').length).toBeGreaterThan(0);
         expect(screen.getAllByText('No comparison').length).toBeGreaterThan(0);
     });

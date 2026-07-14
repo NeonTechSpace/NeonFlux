@@ -23,7 +23,7 @@ export function buildDashboardStructureChannelTypeCss(explorerModel: DashboardSt
     if (allChannelPaths.length === 0) return '';
 
     return `
-        ${channelIconSelectors(allChannelPaths)} svg {
+        ${channelIconSelectors(allChannelPaths, ' svg')} {
             display: none;
         }
         ${channelIconSelectors(channelPathsByType.get(0) ?? [], '::before')} {

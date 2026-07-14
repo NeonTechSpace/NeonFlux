@@ -194,6 +194,29 @@ export const findLatestStructureImportExecution = query({
     },
 });
 
+export const findActiveStructureImportExecution = query({
+    args: { guildId: v.string() },
+    returns: v.any(),
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, ['web', 'bot']);
+        const candidates = await Promise.all(
+            activeStatuses.map((status) =>
+                ctx.db
+                    .query('structureImportExecutions')
+                    .withIndex('by_guild_status', (q) => q.eq('guildId', args.guildId).eq('status', status))
+                    .order('desc')
+                    .first()
+            )
+        );
+
+        return (
+            candidates
+                .filter((candidate) => candidate !== null)
+                .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null
+        );
+    },
+});
+
 export const recordStructureImportPreflight = mutation({
     args: {
         audit: v.optional(auditInputValidator),

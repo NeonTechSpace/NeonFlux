@@ -62,12 +62,40 @@ describe('DashboardGuildPendingPage', () => {
         vi.clearAllMocks();
     });
 
-    it('renders a generic loading shell when no safe guild preview is available', () => {
+    it('keeps exact route identity and scopes loading when no safe guild preview is available', () => {
         renderedPages.push(render(<DashboardGuildPendingPage guildId='untrusted-cold-guild-id' />));
 
         expect(screen.getByRole('status').textContent).toContain('Loading Server pulse');
+        expect(screen.getByRole('heading', { name: 'Server pulse' })).toBeTruthy();
+        const pendingPanel = screen.getByRole('article', { name: 'Loading Server pulse data' });
+        expect(within(pendingPanel).getByText('Loading current server data')).toBeTruthy();
+        expect(screen.getAllByLabelText('Dashboard navigation pending')).toHaveLength(2);
         expect(screen.getAllByRole('main')).toHaveLength(1);
         expect(document.body.textContent).not.toContain('untrusted-cold-guild-id');
+    });
+
+    it('uses confirmed cached catalog display data for a warm pending shell', () => {
+        renderedPages.push(
+            render(
+                <DashboardGuildPendingPage
+                    guildId='guild-2'
+                    cachedCatalog={{
+                        guilds: [
+                            { id: 'guild-1', name: 'Guild One' },
+                            { id: 'guild-2', name: 'Guild Two' },
+                        ],
+                        mode: 'multi',
+                    }}
+                    pathname='/dashboard/guild-2/messaging/message-builder'
+                    activeCategoryId='messaging'
+                />
+            )
+        );
+
+        const sidebar = screen.getByRole('complementary');
+        expect(within(sidebar).getByRole('button', { name: 'Switch server, currently Guild Two' })).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
+        expect(screen.getByRole('article', { name: 'Loading Message Builder data' })).toBeTruthy();
     });
 
     it('keeps the source server current while the target preview is opening', () => {
@@ -77,6 +105,14 @@ describe('DashboardGuildPendingPage', () => {
                     guildId='guild-2'
                     preview={{ id: 'guild-2', name: 'Target Guild', mode: 'multi' }}
                     sourcePreview={{ id: 'guild-1', name: 'Current Guild', mode: 'multi' }}
+                    cachedCatalog={{
+                        guilds: [
+                            { id: 'guild-1', name: 'Stale Current Guild' },
+                            { id: 'guild-2', name: 'Stale Target Guild' },
+                            { id: 'guild-3', name: 'Third Guild' },
+                        ],
+                        mode: 'multi',
+                    }}
                     pathname='/dashboard/guild-2/messaging/message-builder'
                     activeCategoryId='messaging'
                 />
@@ -88,6 +124,9 @@ describe('DashboardGuildPendingPage', () => {
 
         expect(screen.getByLabelText('Current Guild, current server').getAttribute('aria-current')).toBe('page');
         expect(screen.getByLabelText('Target Guild, opening').getAttribute('aria-busy')).toBe('true');
+        expect(screen.getByRole('link', { name: 'Third Guild' })).toBeTruthy();
+        expect(document.body.textContent).not.toContain('Stale Current Guild');
+        expect(document.body.textContent).not.toContain('Stale Target Guild');
         expect(screen.queryByRole('link', { name: 'Target Guild, opening' })).toBeNull();
         const messagingLinks = within(sidebar).getAllByRole('link', { name: 'Create & Deliver' });
         expect(messagingLinks.length).toBeGreaterThan(0);
@@ -95,8 +134,7 @@ describe('DashboardGuildPendingPage', () => {
             new Set(['/dashboard/guild-1/messaging/message-builder'])
         );
         expect(screen.getByRole('heading', { name: 'Message Builder' })).toBeTruthy();
-        expect(screen.getByText('Compose, preview, and post Fluxer messages.')).toBeTruthy();
-        expect(screen.getByRole('article', { name: 'Loading Message Builder controls' })).toBeTruthy();
+        expect(screen.getByRole('article', { name: 'Loading Message Builder data' })).toBeTruthy();
         const pendingFeature = screen.getByRole('region', { name: 'Message Builder' });
         expect(within(pendingFeature).getByText('Create & Deliver')).toBeTruthy();
     });
@@ -115,7 +153,6 @@ describe('DashboardGuildPendingPage', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'Protected versions' })).toBeTruthy();
-        expect(screen.getByText('Backups provide comparison baselines and deliberate recovery sources.')).toBeTruthy();
     });
 
     it('keeps an authorized guild shell available when command settings fail to load', () => {

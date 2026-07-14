@@ -25,7 +25,7 @@ export function DashboardStructureWorkspaceShell({
     children,
 }: {
     guildId: string;
-    activeRun?: DashboardStructureImportRun;
+    activeRun?: Pick<DashboardStructureImportRun, 'id' | 'execution'>;
     executionProgressIssue?: { code: string; runId: string };
     executionTransport: DashboardStructureProgressTransport;
     children: ReactNode;
@@ -94,7 +94,7 @@ function BlueprintExecutionStrip({
     transport,
 }: {
     guildId: string;
-    run: DashboardStructureImportRun;
+    run: Pick<DashboardStructureImportRun, 'id' | 'execution'>;
     hasProgressIssue: boolean;
     transport: DashboardStructureProgressTransport;
 }) {

@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
     getDashboardStructureExecutionProgressQueryKey,
-    getDashboardStructureSettingsQueryKey,
+    getDashboardStructureBackupsQueryKey,
+    getDashboardStructureRunsQueryKey,
+    getDashboardStructureStatusQueryKey,
 } from '../dashboard-query-keys.js';
 import { createDashboardRequestDeadline, settleDashboardRequestWithAbort } from '../dashboard-request-deadline.js';
 import type { DashboardRequestDeadline } from '../dashboard-request-deadline.js';
@@ -87,8 +89,10 @@ export function useDashboardStructureExecutionProgress({
     const [watchIssue, setWatchIssue] = useState<ProgressIssue>();
     const [liveHealth, setLiveHealth] = useState<ProgressTransportHealth>();
     const [pollHealth, setPollHealth] = useState<ProgressTransportHealth>();
+    const [retrying, setRetrying] = useState(false);
     const progressTokenRef = useRef<ProgressToken | undefined>(undefined);
     const progressTokenRequestRef = useRef<ProgressTokenRequest | undefined>(undefined);
+    const retryRequestRef = useRef<Promise<unknown> | undefined>(undefined);
     const terminalRefreshExecutionIdRef = useRef<string | undefined>(undefined);
     const confirmPollHealth = useCallback((confirmedRunId: string) => {
         setPollHealth({ confirmedAt: Date.now(), runId: confirmedRunId });
@@ -295,7 +299,11 @@ export function useDashboardStructureExecutionProgress({
         if (terminalRefreshExecutionIdRef.current === execution.id) return;
 
         terminalRefreshExecutionIdRef.current = execution.id;
-        void queryClient.invalidateQueries({ queryKey: getDashboardStructureSettingsQueryKey(guildId) });
+        void Promise.all([
+            queryClient.invalidateQueries({ queryKey: getDashboardStructureStatusQueryKey(guildId) }),
+            queryClient.invalidateQueries({ queryKey: getDashboardStructureRunsQueryKey(guildId) }),
+            queryClient.invalidateQueries({ queryKey: getDashboardStructureBackupsQueryKey(guildId) }),
+        ]);
     }, [execution, guildId, queryClient]);
 
     const pollIssue = progressQuery.isError
@@ -360,17 +368,26 @@ export function useDashboardStructureExecutionProgress({
     return {
         execution,
         issueCode: effectiveIssueCode,
+        retrying,
         transport,
         retry: () => {
+            if (retryRequestRef.current || !convexUrl || !runId) return;
+
             const tokenRequest = progressTokenRequestRef.current;
             progressTokenRequestRef.current = undefined;
             tokenRequest?.deadline.abort();
+            setRetrying(true);
             setLiveHealth(undefined);
             setPollHealth(undefined);
             setWatchIssue(undefined);
             restartLiveTransport();
             setWatchAttempt((current) => current + 1);
-            void progressQuery.refetch({ cancelRefetch: true });
+            const retryRequest = progressQuery.refetch({ cancelRefetch: true });
+            retryRequestRef.current = retryRequest;
+            void retryRequest.finally(() => {
+                if (retryRequestRef.current === retryRequest) retryRequestRef.current = undefined;
+                setRetrying(false);
+            });
         },
     };
 }

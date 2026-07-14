@@ -42,7 +42,6 @@ export function DashboardGuildSelector({
 }: DashboardGuildSelectorProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const [localPendingGuildId, setLocalPendingGuildId] = useState<string>();
     const [desktopDockPosition, setDesktopDockPosition] = useState<CSSProperties>();
     const selectorRef = useRef<HTMLElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
@@ -71,7 +70,7 @@ export function DashboardGuildSelector({
             ? [...availableGuilds].sort((left, right) => left.name.localeCompare(right.name))
             : availableGuilds;
     }, [activeGuildId, guilds, query, showTools, sortByName]);
-    const pendingGuildId = localPendingGuildId ?? routePendingGuildId;
+    const pendingGuildId = routePendingGuildId;
 
     useEffect(() => {
         if (!open) {
@@ -140,11 +139,10 @@ export function DashboardGuildSelector({
     function closeSelector({ restoreFocus = true }: { restoreFocus?: boolean } = {}): void {
         setOpen(false);
         setQuery('');
-        setLocalPendingGuildId(undefined);
         setDesktopDockPosition(undefined);
 
         if (restoreFocus) {
-            queueMicrotask(() => triggerRef.current?.focus());
+            queueMicrotask(() => triggerRef.current?.isConnected && triggerRef.current.focus());
         }
     }
 
@@ -191,9 +189,9 @@ export function DashboardGuildSelector({
         }
     }
 
-    function handleServerNavigate(event: ReactMouseEvent<HTMLAnchorElement>, guildId: string): void {
+    function handleServerNavigate(event: ReactMouseEvent<HTMLAnchorElement>): void {
         if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-            setLocalPendingGuildId(guildId);
+            closeSelector();
         }
     }
 
@@ -317,7 +315,7 @@ function DashboardServerDock({
     onClose: () => void;
     onDockKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
     onQueryChange: (query: string) => void;
-    onServerNavigate: (event: ReactMouseEvent<HTMLAnchorElement>, guildId: string) => void;
+    onServerNavigate: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
     onSortByNameChange: (sortByName: boolean) => void;
 }) {
     const dock = (
@@ -467,7 +465,7 @@ function DashboardGuildLinkTile({
     href: string;
     pending: boolean;
     navigationDisabled: boolean;
-    onNavigate: (event: ReactMouseEvent<HTMLAnchorElement>, guildId: string) => void;
+    onNavigate: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
     const preview = createDashboardGuildPreview({
         id: guild.id,
@@ -511,7 +509,7 @@ function DashboardGuildLinkTile({
                     aria-label={pending ? `${guild.name}, opening` : guild.name}
                     aria-busy={pending}
                     title={guild.name}
-                    onClick={(event) => onNavigate(event, guild.id)}
+                    onClick={onNavigate}
                     className={getDockTileClassName(pending ? 'pending' : 'default')}>
                     {content}
                 </Link>

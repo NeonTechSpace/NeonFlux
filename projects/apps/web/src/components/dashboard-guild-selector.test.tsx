@@ -116,7 +116,7 @@ describe('DashboardGuildSelector', () => {
         expect(screen.queryByRole('searchbox', { name: 'Search servers' })).toBeNull();
     });
 
-    it('preserves the nested path and carries a trusted preview without claiming the switch committed', () => {
+    it('preserves the nested path, closes after ordinary selection, and restores trigger focus', async () => {
         renderGuildSelector(
             <DashboardGuildSelector
                 guilds={createGuilds()}
@@ -125,7 +125,8 @@ describe('DashboardGuildSelector', () => {
             />
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+        const trigger = screen.getByRole('button', { name: 'Switch server, currently Guild One' });
+        fireEvent.click(trigger);
         const nextGuild = screen.getByRole('link', { name: 'Guild Two' });
 
         expect(nextGuild.getAttribute('href')).toBe('/dashboard/guild-2/access/autoroles');
@@ -135,9 +136,39 @@ describe('DashboardGuildSelector', () => {
         nextGuild.addEventListener('click', (event) => event.preventDefault(), { once: true });
         fireEvent.click(nextGuild);
 
-        expect(screen.getByRole('link', { name: 'Guild Two, opening' }).getAttribute('aria-busy')).toBe('true');
-        expect(screen.getByLabelText('Guild One, current server').getAttribute('aria-current')).toBe('page');
-        expect(screen.getByText('Opening…')).toBeDefined();
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Switch server' })).toBeNull());
+        await waitFor(() => expect(trigger.matches(':focus')).toBe(true));
+    });
+
+    it('leaves the dock open for modified server-link activation', () => {
+        renderGuildSelector(
+            <DashboardGuildSelector guilds={createGuilds()} activeGuildId='guild-1' pathname='/dashboard/guild-1' />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+        const nextGuild = screen.getByRole('link', { name: 'Guild Two' });
+        nextGuild.addEventListener('click', (event) => event.preventDefault(), { once: true });
+        fireEvent.click(nextGuild, { ctrlKey: true });
+
+        expect(screen.getByRole('dialog', { name: 'Switch server' })).toBeDefined();
+        expect(screen.getByRole('link', { name: 'Guild Two' })).toBe(nextGuild);
+    });
+
+    it('retains route pending state when the dock is opened during navigation', () => {
+        renderGuildSelector(
+            <DashboardGuildSelector
+                guilds={createGuilds()}
+                activeGuildId='guild-1'
+                pathname='/dashboard/guild-1'
+                pendingGuildId='guild-2'
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Switch server, currently Guild One' }));
+
+        const pendingGuild = screen.getByLabelText('Guild Two, opening');
+        expect(pendingGuild.getAttribute('aria-busy')).toBe('true');
+        expect(screen.queryByRole('link', { name: 'Guild Two, opening' })).toBeNull();
     });
 
     it('adds searchable, truthfully labelled ordering controls only when the set is large', () => {

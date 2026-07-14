@@ -12,6 +12,7 @@ import {
 } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import type { DashboardGuildShellGuild } from '../server/dashboard-guild-page.server.js';
+import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 import type {
     DashboardCommandSettingsReadResult,
     DashboardGuildRouteData,
@@ -25,7 +26,7 @@ import { getDashboardGuildSwitchPath } from './dashboard-guild-selector.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 import { DashboardShell, DashboardStatusSection } from './dashboard-layout.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
-import { DashboardServerOverviewLoading, DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
+import { DashboardServerOverviewPanel } from './dashboard-server-overview-panel.js';
 import { DashboardStructureNavigation } from './dashboard-structure-workspace-shell.js';
 import { DashboardFeaturePage } from './dashboard-ui.js';
 import { getDashboardWorkbenchWidth } from './dashboard-workbench.js';
@@ -79,40 +80,68 @@ export function DashboardGuildPendingPage({
     guildId,
     preview,
     sourcePreview,
+    cachedCatalog,
     pathname,
     activeCategoryId = 'overview',
 }: {
     guildId: string;
     preview?: DashboardGuildPreview;
     sourcePreview?: DashboardGuildPreview;
+    cachedCatalog?: DashboardGuildCatalog;
     pathname?: string;
     activeCategoryId?: DashboardCategoryId;
 }) {
-    if (!preview) {
+    const cachedGuild = cachedCatalog?.guilds.find((guild) => guild.id === guildId);
+    const cachedPreview =
+        cachedCatalog && cachedGuild
+            ? {
+                  id: cachedGuild.id,
+                  name: cachedGuild.name,
+                  ...(cachedGuild.iconUrl ? { iconUrl: cachedGuild.iconUrl } : {}),
+                  mode: cachedCatalog.mode,
+              }
+            : undefined;
+    const resolvedPreview = preview ?? cachedPreview;
+
+    if (!resolvedPreview) {
         return <DashboardGuildColdLoadingShell activeCategoryId={activeCategoryId} pathname={pathname} />;
     }
 
-    const currentPreview = sourcePreview ?? preview;
+    const currentPreview = sourcePreview ?? resolvedPreview;
     const sourcePathname =
         sourcePreview && pathname ? getDashboardGuildSwitchPath(guildId, sourcePreview.id, pathname) : undefined;
+    const pendingGuilds = mergePendingGuilds(cachedCatalog?.guilds ?? [], currentPreview, resolvedPreview);
 
     return (
         <DashboardGuildFrame
             guild={currentPreview}
-            manageableGuilds={sourcePreview ? [sourcePreview, preview] : [preview]}
+            manageableGuilds={pendingGuilds}
             guildId={sourcePreview?.id ?? guildId}
             activeCategoryId={activeCategoryId}
-            mode={sourcePreview ? 'multi' : preview.mode}
-            pendingGuildId={sourcePreview ? preview.id : undefined}
+            mode={sourcePreview ? 'multi' : resolvedPreview.mode}
+            pendingGuildId={sourcePreview ? resolvedPreview.id : undefined}
             pathnameOverride={sourcePathname}
             isLoading>
             <DashboardPendingCategory
                 activeCategoryId={activeCategoryId}
                 pathname={pathname}
-                guildId={sourcePreview?.id ?? preview.id}
+                guildId={sourcePreview?.id ?? resolvedPreview.id}
             />
         </DashboardGuildFrame>
     );
+}
+
+function mergePendingGuilds(
+    cachedGuilds: DashboardGuildShellGuild[],
+    currentGuild: DashboardGuildPreview,
+    targetGuild: DashboardGuildPreview
+): DashboardGuildShellGuild[] {
+    const guildsById = new Map(cachedGuilds.map((guild) => [guild.id, guild]));
+
+    guildsById.set(currentGuild.id, currentGuild);
+    guildsById.set(targetGuild.id, targetGuild);
+
+    return [...guildsById.values()];
 }
 
 function DashboardGuildColdLoadingShell({
@@ -127,37 +156,32 @@ function DashboardGuildColdLoadingShell({
             <div className='flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden md:flex-row md:gap-4'>
                 <header
                     className='flex min-h-14 shrink-0 items-center gap-3 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(8,13,21,0.92)] p-2 md:hidden'
-                    aria-label='Loading dashboard navigation'>
-                    <span
-                        data-dashboard-loading='pulse'
-                        className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
-                    />
-                    <span
-                        data-dashboard-loading='pulse'
-                        className='h-3 w-32 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
-                    />
+                    aria-label='Dashboard navigation pending'>
+                    <div className='grid size-9 shrink-0 place-items-center rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-xs font-semibold text-[var(--dash-text-muted)]'>
+                        NF
+                    </div>
+                    <div className='min-w-0 flex-1'>
+                        <p className='truncate text-sm font-semibold text-[var(--dash-text)]'>Server dashboard</p>
+                        <p className='truncate text-xs text-[var(--dash-text-muted)]'>Checking access…</p>
+                    </div>
                 </header>
                 <aside
                     className='hidden h-full min-h-0 w-[4.5rem] shrink-0 flex-col rounded-[var(--dash-radius-panel)] border border-[var(--dash-border)] bg-[rgba(7,11,18,0.9)] p-2 md:flex lg:w-64 lg:p-3'
-                    aria-label='Loading dashboard navigation'>
+                    aria-label='Dashboard navigation pending'>
                     <div className='flex min-h-12 items-center justify-center gap-3 border-b border-[var(--dash-border)] pb-3 lg:justify-start'>
-                        <span
-                            data-dashboard-loading='pulse'
-                            className='size-9 animate-pulse rounded-full bg-[var(--dash-surface-raised)]'
-                        />
-                        <span
-                            data-dashboard-loading='pulse'
-                            className='hidden h-3 w-28 animate-pulse rounded-full bg-[var(--dash-surface-raised)] lg:block'
-                        />
+                        <div className='grid size-9 shrink-0 place-items-center rounded-full border border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-xs font-semibold text-[var(--dash-text-muted)]'>
+                            NF
+                        </div>
+                        <div className='hidden min-w-0 lg:block'>
+                            <p className='truncate text-sm font-semibold text-[var(--dash-text)]'>Server dashboard</p>
+                            <p className='truncate text-xs text-[var(--dash-text-muted)]'>Checking access…</p>
+                        </div>
                     </div>
-                    <div className='space-y-2 py-4'>
-                        {Array.from({ length: 6 }, (_, index) => (
-                            <div
-                                key={index}
-                                data-dashboard-loading='pulse'
-                                className='mx-auto h-11 w-11 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)] lg:mx-0 lg:w-full'
-                            />
-                        ))}
+                    <div className='flex min-h-0 flex-1 items-center justify-center py-4 lg:items-start lg:justify-start'>
+                        <p className='text-center text-xs leading-5 text-[var(--dash-text-muted)] lg:text-left'>
+                            <span className='hidden lg:inline'>Loading authorized navigation…</span>
+                            <span className='lg:hidden'>Loading…</span>
+                        </p>
                     </div>
                 </aside>
                 <div className='min-h-0 min-w-0 flex-1 overflow-y-auto px-0.5 pb-8 md:pr-2'>
@@ -354,7 +378,7 @@ function DashboardPendingCategory({
                 <span role='status' className='sr-only'>
                     Loading {identity.title}
                 </span>
-                <DashboardServerOverviewLoading />
+                <DashboardCategoryLoading categoryId={activeCategoryId} identity={identity} />
             </DashboardFeaturePage>
         );
     }
@@ -423,43 +447,23 @@ function DashboardCategoryLoading({
 
     return (
         <div className={compact ? 'space-y-4' : 'grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]'}>
-            <article className='dashboard-glass-panel p-5' aria-label={`Loading ${identity.title} controls`}>
-                <div
-                    data-dashboard-loading='pulse'
-                    className='h-5 w-40 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]'
-                />
-                <div
-                    data-dashboard-loading='pulse'
-                    className='mt-3 h-4 w-64 max-w-full animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(177,186,200,0.14)]'
-                />
-                <div className='mt-6 space-y-3'>
-                    {Array.from({ length: compact ? 2 : 4 }, (_, index) => (
-                        <div
-                            key={index}
+            <article
+                className='dashboard-glass-panel flex min-h-44 items-start p-5'
+                aria-label={`Loading ${identity.title} data`}>
+                <div className='max-w-md'>
+                    <p className='text-sm font-semibold text-[var(--dash-text)]'>Loading current server data</p>
+                    <p className='mt-1 text-sm leading-6 text-[var(--dash-text-muted)]'>
+                        This panel will be ready when the server confirms the latest state.
+                    </p>
+                    <div className='mt-5 h-1 w-32 overflow-hidden rounded-full bg-[var(--dash-surface-raised)]'>
+                        <span
                             data-dashboard-loading='pulse'
-                            className='h-11 animate-pulse rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(6,10,18,0.52)]'
-                        />
-                    ))}
-                </div>
-            </article>
-            {!compact ? (
-                <article className='dashboard-glass-panel p-5' aria-label={`Loading ${identity.title} preview`}>
-                    <div
-                        data-dashboard-loading='pulse'
-                        className='h-5 w-36 animate-pulse rounded-[var(--dash-radius-control)] bg-[var(--dash-surface-raised)]'
-                    />
-                    <div className='mt-5 space-y-3'>
-                        <div
-                            data-dashboard-loading='pulse'
-                            className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(56,189,248,0.08)]'
-                        />
-                        <div
-                            data-dashboard-loading='pulse'
-                            className='h-16 animate-pulse rounded-[var(--dash-radius-control)] bg-[rgba(217,70,239,0.08)]'
+                            className='block h-full w-1/2 animate-pulse rounded-full bg-[var(--dash-primary)] opacity-70'
                         />
                     </div>
-                </article>
-            ) : null}
+                </div>
+            </article>
+            {!compact ? <article className='dashboard-glass-panel min-h-44 p-5' aria-hidden='true' /> : null}
         </div>
     );
 }

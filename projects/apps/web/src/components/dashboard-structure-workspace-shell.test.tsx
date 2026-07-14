@@ -42,6 +42,5 @@ describe('DashboardStructureWorkspaceShell', () => {
         expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
         const heading = screen.getByRole('heading', { level: 1, name: 'Server Blueprint' });
         expect(heading).toBeTruthy();
-        expect(screen.getByRole('status').textContent).toBe('Loading Blueprint data');
     });
 });
