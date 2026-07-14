@@ -1,15 +1,7 @@
-export const dashboardLiveAreas = [
-    'overview',
-    'commands',
-    'posting',
-    'import_export',
-    'structure',
-    'structure_execution',
-    'audit',
-] as const;
+export const dashboardLiveAreas = ['overview', 'commands', 'posting', 'blueprint', 'blueprint_run', 'audit'] as const;
 
 export type DashboardLiveArea = (typeof dashboardLiveAreas)[number];
-export const structureExecutionLiveAreas = ['structure_execution'] as const satisfies readonly DashboardLiveArea[];
+export const blueprintRunLiveAreas = ['blueprint_run'] as const satisfies readonly DashboardLiveArea[];
 
 export type DashboardLiveStateRecord = {
     area: DashboardLiveArea;
@@ -20,7 +12,7 @@ export type DashboardLiveStateRecord = {
 
 const dashboardLiveAreaSet = new Set<string>(dashboardLiveAreas);
 const featureAreaMap = new Map<string, readonly DashboardLiveArea[]>([
-    ['import_export', ['import_export', 'structure']],
+    ['blueprint', ['blueprint']],
     ['posting', ['posting']],
     ['settings', ['commands']],
 ]);

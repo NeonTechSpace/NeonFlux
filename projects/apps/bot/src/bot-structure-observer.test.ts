@@ -35,7 +35,7 @@ describe('recordObservedStructureEvent', () => {
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toStrictEqual({
             status: 'recorded',
-            action: 'event.import_export.structure_observed',
+            action: 'event.blueprint.structure_observed',
         });
         expect(recordStructureObservedEvent).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',
@@ -57,7 +57,7 @@ describe('recordObservedStructureEvent', () => {
         expect(result._unsafeUnwrap()).toStrictEqual({
             eventType: 'channel.updated',
             status: 'handled',
-            action: 'event.import_export.structure_observed',
+            action: 'event.blueprint.structure_observed',
         });
         expect(recordStructureObservedEvent).toHaveBeenCalledWith(testDb, {
             guildId: 'guild-1',

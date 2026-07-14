@@ -7,7 +7,7 @@ import { renderToString } from 'react-dom/server';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../dashboard-structure-execution-protocol.js';
+import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../dashboard-blueprint-run-protocol.js';
 import { DashboardLiveProvider, useDashboardLive } from './dashboard-live-provider.js';
 
 type MockConnectionState = {
@@ -244,10 +244,10 @@ function ProgressWatch() {
 
     useEffect(() => {
         if (!client) return undefined;
-        const watch = client.watchQuery(api.structure.findStructureImportExecutionProgressForGuild, {
+        const watch = client.watchQuery(api.blueprint.findBlueprintRunProgressForGuild, {
             guildId: 'guild-1',
-            protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
-            runId: 'run-1' as Id<'structureImportRuns'>,
+            protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+            planId: 'plan-1' as Id<'blueprintPlans'>,
         });
         return watch.onUpdate(() => undefined);
     }, [client]);

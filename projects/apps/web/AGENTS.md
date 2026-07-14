@@ -1,189 +1,68 @@
 # NeonFlux Web Instructions
 
-This file is the durable product, design, interaction, and client-state authority for `apps/web`. A contributor must be able to make a visually and behaviorally coherent dashboard change from this file without reconstructing taste from dashboard redesign history. Feature-specific Research remains authoritative for domain protocols, destructive workflows, and backend guarantees.
+This file contains durable constraints for `apps/web`. Parent workspace instructions still apply.
 
-## Product direction
+## Product and visual behavior
 
-- Build an operational dashboard that feels alive, fluent, and lightly game-like without becoming noisy, toy-like, or theatrical. The target is confident software with atmosphere around the work and calm, legible surfaces where work happens.
-- Reject sanitized sameness, stale black canvases, generic SaaS card grids, excessive glass, rainbow decoration, and animation added merely to prove that the interface moves.
-- Optimize for obvious next actions, fast scanning, comfortable density, and low cognitive load. A user should not need to decode the layout or hunt for a server, feature, state, or recovery action.
-- Remove low-value information. Do not repeat the page introduction inside its first panel, repeat the active server where the page header already identifies it, label every server card with the same action, expose raw ids as primary identity, or render empty metrics and placeholder destinations to make a page look populated.
-- Use truthful copy and state. Never invent health scores, rankings, precision, recency, capacity, success, or availability that the product cannot establish authoritatively.
-- Judge UI from the rendered composition, interaction, and state transitions, not from isolated component names or Tailwind classes. Before accepting a visual change, inspect how its spacing, borders, backgrounds, hierarchy, and motion combine with the surrounding page.
-- Prefer one strong hierarchy over several competing systems. Route chrome, subnavigation, task surfaces, and ambient visuals must reinforce one another rather than each introducing a new layout or palette.
+- Build an operational dashboard with clear next actions, fast scanning, comfortable density, and stable, legible work surfaces.
+- Show only state the system can establish. Never invent health, ranking, precision, recency, capacity, success, or availability.
+- Use one shared route-header, spacing, semantic-color, and navigation language. Feature bodies may vary by task but must not invent independent chrome or raw hue systems.
+- Scope dashboard tokens and ambient treatment to `.dashboard-theme`; do not leak them into public or documentation routes. Keep dense or safety-critical surfaces opaque, and use each border for one real containment owner.
+- Put common actions and decision-relevant information first. Disclose identifiers, raw JSON, protocol data, and diagnostics deliberately.
+- The shell owns persistent ambient work. Respect user and operating-system motion settings, pause or unmount expensive hidden work, exclude mobile particles, and do not remount it during ordinary navigation.
+- Motion communicates continuity and state, never delays correctness. Permission loss, conflict, unknown outcome, and destructive-state changes remove stale actions immediately.
 
-## Dashboard visual system
+## Authorization and guild isolation
 
-- Scope dashboard tokens and ambient treatment to `.dashboard-theme`. Do not leak the dashboard theme into public or documentation routes.
-- Use the Living Flux palette as the semantic baseline:
-    - canvas `#07090f`.
-    - navigation `#0b1018`.
-    - work surface `#0e1520`.
-    - raised surface `#141d2b`.
-    - primary text `#f6f8fb`.
-    - muted text `#aab6c6`.
-    - border `#29384b`.
-    - live/interactive cyan `#5ad7ff`.
-    - creative violet `#9d8cff`.
-    - success emerald `#43d6a0`.
-    - warning/waiting amber `#f5bd4f`.
-    - danger rose `#ff718a`.
-- Cyan means live connection or primary interaction. It is not generic success. Use semantic state colors consistently and never make a feature invent a second raw Tailwind-hue theme.
-- Dense and safety-critical work surfaces must be opaque or nearly opaque. Tinted glass is appropriate for navigation, overlays, previews, and deliberately selected showcase surfaces. Atmosphere belongs around the work. Stable contrast belongs inside it.
-- Borders communicate real containment, overlays, focus, or one semantic separation. Do not wrap every control or navigation row in a card. Do not create duplicate horizontal rules by placing adjacent `border-b`, `border-t`, or `border-y` treatments around the same boundary. One semantic separator has one owner.
-- Preserve breathing room without wasting space. Use compact density for navigation, tables, lists, settings, and repeated controls. Use more space for builders, previews, first-use states, and high-risk confirmation.
-- Avoid hover transforms that shift content or make neighboring geometry appear to jump. Cards, rows, and server entries should remain spatially stable. Use restrained color, opacity, border, wash, and glow feedback instead of lift, scale, or abrupt gradient repositioning.
+- Re-check every sensitive read and mutation server-side. Browser state, routes, cached guilds, previews, optimistic values, and visible controls are never authority.
+- Read deployment behavior from durable `deployment_config`. Single mode authorizes only its effective configured guild; multi mode exposes only manageable guilds allowed by installation and DEFCON policy.
+- Keep OAuth and Fluxer permission translation in `packages/fluxer` and shared access policy in `packages/core`.
+- OAuth secrets, bot tokens, session secrets, signing or encryption keys, token exchange, private payloads, and provider bodies must not enter browser bundles or client-visible errors.
+- Guild identity is a hard boundary for caches, queries, drafts, mutations, and persistent runtimes. Safe per-guild caches may survive a return; drafts, errors, selection, pagination, pending intent, conflict, response, and busy state reset on guild change.
+- Catalog membership is server-authoritative. On transient failure retain the last confirmed catalog and mark it stale or errored. Redirect only after confirmed removal or failed authorization.
 
-## Shared feature-page contract
+## Data, loading, and mutation state
 
-- Every dashboard feature uses one responsive frame: 16px mobile gutters, 24px intermediate gutters, 32px desktop gutters, and a bounded workspace up to 100rem.
-- Use one route-header rhythm: icon crest, category eyebrow, one `h1`, concise description, then optional subnavigation or status. The task body starts below this invariant frame.
-- Pending, cached, resolved, empty, and error views retain the same route identity, width, and header geometry. Async completion must not snap from a category shell or narrow placeholder into the real feature layout.
-- A pending island and its resolved content share one semantic container and compatible geometry. Do not introduce a temporary card, border, heading block, or column arrangement that disappears or changes ownership after data or code arrives. Reserve only dimensions the resolved surface actually needs, and treat visible cumulative layout movement as a regression.
-- Operational workspaces use the full available task column by default. Narrow only a genuinely focused reading, confirmation, or small-form flow. Do not make Command Prefix, Blueprint, or future substantial tools look arbitrarily half-width.
-- Feature-specific composers, resource lists, forms, previews, timelines, trees, explorers, and builders may have distinct task bodies. They must not invent distinct page chrome, spacing systems, heading hierarchy, or color language.
-- Subnavigation destinations use task-specific Lucide icons. Do not repeat the parent job icon for several children. The parent communicates the domain and each child icon identifies the concrete tool.
-- Zero-signal workflows render one useful, truthful first-use state with a clear action. Do not stack an empty metric layer, repeated introduction, and another empty card.
-- Blueprint remains one readable operational surface containing its shared route header, Current/Backups/Compare/Deploy/Runs navigation, operation status, and active subview. `Server Blueprint` is the only `h1`. Subviews begin with `h2`. Keep a restrained readable background so copy never floats directly on the noisy ambient field.
+- Use route loaders or server functions for protected identity, authorization, and shell facts. Use stable guild-scoped TanStack Query caches for UI-facing server state; direct reactive queries need a clearer scoped owner.
+- Seed known route and guild facts once and render them immediately. Avoid waterfalls, duplicate authorization, broad invalidation, and placeholder flashes for known identity or chrome.
+- Keep the stable shell, route identity, navigation, static feature chrome, and useful confirmed content mounted. Suspense, query, and error boundaries belong to the smallest independently useful island.
+- Represent applicable cold, cached, refreshing, stale, empty, saving, success, retryable error, permission, conflict, partial-failure, unknown, reconciliation, reconnecting, and terminal states truthfully.
+- Preserve confirmed data while refreshing. Retry becomes visibly busy, prevents duplicates, and settles to confirmed data or a new actionable error.
+- Merge live and polled state monotonically. Older timestamps, decreasing counters, and terminal-to-active regressions must not replace newer confirmed state.
+- Optimistic changes require reversible state, rollback, and focused authoritative revalidation. The cache is never durable truth.
+- Do not retry an external mutation with unknown outcome automatically. Explain the uncertainty and use the feature's reconciliation or recovery path.
+- Durable operations survive refresh or browser close only when canonical execution state is server-side. A spinner is not measured progress, a hidden row is not confirmed deletion, and a closed dialog is not completion.
 
-## Navigation and server switching
+## Route, bundle, and ownership boundaries
 
-- Desktop uses one sleek 256px translucent navigation ribbon containing server context, command search, job navigation, appearance controls, and account actions. It must not look like a large panel filled with stacked bordered cards.
-- Intermediate widths use the same navigation system as a 72px icon rail. Mobile uses a compact top bar and one modal navigation sheet. Do not create separate guild, category, appearance, and account strips.
-- Category rows are borderless with calm hover feedback. The active route uses a narrow cyan edge and restrained horizontal wash. Child routes sit on a light hierarchy line. Keep disclosure controls within the row rhythm.
-- Center appearance and account actions in the navigation footer at expanded, rail, and mobile-sheet widths.
-- Capability metadata is the source of truth for navigation. Show only usable shipped guild capabilities. Hide jobs with no available children. One available child may become a direct destination. Two or more form an expandable group. Registered placeholders and future routes do not appear in ordinary navigation or command search.
-- Keep account OAuth controls and platform/deployment/Convex administration out of guild settings. Guild, account, and platform are separate authority scopes and future shells.
-- In single-instance mode, show honest inert server identity and no server picker. In multi-instance mode, always expose server switching because All Servers and Invite Bot remain useful even when only one manageable server exists.
-- The dashboard server switcher is compact navigation, not a large showcase card. Use an anchored 24rem desktop popover and a short-height-safe mobile bottom sheet. Server rows are 56px with 36px avatars. Put All Servers and Invite Bot in a distinct footer.
-- Keep current and pending server states explicit without repeated descriptions or hover lift. The current server remains authoritative until route data commits. A requested switch may show a trusted pending preview.
-- The initial server launcher may use polished server tiles. Tiles must use their interior space purposefully, highlight the whole card on hover/focus, remain spatially stable, and avoid identical low-value action copy.
-- Portaled server, appearance, command, sheet, and popover surfaces must escape navigation scroll containers, anchor to their trigger, own focus, close on Escape and outside viewport interaction, preserve usable internal scrolling, and return focus correctly.
-- `Cmd/Ctrl+K` searches only shipped routes and manageable servers. Rank exact, prefix, word, substring, and token matches. Support Arrow keys, Home, End, Enter, Escape, pointer, and focus interaction. It may navigate or open safe surfaces but must not execute destructive or externally mutating actions.
+- Parent dashboard routes own only authorization, guild identity, stable shell and context, pending target identity, navigation, and genuinely cross-route runtime state.
+- Each leaf route directly imports one focused feature entry. Do not re-export leaf implementations through a parent or broad barrel, switch siblings through one controller, or pass an all-surface property bag.
+- Data isolation and client-code isolation are separate. A query key does not prove a separately bundled feature.
+- Keep route files in the direct `createFileRoute(...)({...})` form required by the TanStack splitter. Never edit generated route output.
+- Persistent runtimes own only state that survives sibling routes. Leaf mutations, pagination, editors, errors, and optional inspectors remain leaf-owned.
+- Same-guild sibling navigation keeps the persistent owner mounted while the unresolved leaf changes. Pending identity is not authority. Cross-guild navigation removes stale content and unsafe transient state.
+- Lazy-load charts, tree and diff explorers, syntax languages, and future animation runtimes at the interaction that needs them. Each lazy route or tool has local actionable code-load retry that preserves confirmed surrounding state.
+- Navigation acknowledges intent synchronously, closes departing overlays safely, updates pending identity, and preserves correct focus for cancellation versus navigation.
+- After route or import changes, regenerate routes, build production, and inspect the transitive graph. Keep optional heavy tools out of shell and unrelated leaf graphs.
 
-## Living Flux ambient contract
+## Styling, accessibility, and performance
 
-- The ambient dashboard is a persistent shell-level system, not route content. Navigating between All Servers and a selected server, or among dashboard features, must not remount it, restart shader time, respawn particles, or visibly change the composition.
-- Composite the background in this exact back-to-front order:
-    1. visible deep navy/cyan/violet CSS gradient.
-    2. transparent native WebGL fluid metaballs.
-    3. restrained noise texture.
-    4. desktop particle canvas and proximity links.
-    5. vignette.
-- The CSS gradient is always the visible foundation. Never replace it with black. Fluid blobs extend the same palette subtly and must read as integrated gel-like movement behind the particles, not as bright foreground balloons or detached glowing circles.
-- The fluid renderer is purpose-built native WebGL: one full-screen quad, nine analytic low-alpha cyan/electric-blue/violet/magenta metaballs, a 320,000-pixel ceiling, and a 30fps ceiling. Do not introduce a general shader, canvas, or animation package for it without an approved architectural change supported by measured evidence.
-- The desktop particle field sits above the fluid layer. It uses sharp native circles, crisp proximity links, density scaled from a 1600x900 reference, no retina scaling, and a 45fps ceiling. Pause it offscreen. Unmount both particle and fluid renderers while the document is hidden and restore them when visible. This visibility lifecycle is separate from route-navigation persistence. Do not mount particles on mobile, under operating-system reduced motion, or while Reduced Effects is active.
-- Particle interaction is local and precise: nearby nodes grow visibly, visible proximity lines can be highlighted across their full segment, and temporary pointer-local connections may appear. Keep the focus threshold tight enough that distant lines do not glow, while ensuring every visible part of a line remains interactive.
-- Dashboard appearance exposes exactly three independent controls: Reduced Effects, Fluid Blobs, and Particles. All are real buttons with pointer cursors, accessible names, focus treatment, and truthful pressed state. Do not restore particle blur or a blur toggle.
-- Fluid Blobs mounts or removes only the WebGL layer. It must leave the gradient, particles, noise, and composition intact.
-- Particles mounts or removes only the particle layer. It must not respawn or reconfigure the fluid field.
-- Reduced Effects retains the rich static gradient, noise, and current color composition. Freezes the fluid renderer at its current elapsed time. Unmounts particles. Removes backdrop/dialog blur. And suppresses Motion transitions, CSS pulses, spinners, disclosure rotations, and press scaling. It must not reset the shader clock, rotate the background, substitute a different composition, or collapse to black.
-- Operating-system reduced motion follows the same motion-safety principles while preserving all information, controls, focus states, and state semantics.
+- Tailwind utilities and shared dashboard recipes own ordinary layout, spacing, type, focus, and semantic-token styling. Use custom CSS only for genuinely cross-cutting or inexpressible behavior.
+- Controls need intentional pointer and disabled cursors, visible keyboard focus, accessible names, and at least 44px touch targets where touch is expected.
+- Critical actions are never hover-only. Dragging has a keyboard or direct-control alternative. Charts and visual state have text equivalents. Color and animation never carry meaning alone.
+- Use effects only to synchronize external systems. Prefer server data, render-time derivation, event handlers, and stable query caches. Reserve layout effects for unavoidable pre-paint DOM measurement.
+- Verify relevant responsive, zoom, short-height, keyboard, screen-reader, reduced-motion, empty and large data, and server-count states.
+- Virtualize costly long collections when warranted, keep heavy work out of render, pause continuous hidden work, and avoid broad refetches.
 
-## Motion, GSAP, and Rive ownership
+## Test and review standard
 
-- Every visual change has one motion owner. Multiple layers must not animate the same geometry or semantic transition.
-- CSS owns hover, focus, pressed, disabled, and short color/opacity feedback.
-- Motion owns routine React state and layout continuity: route arrival, internal view changes, navigation indicators, the Server Dock, sheets, drawers, responsive panes, builders, list insertion/removal, confirmed-value changes, and optimistic settlement.
-- Use these default timing budgets: route arrival 200ms, internal view change 180ms, selection gel 150ms, list insertion 160ms, confirmation 140ms. Deviate only when the interaction demonstrably needs it.
-- Motion must preserve spatial continuity. Do not animate virtualized Audit geometry, create hover lift on repeated rows/cards, or let layout animation cause text and controls to shift suddenly.
-- Safety, conflict, reconciliation, unknown-outcome, permission-loss, and destructive-confirmation changes remove stale or unsafe controls immediately. Do not wait for exit choreography when correctness changed.
-- GSAP is not a replacement for Motion. Reserve it for a future route-lazy Blueprint execution replay only after a durable ordered replay ledger, approved storyboard, labelled/scrubbable timeline, canonical static representation, reduced-motion behavior, scoped cleanup, and explicit bundle budget exist.
-- Rive is not generic decoration. Reserve it for a future project-owned installation/system-status state machine only after canonical states, editable `.riv` source, named inputs, documented mappings, DOM-owned labels/actions/live announcements, static and load-failure fallbacks, reduced-motion behavior, state-by-state QA, route-lazy loading, one-active-canvas enforcement, CSP compatibility, and an explicit runtime-plus-asset budget exist.
-
-## Authority, guild boundaries, and live state
-
-- Re-check authorization server-side for every mutation and sensitive read. Browser state, routes, cached guild lists, previews, optimistic values, and visible controls are never authority.
-- Read deployment behavior from `deployment_config`, not `INSTANCE_MODE` or `SINGLE_GUILD_ID` environment variables.
-- Single mode authorizes only the DB-effective configured guild. Multi mode exposes only OAuth guilds for which the user has Manage Server permission and the authoritative installation/DEFCON policy permits access.
-- Keep OAuth and Fluxer permission translation in `packages/fluxer`. Keep shared dashboard access policy in `packages/core`. Keep OAuth client secrets, bot tokens, session secrets, encryption keys, token exchange logic, private payloads, and provider response bodies out of browser bundles and client-visible errors.
-- Treat guild identity as a hard boundary across every feature and view. Every server-state query and cache key must be guild-scoped. Never display data retained from the previously selected guild.
-- Preserve separate per-guild caches so returning to a guild can be fast, but remount or reset transient drafts, validation errors, pagination, selections, pending intents, local conflict state, and busy state when guild identity changes.
-- Use route loaders or server functions for protected initial identity, authorization, and shell facts. Use TanStack Query for UI-facing server state. Use a direct authorized reactive query only when its ownership and lifecycle are clearer than query-cache invalidation.
-- Seed known route/guild data into stable query caches once. Names, icons, ids, access facts, and initial catalogs must render immediately rather than being fetched again by each layer. Avoid request waterfalls, duplicate authorization, and broad invalidation when a focused query is sufficient.
-- The full launcher and compact switcher share the `dashboard/guild-catalog` query. Either loader may seed it. Mounting the live layer must not cause a duplicate initial request.
-- Catalog membership is server-authoritative. The browser may retain display state but never grants access or fabricates membership.
-- While a dashboard page is visible, refresh the authoritative OAuth guild catalog every 15 seconds and immediately on focus or reconnect. Do not poll hidden pages. Provider limits must be stated honestly. The current catalog is bounded to the provider's first 200 guilds until pagination is implemented and validated.
-- Installation and effective DEFCON changes use the durable Convex catalog-version signal to invalidate the shared catalog immediately. Treat the signal as a hint to re-read canonical data, not as the catalog itself.
-- A transient OAuth, network, or database failure retains the last confirmed catalog and marks it stale/error with recovery. It must not manufacture an empty list, revoke client access, or redirect away from the active guild based on an unconfirmed failure.
-- If a confirmed authoritative refresh removes the active guild, replace to `/dashboard`. Invalid or inaccessible guild routes also redirect to `/dashboard`. Unknown subroutes under a valid authorized guild redirect to that guild's dashboard root after authoritative access validation.
-- A Fluxer guild-delete event marked `unavailable: true` is a temporary outage, not an uninstall. Do not delete installation state or increment catalog membership version for the temporary condition.
-
-## Loading, refresh, and workflow state
-
-- The router uses instant pending (`defaultPendingMs: 0`, `defaultPendingMinMs: 0`), but the stable dashboard/docs shell, route identity, navigation, and useful cached content remain mounted.
-- Route pending UI is a critical-shell concern and must stay small. It identifies the exact target immediately, preserves the target frame, and shows at most the smallest unresolved island. It must not import the destination implementation, imitate a speculative full page, retain unrelated previous-feature content without feedback, or add blank panels merely to occupy the eventual layout.
-- Put loading state in the panel or control doing the work. Avoid page-wide skeletons when a useful shell, confirmed data, or stable task frame exists.
-- Render already-known data immediately. Do not flash placeholders for names, icons, ids, headers, or selections that loaders or cache already know.
-- Static feature chrome renders when the leaf component is available even if its data is not. Titles, descriptions, labels, help, toolbars, field structure, and safe actions are not loading state. Disable only controls whose required authority or value is unresolved, and put the pending/error state beside that value or control.
-- Place Suspense, query, and error boundaries below stable route and feature chrome at the smallest independently useful island. A whole leaf may suspend only when its own code has not arrived. Once mounted, unrelated static content and already-confirmed islands must not disappear because another island is unresolved or refreshing.
-- Prefer stale-while-refresh behavior for confirmed data. Keep the last confirmed value visible, distinguish refreshing from initial loading, expose refresh failure or staleness honestly, and offer focused retry/reconnect where useful.
-- Async UI must represent meaningful states explicitly: cold loading, cached, refreshing, stale, empty, saving, success, retryable error, permission change, conflict, partial failure, unknown outcome, reconciliation, reconnecting, and terminal completion when those states can occur.
-- Never let an older response overwrite newer, confirmed, or terminal state. Merge live updates monotonically: reject older timestamps, decreasing counters, and terminal-to-active regressions. A genuinely newer execution for the same logical run may replace the earlier terminal execution only when its durable identity/order proves that it is newer.
-- Optimistic updates require a reversible local change, rollback on failure, and authoritative invalidation/revalidation. The UI cache never becomes the source of truth.
-- Do not automatically retry an external mutation with an unknown outcome. Preserve the last confirmed state, explain uncertainty, and require an explicit recovery or reconciliation path.
-- Long-running user-facing operations must survive refresh and browser close when the feature contract promises durability. Store canonical execution state server-side. Use lightweight live signals for invalidation. And perform one canonical read when terminal state is indicated.
-- Keep the UI responsive during non-abortable work, but do not stack retries or duplicate mutations. Model deadlines, reconnect behavior, idempotency, partial completion, and terminal transport failure explicitly.
-- Loading feedback must not lie. A spinner is not evidence of progress, a locally hidden row is not successful deletion, and a closed dialog is not confirmed completion.
-
-## Async-first route and bundle ownership
-
-- Parent dashboard routes own only authorization, guild identity, stable shell/context, target pending identity, navigation, and truly cross-route runtime state. A parent route must not statically import Overview, Message Builder, Audit, Command Prefix, Blueprint surface implementations, charts, editors, explorers, diff viewers, syntax highlighting, or other leaf-only code.
-- Every shipped leaf route directly imports its own feature entry module. Do not re-export leaf implementations through a parent route module or a broad component barrel. That defeats route splitting even when generated leaf chunks appear small.
-- Data independence and code independence are separate acceptance criteria. A tab is not independently loaded merely because it has a separate query key: its initial client graph must also exclude sibling surfaces and optional tools it does not render.
-- Keep route files in the direct `createFileRoute(...)({...})` form required by the TanStack splitter. After changing route imports, inspect the production build graph. Source-level intent or tiny generated route wrappers do not prove isolation.
-- Use the authenticated guild loader for authority and shell facts. UI-facing feature reads belong to guild-scoped TanStack Query caches owned by the active feature or a deliberately small persistent runtime. A child loader may seed known data, but it must not block static feature chrome solely to fetch an editable value or list that can load as a local island.
-- Persistent runtimes may own only state that must survive sibling-route changes, such as a fenced in-flight read registry, an active Blueprint execution strip, or an intentional cross-surface draft. Feature mutations, pagination, editors, errors, and optional inspection tools remain leaf-owned. Reset persistent transient state when guild identity changes.
-- A same-guild sibling transition must keep its persistent runtime and React ownership mounted while only the unresolved leaf island changes. Derive committed scope from resolved route state and use unresolved navigation state only to present the pending target. Never key, replace, or reset the persistent owner from that pending target. Cross-guild or cross-feature navigation must remove stale content and reset the appropriate transient state.
-- Each leaf owns a focused controller, query set, mutation set, and view contract. Do not use one controller that switches on the active sibling, constructs every sibling's callbacks, or passes an all-surface property bag into a dispatcher. Dynamic imports do not make that architecture independent. Cross-leaf handoff uses the smallest typed persistent state or cache entry that represents the user's intent.
-- Lazy-load optional heavy tools at the interaction or leaf route that needs them. `@pierre/trees`, `@pierre/diffs`, syntax-highlighting languages, charting libraries, and future GSAP/Rive code must not enter the dashboard or Blueprint shell graph. Intent preloading on a real navigation link or explicit tool trigger is allowed when it does not start server mutations or broad speculative downloads.
-- Every lazy route or optional tool has a local code-load error boundary with an actionable retry that re-attempts the import or navigation without discarding confirmed page state. A rejected chunk must not collapse the dashboard shell into a blank screen.
-- Server and feature navigation acknowledge the click synchronously. Close overlays without restoring focus to a departing trigger, update selected navigation and target identity immediately, and expose one truthful pending indication until the target commits. Escape, cancellation, and outside-click closure still return focus normally.
-- Cold loading, cached return, background refresh, and mutation progress are visually distinct. Cold loading may use a bounded placeholder shaped like the unresolved region. Cached return keeps confirmed content. Background refresh uses a subtle local busy/freshness indication. Mutations change the initiating action label or expose an adjacent live status.
-- A retry control must enter a visible `Retrying…`/busy state, prevent duplicate attempts, and settle to confirmed content or a new actionable error. Never make a retry button silently no-op because an earlier non-abortable read still exists. Reuse/fence that read or explain why a full reload is required.
-- For each new async feature, verify: direct cold entry, in-app intent navigation, cached return, background invalidation, empty data, retryable failure, permission/session loss, scope switch, and mutation settlement when applicable. Add behavioral tests only where a credible regression exists, and use an authenticated production-build journey when the route/bundle boundary itself is material.
-
-## Styling and component ownership
-
-- Tailwind utilities and shared dashboard recipes own component layout, spacing, sizing, typography, state, focus, and semantic-token styling.
-- Tailwind v4 does not provide pointer cursors for interactive controls by default. Give every enabled clickable button, link-like control, upload label, and custom trigger an explicit `cursor-pointer`. Give disabled states an intentional non-interactive cursor and behavior.
-- Custom CSS is limited to genuinely cross-cutting or otherwise inexpressible needs: scoped theme variables, the ambient base gradient, glass pseudo-elements, media/preference overrides, and the short-height navigation scrollbar. Do not move ordinary component styling into a global CSS file for convenience.
-- Prefer focused components with explicit ownership. Shared feature frames, buttons, fields, status treatments, and navigation recipes should converge visually. Do not copy a near-match and let each route drift.
-- Avoid `!important`, broad selector remapping, raw hue families that bypass semantic tokens, and feature-local resets.
-- Use effects only to synchronize external systems. Prefer server data, render-time derivation, event handlers, and stable query caches. Use `useLayoutEffect` only for unavoidable pre-paint DOM measurement or synchronization.
-
-## Accessibility, responsiveness, and performance
-
-- All functionality must work by keyboard with visible focus. Icon-only controls need accessible names. Critical actions must not be hover-only. Maintain at least 44px touch targets where touch is expected.
-- Provide keyboard or direct-control alternatives to dragging. Charts and visual status need meaningful text equivalents. Announce live changes when they matter. Animation and color alone never carry state.
-- Verify layout at 1600x1000, 1280x800, 1024x768, 768x1024, 390x844, 200% zoom, and short 800x300 geometry when overlays or navigation can be height-constrained.
-- Verify no-server, one-server, two-server, and many-server behavior when server navigation changes. If a live fixture is unavailable, say so. Automated fixtures are useful but do not equal live multi-server validation.
-- Virtualize long lists and trees where rendering cost warrants it. Keep expensive work out of render, pause continuous work when hidden/offscreen, route-lazy optional heavy visuals, and avoid broad refetches.
-- The initial shell must not import GSAP or Rive. Mobile must not mount particles. The ambient renderer must respect its pixel and frame ceilings without weakening the intended visual effect.
-
-## Web test standard
-
-- Test behavior users, data integrity, and security boundaries depend on: server authorization, redirects, cookies/tokens, secret non-disclosure, guild isolation, query lifecycle, live invalidation, stale/terminal ordering, optimistic rollback, retry, destructive confirmation, unknown outcomes, and accessible interaction.
-- Add or modify tests only for meaningful behavior or a real regression. Do not inflate coverage with class-name assertions, source scans, exact ordinary copy, package metadata, generated route text, static navigation arrays, or repetitions of behavior already proved at a more appropriate boundary.
-- Component tests drive accessible controls and assert semantic rendered outcomes. Prefer roles, labels, actions, and state over DOM shape or CSS implementation.
-- When persistence across navigation is a contract, mutate state owned by the real persistent runtime and prove that the same owner survives sibling navigation, including history or programmatic navigation where relevant. Rendering a supplied child or asserting repeated text does not prove persistence.
-- Route and server tests call exported loaders/functions or rendered routes. Test production APIs rather than test-only dispatch seams.
-- Mock real runtime boundaries, network, database, filesystem, environment, clock, randomness, and browser APIs, not the internal function whose behavior is under test.
-- Cover cold, cached, stale, error, retry, empty, unauthorized, permission-change, conflict, unknown, partial, reconciliation, and terminal states only where they materially differ.
-
-## Validation and review
-
-- Run focused web tests, web lint, and web typecheck for web changes. Run the complete web suite for cross-cutting routing, authentication, query-cache, ambient-shell, navigation, or shared dashboard changes.
-- When authenticated development validation needs a real guild, use `NeonSpace Dev` unless Neonsy explicitly names another fixture. Do not inspect or mutate an unrelated guild merely because it is available, and do not treat fixture selection as authorization for destructive or externally mutating validation.
-- For new dashboard routes and material loading changes, run a production build and inspect the transitive client graph. The guild shell must exclude sibling feature implementations. The Blueprint shell must exclude leaf surfaces and optional explorer/diff/syntax code. A leaf must exclude sibling feature code. Record an accepted post-change size baseline before adding numeric bundle ceilings, then guard that baseline against regression.
-- Keep the dashboard bundle-boundary guard aligned with the ownership map when entries or optional tools change. Its fixtures must prove that static transitive imports are rejected while intentional dynamic imports remain outside the cold graph. Passing a stale marker list is not evidence of isolation. Entry-chunk bytes alone are also not a cold-load budget: inspect and, when baselined, guard the complete static closure and the incremental cold cost of the target route.
-- Inspect the final diff for unjustified custom CSS, duplicated visual systems, repeated copy, duplicated separators, width regressions, unstable hover geometry, cross-guild leakage, stale-state regressions, and ambient remounts.
-- Visually inspect the real app for meaningful interaction, layout, hydration, responsive, ambient, overlay, or motion changes when services and authentication are available. Static source review and mocked component tests do not prove rendered composition or transition quality.
-- Observe first paint and the transition before data settles, not only screenshots of the resolved page. For material async changes, exercise a true direct cold entry and an in-app navigation under delayed code/data when tooling permits, and compare the pending and resolved geometry for blank frames, wrong route identity, duplicate loading surfaces, and layout shift.
-- Exercise the affected toggles and compare before/after state. For ambient work, verify layer order, persistence across routes, frame continuity, Reduced Effects, Fluid Blobs, Particles, operating-system reduced motion, hidden-tab behavior, and mobile behavior.
-- State exactly what validation proves and report unavailable live fixtures or destructive smoke tests. Never present partial, mocked, or static validation as equivalent to authenticated runtime verification.
+- Test behavior users, security, and data integrity depend on: authorization, redirects, cookie and token handling, secret non-disclosure, guild isolation, query lifecycle, stale and terminal ordering, rollback, retry, destructive confirmation, unknown outcomes, and accessible interaction.
+- Drive components through accessible controls and assert semantic outcomes. Do not test classes, ordinary prose, static catalogs, generated route text, implementation-only DOM shape, or repeated behavior.
+- Test navigation persistence through the real persistent owner and real navigation. Route and server tests call production loaders, functions, or rendered routes. Mock boundaries, not the behavior under test.
+- Run focused web tests, lint, typecheck, route generation, and production build as applicable. Cross-cutting auth, routing, cache, shell, navigation, or ambient work requires the complete web suite.
+- Inspect meaningful layout, hydration, interaction, overlays, responsiveness, loading, and motion in the real app when available. Observe first paint and delayed navigation, not only resolved screenshots. Report exactly what was and was not validated.
+- Review the final diff for duplicated visual systems, copy, or separators; unjustified global CSS; width or hover regressions; cross-guild leakage; stale-state regressions; optional code in cold graphs; and ambient remounts.
 
 ## Documentation boundary
 
-- Dashboard redesign work must not casually alter public Docs. Preserve the existing Docs gradient and visual system unless the task explicitly includes documentation design.
-- This file owns the default dashboard visual and interaction direction. Consult feature Research for current domain behavior, data ownership, destructive workflow, protocol, and migration requirements. Do not use old redesign history to override this contract.
+- Public Docs are frozen unless the task explicitly authorizes them. Preserve their visual system when documentation design is out of scope.

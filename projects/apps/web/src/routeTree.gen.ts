@@ -21,26 +21,26 @@ import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
 import { Route as DashboardGuildIdIndexRouteImport } from './routes/dashboard/$guildId/index'
 import { Route as DocsTopicSplatRouteImport } from './routes/docs/topic/$'
 import { Route as DocsApiSearchRouteImport } from './routes/docs/api/search'
-import { Route as DashboardGuildIdStructureRouteImport } from './routes/dashboard/$guildId/structure'
 import { Route as DashboardGuildIdMessagingRouteImport } from './routes/dashboard/$guildId/messaging'
 import { Route as DashboardGuildIdGeneralRouteImport } from './routes/dashboard/$guildId/general'
 import { Route as DashboardGuildIdEventsRouteImport } from './routes/dashboard/$guildId/events'
+import { Route as DashboardGuildIdBlueprintRouteImport } from './routes/dashboard/$guildId/blueprint'
 import { Route as DashboardGuildIdSplatRouteImport } from './routes/dashboard/$guildId/$'
 import { Route as AuthFluxerLoginRouteImport } from './routes/auth/fluxer/login'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth/fluxer/callback'
 import { Route as AuthConvexTokenRouteImport } from './routes/auth/convex/token'
-import { Route as DashboardGuildIdStructureIndexRouteImport } from './routes/dashboard/$guildId/structure/index'
 import { Route as DashboardGuildIdMessagingIndexRouteImport } from './routes/dashboard/$guildId/messaging/index'
 import { Route as DashboardGuildIdGeneralIndexRouteImport } from './routes/dashboard/$guildId/general/index'
 import { Route as DashboardGuildIdEventsIndexRouteImport } from './routes/dashboard/$guildId/events/index'
-import { Route as DashboardGuildIdStructureRunsRouteImport } from './routes/dashboard/$guildId/structure/runs'
-import { Route as DashboardGuildIdStructureDeployRouteImport } from './routes/dashboard/$guildId/structure/deploy'
-import { Route as DashboardGuildIdStructureCurrentRouteImport } from './routes/dashboard/$guildId/structure/current'
-import { Route as DashboardGuildIdStructureCompareRouteImport } from './routes/dashboard/$guildId/structure/compare'
-import { Route as DashboardGuildIdStructureBackupsRouteImport } from './routes/dashboard/$guildId/structure/backups'
+import { Route as DashboardGuildIdBlueprintIndexRouteImport } from './routes/dashboard/$guildId/blueprint/index'
 import { Route as DashboardGuildIdMessagingMessageBuilderRouteImport } from './routes/dashboard/$guildId/messaging/message-builder'
 import { Route as DashboardGuildIdGeneralCommandPrefixRouteImport } from './routes/dashboard/$guildId/general/command-prefix'
 import { Route as DashboardGuildIdEventsAuditEventsRouteImport } from './routes/dashboard/$guildId/events/audit-events'
+import { Route as DashboardGuildIdBlueprintRunsRouteImport } from './routes/dashboard/$guildId/blueprint/runs'
+import { Route as DashboardGuildIdBlueprintDeployRouteImport } from './routes/dashboard/$guildId/blueprint/deploy'
+import { Route as DashboardGuildIdBlueprintCurrentRouteImport } from './routes/dashboard/$guildId/blueprint/current'
+import { Route as DashboardGuildIdBlueprintCompareRouteImport } from './routes/dashboard/$guildId/blueprint/compare'
+import { Route as DashboardGuildIdBlueprintBackupsRouteImport } from './routes/dashboard/$guildId/blueprint/backups'
 
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
@@ -102,12 +102,6 @@ const DocsApiSearchRoute = DocsApiSearchRouteImport.update({
   path: '/api/search',
   getParentRoute: () => DocsRoute,
 } as any)
-const DashboardGuildIdStructureRoute =
-  DashboardGuildIdStructureRouteImport.update({
-    id: '/structure',
-    path: '/structure',
-    getParentRoute: () => DashboardGuildIdRoute,
-  } as any)
 const DashboardGuildIdMessagingRoute =
   DashboardGuildIdMessagingRouteImport.update({
     id: '/messaging',
@@ -124,6 +118,12 @@ const DashboardGuildIdEventsRoute = DashboardGuildIdEventsRouteImport.update({
   path: '/events',
   getParentRoute: () => DashboardGuildIdRoute,
 } as any)
+const DashboardGuildIdBlueprintRoute =
+  DashboardGuildIdBlueprintRouteImport.update({
+    id: '/blueprint',
+    path: '/blueprint',
+    getParentRoute: () => DashboardGuildIdRoute,
+  } as any)
 const DashboardGuildIdSplatRoute = DashboardGuildIdSplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -144,12 +144,6 @@ const AuthConvexTokenRoute = AuthConvexTokenRouteImport.update({
   path: '/auth/convex/token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardGuildIdStructureIndexRoute =
-  DashboardGuildIdStructureIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
-  } as any)
 const DashboardGuildIdMessagingIndexRoute =
   DashboardGuildIdMessagingIndexRouteImport.update({
     id: '/',
@@ -168,35 +162,11 @@ const DashboardGuildIdEventsIndexRoute =
     path: '/',
     getParentRoute: () => DashboardGuildIdEventsRoute,
   } as any)
-const DashboardGuildIdStructureRunsRoute =
-  DashboardGuildIdStructureRunsRouteImport.update({
-    id: '/runs',
-    path: '/runs',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
-  } as any)
-const DashboardGuildIdStructureDeployRoute =
-  DashboardGuildIdStructureDeployRouteImport.update({
-    id: '/deploy',
-    path: '/deploy',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
-  } as any)
-const DashboardGuildIdStructureCurrentRoute =
-  DashboardGuildIdStructureCurrentRouteImport.update({
-    id: '/current',
-    path: '/current',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
-  } as any)
-const DashboardGuildIdStructureCompareRoute =
-  DashboardGuildIdStructureCompareRouteImport.update({
-    id: '/compare',
-    path: '/compare',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
-  } as any)
-const DashboardGuildIdStructureBackupsRoute =
-  DashboardGuildIdStructureBackupsRouteImport.update({
-    id: '/backups',
-    path: '/backups',
-    getParentRoute: () => DashboardGuildIdStructureRoute,
+const DashboardGuildIdBlueprintIndexRoute =
+  DashboardGuildIdBlueprintIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
   } as any)
 const DashboardGuildIdMessagingMessageBuilderRoute =
   DashboardGuildIdMessagingMessageBuilderRouteImport.update({
@@ -216,6 +186,36 @@ const DashboardGuildIdEventsAuditEventsRoute =
     path: '/audit-events',
     getParentRoute: () => DashboardGuildIdEventsRoute,
   } as any)
+const DashboardGuildIdBlueprintRunsRoute =
+  DashboardGuildIdBlueprintRunsRouteImport.update({
+    id: '/runs',
+    path: '/runs',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
+  } as any)
+const DashboardGuildIdBlueprintDeployRoute =
+  DashboardGuildIdBlueprintDeployRouteImport.update({
+    id: '/deploy',
+    path: '/deploy',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
+  } as any)
+const DashboardGuildIdBlueprintCurrentRoute =
+  DashboardGuildIdBlueprintCurrentRouteImport.update({
+    id: '/current',
+    path: '/current',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
+  } as any)
+const DashboardGuildIdBlueprintCompareRoute =
+  DashboardGuildIdBlueprintCompareRouteImport.update({
+    id: '/compare',
+    path: '/compare',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
+  } as any)
+const DashboardGuildIdBlueprintBackupsRoute =
+  DashboardGuildIdBlueprintBackupsRouteImport.update({
+    id: '/backups',
+    path: '/backups',
+    getParentRoute: () => DashboardGuildIdBlueprintRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -230,26 +230,26 @@ export interface FileRoutesByFullPath {
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/$': typeof DashboardGuildIdSplatRoute
+  '/dashboard/$guildId/blueprint': typeof DashboardGuildIdBlueprintRouteWithChildren
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRouteWithChildren
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRouteWithChildren
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRouteWithChildren
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRouteWithChildren
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/blueprint/backups': typeof DashboardGuildIdBlueprintBackupsRoute
+  '/dashboard/$guildId/blueprint/compare': typeof DashboardGuildIdBlueprintCompareRoute
+  '/dashboard/$guildId/blueprint/current': typeof DashboardGuildIdBlueprintCurrentRoute
+  '/dashboard/$guildId/blueprint/deploy': typeof DashboardGuildIdBlueprintDeployRoute
+  '/dashboard/$guildId/blueprint/runs': typeof DashboardGuildIdBlueprintRunsRoute
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
-  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
-  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
-  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
-  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
-  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
+  '/dashboard/$guildId/blueprint/': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
   '/dashboard/$guildId/messaging/': typeof DashboardGuildIdMessagingIndexRoute
-  '/dashboard/$guildId/structure/': typeof DashboardGuildIdStructureIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -264,18 +264,18 @@ export interface FileRoutesByTo {
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId': typeof DashboardGuildIdIndexRoute
   '/docs/topic': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/blueprint/backups': typeof DashboardGuildIdBlueprintBackupsRoute
+  '/dashboard/$guildId/blueprint/compare': typeof DashboardGuildIdBlueprintCompareRoute
+  '/dashboard/$guildId/blueprint/current': typeof DashboardGuildIdBlueprintCurrentRoute
+  '/dashboard/$guildId/blueprint/deploy': typeof DashboardGuildIdBlueprintDeployRoute
+  '/dashboard/$guildId/blueprint/runs': typeof DashboardGuildIdBlueprintRunsRoute
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
-  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
-  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
-  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
-  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
-  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
+  '/dashboard/$guildId/blueprint': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralIndexRoute
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingIndexRoute
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -291,26 +291,26 @@ export interface FileRoutesById {
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
   '/auth/fluxer/login': typeof AuthFluxerLoginRoute
   '/dashboard/$guildId/$': typeof DashboardGuildIdSplatRoute
+  '/dashboard/$guildId/blueprint': typeof DashboardGuildIdBlueprintRouteWithChildren
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsRouteWithChildren
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralRouteWithChildren
   '/dashboard/$guildId/messaging': typeof DashboardGuildIdMessagingRouteWithChildren
-  '/dashboard/$guildId/structure': typeof DashboardGuildIdStructureRouteWithChildren
   '/docs/api/search': typeof DocsApiSearchRoute
   '/docs/topic/$': typeof DocsTopicSplatRoute
   '/dashboard/$guildId/': typeof DashboardGuildIdIndexRoute
   '/docs/topic/': typeof DocsTopicIndexRoute
+  '/dashboard/$guildId/blueprint/backups': typeof DashboardGuildIdBlueprintBackupsRoute
+  '/dashboard/$guildId/blueprint/compare': typeof DashboardGuildIdBlueprintCompareRoute
+  '/dashboard/$guildId/blueprint/current': typeof DashboardGuildIdBlueprintCurrentRoute
+  '/dashboard/$guildId/blueprint/deploy': typeof DashboardGuildIdBlueprintDeployRoute
+  '/dashboard/$guildId/blueprint/runs': typeof DashboardGuildIdBlueprintRunsRoute
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
-  '/dashboard/$guildId/structure/backups': typeof DashboardGuildIdStructureBackupsRoute
-  '/dashboard/$guildId/structure/compare': typeof DashboardGuildIdStructureCompareRoute
-  '/dashboard/$guildId/structure/current': typeof DashboardGuildIdStructureCurrentRoute
-  '/dashboard/$guildId/structure/deploy': typeof DashboardGuildIdStructureDeployRoute
-  '/dashboard/$guildId/structure/runs': typeof DashboardGuildIdStructureRunsRoute
+  '/dashboard/$guildId/blueprint/': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
   '/dashboard/$guildId/messaging/': typeof DashboardGuildIdMessagingIndexRoute
-  '/dashboard/$guildId/structure/': typeof DashboardGuildIdStructureIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -327,26 +327,26 @@ export interface FileRouteTypes {
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/$'
+    | '/dashboard/$guildId/blueprint'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/messaging'
-    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
+    | '/dashboard/$guildId/blueprint/backups'
+    | '/dashboard/$guildId/blueprint/compare'
+    | '/dashboard/$guildId/blueprint/current'
+    | '/dashboard/$guildId/blueprint/deploy'
+    | '/dashboard/$guildId/blueprint/runs'
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
-    | '/dashboard/$guildId/structure/backups'
-    | '/dashboard/$guildId/structure/compare'
-    | '/dashboard/$guildId/structure/current'
-    | '/dashboard/$guildId/structure/deploy'
-    | '/dashboard/$guildId/structure/runs'
+    | '/dashboard/$guildId/blueprint/'
     | '/dashboard/$guildId/events/'
     | '/dashboard/$guildId/general/'
     | '/dashboard/$guildId/messaging/'
-    | '/dashboard/$guildId/structure/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -361,18 +361,18 @@ export interface FileRouteTypes {
     | '/docs/topic/$'
     | '/dashboard/$guildId'
     | '/docs/topic'
+    | '/dashboard/$guildId/blueprint/backups'
+    | '/dashboard/$guildId/blueprint/compare'
+    | '/dashboard/$guildId/blueprint/current'
+    | '/dashboard/$guildId/blueprint/deploy'
+    | '/dashboard/$guildId/blueprint/runs'
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
-    | '/dashboard/$guildId/structure/backups'
-    | '/dashboard/$guildId/structure/compare'
-    | '/dashboard/$guildId/structure/current'
-    | '/dashboard/$guildId/structure/deploy'
-    | '/dashboard/$guildId/structure/runs'
+    | '/dashboard/$guildId/blueprint'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/messaging'
-    | '/dashboard/$guildId/structure'
   id:
     | '__root__'
     | '/'
@@ -387,26 +387,26 @@ export interface FileRouteTypes {
     | '/auth/fluxer/callback'
     | '/auth/fluxer/login'
     | '/dashboard/$guildId/$'
+    | '/dashboard/$guildId/blueprint'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/messaging'
-    | '/dashboard/$guildId/structure'
     | '/docs/api/search'
     | '/docs/topic/$'
     | '/dashboard/$guildId/'
     | '/docs/topic/'
+    | '/dashboard/$guildId/blueprint/backups'
+    | '/dashboard/$guildId/blueprint/compare'
+    | '/dashboard/$guildId/blueprint/current'
+    | '/dashboard/$guildId/blueprint/deploy'
+    | '/dashboard/$guildId/blueprint/runs'
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
-    | '/dashboard/$guildId/structure/backups'
-    | '/dashboard/$guildId/structure/compare'
-    | '/dashboard/$guildId/structure/current'
-    | '/dashboard/$guildId/structure/deploy'
-    | '/dashboard/$guildId/structure/runs'
+    | '/dashboard/$guildId/blueprint/'
     | '/dashboard/$guildId/events/'
     | '/dashboard/$guildId/general/'
     | '/dashboard/$guildId/messaging/'
-    | '/dashboard/$guildId/structure/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -505,13 +505,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsApiSearchRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/dashboard/$guildId/structure': {
-      id: '/dashboard/$guildId/structure'
-      path: '/structure'
-      fullPath: '/dashboard/$guildId/structure'
-      preLoaderRoute: typeof DashboardGuildIdStructureRouteImport
-      parentRoute: typeof DashboardGuildIdRoute
-    }
     '/dashboard/$guildId/messaging': {
       id: '/dashboard/$guildId/messaging'
       path: '/messaging'
@@ -531,6 +524,13 @@ declare module '@tanstack/react-router' {
       path: '/events'
       fullPath: '/dashboard/$guildId/events'
       preLoaderRoute: typeof DashboardGuildIdEventsRouteImport
+      parentRoute: typeof DashboardGuildIdRoute
+    }
+    '/dashboard/$guildId/blueprint': {
+      id: '/dashboard/$guildId/blueprint'
+      path: '/blueprint'
+      fullPath: '/dashboard/$guildId/blueprint'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintRouteImport
       parentRoute: typeof DashboardGuildIdRoute
     }
     '/dashboard/$guildId/$': {
@@ -561,13 +561,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthConvexTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/$guildId/structure/': {
-      id: '/dashboard/$guildId/structure/'
-      path: '/'
-      fullPath: '/dashboard/$guildId/structure/'
-      preLoaderRoute: typeof DashboardGuildIdStructureIndexRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
-    }
     '/dashboard/$guildId/messaging/': {
       id: '/dashboard/$guildId/messaging/'
       path: '/'
@@ -589,40 +582,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdEventsIndexRouteImport
       parentRoute: typeof DashboardGuildIdEventsRoute
     }
-    '/dashboard/$guildId/structure/runs': {
-      id: '/dashboard/$guildId/structure/runs'
-      path: '/runs'
-      fullPath: '/dashboard/$guildId/structure/runs'
-      preLoaderRoute: typeof DashboardGuildIdStructureRunsRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
-    }
-    '/dashboard/$guildId/structure/deploy': {
-      id: '/dashboard/$guildId/structure/deploy'
-      path: '/deploy'
-      fullPath: '/dashboard/$guildId/structure/deploy'
-      preLoaderRoute: typeof DashboardGuildIdStructureDeployRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
-    }
-    '/dashboard/$guildId/structure/current': {
-      id: '/dashboard/$guildId/structure/current'
-      path: '/current'
-      fullPath: '/dashboard/$guildId/structure/current'
-      preLoaderRoute: typeof DashboardGuildIdStructureCurrentRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
-    }
-    '/dashboard/$guildId/structure/compare': {
-      id: '/dashboard/$guildId/structure/compare'
-      path: '/compare'
-      fullPath: '/dashboard/$guildId/structure/compare'
-      preLoaderRoute: typeof DashboardGuildIdStructureCompareRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
-    }
-    '/dashboard/$guildId/structure/backups': {
-      id: '/dashboard/$guildId/structure/backups'
-      path: '/backups'
-      fullPath: '/dashboard/$guildId/structure/backups'
-      preLoaderRoute: typeof DashboardGuildIdStructureBackupsRouteImport
-      parentRoute: typeof DashboardGuildIdStructureRoute
+    '/dashboard/$guildId/blueprint/': {
+      id: '/dashboard/$guildId/blueprint/'
+      path: '/'
+      fullPath: '/dashboard/$guildId/blueprint/'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintIndexRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
     }
     '/dashboard/$guildId/messaging/message-builder': {
       id: '/dashboard/$guildId/messaging/message-builder'
@@ -645,8 +610,70 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdEventsAuditEventsRouteImport
       parentRoute: typeof DashboardGuildIdEventsRoute
     }
+    '/dashboard/$guildId/blueprint/runs': {
+      id: '/dashboard/$guildId/blueprint/runs'
+      path: '/runs'
+      fullPath: '/dashboard/$guildId/blueprint/runs'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintRunsRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
+    }
+    '/dashboard/$guildId/blueprint/deploy': {
+      id: '/dashboard/$guildId/blueprint/deploy'
+      path: '/deploy'
+      fullPath: '/dashboard/$guildId/blueprint/deploy'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintDeployRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
+    }
+    '/dashboard/$guildId/blueprint/current': {
+      id: '/dashboard/$guildId/blueprint/current'
+      path: '/current'
+      fullPath: '/dashboard/$guildId/blueprint/current'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintCurrentRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
+    }
+    '/dashboard/$guildId/blueprint/compare': {
+      id: '/dashboard/$guildId/blueprint/compare'
+      path: '/compare'
+      fullPath: '/dashboard/$guildId/blueprint/compare'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintCompareRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
+    }
+    '/dashboard/$guildId/blueprint/backups': {
+      id: '/dashboard/$guildId/blueprint/backups'
+      path: '/backups'
+      fullPath: '/dashboard/$guildId/blueprint/backups'
+      preLoaderRoute: typeof DashboardGuildIdBlueprintBackupsRouteImport
+      parentRoute: typeof DashboardGuildIdBlueprintRoute
+    }
   }
 }
+
+interface DashboardGuildIdBlueprintRouteChildren {
+  DashboardGuildIdBlueprintBackupsRoute: typeof DashboardGuildIdBlueprintBackupsRoute
+  DashboardGuildIdBlueprintCompareRoute: typeof DashboardGuildIdBlueprintCompareRoute
+  DashboardGuildIdBlueprintCurrentRoute: typeof DashboardGuildIdBlueprintCurrentRoute
+  DashboardGuildIdBlueprintDeployRoute: typeof DashboardGuildIdBlueprintDeployRoute
+  DashboardGuildIdBlueprintRunsRoute: typeof DashboardGuildIdBlueprintRunsRoute
+  DashboardGuildIdBlueprintIndexRoute: typeof DashboardGuildIdBlueprintIndexRoute
+}
+
+const DashboardGuildIdBlueprintRouteChildren: DashboardGuildIdBlueprintRouteChildren =
+  {
+    DashboardGuildIdBlueprintBackupsRoute:
+      DashboardGuildIdBlueprintBackupsRoute,
+    DashboardGuildIdBlueprintCompareRoute:
+      DashboardGuildIdBlueprintCompareRoute,
+    DashboardGuildIdBlueprintCurrentRoute:
+      DashboardGuildIdBlueprintCurrentRoute,
+    DashboardGuildIdBlueprintDeployRoute: DashboardGuildIdBlueprintDeployRoute,
+    DashboardGuildIdBlueprintRunsRoute: DashboardGuildIdBlueprintRunsRoute,
+    DashboardGuildIdBlueprintIndexRoute: DashboardGuildIdBlueprintIndexRoute,
+  }
+
+const DashboardGuildIdBlueprintRouteWithChildren =
+  DashboardGuildIdBlueprintRoute._addFileChildren(
+    DashboardGuildIdBlueprintRouteChildren,
+  )
 
 interface DashboardGuildIdEventsRouteChildren {
   DashboardGuildIdEventsAuditEventsRoute: typeof DashboardGuildIdEventsAuditEventsRoute
@@ -699,48 +726,21 @@ const DashboardGuildIdMessagingRouteWithChildren =
     DashboardGuildIdMessagingRouteChildren,
   )
 
-interface DashboardGuildIdStructureRouteChildren {
-  DashboardGuildIdStructureBackupsRoute: typeof DashboardGuildIdStructureBackupsRoute
-  DashboardGuildIdStructureCompareRoute: typeof DashboardGuildIdStructureCompareRoute
-  DashboardGuildIdStructureCurrentRoute: typeof DashboardGuildIdStructureCurrentRoute
-  DashboardGuildIdStructureDeployRoute: typeof DashboardGuildIdStructureDeployRoute
-  DashboardGuildIdStructureRunsRoute: typeof DashboardGuildIdStructureRunsRoute
-  DashboardGuildIdStructureIndexRoute: typeof DashboardGuildIdStructureIndexRoute
-}
-
-const DashboardGuildIdStructureRouteChildren: DashboardGuildIdStructureRouteChildren =
-  {
-    DashboardGuildIdStructureBackupsRoute:
-      DashboardGuildIdStructureBackupsRoute,
-    DashboardGuildIdStructureCompareRoute:
-      DashboardGuildIdStructureCompareRoute,
-    DashboardGuildIdStructureCurrentRoute:
-      DashboardGuildIdStructureCurrentRoute,
-    DashboardGuildIdStructureDeployRoute: DashboardGuildIdStructureDeployRoute,
-    DashboardGuildIdStructureRunsRoute: DashboardGuildIdStructureRunsRoute,
-    DashboardGuildIdStructureIndexRoute: DashboardGuildIdStructureIndexRoute,
-  }
-
-const DashboardGuildIdStructureRouteWithChildren =
-  DashboardGuildIdStructureRoute._addFileChildren(
-    DashboardGuildIdStructureRouteChildren,
-  )
-
 interface DashboardGuildIdRouteChildren {
   DashboardGuildIdSplatRoute: typeof DashboardGuildIdSplatRoute
+  DashboardGuildIdBlueprintRoute: typeof DashboardGuildIdBlueprintRouteWithChildren
   DashboardGuildIdEventsRoute: typeof DashboardGuildIdEventsRouteWithChildren
   DashboardGuildIdGeneralRoute: typeof DashboardGuildIdGeneralRouteWithChildren
   DashboardGuildIdMessagingRoute: typeof DashboardGuildIdMessagingRouteWithChildren
-  DashboardGuildIdStructureRoute: typeof DashboardGuildIdStructureRouteWithChildren
   DashboardGuildIdIndexRoute: typeof DashboardGuildIdIndexRoute
 }
 
 const DashboardGuildIdRouteChildren: DashboardGuildIdRouteChildren = {
   DashboardGuildIdSplatRoute: DashboardGuildIdSplatRoute,
+  DashboardGuildIdBlueprintRoute: DashboardGuildIdBlueprintRouteWithChildren,
   DashboardGuildIdEventsRoute: DashboardGuildIdEventsRouteWithChildren,
   DashboardGuildIdGeneralRoute: DashboardGuildIdGeneralRouteWithChildren,
   DashboardGuildIdMessagingRoute: DashboardGuildIdMessagingRouteWithChildren,
-  DashboardGuildIdStructureRoute: DashboardGuildIdStructureRouteWithChildren,
   DashboardGuildIdIndexRoute: DashboardGuildIdIndexRoute,
 }
 

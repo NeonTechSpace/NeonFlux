@@ -2,6 +2,7 @@ import {
     enqueueDashboardPostingOperation,
     listBotActionEventPageByGuildId,
     listDashboardPostingOperationsByGuild,
+    resolveDashboardPostingOperationUnknown,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
@@ -16,6 +17,7 @@ import {
     loadDashboardGuildPostingChannels,
     loadDashboardGuildPostingOperations,
     postDashboardGuildMessage,
+    resolveDashboardGuildPostingUnknown,
 } from './dashboard-posting.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
@@ -56,6 +58,7 @@ vi.mock('@neonflux/db', async (importActual) => {
         enqueueDashboardPostingOperation: vi.fn(),
         listBotActionEventPageByGuildId: vi.fn(),
         listDashboardPostingOperationsByGuild: vi.fn(),
+        resolveDashboardPostingOperationUnknown: vi.fn(),
     };
 });
 
@@ -87,6 +90,15 @@ describe('dashboard posting', () => {
             ok({ created: true, operation: createPostingOperationRecord() })
         );
         vi.mocked(listDashboardPostingOperationsByGuild).mockResolvedValue(ok([createPostingOperationRecord()]));
+        vi.mocked(resolveDashboardPostingOperationUnknown).mockResolvedValue(
+            ok({
+                ...createPostingOperationRecord(),
+                resolution: 'reported_seen',
+                resolvedAt: new Date('2026-06-26T00:01:00.000Z'),
+                resolvedByUserId: 'actor-1',
+                status: 'unknown',
+            })
+        );
         vi.mocked(listBotActionEventPageByGuildId).mockResolvedValue(
             ok({
                 records: [createBotActionEventRecord()],
@@ -159,6 +171,30 @@ describe('dashboard posting', () => {
                     },
                 ],
             })
+        );
+    });
+
+    it('reauthorizes and records an unknown-delivery observation as the signed-in actor', async () => {
+        const result = await resolveDashboardGuildPostingUnknown(request, {
+            guildId: 'requested-guild',
+            operationId: 'operation-1',
+            resolution: 'reported_seen',
+        });
+
+        expect(result).toMatchObject({
+            operation: { resolution: 'reported_seen', resolvedByUserId: 'actor-1', status: 'unknown' },
+            type: 'resolved',
+        });
+        expect(resolveDashboardPostingOperationUnknown).toHaveBeenCalledWith(
+            {},
+            {
+                actorDisplayName: 'Neonsy',
+                actorUserId: 'actor-1',
+                actorUsername: 'neonsy',
+                guildId: 'guild-1',
+                operationId: 'operation-1',
+                resolution: 'reported_seen',
+            }
         );
     });
 
@@ -466,12 +502,17 @@ function createPostingOperationRecord(overrides: { status?: 'queued' | 'sent' } 
         createdAt: new Date('2026-06-26T00:00:00.000Z'),
         embedCount: 1,
         errorCode: null,
+        followupOperationId: null,
         guildId: 'guild-1',
         id: 'operation-1',
         messageId: null,
         nextAttemptAt: null,
         requestKey: 'request-1',
         requestedChannelId: 'channel-1',
+        resolution: null,
+        resolvedAt: null,
+        resolvedByUserId: null,
+        retryOfOperationId: null,
         sentChannelId: null,
         status: overrides.status ?? 'queued',
         updatedAt: new Date('2026-06-26T00:00:00.000Z'),

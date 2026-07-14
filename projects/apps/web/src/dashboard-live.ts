@@ -1,11 +1,3 @@
-const dashboardLiveAreas = [
-    'overview',
-    'commands',
-    'posting',
-    'import_export',
-    'structure',
-    'structure_execution',
-    'audit',
-] as const;
+const dashboardLiveAreas = ['overview', 'commands', 'posting', 'blueprint', 'blueprint_run', 'audit'] as const;
 
 export type DashboardLiveArea = (typeof dashboardLiveAreas)[number];

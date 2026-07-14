@@ -9,7 +9,7 @@ export const DEFCON_FEATURE_CATEGORY = {
     autorole: 'autorole',
     botMention: 'bot_mention',
     help: 'help',
-    importExport: 'import_export',
+    blueprint: 'blueprint',
     logging: 'logging',
     moderation: 'moderation',
     posting: 'posting',

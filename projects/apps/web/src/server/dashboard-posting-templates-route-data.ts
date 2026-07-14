@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start';
+import { parseOutgoingMessage } from '@neonflux/messaging';
 
 import type {
     DashboardMessageTemplateDeleteInput,
@@ -6,7 +7,6 @@ import type {
     DashboardMessageTemplateSaveInput,
     DashboardMessageTemplateSaveResult,
     DashboardMessageTemplatesResult,
-    DashboardPostingJsonValue,
 } from './dashboard-posting-templates.server.js';
 
 export const readDashboardPostingTemplatesRouteData = createServerFn({ method: 'GET' })
@@ -66,49 +66,19 @@ function validateDashboardPostingTemplateSaveInput(input: unknown): DashboardMes
     const embeds = payload.embeds;
     const expectedUpdatedAt = payload.expectedUpdatedAt;
     const templateId = payload.templateId;
+    const message = parseOutgoingMessage({
+        ...(typeof content === 'string' ? { content } : {}),
+        embeds: Array.isArray(embeds) ? embeds : [],
+    });
 
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         name: typeof name === 'string' ? name : '',
-        ...(typeof content === 'string' ? { content } : {}),
-        ...(Array.isArray(embeds) ? { embeds: toSerializableJsonArray(embeds) } : {}),
+        ...(message.isOk() && message.value.content ? { content: message.value.content } : {}),
+        ...(message.isOk() ? { embeds: message.value.embeds } : {}),
         ...(typeof expectedUpdatedAt === 'string' ? { expectedUpdatedAt } : {}),
         ...(typeof templateId === 'string' ? { templateId } : {}),
     };
-}
-
-function toSerializableJsonArray(value: unknown[]): DashboardPostingJsonValue[] {
-    return value.map(toSerializableJsonValue).filter((item) => item !== undefined);
-}
-
-function toSerializableJsonValue(value: unknown): DashboardPostingJsonValue | undefined {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-        return value;
-    }
-
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : undefined;
-    }
-
-    if (Array.isArray(value)) {
-        return toSerializableJsonArray(value);
-    }
-
-    if (value && typeof value === 'object') {
-        const output: { [key: string]: DashboardPostingJsonValue } = {};
-
-        for (const [key, child] of Object.entries(value)) {
-            const jsonValue = toSerializableJsonValue(child);
-
-            if (jsonValue !== undefined) {
-                output[key] = jsonValue;
-            }
-        }
-
-        return output;
-    }
-
-    return undefined;
 }
 
 function validateDashboardPostingTemplateDeleteInput(input: unknown): DashboardMessageTemplateDeleteInput {

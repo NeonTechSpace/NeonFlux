@@ -13,6 +13,8 @@
         }
     },
     "dependencies": {
+        "@neonflux/blueprint": "workspace:*",
+        "@neonflux/messaging": "workspace:*",
         "convex": "^1.30.0"
     }
 }

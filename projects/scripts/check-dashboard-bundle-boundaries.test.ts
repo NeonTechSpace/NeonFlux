@@ -46,8 +46,8 @@ describe('dashboard bundle boundary guard', () => {
 
     it('rejects an optional tool pulled into a leaf through a shared chunk', () => {
         const chunks = new Map([
-            ['entry.js', 'import"./dashboard-structure-explorer-fixture.js"'],
-            ['dashboard-structure-explorer-fixture.js', 'export const tool="explorer"'],
+            ['entry.js', 'import"./dashboard-blueprint-explorer-fixture.js"'],
+            ['dashboard-blueprint-explorer-fixture.js', 'export const tool="explorer"'],
         ]);
 
         expect(() =>
@@ -57,7 +57,7 @@ describe('dashboard bundle boundary guard', () => {
                 label: 'Fixture leaf',
                 maxEntryBytes: 1_000,
                 forbidden: [],
-                forbiddenChunkPatterns: [/^dashboard-structure-explorer-[\w-]+\.js$/u],
+                forbiddenChunkPatterns: [/^dashboard-blueprint-explorer-[\w-]+\.js$/u],
             })
         ).toThrow(/statically reaches forbidden chunk/u);
     });

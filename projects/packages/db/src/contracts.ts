@@ -180,7 +180,7 @@ export type MessageTemplateRecord = {
     content: string | null;
     createdAt: Date;
     createdByUserId: string | null;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     guildId: string;
     id: string;
     name: string;
@@ -211,12 +211,17 @@ export type DashboardPostingOperationRecord = {
     createdAt: Date;
     embedCount: number;
     errorCode: string | null;
+    followupOperationId: string | null;
     guildId: string;
     id: string;
     messageId: string | null;
     nextAttemptAt: Date | null;
     requestKey: string;
     requestedChannelId: string;
+    resolution: DashboardPostingOperationResolution | null;
+    resolvedAt: Date | null;
+    resolvedByUserId: string | null;
+    retryOfOperationId: string | null;
     sentChannelId: string | null;
     status: DashboardPostingOperationStatus;
     updatedAt: Date;
@@ -224,7 +229,7 @@ export type DashboardPostingOperationRecord = {
 
 export type DashboardPostingOperationWorkerRecord = DashboardPostingOperationRecord & {
     content: string | null;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     externalChannelId: string | null;
     externalMessageId: string | null;
     leaseExpiresAt: Date | null;
@@ -235,7 +240,7 @@ export type DashboardPostingOperationWorkerRecord = DashboardPostingOperationRec
 
 export type DashboardPostingOperationRepositoryError =
     | GuildFeatureRepositoryError
-    | { type: 'conflict'; field: 'requestKey' };
+    | { type: 'conflict'; field: 'requestKey' | 'resolution' };
 
 export type PostingRepositoryError = GuildFeatureRepositoryError | { type: 'conflict'; field: 'name' | 'updatedAt' };
 
@@ -343,3 +348,4 @@ export type FluxerOAuthTokenRepositoryError =
     | 'missing-scopes'
     | 'not-found'
     | 'database-error';
+import type { DashboardPostingOperationResolution, OutgoingEmbed } from '@neonflux/messaging';

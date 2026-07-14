@@ -72,6 +72,9 @@ importers:
 
   apps/bot:
     dependencies:
+      '@neonflux/blueprint':
+        specifier: workspace:*
+        version: link:../../packages/blueprint
       '@neonflux/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -103,6 +106,9 @@ importers:
       '@fontsource/roboto-mono':
         specifier: ^5.2.9
         version: 5.2.9
+      '@neonflux/blueprint':
+        specifier: workspace:*
+        version: link:../../packages/blueprint
       '@neonflux/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -121,6 +127,9 @@ importers:
       '@neonflux/fluxer':
         specifier: workspace:*
         version: link:../../packages/fluxer
+      '@neonflux/messaging':
+        specifier: workspace:*
+        version: link:../../packages/messaging
       '@pierre/diffs':
         specifier: ^1.2.12
         version: 1.2.12(@shikijs/themes@4.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -308,9 +317,21 @@ importers:
 
   convex:
     dependencies:
+      '@neonflux/blueprint':
+        specifier: workspace:*
+        version: link:../packages/blueprint
+      '@neonflux/messaging':
+        specifier: workspace:*
+        version: link:../packages/messaging
       convex:
         specifier: ^1.30.0
         version: 1.42.1(react@19.2.7)
+
+  packages/blueprint:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.9(@types/node@25.9.3)(jsdom@28.1.0)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/config:
     dependencies:
@@ -349,6 +370,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@neonflux/blueprint':
+        specifier: workspace:*
+        version: link:../blueprint
       '@neonflux/config':
         specifier: workspace:*
         version: link:../config
@@ -361,6 +385,9 @@ importers:
       '@neonflux/core':
         specifier: workspace:*
         version: link:../core
+      '@neonflux/messaging':
+        specifier: workspace:*
+        version: link:../messaging
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -370,9 +397,15 @@ importers:
       '@fluxerjs/core':
         specifier: 2.0.1
         version: 2.0.1(patch_hash=8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3)
+      '@neonflux/blueprint':
+        specifier: workspace:*
+        version: link:../blueprint
       '@neonflux/core':
         specifier: workspace:*
         version: link:../core
+      '@neonflux/messaging':
+        specifier: workspace:*
+        version: link:../messaging
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -380,6 +413,12 @@ importers:
       '@neonflux/config':
         specifier: workspace:*
         version: link:../config
+
+  packages/messaging:
+    dependencies:
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
 
 packages:
 

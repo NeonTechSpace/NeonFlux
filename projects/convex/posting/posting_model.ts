@@ -1,10 +1,11 @@
 import type { GenericId } from 'convex/values';
+import { parseOutgoingMessage, type OutgoingEmbed } from '@neonflux/messaging';
 
 export type MessageTemplateInput = {
     content?: string | null;
     createdAt?: string | null;
     createdByUserId?: string | null;
-    embeds?: readonly unknown[] | null;
+    embeds?: unknown;
     guildId?: string | null;
     name?: string | null;
     updatedAt?: string | null;
@@ -14,7 +15,7 @@ export type MessageTemplateDocument = {
     content?: string;
     createdAt: string;
     createdByUserId?: string;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     guildId: string;
     name: string;
     updatedAt: string;
@@ -24,7 +25,7 @@ export type MessageTemplateRecord = {
     content: string | null;
     createdAt: string;
     createdByUserId: string | null;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     guildId: string;
     id: string;
     name: string;
@@ -87,19 +88,20 @@ export function buildMessageTemplateDocument(
 ): PostingInputResult<MessageTemplateDocument, PostingInputError> {
     const guildId = normalizeRequiredString(input.guildId, 'guildId');
     const name = normalizeRequiredString(input.name, 'name');
-    const content = normalizeOptionalString(input.content);
-    const embeds = normalizeEmbeds(input.embeds);
+    const message = parseOutgoingMessage({
+        ...(input.content === undefined || input.content === null ? {} : { content: input.content }),
+        embeds: input.embeds ?? [],
+    });
     const createdAt =
         input.createdAt === undefined ? (existing?.createdAt ?? now) : normalizeTimestamp(input.createdAt);
     const updatedAt = input.updatedAt === undefined ? now : normalizeTimestamp(input.updatedAt);
 
     if (!guildId.ok) return guildId;
     if (!name.ok) return name;
-    if (!embeds.ok) return embeds;
-
-    if (!content && embeds.value.length === 0) {
+    if (message.isErr() && message.error.code === 'empty-message') {
         return { error: { field: 'message', type: 'missing-input' }, ok: false };
     }
+    if (message.isErr()) return { error: { field: 'embeds', type: 'invalid-value' }, ok: false };
 
     if (!createdAt) {
         return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
@@ -114,10 +116,10 @@ export function buildMessageTemplateDocument(
     return {
         ok: true,
         value: {
-            ...(content ? { content } : {}),
+            ...(message.value.content ? { content: message.value.content } : {}),
             ...(createdByUserId ? { createdByUserId } : {}),
             createdAt,
-            embeds: embeds.value,
+            embeds: message.value.embeds,
             guildId: guildId.value,
             name: name.value,
             updatedAt,
@@ -277,20 +279,4 @@ function normalizeTimestamp(value: string | null | undefined): string | undefine
     }
 
     return new Date(parsed).toISOString();
-}
-
-function normalizeEmbeds(
-    value: readonly unknown[] | null | undefined
-): PostingInputResult<unknown[], InvalidValueError<'embeds'>> {
-    if (value === undefined || value === null) {
-        return { ok: true, value: [] };
-    }
-
-    return isUnknownArray(value)
-        ? { ok: true, value: [...value] }
-        : { error: { field: 'embeds', type: 'invalid-value' }, ok: false };
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-    return Array.isArray(value);
 }

@@ -9,7 +9,7 @@ import type { DashboardLiveArea } from '../dashboard-live.js';
 import {
     getDashboardPostingOperationsQueryKey,
     getDashboardPostingTemplatesQueryKey,
-    getDashboardStructureQueryKey,
+    getDashboardBlueprintQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardLiveInvalidation } from './dashboard-live-invalidation.js';
 
@@ -73,19 +73,19 @@ describe('dashboard live invalidation', () => {
 
         const view = render(
             <QueryClientProvider client={queryClient}>
-                <LiveInvalidationHarness areas={['structure', 'import_export']} />
+                <LiveInvalidationHarness areas={['blueprint', 'blueprint']} />
             </QueryClientProvider>
         );
 
         act(() => {
             convexMock.publish([
-                { area: 'structure', guildId: 'guild-1', updatedAt: '2026-07-12T12:00:00.000Z', version: 1 },
-                { area: 'import_export', guildId: 'guild-1', updatedAt: '2026-07-12T12:00:00.000Z', version: 1 },
+                { area: 'blueprint', guildId: 'guild-1', updatedAt: '2026-07-12T12:00:00.000Z', version: 1 },
+                { area: 'blueprint', guildId: 'guild-1', updatedAt: '2026-07-12T12:00:00.000Z', version: 1 },
             ]);
         });
 
         expect(invalidateQueries).toHaveBeenCalledExactlyOnceWith({
-            queryKey: getDashboardStructureQueryKey('guild-1'),
+            queryKey: getDashboardBlueprintQueryKey('guild-1'),
         });
         view.unmount();
     });

@@ -129,15 +129,13 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         dashboardConfigs: [dashboardConfig('audit.events', 'events', 'Audit events', true)],
     },
     {
-        id: 'import_export',
+        id: 'blueprint',
         label: 'Import and export',
         kinds: ['dashboard-config', 'event-handler'],
-        dashboardConfigs: [
-            dashboardConfig('import_export.dry_run', 'structure', 'Server blueprint import/export', true),
-        ],
+        dashboardConfigs: [dashboardConfig('blueprint.dry_run', 'blueprint', 'Server blueprint import/export', true)],
         eventHandlers: [
             eventHandler(
-                'import_export.events',
+                'blueprint.events',
                 [
                     'guild.lifecycle.updated',
                     'role.created',

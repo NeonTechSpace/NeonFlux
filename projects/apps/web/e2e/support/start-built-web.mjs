@@ -1,15 +1,25 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const expectedSentinel = 'neonflux-e2e-ephemeral-v1';
 const webDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const workspaceDirectory = resolve(webDirectory, '../..');
 const port = readPort(process.env.NEONFLUX_E2E_WEB_PORT, 4173);
+const authenticated = process.env.NEONFLUX_E2E_AUTHENTICATED === expectedSentinel;
+const providerPreloadPath = resolve(webDirectory, 'e2e', 'support', 'provider-fetch-preload.mjs');
+const expectedProviderStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
 
 if (process.env.NEONFLUX_E2E_EPHEMERAL_SENTINEL !== expectedSentinel) {
     throw new Error('Refusing to start the E2E web server without the ephemeral-test sentinel.');
+}
+if (
+    authenticated &&
+    (!process.env.NEONFLUX_E2E_PROVIDER_STATE_PATH ||
+        resolve(process.env.NEONFLUX_E2E_PROVIDER_STATE_PATH) !== expectedProviderStatePath)
+) {
+    throw new Error('Authenticated E2E references an unowned provider state file.');
 }
 
 await assertPortAvailable(port);
@@ -43,7 +53,10 @@ try {
         childEnv
     );
 
-    server = spawn(process.execPath, ['scripts/start-web.mjs'], {
+    const serverArguments = authenticated
+        ? ['--import', pathToFileURL(providerPreloadPath).href, 'scripts/start-web.mjs']
+        : ['scripts/start-web.mjs'];
+    server = spawn(process.execPath, serverArguments, {
         cwd: workspaceDirectory,
         env: childEnv,
         shell: false,
@@ -72,6 +85,7 @@ try {
 }
 
 function createSafeWebEnvironment(environment, webPort) {
+    if (authenticated) return createAuthenticatedWebEnvironment(environment, webPort);
     return {
         ...environment,
         APP_ENV: 'development',
@@ -107,6 +121,49 @@ function createSafeWebEnvironment(environment, webPort) {
         SESSION_SECRET: 'neonflux-e2e-session-secret-never-use-outside-ephemeral-tests',
         SINGLE_GUILD_ID: '',
         VITE_CONVEX_URL: 'http://127.0.0.1:9',
+    };
+}
+
+function createAuthenticatedWebEnvironment(environment, webPort) {
+    const required = [
+        'CONVEX_DEPLOYMENT',
+        'CONVEX_URL',
+        'FLUXER_TOKEN_ENCRYPTION_KEY',
+        'NEONFLUX_BOT_AUTH_JWT_AUDIENCE',
+        'NEONFLUX_BOT_AUTH_JWT_ISSUER',
+        'NEONFLUX_BOT_AUTH_JWT_JWKS',
+        'NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY',
+        'NEONFLUX_USER_AUTH_JWT_AUDIENCE',
+        'NEONFLUX_USER_AUTH_JWT_ISSUER',
+        'NEONFLUX_USER_AUTH_JWT_JWKS',
+        'NEONFLUX_USER_AUTH_JWT_PRIVATE_KEY',
+        'NEONFLUX_WEB_AUTH_JWT_AUDIENCE',
+        'NEONFLUX_WEB_AUTH_JWT_ISSUER',
+        'NEONFLUX_WEB_AUTH_JWT_JWKS',
+        'NEONFLUX_WEB_AUTH_JWT_PRIVATE_KEY',
+        'SESSION_SECRET',
+        'VITE_CONVEX_URL',
+    ];
+    for (const key of required) {
+        if (!environment[key]) throw new Error(`Authenticated E2E requires ${key} from its owned fixture.`);
+    }
+    return {
+        ...environment,
+        APP_ENV: 'development',
+        FLUXER_APP_ID: 'neonflux-e2e-authenticated',
+        FLUXER_BOT_INVITE_URL: '',
+        FLUXER_CLIENT_SECRET: '',
+        FLUXER_OAUTH_REDIRECT_URL: `http://127.0.0.1:${String(webPort)}/auth/fluxer/callback`,
+        GUILD_DEFCON_OVERRIDE: '3',
+        HOST: '127.0.0.1',
+        INSTANCE_MODE: 'multi',
+        LOG_LEVEL: 'warn',
+        NEONFLUX_BOT_READ_URL: 'http://neonflux-e2e-provider.invalid',
+        NODE_ENV: 'production',
+        OWNER_IDS: '',
+        PORT: String(webPort),
+        PUBLIC_WEB_URL: `http://127.0.0.1:${String(webPort)}`,
+        SINGLE_GUILD_ID: '',
     };
 }
 

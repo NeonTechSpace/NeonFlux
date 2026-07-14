@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    diffFluxerGuildStructureSnapshot,
-    FluxerGuildStructureAmbiguousIdentityError,
-    FluxerGuildStructureInvalidIdentityMappingError,
-    normalizeFluxerGuildStructureSnapshot,
-    toFluxerGuildStructureSnapshot,
-} from './guild-structure-diff.js';
+    diffBlueprintSnapshot,
+    BlueprintAmbiguousIdentityError,
+    BlueprintInvalidIdentityMappingError,
+    normalizeBlueprintSnapshot,
+    toBlueprintSnapshot,
+} from '@neonflux/blueprint/diff';
 
 describe('guild structure diff', () => {
     it('normalizes a Fluxer-compatible structure snapshot', () => {
-        const result = normalizeFluxerGuildStructureSnapshot({
+        const result = normalizeBlueprintSnapshot({
             guildId: ' guild-1 ',
             guildName: ' Guild 1 ',
             botHighestRolePosition: 6,
@@ -75,7 +75,7 @@ describe('guild structure diff', () => {
 
     it('keeps guildName optional and ignores invalid guildName metadata', () => {
         expect(
-            normalizeFluxerGuildStructureSnapshot({
+            normalizeBlueprintSnapshot({
                 guildId: 'guild-1',
                 roles: [],
                 categories: [],
@@ -92,7 +92,7 @@ describe('guild structure diff', () => {
             },
         });
         expect(
-            normalizeFluxerGuildStructureSnapshot({
+            normalizeBlueprintSnapshot({
                 guildId: 'guild-1',
                 guildName: 123,
                 roles: [],
@@ -113,7 +113,7 @@ describe('guild structure diff', () => {
 
     it('rejects malformed structure snapshots', () => {
         expect(
-            normalizeFluxerGuildStructureSnapshot({
+            normalizeBlueprintSnapshot({
                 roles: [],
                 categories: [],
                 channels: [{ id: 'channel-1' }],
@@ -122,7 +122,7 @@ describe('guild structure diff', () => {
     });
 
     it('rejects duplicate object and permission overwrite identities', () => {
-        const duplicateObject = normalizeFluxerGuildStructureSnapshot({
+        const duplicateObject = normalizeBlueprintSnapshot({
             guildId: 'guild-1',
             roles: [
                 {
@@ -147,7 +147,7 @@ describe('guild structure diff', () => {
                 },
             ],
         });
-        const duplicateOverwrite = normalizeFluxerGuildStructureSnapshot({
+        const duplicateOverwrite = normalizeBlueprintSnapshot({
             guildId: 'guild-1',
             roles: [
                 {
@@ -197,7 +197,7 @@ describe('guild structure diff', () => {
             hoist: false,
             mentionable: false,
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target Guild',
             roles: [
@@ -208,7 +208,7 @@ describe('guild structure diff', () => {
             categories: [],
             channels: [],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source Guild',
             roles: [
@@ -222,12 +222,12 @@ describe('guild structure diff', () => {
 
         let thrown: unknown;
         try {
-            diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+            diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
         } catch (error) {
             thrown = error;
         }
-        expect(thrown).toBeInstanceOf(FluxerGuildStructureAmbiguousIdentityError);
-        expect((thrown as FluxerGuildStructureAmbiguousIdentityError).conflicts).toStrictEqual([
+        expect(thrown).toBeInstanceOf(BlueprintAmbiguousIdentityError);
+        expect((thrown as BlueprintAmbiguousIdentityError).conflicts).toStrictEqual([
             {
                 targetType: 'role',
                 name: 'Member',
@@ -247,14 +247,14 @@ describe('guild structure diff', () => {
             hoist: false,
             mentionable: false,
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target Guild',
             roles: [createMemberRole('role-current', '2')],
             categories: [],
             channels: [],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source Guild',
             roles: [createMemberRole('role-fallback', '1'), createMemberRole('role-exact', '2')],
@@ -262,16 +262,14 @@ describe('guild structure diff', () => {
             channels: [],
         });
 
-        expect(
-            diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' }).sourceTargetMap
-        ).toStrictEqual({
+        expect(diffBlueprintSnapshot(current, requested, { policy: 'synchronize' }).sourceTargetMap).toStrictEqual({
             'role-exact': 'role-current',
             'role-fallback': null,
         });
     });
 
     it('rejects missing parent categories and role overwrite targets', () => {
-        const missingParent = normalizeFluxerGuildStructureSnapshot({
+        const missingParent = normalizeBlueprintSnapshot({
             guildId: 'guild-1',
             roles: [],
             categories: [],
@@ -286,7 +284,7 @@ describe('guild structure diff', () => {
                 },
             ],
         });
-        const missingRole = normalizeFluxerGuildStructureSnapshot({
+        const missingRole = normalizeBlueprintSnapshot({
             guildId: 'guild-1',
             roles: [],
             categories: [],
@@ -314,7 +312,7 @@ describe('guild structure diff', () => {
     });
 
     it('plans creates, updates, deletes, and permission changes against the current server layout', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -381,7 +379,7 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
         expect(plan.summary).toStrictEqual({
             creates: 1,
@@ -391,14 +389,14 @@ describe('guild structure diff', () => {
             categories: 0,
             channels: 1,
         });
-        expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
+        expect(plan.changes.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
             ['update', 'role', 'role-1'],
             ['create', 'role', 'role-new'],
             ['delete', 'role', 'role-stale'],
             ['update', 'channel', 'channel-1'],
             ['update', 'role-order', 'role-order'],
         ]);
-        expect(plan.actions.find((action) => action.targetType === 'channel')?.details).toMatchObject({
+        expect(plan.changes.find((action) => action.targetType === 'channel')?.details).toMatchObject({
             changes: [
                 {
                     field: 'permissionOverwrites',
@@ -410,7 +408,7 @@ describe('guild structure diff', () => {
     });
 
     it('ignores protected roles when planning imports', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -486,9 +484,9 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
-        expect(plan.actions).toStrictEqual([
+        expect(plan.changes).toStrictEqual([
             {
                 actionType: 'update',
                 targetType: 'role',
@@ -504,7 +502,7 @@ describe('guild structure diff', () => {
     });
 
     it('omits cross-guild protected role overwrites from merge and rebuild plans', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'target-guild',
                 guildName: 'Target Guild',
@@ -583,22 +581,22 @@ describe('guild structure diff', () => {
             { id: 'source-member', type: 1, allow: '1024', deny: '0' },
         ];
 
-        const mergePlan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
-        const rebuildPlan = diffFluxerGuildStructureSnapshot(current, requested, {
+        const mergePlan = diffBlueprintSnapshot(current, requested, { policy: 'merge' });
+        const rebuildPlan = diffBlueprintSnapshot(current, requested, {
             policy: 'rebuild',
         });
 
-        expect(mergePlan.actions.find((action) => action.targetType === 'channel')?.details).toMatchObject({
+        expect(mergePlan.changes.find((action) => action.targetType === 'channel')?.details).toMatchObject({
             changes: [{ field: 'permissionOverwrites', before: [], after: expectedMergeOverwrites }],
         });
         expect(
-            rebuildPlan.actions.find((action) => action.actionType === 'create' && action.targetType === 'channel')
+            rebuildPlan.changes.find((action) => action.actionType === 'create' && action.targetType === 'channel')
                 ?.details
         ).toMatchObject({ after: { permissionOverwrites: expectedRebuildOverwrites } });
     });
 
     it('matches unique same-name roles instead of planning duplicate create and delete actions', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'target-guild',
                 guildName: 'Target Guild',
@@ -634,7 +632,7 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
         expect(plan.summary).toStrictEqual({
             creates: 0,
@@ -644,7 +642,7 @@ describe('guild structure diff', () => {
             categories: 0,
             channels: 0,
         });
-        expect(plan.actions).toStrictEqual([
+        expect(plan.changes).toStrictEqual([
             {
                 actionType: 'update',
                 targetType: 'role',
@@ -666,7 +664,7 @@ describe('guild structure diff', () => {
     });
 
     it('reset-before-create mode deletes eligible current roles and recreates same-name requested roles', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'target-guild',
                 guildName: 'Target Guild',
@@ -720,7 +718,7 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, {
+        const plan = diffBlueprintSnapshot(current, requested, {
             policy: 'rebuild',
         });
 
@@ -732,7 +730,7 @@ describe('guild structure diff', () => {
             categories: 0,
             channels: 0,
         });
-        expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
+        expect(plan.changes.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
             ['delete', 'role', 'target-member'],
             ['create', 'role', 'source-member'],
             ['update', 'role-order', 'role-order'],
@@ -748,7 +746,7 @@ describe('guild structure diff', () => {
     });
 
     it('uses a unique exact same-name role match when duplicate roles already exist', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'target-guild',
                 guildName: 'Target Guild',
@@ -793,7 +791,7 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
         expect(plan.summary).toStrictEqual({
             creates: 0,
@@ -803,7 +801,7 @@ describe('guild structure diff', () => {
             categories: 0,
             channels: 0,
         });
-        expect(plan.actions).toStrictEqual([
+        expect(plan.changes).toStrictEqual([
             {
                 actionType: 'delete',
                 targetType: 'role',
@@ -846,7 +844,7 @@ describe('guild structure diff', () => {
             mentionable: false,
             ...(protectedRole ? { protected: true as const, protectionReason: 'bot' as const } : {}),
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [
@@ -859,7 +857,7 @@ describe('guild structure diff', () => {
             categories: [],
             channels: [],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [
@@ -874,9 +872,9 @@ describe('guild structure diff', () => {
             channels: [],
         });
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
-        expect(plan.actions).toStrictEqual([]);
+        expect(plan.changes).toStrictEqual([]);
         expect(plan.sourceTargetMap).toStrictEqual({
             'source-neon-top': 'target-neon-top',
             'source-member': 'target-member',
@@ -902,14 +900,14 @@ describe('guild structure diff', () => {
             hoist: false,
             mentionable: false,
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [member('target-top', 3), { ...member('anchor', 2), name: 'Anchor' }, member('target-low', 1)],
             categories: [],
             channels: [],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [
@@ -921,7 +919,7 @@ describe('guild structure diff', () => {
             channels: [],
         });
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, {
+        const plan = diffBlueprintSnapshot(current, requested, {
             policy: 'synchronize',
             roleMappings: { 'source-member': 'target-low' },
         });
@@ -932,15 +930,15 @@ describe('guild structure diff', () => {
             disposition: 'matched',
         });
         expect(() =>
-            diffFluxerGuildStructureSnapshot(current, requested, {
+            diffBlueprintSnapshot(current, requested, {
                 policy: 'synchronize',
                 roleMappings: { missing: 'target-low' },
             })
-        ).toThrow(FluxerGuildStructureInvalidIdentityMappingError);
+        ).toThrow(BlueprintInvalidIdentityMappingError);
     });
 
     it('can omit deletes for merge-mode import previews', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -962,12 +960,12 @@ describe('guild structure diff', () => {
         );
         const requested = { ...current, roles: [] };
 
-        const deletingPlan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
-        const retainingPlan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
+        const deletingPlan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
+        const retainingPlan = diffBlueprintSnapshot(current, requested, { policy: 'merge' });
 
         expect(deletingPlan.summary.deletes).toBe(1);
         expect(deletingPlan.roleProjection.roles).toStrictEqual([]);
-        expect(retainingPlan.actions).toStrictEqual([]);
+        expect(retainingPlan.changes).toStrictEqual([]);
         expect(retainingPlan.roleProjection.roles).toEqual([
             expect.objectContaining({ logicalId: 'role-extra', disposition: 'retained' }),
         ]);
@@ -991,14 +989,14 @@ describe('guild structure diff', () => {
             position: 1,
             permissionOverwrites: [{ id: overwriteId, type: 0, allow, deny: '0' }],
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [role('target-member')],
             categories: [],
             channels: [channel('target-member')],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [role('source-member')],
@@ -1006,17 +1004,15 @@ describe('guild structure diff', () => {
             channels: [channel('source-member')],
         });
 
-        expect(diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' }).actions).toStrictEqual(
-            []
-        );
+        expect(diffBlueprintSnapshot(current, requested, { policy: 'synchronize' }).changes).toStrictEqual([]);
 
         const changed = {
             ...requested,
             channels: [channel('source-member', '2')],
         };
-        const changedPlan = diffFluxerGuildStructureSnapshot(current, changed, { policy: 'synchronize' });
-        expect(changedPlan.actions).toHaveLength(1);
-        expect(changedPlan.actions[0]).toMatchObject({
+        const changedPlan = diffBlueprintSnapshot(current, changed, { policy: 'synchronize' });
+        expect(changedPlan.changes).toHaveLength(1);
+        expect(changedPlan.changes[0]).toMatchObject({
             actionType: 'update',
             targetType: 'channel',
             targetId: 'channel-1',
@@ -1041,7 +1037,7 @@ describe('guild structure diff', () => {
             position,
             permissionOverwrites: [],
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'guild-1',
             guildName: 'Guild',
             roles: [],
@@ -1053,15 +1049,15 @@ describe('guild structure diff', () => {
             channels: [createChannel('alpha', 2), createChannel('beta', 1)],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
-        expect(plan.actions).toHaveLength(1);
-        expect(plan.actions[0]).toMatchObject({
+        expect(plan.changes).toHaveLength(1);
+        expect(plan.changes[0]).toMatchObject({
             actionType: 'update',
             targetType: 'channel-order',
             targetId: 'channel-order',
         });
-        expect(plan.actions[0]?.details.changes).toStrictEqual([
+        expect((plan.changes[0]?.details as { changes: unknown[] }).changes).toStrictEqual([
             {
                 field: 'channelOrder',
                 before: [
@@ -1085,14 +1081,14 @@ describe('guild structure diff', () => {
             position,
             permissionOverwrites: [],
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [],
             categories: [],
             channels: [createChannel('target-alpha', 'alpha', 1), createChannel('retained', 'retained', 2)],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [],
@@ -1100,8 +1096,8 @@ describe('guild structure diff', () => {
             channels: [createChannel('source-new', 'new', 1), createChannel('source-alpha', 'alpha', 2)],
         });
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
-        const orderAction = plan.actions.find((action) => action.targetType === 'channel-order');
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'merge' });
+        const orderAction = plan.changes.find((action) => action.targetType === 'channel-order');
 
         expect(orderAction?.details.before).toStrictEqual([
             { sourceId: 'target-alpha', parentSourceId: null, position: 0 },
@@ -1131,7 +1127,7 @@ describe('guild structure diff', () => {
             position,
             permissionOverwrites: [],
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [],
@@ -1141,7 +1137,7 @@ describe('guild structure diff', () => {
                 channel('target-channel', 'imported', 'target-category', 0),
             ],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [],
@@ -1149,8 +1145,8 @@ describe('guild structure diff', () => {
             channels: [channel('source-channel', 'imported', 'source-category', 0)],
         });
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
-        const orderAction = plan.actions.find((action) => action.targetType === 'channel-order');
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'merge' });
+        const orderAction = plan.changes.find((action) => action.targetType === 'channel-order');
 
         expect(plan.sourceTargetMap).toStrictEqual({
             'source-category': 'target-category',
@@ -1197,14 +1193,14 @@ describe('guild structure diff', () => {
                 { id: memberId, type: 0, allow: memberAllow, deny: '0' },
             ],
         });
-        const current = toFluxerGuildStructureSnapshot({
+        const current = toBlueprintSnapshot({
             guildId: 'target-guild',
             guildName: 'Target',
             roles: [role('target-bot', 'Target Bot', true), role('target-member', 'Member')],
             categories: [],
             channels: [channel('target-member', '1', 'target-bot')],
         });
-        const requested = toFluxerGuildStructureSnapshot({
+        const requested = toBlueprintSnapshot({
             guildId: 'source-guild',
             guildName: 'Source',
             roles: [role('source-bot', 'Source Bot', true), role('source-member', 'Member')],
@@ -1212,11 +1208,9 @@ describe('guild structure diff', () => {
             channels: [channel('source-member', '1', 'source-bot')],
         });
 
-        expect(diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' }).actions).toStrictEqual(
-            []
-        );
+        expect(diffBlueprintSnapshot(current, requested, { policy: 'synchronize' }).changes).toStrictEqual([]);
 
-        const changedPlan = diffFluxerGuildStructureSnapshot(
+        const changedPlan = diffBlueprintSnapshot(
             current,
             {
                 ...requested,
@@ -1224,8 +1218,8 @@ describe('guild structure diff', () => {
             },
             { policy: 'synchronize' }
         );
-        expect(changedPlan.actions).toHaveLength(1);
-        expect(changedPlan.actions[0]?.details.changes).toStrictEqual([
+        expect(changedPlan.changes).toHaveLength(1);
+        expect((changedPlan.changes[0]?.details as { changes: unknown[] }).changes).toStrictEqual([
             {
                 field: 'permissionOverwrites',
                 before: [
@@ -1241,7 +1235,7 @@ describe('guild structure diff', () => {
     });
 
     it('matches same-name same-type channels through matched category names without planning create and delete', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -1295,7 +1289,7 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
         expect(plan.summary).toStrictEqual({
             creates: 0,
@@ -1305,7 +1299,7 @@ describe('guild structure diff', () => {
             categories: 0,
             channels: 0,
         });
-        expect(plan.actions).toStrictEqual([]);
+        expect(plan.changes).toStrictEqual([]);
         expect(plan.sourceTargetMap).toStrictEqual({
             'requested-category': 'current-category',
             'requested-link': 'current-link',
@@ -1313,7 +1307,7 @@ describe('guild structure diff', () => {
     });
 
     it('does not match same-name channels with different types as an update', () => {
-        const current = toFluxerGuildStructureSnapshot(
+        const current = toBlueprintSnapshot(
             {
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
@@ -1346,9 +1340,9 @@ describe('guild structure diff', () => {
             ],
         };
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
-        expect(plan.actions.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
+        expect(plan.changes.map((action) => [action.actionType, action.targetType, action.targetId])).toStrictEqual([
             ['create', 'channel', 'requested-link'],
             ['delete', 'channel', 'current-text'],
             ['update', 'channel-order', 'channel-order'],

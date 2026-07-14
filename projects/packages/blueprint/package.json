@@ -1,0 +1,97 @@
+{
+    "name": "@neonflux/blueprint",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
+            "import": "./dist/index.js"
+        },
+        "./action-authority": {
+            "types": "./src/action-authority.ts",
+            "development": "./src/action-authority.ts",
+            "production": "./dist/action-authority.js",
+            "import": "./dist/action-authority.js"
+        },
+        "./channel-projection": {
+            "types": "./src/channel-projection.ts",
+            "development": "./src/channel-projection.ts",
+            "production": "./dist/channel-projection.js",
+            "import": "./dist/channel-projection.js"
+        },
+        "./contracts": {
+            "types": "./src/contracts.ts",
+            "development": "./src/contracts.ts",
+            "production": "./dist/contracts.js",
+            "import": "./dist/contracts.js"
+        },
+        "./diff": {
+            "types": "./src/diff.ts",
+            "development": "./src/diff.ts",
+            "production": "./dist/diff.js",
+            "import": "./dist/diff.js"
+        },
+        "./provider-steps": {
+            "types": "./src/provider-steps.ts",
+            "development": "./src/provider-steps.ts",
+            "production": "./dist/provider-steps.js",
+            "import": "./dist/provider-steps.js"
+        },
+        "./identity": {
+            "types": "./src/identity.ts",
+            "development": "./src/identity.ts",
+            "production": "./dist/identity.js",
+            "import": "./dist/identity.js"
+        },
+        "./plan": {
+            "types": "./src/plan.ts",
+            "development": "./src/plan.ts",
+            "production": "./dist/plan.js",
+            "import": "./dist/plan.js"
+        },
+        "./plan-builders": {
+            "types": "./src/plan-builders.ts",
+            "development": "./src/plan-builders.ts",
+            "production": "./dist/plan-builders.js",
+            "import": "./dist/plan-builders.js"
+        },
+        "./protocol": {
+            "types": "./src/protocol.ts",
+            "development": "./src/protocol.ts",
+            "production": "./dist/protocol.js",
+            "import": "./dist/protocol.js"
+        },
+        "./role-projection": {
+            "types": "./src/role-projection.ts",
+            "development": "./src/role-projection.ts",
+            "production": "./dist/role-projection.js",
+            "import": "./dist/role-projection.js"
+        },
+        "./runtime-contracts": {
+            "types": "./src/runtime-contracts.ts",
+            "development": "./src/runtime-contracts.ts",
+            "production": "./dist/runtime-contracts.js",
+            "import": "./dist/runtime-contracts.js"
+        },
+        "./snapshot": {
+            "types": "./src/snapshot.ts",
+            "development": "./src/snapshot.ts",
+            "production": "./dist/snapshot.js",
+            "import": "./dist/snapshot.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run --root ../.. packages/blueprint/src"
+    },
+    "devDependencies": {
+        "vitest": "^4.1.5"
+    }
+}

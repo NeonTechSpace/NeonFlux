@@ -1,4 +1,10 @@
 import { api } from '@neonflux/convex-api';
+import {
+    parseOutgoingMessage,
+    type DashboardPostingOperationResolution,
+    type OutgoingEmbed,
+    type OutgoingMessage,
+} from '@neonflux/messaging';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -12,45 +18,43 @@ type OperationResult<T> = Promise<Result<T, DashboardPostingOperationRepositoryE
 
 type ConvexOperationRecord = Omit<
     DashboardPostingOperationRecord,
-    'completedAt' | 'createdAt' | 'nextAttemptAt' | 'updatedAt'
+    'completedAt' | 'createdAt' | 'nextAttemptAt' | 'resolvedAt' | 'updatedAt'
 > & {
     completedAt: string | null;
     createdAt: string;
     nextAttemptAt: string | null;
+    resolvedAt: string | null;
     updatedAt: string;
 };
 
 type ConvexWorkerRecord = Omit<
     DashboardPostingOperationWorkerRecord,
-    'completedAt' | 'createdAt' | 'leaseExpiresAt' | 'nextAttemptAt' | 'sendStartedAt' | 'updatedAt'
+    'completedAt' | 'createdAt' | 'leaseExpiresAt' | 'nextAttemptAt' | 'resolvedAt' | 'sendStartedAt' | 'updatedAt'
 > & {
     completedAt: string | null;
     createdAt: string;
     leaseExpiresAt: string | null;
     nextAttemptAt: string | null;
+    resolvedAt: string | null;
     sendStartedAt: string | null;
     updatedAt: string;
 };
 
-export const DASHBOARD_POSTING_PAYLOAD_MAX_BYTES = 128 * 1024;
-export const DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH = 20;
-
 export function normalizeDashboardPostingPayload(input: {
     content?: string;
-    embeds?: unknown[];
-}): Result<{ content?: string; embeds: unknown[] }, DashboardPostingOperationRepositoryError> {
-    try {
-        const content = input.content?.trim();
-        const embeds = normalizeJsonArray(input.embeds ?? [], 0, new Set());
-        if (!content && embeds.length === 0) return err({ field: 'message', type: 'missing-input' });
-        const payload = { ...(content ? { content } : {}), embeds };
-        if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > DASHBOARD_POSTING_PAYLOAD_MAX_BYTES) {
-            return err({ field: 'message', type: 'invalid-value' });
-        }
-        return ok(payload);
-    } catch {
-        return err({ field: 'message', type: 'invalid-value' });
-    }
+    embeds?: unknown;
+}): Result<OutgoingMessage, DashboardPostingOperationRepositoryError> {
+    const parsed = parseOutgoingMessage({
+        ...(input.content === undefined ? {} : { content: input.content }),
+        embeds: input.embeds ?? [],
+    });
+    return parsed.isOk()
+        ? ok(parsed.value)
+        : err(
+              parsed.error.code === 'empty-message'
+                  ? { field: 'message', type: 'missing-input' }
+                  : { field: 'message', type: 'invalid-value' }
+          );
 }
 
 export async function enqueueDashboardPostingOperation(
@@ -60,11 +64,12 @@ export async function enqueueDashboardPostingOperation(
         actorUsername?: string;
         actorUserId: string;
         content?: string;
-        embeds?: unknown[];
+        embeds?: OutgoingEmbed[];
         guildId: string;
         payloadHash: string;
         requestKey: string;
         requestedChannelId: string;
+        retryOfOperationId?: string;
     }
 ): OperationResult<{ created: boolean; operation: DashboardPostingOperationRecord }> {
     const payload = normalizeDashboardPostingPayload(input);
@@ -75,6 +80,25 @@ export async function enqueueDashboardPostingOperation(
             ...payload.value,
         });
         return ok({ created: result.created, operation: toOperationRecord(result.operation) });
+    } catch (errorValue) {
+        return err(mapOperationError(errorValue));
+    }
+}
+
+export async function resolveDashboardPostingOperationUnknown(
+    db: ConvexDatabase,
+    input: {
+        actorDisplayName?: string;
+        actorUsername?: string;
+        actorUserId: string;
+        guildId: string;
+        operationId: string;
+        resolution: Exclude<DashboardPostingOperationResolution, 'duplicate_risk_accepted'>;
+    }
+): OperationResult<DashboardPostingOperationRecord> {
+    try {
+        const record = await db.client.mutation(api.posting.resolveDashboardPostingOperationUnknown, input);
+        return ok(toOperationRecord(record));
     } catch (errorValue) {
         return err(mapOperationError(errorValue));
     }
@@ -227,6 +251,7 @@ function toOperationRecord(record: ConvexOperationRecord): DashboardPostingOpera
         completedAt: toOptionalDate(record.completedAt),
         createdAt: new Date(record.createdAt),
         nextAttemptAt: toOptionalDate(record.nextAttemptAt),
+        resolvedAt: toOptionalDate(record.resolvedAt),
         status: record.status,
         updatedAt: new Date(record.updatedAt),
     };
@@ -252,50 +277,9 @@ function toOptionalDate(value: string | null): Date | null {
 
 function mapOperationError(errorValue: unknown): DashboardPostingOperationRepositoryError {
     const message = errorValue instanceof Error ? errorValue.message : String(errorValue);
-    return message.includes('posting-request-key-conflict')
-        ? { field: 'requestKey', type: 'conflict' }
-        : { type: 'database-error' };
-}
-
-function normalizeJsonArray(value: unknown, depth: number, seen: Set<object>): unknown[] {
-    if (!Array.isArray(value)) throw new Error('invalid-array');
-    return normalizeContainer(value, depth, seen, () =>
-        value.map((child) => normalizeJsonValue(child, depth + 1, seen))
-    );
-}
-
-function normalizeJsonValue(value: unknown, depth: number, seen: Set<object>): unknown {
-    if (depth > DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH) throw new Error('too-deep');
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (Array.isArray(value)) return normalizeJsonArray(value, depth, seen);
-    if (!isPlainRecord(value)) throw new Error('not-json');
-    return normalizeContainer(value, depth, seen, () => {
-        const normalized: Record<string, unknown> = {};
-        for (const [key, child] of Object.entries(value)) {
-            Object.defineProperty(normalized, key, {
-                configurable: true,
-                enumerable: true,
-                value: normalizeJsonValue(child, depth + 1, seen),
-                writable: true,
-            });
-        }
-        return normalized;
-    });
-}
-
-function normalizeContainer<T>(value: object, depth: number, seen: Set<object>, build: () => T): T {
-    if (depth > DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH || seen.has(value)) throw new Error('invalid-container');
-    seen.add(value);
-    try {
-        return build();
-    } finally {
-        seen.delete(value);
+    if (message.includes('posting-request-key-conflict') || message.includes('posting-retry-already-created')) {
+        return { field: 'requestKey', type: 'conflict' };
     }
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-    if (typeof value !== 'object' || value === null) return false;
-    const prototype: unknown = Object.getPrototypeOf(value);
-    return prototype === Object.prototype || prototype === null;
+    if (message.includes('posting-resolution-conflict')) return { field: 'resolution', type: 'conflict' };
+    return { type: 'database-error' };
 }

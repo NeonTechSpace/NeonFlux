@@ -1,4 +1,4 @@
-import { dashboardStructureIdentity, dashboardStructureNavigationItems } from '../dashboard-structure-navigation.js';
+import { dashboardBlueprintIdentity, dashboardBlueprintNavigationItems } from '../dashboard-blueprint-navigation.js';
 import {
     getDashboardCategory,
     getDashboardCategorySubNavigation,
@@ -6,7 +6,7 @@ import {
 } from '../dashboard-categories.js';
 import type { DashboardCategoryId } from '../dashboard-categories.js';
 import { DashboardRouteRetryButton } from './dashboard-route-retry-button.js';
-import { DashboardStructureNavigation } from './dashboard-structure-workspace-shell.js';
+import { DashboardBlueprintNavigation } from './dashboard-blueprint-workspace-shell.js';
 import { DashboardErrorState, DashboardFeaturePage } from './dashboard-ui.js';
 import { getDashboardWorkbenchWidth } from './dashboard-workbench.js';
 
@@ -43,7 +43,7 @@ export function DashboardCategoryRouteState({
         );
     }
 
-    if (activeCategoryId !== 'structure') {
+    if (activeCategoryId !== 'blueprint') {
         const category = getDashboardCategory(activeCategoryId);
         const featureId = identity.id.split(':').at(-1) ?? category.id;
         const activeItem = getDashboardCategorySubNavigation(activeCategoryId).find((item) => item.id === featureId);
@@ -63,18 +63,18 @@ export function DashboardCategoryRouteState({
         );
     }
 
-    const category = getDashboardCategory('structure');
+    const category = getDashboardCategory('blueprint');
     const FeatureIcon = category.icon;
 
     return (
         <DashboardFeaturePage
-            title={dashboardStructureIdentity.title}
-            description={dashboardStructureIdentity.description}
-            eyebrow={dashboardStructureIdentity.eyebrow}
+            title={dashboardBlueprintIdentity.title}
+            description={dashboardBlueprintIdentity.description}
+            eyebrow={dashboardBlueprintIdentity.eyebrow}
             icon={<FeatureIcon className='size-5' aria-hidden='true' />}
             titleId='server-blueprint-title'
             width='full'
-            navigation={guildId ? <DashboardStructureNavigation guildId={guildId} /> : undefined}>
+            navigation={guildId ? <DashboardBlueprintNavigation guildId={guildId} /> : undefined}>
             <section aria-labelledby='dashboard-blueprint-pending-surface-heading'>
                 <h2
                     id='dashboard-blueprint-pending-surface-heading'
@@ -151,16 +151,16 @@ function getDashboardPendingIdentity(
         };
     }
 
-    const structureItem =
-        categoryId === 'structure'
-            ? dashboardStructureNavigationItems.find((item) => item.id === pathSegment)
+    const blueprintItem =
+        categoryId === 'blueprint'
+            ? dashboardBlueprintNavigationItems.find((item) => item.id === pathSegment)
             : undefined;
 
-    if (structureItem) {
+    if (blueprintItem) {
         return {
-            id: `structure:${structureItem.id}`,
-            title: structureItem.title,
-            description: structureItem.description,
+            id: `blueprint:${blueprintItem.id}`,
+            title: blueprintItem.title,
+            description: blueprintItem.description,
         };
     }
 

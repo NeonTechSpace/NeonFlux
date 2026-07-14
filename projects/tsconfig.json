@@ -2,6 +2,12 @@
     "files": [],
     "references": [
         {
+            "path": "./packages/blueprint"
+        },
+        {
+            "path": "./packages/messaging"
+        },
+        {
             "path": "./packages/config"
         },
         {

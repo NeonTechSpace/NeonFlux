@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DASHBOARD_MESSAGE_MENTION_POLICY } from '@neonflux/messaging';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
@@ -8,6 +10,7 @@ import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
     readDashboardPostingOperationsRouteData,
+    resolveDashboardPostingUnknownRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardPostingChannel } from '../server/dashboard-posting.server.js';
 import { DashboardChannelPicker, formatDashboardChannelLabel } from './dashboard-channel-picker.js';
@@ -20,20 +23,13 @@ import {
     DashboardEmbedBuilder,
     createEmptyDashboardEmbedDraft,
     normalizeDashboardEmbedDraft,
-    parseDashboardEmbedJson,
+    toDashboardEmbedDraft,
 } from './dashboard-embed-builder.js';
-import type {
-    DashboardEmbedDraft,
-    DashboardEmbedMode,
-    ParsedDashboardEmbedsResult,
-} from './dashboard-embed-builder.js';
+import type { DashboardEmbedDraft } from './dashboard-embed-builder.js';
 import {
     dashboardConfirmationTransition,
     dashboardConfirmationVariants,
-    dashboardInlineVariants,
-    dashboardSelectionTransition,
     dashboardTactile,
-    dashboardViewTransition,
 } from './dashboard-motion.js';
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
@@ -44,6 +40,7 @@ import {
 import {
     dashboardFieldClassName,
     dashboardPrimaryActionClassName,
+    dashboardSecondaryActionClassName,
     DashboardStatus,
     DashboardSurface,
 } from './dashboard-ui.js';
@@ -59,21 +56,14 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const [channelSearch, setChannelSearch] = useState('');
     const [channelPickerOpen, setChannelPickerOpen] = useState(false);
     const [content, setContent] = useState('');
-    const [embedMode, setEmbedMode] = useState<DashboardEmbedMode>('builder');
     const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
-    const [embedJson, setEmbedJson] = useState('');
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
     const [activeOperationId, setActiveOperationId] = useState<string>();
-    const [acknowledgedUnknownId, setAcknowledgedUnknownId] = useState<string>();
     const [retryRequestKey, setRetryRequestKey] = useState<string>();
     const [channelsRetrying, setChannelsRetrying] = useState(false);
     const [operationsRetrying, setOperationsRetrying] = useState(false);
-    const previewEmbedsResult = getActiveEmbeds({
-        mode: embedMode,
-        draft: embedDraft,
-        json: embedJson,
-    });
-    const previewEmbeds = previewEmbedsResult.valid ? previewEmbedsResult.embeds : [];
+    const previewEmbedResult = normalizeDashboardEmbedDraft(embedDraft);
+    const previewEmbeds = previewEmbedResult.valid && previewEmbedResult.embed ? [previewEmbedResult.embed] : [];
 
     const channelsQuery = useQuery({
         queryKey: getDashboardPostingChannelsQueryKey(guildId),
@@ -114,15 +104,14 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         ? readDashboardGuildReadFailureType(operationsQuery.error)
         : undefined;
     const requestedActiveOperation = operationsQuery.data?.find((operation) => operation.id === activeOperationId);
-    const latestOperation = operationsQuery.data?.[0];
-    const latestUnresolvedOperation =
-        latestOperation?.status === 'queued' ||
-        latestOperation?.status === 'running' ||
-        latestOperation?.status === 'unknown'
-            ? latestOperation
-            : undefined;
+    const latestUnresolvedOperation = operationsQuery.data?.find(
+        (operation) =>
+            operation.status === 'queued' ||
+            operation.status === 'running' ||
+            (operation.status === 'unknown' && !operation.resolution)
+    );
     const activeOperation = requestedActiveOperation ?? latestUnresolvedOperation;
-    const unknownRequiresCheck = activeOperation?.status === 'unknown' && acknowledgedUnknownId !== activeOperation.id;
+    const unknownRequiresResolution = activeOperation?.status === 'unknown' && !activeOperation.resolution;
     const operationMessage: PostingFormMessage | undefined = activeOperation
         ? {
               type:
@@ -144,8 +133,9 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             channelId: string;
             channelLabel: string;
             content?: string;
-            embeds: unknown[];
+            embeds: OutgoingEmbed[];
             requestKey: string;
+            retryOfOperationId?: string;
         }) =>
             postDashboardMessageRouteData({
                 data: {
@@ -154,6 +144,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     ...(payload.content ? { content: payload.content } : {}),
                     embeds: payload.embeds,
                     requestKey: payload.requestKey,
+                    ...(payload.retryOfOperationId ? { retryOfOperationId: payload.retryOfOperationId } : {}),
                 },
             }),
         onSuccess: async (result, payload) => {
@@ -161,7 +152,6 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 case 'operation':
                     setRetryRequestKey(undefined);
                     setActiveOperationId(result.operation.id);
-                    setAcknowledgedUnknownId(undefined);
                     setFormMessage({
                         type: result.operation.status === 'sent' ? 'success' : 'warning',
                         text: getDashboardPostingOperationConfirmationMessage(result.operation, payload.channelLabel),
@@ -194,7 +184,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 case 'database-error':
                     setFormMessage({
                         type: 'warning',
-                        text: 'Queueing could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
+                        text: 'The send request could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
                     });
                     return;
 
@@ -208,22 +198,48 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         onError: () => {
             setFormMessage({
                 type: 'warning',
-                text: 'Queueing could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
+                text: 'The send request could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
             });
         },
     });
 
+    const resolutionMutation = useMutation({
+        mutationFn: (input: { operationId: string; resolution: 'reported_not_seen' | 'reported_seen' }) =>
+            resolveDashboardPostingUnknownRouteData({ data: { guildId, ...input } }),
+        onSuccess: async (result) => {
+            if (result.type === 'resolved') {
+                setFormMessage({
+                    type: 'success',
+                    text:
+                        result.operation.resolution === 'reported_seen'
+                            ? 'Recorded that you found the message.'
+                            : 'Recorded that you did not find the message.',
+                });
+                setActiveOperationId(undefined);
+                await queryClient.invalidateQueries({ queryKey: getDashboardPostingOperationsQueryKey(guildId) });
+                return;
+            }
+            setFormMessage({
+                type: result.type === 'resolution-conflict' ? 'warning' : 'error',
+                text:
+                    result.type === 'resolution-conflict'
+                        ? 'This delivery was already resolved differently. Refresh recent delivery.'
+                        : 'Could not record the delivery check. Try again.',
+            });
+        },
+        onError: () => setFormMessage({ type: 'error', text: 'Could not record the delivery check. Try again.' }),
+    });
+
     function submitMessage(event: FormEvent<HTMLFormElement>): void {
         event.preventDefault();
+        sendMessage();
+    }
 
-        const parsedEmbeds = getActiveEmbeds({
-            mode: embedMode,
-            draft: embedDraft,
-            json: embedJson,
-        });
+    function sendMessage(retryOfOperationId?: string): void {
+        const parsedEmbed = normalizeDashboardEmbedDraft(embedDraft);
 
-        if (!parsedEmbeds.valid) {
-            setFormMessage({ type: 'error', text: parsedEmbeds.message });
+        if (!parsedEmbed.valid) {
+            setFormMessage({ type: 'error', text: parsedEmbed.message });
             return;
         }
 
@@ -235,19 +251,21 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             return;
         }
 
-        if (!trimmedContent && parsedEmbeds.embeds.length === 0) {
+        const embeds = parsedEmbed.embed ? [parsedEmbed.embed] : [];
+        if (!trimmedContent && embeds.length === 0) {
             setFormMessage({ type: 'error', text: 'Add message content or at least one embed.' });
             return;
         }
 
-        const requestKey = retryRequestKey ?? crypto.randomUUID();
-        setRetryRequestKey(requestKey);
+        const requestKey = retryOfOperationId ? crypto.randomUUID() : (retryRequestKey ?? crypto.randomUUID());
+        setRetryRequestKey(retryOfOperationId ? undefined : requestKey);
         mutation.mutate({
             channelId: trimmedChannelId,
             channelLabel: getPostingChannelLabel(channelsQuery.data ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
-            embeds: parsedEmbeds.embeds,
+            embeds,
             requestKey,
+            ...(retryOfOperationId ? { retryOfOperationId } : {}),
         });
     }
 
@@ -304,83 +322,25 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     />
                 </label>
 
-                <fieldset className='space-y-3'>
-                    <legend className='text-sm font-medium text-[var(--dash-text)]'>Embed editor</legend>
-                    <div className='flex flex-wrap gap-2' role='radiogroup' aria-label='Embed editor'>
-                        <EmbedModeOption
-                            mode='builder'
-                            currentMode={embedMode}
-                            label='Visual builder'
-                            onChange={(mode) => {
-                                setEmbedMode(mode);
-                                setFormMessage(undefined);
-                            }}
-                        />
-                        <EmbedModeOption
-                            mode='advanced-json'
-                            currentMode={embedMode}
-                            label='Advanced JSON'
-                            onChange={(mode) => {
-                                setEmbedMode(mode);
-                                setFormMessage(undefined);
-                            }}
-                        />
-                    </div>
-                </fieldset>
-
-                <AnimatePresence initial={false} mode='popLayout'>
-                    {embedMode === 'builder' ? (
-                        <motion.div
-                            key='builder'
-                            data-dashboard-motion='view-change'
-                            variants={dashboardInlineVariants}
-                            initial='initial'
-                            animate='enter'
-                            exit='exit'
-                            transition={dashboardViewTransition}>
-                            <DashboardEmbedBuilder
-                                draft={embedDraft}
-                                onDraftChange={(nextDraft) => {
-                                    setEmbedDraft(nextDraft);
-                                    setFormMessage(undefined);
-                                }}
-                            />
-                        </motion.div>
-                    ) : (
-                        <motion.label
-                            key='advanced-json'
-                            data-dashboard-motion='view-change'
-                            className='block space-y-2 text-sm font-medium text-[var(--dash-text)]'
-                            variants={dashboardInlineVariants}
-                            initial='initial'
-                            animate='enter'
-                            exit='exit'
-                            transition={dashboardViewTransition}>
-                            <span>Embed JSON</span>
-                            <textarea
-                                value={embedJson}
-                                onChange={(event) => {
-                                    setEmbedJson(event.currentTarget.value);
-                                    setFormMessage(undefined);
-                                }}
-                                className={`${fieldClassName} min-h-48 font-mono text-sm`}
-                                placeholder='[{"title":"NeonFlux","description":"Fluxer update"}]'
-                                spellCheck={false}
-                            />
-                        </motion.label>
-                    )}
-                </AnimatePresence>
+                <div className='space-y-3'>
+                    <h3 className='text-sm font-medium text-[var(--dash-text)]'>Embed editor</h3>
+                    <DashboardEmbedBuilder
+                        draft={embedDraft}
+                        onDraftChange={(nextDraft) => {
+                            setEmbedDraft(nextDraft);
+                            setFormMessage(undefined);
+                        }}
+                    />
+                </div>
 
                 <DashboardPostingTemplateControls
                     guildId={guildId}
                     content={content}
                     embeds={previewEmbeds}
-                    payloadError={previewEmbedsResult.valid ? undefined : previewEmbedsResult.message}
+                    payloadError={previewEmbedResult.valid ? undefined : previewEmbedResult.message}
                     onApplyTemplate={(template) => {
                         setContent(template.content ?? '');
-                        setEmbedMode('advanced-json');
-                        setEmbedDraft(createEmptyDashboardEmbedDraft());
-                        setEmbedJson(template.embeds.length > 0 ? JSON.stringify(template.embeds, null, 2) : '');
+                        setEmbedDraft(toDashboardEmbedDraft(template.embeds[0]));
                         setFormMessage({ type: 'success', text: `Template applied: ${template.name}.` });
                     }}
                     onMessage={setFormMessage}
@@ -397,11 +357,11 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                                 mutation.isPending ||
                                 activeOperation?.status === 'queued' ||
                                 activeOperation?.status === 'running' ||
-                                unknownRequiresCheck
+                                unknownRequiresResolution
                             }
                             className={primaryButtonClassName}
                             {...dashboardTactile}>
-                            {mutation.isPending ? 'Queueing…' : 'Queue message'}
+                            {mutation.isPending ? 'Sending…' : 'Send message'}
                         </motion.button>
                     </div>
                     <AnimatePresence initial={false} mode='popLayout'>
@@ -427,27 +387,52 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                                 initial='initial'
                                 animate='enter'
                                 transition={dashboardConfirmationTransition}>
-                                Queueing is durable. You can leave this page while the connected bot delivers the
+                                Sending is durable. You can leave this page while the connected bot delivers the
                                 message.
                             </motion.p>
                         )}
                     </AnimatePresence>
-                    {activeOperation?.status === 'unknown' ? (
-                        <label className='mt-3 flex items-start gap-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                            <input
-                                type='checkbox'
-                                className='mt-1'
-                                checked={acknowledgedUnknownId === activeOperation.id}
-                                onChange={(event) => {
-                                    setAcknowledgedUnknownId(
-                                        event.currentTarget.checked ? activeOperation.id : undefined
-                                    );
-                                }}
-                            />
-                            <span>
-                                I checked the channel and accept that another attempt could still create a duplicate.
-                            </span>
-                        </label>
+                    <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>{getMentionPolicyNotice()}</p>
+                    {activeOperation?.status === 'unknown' && !activeOperation.resolution ? (
+                        <div className='mt-3 space-y-2' aria-label='Resolve unknown delivery'>
+                            <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>
+                                Record what you found after checking the channel. This reports your observation; it does
+                                not rewrite the provider outcome.
+                            </p>
+                            <div className='flex flex-wrap gap-2'>
+                                <button
+                                    type='button'
+                                    disabled={resolutionMutation.isPending || mutation.isPending}
+                                    onClick={() =>
+                                        resolutionMutation.mutate({
+                                            operationId: activeOperation.id,
+                                            resolution: 'reported_seen',
+                                        })
+                                    }
+                                    className={dashboardSecondaryActionClassName}>
+                                    I found the message
+                                </button>
+                                <button
+                                    type='button'
+                                    disabled={resolutionMutation.isPending || mutation.isPending}
+                                    onClick={() =>
+                                        resolutionMutation.mutate({
+                                            operationId: activeOperation.id,
+                                            resolution: 'reported_not_seen',
+                                        })
+                                    }
+                                    className={dashboardSecondaryActionClassName}>
+                                    I did not find it
+                                </button>
+                                <button
+                                    type='button'
+                                    disabled={resolutionMutation.isPending || mutation.isPending}
+                                    onClick={() => sendMessage(activeOperation.id)}
+                                    className={dashboardSecondaryActionClassName}>
+                                    Send a new copy despite duplicate risk
+                                </button>
+                            </div>
+                        </div>
                     ) : null}
                     <DashboardPostingOperationHistory
                         channels={channelsQuery.data ?? []}
@@ -470,48 +455,6 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 </DashboardSurface>
             </aside>
         </form>
-    );
-}
-
-function EmbedModeOption({
-    mode,
-    currentMode,
-    label,
-    onChange,
-}: {
-    mode: DashboardEmbedMode;
-    currentMode: DashboardEmbedMode;
-    label: string;
-    onChange: (mode: DashboardEmbedMode) => void;
-}) {
-    return (
-        <label
-            data-dashboard-motion='selection-gel'
-            className={
-                currentMode === mode
-                    ? 'relative inline-flex min-h-10 items-center overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-primary)] px-3 text-sm font-semibold text-[var(--dash-text)]'
-                    : 'relative inline-flex min-h-10 items-center overflow-hidden rounded-[var(--dash-radius-control)] border border-[var(--dash-border-interactive)] px-3 text-sm font-semibold text-[var(--dash-text-muted)] transition hover:border-[var(--dash-primary)] hover:text-[var(--dash-text)]'
-            }>
-            {currentMode === mode ? (
-                <motion.span
-                    layoutId='dashboard-posting-embed-mode-gel'
-                    data-dashboard-motion='selection-gel'
-                    className='absolute inset-0 bg-[var(--dash-primary-ring)]'
-                    transition={dashboardSelectionTransition}
-                    aria-hidden='true'
-                />
-            ) : null}
-            <span className='relative'>{label}</span>
-            <span className='sr-only'>
-                <input
-                    type='radio'
-                    name='dashboard-posting-embed-mode'
-                    value={mode}
-                    checked={currentMode === mode}
-                    onChange={() => onChange(mode)}
-                />
-            </span>
-        </label>
     );
 }
 
@@ -556,29 +499,8 @@ function getOperationLoadErrorMessage(type: string): string {
     }
 }
 
-function getActiveEmbeds({
-    mode,
-    draft,
-    json,
-}: {
-    mode: DashboardEmbedMode;
-    draft: DashboardEmbedDraft;
-    json: string;
-}): ParsedDashboardEmbedsResult {
-    if (mode === 'advanced-json') {
-        return parseDashboardEmbedJson(json);
-    }
-
-    const embedResult = normalizeDashboardEmbedDraft(draft);
-
-    if (!embedResult.valid) {
-        return embedResult;
-    }
-
-    return {
-        valid: true,
-        embeds: embedResult.embed ? [embedResult.embed] : [],
-    };
+function getMentionPolicyNotice(): string {
+    return DASHBOARD_MESSAGE_MENTION_POLICY.notice;
 }
 
 function getFormMessageTone(type: PostingFormMessage['type']): 'danger' | 'success' | 'warning' {

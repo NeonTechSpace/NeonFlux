@@ -2,7 +2,8 @@ import type { MessageSendOptions } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
-import { sendFluxerChannelMessage, type FluxerSentMessage } from './messages.js';
+import { sendDashboardFluxerMessage, sendFluxerChannelMessage, type FluxerSentMessage } from './messages.js';
+import type { OutgoingMessage } from '@neonflux/messaging';
 import { mapPlatformError, requireTextInputs, type FluxerPlatformError } from './platform-shared.js';
 
 type MessageLookupChannel = {
@@ -43,6 +44,8 @@ export function createMessagePlatform(client: FluxerBot['client']) {
             content?: string;
             embeds?: MessageSendOptions['embeds'];
         }) => sendFluxerChannelMessage({ client, ...input }),
+        sendDashboard: (input: { channelId: string; message: OutgoingMessage }) =>
+            sendDashboardFluxerMessage({ client, ...input }),
         fetch: (input: { channelId: string; messageId: string }) => fetchMessage(client, input),
         fetchMany: (input: { channelId: string; limit: number; before?: string; after?: string; around?: string }) =>
             fetchManyMessages(client, input),

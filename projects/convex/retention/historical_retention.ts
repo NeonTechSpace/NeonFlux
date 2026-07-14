@@ -6,7 +6,7 @@ import { dataRetentionCutoff, readDataRetentionDays } from './retention_policy.j
 
 export const historicalRetentionBatchSize = 100;
 
-export const protectedStructureExecutionStatuses = [
+export const protectedBlueprintRunStatuses = [
     'queued',
     'running',
     'waiting_rate_limit',
@@ -17,7 +17,7 @@ export const protectedStructureExecutionStatuses = [
     'outcome_unknown',
 ] as const;
 
-export const deletableStructureExecutionStatuses = [
+export const deletableBlueprintRunStatuses = [
     'succeeded',
     'partially_applied',
     'failed_before_mutation',
@@ -26,63 +26,69 @@ export const deletableStructureExecutionStatuses = [
 
 export type HistoricalRetentionPhase =
     | 'audit-events'
-    | 'blueprint-select'
-    | 'blueprint-executions'
-    | 'blueprint-actions'
-    | 'blueprint-decisions'
-    | 'blueprint-approvals'
-    | 'blueprint-preflights'
-    | 'blueprint-run';
+    | 'blueprint-plan-select'
+    | 'blueprint-runs'
+    | 'blueprint-plan-steps'
+    | 'blueprint-plan-decisions'
+    | 'blueprint-plan-approvals'
+    | 'blueprint-plan-preflights'
+    | 'blueprint-plan';
 
 type BlueprintChildPhase = Exclude<
     HistoricalRetentionPhase,
-    'audit-events' | 'blueprint-select' | 'blueprint-executions' | 'blueprint-run'
+    'audit-events' | 'blueprint-plan-select' | 'blueprint-runs' | 'blueprint-plan'
 >;
-type BlueprintRemainingPhase = Exclude<HistoricalRetentionPhase, 'audit-events' | 'blueprint-select' | 'blueprint-run'>;
+type BlueprintRemainingPhase = Exclude<
+    HistoricalRetentionPhase,
+    'audit-events' | 'blueprint-plan-select' | 'blueprint-plan'
+>;
 
 export type HistoricalRetentionContinuation = {
     cutoff: string;
     phase: HistoricalRetentionPhase;
-    runId?: string;
+    planId?: string;
     scanCursor?: string;
 };
 
 export type HistoricalRetentionOperations = {
-    claimExpiredRun: (runId: string, cutoff: string) => Promise<boolean>;
+    claimExpiredPlan: (planId: string, cutoff: string) => Promise<boolean>;
     deleteAuditEventIds: (ids: string[]) => Promise<void>;
-    deleteBlueprintChildIds: (phase: BlueprintChildPhase | 'blueprint-attempts', ids: string[]) => Promise<void>;
-    deleteExecution: (executionId: string) => Promise<void>;
+    deleteBlueprintChildIds: (
+        phase: BlueprintChildPhase | 'blueprint-run-step-attempts',
+        ids: string[]
+    ) => Promise<void>;
     deleteRun: (runId: string) => Promise<void>;
-    findRemainingRunPhase: (runId: string) => Promise<BlueprintRemainingPhase | null>;
-    hasProtectedExecution: (runId: string) => Promise<boolean>;
-    loadAttemptIds: (executionId: string, limit: number) => Promise<string[]>;
-    loadBlueprintChildIds: (phase: BlueprintChildPhase, runId: string, limit: number) => Promise<string[]>;
+    deletePlan: (planId: string) => Promise<void>;
+    findRemainingPlanPhase: (planId: string) => Promise<BlueprintRemainingPhase | null>;
+    hasProtectedRun: (planId: string) => Promise<boolean>;
+    loadRunStepAttemptIds: (runId: string, limit: number) => Promise<string[]>;
+    loadBlueprintPlanChildIds: (phase: BlueprintChildPhase, planId: string, limit: number) => Promise<string[]>;
     loadExpiredAuditEventIds: (cutoff: string, limit: number) => Promise<string[]>;
-    loadFirstExecution: (runId: string) => Promise<{ id: string; status: string } | null>;
-    loadNextExpiredRun: (
+    loadFirstRun: (planId: string) => Promise<{ id: string; status: string } | null>;
+    loadNextExpiredPlan: (
         cutoff: string,
         cursor: string | null
-    ) => Promise<{ continueCursor: string; isDone: boolean; runId: string | null }>;
-    loadRunState: (runId: string) => Promise<{ status: string; updatedAt: string } | null>;
+    ) => Promise<{ continueCursor: string; isDone: boolean; planId: string | null }>;
+    loadPlanState: (planId: string) => Promise<{ status: string; updatedAt: string } | null>;
     schedule: (continuation: HistoricalRetentionContinuation) => Promise<void>;
 };
 
 const historicalRetentionPhaseValidator = v.union(
     v.literal('audit-events'),
-    v.literal('blueprint-select'),
-    v.literal('blueprint-executions'),
-    v.literal('blueprint-actions'),
-    v.literal('blueprint-decisions'),
-    v.literal('blueprint-approvals'),
-    v.literal('blueprint-preflights'),
-    v.literal('blueprint-run')
+    v.literal('blueprint-plan-select'),
+    v.literal('blueprint-runs'),
+    v.literal('blueprint-plan-steps'),
+    v.literal('blueprint-plan-decisions'),
+    v.literal('blueprint-plan-approvals'),
+    v.literal('blueprint-plan-preflights'),
+    v.literal('blueprint-plan')
 );
 
 export const pruneHistoricalRetentionBatch = internalMutation({
     args: {
         cutoff: v.optional(v.string()),
         phase: v.optional(historicalRetentionPhaseValidator),
-        runId: v.optional(v.string()),
+        planId: v.optional(v.string()),
         scanCursor: v.optional(v.string()),
     },
     returns: v.null(),
@@ -91,7 +97,7 @@ export const pruneHistoricalRetentionBatch = internalMutation({
             now: new Date().toISOString(),
             ...(args.cutoff ? { cutoff: args.cutoff } : {}),
             ...(args.phase ? { phase: args.phase } : {}),
-            ...(args.runId ? { runId: args.runId } : {}),
+            ...(args.planId ? { planId: args.planId } : {}),
             ...(args.scanCursor ? { scanCursor: args.scanCursor } : {}),
         });
         return null;
@@ -105,7 +111,7 @@ export async function executeHistoricalRetentionBatch(
         now: string;
         phase?: HistoricalRetentionPhase;
         retentionDays?: number;
-        runId?: string;
+        planId?: string;
         scanCursor?: string;
     }
 ): Promise<void> {
@@ -117,32 +123,32 @@ export async function executeHistoricalRetentionBatch(
         return;
     }
 
-    if (phase === 'blueprint-select') {
-        await selectBlueprintRun(operations, cutoff, input.scanCursor);
+    if (phase === 'blueprint-plan-select') {
+        await selectBlueprintPlan(operations, cutoff, input.scanCursor);
         return;
     }
 
-    const runId = input.runId;
-    if (!runId) throw new Error('historical-retention-run-required');
+    const planId = input.planId;
+    if (!planId) throw new Error('historical-retention-plan-required');
 
-    if (!(await runRemainsEligible(operations, runId, cutoff))) {
+    if (!(await planRemainsEligible(operations, planId, cutoff))) {
         await continueBlueprintScan(operations, cutoff, input.scanCursor);
         return;
     }
 
-    if (phase === 'blueprint-executions') {
-        await pruneBlueprintExecution(operations, {
+    if (phase === 'blueprint-runs') {
+        await pruneBlueprintRun(operations, {
             cutoff,
-            runId,
+            planId,
             ...(input.scanCursor ? { scanCursor: input.scanCursor } : {}),
         });
         return;
     }
 
-    if (phase === 'blueprint-run') {
-        await pruneBlueprintRun(operations, {
+    if (phase === 'blueprint-plan') {
+        await pruneBlueprintPlan(operations, {
             cutoff,
-            runId,
+            planId,
             ...(input.scanCursor ? { scanCursor: input.scanCursor } : {}),
         });
         return;
@@ -151,39 +157,39 @@ export async function executeHistoricalRetentionBatch(
     await pruneBlueprintChildren(operations, {
         cutoff,
         phase,
-        runId,
+        planId,
         ...(input.scanCursor ? { scanCursor: input.scanCursor } : {}),
     });
 }
 
-export function isProtectedStructureExecutionStatus(status: string): boolean {
-    return protectedStructureExecutionStatuses.includes(status as never);
+export function isProtectedBlueprintRunStatus(status: string): boolean {
+    return protectedBlueprintRunStatuses.includes(status as never);
 }
 
-export function isDeletableStructureExecutionStatus(status: string): boolean {
-    return deletableStructureExecutionStatuses.includes(status as never);
+export function isDeletableBlueprintRunStatus(status: string): boolean {
+    return deletableBlueprintRunStatuses.includes(status as never);
 }
 
 async function pruneAuditEvents(operations: HistoricalRetentionOperations, cutoff: string): Promise<void> {
     const ids = await operations.loadExpiredAuditEventIds(cutoff, historicalRetentionBatchSize + 1);
     const hasMore = ids.length > historicalRetentionBatchSize;
     await operations.deleteAuditEventIds(ids.slice(0, historicalRetentionBatchSize));
-    await operations.schedule({ cutoff, phase: hasMore ? 'audit-events' : 'blueprint-select' });
+    await operations.schedule({ cutoff, phase: hasMore ? 'audit-events' : 'blueprint-plan-select' });
 }
 
-async function selectBlueprintRun(
+async function selectBlueprintPlan(
     operations: HistoricalRetentionOperations,
     cutoff: string,
     scanCursor: string | undefined
 ): Promise<void> {
-    const candidate = await operations.loadNextExpiredRun(cutoff, scanCursor ?? null);
-    if (!candidate.runId) return;
+    const candidate = await operations.loadNextExpiredPlan(cutoff, scanCursor ?? null);
+    if (!candidate.planId) return;
 
-    if (!(await operations.claimExpiredRun(candidate.runId, cutoff))) {
+    if (!(await operations.claimExpiredPlan(candidate.planId, cutoff))) {
         if (!candidate.isDone) {
             await operations.schedule({
                 cutoff,
-                phase: 'blueprint-select',
+                phase: 'blueprint-plan-select',
                 scanCursor: candidate.continueCursor,
             });
         }
@@ -192,94 +198,97 @@ async function selectBlueprintRun(
 
     await operations.schedule({
         cutoff,
-        phase: 'blueprint-executions',
-        runId: candidate.runId,
+        phase: 'blueprint-runs',
+        planId: candidate.planId,
         scanCursor: candidate.continueCursor,
     });
 }
 
-async function pruneBlueprintExecution(
+async function pruneBlueprintRun(
     operations: HistoricalRetentionOperations,
-    input: { cutoff: string; runId: string; scanCursor?: string }
+    input: { cutoff: string; planId: string; scanCursor?: string }
 ): Promise<void> {
-    const execution = await operations.loadFirstExecution(input.runId);
-    if (!execution) {
-        await scheduleRunPhase(operations, input, 'blueprint-actions');
+    const run = await operations.loadFirstRun(input.planId);
+    if (!run) {
+        await schedulePlanPhase(operations, input, 'blueprint-plan-steps');
         return;
     }
-    if (!isDeletableStructureExecutionStatus(execution.status)) {
+    if (!isDeletableBlueprintRunStatus(run.status)) {
         await continueBlueprintScan(operations, input.cutoff, input.scanCursor);
         return;
     }
 
-    const attemptIds = await operations.loadAttemptIds(execution.id, historicalRetentionBatchSize + 1);
+    const attemptIds = await operations.loadRunStepAttemptIds(run.id, historicalRetentionBatchSize + 1);
     const hasMore = attemptIds.length > historicalRetentionBatchSize;
-    await operations.deleteBlueprintChildIds('blueprint-attempts', attemptIds.slice(0, historicalRetentionBatchSize));
+    await operations.deleteBlueprintChildIds(
+        'blueprint-run-step-attempts',
+        attemptIds.slice(0, historicalRetentionBatchSize)
+    );
 
-    if (!hasMore) await operations.deleteExecution(execution.id);
-    await scheduleRunPhase(operations, input, 'blueprint-executions');
+    if (!hasMore) await operations.deleteRun(run.id);
+    await schedulePlanPhase(operations, input, 'blueprint-runs');
 }
 
 async function pruneBlueprintChildren(
     operations: HistoricalRetentionOperations,
-    input: { cutoff: string; phase: BlueprintChildPhase; runId: string; scanCursor?: string }
+    input: { cutoff: string; phase: BlueprintChildPhase; planId: string; scanCursor?: string }
 ): Promise<void> {
-    const ids = await operations.loadBlueprintChildIds(input.phase, input.runId, historicalRetentionBatchSize + 1);
+    const ids = await operations.loadBlueprintPlanChildIds(input.phase, input.planId, historicalRetentionBatchSize + 1);
     const hasMore = ids.length > historicalRetentionBatchSize;
     await operations.deleteBlueprintChildIds(input.phase, ids.slice(0, historicalRetentionBatchSize));
-    await scheduleRunPhase(operations, input, hasMore ? input.phase : nextBlueprintPhase(input.phase));
+    await schedulePlanPhase(operations, input, hasMore ? input.phase : nextBlueprintPhase(input.phase));
 }
 
-async function pruneBlueprintRun(
+async function pruneBlueprintPlan(
     operations: HistoricalRetentionOperations,
-    input: { cutoff: string; runId: string; scanCursor?: string }
+    input: { cutoff: string; planId: string; scanCursor?: string }
 ): Promise<void> {
-    const remainingPhase = await operations.findRemainingRunPhase(input.runId);
+    const remainingPhase = await operations.findRemainingPlanPhase(input.planId);
     if (remainingPhase) {
-        await scheduleRunPhase(operations, input, remainingPhase);
+        await schedulePlanPhase(operations, input, remainingPhase);
         return;
     }
 
-    await operations.deleteRun(input.runId);
+    await operations.deletePlan(input.planId);
     await continueBlueprintScan(operations, input.cutoff, input.scanCursor);
 }
 
-async function runRemainsEligible(
+async function planRemainsEligible(
     operations: HistoricalRetentionOperations,
-    runId: string,
+    planId: string,
     cutoff: string
 ): Promise<boolean> {
-    const run = await operations.loadRunState(runId);
+    const plan = await operations.loadPlanState(planId);
     return (
-        run !== null &&
-        run.status === 'stale' &&
-        run.updatedAt < cutoff &&
-        !(await operations.hasProtectedExecution(runId))
+        plan !== null &&
+        plan.status === 'obsolete' &&
+        plan.updatedAt < cutoff &&
+        !(await operations.hasProtectedRun(planId))
     );
 }
 
 function nextBlueprintPhase(phase: BlueprintChildPhase): HistoricalRetentionPhase {
     switch (phase) {
-        case 'blueprint-actions':
-            return 'blueprint-decisions';
-        case 'blueprint-decisions':
-            return 'blueprint-approvals';
-        case 'blueprint-approvals':
-            return 'blueprint-preflights';
-        case 'blueprint-preflights':
-            return 'blueprint-run';
+        case 'blueprint-plan-steps':
+            return 'blueprint-plan-decisions';
+        case 'blueprint-plan-decisions':
+            return 'blueprint-plan-approvals';
+        case 'blueprint-plan-approvals':
+            return 'blueprint-plan-preflights';
+        case 'blueprint-plan-preflights':
+            return 'blueprint-plan';
     }
 }
 
-async function scheduleRunPhase(
+async function schedulePlanPhase(
     operations: HistoricalRetentionOperations,
-    input: { cutoff: string; runId: string; scanCursor?: string },
+    input: { cutoff: string; planId: string; scanCursor?: string },
     phase: HistoricalRetentionPhase
 ): Promise<void> {
     await operations.schedule({
         cutoff: input.cutoff,
         phase,
-        runId: input.runId,
+        planId: input.planId,
         ...(input.scanCursor ? { scanCursor: input.scanCursor } : {}),
     });
 }
@@ -290,18 +299,18 @@ async function continueBlueprintScan(
     scanCursor: string | undefined
 ): Promise<void> {
     if (!scanCursor) return;
-    await operations.schedule({ cutoff, phase: 'blueprint-select', scanCursor });
+    await operations.schedule({ cutoff, phase: 'blueprint-plan-select', scanCursor });
 }
 
 function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetentionOperations {
     return {
-        claimExpiredRun: async (runId, cutoff) => {
-            const typedRunId = runId as GenericId<'structureImportRuns'>;
-            const run = await ctx.db.get('structureImportRuns', typedRunId);
-            if (!run || run.updatedAt >= cutoff || (await hasProtectedExecution(ctx, runId))) return false;
+        claimExpiredPlan: async (planId, cutoff) => {
+            const typedPlanId = planId as GenericId<'blueprintPlans'>;
+            const plan = await ctx.db.get('blueprintPlans', typedPlanId);
+            if (!plan || plan.updatedAt >= cutoff || (await hasProtectedRun(ctx, planId))) return false;
 
-            if (run.status !== 'stale') {
-                await ctx.db.patch('structureImportRuns', typedRunId, { status: 'stale' });
+            if (plan.status !== 'obsolete') {
+                await ctx.db.patch('blueprintPlans', typedPlanId, { status: 'obsolete' });
             }
             return true;
         },
@@ -311,24 +320,25 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
         deleteBlueprintChildIds: async (phase, ids) => {
             for (const id of ids) await deleteBlueprintChild(ctx, phase, id);
         },
-        deleteExecution: async (executionId) => {
-            await ctx.db.delete('structureImportExecutions', executionId as GenericId<'structureImportExecutions'>);
-        },
         deleteRun: async (runId) => {
-            await ctx.db.delete('structureImportRuns', runId as GenericId<'structureImportRuns'>);
+            await ctx.db.delete('blueprintRuns', runId as GenericId<'blueprintRuns'>);
         },
-        findRemainingRunPhase: async (runId) => await findRemainingRunPhase(ctx, runId),
-        hasProtectedExecution: async (runId) => await hasProtectedExecution(ctx, runId),
-        loadAttemptIds: async (executionId, limit) =>
+        deletePlan: async (planId) => {
+            await ctx.db.delete('blueprintPlans', planId as GenericId<'blueprintPlans'>);
+        },
+        findRemainingPlanPhase: async (planId) => await findRemainingPlanPhase(ctx, planId),
+        hasProtectedRun: async (planId) => await hasProtectedRun(ctx, planId),
+        loadRunStepAttemptIds: async (runId, limit) =>
             (
                 await ctx.db
-                    .query('structureImportActionAttempts')
-                    .withIndex('by_execution_action_attempt', (index) =>
-                        index.eq('executionId', executionId as GenericId<'structureImportExecutions'>)
+                    .query('blueprintRunStepAttempts')
+                    .withIndex('by_run_plan_step_attempt', (index) =>
+                        index.eq('runId', runId as GenericId<'blueprintRuns'>)
                     )
                     .take(limit)
             ).map((row) => String(row._id)),
-        loadBlueprintChildIds: async (phase, runId, limit) => await loadBlueprintChildIds(ctx, phase, runId, limit),
+        loadBlueprintPlanChildIds: async (phase, planId, limit) =>
+            await loadBlueprintPlanChildIds(ctx, phase, planId, limit),
         loadExpiredAuditEventIds: async (cutoff, limit) =>
             (
                 await ctx.db
@@ -336,28 +346,28 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
                     .withIndex('by_created', (index) => index.lt('createdAt', cutoff))
                     .take(limit)
             ).map((row) => String(row._id)),
-        loadFirstExecution: async (runId) => {
-            const execution = await ctx.db
-                .query('structureImportExecutions')
-                .withIndex('by_run_created', (index) => index.eq('runId', runId as GenericId<'structureImportRuns'>))
+        loadFirstRun: async (planId) => {
+            const run = await ctx.db
+                .query('blueprintRuns')
+                .withIndex('by_plan_created', (index) => index.eq('planId', planId as GenericId<'blueprintPlans'>))
                 .first();
-            return execution ? { id: String(execution._id), status: execution.status } : null;
+            return run ? { id: String(run._id), status: run.status } : null;
         },
-        loadNextExpiredRun: async (cutoff, cursor) => {
+        loadNextExpiredPlan: async (cutoff, cursor) => {
             const page = await ctx.db
-                .query('structureImportRuns')
+                .query('blueprintPlans')
                 .withIndex('by_updated', (index) => index.lt('updatedAt', cutoff))
                 .order('asc')
                 .paginate({ cursor, numItems: 1 });
             return {
                 continueCursor: page.continueCursor,
                 isDone: page.isDone,
-                runId: page.page[0] ? String(page.page[0]._id) : null,
+                planId: page.page[0] ? String(page.page[0]._id) : null,
             };
         },
-        loadRunState: async (runId) => {
-            const run = await ctx.db.get('structureImportRuns', runId as GenericId<'structureImportRuns'>);
-            return run ? { status: run.status, updatedAt: run.updatedAt } : null;
+        loadPlanState: async (planId) => {
+            const plan = await ctx.db.get('blueprintPlans', planId as GenericId<'blueprintPlans'>);
+            return plan ? { status: plan.status, updatedAt: plan.updatedAt } : null;
         },
         schedule: async (continuation) => {
             await ctx.scheduler.runAfter(
@@ -369,53 +379,53 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
     };
 }
 
-async function hasProtectedExecution(ctx: MutationCtx, runId: string): Promise<boolean> {
-    for (const status of protectedStructureExecutionStatuses) {
-        const execution = await ctx.db
-            .query('structureImportExecutions')
-            .withIndex('by_run_status', (index) =>
-                index.eq('runId', runId as GenericId<'structureImportRuns'>).eq('status', status)
+async function hasProtectedRun(ctx: MutationCtx, planId: string): Promise<boolean> {
+    for (const status of protectedBlueprintRunStatuses) {
+        const run = await ctx.db
+            .query('blueprintRuns')
+            .withIndex('by_plan_status', (index) =>
+                index.eq('planId', planId as GenericId<'blueprintPlans'>).eq('status', status)
             )
             .first();
-        if (execution) return true;
+        if (run) return true;
     }
     return false;
 }
 
-async function loadBlueprintChildIds(
+async function loadBlueprintPlanChildIds(
     ctx: MutationCtx,
     phase: BlueprintChildPhase,
-    runId: string,
+    planId: string,
     limit: number
 ): Promise<string[]> {
-    const typedRunId = runId as GenericId<'structureImportRuns'>;
+    const typedPlanId = planId as GenericId<'blueprintPlans'>;
     switch (phase) {
-        case 'blueprint-actions':
+        case 'blueprint-plan-steps':
             return (
                 await ctx.db
-                    .query('structureImportActions')
-                    .withIndex('by_run_sequence', (index) => index.eq('runId', typedRunId))
+                    .query('blueprintPlanSteps')
+                    .withIndex('by_plan_sequence', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
-        case 'blueprint-decisions':
+        case 'blueprint-plan-decisions':
             return (
                 await ctx.db
-                    .query('structureImportDecisions')
-                    .withIndex('by_run_sequence', (index) => index.eq('runId', typedRunId))
+                    .query('blueprintPlanDecisions')
+                    .withIndex('by_plan_sequence', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
-        case 'blueprint-approvals':
+        case 'blueprint-plan-approvals':
             return (
                 await ctx.db
-                    .query('structureImportApprovals')
-                    .withIndex('by_run_approved', (index) => index.eq('runId', typedRunId))
+                    .query('blueprintPlanApprovals')
+                    .withIndex('by_plan_approved', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
-        case 'blueprint-preflights':
+        case 'blueprint-plan-preflights':
             return (
                 await ctx.db
-                    .query('structureImportPreflights')
-                    .withIndex('by_run_checked', (index) => index.eq('runId', typedRunId))
+                    .query('blueprintPlanPreflights')
+                    .withIndex('by_plan_checked', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
     }
@@ -423,45 +433,45 @@ async function loadBlueprintChildIds(
 
 async function deleteBlueprintChild(
     ctx: MutationCtx,
-    phase: BlueprintChildPhase | 'blueprint-attempts',
+    phase: BlueprintChildPhase | 'blueprint-run-step-attempts',
     id: string
 ): Promise<void> {
     switch (phase) {
-        case 'blueprint-attempts':
-            await ctx.db.delete('structureImportActionAttempts', id as GenericId<'structureImportActionAttempts'>);
+        case 'blueprint-run-step-attempts':
+            await ctx.db.delete('blueprintRunStepAttempts', id as GenericId<'blueprintRunStepAttempts'>);
             return;
-        case 'blueprint-actions':
-            await ctx.db.delete('structureImportActions', id as GenericId<'structureImportActions'>);
+        case 'blueprint-plan-steps':
+            await ctx.db.delete('blueprintPlanSteps', id as GenericId<'blueprintPlanSteps'>);
             return;
-        case 'blueprint-decisions':
-            await ctx.db.delete('structureImportDecisions', id as GenericId<'structureImportDecisions'>);
+        case 'blueprint-plan-decisions':
+            await ctx.db.delete('blueprintPlanDecisions', id as GenericId<'blueprintPlanDecisions'>);
             return;
-        case 'blueprint-approvals':
-            await ctx.db.delete('structureImportApprovals', id as GenericId<'structureImportApprovals'>);
+        case 'blueprint-plan-approvals':
+            await ctx.db.delete('blueprintPlanApprovals', id as GenericId<'blueprintPlanApprovals'>);
             return;
-        case 'blueprint-preflights':
-            await ctx.db.delete('structureImportPreflights', id as GenericId<'structureImportPreflights'>);
+        case 'blueprint-plan-preflights':
+            await ctx.db.delete('blueprintPlanPreflights', id as GenericId<'blueprintPlanPreflights'>);
             return;
     }
 }
 
-async function findRemainingRunPhase(ctx: MutationCtx, runId: string): Promise<BlueprintRemainingPhase | null> {
-    const typedRunId = runId as GenericId<'structureImportRuns'>;
+async function findRemainingPlanPhase(ctx: MutationCtx, planId: string): Promise<BlueprintRemainingPhase | null> {
+    const typedPlanId = planId as GenericId<'blueprintPlans'>;
     if (
         await ctx.db
-            .query('structureImportExecutions')
-            .withIndex('by_run_created', (index) => index.eq('runId', typedRunId))
+            .query('blueprintRuns')
+            .withIndex('by_plan_created', (index) => index.eq('planId', typedPlanId))
             .first()
     ) {
-        return 'blueprint-executions';
+        return 'blueprint-runs';
     }
     for (const phase of [
-        'blueprint-actions',
-        'blueprint-decisions',
-        'blueprint-approvals',
-        'blueprint-preflights',
+        'blueprint-plan-steps',
+        'blueprint-plan-decisions',
+        'blueprint-plan-approvals',
+        'blueprint-plan-preflights',
     ] as const) {
-        if ((await loadBlueprintChildIds(ctx, phase, runId, 1)).length > 0) return phase;
+        if ((await loadBlueprintPlanChildIds(ctx, phase, planId, 1)).length > 0) return phase;
     }
     return null;
 }

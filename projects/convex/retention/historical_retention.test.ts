@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { recordStructureImportAction } from '../structure/structure.js';
-import { enqueueStructureImportExecution } from '../structure/structure_import_review.js';
+import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
+import { recordBlueprintPlanStep } from '../blueprint/blueprint.js';
+import { enqueueBlueprintRun } from '../blueprint/blueprint_plan_review.js';
 import {
-    deletableStructureExecutionStatuses,
+    deletableBlueprintRunStatuses,
     executeHistoricalRetentionBatch,
     historicalRetentionBatchSize,
-    isDeletableStructureExecutionStatus,
-    isProtectedStructureExecutionStatus,
-    protectedStructureExecutionStatuses,
+    isDeletableBlueprintRunStatus,
+    isProtectedBlueprintRunStatus,
+    protectedBlueprintRunStatuses,
     type HistoricalRetentionOperations,
 } from './historical_retention.js';
 
@@ -19,7 +19,7 @@ const oldRunUpdatedAt = '2026-04-15T11:59:59.999Z';
 type TestMutation = { _handler: (ctx: unknown, args: unknown) => Promise<unknown> };
 
 describe('historical retention', () => {
-    it('partitions actual execution statuses into deletable and protected ownership', () => {
+    it('partitions actual run statuses into deletable and protected ownership', () => {
         const statuses = [
             'queued',
             'running',
@@ -35,16 +35,10 @@ describe('historical retention', () => {
             'cancelled',
         ];
 
-        expect(statuses.filter(isProtectedStructureExecutionStatus)).toStrictEqual([
-            ...protectedStructureExecutionStatuses,
-        ]);
-        expect(statuses.filter(isDeletableStructureExecutionStatus)).toStrictEqual([
-            ...deletableStructureExecutionStatuses,
-        ]);
+        expect(statuses.filter(isProtectedBlueprintRunStatus)).toStrictEqual([...protectedBlueprintRunStatuses]);
+        expect(statuses.filter(isDeletableBlueprintRunStatus)).toStrictEqual([...deletableBlueprintRunStatuses]);
         expect(
-            statuses.every(
-                (status) => isProtectedStructureExecutionStatus(status) !== isDeletableStructureExecutionStatus(status)
-            )
+            statuses.every((status) => isProtectedBlueprintRunStatus(status) !== isDeletableBlueprintRunStatus(status))
         ).toBe(true);
     });
 
@@ -87,53 +81,53 @@ describe('historical retention', () => {
         await executeHistoricalRetentionBatch(operations, { cutoff, now });
 
         expect(operations.deleteAuditEventIds).toHaveBeenCalledWith(['event-1']);
-        expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({ cutoff, phase: 'blueprint-select' });
+        expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({ cutoff, phase: 'blueprint-plan-select' });
     });
 
-    it('skips a protected run and continues from its page cursor', async () => {
+    it('skips a protected plan and continues from its page cursor', async () => {
         const operations = createOperations({
-            claimExpiredRun: vi.fn(() => Promise.resolve(false)),
-            loadNextExpiredRun: vi.fn(() =>
-                Promise.resolve({ continueCursor: 'after-protected', isDone: false, runId: 'run-protected' })
+            claimExpiredPlan: vi.fn(() => Promise.resolve(false)),
+            loadNextExpiredPlan: vi.fn(() =>
+                Promise.resolve({ continueCursor: 'after-protected', isDone: false, planId: 'plan-protected' })
             ),
         });
 
-        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-select' });
+        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-plan-select' });
 
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-select',
+            phase: 'blueprint-plan-select',
             scanCursor: 'after-protected',
         });
-        expect(operations.deleteRun).not.toHaveBeenCalled();
+        expect(operations.deletePlan).not.toHaveBeenCalled();
     });
 
     it('stops cleanly when the protected candidate is the final page', async () => {
         const operations = createOperations({
-            claimExpiredRun: vi.fn(() => Promise.resolve(false)),
-            loadNextExpiredRun: vi.fn(() =>
-                Promise.resolve({ continueCursor: 'end', isDone: true, runId: 'run-protected' })
+            claimExpiredPlan: vi.fn(() => Promise.resolve(false)),
+            loadNextExpiredPlan: vi.fn(() =>
+                Promise.resolve({ continueCursor: 'end', isDone: true, planId: 'plan-protected' })
             ),
         });
 
-        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-select' });
+        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-plan-select' });
 
         expect(operations.schedule).not.toHaveBeenCalled();
     });
 
     it('carries the selector cursor across deletion of its current candidate', async () => {
         const operations = createOperations({
-            findRemainingRunPhase: vi.fn(() => Promise.resolve(null)),
-            loadNextExpiredRun: vi.fn(() =>
-                Promise.resolve({ continueCursor: 'after-deleted', isDone: true, runId: 'run-old' })
+            findRemainingPlanPhase: vi.fn(() => Promise.resolve(null)),
+            loadNextExpiredPlan: vi.fn(() =>
+                Promise.resolve({ continueCursor: 'after-deleted', isDone: true, planId: 'plan-old' })
             ),
         });
 
-        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-select' });
+        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-plan-select' });
         expect(operations.schedule).toHaveBeenLastCalledWith({
             cutoff,
-            phase: 'blueprint-executions',
-            runId: 'run-old',
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
             scanCursor: 'after-deleted',
         });
 
@@ -141,42 +135,42 @@ describe('historical retention', () => {
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-run',
-            runId: 'run-old',
+            phase: 'blueprint-plan',
+            planId: 'plan-old',
             scanCursor: 'after-deleted',
         });
 
-        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-old');
+        expect(operations.deletePlan).toHaveBeenCalledExactlyOnceWith('plan-old');
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-select',
+            phase: 'blueprint-plan-select',
             scanCursor: 'after-deleted',
         });
     });
 
-    it('claims the run stale before scheduling its first child drain', async () => {
+    it('claims the plan obsolete before scheduling its first child drain', async () => {
         let runStatus = 'approved';
         const operations = createOperations({
-            claimExpiredRun: vi.fn(() => {
-                runStatus = 'stale';
+            claimExpiredPlan: vi.fn(() => {
+                runStatus = 'obsolete';
                 return Promise.resolve(true);
             }),
-            loadNextExpiredRun: vi.fn(() =>
-                Promise.resolve({ continueCursor: 'after-claimed', isDone: false, runId: 'run-old' })
+            loadNextExpiredPlan: vi.fn(() =>
+                Promise.resolve({ continueCursor: 'after-claimed', isDone: false, planId: 'plan-old' })
             ),
-            loadRunState: vi.fn(() => Promise.resolve({ status: runStatus, updatedAt: oldRunUpdatedAt })),
+            loadPlanState: vi.fn(() => Promise.resolve({ status: runStatus, updatedAt: oldRunUpdatedAt })),
         });
 
-        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-select' });
+        await executeHistoricalRetentionBatch(operations, { cutoff, now, phase: 'blueprint-plan-select' });
 
-        expect(runStatus).toBe('stale');
-        expect(vi.mocked(operations.claimExpiredRun).mock.invocationCallOrder[0]).toBeLessThan(
+        expect(runStatus).toBe('obsolete');
+        expect(vi.mocked(operations.claimExpiredPlan).mock.invocationCallOrder[0]).toBeLessThan(
             vi.mocked(operations.schedule).mock.invocationCallOrder[0] ?? 0
         );
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-executions',
-            runId: 'run-old',
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
             scanCursor: 'after-claimed',
         });
 
@@ -194,28 +188,28 @@ describe('historical retention', () => {
                     }),
             },
             db: {
-                get: () => Promise.resolve({ _id: 'run-old', status: runStatus }),
+                get: () => Promise.resolve({ _id: 'plan-old', status: runStatus }),
             },
         };
-        const enqueueHandler = (enqueueStructureImportExecution as unknown as TestMutation)._handler;
-        const recordActionHandler = (recordStructureImportAction as unknown as TestMutation)._handler;
+        const enqueueHandler = (enqueueBlueprintRun as unknown as TestMutation)._handler;
+        const recordActionHandler = (recordBlueprintPlanStep as unknown as TestMutation)._handler;
         try {
             await expect(
                 enqueueHandler(claimedRunContext, {
                     now,
                     preflightDigest: 'digest',
-                    protocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
-                    runId: 'run-old',
+                    protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+                    planId: 'plan-old',
                 })
-            ).rejects.toThrow('structure-execution-plan-not-approved');
+            ).rejects.toThrow('blueprint-run-plan-not-approved');
             await expect(
                 recordActionHandler(claimedRunContext, {
                     actionType: 'create_channel',
-                    runId: 'run-old',
+                    planId: 'plan-old',
                     sequence: 0,
                     targetType: 'channel',
                 })
-            ).rejects.toThrow('structure-import-action-ledger-immutable');
+            ).rejects.toThrow('blueprint-plan-step-ledger-immutable');
         } finally {
             if (previousIssuer === undefined) delete process.env.NEONFLUX_WEB_AUTH_JWT_ISSUER;
             else process.env.NEONFLUX_WEB_AUTH_JWT_ISSUER = previousIssuer;
@@ -225,142 +219,145 @@ describe('historical retention', () => {
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
             scanCursor: 'after-claimed',
         });
 
-        expect(operations.loadBlueprintChildIds).toHaveBeenCalled();
+        expect(operations.loadBlueprintPlanChildIds).toHaveBeenCalled();
     });
 
-    it('deletes attempts before their terminal execution and then repeats that phase', async () => {
+    it('deletes attempts before their terminal run and then repeats that phase', async () => {
         const operations = createOperations({
-            loadAttemptIds: vi.fn(() => Promise.resolve(['attempt-1', 'attempt-2'])),
-            loadFirstExecution: vi.fn(() => Promise.resolve({ id: 'execution-1', status: 'succeeded' })),
+            loadRunStepAttemptIds: vi.fn(() => Promise.resolve(['attempt-1', 'attempt-2'])),
+            loadFirstRun: vi.fn(() => Promise.resolve({ id: 'run-1', status: 'succeeded' })),
         });
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-executions',
-            runId: 'run-old',
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
         });
 
-        expect(operations.deleteBlueprintChildIds).toHaveBeenCalledWith('blueprint-attempts', [
+        expect(operations.deleteBlueprintChildIds).toHaveBeenCalledWith('blueprint-run-step-attempts', [
             'attempt-1',
             'attempt-2',
         ]);
-        expect(operations.deleteExecution).toHaveBeenCalledExactlyOnceWith('execution-1');
+        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-1');
         expect(vi.mocked(operations.deleteBlueprintChildIds).mock.invocationCallOrder[0]).toBeLessThan(
-            vi.mocked(operations.deleteExecution).mock.invocationCallOrder[0] ?? 0
+            vi.mocked(operations.deleteRun).mock.invocationCallOrder[0] ?? 0
         );
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-executions',
-            runId: 'run-old',
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
         });
     });
 
-    it('treats an old draft with no execution as eligible workflow history', async () => {
+    it('treats an old draft with no run as eligible workflow history', async () => {
         const operations = createOperations();
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-executions',
-            runId: 'run-draft',
+            phase: 'blueprint-runs',
+            planId: 'plan-draft',
         });
 
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-actions',
-            runId: 'run-draft',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-draft',
         });
     });
 
-    it('rechecks protection before a destructive phase and leaves the run untouched', async () => {
-        const operations = createOperations({ hasProtectedExecution: vi.fn(() => Promise.resolve(true)) });
+    it('rechecks protection before a destructive phase and leaves the plan untouched', async () => {
+        const operations = createOperations({ hasProtectedRun: vi.fn(() => Promise.resolve(true)) });
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
-            scanCursor: 'next-run',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
+            scanCursor: 'next-plan',
         });
 
-        expect(operations.loadBlueprintChildIds).not.toHaveBeenCalled();
+        expect(operations.loadBlueprintPlanChildIds).not.toHaveBeenCalled();
         expect(operations.deleteBlueprintChildIds).not.toHaveBeenCalled();
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-select',
-            scanCursor: 'next-run',
+            phase: 'blueprint-plan-select',
+            scanCursor: 'next-plan',
         });
     });
 
-    it('refuses to drain a run that was not claimed stale', async () => {
+    it('refuses to drain a plan that was not claimed obsolete', async () => {
         const operations = createOperations({
-            loadRunState: vi.fn(() => Promise.resolve({ status: 'approved', updatedAt: oldRunUpdatedAt })),
+            loadPlanState: vi.fn(() => Promise.resolve({ status: 'approved', updatedAt: oldRunUpdatedAt })),
         });
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
-            scanCursor: 'next-run',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
+            scanCursor: 'next-plan',
         });
 
-        expect(operations.loadBlueprintChildIds).not.toHaveBeenCalled();
+        expect(operations.loadBlueprintPlanChildIds).not.toHaveBeenCalled();
         expect(operations.deleteBlueprintChildIds).not.toHaveBeenCalled();
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-select',
-            scanCursor: 'next-run',
+            phase: 'blueprint-plan-select',
+            scanCursor: 'next-plan',
         });
     });
 
     it('uses the final child fence to restart the earliest remaining phase', async () => {
         const operations = createOperations({
-            findRemainingRunPhase: vi.fn(() => Promise.resolve('blueprint-actions' as const)),
+            findRemainingPlanPhase: vi.fn(() => Promise.resolve('blueprint-plan-steps' as const)),
         });
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-run',
-            runId: 'run-old',
+            phase: 'blueprint-plan',
+            planId: 'plan-old',
         });
 
-        expect(operations.deleteRun).not.toHaveBeenCalled();
+        expect(operations.deletePlan).not.toHaveBeenCalled();
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
         });
     });
 
     it('keeps child deletion bounded and repeats the same phase while another row exists', async () => {
-        const ids = Array.from({ length: historicalRetentionBatchSize + 1 }, (_, index) => `action-${String(index)}`);
+        const ids = Array.from(
+            { length: historicalRetentionBatchSize + 1 },
+            (_, index) => `plan-step-${String(index)}`
+        );
         const operations = createOperations({
-            loadBlueprintChildIds: vi.fn(() => Promise.resolve(ids)),
+            loadBlueprintPlanChildIds: vi.fn(() => Promise.resolve(ids)),
         });
 
         await executeHistoricalRetentionBatch(operations, {
             cutoff,
             now,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
         });
 
         expect(operations.deleteBlueprintChildIds).toHaveBeenCalledWith(
-            'blueprint-actions',
+            'blueprint-plan-steps',
             ids.slice(0, historicalRetentionBatchSize)
         );
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-actions',
-            runId: 'run-old',
+            phase: 'blueprint-plan-steps',
+            planId: 'plan-old',
         });
     });
 });
@@ -369,19 +366,19 @@ function createOperations(
     overrides: Partial<HistoricalRetentionOperations> = {}
 ): HistoricalRetentionOperations & Record<keyof HistoricalRetentionOperations, ReturnType<typeof vi.fn>> {
     const operations = {
-        claimExpiredRun: vi.fn(() => Promise.resolve(true)),
+        claimExpiredPlan: vi.fn(() => Promise.resolve(true)),
         deleteAuditEventIds: vi.fn(() => Promise.resolve()),
         deleteBlueprintChildIds: vi.fn(() => Promise.resolve()),
-        deleteExecution: vi.fn(() => Promise.resolve()),
         deleteRun: vi.fn(() => Promise.resolve()),
-        findRemainingRunPhase: vi.fn(() => Promise.resolve(null)),
-        hasProtectedExecution: vi.fn(() => Promise.resolve(false)),
-        loadAttemptIds: vi.fn(() => Promise.resolve([])),
-        loadBlueprintChildIds: vi.fn(() => Promise.resolve([])),
+        deletePlan: vi.fn(() => Promise.resolve()),
+        findRemainingPlanPhase: vi.fn(() => Promise.resolve(null)),
+        hasProtectedRun: vi.fn(() => Promise.resolve(false)),
+        loadRunStepAttemptIds: vi.fn(() => Promise.resolve([])),
+        loadBlueprintPlanChildIds: vi.fn(() => Promise.resolve([])),
         loadExpiredAuditEventIds: vi.fn(() => Promise.resolve([])),
-        loadFirstExecution: vi.fn(() => Promise.resolve(null)),
-        loadNextExpiredRun: vi.fn(() => Promise.resolve({ continueCursor: 'end', isDone: true, runId: null })),
-        loadRunState: vi.fn(() => Promise.resolve({ status: 'stale', updatedAt: oldRunUpdatedAt })),
+        loadFirstRun: vi.fn(() => Promise.resolve(null)),
+        loadNextExpiredPlan: vi.fn(() => Promise.resolve({ continueCursor: 'end', isDone: true, planId: null })),
+        loadPlanState: vi.fn(() => Promise.resolve({ status: 'obsolete', updatedAt: oldRunUpdatedAt })),
         schedule: vi.fn(() => Promise.resolve()),
         ...overrides,
     };

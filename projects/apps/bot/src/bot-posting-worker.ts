@@ -30,8 +30,9 @@ const postableChannelTypes = new Set([0]);
 
 export async function runNextDashboardPostingOperation(
     context: BotFeatureHandlerContext,
-    options: { leaseOwner: string; now?: Date }
+    options: { leaseOwner: string; now?: Date; signal?: AbortSignal }
 ): Promise<DashboardPostingWorkerResult> {
+    if (options.signal?.aborted) return { errorCode: 'worker_aborted', operationId: 'unknown', status: 'deferred' };
     const now = options.now ?? new Date();
     const leaseId = randomUUID();
     const claim = await claimNextDashboardPostingOperation(context.db, {
@@ -44,6 +45,7 @@ export async function runNextDashboardPostingOperation(
     if (!claim.value) return { status: 'idle' };
 
     const operation = claim.value;
+    if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
     if (operation.externalMessageId && operation.externalChannelId) {
         return finalizeSent(context, operation, leaseId, now);
     }
@@ -55,11 +57,13 @@ export async function runNextDashboardPostingOperation(
     if (payload.isErr()) return fail(context, operation, leaseId, now, 'invalid_persisted_payload');
 
     const runnable = await isDashboardPostingGuildRunnable(context.db, { guildId: operation.guildId });
+    if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
     if (runnable.isErr()) return defer(context, operation, leaseId, now, 'scope_check_failed');
     if (!runnable.value) return fail(context, operation, leaseId, now, 'guild_out_of_scope');
 
     const platform = createFluxerPlatform(context.client);
     const structure = await platform.guildStructure.read({ guildId: operation.guildId });
+    if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
     if (structure.isErr()) {
         return structure.error.type === 'missing-input'
             ? fail(context, operation, leaseId, now, 'guild_preflight_invalid')
@@ -79,23 +83,28 @@ export async function runNextDashboardPostingOperation(
         return { errorCode: 'send_start_persistence_failed', operationId: operation.id, status: 'deferred' };
     }
 
-    const sent = await platform.messages.send({
-        allowedMentions: { parse: [] },
-        channelId: operation.requestedChannelId,
-        ...(payload.value.content ? { content: payload.value.content } : {}),
-        ...(payload.value.embeds.length > 0
-            ? { embeds: payload.value.embeds as Parameters<typeof platform.messages.send>[0]['embeds'] }
-            : {}),
-    });
-    if (sent.isErr()) {
-        await markDashboardPostingOperationUnknown(context.db, {
-            ...(channel.name ? { channelName: channel.name } : {}),
-            errorCode: 'send_outcome_unknown',
+    if (options.signal?.aborted) {
+        return markUnknown(context, operation, leaseId, channel.name ?? undefined, 'worker_deadline_after_send_start');
+    }
+
+    const sent = await waitForProviderSend(
+        platform.messages.sendDashboard({
+            channelId: operation.requestedChannelId,
+            message: payload.value,
+        }),
+        options.signal
+    );
+    if (sent === 'aborted') {
+        return markUnknown(
+            context,
+            operation,
             leaseId,
-            now: new Date(),
-            operationId: operation.id,
-        });
-        return { errorCode: 'send_outcome_unknown', operationId: operation.id, status: 'unknown' };
+            channel.name ?? undefined,
+            'send_outcome_unknown_after_deadline'
+        );
+    }
+    if (sent.isErr()) {
+        return markUnknown(context, operation, leaseId, channel.name ?? undefined, 'send_outcome_unknown');
     }
 
     const persisted = await persistExternalMessage(context, operation, leaseId, sent.value);
@@ -111,6 +120,44 @@ export async function runNextDashboardPostingOperation(
     }
 
     return finalizeSent(context, persisted, leaseId, new Date(), channel.name ?? undefined);
+}
+
+async function waitForProviderSend<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | 'aborted'> {
+    if (!signal) return promise;
+    if (signal.aborted) {
+        void promise.catch(() => undefined);
+        return 'aborted';
+    }
+    let removeAbortListener: () => void = () => undefined;
+    const aborted = new Promise<'aborted'>((resolve) => {
+        const onAbort = () => resolve('aborted');
+        signal.addEventListener('abort', onAbort, { once: true });
+        removeAbortListener = () => signal.removeEventListener('abort', onAbort);
+    });
+    try {
+        const result = await Promise.race([promise, aborted]);
+        if (result === 'aborted') void promise.catch(() => undefined);
+        return result;
+    } finally {
+        removeAbortListener();
+    }
+}
+
+async function markUnknown(
+    context: BotFeatureHandlerContext,
+    operation: DashboardPostingOperationWorkerRecord,
+    leaseId: string,
+    channelName: string | undefined,
+    errorCode: string
+): Promise<DashboardPostingWorkerResult> {
+    await markDashboardPostingOperationUnknown(context.db, {
+        ...(channelName ? { channelName } : {}),
+        errorCode,
+        leaseId,
+        now: new Date(),
+        operationId: operation.id,
+    });
+    return { errorCode, operationId: operation.id, status: 'unknown' };
 }
 
 async function persistExternalMessage(

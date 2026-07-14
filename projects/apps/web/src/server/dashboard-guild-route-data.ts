@@ -1,5 +1,7 @@
 import { redirect } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
+import { parseOutgoingMessage } from '@neonflux/messaging';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 
 import type {
     DashboardCommandPrefixUpdateResult,
@@ -13,6 +15,7 @@ import type {
     DashboardPostMessageResult,
     DashboardPostingChannelsResult,
     DashboardPostingOperationsResult,
+    DashboardPostingUnknownResolutionResult,
 } from './dashboard-posting.server.js';
 import type { DashboardGuildOverviewResult } from './dashboard-overview.server.js';
 
@@ -52,8 +55,15 @@ type DashboardPostMessageRouteInput = {
     guildId: string;
     channelId: string;
     content?: string;
-    embeds?: unknown[];
+    embeds?: OutgoingEmbed[];
     requestKey: string;
+    retryOfOperationId?: string;
+};
+
+type DashboardPostingUnknownResolutionRouteInput = {
+    guildId: string;
+    operationId: string;
+    resolution: 'reported_not_seen' | 'reported_seen';
 };
 
 type DashboardAuditEventsRouteInput = {
@@ -216,6 +226,16 @@ export const postDashboardMessageRouteData = createServerFn({ method: 'POST' })
         return postDashboardGuildMessage(getRequest(), data);
     });
 
+export const resolveDashboardPostingUnknownRouteData = createServerFn({ method: 'POST' })
+    .validator(validateDashboardPostingUnknownResolutionRouteInput)
+    .handler(async ({ data }): Promise<DashboardPostingUnknownResolutionResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { resolveDashboardGuildPostingUnknown } = await import('./dashboard-posting.server.js');
+
+        setResponseHeader('Cache-Control', 'no-store');
+        return resolveDashboardGuildPostingUnknown(getRequest(), data);
+    });
+
 export const readDashboardPostingOperationsRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
     .handler(async ({ data }): Promise<DashboardPostingOperationsResult> => {
@@ -329,13 +349,36 @@ function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMe
     const content = payload.content;
     const embeds = payload.embeds;
     const requestKey = payload.requestKey;
+    const retryOfOperationId = payload.retryOfOperationId;
+    const message = parseOutgoingMessage({
+        ...(typeof content === 'string' ? { content } : {}),
+        embeds: Array.isArray(embeds) ? embeds : [],
+    });
 
     return {
         guildId: typeof guildId === 'string' ? guildId : '',
         channelId: typeof channelId === 'string' ? channelId : '',
-        ...(typeof content === 'string' ? { content } : {}),
-        ...(Array.isArray(embeds) ? { embeds } : {}),
+        ...(message.isOk() && message.value.content ? { content: message.value.content } : {}),
+        ...(message.isOk() ? { embeds: message.value.embeds } : {}),
         requestKey: typeof requestKey === 'string' ? requestKey : '',
+        ...(typeof retryOfOperationId === 'string' ? { retryOfOperationId } : {}),
+    };
+}
+
+function validateDashboardPostingUnknownResolutionRouteInput(
+    input: unknown
+): DashboardPostingUnknownResolutionRouteInput {
+    if (!input || typeof input !== 'object') {
+        throw new Error('Invalid posting resolution input.');
+    }
+    const payload = input as Record<string, unknown>;
+    if (payload.resolution !== 'reported_seen' && payload.resolution !== 'reported_not_seen') {
+        throw new Error('Invalid posting resolution input.');
+    }
+    return {
+        guildId: typeof payload.guildId === 'string' ? payload.guildId : '',
+        operationId: typeof payload.operationId === 'string' ? payload.operationId : '',
+        resolution: payload.resolution,
     };
 }
 

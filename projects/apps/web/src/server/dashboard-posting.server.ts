@@ -7,8 +7,11 @@ import {
     listBotActionEventPageByGuildId,
     listDashboardPostingOperationsByGuild,
     normalizeDashboardPostingPayload as normalizeDashboardPostingPayloadForQueue,
+    resolveDashboardPostingOperationUnknown,
 } from '@neonflux/db';
 import type { BotActionEventSearchScope, DashboardPostingOperationRecord } from '@neonflux/db';
+import { parseOutgoingMessage, serializeDashboardPostingPayload } from '@neonflux/messaging';
+import type { DashboardPostingOperationResolution, OutgoingEmbed, OutgoingMessage } from '@neonflux/messaging';
 import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
@@ -23,8 +26,9 @@ export type DashboardPostMessageInput = {
     guildId: string;
     channelId: string;
     content?: string;
-    embeds?: unknown[];
+    embeds?: OutgoingEmbed[];
     requestKey: string;
+    retryOfOperationId?: string;
 };
 
 export type DashboardPostingChannel = {
@@ -63,9 +67,14 @@ export type DashboardPostingOperation = {
     createdAt: string;
     embedCount: number;
     errorCode?: string;
+    followupOperationId?: string;
     messageId?: string;
     requestKey: string;
     requestedChannelId: string;
+    resolution?: DashboardPostingOperationResolution;
+    resolvedAt?: string;
+    resolvedByUserId?: string;
+    retryOfOperationId?: string;
     sentChannelId?: string;
     status: DashboardPostingOperationRecord['status'];
     updatedAt: string;
@@ -126,9 +135,17 @@ type DashboardGuildPageErrorResult =
 
 type NormalizedPostMessagePayload = {
     channelId: string;
-    content?: string;
-    embeds: unknown[];
+    message: OutgoingMessage;
 };
+
+export type DashboardPostingUnknownResolutionResult =
+    | { type: 'resolved'; operation: DashboardPostingOperation }
+    | { type: 'resolution-conflict' }
+    | { type: 'auth-required' }
+    | { type: 'not-found' }
+    | { type: 'deployment-config-not-found' }
+    | { type: 'database-error' }
+    | { type: 'guild-lookup-failed' };
 
 type DashboardAuditEventsInput = {
     guildId: string;
@@ -164,13 +181,16 @@ export async function postDashboardGuildMessage(
         return payloadResult;
     }
 
-    const queuePayload = normalizeDashboardPostingPayloadForQueue(payloadResult.payload);
+    const queuePayload = normalizeDashboardPostingPayloadForQueue(payloadResult.payload.message);
     if (queuePayload.isErr()) {
-        return { type: 'invalid-message', message: 'Message content and embeds must be valid JSON under 128 KiB.' };
+        return {
+            type: 'invalid-message',
+            message: 'Message content or embed fields are invalid or exceed the supported limits.',
+        };
     }
     const payload: NormalizedPostMessagePayload = {
         channelId: payloadResult.payload.channelId,
-        ...queuePayload.value,
+        message: queuePayload.value,
     };
     const requestKey = input.requestKey.trim();
 
@@ -185,12 +205,13 @@ export async function postDashboardGuildMessage(
         ...(actorProfile?.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
         ...(actorProfile?.username ? { actorUsername: actorProfile.username } : {}),
         actorUserId: authContextResult.value.fluxerUserId,
-        ...(payload.content ? { content: payload.content } : {}),
-        embeds: payload.embeds,
+        ...(payload.message.content ? { content: payload.message.content } : {}),
+        embeds: payload.message.embeds,
         guildId: guildPageData.guild.id,
         payloadHash,
         requestKey,
         requestedChannelId: payload.channelId,
+        ...(input.retryOfOperationId ? { retryOfOperationId: input.retryOfOperationId } : {}),
     });
 
     if (enqueueResult.isErr()) {
@@ -202,14 +223,38 @@ export async function postDashboardGuildMessage(
 
 function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): string {
     return createHash('sha256')
-        .update(
-            JSON.stringify({
-                channelId: payload.channelId,
-                content: payload.content ?? null,
-                embeds: payload.embeds,
-            })
-        )
+        .update(serializeDashboardPostingPayload(payload.channelId, payload.message))
         .digest('hex');
+}
+
+export async function resolveDashboardGuildPostingUnknown(
+    request: Request,
+    input: {
+        guildId: string;
+        operationId: string;
+        resolution: Exclude<DashboardPostingOperationResolution, 'duplicate_risk_accepted'>;
+    }
+): Promise<DashboardPostingUnknownResolutionResult> {
+    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
+    if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
+    const authContextResult = await readAuthenticatedFluxerContext(request);
+    if (authContextResult.isErr()) {
+        return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
+    }
+    const actorProfile = await resolveAuthenticatedActorProfile(authContextResult.value);
+    const database = await getWebDb();
+    const result = await resolveDashboardPostingOperationUnknown(database.db, {
+        ...(actorProfile?.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
+        ...(actorProfile?.username ? { actorUsername: actorProfile.username } : {}),
+        actorUserId: authContextResult.value.fluxerUserId,
+        guildId: guildPageData.guild.id,
+        operationId: input.operationId,
+        resolution: input.resolution,
+    });
+    if (result.isErr()) {
+        return result.error.type === 'conflict' ? { type: 'resolution-conflict' } : { type: 'database-error' };
+    }
+    return { type: 'resolved', operation: toDashboardPostingOperation(result.value) };
 }
 
 export async function loadDashboardGuildAuditEventsPage(
@@ -295,8 +340,6 @@ function normalizePostMessagePayload(
     input: DashboardPostMessageInput
 ): { type: 'valid'; payload: NormalizedPostMessagePayload } | { type: 'invalid-message'; message: string } {
     const channelId = input.channelId.trim();
-    const content = input.content?.trim();
-    const embeds = input.embeds ?? [];
 
     if (!channelId) {
         return {
@@ -305,26 +348,17 @@ function normalizePostMessagePayload(
         };
     }
 
-    if (!Array.isArray(embeds) || !embeds.every(isEmbedObject)) {
-        return {
-            type: 'invalid-message',
-            message: 'Embed JSON must be an array of embed objects.',
-        };
-    }
-
-    if (!content && embeds.length === 0) {
-        return {
-            type: 'invalid-message',
-            message: 'Add message content or at least one embed.',
-        };
-    }
+    const message = parseOutgoingMessage({
+        ...(input.content === undefined ? {} : { content: input.content }),
+        embeds: input.embeds ?? [],
+    });
+    if (message.isErr()) return { type: 'invalid-message', message: describeOutgoingMessageError(message.error.code) };
 
     return {
         type: 'valid',
         payload: {
             channelId,
-            ...(content ? { content } : {}),
-            embeds,
+            message: message.value,
         },
     };
 }
@@ -471,9 +505,14 @@ function toDashboardPostingOperation(operation: DashboardPostingOperationRecord)
         createdAt: operation.createdAt.toISOString(),
         embedCount: operation.embedCount,
         ...(operation.errorCode ? { errorCode: operation.errorCode } : {}),
+        ...(operation.followupOperationId ? { followupOperationId: operation.followupOperationId } : {}),
         ...(operation.messageId ? { messageId: operation.messageId } : {}),
         requestKey: operation.requestKey,
         requestedChannelId: operation.requestedChannelId,
+        ...(operation.resolution ? { resolution: operation.resolution } : {}),
+        ...(operation.resolvedAt ? { resolvedAt: operation.resolvedAt.toISOString() } : {}),
+        ...(operation.resolvedByUserId ? { resolvedByUserId: operation.resolvedByUserId } : {}),
+        ...(operation.retryOfOperationId ? { retryOfOperationId: operation.retryOfOperationId } : {}),
         ...(operation.sentChannelId ? { sentChannelId: operation.sentChannelId } : {}),
         status: operation.status,
         updatedAt: operation.updatedAt.toISOString(),
@@ -491,8 +530,17 @@ function compareDashboardPostingChannels(left: DashboardPostingChannel, right: D
     return (left.position ?? 0) - (right.position ?? 0) || left.name.localeCompare(right.name);
 }
 
-function isEmbedObject(embed: unknown): embed is Record<string, unknown> {
-    return typeof embed === 'object' && embed !== null && !Array.isArray(embed);
+function describeOutgoingMessageError(code: string): string {
+    switch (code) {
+        case 'empty-message':
+            return 'Add message content or at least one embed.';
+        case 'too-long':
+        case 'too-many':
+        case 'payload-too-large':
+            return 'The message exceeds the supported Fluxer message or embed limits.';
+        default:
+            return 'The message contains an unsupported or invalid embed value.';
+    }
 }
 
 function toDashboardAuditMetadata(metadata: Record<string, unknown>): DashboardAuditMetadata {

@@ -19,7 +19,7 @@ const BOT_FEATURE_MODULES = [
     },
     plannedModule('posting', 170, [], []),
     {
-        id: 'import_export',
+        id: 'blueprint',
         order: 220,
         commands: [],
         eventTypes: [

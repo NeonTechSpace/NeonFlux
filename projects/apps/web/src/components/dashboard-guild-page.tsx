@@ -302,7 +302,7 @@ function DashboardGuildView({
     const pendingCategoryId = sameGuildPendingPathname
         ? getDashboardCategoryIdFromPathname(data.guild.id, sameGuildPendingPathname)
         : undefined;
-    const preservesStructureRuntime = activeCategoryId === 'structure' && pendingCategoryId === 'structure';
+    const preservesBlueprintRuntime = activeCategoryId === 'blueprint' && pendingCategoryId === 'blueprint';
 
     return (
         <DashboardGuildFrame
@@ -314,7 +314,7 @@ function DashboardGuildView({
             botInviteUrl={catalog?.botInviteUrl ?? data.botInviteUrl}
             isLoading={Boolean(sameGuildPendingPathname)}>
             <DashboardGuildDataProvider data={data}>
-                {pendingCategoryId && !preservesStructureRuntime ? (
+                {pendingCategoryId && !preservesBlueprintRuntime ? (
                     <DashboardPendingCategory
                         activeCategoryId={pendingCategoryId}
                         pathname={sameGuildPendingPathname}

@@ -13,7 +13,7 @@ type BotStructureObservedEvent = Extract<
 export type BotStructureObserverResult =
     | {
           status: 'recorded';
-          action: 'event.import_export.structure_observed';
+          action: 'event.blueprint.structure_observed';
       }
     | { status: 'ignored'; reason: 'no-feature-handler' };
 
@@ -39,7 +39,7 @@ export async function recordObservedStructureEvent(
 
     return ok({
         status: 'recorded',
-        action: 'event.import_export.structure_observed',
+        action: 'event.blueprint.structure_observed',
     });
 }
 

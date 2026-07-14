@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 import type { CSSProperties } from 'react';
 
 import { dashboardInlineVariants, dashboardViewTransition } from './dashboard-motion.js';
@@ -6,13 +7,12 @@ import { DashboardSurface } from './dashboard-ui.js';
 
 type DashboardPostingPreviewProps = {
     content: string;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
 };
 
 export function DashboardPostingPreview({ content, embeds }: DashboardPostingPreviewProps) {
     const trimmedContent = content.trim();
-    const previewEmbeds = embeds.filter(isRecord);
-    const previewEmbedItems = toPreviewEmbedItems(previewEmbeds);
+    const previewEmbedItems = toPreviewEmbedItems(embeds);
 
     return (
         <DashboardSurface as='section' tone='glass' className='space-y-4' aria-label='Message preview'>
@@ -66,20 +66,18 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
     );
 }
 
-function DashboardEmbedPreview({ embed }: { embed: Record<string, unknown> }) {
+function DashboardEmbedPreview({ embed }: { embed: OutgoingEmbed }) {
     const color = getEmbedColor(embed);
-    const author = readRecord(embed, 'author');
-    const authorName = author ? readString(author, 'name') : undefined;
-    const authorIconUrl = author ? readString(author, 'icon_url') : undefined;
-    const title = readString(embed, 'title');
-    const titleUrl = readString(embed, 'url');
-    const description = readString(embed, 'description');
-    const thumbnailUrl = readRecordString(embed, 'thumbnail', 'url');
-    const imageUrl = readRecordString(embed, 'image', 'url');
-    const footer = readRecord(embed, 'footer');
-    const footerText = footer ? readString(footer, 'text') : undefined;
-    const footerIconUrl = footer ? readString(footer, 'icon_url') : undefined;
-    const timestamp = readString(embed, 'timestamp');
+    const authorName = embed.author?.name;
+    const authorIconUrl = embed.author?.iconUrl;
+    const title = embed.title;
+    const titleUrl = embed.url;
+    const description = embed.description;
+    const thumbnailUrl = embed.thumbnailUrl;
+    const imageUrl = embed.imageUrl;
+    const footerText = embed.footer?.text;
+    const footerIconUrl = embed.footer?.iconUrl;
+    const timestamp = embed.timestamp;
     const embedStyle: CSSProperties = {
         borderLeftColor: color,
         borderLeftWidth: '4px',
@@ -161,9 +159,7 @@ function DashboardEmbedPreview({ embed }: { embed: Record<string, unknown> }) {
     );
 }
 
-function toPreviewEmbedItems(
-    embeds: Array<Record<string, unknown>>
-): Array<{ key: string; embed: Record<string, unknown> }> {
+function toPreviewEmbedItems(embeds: OutgoingEmbed[]): Array<{ key: string; embed: OutgoingEmbed }> {
     const keyCounts = new Map<string, number>();
 
     return embeds.map((embed) => {
@@ -178,15 +174,11 @@ function toPreviewEmbedItems(
     });
 }
 
-function getEmbedPreviewBaseKey(embed: Record<string, unknown>): string {
-    const title = readString(embed, 'title');
-    const description = readString(embed, 'description');
-    const timestamp = readString(embed, 'timestamp');
-
-    return JSON.stringify({ title, description, timestamp, embed });
+function getEmbedPreviewBaseKey(embed: OutgoingEmbed): string {
+    return JSON.stringify({ title: embed.title, description: embed.description, timestamp: embed.timestamp, embed });
 }
 
-function getEmbedColor(embed: Record<string, unknown>): string {
+function getEmbedColor(embed: OutgoingEmbed): string {
     const color = embed.color;
 
     if (typeof color !== 'number' || !Number.isInteger(color) || color < 0 || color > 0xffffff) {
@@ -194,24 +186,6 @@ function getEmbedColor(embed: Record<string, unknown>): string {
     }
 
     return `#${color.toString(16).padStart(6, '0')}`;
-}
-
-function readRecord(value: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
-    const childValue = value[key];
-
-    return isRecord(childValue) ? childValue : undefined;
-}
-
-function readRecordString(value: Record<string, unknown>, key: string, childKey: string): string | undefined {
-    const childValue = readRecord(value, key);
-
-    return childValue ? readString(childValue, childKey) : undefined;
-}
-
-function readString(value: Record<string, unknown>, key: string): string | undefined {
-    const childValue = value[key];
-
-    return typeof childValue === 'string' && childValue.trim() ? childValue.trim() : undefined;
 }
 
 function formatPreviewTimestamp(value: string): string {
@@ -222,8 +196,4 @@ function formatPreviewTimestamp(value: string): string {
     }
 
     return date.toLocaleString();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

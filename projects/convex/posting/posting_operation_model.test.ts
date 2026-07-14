@@ -5,15 +5,12 @@ import { hasActiveDashboardPostingOperationLease } from './posting_operation_wor
 import { selectPrunableDashboardPostingOperations } from './posting_operations.js';
 
 describe('dashboard posting operation model', () => {
-    it('normalizes JSON without allowing __proto__ to mutate the output prototype', () => {
+    it('rejects unknown embed fields instead of persisting provider escape hatches', () => {
         const embed = JSON.parse('{"__proto__":{"polluted":true},"title":"Safe"}') as Record<string, unknown>;
 
-        const payload = normalizeDashboardPostingPayload({ embeds: [embed] });
-        const normalized = payload.embeds[0] as Record<string, unknown>;
-
-        expect(Object.getPrototypeOf(normalized)).toBe(Object.prototype);
-        expect(Object.hasOwn(normalized, '__proto__')).toBe(true);
-        expect(normalized.__proto__).toStrictEqual({ polluted: true });
+        expect(() => normalizeDashboardPostingPayload({ embeds: [embed] })).toThrow(
+            'posting-message-invalid:unknown-field:message.embeds.0.__proto__'
+        );
         expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
     });
 

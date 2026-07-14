@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    deriveFluxerBotGuildStructureCursorAuthority,
-    validateFluxerBotGuildStructureActionReferences,
-} from './guild-structure-apply-validation.js';
+    deriveBlueprintCursorAuthority,
+    validateBlueprintActionReferences,
+} from '@neonflux/blueprint/action-authority';
 
 describe('structure apply reference validation', () => {
     it('blocks the whole batch when a later order action has an unresolved source identity', () => {
-        const result = validateFluxerBotGuildStructureActionReferences({
+        const result = validateBlueprintActionReferences({
             guildId: 'target-guild',
             knownTargetKinds: { 'target-guild': 'role', 'target-role': 'role' },
             actions: [
@@ -35,7 +35,7 @@ describe('structure apply reference validation', () => {
     });
 
     it('allows later parent, role-overwrite, and order references owned by earlier creates', () => {
-        const result = validateFluxerBotGuildStructureActionReferences({
+        const result = validateBlueprintActionReferences({
             guildId: 'target-guild',
             knownTargetKinds: { 'target-guild': 'role' },
             actions: [
@@ -100,7 +100,7 @@ describe('structure apply reference validation', () => {
 
     it('rejects unknown direct targets and blank overwrite identities', () => {
         expect(
-            validateFluxerBotGuildStructureActionReferences({
+            validateBlueprintActionReferences({
                 guildId: 'target-guild',
                 knownTargetKinds: { 'target-guild': 'role' },
                 actions: [
@@ -120,7 +120,7 @@ describe('structure apply reference validation', () => {
         });
 
         expect(
-            validateFluxerBotGuildStructureActionReferences({
+            validateBlueprintActionReferences({
                 guildId: 'target-guild',
                 knownTargetKinds: { 'target-guild': 'role' },
                 actions: [
@@ -143,7 +143,7 @@ describe('structure apply reference validation', () => {
 
     it('treats the target guild id as the @everyone role for role overwrites', () => {
         expect(
-            validateFluxerBotGuildStructureActionReferences({
+            validateBlueprintActionReferences({
                 actions: [
                     {
                         id: 'update-everyone-overwrite',
@@ -184,10 +184,10 @@ describe('structure apply reference validation', () => {
         ];
 
         expect(
-            deriveFluxerBotGuildStructureCursorAuthority({
+            deriveBlueprintCursorAuthority({
                 actions,
                 cursor: 2,
-                executionIdMap: { 'source-channel': 'new-target-channel' },
+                runIdMap: { 'source-channel': 'new-target-channel' },
                 guildId: 'target-guild',
                 initialIdMap: { 'source-channel': 'old-target-channel' },
                 knownTargetKinds: { 'old-target-channel': 'channel', 'target-guild': 'role' },
@@ -201,7 +201,7 @@ describe('structure apply reference validation', () => {
 
     it('rejects a resumed suffix that references a target deleted by the completed prefix', () => {
         expect(
-            deriveFluxerBotGuildStructureCursorAuthority({
+            deriveBlueprintCursorAuthority({
                 actions: [
                     {
                         id: 'delete-channel',
@@ -218,7 +218,7 @@ describe('structure apply reference validation', () => {
                     },
                 ],
                 cursor: 1,
-                executionIdMap: { 'source-channel': 'target-channel' },
+                runIdMap: { 'source-channel': 'target-channel' },
                 guildId: 'target-guild',
                 initialIdMap: { 'source-channel': 'target-channel' },
                 knownTargetKinds: { 'target-channel': 'channel', 'target-guild': 'role' },

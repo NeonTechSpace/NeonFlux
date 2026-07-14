@@ -2,6 +2,10 @@ import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
 import { optionalString, optionalTimestamp, timestamp } from '../shared.js';
+import {
+    dashboardPostingOperationResolutionValidator,
+    outgoingEmbedValidator,
+} from '../../posting/message_validators.js';
 
 export const dashboardPostingOperationsTable = defineTable({
     actorDisplayName: optionalString,
@@ -11,12 +15,13 @@ export const dashboardPostingOperationsTable = defineTable({
     content: v.optional(v.string()),
     contentLength: v.optional(v.number()),
     createdAt: timestamp,
-    embeds: v.optional(v.array(v.any())),
+    embeds: v.optional(v.array(outgoingEmbedValidator)),
     embedCount: v.optional(v.number()),
     errorCode: optionalString,
     expiresAt: optionalTimestamp,
     externalChannelId: optionalString,
     externalMessageId: optionalString,
+    followupOperationId: optionalString,
     guildId: v.string(),
     leaseExpiresAt: optionalTimestamp,
     leaseId: optionalString,
@@ -26,6 +31,10 @@ export const dashboardPostingOperationsTable = defineTable({
     payloadHash: v.string(),
     requestKey: v.string(),
     requestedChannelId: v.string(),
+    resolution: v.optional(dashboardPostingOperationResolutionValidator),
+    resolvedAt: optionalTimestamp,
+    resolvedByUserId: optionalString,
+    retryOfOperationId: optionalString,
     sendStartedAt: optionalTimestamp,
     sentChannelId: v.optional(v.string()),
     status: v.union(

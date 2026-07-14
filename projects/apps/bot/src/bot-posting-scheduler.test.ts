@@ -38,6 +38,83 @@ describe('dashboard posting scheduler', () => {
         expect(error).toHaveBeenCalledWith('posting.worker_failed', { errorType: 'Error' });
         await scheduler.stop();
     });
+
+    it('aborts an overdue item and stops the current drain', async () => {
+        const error = vi.fn();
+        let observedSignal: AbortSignal | undefined;
+        vi.mocked(runNextDashboardPostingOperation).mockImplementation((_context, options) => {
+            observedSignal = options.signal;
+            return new Promise((resolve) => {
+                options.signal?.addEventListener(
+                    'abort',
+                    () => resolve({ errorCode: 'worker_aborted', operationId: 'unknown', status: 'deferred' }),
+                    { once: true }
+                );
+            });
+        });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            itemDeadlineMs: 5,
+            logger: { error } as never,
+        });
+
+        await vi.waitFor(() => expect(error).toHaveBeenCalledWith('posting.worker_deadline_exceeded', {}));
+        expect(observedSignal?.aborted).toBe(true);
+        expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1);
+        await scheduler.stop();
+    });
+
+    it('observes a late rejection after the deadline without an unhandled rejection', async () => {
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        let rejectLate: ((error: Error) => void) | undefined;
+        vi.mocked(runNextDashboardPostingOperation).mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectLate = reject;
+                })
+        );
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            itemDeadlineMs: 5,
+            logger: { error: vi.fn() } as never,
+        });
+
+        await vi.waitFor(() => expect(rejectLate).toBeTypeOf('function'));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        rejectLate?.(new Error('late provider secret'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(unhandled).not.toHaveBeenCalled();
+        process.off('unhandledRejection', unhandled);
+        await scheduler.stop();
+    });
+
+    it('aborts active work and returns from stop without waiting for an uncooperative continuation', async () => {
+        let observedSignal: AbortSignal | undefined;
+        vi.mocked(runNextDashboardPostingOperation).mockImplementation((_context, options) => {
+            observedSignal = options.signal;
+            return new Promise(() => undefined);
+        });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            itemDeadlineMs: 60_000,
+            logger: { error: vi.fn() } as never,
+            shutdownGraceMs: 5,
+        });
+        await vi.waitFor(() => expect(observedSignal).toBeDefined());
+
+        await expect(
+            Promise.race([
+                scheduler.stop().then(() => 'stopped'),
+                new Promise<string>((resolve) => setTimeout(() => resolve('hung'), 100)),
+            ])
+        ).resolves.toBe('stopped');
+        expect(observedSignal?.aborted).toBe(true);
+    });
 });
 
 function createContext(): BotFeatureHandlerContext {

@@ -9,8 +9,8 @@ import {
     getDashboardOverviewQueryKey,
     getDashboardPostingOperationsQueryKey,
     getDashboardPostingTemplatesQueryKey,
-    getDashboardStructureExecutionProgressBaseQueryKey,
-    getDashboardStructureQueryKey,
+    getDashboardBlueprintRunProgressBaseQueryKey,
+    getDashboardBlueprintQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
 import { readDashboardConvexUrl, useDashboardLive } from './dashboard-live-provider.js';
@@ -151,16 +151,12 @@ function invalidateDashboardLiveArea(
             invalidateOnce(`${destination}-operations`, getDashboardPostingOperationsQueryKey(guildId));
             return;
 
-        case 'import_export':
-            invalidateOnce(destination, getDashboardStructureQueryKey(guildId));
+        case 'blueprint':
+            invalidateOnce(destination, getDashboardBlueprintQueryKey(guildId));
             return;
 
-        case 'structure_execution':
-            invalidateOnce(destination, getDashboardStructureExecutionProgressBaseQueryKey(guildId));
-            return;
-
-        case 'structure':
-            invalidateOnce(destination, getDashboardStructureQueryKey(guildId));
+        case 'blueprint_run':
+            invalidateOnce(destination, getDashboardBlueprintRunProgressBaseQueryKey(guildId));
             return;
 
         case 'audit':
@@ -170,7 +166,7 @@ function invalidateDashboardLiveArea(
 }
 
 function dashboardLiveInvalidationDestination(area: DashboardLiveArea): string {
-    if (area === 'import_export' || area === 'structure') return 'structure';
-    if (area === 'structure_execution') return 'structure-execution-progress';
+    if (area === 'blueprint') return 'blueprint';
+    if (area === 'blueprint_run') return 'blueprint-run-progress';
     return area;
 }

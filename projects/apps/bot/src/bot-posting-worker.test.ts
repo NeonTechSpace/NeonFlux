@@ -45,7 +45,7 @@ describe('dashboard posting worker', () => {
         vi.clearAllMocks();
         vi.mocked(createFluxerPlatform).mockReturnValue({
             guildStructure: { read: readStructure },
-            messages: { send: sendMessage },
+            messages: { sendDashboard: sendMessage },
         } as unknown as ReturnType<typeof createFluxerPlatform>);
         readStructure.mockResolvedValue(
             ok({ channels: [{ id: 'channel-1', name: 'general', type: 0 }], guildId: 'guild-1', roles: [] })
@@ -57,7 +57,7 @@ describe('dashboard posting worker', () => {
         vi.mocked(readDashboardPostingOperationForWorker).mockResolvedValue(ok(null));
     });
 
-    it('marks send-start before provider I/O and disables mention parsing', async () => {
+    it('marks send-start before handing the canonical message to provider I/O', async () => {
         const operation = createOperation();
         vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(operation));
         vi.mocked(markDashboardPostingOperationSendStarted).mockResolvedValue(
@@ -77,9 +77,8 @@ describe('dashboard posting worker', () => {
         if (markedOrder === undefined || sentOrder === undefined) throw new Error('Expected mark and send calls.');
         expect(markedOrder).toBeLessThan(sentOrder);
         expect(sendMessage).toHaveBeenCalledWith({
-            allowedMentions: { parse: [] },
             channelId: 'channel-1',
-            content: 'Hello',
+            message: { content: 'Hello', embeds: [] },
         });
     });
 
@@ -158,6 +157,7 @@ function createOperation(
         errorCode: null,
         externalChannelId: null,
         externalMessageId: null,
+        followupOperationId: null,
         guildId: 'guild-1',
         id: 'operation-1',
         leaseExpiresAt: new Date('2026-07-13T12:01:00.000Z'),
@@ -167,6 +167,10 @@ function createOperation(
         nextAttemptAt: null,
         requestKey: 'request-1',
         requestedChannelId: 'channel-1',
+        resolution: null,
+        resolvedAt: null,
+        resolvedByUserId: null,
+        retryOfOperationId: null,
         sendStartedAt: null,
         sentChannelId: null,
         status: 'running',

@@ -1252,7 +1252,7 @@ describe('applyFluxerBotGuildStructureAction', () => {
         });
     });
 
-    it('applies one permission-overwrite upsert per execution action', async () => {
+    it('applies one permission-overwrite upsert per provider step', async () => {
         const editPermission = vi.fn().mockResolvedValue(undefined);
         const deletePermission = vi.fn().mockResolvedValue(undefined);
 

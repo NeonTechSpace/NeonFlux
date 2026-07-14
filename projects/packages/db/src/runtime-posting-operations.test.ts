@@ -5,17 +5,17 @@ import {
     claimNextDashboardPostingOperation,
     enqueueDashboardPostingOperation,
     normalizeDashboardPostingPayload,
+    resolveDashboardPostingOperationUnknown,
 } from './runtime-posting-operations.js';
 
 describe('dashboard posting operation runtime', () => {
-    it('normalizes JSON-safe payloads without prototype mutation', () => {
+    it('rejects unknown embed fields without prototype mutation', () => {
         const embed = JSON.parse('{"__proto__":{"polluted":true},"title":"Safe"}') as Record<string, unknown>;
 
-        const result = normalizeDashboardPostingPayload({ embeds: [embed] })._unsafeUnwrap();
-        const normalized = result.embeds[0] as Record<string, unknown>;
-
-        expect(Object.hasOwn(normalized, '__proto__')).toBe(true);
-        expect(normalized.__proto__).toStrictEqual({ polluted: true });
+        expect(normalizeDashboardPostingPayload({ embeds: [embed] })._unsafeUnwrapErr()).toStrictEqual({
+            field: 'message',
+            type: 'invalid-value',
+        });
         expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
     });
 
@@ -86,6 +86,49 @@ describe('dashboard posting operation runtime', () => {
 
         expect(result._unsafeUnwrapErr()).toStrictEqual({ field: 'requestKey', type: 'conflict' });
     });
+
+    it('serializes linked retries and converts durable unknown resolutions', async () => {
+        const db = createConvexDb([
+            { created: true, operation: { ...createConvexOperation(), retryOfOperationId: 'operation-unknown' } },
+            {
+                ...createConvexOperation(),
+                resolution: 'reported_seen',
+                resolvedAt: '2026-07-13T12:02:00.000Z',
+                resolvedByUserId: 'actor-2',
+                status: 'unknown',
+            },
+        ]);
+
+        await enqueueDashboardPostingOperation(db, {
+            actorUserId: 'actor-2',
+            content: 'Hello again',
+            guildId: 'guild-1',
+            payloadHash: 'hash-2',
+            requestKey: 'request-2',
+            requestedChannelId: 'channel-1',
+            retryOfOperationId: 'operation-unknown',
+        });
+        const resolved = await resolveDashboardPostingOperationUnknown(db, {
+            actorUserId: 'actor-2',
+            guildId: 'guild-1',
+            operationId: 'operation-unknown',
+            resolution: 'reported_seen',
+        });
+
+        expect(db.client.mutationCalls[0]?.args).toMatchObject({ retryOfOperationId: 'operation-unknown' });
+        expect(db.client.mutationCalls[1]?.args).toStrictEqual({
+            actorUserId: 'actor-2',
+            guildId: 'guild-1',
+            operationId: 'operation-unknown',
+            resolution: 'reported_seen',
+        });
+        expect(resolved._unsafeUnwrap()).toMatchObject({
+            resolution: 'reported_seen',
+            resolvedAt: new Date('2026-07-13T12:02:00.000Z'),
+            resolvedByUserId: 'actor-2',
+            status: 'unknown',
+        });
+    });
 });
 
 function createConvexOperation() {
@@ -99,12 +142,17 @@ function createConvexOperation() {
         createdAt: '2026-07-13T12:00:00.000Z',
         embedCount: 0,
         errorCode: null,
+        followupOperationId: null,
         guildId: 'guild-1',
         id: 'operation-1',
         messageId: null,
         nextAttemptAt: null,
         requestKey: 'request-1',
         requestedChannelId: 'channel-1',
+        resolution: null,
+        resolvedAt: null,
+        resolvedByUserId: null,
+        retryOfOperationId: null,
         sentChannelId: null,
         status: 'running',
         updatedAt: '2026-07-13T12:00:00.000Z',

@@ -131,9 +131,9 @@ function getAuditEventDetails(
 function getAuditTargetDetail(event: DashboardAuditEvent): { label: string; value: ReactNode } | undefined {
     if (!event.targetId) return undefined;
 
-    if (event.feature === 'import_export') {
+    if (event.feature === 'blueprint') {
         return {
-            label: getStructureAuditTargetLabel(event.action),
+            label: getBlueprintAuditTargetLabel(event.action),
             value: <MonoValue value={event.targetId} />,
         };
     }
@@ -148,22 +148,24 @@ function getAuditTargetDetail(event: DashboardAuditEvent): { label: string; valu
     return undefined;
 }
 
-function getStructureAuditTargetLabel(action: string): string {
-    if (action === 'structure.backup_restore_point_created' || action.startsWith('structure.import_')) {
-        return 'Import run';
+function getBlueprintAuditTargetLabel(action: string): string {
+    if (action === 'blueprint.backup_restore_point_created' || action.startsWith('blueprint.plan_')) {
+        return 'Blueprint plan';
     }
 
     if (
-        action === 'structure.backup_settings_updated' ||
-        action === 'structure.backup_retention_pruned' ||
-        action.startsWith('structure.scheduled_drift_')
+        action === 'blueprint.backup_settings_updated' ||
+        action === 'blueprint.backup_retention_pruned' ||
+        action.startsWith('blueprint.scheduled_drift_')
     ) {
         return 'Guild/settings target';
     }
 
-    if (action.startsWith('structure.backup_')) {
+    if (action.startsWith('blueprint.backup_')) {
         return 'Backup target';
     }
+
+    if (action.startsWith('blueprint.run_')) return 'Blueprint run';
 
     return 'Target';
 }
@@ -176,11 +178,13 @@ function getAuditMetadataDetails(event: DashboardAuditEvent) {
         formatMetadataDetail('Source', metadata.source),
     ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
 
-    if (event.feature !== 'import_export') return baseDetails;
+    if (event.feature !== 'blueprint') return baseDetails;
+
+    const isDriftEvent = event.action.startsWith('blueprint.scheduled_drift_');
 
     return [
         ...baseDetails,
-        formatMetadataDetail('Actions', metadata.actionCount),
+        formatMetadataDetail(isDriftEvent ? 'Drift changes' : 'Plan steps', metadata.changeCount),
         formatMetadataDetail('Creates', metadata.createCount),
         formatMetadataDetail('Updates', metadata.updateCount),
         formatMetadataDetail('Deletes', metadata.deleteCount),
@@ -190,8 +194,7 @@ function getAuditMetadataDetails(event: DashboardAuditEvent) {
         formatMetadataDetail('Backup source', metadata.backupSource),
         formatMetadataDetail('Restore point', metadata.restorePointBackupId),
         formatMetadataDetail('Retention deleted', metadata.deletedCount),
-        formatMetadataDetail('Drift status', metadata.status),
-        formatMetadataDetail('Drift changes', metadata.changeCount),
+        formatMetadataDetail('Drift status', isDriftEvent ? metadata.status : undefined),
     ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
 }
 

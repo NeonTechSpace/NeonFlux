@@ -6,7 +6,7 @@ import {
     assertConvexRuntimeContract,
     CONVEX_RUNTIME_CONTRACT_TIMEOUT_MS,
     ConvexRuntimeContractError,
-    STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+    BLUEPRINT_RUN_PROTOCOL_VERSION,
 } from './runtime-contract.js';
 
 afterEach(() => {
@@ -15,9 +15,9 @@ afterEach(() => {
 });
 
 describe('Convex runtime contract', () => {
-    it('accepts the exact deployed execution protocol', async () => {
+    it('accepts the exact deployed run protocol', async () => {
         const client = createClient({
-            structureExecutionProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+            blueprintRunProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         });
 
         await expect(assertConvexRuntimeContract(client)).resolves.toBeUndefined();
@@ -32,8 +32,8 @@ describe('Convex runtime contract', () => {
         expect(error).toMatchObject({ reason: 'unavailable' });
     });
 
-    it('fails closed when consumers and Convex use different execution protocols', async () => {
-        const client = createClient({ structureExecutionProtocolVersion: 999 });
+    it('fails closed when consumers and Convex use different run protocols', async () => {
+        const client = createClient({ blueprintRunProtocolVersion: 999 });
 
         const error = await assertConvexRuntimeContract(client).catch((cause: unknown) => cause);
 
@@ -62,7 +62,7 @@ describe('Convex runtime contract', () => {
     });
 });
 
-function createClient(result: Error | { structureExecutionProtocolVersion: number }): ConvexServiceDbClient {
+function createClient(result: Error | { blueprintRunProtocolVersion: number }): ConvexServiceDbClient {
     return {
         client: {
             query: result instanceof Error ? vi.fn().mockRejectedValue(result) : vi.fn().mockResolvedValue(result),

@@ -3,7 +3,9 @@ import { v, type GenericId } from 'convex/values';
 import { requireNeonFluxService } from '../auth.js';
 import { internal } from '../_generated/api.js';
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+import { recordBotActionEventInMutation } from '../core/events.js';
 import { requireGuildDocument } from './posting.js';
+import { dashboardPostingOperationResolutionValidator, outgoingEmbedValidator } from './message_validators.js';
 import {
     dashboardPostingOperationEnqueueValidator,
     dashboardPostingOperationListValidator,
@@ -26,11 +28,12 @@ export const enqueueDashboardPostingOperation = mutation({
         actorUsername: v.optional(v.string()),
         actorUserId: v.string(),
         content: v.optional(v.string()),
-        embeds: v.optional(v.array(v.any())),
+        embeds: v.optional(v.array(outgoingEmbedValidator)),
         guildId: v.string(),
         payloadHash: v.string(),
         requestKey: v.string(),
         requestedChannelId: v.string(),
+        retryOfOperationId: v.optional(v.string()),
     },
     returns: dashboardPostingOperationEnqueueValidator,
     handler: async (ctx, args) => {
@@ -42,6 +45,7 @@ export const enqueueDashboardPostingOperation = mutation({
         const requestedChannelId = normalizeBoundedOperationText(args.requestedChannelId, 'channel-id');
         const actorUsername = normalizeOptionalOperationText(args.actorUsername, 'actor-username');
         const actorDisplayName = normalizeOptionalOperationText(args.actorDisplayName, 'actor-display-name');
+        const retryOfOperationId = normalizeOptionalOperationText(args.retryOfOperationId, 'retry-of-operation-id');
         const payload = normalizeDashboardPostingPayload(args);
 
         await requireGuildDocument(ctx, guildId);
@@ -50,12 +54,17 @@ export const enqueueDashboardPostingOperation = mutation({
             if (
                 existing.actorUserId !== actorUserId ||
                 existing.payloadHash !== payloadHash ||
-                existing.requestedChannelId !== requestedChannelId
+                existing.requestedChannelId !== requestedChannelId ||
+                existing.retryOfOperationId !== retryOfOperationId
             ) {
                 throw new Error('posting-request-key-conflict');
             }
             return { created: false, operation: toDashboardPostingOperationRecord(existing) };
         }
+
+        const retryOf = retryOfOperationId
+            ? await requireDuplicateRiskRetryTarget(ctx, guildId, retryOfOperationId)
+            : undefined;
 
         const now = new Date().toISOString();
         const id = await ctx.db.insert('dashboardPostingOperations', {
@@ -72,12 +81,77 @@ export const enqueueDashboardPostingOperation = mutation({
             payloadHash,
             requestKey,
             requestedChannelId,
+            ...(retryOf ? { retryOfOperationId: retryOf._id } : {}),
             status: 'queued',
             updatedAt: now,
         });
         const operation = await ctx.db.get('dashboardPostingOperations', id);
         if (!operation) throw new Error('posting-operation-insert-failed');
+        if (retryOf) {
+            await ctx.db.patch('dashboardPostingOperations', retryOf._id, {
+                followupOperationId: id,
+                resolution: 'duplicate_risk_accepted',
+                resolvedAt: now,
+                resolvedByUserId: actorUserId,
+                updatedAt: now,
+            });
+            await recordResolutionEvent(ctx, retryOf, {
+                ...(actorDisplayName ? { actorDisplayName } : {}),
+                actorUserId,
+                ...(actorUsername ? { actorUsername } : {}),
+                followupOperationId: id,
+                now,
+                resolution: 'duplicate_risk_accepted',
+            });
+        }
         return { created: true, operation: toDashboardPostingOperationRecord(operation) };
+    },
+});
+
+export const resolveDashboardPostingOperationUnknown = mutation({
+    args: {
+        actorDisplayName: v.optional(v.string()),
+        actorUsername: v.optional(v.string()),
+        actorUserId: v.string(),
+        guildId: v.string(),
+        operationId: v.string(),
+        resolution: dashboardPostingOperationResolutionValidator,
+    },
+    returns: dashboardPostingOperationRecordValidator,
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, webService);
+        const guildId = normalizeBoundedOperationText(args.guildId, 'guild-id');
+        const actorUserId = normalizeBoundedOperationText(args.actorUserId, 'actor-user-id');
+        const actorUsername = normalizeOptionalOperationText(args.actorUsername, 'actor-username');
+        const actorDisplayName = normalizeOptionalOperationText(args.actorDisplayName, 'actor-display-name');
+        if (args.resolution === 'duplicate_risk_accepted') {
+            throw new Error('posting-resolution-requires-followup');
+        }
+        await requireGuildDocument(ctx, guildId);
+        const operation = await ctx.db.get('dashboardPostingOperations', parseOperationId(args.operationId));
+        if (operation?.guildId !== guildId) throw new Error('posting-operation-not-found');
+        if (operation.status !== 'unknown') throw new Error('posting-resolution-status-invalid');
+        if (operation.resolution) {
+            if (operation.resolution !== args.resolution) throw new Error('posting-resolution-conflict');
+            return toDashboardPostingOperationRecord(operation);
+        }
+
+        const now = new Date().toISOString();
+        const patch = {
+            resolution: args.resolution,
+            resolvedAt: now,
+            resolvedByUserId: actorUserId,
+            updatedAt: now,
+        };
+        await ctx.db.patch('dashboardPostingOperations', operation._id, patch);
+        await recordResolutionEvent(ctx, operation, {
+            ...(actorDisplayName ? { actorDisplayName } : {}),
+            actorUserId,
+            ...(actorUsername ? { actorUsername } : {}),
+            now,
+            resolution: args.resolution,
+        });
+        return toDashboardPostingOperationRecord({ ...operation, ...patch });
     },
 });
 
@@ -178,6 +252,47 @@ function findByGuildRequest(ctx: MutationCtx, guildId: string, requestKey: strin
         .query('dashboardPostingOperations')
         .withIndex('by_guild_request', (candidate) => candidate.eq('guildId', guildId).eq('requestKey', requestKey))
         .unique() as Promise<StoredDashboardPostingOperation | null>;
+}
+
+async function requireDuplicateRiskRetryTarget(ctx: MutationCtx, guildId: string, operationId: string) {
+    const operation = await ctx.db.get('dashboardPostingOperations', parseOperationId(operationId));
+    if (operation?.guildId !== guildId) throw new Error('posting-operation-not-found');
+    if (operation.status !== 'unknown') throw new Error('posting-retry-status-invalid');
+    if (operation.followupOperationId) throw new Error('posting-retry-already-created');
+    if (operation.resolution && operation.resolution !== 'duplicate_risk_accepted') {
+        throw new Error('posting-resolution-conflict');
+    }
+    return operation;
+}
+
+async function recordResolutionEvent(
+    ctx: MutationCtx,
+    operation: StoredDashboardPostingOperation,
+    input: {
+        actorDisplayName?: string;
+        actorUserId: string;
+        actorUsername?: string;
+        followupOperationId?: string;
+        now: string;
+        resolution: NonNullable<StoredDashboardPostingOperation['resolution']>;
+    }
+) {
+    await recordBotActionEventInMutation(ctx, {
+        action: `message.delivery_${input.resolution}`,
+        actorUserId: input.actorUserId,
+        feature: 'posting',
+        guildId: operation.guildId,
+        metadata: {
+            ...(input.actorDisplayName ? { actorDisplayName: input.actorDisplayName } : {}),
+            ...(input.actorUsername ? { actorUsername: input.actorUsername } : {}),
+            ...(input.followupOperationId ? { followupOperationId: input.followupOperationId } : {}),
+            operationId: operation._id,
+            resolution: input.resolution,
+            resolvedAt: input.now,
+            source: 'dashboard',
+        },
+        targetId: operation._id,
+    });
 }
 
 function parseOperationId(id: string): GenericId<'dashboardPostingOperations'> {

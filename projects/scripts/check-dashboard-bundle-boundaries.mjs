@@ -102,7 +102,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
             chunks,
             /^message-builder-[\w-]+\.js$/u,
             'Message Builder leaf',
-            'Queue message'
+            'Send message'
         ),
     };
     const overviewChartsEntry = findSingleChunk(
@@ -112,7 +112,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
     );
     const blueprintEntry = findSingleChunk(
         chunks,
-        /^structure-[\w-]+\.js$/u,
+        /^blueprint-[\w-]+\.js$/u,
         'Blueprint runtime',
         'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE'
     );
@@ -131,7 +131,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
             label: 'Guild shell',
             maxEntryBytes: 12_000,
             forbidden: [
-                'Queue message',
+                'Send message',
                 'Audit event explorer',
                 'New prefix',
                 'Listening for activity',
@@ -154,8 +154,8 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
     });
 
     const optionalToolChunks = [
-        /^dashboard-structure-explorer-(?!snapshot-|json-|types-|model-|diff-|details-|channel-types-)[\w-]+\.js$/u,
-        /^dashboard-structure-deploy-review-[\w-]+\.js$/u,
+        /^dashboard-blueprint-explorer-(?!snapshot-|json-|types-|model-|diff-|details-|channel-types-)[\w-]+\.js$/u,
+        /^dashboard-blueprint-deploy-review-[\w-]+\.js$/u,
     ];
     const leafBoundaries = [
         {
@@ -198,20 +198,20 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
             entry: shippedLeafEntries.overview,
             label: 'Overview leaf',
             maxEntryBytes: 16_000,
-            forbidden: ['New prefix', 'Audit event explorer', 'Queue message'],
+            forbidden: ['New prefix', 'Audit event explorer', 'Send message'],
             forbiddenChunkPatterns: [/^dashboard-server-overview-charts-[\w-]+\.js$/u],
         },
         {
             entry: shippedLeafEntries.commandPrefix,
             label: 'Command Prefix leaf',
             maxEntryBytes: 26_000,
-            forbidden: ['Listening for activity', 'Audit event explorer', 'Queue message', 'recharts-surface'],
+            forbidden: ['Listening for activity', 'Audit event explorer', 'Send message', 'recharts-surface'],
         },
         {
             entry: shippedLeafEntries.auditEvents,
             label: 'Audit Events leaf',
             maxEntryBytes: 30_000,
-            forbidden: ['Listening for activity', 'New prefix', 'Queue message', 'recharts-surface'],
+            forbidden: ['Listening for activity', 'New prefix', 'Send message', 'recharts-surface'],
         },
         {
             entry: shippedLeafEntries.messageBuilder,
@@ -228,7 +228,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
         entry: overviewChartsEntry,
         label: 'Overview charts tool',
         maxEntryBytes: 410_000,
-        forbidden: ['New prefix', 'Audit event explorer', 'Queue message'],
+        forbidden: ['New prefix', 'Audit event explorer', 'Send message'],
     });
 
     return { blueprintEntry, guildEntries, leafEntries, overviewChartsEntry, shippedLeafEntries };

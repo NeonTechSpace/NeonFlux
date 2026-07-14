@@ -25,10 +25,12 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
+        "@neonflux/blueprint": "workspace:*",
         "@neonflux/config": "workspace:*",
         "@neonflux/convex": "workspace:*",
         "@neonflux/convex-api": "workspace:*",
         "@neonflux/core": "workspace:*",
+        "@neonflux/messaging": "workspace:*",
         "neverthrow": "^8.2.0"
     }
 }

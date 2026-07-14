@@ -2,6 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { deleteMessageTemplate, listMessageTemplatesByGuildId, upsertMessageTemplate } from '@neonflux/db';
 import type { MessageTemplateRecord, PostingRepositoryError } from '@neonflux/db';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import { getWebDb } from './db.server.js';
@@ -14,18 +15,10 @@ export type DashboardMessageTemplate = {
     guildId: string;
     name: string;
     content?: string;
-    embeds: DashboardPostingJsonValue[];
+    embeds: OutgoingEmbed[];
     createdByUserId?: string;
     updatedAt: string;
 };
-
-export type DashboardPostingJsonValue =
-    | string
-    | number
-    | boolean
-    | null
-    | DashboardPostingJsonValue[]
-    | { [key: string]: DashboardPostingJsonValue };
 
 export type DashboardMessageTemplatesResult =
     | {
@@ -39,7 +32,7 @@ export type DashboardMessageTemplateSaveInput = {
     guildId: string;
     name: string;
     content?: string;
-    embeds?: DashboardPostingJsonValue[];
+    embeds?: OutgoingEmbed[];
     templateId?: string;
 };
 
@@ -241,48 +234,10 @@ function toDashboardMessageTemplate(template: MessageTemplateRecord): DashboardM
         guildId: template.guildId,
         name: template.name,
         ...(template.content ? { content: template.content } : {}),
-        embeds: toDashboardPostingJsonArray(template.embeds),
+        embeds: template.embeds,
         ...(template.createdByUserId ? { createdByUserId: template.createdByUserId } : {}),
         updatedAt: template.updatedAt.toISOString(),
     };
-}
-
-function toDashboardPostingJsonArray(value: unknown): DashboardPostingJsonValue[] {
-    if (!Array.isArray(value)) {
-        return [];
-    }
-
-    return value.map(toDashboardPostingJsonValue).filter((item) => item !== undefined);
-}
-
-function toDashboardPostingJsonValue(value: unknown): DashboardPostingJsonValue | undefined {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-        return value;
-    }
-
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : undefined;
-    }
-
-    if (Array.isArray(value)) {
-        return value.map(toDashboardPostingJsonValue).filter((item) => item !== undefined);
-    }
-
-    if (value && typeof value === 'object') {
-        const output: { [key: string]: DashboardPostingJsonValue } = {};
-
-        for (const [key, child] of Object.entries(value)) {
-            const jsonValue = toDashboardPostingJsonValue(child);
-
-            if (jsonValue !== undefined) {
-                output[key] = jsonValue;
-            }
-        }
-
-        return output;
-    }
-
-    return undefined;
 }
 
 function mapTemplateWriteError(errorValue: PostingRepositoryError): DashboardMessageTemplateSaveResult {

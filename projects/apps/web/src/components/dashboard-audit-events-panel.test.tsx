@@ -33,20 +33,20 @@ describe('DashboardAuditEventsPanel', () => {
         window.history.replaceState({}, '', '/');
     });
 
-    it('renders Server Blueprint import-run targets and metadata without message labels', async () => {
+    it('renders Blueprint run targets and metadata without message labels', async () => {
         vi.mocked(readDashboardAuditEventsRouteData).mockResolvedValue({
             type: 'events',
             auditEvents: [
                 {
                     id: 'event-1',
-                    feature: 'import_export',
-                    action: 'structure.import_applied',
+                    feature: 'blueprint',
+                    action: 'blueprint.run_partially_applied',
                     actorUserId: 'user-1',
                     actorUsername: 'operator',
                     targetId: 'run-1',
                     createdAt: '2026-07-09T10:00:00.000Z',
                     metadata: {
-                        actionCount: 4,
+                        changeCount: 4,
                         appliedCount: 3,
                         failedCount: 1,
                         restorePointBackupId: 'backup-restore-1',
@@ -61,15 +61,15 @@ describe('DashboardAuditEventsPanel', () => {
 
         renderAuditPanel();
 
-        const action = await screen.findByText('structure.import_applied');
+        const action = await screen.findByText('blueprint.run_partially_applied');
         const eventDetails = screen.getByRole<HTMLDetailsElement>('listitem');
 
         expect(eventDetails.open).toBe(false);
         fireEvent.click(action);
         expect(eventDetails.open).toBe(true);
-        expect(screen.getByText('Import run')).toBeTruthy();
+        expect(screen.getByText('Blueprint run')).toBeTruthy();
         expect(screen.getByText('run-1')).toBeTruthy();
-        expect(screen.getByText('Actions')).toBeTruthy();
+        expect(screen.getByText('Plan steps')).toBeTruthy();
         expect(screen.getByText('4')).toBeTruthy();
         expect(screen.getByText('Applied')).toBeTruthy();
         expect(screen.getByText('3')).toBeTruthy();
@@ -86,16 +86,16 @@ describe('DashboardAuditEventsPanel', () => {
             auditEvents: [
                 {
                     id: 'event-1',
-                    feature: 'import_export',
-                    action: 'structure.backup_renamed',
+                    feature: 'blueprint',
+                    action: 'blueprint.backup_renamed',
                     targetId: 'backup-1',
                     createdAt: '2026-07-09T10:00:00.000Z',
                     metadata: { name: 'Before risky apply' },
                 },
                 {
                     id: 'event-2',
-                    feature: 'import_export',
-                    action: 'structure.backup_retention_pruned',
+                    feature: 'blueprint',
+                    action: 'blueprint.backup_retention_pruned',
                     targetId: 'guild-1',
                     createdAt: '2026-07-09T09:00:00.000Z',
                     metadata: { deletedCount: 2, source: 'scheduled_retention' },
@@ -109,7 +109,7 @@ describe('DashboardAuditEventsPanel', () => {
 
         renderAuditPanel();
 
-        expect(await screen.findByText('structure.backup_renamed')).toBeTruthy();
+        expect(await screen.findByText('blueprint.backup_renamed')).toBeTruthy();
         expect(screen.getByText('Backup target')).toBeTruthy();
         expect(screen.getByText('backup-1')).toBeTruthy();
         expect(screen.getByText('Guild/settings target')).toBeTruthy();

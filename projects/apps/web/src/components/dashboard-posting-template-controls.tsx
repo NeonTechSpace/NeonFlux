@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 
 import { getDashboardAuditEventsBaseQueryKey, getDashboardPostingTemplatesQueryKey } from '../dashboard-query-keys.js';
 import {
@@ -42,7 +43,7 @@ export function DashboardPostingTemplateControls({
 }: {
     guildId: string;
     content: string;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     payloadError?: string;
     onApplyTemplate: (template: DashboardMessageTemplate) => void;
     onMessage: (message: TemplateControlsMessage) => void;
@@ -85,7 +86,7 @@ export function DashboardPostingTemplateControls({
         mutationFn: (payload: {
             name: string;
             content?: string;
-            embeds: unknown[];
+            embeds: OutgoingEmbed[];
             template?: DashboardMessageTemplate;
         }) =>
             saveDashboardPostingTemplateRouteData({

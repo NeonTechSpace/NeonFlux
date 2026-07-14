@@ -22,7 +22,7 @@ import { startBotReadServer, type BotReadServer } from './bot-read-server.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
-import { startStructureImportExecutionWorker } from './bot-structure-import-worker.js';
+import { startBlueprintRunWorker } from './bot-blueprint-run-worker.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
 
 export type BotApp = {
@@ -45,7 +45,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void> } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
-    let structureImportWorker: { stop(): Promise<void> } | undefined;
+    let blueprintRunWorker: { stop(): Promise<void> } | undefined;
     let growthTelemetry: ReturnType<typeof createBotGrowthTelemetryIngestor> | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
@@ -307,7 +307,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     database,
                     logger,
                 });
-                structureImportWorker = startStructureImportExecutionWorker({
+                blueprintRunWorker = startBlueprintRunWorker({
                     botToken: config.fluxerBotToken,
                     database,
                     logger,
@@ -322,7 +322,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             await installationRepairScheduler?.stop();
             await postingScheduler?.stop();
             await structureBackupScheduler?.stop();
-            await structureImportWorker?.stop();
+            await blueprintRunWorker?.stop();
             await growthTelemetry?.stop();
             await bot?.stop();
             await closeDatabaseOnce();

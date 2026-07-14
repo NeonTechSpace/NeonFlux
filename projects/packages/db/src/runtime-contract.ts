@@ -1,8 +1,9 @@
 import { api } from '@neonflux/convex-api';
+import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '@neonflux/blueprint/protocol';
+export { BLUEPRINT_RUN_PROTOCOL_VERSION } from '@neonflux/blueprint/protocol';
 
 import type { ConvexServiceDbClient } from './convex.js';
 
-export const STRUCTURE_EXECUTION_PROTOCOL_VERSION = 4 as const;
 export const CONVEX_RUNTIME_CONTRACT_TIMEOUT_MS = 10_000;
 
 type ConvexRuntimeContractErrorOptions = {
@@ -27,7 +28,7 @@ export class ConvexRuntimeContractError extends Error {
 }
 
 export async function assertConvexRuntimeContract(client: Pick<ConvexServiceDbClient, 'client'>): Promise<void> {
-    let contract: { structureExecutionProtocolVersion: number };
+    let contract: { blueprintRunProtocolVersion: number };
     const controller = new AbortController();
     const timeout = setTimeout(() => {
         controller.abort();
@@ -43,7 +44,7 @@ export async function assertConvexRuntimeContract(client: Pick<ConvexServiceDbCl
         clearTimeout(timeout);
     }
 
-    if (contract.structureExecutionProtocolVersion !== STRUCTURE_EXECUTION_PROTOCOL_VERSION) {
+    if (contract.blueprintRunProtocolVersion !== BLUEPRINT_RUN_PROTOCOL_VERSION) {
         throw new ConvexRuntimeContractError('version-mismatch');
     }
 }

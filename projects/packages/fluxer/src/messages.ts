@@ -1,4 +1,10 @@
 import { Client, type MessageSendOptions } from '@fluxerjs/core';
+import {
+    DASHBOARD_MESSAGE_MENTION_POLICY,
+    parseOutgoingMessage,
+    type OutgoingEmbed,
+    type OutgoingMessage,
+} from '@neonflux/messaging';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
@@ -51,6 +57,12 @@ export type FluxerSentMessage = {
 export type SendFluxerChannelMessageError =
     | { type: 'missing-input'; field: 'channelId' | 'message' }
     | { type: 'send-failed'; error: unknown };
+
+export type SendDashboardFluxerMessageInput = {
+    client: FluxerBot['client'];
+    channelId: string;
+    message: OutgoingMessage;
+};
 
 export type SendFluxerGuildChannelMessageError =
     | SendFluxerChannelMessageError
@@ -297,6 +309,58 @@ export async function sendFluxerChannelMessage(
     } catch (error) {
         return err({ type: 'send-failed', error });
     }
+}
+
+export async function sendDashboardFluxerMessage(
+    input: SendDashboardFluxerMessageInput
+): Promise<Result<FluxerSentMessage, SendFluxerChannelMessageError>> {
+    const message = parseOutgoingMessage(input.message);
+    if (message.isErr()) return err({ type: 'missing-input', field: 'message' });
+    const payload = toDashboardFluxerMessagePayload(message.value);
+    return sendFluxerChannelMessage({
+        client: input.client,
+        channelId: input.channelId,
+        ...payload,
+    });
+}
+
+export function toDashboardFluxerMessagePayload(message: OutgoingMessage): MessageSendOptions {
+    const embeds: NonNullable<MessageSendOptions['embeds']> = message.embeds.map(toFluxerEmbed);
+    return {
+        allowedMentions: { parse: [...DASHBOARD_MESSAGE_MENTION_POLICY.allowedMentionTypes] },
+        ...(message.content ? { content: message.content } : {}),
+        ...(embeds.length > 0 ? { embeds } : {}),
+    };
+}
+
+function toFluxerEmbed(embed: OutgoingEmbed): NonNullable<MessageSendOptions['embeds']>[number] {
+    return {
+        ...(embed.author
+            ? {
+                  author: {
+                      name: embed.author.name,
+                      ...(embed.author.iconUrl ? { icon_url: embed.author.iconUrl } : {}),
+                      ...(embed.author.url ? { url: embed.author.url } : {}),
+                  },
+              }
+            : {}),
+        ...(embed.color === undefined ? {} : { color: embed.color }),
+        ...(embed.description ? { description: embed.description } : {}),
+        ...(embed.fields ? { fields: embed.fields } : {}),
+        ...(embed.footer
+            ? {
+                  footer: {
+                      text: embed.footer.text,
+                      ...(embed.footer.iconUrl ? { icon_url: embed.footer.iconUrl } : {}),
+                  },
+              }
+            : {}),
+        ...(embed.imageUrl ? { image: { url: embed.imageUrl } } : {}),
+        ...(embed.thumbnailUrl ? { thumbnail: { url: embed.thumbnailUrl } } : {}),
+        ...(embed.timestamp ? { timestamp: embed.timestamp } : {}),
+        ...(embed.title ? { title: embed.title } : {}),
+        ...(embed.url ? { url: embed.url } : {}),
+    };
 }
 
 export async function editFluxerChannelMessage(

@@ -1,5 +1,13 @@
 import type { AppLogger } from '@neonflux/core/logging';
 import {
+    countBlueprintPlanChanges,
+    diffBlueprintSnapshot,
+    normalizeBlueprintSnapshot,
+    summarizeBlueprintPlanFields,
+    toBlueprintSnapshot,
+    toPortableBlueprintSnapshot,
+} from '@neonflux/blueprint';
+import {
     claimDueStructureBackupSetting,
     claimDueStructureDriftSetting,
     clearStructureBackupSettingLease,
@@ -11,24 +19,14 @@ import {
     listDueStructureDriftSettings,
     pruneExpiredStructureBackupsForGuild,
     recordStructureScheduledDriftResult,
-    structureAuditActions,
+    blueprintAuditActions,
     structureBackupSources,
     structureBackupStatuses,
     structureScheduledDriftStatuses,
     type RuntimeDbClient,
     type StructureBackupRecord,
 } from '@neonflux/db';
-import {
-    countFluxerGuildStructurePlanChanges,
-    diffFluxerGuildStructureSnapshot,
-    normalizeFluxerGuildStructureSnapshot,
-    readFluxerGuildStructure,
-    type FluxerBot,
-    summarizeFluxerGuildStructurePlanFields,
-    toFluxerGuildStructureExportSnapshot,
-    toFluxerGuildStructureSnapshot,
-    type FluxerGuildStructure,
-} from '@neonflux/fluxer';
+import { readFluxerGuildStructure, type FluxerBot, type FluxerGuildStructure } from '@neonflux/fluxer';
 import { randomUUID } from 'node:crypto';
 
 type StructureBackupScheduler = {
@@ -283,7 +281,7 @@ async function checkScheduledStructureDrift(input: {
         return;
     }
 
-    const baselineSnapshot = normalizeFluxerGuildStructureSnapshot(baselineResult.value.structure);
+    const baselineSnapshot = normalizeBlueprintSnapshot(baselineResult.value.structure);
     if (baselineSnapshot.type !== 'valid') {
         await recordScheduledDrift(input, {
             baseline: baselineResult.value,
@@ -307,16 +305,16 @@ async function checkScheduledStructureDrift(input: {
         return;
     }
 
-    const liveSnapshot = toFluxerGuildStructureSnapshot(structureResult.value, input.clock().toISOString());
-    const plan = diffFluxerGuildStructureSnapshot(liveSnapshot, baselineSnapshot.snapshot, { policy: 'merge' });
-    const changeCount = countFluxerGuildStructurePlanChanges(plan.summary);
+    const liveSnapshot = toBlueprintSnapshot(structureResult.value, input.clock().toISOString());
+    const plan = diffBlueprintSnapshot(liveSnapshot, baselineSnapshot.snapshot, { policy: 'merge' });
+    const changeCount = countBlueprintPlanChanges(plan.summary);
     const status = changeCount > 0 ? structureScheduledDriftStatuses.changed : structureScheduledDriftStatuses.clean;
 
     await recordScheduledDrift(input, {
         baseline: baselineResult.value,
         changeCount,
-        fieldSummary: summarizeFluxerGuildStructurePlanFields(plan),
-        hasMorePreview: plan.actions.length > structureDriftPreviewLimit,
+        fieldSummary: summarizeBlueprintPlanFields(plan),
+        hasMorePreview: plan.changes.length > structureDriftPreviewLimit,
         liveCounts: {
             categories: liveSnapshot.categories.length,
             channels: liveSnapshot.channels.length,
@@ -389,7 +387,7 @@ function toScheduledDriftAudit(
 ) {
     if (result.status === structureScheduledDriftStatuses.changed) {
         return {
-            action: structureAuditActions.scheduledDriftDetected,
+            action: blueprintAuditActions.scheduledDriftDetected,
             metadata: {
                 baselineBackupId: result.baseline?.id,
                 baselineName: result.baseline?.name,
@@ -402,7 +400,7 @@ function toScheduledDriftAudit(
 
     if (result.status === structureScheduledDriftStatuses.failed) {
         return {
-            action: structureAuditActions.scheduledDriftFailed,
+            action: blueprintAuditActions.scheduledDriftFailed,
             metadata: {
                 baselineBackupId: result.baseline?.id,
                 baselineName: result.baseline?.name,
@@ -434,7 +432,7 @@ async function runDueStructureBackupRetention(input: {
     for (const settings of settingsResult.value) {
         const pruneResult = await pruneExpiredStructureBackupsForGuild(input.database.db, {
             audit: {
-                action: structureAuditActions.backupRetentionPruned,
+                action: blueprintAuditActions.backupRetentionPruned,
                 metadata: {
                     source: 'scheduled_retention',
                 },
@@ -471,7 +469,7 @@ function toStructureBackupPayload(
     channels: unknown[];
     roles: unknown[];
 } {
-    return toFluxerGuildStructureExportSnapshot(structure, exportedAt);
+    return toPortableBlueprintSnapshot(structure, exportedAt);
 }
 
 function readCurrentTime(): Date {

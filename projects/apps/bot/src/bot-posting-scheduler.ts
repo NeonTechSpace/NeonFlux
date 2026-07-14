@@ -7,19 +7,35 @@ import { runNextDashboardPostingOperation } from './bot-posting-worker.js';
 
 const schedulerIntervalMs = 2_000;
 const maxWorkItemsPerRun = 20;
+const defaultItemDeadlineMs = 20_000;
+const defaultShutdownGraceMs = 5_000;
 
 export function startDashboardPostingScheduler(input: {
     context: BotFeatureHandlerContext;
     logger: AppLogger;
     intervalMs?: number;
+    itemDeadlineMs?: number;
+    shutdownGraceMs?: number;
 }) {
     const leaseOwner = `dashboard-posting-worker:${randomUUID()}`;
     let stopped = false;
     let running: Promise<void> | undefined;
+    let activeController: AbortController | undefined;
 
     const runOnce = async () => {
         for (let index = 0; index < maxWorkItemsPerRun && !stopped; index += 1) {
-            const result = await runNextDashboardPostingOperation(input.context, { leaseOwner });
+            const controller = new AbortController();
+            activeController = controller;
+            const result = await runWithAbortDeadline(
+                runNextDashboardPostingOperation(input.context, { leaseOwner, signal: controller.signal }),
+                controller,
+                input.itemDeadlineMs ?? defaultItemDeadlineMs
+            );
+            if (activeController === controller) activeController = undefined;
+            if (result === 'deadline' || result === 'shutdown') {
+                if (result === 'deadline') input.logger.error('posting.worker_deadline_exceeded', {});
+                return;
+            }
             if (result.status === 'idle') return;
             if (result.status === 'deferred' && result.operationId === 'unknown') return;
             if (result.status === 'unknown' || result.status === 'permanent_failure') {
@@ -50,7 +66,50 @@ export function startDashboardPostingScheduler(input: {
         async stop(): Promise<void> {
             stopped = true;
             clearInterval(interval);
-            await running;
+            activeController?.abort('shutdown');
+            if (!running) return;
+            await waitForShutdown(running, input.shutdownGraceMs ?? defaultShutdownGraceMs);
         },
     };
+}
+
+async function runWithAbortDeadline<T>(
+    operation: Promise<T>,
+    controller: AbortController,
+    deadlineMs: number
+): Promise<T | 'deadline' | 'shutdown'> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let removeAbortListener: () => void = () => undefined;
+    const aborted = new Promise<'deadline' | 'shutdown'>((resolve) => {
+        const onAbort = () => resolve(controller.signal.reason === 'shutdown' ? 'shutdown' : 'deadline');
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort);
+        timeout = setTimeout(() => controller.abort('deadline'), Math.max(1, deadlineMs));
+    });
+    const observedOperation = operation.catch((error: unknown) => {
+        throw error;
+    });
+    try {
+        const result = await Promise.race([observedOperation, aborted]);
+        if (result === 'deadline' || result === 'shutdown') void observedOperation.catch(() => undefined);
+        return result;
+    } finally {
+        if (timeout) clearTimeout(timeout);
+        removeAbortListener();
+    }
+}
+
+async function waitForShutdown(running: Promise<void>, graceMs: number): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            running,
+            new Promise<void>((resolve) => {
+                timeout = setTimeout(resolve, Math.max(1, graceMs));
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+        void running.catch(() => undefined);
+    }
 }

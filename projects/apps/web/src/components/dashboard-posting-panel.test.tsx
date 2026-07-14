@@ -10,6 +10,7 @@ import {
     postDashboardMessageRouteData,
     readDashboardPostingChannelsRouteData,
     readDashboardPostingOperationsRouteData,
+    resolveDashboardPostingUnknownRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import { readDashboardPostingTemplatesRouteData } from '../server/dashboard-posting-templates-route-data.js';
 import { DashboardPostingPanel } from './dashboard-posting-panel.js';
@@ -21,6 +22,7 @@ vi.mock('../server/dashboard-guild-route-data.js', async (importOriginal) => ({
     postDashboardMessageRouteData: vi.fn(),
     readDashboardPostingChannelsRouteData: vi.fn(),
     readDashboardPostingOperationsRouteData: vi.fn(),
+    resolveDashboardPostingUnknownRouteData: vi.fn(),
 }));
 
 vi.mock('../server/dashboard-posting-templates-route-data.js', () => ({
@@ -44,9 +46,13 @@ describe('DashboardPostingPanel', () => {
             operation: createOperation('queued'),
             type: 'operation',
         });
+        vi.mocked(resolveDashboardPostingUnknownRouteData).mockResolvedValue({
+            operation: createOperation('unknown', 'reported_seen'),
+            type: 'resolved',
+        });
     });
 
-    it('updates a queued attempt to unknown and requires explicit duplicate-risk acknowledgement', async () => {
+    it('links an explicit duplicate-risk follow-up to an unknown delivery', async () => {
         renderPanel();
 
         const channelPicker = await screen.findByRole('combobox', { name: 'Channel' });
@@ -60,18 +66,20 @@ describe('DashboardPostingPanel', () => {
         fireEvent.change(screen.getByRole('textbox', { name: 'Message content' }), {
             target: { value: 'Hello from NeonFlux' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
         await waitFor(() => expect(postDashboardMessageRouteData).toHaveBeenCalledTimes(1));
         expect(await screen.findByText(/delivery could not be confirmed/i)).toBeTruthy();
-        expect(screen.getByRole('button', { name: 'Queue message' }).hasAttribute('disabled')).toBe(true);
+        expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
 
-        fireEvent.click(
-            screen.getByRole('checkbox', { name: /accept that another attempt could still create a duplicate/i })
-        );
+        fireEvent.click(screen.getByRole('button', { name: 'Send a new copy despite duplicate risk' }));
 
-        expect(screen.getByRole('button', { name: 'Queue message' }).hasAttribute('disabled')).toBe(false);
-        expect(postDashboardMessageRouteData).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(postDashboardMessageRouteData).toHaveBeenCalledTimes(2));
+        const followupCall = vi.mocked(postDashboardMessageRouteData).mock.calls[1]?.[0];
+        if (!followupCall) throw new Error('Expected duplicate-risk follow-up call.');
+        expect(followupCall.data).toMatchObject({
+            retryOfOperationId: 'operation-1',
+        });
     });
 
     it('updates the primary confirmation when a queued attempt becomes sent', async () => {
@@ -88,7 +96,7 @@ describe('DashboardPostingPanel', () => {
         fireEvent.change(screen.getByRole('textbox', { name: 'Message content' }), {
             target: { value: 'Hello from NeonFlux' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
         expect(await screen.findByText('Sent to #general.')).toBeTruthy();
         expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message content' }).value).toBe(
@@ -116,10 +124,42 @@ describe('DashboardPostingPanel', () => {
 
         renderPanel();
 
-        expect(
-            await screen.findByRole('checkbox', { name: /accept that another attempt could still create a duplicate/i })
-        ).toBeTruthy();
-        expect(screen.getByRole('button', { name: 'Queue message' }).hasAttribute('disabled')).toBe(true);
+        expect(await screen.findByRole('button', { name: 'I found the message' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'I did not find it' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Send a new copy despite duplicate risk' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
+        expect(screen.getByText(/mentions are suppressed/i)).toBeTruthy();
+    });
+
+    it('keeps an older unresolved delivery actionable when a newer terminal delivery exists', async () => {
+        vi.mocked(readDashboardPostingOperationsRouteData).mockResolvedValue({
+            operations: [{ ...createOperation('sent'), id: 'operation-2' }, createOperation('unknown')],
+            type: 'operations',
+        });
+
+        renderPanel();
+
+        expect(await screen.findByRole('button', { name: 'I found the message' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
+    });
+
+    it('durably records the operator observation for an unknown delivery', async () => {
+        vi.mocked(readDashboardPostingOperationsRouteData)
+            .mockResolvedValueOnce({ operations: [createOperation('unknown')], type: 'operations' })
+            .mockResolvedValue({
+                operations: [createOperation('unknown', 'reported_seen')],
+                type: 'operations',
+            });
+        renderPanel();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'I found the message' }));
+
+        await waitFor(() =>
+            expect(resolveDashboardPostingUnknownRouteData).toHaveBeenCalledWith({
+                data: { guildId: 'guild-1', operationId: 'operation-1', resolution: 'reported_seen' },
+            })
+        );
+        expect(await screen.findByText('Recorded that you found the message.')).toBeTruthy();
     });
 
     it('confirms before a template replaces an in-progress message', async () => {
@@ -196,7 +236,10 @@ function renderPanel() {
     return view;
 }
 
-function createOperation(status: 'queued' | 'running' | 'unknown' | 'sent' | 'permanent_failure') {
+function createOperation(
+    status: 'queued' | 'running' | 'unknown' | 'sent' | 'permanent_failure',
+    resolution?: 'duplicate_risk_accepted' | 'reported_not_seen' | 'reported_seen'
+) {
     return {
         attemptCount: status === 'queued' ? 0 : 1,
         contentLength: 19,
@@ -205,6 +248,7 @@ function createOperation(status: 'queued' | 'running' | 'unknown' | 'sent' | 'pe
         id: 'operation-1',
         requestKey: 'request-1',
         requestedChannelId: 'channel-1',
+        ...(resolution ? { resolution } : {}),
         status,
         updatedAt: '2026-07-13T12:00:01.000Z',
     };

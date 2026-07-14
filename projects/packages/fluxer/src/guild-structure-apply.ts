@@ -5,23 +5,20 @@ import { createChannelPlatform, createRolePlatform } from './platform-guild-oper
 import type { FluxerPlatformError } from './platform-shared.js';
 import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
 import {
-    createStructureReferenceMapping,
+    createBlueprintReferenceMapping,
     normalizeRequestedChannelPositions,
     normalizeRequestedRolePositions,
-    resolveStructureReference,
-    simulateFluxerBotGuildStructureActionAuthority,
-    type ApplyFluxerBotGuildStructureChannelOrderInput,
-    type ApplyFluxerBotGuildStructureRoleOrderInput,
-    type StructureActionAuthoritySnapshot,
-    type StructureActionReferenceValidationFailure,
-    type StructureReferenceMapping,
-    type StructureTargetKind,
-} from './guild-structure-apply-validation.js';
+    resolveBlueprintReference,
+    simulateBlueprintActionAuthority,
+    type BlueprintChannelOrderEntry,
+    type BlueprintRoleOrderEntry,
+    type BlueprintActionAuthoritySnapshot,
+    type BlueprintActionReferenceValidationFailure,
+    type BlueprintReferenceMapping,
+    type BlueprintTargetKind,
+} from '@neonflux/blueprint/action-authority';
 
-export type {
-    ApplyFluxerBotGuildStructureChannelOrderInput,
-    ApplyFluxerBotGuildStructureRoleOrderInput,
-} from './guild-structure-apply-validation.js';
+export type { BlueprintChannelOrderEntry, BlueprintRoleOrderEntry } from '@neonflux/blueprint/action-authority';
 
 const LINK_CHANNEL_TYPE = 998;
 export const DEFAULT_STRUCTURE_APPLY_OPERATION_DELAY_MS = 750;
@@ -45,7 +42,7 @@ export type ApplyFluxerBotGuildStructureActionInput = {
     after?: unknown;
     idMap?: Record<string, string>;
     knownTargetIds?: readonly string[];
-    knownTargetKinds?: Readonly<Record<string, StructureTargetKind>>;
+    knownTargetKinds?: Readonly<Record<string, BlueprintTargetKind>>;
     sourceGuildId?: string;
 };
 
@@ -67,7 +64,7 @@ export type ApplyFluxerBotGuildStructureBatchInput = {
     beforeMutation?: () => Promise<boolean>;
     beforeAction?: (action: ApplyFluxerBotGuildStructureBatchActionInput) => Promise<boolean>;
     idMap?: Record<string, string>;
-    knownTargetKinds: Readonly<Record<string, StructureTargetKind>>;
+    knownTargetKinds: Readonly<Record<string, BlueprintTargetKind>>;
     operationDelayMs?: number;
     referenceIdMap?: Record<string, string>;
     onActionResult?: (
@@ -149,7 +146,7 @@ export async function applyFluxerBotGuildStructureActions(
     if (!botToken) return err({ type: 'missing-input', field: 'botToken' });
     if (!guildId) return err({ type: 'missing-input', field: 'guildId' });
 
-    const authorityProgression = simulateFluxerBotGuildStructureActionAuthority<ApplyNormalizedActionError>({
+    const authorityProgression = simulateBlueprintActionAuthority<ApplyNormalizedActionError>({
         actions: input.actions,
         guildId,
         ...((input.referenceIdMap ?? input.idMap) ? { idMap: input.referenceIdMap ?? input.idMap } : {}),
@@ -397,7 +394,7 @@ function normalizeStructureDeleteInput(
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category deletes are supported.' });
     }
-    const targetId = resolveStructureReference(targetIdInput, createStructureReferenceMapping(input));
+    const targetId = resolveBlueprintReference(targetIdInput, createBlueprintReferenceMapping(input));
     if (!targetId) return err({ type: 'structure-reference-mapping-missing', field: 'targetId' });
     if (input.targetType === 'role' && targetId === input.guildId) {
         return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be deleted.' });
@@ -415,12 +412,12 @@ function normalizeStructureDeleteInput(
 function normalizeStructureUpdateInput(
     input: ApplyFluxerBotGuildStructureActionInput & { botToken: string; guildId: string }
 ): Result<Extract<NormalizedStructureActionInput, { actionType: 'update' }>, ApplyFluxerBotGuildStructureActionError> {
-    const referenceMapping = createStructureReferenceMapping(input);
+    const referenceMapping = createBlueprintReferenceMapping(input);
     if (input.targetType === 'channel-order') {
         if (!Array.isArray(input.after) || input.after.length === 0)
             return err({ type: 'structure-order-plan-invalid' });
         const normalized = normalizeRequestedChannelPositions(
-            input.after as ApplyFluxerBotGuildStructureChannelOrderInput[],
+            input.after as BlueprintChannelOrderEntry[],
             referenceMapping
         );
         return normalized.ok
@@ -436,10 +433,7 @@ function normalizeStructureUpdateInput(
     if (input.targetType === 'role-order') {
         if (!Array.isArray(input.after) || input.after.length === 0)
             return err({ type: 'structure-order-plan-invalid' });
-        const normalized = normalizeRequestedRolePositions(
-            input.after as ApplyFluxerBotGuildStructureRoleOrderInput[],
-            referenceMapping
-        );
+        const normalized = normalizeRequestedRolePositions(input.after as BlueprintRoleOrderEntry[], referenceMapping);
         return normalized.ok
             ? ok({
                   botToken: input.botToken,
@@ -457,7 +451,7 @@ function normalizeStructureUpdateInput(
     if (input.targetType !== 'role' && input.targetType !== 'category' && input.targetType !== 'channel') {
         return err({ type: 'unsupported-action', reason: 'Only role, channel, and category updates are supported.' });
     }
-    const targetId = resolveStructureReference(targetIdInput, referenceMapping);
+    const targetId = resolveBlueprintReference(targetIdInput, referenceMapping);
     if (!targetId) return err({ type: 'structure-reference-mapping-missing', field: 'targetId' });
     if (input.targetType === 'role' && targetId === input.guildId) {
         return err({ type: 'unsupported-action', reason: 'Protected default roles cannot be updated.' });
@@ -623,7 +617,7 @@ function normalizeStructureCreateInput(
 ): Result<Extract<NormalizedStructureActionInput, { actionType: 'create' }>, ApplyFluxerBotGuildStructureActionError> {
     const after = input.after;
     const sourceId = input.targetId?.trim() ?? '';
-    const referenceMapping = createStructureReferenceMapping(input);
+    const referenceMapping = createBlueprintReferenceMapping(input);
 
     if (!sourceId) return err({ type: 'missing-input', field: 'targetId' });
     if (!isObject(after)) return err({ type: 'missing-input', field: 'after' });
@@ -874,7 +868,7 @@ function normalizeChannelPositionUpdate(
 function normalizeChannelParentUpdate(
     targetType: string,
     change: { field: string; before?: unknown; after: unknown } | undefined,
-    mapping: StructureReferenceMapping
+    mapping: BlueprintReferenceMapping
 ): Result<string | null | undefined, ApplyFluxerBotGuildStructureActionError> {
     if (!change) return ok(undefined);
     if (targetType === 'category') {
@@ -910,7 +904,7 @@ function normalizeRoleVisuals(
 
 function normalizePermissionOverwriteReplacement(
     change: { field: string; before?: unknown; after: unknown } | undefined,
-    mapping: StructureReferenceMapping
+    mapping: BlueprintReferenceMapping
 ): Result<PermissionOverwriteReplacement | undefined, ApplyFluxerBotGuildStructureActionError> {
     if (!change) return ok(undefined);
 
@@ -925,7 +919,7 @@ function normalizePermissionOverwriteReplacement(
 
 function normalizePermissionOverwrites(
     value: unknown,
-    mapping: StructureReferenceMapping
+    mapping: BlueprintReferenceMapping
 ): Result<PermissionOverwrite[], ApplyFluxerBotGuildStructureActionError> {
     if (!Array.isArray(value)) return err({ type: 'invalid-value', field: 'permissionOverwrites' });
 
@@ -976,7 +970,7 @@ async function applyPermissionOverwrites(
         });
 
         // DELETE is convergent: if the provider says the overwrite is already
-        // absent, this execution step has reached its intended state.
+        // absent, this provider step has reached its intended state.
         if (deleteResult.isErr() && deleteResult.error.type !== 'not-found') return err(deleteResult.error);
     }
 
@@ -1000,10 +994,10 @@ async function applyPermissionOverwrites(
     return ok(undefined);
 }
 
-function mapPermissionOverwriteId(id: string, type: 0 | 1, mapping: StructureReferenceMapping): string | undefined {
+function mapPermissionOverwriteId(id: string, type: 0 | 1, mapping: BlueprintReferenceMapping): string | undefined {
     if (type === 1) return id;
     if (mapping.sourceGuildId && id === mapping.sourceGuildId) return mapping.guildId;
-    return resolveStructureReference(id, mapping);
+    return resolveBlueprintReference(id, mapping);
 }
 
 function permissionOverwriteKey(overwrite: PermissionOverwrite): string {
@@ -1027,11 +1021,11 @@ function countPermissionOverwriteMutations(replacement: PermissionOverwriteRepla
 
 function normalizeOptionalStructureReference(
     value: string | null,
-    mapping: StructureReferenceMapping,
+    mapping: BlueprintReferenceMapping,
     field: 'parentId'
 ): Result<string | null, ApplyFluxerBotGuildStructureActionError> {
     if (!value) return ok(null);
-    const mapped = resolveStructureReference(value, mapping);
+    const mapped = resolveBlueprintReference(value, mapping);
     return mapped ? ok(mapped) : err({ type: 'structure-reference-mapping-missing', field });
 }
 
@@ -1056,10 +1050,10 @@ function createStructureApplyRateLimiter(
 }
 
 function materializeStructureActionAuthority(
-    authority: StructureActionAuthoritySnapshot,
-    executionIdMap: Readonly<Record<string, string>>
-): StructureActionAuthoritySnapshot {
-    const materializeTargetId = (targetId: string) => executionIdMap[targetId] ?? targetId;
+    authority: BlueprintActionAuthoritySnapshot,
+    runIdMap: Readonly<Record<string, string>>
+): BlueprintActionAuthoritySnapshot {
+    const materializeTargetId = (targetId: string) => runIdMap[targetId] ?? targetId;
     return {
         idMap: Object.fromEntries(
             Object.entries(authority.idMap).map(([sourceId, targetId]) => [sourceId, materializeTargetId(targetId)])
@@ -1071,7 +1065,7 @@ function materializeStructureActionAuthority(
 }
 
 function toApplyReferenceValidationError(
-    failure: StructureActionReferenceValidationFailure
+    failure: BlueprintActionReferenceValidationFailure
 ): ApplyFluxerBotGuildStructureActionError {
     if (failure.errorType === 'invalid-value') {
         return {

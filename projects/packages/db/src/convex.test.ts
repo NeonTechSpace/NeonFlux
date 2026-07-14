@@ -13,7 +13,7 @@ import {
     type ConvexServiceRuntimeConfig,
 } from './convex.js';
 import { createRuntimeDb, isConvexRuntimeDb } from './service.js';
-import { STRUCTURE_EXECUTION_PROTOCOL_VERSION } from './runtime-contract.js';
+import { BLUEPRINT_RUN_PROTOCOL_VERSION } from './runtime-contract.js';
 
 describe('Convex service database', () => {
     afterEach(() => {
@@ -200,7 +200,7 @@ describe('Convex service database', () => {
 
     it('selects Convex runtime without DATABASE_URL when cutover config is complete', async () => {
         stubSuccessfulConvexQueries({
-            structureExecutionProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+            blueprintRunProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         });
         const database = await createRuntimeDb(
             {

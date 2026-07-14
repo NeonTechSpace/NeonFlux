@@ -1,6 +1,5 @@
 import { useId } from 'react';
-
-export type DashboardEmbedMode = 'builder' | 'advanced-json';
+import type { OutgoingEmbed } from '@neonflux/messaging';
 
 export type DashboardEmbedDraft = {
     sidebarColor: string;
@@ -17,40 +16,15 @@ export type DashboardEmbedDraft = {
     includeTimestamp: boolean;
 };
 
-type DashboardEmbedPayload = {
-    color?: number;
-    author?: {
-        name: string;
-        icon_url?: string;
-        url?: string;
-    };
-    title?: string;
-    url?: string;
-    description?: string;
-    thumbnail?: {
-        url: string;
-    };
-    image?: {
-        url: string;
-    };
-    footer?: {
-        text: string;
-        icon_url?: string;
-    };
-    timestamp?: string;
-};
-
 export type DashboardEmbedPayloadResult =
     | {
           valid: true;
-          embed?: DashboardEmbedPayload;
+          embed?: OutgoingEmbed;
       }
     | {
           valid: false;
           message: string;
       };
-
-export type ParsedDashboardEmbedsResult = { valid: true; embeds: unknown[] } | { valid: false; message: string };
 
 const defaultSidebarColor = '#00ffd5';
 
@@ -204,7 +178,7 @@ export function normalizeDashboardEmbedDraft(draft: DashboardEmbedDraft): Dashbo
         };
     }
 
-    const embed: DashboardEmbedPayload = {};
+    const embed: OutgoingEmbed = {};
 
     if (colorResult.color !== undefined) {
         embed.color = colorResult.color;
@@ -213,7 +187,7 @@ export function normalizeDashboardEmbedDraft(draft: DashboardEmbedDraft): Dashbo
     if (authorName) {
         embed.author = {
             name: authorName,
-            ...(authorIconUrl ? { icon_url: authorIconUrl } : {}),
+            ...(authorIconUrl ? { iconUrl: authorIconUrl } : {}),
             ...(authorUrl ? { url: authorUrl } : {}),
         };
     }
@@ -231,21 +205,17 @@ export function normalizeDashboardEmbedDraft(draft: DashboardEmbedDraft): Dashbo
     }
 
     if (thumbnailUrl) {
-        embed.thumbnail = {
-            url: thumbnailUrl,
-        };
+        embed.thumbnailUrl = thumbnailUrl;
     }
 
     if (imageUrl) {
-        embed.image = {
-            url: imageUrl,
-        };
+        embed.imageUrl = imageUrl;
     }
 
     if (footerText) {
         embed.footer = {
             text: footerText,
-            ...(footerIconUrl ? { icon_url: footerIconUrl } : {}),
+            ...(footerIconUrl ? { iconUrl: footerIconUrl } : {}),
         };
     }
 
@@ -265,30 +235,22 @@ export function normalizeDashboardEmbedDraft(draft: DashboardEmbedDraft): Dashbo
     };
 }
 
-export function parseDashboardEmbedJson(value: string): ParsedDashboardEmbedsResult {
-    const trimmedValue = value.trim();
-
-    if (!trimmedValue) {
-        return { valid: true, embeds: [] };
-    }
-
-    try {
-        const parsedValue: unknown = JSON.parse(trimmedValue);
-
-        if (!Array.isArray(parsedValue) || !parsedValue.every(isEmbedObject)) {
-            return {
-                valid: false,
-                message: 'Embed JSON must be an array of embed objects.',
-            };
-        }
-
-        return { valid: true, embeds: parsedValue };
-    } catch {
-        return {
-            valid: false,
-            message: 'Embed JSON is not valid JSON.',
-        };
-    }
+export function toDashboardEmbedDraft(embed: OutgoingEmbed | undefined): DashboardEmbedDraft {
+    if (!embed) return createEmptyDashboardEmbedDraft();
+    return {
+        sidebarColor: embed.color === undefined ? '' : `#${embed.color.toString(16).padStart(6, '0')}`,
+        authorName: embed.author?.name ?? '',
+        authorIconUrl: embed.author?.iconUrl ?? '',
+        authorUrl: embed.author?.url ?? '',
+        title: embed.title ?? '',
+        titleUrl: embed.url ?? '',
+        description: embed.description ?? '',
+        thumbnailUrl: embed.thumbnailUrl ?? '',
+        imageUrl: embed.imageUrl ?? '',
+        footerText: embed.footer?.text ?? '',
+        footerIconUrl: embed.footer?.iconUrl ?? '',
+        includeTimestamp: embed.timestamp !== undefined,
+    };
 }
 
 function DashboardEmbedTextInput({
@@ -376,8 +338,4 @@ function parseEmbedColor(value: string): { valid: true; color?: number } | { val
         valid: true,
         color: Number.parseInt(normalizedValue, 16),
     };
-}
-
-function isEmbedObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

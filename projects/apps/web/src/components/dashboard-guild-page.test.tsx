@@ -155,8 +155,8 @@ describe('DashboardGuildPendingPage', () => {
                     guildId='guild-2'
                     preview={{ id: 'guild-2', name: 'Target Guild', mode: 'multi' }}
                     sourcePreview={{ id: 'guild-1', name: 'Current Guild', mode: 'multi' }}
-                    pathname='/dashboard/guild-2/structure/backups'
-                    activeCategoryId='structure'
+                    pathname='/dashboard/guild-2/blueprint/backups'
+                    activeCategoryId='blueprint'
                 />
             )
         );
@@ -200,8 +200,8 @@ describe('DashboardGuildPendingPage', () => {
     it('preserves Blueprint runtime state during a same-server leaf transition', () => {
         routerState = {
             isLoading: false,
-            location: { pathname: '/dashboard/guild-2/structure/current' },
-            resolvedLocation: { pathname: '/dashboard/guild-2/structure/current' },
+            location: { pathname: '/dashboard/guild-2/blueprint/current' },
+            resolvedLocation: { pathname: '/dashboard/guild-2/blueprint/current' },
         };
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         const page = (
@@ -213,7 +213,7 @@ describe('DashboardGuildPendingPage', () => {
                         guild: { id: 'guild-2', name: 'Guild Two' },
                         manageableGuilds: [{ id: 'guild-2', name: 'Guild Two' }],
                     }}
-                    activeCategoryId='structure'>
+                    activeCategoryId='blueprint'>
                     <BlueprintRuntimeDraftProbe />
                 </DashboardGuildPageContent>
             </QueryClientProvider>
@@ -226,8 +226,8 @@ describe('DashboardGuildPendingPage', () => {
 
         routerState = {
             isLoading: true,
-            location: { pathname: '/dashboard/guild-2/structure/backups' },
-            resolvedLocation: { pathname: '/dashboard/guild-2/structure/current' },
+            location: { pathname: '/dashboard/guild-2/blueprint/backups' },
+            resolvedLocation: { pathname: '/dashboard/guild-2/blueprint/current' },
         };
         view.rerender(page);
 
@@ -239,7 +239,7 @@ describe('DashboardGuildPendingPage', () => {
     it('replaces cross-feature content with the target pending island immediately', () => {
         routerState = {
             isLoading: true,
-            location: { pathname: '/dashboard/guild-2/structure/backups' },
+            location: { pathname: '/dashboard/guild-2/blueprint/backups' },
             resolvedLocation: { pathname: '/dashboard/guild-2' },
         };
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

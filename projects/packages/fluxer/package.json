@@ -24,18 +24,6 @@
             "production": "./dist/guild-structure.js",
             "import": "./dist/guild-structure.js"
         },
-        "./guild-structure-diff": {
-            "types": "./src/guild-structure-diff.ts",
-            "development": "./src/guild-structure-diff.ts",
-            "production": "./dist/guild-structure-diff.js",
-            "import": "./dist/guild-structure-diff.js"
-        },
-        "./guild-structure-snapshot": {
-            "types": "./src/guild-structure-snapshot.ts",
-            "development": "./src/guild-structure-snapshot.ts",
-            "production": "./dist/guild-structure-snapshot.js",
-            "import": "./dist/guild-structure-snapshot.js"
-        },
         "./guilds": {
             "types": "./src/guilds.ts",
             "development": "./src/guilds.ts",
@@ -86,7 +74,9 @@
     },
     "dependencies": {
         "@fluxerjs/core": "2.0.1",
+        "@neonflux/blueprint": "workspace:*",
         "@neonflux/core": "workspace:*",
+        "@neonflux/messaging": "workspace:*",
         "neverthrow": "^8.2.0"
     },
     "devDependencies": {

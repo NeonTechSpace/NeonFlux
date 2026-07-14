@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ConvexRuntimeContractError, isConvexRuntimeDb, STRUCTURE_EXECUTION_PROTOCOL_VERSION } from '@neonflux/db';
+import { BLUEPRINT_RUN_PROTOCOL_VERSION, ConvexRuntimeContractError, isConvexRuntimeDb } from '@neonflux/db';
 
 import { closeWebDb, getWebDb } from './db.server.js';
 
@@ -131,7 +131,7 @@ function createRuntimeContractResponse(): Response {
         JSON.stringify({
             status: 'success',
             value: {
-                structureExecutionProtocolVersion: STRUCTURE_EXECUTION_PROTOCOL_VERSION,
+                blueprintRunProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
             },
         })
     );

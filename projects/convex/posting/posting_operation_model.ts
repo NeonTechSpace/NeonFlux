@@ -1,4 +1,12 @@
 import { v, type GenericId } from 'convex/values';
+import {
+    parseOutgoingMessage,
+    type DashboardPostingOperationResolution,
+    type OutgoingEmbed,
+    type OutgoingMessage,
+} from '@neonflux/messaging';
+
+import { dashboardPostingOperationResolutionValidator, outgoingEmbedValidator } from './message_validators.js';
 
 export const dashboardPostingOperationStatuses = ['queued', 'running', 'unknown', 'sent', 'permanent_failure'] as const;
 
@@ -15,12 +23,13 @@ export type StoredDashboardPostingOperation = {
     content?: string;
     contentLength?: number;
     createdAt: string;
-    embeds?: unknown[];
+    embeds?: OutgoingEmbed[];
     embedCount?: number;
     errorCode?: string;
     expiresAt?: string;
     externalChannelId?: string;
     externalMessageId?: string;
+    followupOperationId?: string;
     guildId: string;
     leaseExpiresAt?: string;
     leaseId?: string;
@@ -30,16 +39,17 @@ export type StoredDashboardPostingOperation = {
     payloadHash: string;
     requestKey: string;
     requestedChannelId: string;
+    resolution?: DashboardPostingOperationResolution;
+    resolvedAt?: string;
+    resolvedByUserId?: string;
+    retryOfOperationId?: string;
     sendStartedAt?: string;
     sentChannelId?: string;
     status: DashboardPostingOperationStatus;
     updatedAt: string;
 };
 
-export type NormalizedDashboardPostingPayload = {
-    content?: string;
-    embeds: unknown[];
-};
+export type NormalizedDashboardPostingPayload = OutgoingMessage;
 
 const dashboardPostingOperationRecordFields = {
     actorDisplayName: v.union(v.string(), v.null()),
@@ -51,12 +61,17 @@ const dashboardPostingOperationRecordFields = {
     createdAt: v.string(),
     embedCount: v.number(),
     errorCode: v.union(v.string(), v.null()),
+    followupOperationId: v.union(v.string(), v.null()),
     guildId: v.string(),
     id: v.string(),
     messageId: v.union(v.string(), v.null()),
     nextAttemptAt: v.union(v.string(), v.null()),
     requestKey: v.string(),
     requestedChannelId: v.string(),
+    resolution: v.union(dashboardPostingOperationResolutionValidator, v.null()),
+    resolvedAt: v.union(v.string(), v.null()),
+    resolvedByUserId: v.union(v.string(), v.null()),
+    retryOfOperationId: v.union(v.string(), v.null()),
     sentChannelId: v.union(v.string(), v.null()),
     status: v.union(
         v.literal('queued'),
@@ -73,7 +88,7 @@ export const dashboardPostingOperationRecordValidator = v.object(dashboardPostin
 export const dashboardPostingOperationWorkerRecordValidator = v.object({
     ...dashboardPostingOperationRecordFields,
     content: v.union(v.string(), v.null()),
-    embeds: v.array(v.any()),
+    embeds: v.array(outgoingEmbedValidator),
     externalChannelId: v.union(v.string(), v.null()),
     externalMessageId: v.union(v.string(), v.null()),
     leaseExpiresAt: v.union(v.string(), v.null()),
@@ -91,31 +106,16 @@ export const dashboardPostingOperationListValidator = v.object({
     operations: v.array(dashboardPostingOperationRecordValidator),
 });
 
-export const DASHBOARD_POSTING_PAYLOAD_MAX_BYTES = 128 * 1024;
-export const DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH = 20;
-
 export function normalizeDashboardPostingPayload(input: {
     content?: string;
-    embeds?: unknown[];
+    embeds?: unknown;
 }): NormalizedDashboardPostingPayload {
-    const content = input.content?.trim();
-    const embeds = normalizeJsonArray(input.embeds ?? [], 0, new Set());
-
-    if (!content && embeds.length === 0) {
-        throw new Error('posting-message-empty');
-    }
-
-    const payload = {
-        ...(content ? { content } : {}),
-        embeds,
-    };
-    const serialized = JSON.stringify(payload);
-
-    if (new TextEncoder().encode(serialized).byteLength > DASHBOARD_POSTING_PAYLOAD_MAX_BYTES) {
-        throw new Error('posting-payload-too-large');
-    }
-
-    return payload;
+    const parsed = parseOutgoingMessage({
+        ...(input.content === undefined ? {} : { content: input.content }),
+        embeds: input.embeds ?? [],
+    });
+    if (parsed.isErr()) throw new Error(`posting-message-invalid:${parsed.error.code}:${parsed.error.path}`);
+    return parsed.value;
 }
 
 export function toDashboardPostingOperationRecord(operation: StoredDashboardPostingOperation) {
@@ -129,12 +129,17 @@ export function toDashboardPostingOperationRecord(operation: StoredDashboardPost
         createdAt: operation.createdAt,
         embedCount: operation.embedCount ?? operation.embeds?.length ?? 0,
         errorCode: operation.errorCode ?? null,
+        followupOperationId: operation.followupOperationId ?? null,
         guildId: operation.guildId,
         id: operation._id,
         messageId: operation.messageId ?? null,
         nextAttemptAt: operation.nextAttemptAt ?? null,
         requestKey: operation.requestKey,
         requestedChannelId: operation.requestedChannelId,
+        resolution: operation.resolution ?? null,
+        resolvedAt: operation.resolvedAt ?? null,
+        resolvedByUserId: operation.resolvedByUserId ?? null,
+        retryOfOperationId: operation.retryOfOperationId ?? null,
         sentChannelId: operation.sentChannelId ?? null,
         status: operation.status,
         updatedAt: operation.updatedAt,
@@ -171,49 +176,4 @@ export function normalizeOptionalOperationText(
     if (!normalized) return undefined;
     if (normalized.length > maxLength) throw new Error(`posting-${field}-too-long`);
     return normalized;
-}
-
-function normalizeJsonArray(value: unknown, depth: number, seen: Set<object>): unknown[] {
-    if (!Array.isArray(value)) throw new Error('posting-embeds-invalid');
-    return normalizeJsonContainer(value, depth, seen, () =>
-        value.map((item) => normalizeJsonValue(item, depth + 1, seen))
-    );
-}
-
-function normalizeJsonValue(value: unknown, depth: number, seen: Set<object>): unknown {
-    if (depth > DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH) throw new Error('posting-payload-too-deep');
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (Array.isArray(value)) return normalizeJsonArray(value, depth, seen);
-    if (!isPlainRecord(value)) throw new Error('posting-payload-not-json');
-
-    return normalizeJsonContainer(value, depth, seen, () => {
-        const normalized: Record<string, unknown> = {};
-        for (const [key, child] of Object.entries(value)) {
-            Object.defineProperty(normalized, key, {
-                configurable: true,
-                enumerable: true,
-                value: normalizeJsonValue(child, depth + 1, seen),
-                writable: true,
-            });
-        }
-        return normalized;
-    });
-}
-
-function normalizeJsonContainer<T>(value: object, depth: number, seen: Set<object>, build: () => T): T {
-    if (depth > DASHBOARD_POSTING_PAYLOAD_MAX_DEPTH) throw new Error('posting-payload-too-deep');
-    if (seen.has(value)) throw new Error('posting-payload-circular');
-    seen.add(value);
-    try {
-        return build();
-    } finally {
-        seen.delete(value);
-    }
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-    if (typeof value !== 'object' || value === null) return false;
-    const prototype: unknown = Object.getPrototypeOf(value);
-    return prototype === Object.prototype || prototype === null;
 }

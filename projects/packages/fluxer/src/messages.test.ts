@@ -13,6 +13,7 @@ import {
     editFluxerBotGuildChannelMessage,
     editFluxerChannelMessage,
     editFluxerGuildChannelMessage,
+    sendDashboardFluxerMessage,
     sendFluxerBotChannelMessage,
     sendFluxerChannelMessage,
     sendFluxerGuildChannelMessage,
@@ -196,6 +197,42 @@ describe('sendFluxerChannelMessage', () => {
             id: 'message-1',
             channelId: 'channel-1',
             guildId: null,
+        });
+    });
+});
+
+describe('sendDashboardFluxerMessage', () => {
+    it('translates the domain contract and always suppresses mentions', async () => {
+        const sendMock = createSendMock();
+
+        const result = await sendDashboardFluxerMessage({
+            client: createClient(sendMock),
+            channelId: 'channel-1',
+            message: {
+                content: '@everyone launch',
+                embeds: [
+                    {
+                        author: { name: 'NeonFlux', iconUrl: 'https://example.com/icon.png' },
+                        footer: { text: 'Ready', iconUrl: 'https://example.com/footer.png' },
+                        imageUrl: 'https://example.com/image.png',
+                        title: 'Launch',
+                    },
+                ],
+            },
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(sendMock).toHaveBeenCalledWith('channel-1', {
+            allowedMentions: { parse: [] },
+            content: '@everyone launch',
+            embeds: [
+                {
+                    author: { name: 'NeonFlux', icon_url: 'https://example.com/icon.png' },
+                    footer: { text: 'Ready', icon_url: 'https://example.com/footer.png' },
+                    image: { url: 'https://example.com/image.png' },
+                    title: 'Launch',
+                },
+            ],
         });
     });
 });

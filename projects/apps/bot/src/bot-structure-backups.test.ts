@@ -10,7 +10,7 @@ import {
     listDueStructureDriftSettings,
     pruneExpiredStructureBackupsForGuild,
     recordStructureScheduledDriftResult,
-    structureAuditActions,
+    blueprintAuditActions,
     type RuntimeDbClient,
     structureBackupSources,
     structureBackupStatuses,
@@ -244,7 +244,7 @@ describe('runDueStructureBackups', () => {
             {},
             {
                 audit: {
-                    action: structureAuditActions.backupRetentionPruned,
+                    action: blueprintAuditActions.backupRetentionPruned,
                     metadata: {
                         source: 'scheduled_retention',
                     },
@@ -308,7 +308,7 @@ describe('runDueStructureBackups', () => {
             {},
             expect.objectContaining({
                 audit: {
-                    action: structureAuditActions.scheduledDriftDetected,
+                    action: blueprintAuditActions.scheduledDriftDetected,
                     metadata: expectedDriftMetadata,
                     targetId: 'guild-drift',
                 },
@@ -430,7 +430,7 @@ describe('runDueStructureBackups', () => {
         });
         expect(noBaselineInput).not.toHaveProperty('audit');
         const expectedFailedAudit: unknown = expect.objectContaining({
-            action: structureAuditActions.scheduledDriftFailed,
+            action: blueprintAuditActions.scheduledDriftFailed,
         });
         expect(recordStructureScheduledDriftResult).toHaveBeenNthCalledWith(
             2,

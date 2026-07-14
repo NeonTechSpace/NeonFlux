@@ -2,12 +2,20 @@ import { resolve } from 'node:path';
 
 export const e2eEphemeralSentinel = 'neonflux-e2e-ephemeral-v1';
 export const e2eProjectPrefix = 'neonflux-e2e-';
+const forbiddenConvexCliKeys = [
+    'FLUXER_BOT_TOKEN',
+    'FLUXER_CLIENT_SECRET',
+    'FLUXER_TOKEN_ENCRYPTION_KEY',
+    'SESSION_SECRET',
+] as const;
 
 export type EphemeralConvexState = {
     backendPort: number;
     composeFiles: string[];
     envPath: string;
+    fixtureEnvPath: string;
     projectName: string;
+    runtimeEnvPath: string;
     sentinel: typeof e2eEphemeralSentinel;
     sitePort: number;
     startedAt: string;
@@ -18,6 +26,17 @@ export function requireEphemeralSentinel(environment: NodeJS.ProcessEnv): void {
     if (environment.NEONFLUX_E2E_EPHEMERAL_SENTINEL !== e2eEphemeralSentinel) {
         throw new Error('Refusing the E2E operation without the ephemeral-test sentinel.');
     }
+}
+
+export function assertConvexCliEnvironmentContainsNoPrivateCredentials(environment: NodeJS.ProcessEnv): void {
+    const leakedKey = Object.keys(environment).find((key) => {
+        const normalizedKey = key.toUpperCase();
+        return (
+            forbiddenConvexCliKeys.includes(normalizedKey as (typeof forbiddenConvexCliKeys)[number]) ||
+            normalizedKey.endsWith('_AUTH_JWT_PRIVATE_KEY')
+        );
+    });
+    if (leakedKey) throw new Error(`Refusing to pass private fixture credential ${leakedKey} to Convex.`);
 }
 
 export function validateEphemeralConvexState(value: unknown, expectedWorkspace: string): EphemeralConvexState {
@@ -40,7 +59,12 @@ export function validateEphemeralConvexState(value: unknown, expectedWorkspace: 
     if (!Array.isArray(state.composeFiles) || !state.composeFiles.every((file) => typeof file === 'string')) {
         throw new Error('Ephemeral Convex state has invalid Compose files.');
     }
-    if (typeof state.envPath !== 'string' || typeof state.startedAt !== 'string') {
+    if (
+        typeof state.envPath !== 'string' ||
+        typeof state.fixtureEnvPath !== 'string' ||
+        typeof state.runtimeEnvPath !== 'string' ||
+        typeof state.startedAt !== 'string'
+    ) {
         throw new Error('Ephemeral Convex state is incomplete.');
     }
 

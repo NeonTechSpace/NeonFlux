@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    diffFluxerGuildStructureSnapshot,
-    FluxerGuildStructureAmbiguousIdentityError,
-    type FluxerGuildStructureSnapshot,
-} from './guild-structure-diff.js';
+    diffBlueprintSnapshot,
+    BlueprintAmbiguousIdentityError,
+    type BlueprintSnapshot,
+} from '@neonflux/blueprint/diff';
 
 const role = (id: string, name = id, position = 1) => ({
     id,
@@ -26,7 +26,7 @@ const channel = (id: string, name = id, url?: string) => ({
     permissionOverwrites: [],
 });
 
-function snapshot(input: Partial<FluxerGuildStructureSnapshot> = {}): FluxerGuildStructureSnapshot {
+function snapshot(input: Partial<BlueprintSnapshot> = {}): BlueprintSnapshot {
     return { version: 1, guildId: 'guild', roles: [], categories: [], channels: [], ...input };
 }
 
@@ -57,7 +57,7 @@ describe('guild structure v3 plan', () => {
         };
 
         for (const policy of ['merge', 'synchronize', 'rebuild'] as const) {
-            const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy });
+            const plan = diffBlueprintSnapshot(current, requested, { policy });
 
             expect(plan.knownTargetKinds).toStrictEqual(expected);
             expect(plan.fingerprintInput.knownTargetKinds).toStrictEqual(expected);
@@ -68,9 +68,9 @@ describe('guild structure v3 plan', () => {
         const current = snapshot({ roles: [role('kept'), role('extra')] });
         const requested = snapshot({ roles: [role('kept')] });
 
-        const merge = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
-        const synchronize = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
-        const rebuild = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'rebuild' });
+        const merge = diffBlueprintSnapshot(current, requested, { policy: 'merge' });
+        const synchronize = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
+        const rebuild = diffBlueprintSnapshot(current, requested, { policy: 'rebuild' });
 
         expect(merge.decisions).toContainEqual({
             targetType: 'role',
@@ -89,7 +89,7 @@ describe('guild structure v3 plan', () => {
 
     it('persists same-ID no-op identity and is idempotent against its projection', () => {
         const requested = snapshot({ roles: [role('member')] });
-        const first = diffFluxerGuildStructureSnapshot(requested, requested, { policy: 'synchronize' });
+        const first = diffBlueprintSnapshot(requested, requested, { policy: 'synchronize' });
 
         expect(first.version).toBe(3);
         expect(first.sourceTargetMap).toStrictEqual({ member: 'member' });
@@ -100,12 +100,12 @@ describe('guild structure v3 plan', () => {
             sourceId: 'member',
             targetId: 'member',
         });
-        expect(first.actions).toStrictEqual([]);
+        expect(first.changes).toStrictEqual([]);
 
-        const second = diffFluxerGuildStructureSnapshot(first.projectedSnapshot, first.projectedSnapshot, {
+        const second = diffBlueprintSnapshot(first.projectedSnapshot, first.projectedSnapshot, {
             policy: 'synchronize',
         });
-        expect(second.actions).toStrictEqual([]);
+        expect(second.changes).toStrictEqual([]);
         expect(second.blockers).toStrictEqual([]);
     });
 
@@ -116,13 +116,13 @@ describe('guild structure v3 plan', () => {
             roles: [{ ...role('source-member', 'Member'), color: 0xff00ff, hoist: true }],
         });
 
-        const first = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
-        expect(first.actions.some((action) => action.actionType === 'update')).toBe(true);
+        const first = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
+        expect(first.changes.some((action) => action.actionType === 'update')).toBe(true);
 
-        const reconciled = diffFluxerGuildStructureSnapshot(first.projectedSnapshot, requested, {
+        const reconciled = diffBlueprintSnapshot(first.projectedSnapshot, requested, {
             policy: 'synchronize',
         });
-        expect(reconciled.actions).toStrictEqual([]);
+        expect(reconciled.changes).toStrictEqual([]);
         expect(reconciled.blockers).toStrictEqual([]);
     });
 
@@ -130,9 +130,9 @@ describe('guild structure v3 plan', () => {
         const current = snapshot({ channels: [channel('docs', 'docs', 'https://old.example')] });
         const requested = snapshot({ channels: [channel('docs', 'docs', 'https://new.example')] });
 
-        const plan = diffFluxerGuildStructureSnapshot(current, requested, { policy: 'synchronize' });
+        const plan = diffBlueprintSnapshot(current, requested, { policy: 'synchronize' });
 
-        expect(plan.actions).toStrictEqual([]);
+        expect(plan.changes).toStrictEqual([]);
         expect(plan.blockers).toStrictEqual([
             {
                 code: 'unsupported-field-change',
@@ -159,12 +159,12 @@ describe('guild structure v3 plan', () => {
 
         let thrown: unknown;
         try {
-            diffFluxerGuildStructureSnapshot(current, requested, { policy: 'merge' });
+            diffBlueprintSnapshot(current, requested, { policy: 'merge' });
         } catch (error) {
             thrown = error;
         }
-        expect(thrown).toBeInstanceOf(FluxerGuildStructureAmbiguousIdentityError);
-        expect((thrown as FluxerGuildStructureAmbiguousIdentityError).decisions).toStrictEqual([
+        expect(thrown).toBeInstanceOf(BlueprintAmbiguousIdentityError);
+        expect((thrown as BlueprintAmbiguousIdentityError).decisions).toStrictEqual([
             {
                 targetType: 'category',
                 classification: 'blocked-ambiguous',
@@ -174,7 +174,7 @@ describe('guild structure v3 plan', () => {
             },
         ]);
 
-        const mapped = diffFluxerGuildStructureSnapshot(current, requested, {
+        const mapped = diffBlueprintSnapshot(current, requested, {
             policy: 'merge',
             categoryMappings: { source: 'right' },
         });

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    createFluxerGuildStructureSnapshotFingerprintInput,
-    FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS,
-    isFluxerGuildStructureSnapshotJsonWithinByteLimit,
-    normalizeFluxerGuildStructureSnapshot,
-    toFluxerGuildStructureExportSnapshot,
-    type FluxerGuildStructureSnapshot,
-} from './guild-structure-snapshot.js';
+    createBlueprintSnapshotFingerprintInput,
+    BLUEPRINT_SNAPSHOT_LIMITS,
+    isBlueprintSnapshotJsonWithinByteLimit,
+    normalizeBlueprintSnapshot,
+    toPortableBlueprintSnapshot,
+    type BlueprintSnapshot,
+} from '@neonflux/blueprint/snapshot';
 import type { FluxerGuildStructure } from './guild-structure.js';
 
 const validRole = {
@@ -77,7 +77,7 @@ describe('guild structure export snapshots', () => {
             ],
         };
 
-        const snapshot = toFluxerGuildStructureExportSnapshot(structure, '2026-07-14T10:00:00.000Z');
+        const snapshot = toPortableBlueprintSnapshot(structure, '2026-07-14T10:00:00.000Z');
 
         expect(snapshot.roles.map((role) => role.id)).toStrictEqual(['guild-1', 'role-1', 'managed-role']);
         expect(snapshot.categories[0]?.permissionOverwrites).toStrictEqual([
@@ -87,28 +87,28 @@ describe('guild structure export snapshots', () => {
             { id: 'bot-role', type: 1, allow: '4', deny: '0' },
             { id: 'role-1', type: 0, allow: '0', deny: '8' },
         ]);
-        expect(normalizeFluxerGuildStructureSnapshot(snapshot)).toStrictEqual({ type: 'valid', snapshot });
+        expect(normalizeBlueprintSnapshot(snapshot)).toStrictEqual({ type: 'valid', snapshot });
     });
 });
 
 describe('guild structure snapshot input bounds', () => {
     it('measures the JSON limit in UTF-8 bytes', () => {
-        const exactMultibyteLimit = 'é'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 2);
-        const exactAstralLimit = '😀'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxJsonBytes / 4);
+        const exactMultibyteLimit = 'é'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxJsonBytes / 2);
+        const exactAstralLimit = '😀'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxJsonBytes / 4);
 
-        expect(isFluxerGuildStructureSnapshotJsonWithinByteLimit(exactMultibyteLimit)).toBe(true);
-        expect(isFluxerGuildStructureSnapshotJsonWithinByteLimit(`${exactMultibyteLimit}é`)).toBe(false);
-        expect(isFluxerGuildStructureSnapshotJsonWithinByteLimit(exactAstralLimit)).toBe(true);
-        expect(isFluxerGuildStructureSnapshotJsonWithinByteLimit(`${exactAstralLimit}😀`)).toBe(false);
+        expect(isBlueprintSnapshotJsonWithinByteLimit(exactMultibyteLimit)).toBe(true);
+        expect(isBlueprintSnapshotJsonWithinByteLimit(`${exactMultibyteLimit}é`)).toBe(false);
+        expect(isBlueprintSnapshotJsonWithinByteLimit(exactAstralLimit)).toBe(true);
+        expect(isBlueprintSnapshotJsonWithinByteLimit(`${exactAstralLimit}😀`)).toBe(false);
     });
 
     it.each([
-        ['roles', FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxRoles + 1, validRole, '250 roles'],
-        ['categories', FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxCategories + 1, validChannel, '500 categories'],
-        ['channels', FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxChannels + 1, validChannel, '500 channels'],
+        ['roles', BLUEPRINT_SNAPSHOT_LIMITS.maxRoles + 1, validRole, '250 roles'],
+        ['categories', BLUEPRINT_SNAPSHOT_LIMITS.maxCategories + 1, validChannel, '500 categories'],
+        ['channels', BLUEPRINT_SNAPSHOT_LIMITS.maxChannels + 1, validChannel, '500 channels'],
     ] as const)('rejects excessive %s', (field, count, item, expectedMessage) => {
         const items = Array.from({ length: count }, () => item);
-        const result = normalizeFluxerGuildStructureSnapshot({
+        const result = normalizeBlueprintSnapshot({
             roles: field === 'roles' ? items : [],
             categories: field === 'categories' ? items : [],
             channels: field === 'channels' ? items : [],
@@ -120,10 +120,10 @@ describe('guild structure snapshot input bounds', () => {
     });
 
     it('caps combined categories and channels at the platform guild-channel limit', () => {
-        const result = normalizeFluxerGuildStructureSnapshot({
+        const result = normalizeBlueprintSnapshot({
             roles: [],
             categories: [validChannel],
-            channels: Array(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxTotalChannels).fill(validChannel),
+            channels: Array(BLUEPRINT_SNAPSHOT_LIMITS.maxTotalChannels).fill(validChannel),
         });
 
         expect(result).toStrictEqual({
@@ -133,15 +133,18 @@ describe('guild structure snapshot input bounds', () => {
     });
 
     it('rejects excessive permission overwrites before relationship processing', () => {
-        const result = normalizeFluxerGuildStructureSnapshot({
+        const result = normalizeBlueprintSnapshot({
             roles: [],
             categories: [],
             channels: [
                 {
                     ...validChannel,
-                    permissionOverwrites: Array(
-                        FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxPermissionOverwritesPerChannel + 1
-                    ).fill({ id: 'role-1', type: 0, allow: '0', deny: '0' }),
+                    permissionOverwrites: Array(BLUEPRINT_SNAPSHOT_LIMITS.maxPermissionOverwritesPerChannel + 1).fill({
+                        id: 'role-1',
+                        type: 0,
+                        allow: '0',
+                        deny: '0',
+                    }),
                 },
             ],
         });
@@ -154,7 +157,7 @@ describe('guild structure snapshot input bounds', () => {
 
     it.each([
         [
-            { guildName: 'g'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxGuildNameLength + 1) },
+            { guildName: 'g'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxGuildNameLength + 1) },
             'Server name cannot exceed 100 characters.',
         ],
         [
@@ -162,7 +165,7 @@ describe('guild structure snapshot input bounds', () => {
                 roles: [
                     {
                         ...validRole,
-                        name: 'r'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxRoleNameLength + 1),
+                        name: 'r'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxRoleNameLength + 1),
                     },
                 ],
             },
@@ -173,7 +176,7 @@ describe('guild structure snapshot input bounds', () => {
                 channels: [
                     {
                         ...validChannel,
-                        url: 'u'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxChannelUrlLength + 1),
+                        url: 'u'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxChannelUrlLength + 1),
                     },
                 ],
             },
@@ -184,14 +187,14 @@ describe('guild structure snapshot input bounds', () => {
                 roles: [
                     {
                         ...validRole,
-                        permissions: '1'.repeat(FLUXER_GUILD_STRUCTURE_SNAPSHOT_LIMITS.maxPermissionBitfieldLength + 1),
+                        permissions: '1'.repeat(BLUEPRINT_SNAPSHOT_LIMITS.maxPermissionBitfieldLength + 1),
                     },
                 ],
             },
             'Role 1 permissions cannot exceed 32 characters.',
         ],
     ])('rejects bounded text fields with a precise message', (partial, expectedMessage) => {
-        const result = normalizeFluxerGuildStructureSnapshot({
+        const result = normalizeBlueprintSnapshot({
             roles: [],
             categories: [],
             channels: [],
@@ -204,7 +207,7 @@ describe('guild structure snapshot input bounds', () => {
 
 describe('guild structure snapshot fingerprint input', () => {
     it('excludes generated export time while retaining live structure and identity metadata', () => {
-        const snapshot: FluxerGuildStructureSnapshot = {
+        const snapshot: BlueprintSnapshot = {
             version: 1,
             guildId: 'guild-1',
             guildName: 'Guild 1',
@@ -216,8 +219,8 @@ describe('guild structure snapshot fingerprint input', () => {
             channels: [validChannel],
         };
 
-        const first = createFluxerGuildStructureSnapshotFingerprintInput(snapshot);
-        const second = createFluxerGuildStructureSnapshotFingerprintInput({
+        const first = createBlueprintSnapshotFingerprintInput(snapshot);
+        const second = createBlueprintSnapshotFingerprintInput({
             ...snapshot,
             exportedAt: '2026-07-13T11:00:00.000Z',
         });

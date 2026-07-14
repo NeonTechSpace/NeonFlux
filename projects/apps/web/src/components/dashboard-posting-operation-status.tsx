@@ -96,9 +96,22 @@ function getStatusExplanation(operation: DashboardPostingOperation): string {
         case 'sent':
             return 'Delivery was confirmed.';
         case 'unknown':
-            return 'The provider outcome is unknown. Check the channel before another attempt.';
+            return getUnknownOperationDescription(operation.resolution);
         case 'permanent_failure':
             return 'Nothing was sent. You can safely revise the message and try again.';
+    }
+}
+
+function getUnknownOperationDescription(resolution: DashboardPostingOperation['resolution']): string {
+    switch (resolution) {
+        case 'reported_seen':
+            return 'The provider outcome remains unknown. An operator reported finding the message.';
+        case 'reported_not_seen':
+            return 'The provider outcome remains unknown. An operator reported not finding the message.';
+        case 'duplicate_risk_accepted':
+            return 'The provider outcome remains unknown. An operator accepted the risk and created a linked follow-up.';
+        case undefined:
+            return 'The provider outcome is unknown. Check the channel before another attempt.';
     }
 }
 

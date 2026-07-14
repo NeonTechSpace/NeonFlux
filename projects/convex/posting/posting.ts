@@ -15,6 +15,7 @@ import {
     type PostedMessageDocument,
 } from './posting_model.js';
 import { mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
+import { outgoingEmbedValidator } from './message_validators.js';
 type PostingQueryCtx = QueryCtx;
 type PostingMutationCtx = MutationCtx;
 
@@ -42,7 +43,7 @@ const messageTemplateRecordValidator = v.object({
     content: v.union(v.string(), v.null()),
     createdAt: v.string(),
     createdByUserId: v.union(v.string(), v.null()),
-    embeds: v.array(v.any()),
+    embeds: v.array(outgoingEmbedValidator),
     guildId: v.string(),
     id: v.string(),
     name: v.string(),
@@ -66,7 +67,7 @@ export const upsertMessageTemplate = mutation({
         content: v.optional(v.string()),
         createdAt: v.optional(v.string()),
         createdByUserId: v.optional(v.string()),
-        embeds: v.optional(v.array(v.any())),
+        embeds: v.optional(v.array(outgoingEmbedValidator)),
         expectedUpdatedAt: v.optional(v.string()),
         guildId: v.string(),
         name: v.string(),

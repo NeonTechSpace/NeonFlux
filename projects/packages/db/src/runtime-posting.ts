@@ -1,4 +1,5 @@
 import { api } from '@neonflux/convex-api';
+import { parseOutgoingMessage, type OutgoingEmbed } from '@neonflux/messaging';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -16,7 +17,7 @@ type ConvexMessageTemplateRecord = {
     content: string | null;
     createdAt: string;
     createdByUserId: string | null;
-    embeds: unknown[];
+    embeds: OutgoingEmbed[];
     guildId: string;
     id: string;
     name: string;
@@ -46,7 +47,7 @@ export async function upsertMessageTemplate(
         };
         content?: string;
         createdByUserId?: string;
-        embeds?: unknown[];
+        embeds?: OutgoingEmbed[];
         expectedUpdatedAt?: string;
         guildId: string;
         name: string;
@@ -208,7 +209,7 @@ function normalizeMessageTemplateInput(input: {
     };
     content?: string;
     createdByUserId?: string;
-    embeds?: unknown[];
+    embeds?: OutgoingEmbed[];
     expectedUpdatedAt?: string;
     guildId: string;
     name: string;
@@ -223,7 +224,7 @@ function normalizeMessageTemplateInput(input: {
         };
         content?: string;
         createdByUserId?: string;
-        embeds: unknown[];
+        embeds: OutgoingEmbed[];
         expectedUpdatedAt?: string;
         guildId: string;
         name: string;
@@ -233,25 +234,26 @@ function normalizeMessageTemplateInput(input: {
 > {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const name = normalizeRequiredText(input.name, 'name');
-    const content = normalizeOptionalText(input.content);
+    const message = parseOutgoingMessage({
+        ...(input.content === undefined ? {} : { content: input.content }),
+        embeds: input.embeds ?? [],
+    });
     const createdByUserId = normalizeOptionalText(input.createdByUserId);
     const expectedUpdatedAt = normalizeOptionalText(input.expectedUpdatedAt);
     const templateId = normalizeOptionalText(input.templateId);
-    const embeds = input.embeds ?? [];
-
     if (guildId.isErr()) return err(guildId.error);
     if (name.isErr()) return err(name.error);
-
-    if (!content && embeds.length === 0) {
+    if (message.isErr() && message.error.code === 'empty-message') {
         return err({ field: 'message', type: 'missing-input' });
     }
+    if (message.isErr()) return err({ field: 'embeds', type: 'invalid-value' });
 
     const normalizedInput = {
-        embeds: [...embeds],
+        embeds: message.value.embeds,
         guildId: guildId.value,
         name: name.value,
         ...(input.audit ? { audit: input.audit } : {}),
-        ...(content ? { content } : {}),
+        ...(message.value.content ? { content: message.value.content } : {}),
         ...(createdByUserId ? { createdByUserId } : {}),
         ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
         ...(templateId ? { templateId } : {}),

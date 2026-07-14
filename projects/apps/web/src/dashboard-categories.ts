@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export type DashboardCategoryId = 'overview' | 'messaging' | 'general' | 'events' | 'structure';
+export type DashboardCategoryId = 'overview' | 'messaging' | 'general' | 'events' | 'blueprint';
 
 export type DashboardNavigationJobId = 'overview' | 'create-deliver' | 'insights-activity' | 'blueprint' | 'settings';
 
@@ -20,7 +20,7 @@ type DashboardCategoryTo =
     | '/dashboard/$guildId/messaging'
     | '/dashboard/$guildId/general'
     | '/dashboard/$guildId/events'
-    | '/dashboard/$guildId/structure';
+    | '/dashboard/$guildId/blueprint';
 
 export type DashboardSubNavigationTo =
     | '/dashboard/$guildId/messaging/message-builder'
@@ -142,10 +142,10 @@ const dashboardNavigationSettings = [
         ],
     },
     {
-        id: 'structure',
+        id: 'blueprint',
         label: 'Server Blueprint',
-        path: 'structure',
-        to: '/dashboard/$guildId/structure',
+        path: 'blueprint',
+        to: '/dashboard/$guildId/blueprint',
         description: 'Inspect, compare, back up, and safely deploy server layout changes.',
         icon: GitBranch,
         items: [],
@@ -179,7 +179,7 @@ const dashboardNavigationJobs = [
         label: 'Server Blueprint',
         description: 'Inspect, compare, back up, and safely deploy server layout changes.',
         icon: GitBranch,
-        routeCategoryIds: ['structure'],
+        routeCategoryIds: ['blueprint'],
     },
     {
         id: 'settings',
@@ -259,7 +259,7 @@ function getDirectNavigationCategory(jobId: DashboardNavigationJobId): Dashboard
         case 'overview':
             return getDashboardCategory('overview');
         case 'blueprint':
-            return getDashboardCategory('structure');
+            return getDashboardCategory('blueprint');
         default:
             return undefined;
     }
@@ -275,7 +275,7 @@ function getCapabilityNavigationJobId(categoryId: DashboardCategoryId): Dashboar
             return 'settings';
         case 'overview':
             return 'overview';
-        case 'structure':
+        case 'blueprint':
             return 'blueprint';
     }
 }

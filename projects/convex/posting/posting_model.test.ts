@@ -70,7 +70,7 @@ describe('posting model', () => {
             buildMessageTemplateDocument(
                 {
                     content: 'Ship it',
-                    embeds: 'bad' as unknown as unknown[],
+                    embeds: 'bad',
                     guildId: 'guild-1',
                     name: 'Release',
                 },

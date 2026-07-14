@@ -35,26 +35,26 @@ export function getDashboardPostingTemplatesQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-templates'] as const;
 }
 
-export function getDashboardStructureQueryKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'structure'] as const;
+export function getDashboardBlueprintQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'blueprint'] as const;
 }
 
-export function getDashboardStructureStatusQueryKey(guildId: string) {
-    return [...getDashboardStructureQueryKey(guildId), 'status'] as const;
+export function getDashboardBlueprintStatusQueryKey(guildId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'status'] as const;
 }
 
-export function getDashboardStructureBackupsQueryKey(guildId: string) {
-    return [...getDashboardStructureQueryKey(guildId), 'backups'] as const;
+export function getDashboardBlueprintBackupsQueryKey(guildId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'backups'] as const;
 }
 
-export function getDashboardStructureRunsQueryKey(guildId: string) {
-    return [...getDashboardStructureQueryKey(guildId), 'runs'] as const;
+export function getDashboardBlueprintRunsQueryKey(guildId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'runs'] as const;
 }
 
-export function getDashboardStructureExecutionProgressBaseQueryKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'structure-execution-progress'] as const;
+export function getDashboardBlueprintRunProgressBaseQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'blueprint-run-progress'] as const;
 }
 
-export function getDashboardStructureExecutionProgressQueryKey(guildId: string, runId: string) {
-    return [...getDashboardStructureExecutionProgressBaseQueryKey(guildId), runId] as const;
+export function getDashboardBlueprintRunProgressQueryKey(guildId: string, planId: string) {
+    return [...getDashboardBlueprintRunProgressBaseQueryKey(guildId), planId] as const;
 }
