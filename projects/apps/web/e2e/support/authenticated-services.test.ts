@@ -405,6 +405,7 @@ function postingStructure(channelType: number) {
 
 function blueprintSnapshot(roleName: string) {
     return {
+        botHighestRolePosition: 2,
         categories: [],
         channels: [],
         guildId,

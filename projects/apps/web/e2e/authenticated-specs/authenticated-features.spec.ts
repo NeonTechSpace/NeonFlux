@@ -156,7 +156,7 @@ test('creates and approves a Blueprint plan, then refuses the stale live target 
     await page.getByRole('tab', { name: 'Paste JSON' }).click();
     await page.getByRole('textbox', { name: 'Blueprint JSON' }).fill(JSON.stringify(blueprintDocument('Desired')));
     await page.getByRole('radio', { name: 'Merge without deletions' }).check();
-    await page.getByRole('button', { name: 'Preview exact changes' }).click();
+    await page.getByRole('button', { name: 'Generate review plan' }).click();
     await expect(page.getByText(/plan created with 1 change/u)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Continue to final check' })).toBeVisible();
 
@@ -179,6 +179,7 @@ async function writeProviderState(roleName: string): Promise<void> {
 
 function providerStructure(roleName: string) {
     return {
+        botHighestRolePosition: 2,
         categories: [],
         channels: [
             {
