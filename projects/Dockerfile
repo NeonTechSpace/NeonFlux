@@ -14,6 +14,7 @@ RUN corepack enable
 FROM build-base AS package-manifests
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Keep patches as an optional tracked directory so clean build contexts can copy it when empty.
 COPY patches ./patches
 RUN corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
 
