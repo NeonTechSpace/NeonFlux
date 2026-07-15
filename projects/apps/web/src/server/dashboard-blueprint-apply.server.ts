@@ -14,14 +14,17 @@ import {
 import { getWebDb } from './db.server.js';
 import { createBlueprintAuditInput, loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';
-import { getDashboardBlueprintDeleteApprovalText } from './dashboard-blueprint-contracts.js';
 
 export type DashboardBlueprintApplyInput = {
     guildId: string;
     planId: string;
     planDigest: string;
     preflightDigest: string;
-    destructiveConfirmationText?: string;
+    confirmation?: {
+        understandsDeletion?: true;
+        understandsRestorePointRequirement?: true;
+        targetGuildName?: string;
+    };
 };
 
 export type DashboardBlueprintApplyResult =
@@ -39,7 +42,7 @@ export type DashboardBlueprintApplyResult =
     | { type: 'review-stale' }
     | { type: 'run-active' }
     | { type: 'nothing-to-apply' }
-    | { type: 'destructive-confirmation-mismatch'; expectedText: string }
+    | { type: 'destructive-confirmation-mismatch'; message: string }
     | { type: 'not-applicable'; status: string }
     | DashboardBlueprintErrorResult;
 
@@ -93,34 +96,55 @@ export async function applyDashboardBlueprintPlan(
         if (!planResult.value.deleteSetDigest) {
             return { type: 'invalid-input', message: 'The persisted delete set is incomplete. Create a new plan.' };
         }
-        const expectedText = getDashboardBlueprintDeleteApprovalText(
-            planId,
-            deleteStepCount,
-            planResult.value.deleteSetDigest
-        );
-        if (input.destructiveConfirmationText?.trim() !== expectedText) {
-            return { type: 'destructive-confirmation-mismatch', expectedText };
+        const confirmation = input.confirmation;
+        if (planResult.value.policy === 'merge') {
+            return { type: 'invalid-input', message: 'Merge plans cannot contain destructive steps.' };
         }
-        const approvedAt = new Date();
-        const approvalResult = await approveBlueprintPlan(database.db, {
-            planId: planId,
-            planDigest: planResult.value.planDigest,
-            approvedByUserId: context.actor.actorUserId,
-            approvedAt,
-            deleteSetDigest: planResult.value.deleteSetDigest,
-            destructiveStepCount: deleteStepCount,
-            destructiveApprovedAt: approvedAt,
-            destructivePreflightDigest: input.preflightDigest,
-            audit: createBlueprintAuditInput(context, blueprintAuditActions.planApproved, planId, {
-                approvalType: 'destructive',
-                deleteStepCount,
-                deleteSetDigest: planResult.value.deleteSetDigest,
-                planDigest: planResult.value.planDigest,
-                preflightDigest: input.preflightDigest,
-            }),
-        });
-        if (approvalResult.isErr()) return mapRepositoryError(approvalResult.error);
+        if (confirmation?.understandsDeletion !== true) {
+            return {
+                type: 'destructive-confirmation-mismatch',
+                message: `Acknowledge that ${String(deleteStepCount)} existing objects will be removed.`,
+            };
+        }
+        if (planResult.value.policy === 'rebuild') {
+            if (confirmation.understandsRestorePointRequirement !== true) {
+                return {
+                    type: 'destructive-confirmation-mismatch',
+                    message: 'Acknowledge that NeonFlux must create a restore point before mutation.',
+                };
+            }
+            if (
+                normalizeConfirmationName(confirmation.targetGuildName) !==
+                normalizeConfirmationName(context.guild.name)
+            ) {
+                return {
+                    type: 'destructive-confirmation-mismatch',
+                    message: `Type “${context.guild.name}” exactly to confirm this rebuild.`,
+                };
+            }
+        }
     }
+
+    const approvedAt = new Date();
+    const approvalResult = await approveBlueprintPlan(database.db, {
+        planId: planId,
+        planDigest: planResult.value.planDigest,
+        approvedByUserId: context.actor.actorUserId,
+        approvedAt,
+        deleteSetDigest: deleteStepCount > 0 ? (planResult.value.deleteSetDigest ?? null) : null,
+        destructiveStepCount: deleteStepCount > 0 ? deleteStepCount : null,
+        destructiveApprovedAt: deleteStepCount > 0 ? approvedAt : null,
+        destructivePreflightDigest: input.preflightDigest,
+        confirmationMethod: planResult.value.policy === 'rebuild' ? 'target_name' : 'acknowledgement',
+        audit: createBlueprintAuditInput(context, blueprintAuditActions.planApproved, planId, {
+            approvalType: deleteStepCount > 0 ? 'destructive-deploy' : 'deploy',
+            deleteStepCount,
+            ...(planResult.value.deleteSetDigest ? { deleteSetDigest: planResult.value.deleteSetDigest } : {}),
+            planDigest: planResult.value.planDigest,
+            preflightDigest: input.preflightDigest,
+        }),
+    });
+    if (approvalResult.isErr()) return mapRepositoryError(approvalResult.error);
 
     const runResult = await enqueueBlueprintRun(database.db, {
         planId: planId,
@@ -144,6 +168,10 @@ export async function applyDashboardBlueprintPlan(
             createdAt: runResult.value.createdAt.toISOString(),
         },
     };
+}
+
+function normalizeConfirmationName(value: string | undefined): string {
+    return value?.normalize('NFC').trim() ?? '';
 }
 
 export async function controlDashboardBlueprintRun(

@@ -11,18 +11,27 @@ import type { DashboardBlueprintDeployWorkspace } from './dashboard-blueprint-de
 describe('DashboardBlueprintDeploySurface', () => {
     it('replaces the reviewed plan with a reset Choose flow when starting over', () => {
         render(<DeployFlowHarness />);
+        const actionRegion = screen.getByRole('region', { name: 'Deployment action' });
 
         expect(screen.getByText('1 changes · 0 plan steps')).toBeTruthy();
+        expect(actionRegion).toBeTruthy();
         expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Review');
 
         fireEvent.click(screen.getByRole('button', { name: 'Start over with another blueprint' }));
 
         expect(screen.queryByText('1 changes · 0 plan steps')).toBeNull();
-        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Choose');
+        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Source');
         expect(screen.queryByText('Previous plan status')).toBeNull();
+        expect(screen.getByRole('region', { name: 'Deployment action' })).toBe(actionRegion);
+        fireEvent.click(screen.getByRole('tab', { name: 'Paste JSON' }));
         const sourceInput = screen.getByLabelText<HTMLTextAreaElement>('Blueprint JSON');
         expect(sourceInput.value).toBe('');
-        fireEvent.change(sourceInput, { target: { value: '{}' } });
+        fireEvent.change(sourceInput, {
+            target: { value: '{"version":1,"roles":[],"categories":[],"channels":[]}' },
+        });
+        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Configure');
+        expect(screen.getByRole('region', { name: 'Deployment action' })).toBe(actionRegion);
+        expect(screen.getByRole('button', { name: 'Generate review plan' })).toBeTruthy();
         expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Match blueprint (recommended)' }).checked).toBe(
             true
         );
@@ -71,7 +80,7 @@ function DeployFlowHarness({
 
     const workspace: DashboardBlueprintDeployWorkspace = {
         busyAction: undefined,
-        deleteConfirmationByPlanId: {},
+        confirmationByPlanId: {},
         deployChoosingSource: choosingSource,
         deployPlan: choosingSource ? undefined : run,
         runProgressIssue,
@@ -90,13 +99,16 @@ function DeployFlowHarness({
               ]
             : [],
         roleMappings: hasMappings ? { 'source-1': 'target-1' } : {},
+        sourceFile: undefined,
         structurePolicy: policy,
+        targetGuildId: 'guild-1',
+        targetGuildName: 'Guild One',
         onApplyRun: () => {},
         onApprovePlan: () => {},
         onControlRun: () => {},
         onCreatePlan: () => {},
         onCreateRestorePlan: () => {},
-        onDeleteConfirmationChange: () => {},
+        onConfirmationChange: () => {},
         onImportJsonChange: setImportJson,
         onImportStructureFile: async () => {},
         onInspectImportJson: () => {},

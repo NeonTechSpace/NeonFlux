@@ -38,6 +38,19 @@ export type DashboardBlueprintPlanPreflight = {
     blockerCount: number;
 };
 
+type DashboardBlueprintFenceCollectionDifference = {
+    addedCount: number;
+    removedCount: number;
+    changedCount: number;
+};
+
+type DashboardBlueprintAuthorizationMismatch = {
+    roles?: DashboardBlueprintFenceCollectionDifference;
+    categories?: DashboardBlueprintFenceCollectionDifference;
+    channels?: DashboardBlueprintFenceCollectionDifference;
+    truncated?: boolean;
+};
+
 type DashboardBlueprintRunStatus =
     | 'queued'
     | 'running'
@@ -60,6 +73,18 @@ export type DashboardBlueprintRunProgress = {
     completedSteps: number;
     failedSteps: number;
     totalSteps: number;
+    appliedSteps?: number;
+    completedMutationSteps?: number;
+    notStartedSteps?: number;
+    authorizationDecision?:
+        | 'authorized'
+        | 'structure_changed'
+        | 'capability_changed'
+        | 'structure_and_capability_changed'
+        | 'restore_observation_diverged'
+        | 'preflight_expired'
+        | 'fingerprint_version_mismatch';
+    authorizationMismatch?: DashboardBlueprintAuthorizationMismatch;
     currentStepLabel?: string;
     retryAt?: string;
     errorType?: string;
@@ -135,12 +160,4 @@ export function createEmptyDecisionSummary(): DashboardBlueprintDecisionSummary 
 
 export function isDashboardBlueprintPolicy(value: unknown): value is DashboardBlueprintPolicy {
     return dashboardBlueprintPolicies.includes(value as DashboardBlueprintPolicy);
-}
-
-export function getDashboardBlueprintDeleteApprovalText(
-    planId: string,
-    deleteStepCount: number,
-    deleteSetDigest: string
-): string {
-    return `DELETE ${planId} ${deleteStepCount} ${deleteSetDigest.slice(0, 12)}`;
 }

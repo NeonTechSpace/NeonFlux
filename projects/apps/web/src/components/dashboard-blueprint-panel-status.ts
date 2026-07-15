@@ -2,12 +2,7 @@ import type { DashboardBlueprintPreflightReport } from '../server/dashboard-blue
 import { formatStatus } from './dashboard-blueprint-panel-format.js';
 import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
 
-export function toRunActionStatus(result: {
-    type: string;
-    message?: string;
-    expectedText?: string;
-    status?: string;
-}): PanelStatus {
+export function toRunActionStatus(result: { type: string; message?: string; status?: string }): PanelStatus {
     if (result.type === 'invalid-input' && result.message) return { tone: 'error', message: result.message };
     if (result.type === 'not-approvable' && result.status) {
         return { tone: 'error', message: `This plan is ${formatStatus(result.status)} and cannot be approved.` };
@@ -18,13 +13,12 @@ export function toRunActionStatus(result: {
 export function toApplyErrorStatus(result: {
     type: string;
     message?: string;
-    expectedText?: string;
     status?: string;
     report?: DashboardBlueprintPreflightReport;
 }): PanelStatus {
     if (result.type === 'invalid-input' && result.message) return { tone: 'error', message: result.message };
-    if (result.type === 'destructive-confirmation-mismatch' && result.expectedText) {
-        return { tone: 'error', message: `Type ${result.expectedText} exactly to approve deletes.` };
+    if (result.type === 'destructive-confirmation-mismatch' && result.message) {
+        return { tone: 'error', message: result.message };
     }
     if (result.type === 'not-applicable' && result.status) {
         return { tone: 'error', message: `This plan is ${formatStatus(result.status)} and cannot be queued.` };

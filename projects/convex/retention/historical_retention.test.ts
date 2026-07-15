@@ -229,7 +229,7 @@ describe('historical retention', () => {
 
     it('deletes attempts before their terminal run and then repeats that phase', async () => {
         const operations = createOperations({
-            loadRunStepAttemptIds: vi.fn(() => Promise.resolve(['attempt-1', 'attempt-2'])),
+            loadRunStepAttemptIds: vi.fn().mockResolvedValueOnce(['attempt-1', 'attempt-2']).mockResolvedValueOnce([]),
             loadFirstRun: vi.fn(() => Promise.resolve({ id: 'run-1', status: 'succeeded' })),
         });
 
@@ -244,15 +244,43 @@ describe('historical retention', () => {
             'attempt-1',
             'attempt-2',
         ]);
-        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-1');
-        expect(vi.mocked(operations.deleteBlueprintChildIds).mock.invocationCallOrder[0]).toBeLessThan(
-            vi.mocked(operations.deleteRun).mock.invocationCallOrder[0] ?? 0
-        );
+        expect(operations.deleteRun).not.toHaveBeenCalled();
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
             phase: 'blueprint-runs',
             planId: 'plan-old',
         });
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
+        });
+        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-1');
+    });
+
+    it('deletes durable run observations before deleting their terminal run', async () => {
+        const operations = createOperations({
+            loadFirstRun: vi.fn(() => Promise.resolve({ id: 'run-1', status: 'failed_before_mutation' })),
+            loadRunObservationIds: vi.fn(() => Promise.resolve(['observation-restore', 'observation-authorization'])),
+        });
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
+        });
+
+        expect(operations.deleteRunObservationIds).toHaveBeenCalledWith([
+            'observation-restore',
+            'observation-authorization',
+        ]);
+        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-1');
+        expect(vi.mocked(operations.deleteRunObservationIds).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(operations.deleteRun).mock.invocationCallOrder[0] ?? 0
+        );
     });
 
     it('treats an old draft with no run as eligible workflow history', async () => {
@@ -369,11 +397,13 @@ function createOperations(
         claimExpiredPlan: vi.fn(() => Promise.resolve(true)),
         deleteAuditEventIds: vi.fn(() => Promise.resolve()),
         deleteBlueprintChildIds: vi.fn(() => Promise.resolve()),
+        deleteRunObservationIds: vi.fn(() => Promise.resolve()),
         deleteRun: vi.fn(() => Promise.resolve()),
         deletePlan: vi.fn(() => Promise.resolve()),
         findRemainingPlanPhase: vi.fn(() => Promise.resolve(null)),
         hasProtectedRun: vi.fn(() => Promise.resolve(false)),
         loadRunStepAttemptIds: vi.fn(() => Promise.resolve([])),
+        loadRunObservationIds: vi.fn(() => Promise.resolve([])),
         loadBlueprintPlanChildIds: vi.fn(() => Promise.resolve([])),
         loadExpiredAuditEventIds: vi.fn(() => Promise.resolve([])),
         loadFirstRun: vi.fn(() => Promise.resolve(null)),

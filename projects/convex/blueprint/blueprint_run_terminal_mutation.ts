@@ -13,8 +13,12 @@ export async function finalizeBlueprintRunInMutation(
         errorType?: string;
         run: {
             _id: GenericId<'blueprintRuns'>;
+            appliedSteps?: number;
+            completedMutationSteps?: number;
             guildId: string;
+            notStartedSteps?: number;
             protocolVersion: number;
+            totalSteps?: number;
         };
         now: string;
         restorePointBackupId?: string;
@@ -32,21 +36,24 @@ export async function finalizeBlueprintRunInMutation(
         now: input.now,
     });
     const notification = blueprintRunTerminalNotification(input.status);
-    if (notification.canonicalDestination === 'blueprint') {
-        await markDashboardLiveAreasChangedInMutation(ctx, {
-            areas: ['blueprint'],
-            guildId: input.run.guildId,
-            now: input.now,
-        });
-    } else {
-        await recordBlueprintAuditInMutation(
-            ctx,
-            input.run.guildId,
-            { action: notification.auditAction },
-            input.now,
-            String(input.run._id)
-        );
-    }
+    await recordBlueprintAuditInMutation(
+        ctx,
+        input.run.guildId,
+        {
+            action: notification.auditAction,
+            metadata: {
+                ...(input.errorType ? { failureReason: input.errorType } : {}),
+                protocolVersion: input.run.protocolVersion,
+                appliedSteps: input.run.appliedSteps ?? 0,
+                completedMutationSteps: input.run.completedMutationSteps ?? 0,
+                notStartedSteps: input.run.notStartedSteps ?? input.run.totalSteps ?? 0,
+                totalSteps: input.run.totalSteps ?? 0,
+                ...(input.restorePointBackupId ? { restorePointBackupId: input.restorePointBackupId } : {}),
+            },
+        },
+        input.now,
+        String(input.run._id)
+    );
     return patch;
 }
 

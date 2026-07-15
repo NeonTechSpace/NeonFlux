@@ -36,10 +36,10 @@ describe('Blueprint run runtime boundary', () => {
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type });
     });
 
-    it('preserves a rejected live-fingerprint authorization as a safe terminal outcome', async () => {
+    it('preserves a rejected semantic-fence authorization as a safe terminal outcome', async () => {
         const mutation = vi.fn().mockResolvedValue({
             kind: 'rejected',
-            reason: 'live_fingerprint_stale',
+            reason: 'structure_changed',
             run: runRecord({ status: 'failed_before_mutation' }),
         });
 
@@ -47,20 +47,23 @@ describe('Blueprint run runtime boundary', () => {
             runId: 'run-1',
             leaseId: 'lease-1',
             leaseOwner: 'worker-1',
-            liveFingerprint: 'live-2',
+            manifest: { version: 2, structureDigest: 'structure-2' },
             now: new Date('2026-07-11T12:00:00.000Z'),
+            observedAt: new Date('2026-07-11T11:59:59.000Z'),
             structure: { roles: [], categories: [], channels: [] },
         });
 
         expect(result._unsafeUnwrap()).toMatchObject({
             kind: 'rejected',
-            reason: 'live_fingerprint_stale',
+            reason: 'structure_changed',
             run: { id: 'run-1', status: 'failed_before_mutation' },
         });
         expect(mutation).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
-                liveFingerprint: 'live-2',
+                fingerprintVersion: 2,
+                manifestJson: JSON.stringify({ version: 2, structureDigest: 'structure-2' }),
+                observedAt: '2026-07-11T11:59:59.000Z',
                 protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
                 structureJson: JSON.stringify({ roles: [], categories: [], channels: [] }),
             })
@@ -160,7 +163,9 @@ function runRecord(overrides: Record<string, unknown> = {}) {
         phase: 'complete',
         preflightDigest: 'preflight-1',
         preflightExpiresAt: '2026-07-11T12:05:00.000Z',
-        preflightLiveFingerprint: 'live-1',
+        fingerprintVersion: 2,
+        expectedStructureFingerprint: 'structure-1',
+        expectedCapabilityFingerprint: 'capability-1',
         protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         planId: 'plan-1',
         skippedSteps: 0,

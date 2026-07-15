@@ -140,7 +140,8 @@ export function DashboardBlueprintRuntime({ guildId }: { guildId: string }) {
                             ? { code: runProgress.issueCode, planId: activePlan.id }
                             : undefined
                     }
-                    runTransport={runProgress.transport}>
+                    runTransport={runProgress.transport}
+                    showActiveRunStrip={currentSurface !== 'deploy'}>
                     <DashboardBlueprintErrorBoundary
                         onRetry={() => {
                             void queryClient.invalidateQueries({ queryKey: getDashboardBlueprintQueryKey(guildId) });

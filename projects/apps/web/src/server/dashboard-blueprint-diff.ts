@@ -1,6 +1,5 @@
 export {
     diffBlueprintSnapshot as diffDashboardBlueprintSnapshot,
-    createBlueprintSnapshotFingerprintInput as createDashboardBlueprintSnapshotFingerprintInput,
     BlueprintAmbiguousIdentityError as DashboardBlueprintAmbiguousIdentityError,
     normalizeBlueprintSnapshot as normalizeDashboardBlueprintSnapshot,
     toPortableBlueprintSnapshot as toDashboardBlueprintExportSnapshot,

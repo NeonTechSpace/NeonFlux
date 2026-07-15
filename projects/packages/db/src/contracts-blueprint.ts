@@ -192,7 +192,12 @@ export type BlueprintPlanPreflightRecord = {
     id: string;
     planId: string;
     planDigest: string;
-    liveFingerprint: string;
+    fingerprintVersion: 2;
+    structureFingerprint: string;
+    capabilityFingerprint: string;
+    mutationFenceManifestJson: string;
+    observedAt: Date;
+    observationSource: 'resident-client';
     preflightDigest: string;
     report: Record<string, unknown>;
     status: 'ready' | 'blocked' | 'stale';
@@ -210,6 +215,10 @@ export type BlueprintPlanApprovalRecord = {
     destructiveStepCount: number | null;
     destructiveApprovedAt: Date | null;
     destructivePreflightDigest: string | null;
+    fingerprintVersion: 2 | null;
+    approvedStructureFingerprint: string | null;
+    approvedCapabilityFingerprint: string | null;
+    confirmationMethod: 'acknowledgement' | 'target_name' | null;
 };
 
 export type BlueprintRunRecord = {
@@ -218,7 +227,19 @@ export type BlueprintRunRecord = {
     guildId: string;
     preflightDigest: string;
     preflightExpiresAt: Date;
-    preflightLiveFingerprint: string;
+    fingerprintVersion: 2;
+    expectedStructureFingerprint: string;
+    expectedCapabilityFingerprint: string;
+    authorizationDecision:
+        | 'authorized'
+        | 'structure_changed'
+        | 'capability_changed'
+        | 'structure_and_capability_changed'
+        | 'restore_observation_diverged'
+        | 'preflight_expired'
+        | 'fingerprint_version_mismatch'
+        | null;
+    authorizationMismatch: Record<string, unknown> | null;
     mutationAuthorizedAt: Date | null;
     mutationAuthorizationLeaseId: string | null;
     protocolVersion: number;
@@ -256,7 +277,13 @@ export type BlueprintRunMutationAuthorizationRecord =
     | { kind: 'authorized' | 'not_required'; run: BlueprintRunRecord }
     | {
           kind: 'rejected';
-          reason: 'preflight_expired' | 'live_fingerprint_stale';
+          reason:
+              | 'preflight_expired'
+              | 'structure_changed'
+              | 'capability_changed'
+              | 'structure_and_capability_changed'
+              | 'restore_observation_diverged'
+              | 'fingerprint_version_mismatch';
           run: BlueprintRunRecord;
       };
 

@@ -193,8 +193,15 @@ export function toDashboardRun(record: BlueprintRunRecord): DashboardBlueprintRu
         status: record.status,
         phase,
         completedSteps: record.appliedSteps + record.failedSteps + record.skippedSteps,
+        appliedSteps: record.appliedSteps,
+        completedMutationSteps: record.completedMutationSteps,
+        notStartedSteps: record.notStartedSteps,
         failedSteps: record.failedSteps,
         totalSteps: record.totalSteps,
+        ...(record.authorizationDecision ? { authorizationDecision: record.authorizationDecision } : {}),
+        ...(record.authorizationMismatch
+            ? { authorizationMismatch: toDashboardAuthorizationMismatch(record.authorizationMismatch) }
+            : {}),
         ...(record.currentStepLabel ? { currentStepLabel: record.currentStepLabel } : {}),
         ...(record.retryAt ? { retryAt: record.retryAt.toISOString() } : {}),
         ...(record.errorType ? { errorType: record.errorType } : {}),
@@ -204,6 +211,32 @@ export function toDashboardRun(record: BlueprintRunRecord): DashboardBlueprintRu
         updatedAt: record.updatedAt.toISOString(),
         ...(record.completedAt ? { completedAt: record.completedAt.toISOString() } : {}),
     };
+}
+
+function toDashboardAuthorizationMismatch(value: Record<string, unknown>) {
+    const collection = (key: string) => {
+        const item = value[key];
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
+        const record = item as Record<string, unknown>;
+        return {
+            addedCount: readNonNegativeCount(record.addedCount),
+            removedCount: readNonNegativeCount(record.removedCount),
+            changedCount: readNonNegativeCount(record.changedCount),
+        };
+    };
+    const roles = collection('roles');
+    const categories = collection('categories');
+    const channels = collection('channels');
+    return {
+        ...(roles ? { roles } : {}),
+        ...(categories ? { categories } : {}),
+        ...(channels ? { channels } : {}),
+        ...(value.truncated === true ? { truncated: true } : {}),
+    };
+}
+
+function readNonNegativeCount(value: unknown): number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 export function toDashboardPlanStep(record: BlueprintPlanStepRecord): DashboardBlueprintPlanStep {

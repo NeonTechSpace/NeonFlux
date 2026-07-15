@@ -2,6 +2,10 @@ import {
     isBlueprintPreflightReportReady,
     normalizeBlueprintPreflightReport,
 } from '@neonflux/blueprint/preflight-report';
+import {
+    BLUEPRINT_MUTATION_FENCE_VERSION,
+    parseBlueprintMutationFenceManifest,
+} from '@neonflux/blueprint/mutation-fence';
 import { v, type GenericId } from 'convex/values';
 
 import { mutation, query, type MutationCtx } from '../_generated/server.js';
@@ -225,14 +229,19 @@ export const findActiveBlueprintRun = query({
 export const recordBlueprintPlanPreflight = mutation({
     args: {
         audit: v.optional(auditInputValidator),
+        capabilityFingerprint: v.string(),
         checkedAt: v.string(),
         expiresAt: v.string(),
-        liveFingerprint: v.string(),
+        fingerprintVersion: v.literal(BLUEPRINT_MUTATION_FENCE_VERSION),
+        mutationFenceManifestJson: v.string(),
+        observationSource: v.literal('resident-client'),
+        observedAt: v.string(),
         planDigest: v.string(),
         preflightDigest: v.string(),
         report: v.any(),
         planId: v.id('blueprintPlans'),
         status: v.union(v.literal('ready'), v.literal('blocked'), v.literal('stale')),
+        structureFingerprint: v.string(),
     },
     returns: v.any(),
     handler: async (ctx, args) => {
@@ -246,15 +255,28 @@ export const recordBlueprintPlanPreflight = mutation({
         if ((args.status === 'ready') !== isBlueprintPreflightReportReady(report.value)) {
             throw new Error('blueprint-plan-preflight-state-invalid');
         }
+        const manifest = parseBlueprintMutationFenceManifest(parseJson(args.mutationFenceManifestJson));
+        if (
+            manifest.guildId !== plan.guildId ||
+            manifest.structureDigest !== args.structureFingerprint ||
+            manifest.capabilityDigest !== args.capabilityFingerprint
+        ) {
+            throw new Error('blueprint-plan-preflight-fingerprint-invalid');
+        }
         const document = {
+            capabilityFingerprint: args.capabilityFingerprint,
             checkedAt: args.checkedAt,
             expiresAt: args.expiresAt,
-            liveFingerprint: args.liveFingerprint,
+            fingerprintVersion: args.fingerprintVersion,
+            mutationFenceManifestJson: args.mutationFenceManifestJson,
+            observationSource: args.observationSource,
+            observedAt: args.observedAt,
             planDigest: args.planDigest,
             preflightDigest: args.preflightDigest,
             report: report.value,
             planId: args.planId,
             status: args.status,
+            structureFingerprint: args.structureFingerprint,
         };
         const id = await ctx.db.insert('blueprintPlanPreflights', document);
         await recordBlueprintAuditInMutation(
@@ -273,6 +295,7 @@ export const approveBlueprintPlan = mutation({
         audit: v.optional(auditInputValidator),
         approvedAt: v.string(),
         approvedByUserId: v.optional(v.string()),
+        confirmationMethod: v.optional(v.union(v.literal('acknowledgement'), v.literal('target_name'))),
         deleteSetDigest: v.optional(v.string()),
         destructiveStepCount: v.optional(v.number()),
         destructiveApprovedAt: v.optional(v.string()),
@@ -287,38 +310,69 @@ export const approveBlueprintPlan = mutation({
         if (plan?.planDigest !== args.planDigest) {
             throw new Error('blueprint-plan-approval-stale');
         }
-        const isDestructiveApproval = Boolean(args.destructiveApprovedAt);
+        const isDeploymentApproval = Boolean(args.destructivePreflightDigest);
+        const isDestructiveApproval = isDeploymentApproval && plan.deleteStepCount > 0;
         if (
-            !isDestructiveApproval &&
-            (args.deleteSetDigest || args.destructiveStepCount !== undefined || args.destructivePreflightDigest)
+            !isDeploymentApproval &&
+            (args.deleteSetDigest ||
+                args.destructiveStepCount !== undefined ||
+                args.destructiveApprovedAt ||
+                args.destructivePreflightDigest ||
+                args.confirmationMethod)
         ) {
             throw new Error('blueprint-plan-approval-destructive-fields-invalid');
         }
         if (
-            (!isDestructiveApproval && plan.status !== 'review_ready') ||
-            (isDestructiveApproval && plan.status !== 'approved')
+            (!isDeploymentApproval && plan.status !== 'review_ready') ||
+            (isDeploymentApproval && plan.status !== 'approved')
         ) {
             throw new Error('blueprint-plan-approval-state-conflict');
         }
-        if (args.destructiveApprovedAt) {
-            if (
-                plan.deleteStepCount <= 0 ||
-                plan.deleteSetDigest !== args.deleteSetDigest ||
-                plan.deleteStepCount !== args.destructiveStepCount
-            )
-                throw new Error('blueprint-plan-approval-delete-set-stale');
+        if (isDeploymentApproval) {
+            const policy = readPersistedPlanPolicy(plan.plan);
+            if (!policy || !args.confirmationMethod) throw new Error('blueprint-plan-approval-state-conflict');
+            if (isDestructiveApproval) {
+                if (
+                    !args.destructiveApprovedAt ||
+                    plan.deleteSetDigest !== args.deleteSetDigest ||
+                    plan.deleteStepCount !== args.destructiveStepCount ||
+                    policy === 'merge' ||
+                    args.confirmationMethod !== (policy === 'rebuild' ? 'target_name' : 'acknowledgement')
+                ) {
+                    throw new Error('blueprint-plan-approval-delete-set-stale');
+                }
+            } else if (
+                args.deleteSetDigest ||
+                args.destructiveStepCount !== undefined ||
+                args.destructiveApprovedAt ||
+                args.confirmationMethod !== 'acknowledgement'
+            ) {
+                throw new Error('blueprint-plan-approval-destructive-fields-invalid');
+            }
             const preflight = await latestPreflight(ctx, args.planId);
             if (
                 !preflight ||
                 preflight.preflightDigest !== args.destructivePreflightDigest ||
-                preflight.status !== 'ready'
+                preflight.status !== 'ready' ||
+                preflight.expiresAt <= args.approvedAt
             ) {
                 throw new Error('blueprint-plan-approval-preflight-stale');
             }
         }
-        const { audit, ...approvalDocument } = args;
+        const { audit, ...baseApprovalDocument } = args;
+        const preflight = isDeploymentApproval ? await latestPreflight(ctx, args.planId) : undefined;
+        const approvalDocument = {
+            ...baseApprovalDocument,
+            ...(preflight
+                ? {
+                      approvedCapabilityFingerprint: preflight.capabilityFingerprint,
+                      approvedStructureFingerprint: preflight.structureFingerprint,
+                      fingerprintVersion: preflight.fingerprintVersion,
+                  }
+                : {}),
+        };
         const id = await ctx.db.insert('blueprintPlanApprovals', approvalDocument);
-        if (!isDestructiveApproval) {
+        if (!isDeploymentApproval) {
             await ctx.db.patch('blueprintPlans', plan._id, { status: 'approved', updatedAt: args.approvedAt });
         }
         await recordBlueprintAuditInMutation(
@@ -328,7 +382,7 @@ export const approveBlueprintPlan = mutation({
             args.approvedAt,
             String(plan._id)
         );
-        return { id, ...args };
+        return { id, ...approvalDocument };
     },
 });
 
@@ -369,10 +423,14 @@ export const enqueueBlueprintRun = mutation({
                 preflightCheckedAt: preflight.checkedAt,
             }) ||
             approval.planDigest !== plan.planDigest ||
+            approval.destructivePreflightDigest !== preflight.preflightDigest ||
+            approval.fingerprintVersion !== preflight.fingerprintVersion ||
+            approval.approvedStructureFingerprint !== preflight.structureFingerprint ||
+            approval.approvedCapabilityFingerprint !== preflight.capabilityFingerprint ||
+            !approval.confirmationMethod ||
             (plan.deleteStepCount > 0 &&
                 (approval.deleteSetDigest !== plan.deleteSetDigest ||
                     approval.destructiveStepCount !== plan.deleteStepCount ||
-                    approval.destructivePreflightDigest !== preflight.preflightDigest ||
                     !approval.destructiveApprovedAt))
         ) {
             throw new Error('blueprint-run-review-stale');
@@ -395,6 +453,7 @@ export const enqueueBlueprintRun = mutation({
             completedMutationSteps: 0,
             createdAt: args.now,
             failedSteps: 0,
+            fingerprintVersion: preflight.fingerprintVersion,
             guildId: plan.guildId,
             idMap: resolveBlueprintRunIdMap(plan.plan),
             nextStepSequence: 0,
@@ -402,7 +461,8 @@ export const enqueueBlueprintRun = mutation({
             phase: 'queued' as const,
             preflightDigest: preflight.preflightDigest,
             preflightExpiresAt: preflight.expiresAt,
-            preflightLiveFingerprint: preflight.liveFingerprint,
+            expectedCapabilityFingerprint: preflight.capabilityFingerprint,
+            expectedStructureFingerprint: preflight.structureFingerprint,
             protocolVersion: args.protocolVersion,
             planId: args.planId,
             status: 'queued' as const,
@@ -436,6 +496,12 @@ async function latestPreflight(ctx: MutationCtx, planId: GenericId<'blueprintPla
         .first();
 }
 
+function readPersistedPlanPolicy(value: unknown): 'merge' | 'synchronize' | 'rebuild' | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const policy = (value as Record<string, unknown>).policy;
+    return policy === 'merge' || policy === 'synchronize' || policy === 'rebuild' ? policy : undefined;
+}
+
 async function findActiveGuildRun(ctx: MutationCtx, guildId: string) {
     for (const status of activeStatuses) {
         const run = await ctx.db
@@ -445,4 +511,12 @@ async function findActiveGuildRun(ctx: MutationCtx, guildId: string) {
         if (run) return run;
     }
     return null;
+}
+
+function parseJson(value: string): unknown {
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        throw new Error('blueprint-plan-preflight-fingerprint-invalid');
+    }
 }

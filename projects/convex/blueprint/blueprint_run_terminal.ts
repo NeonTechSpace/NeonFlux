@@ -6,12 +6,9 @@ export type BlueprintRunTerminalStatus =
     | 'outcome_unknown'
     | 'cancelled';
 
-export type BlueprintRunTerminalNotification =
-    | { canonicalDestination: 'blueprint' }
-    | { auditAction: string; canonicalDestination: 'audit' };
+export type BlueprintRunTerminalNotification = { auditAction: string; canonicalDestination: 'audit' };
 
 export function blueprintRunTerminalNotification(status: BlueprintRunTerminalStatus): BlueprintRunTerminalNotification {
-    if (status === 'failed_before_mutation') return { canonicalDestination: 'blueprint' };
     return {
         auditAction: `blueprint.run_${status}`,
         canonicalDestination: 'audit',

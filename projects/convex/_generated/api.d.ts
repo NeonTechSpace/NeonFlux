@@ -72,6 +72,7 @@ import type * as schema_tables_blueprint_plan_decisions from "../schema/tables/b
 import type * as schema_tables_blueprint_plan_preflights from "../schema/tables/blueprint_plan_preflights.js";
 import type * as schema_tables_blueprint_plan_steps from "../schema/tables/blueprint_plan_steps.js";
 import type * as schema_tables_blueprint_plans from "../schema/tables/blueprint_plans.js";
+import type * as schema_tables_blueprint_run_observations from "../schema/tables/blueprint_run_observations.js";
 import type * as schema_tables_blueprint_run_step_attempts from "../schema/tables/blueprint_run_step_attempts.js";
 import type * as schema_tables_blueprint_runs from "../schema/tables/blueprint_runs.js";
 import type * as schema_tables_bot_action_events from "../schema/tables/bot_action_events.js";
@@ -170,6 +171,7 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/blueprint_plan_preflights": typeof schema_tables_blueprint_plan_preflights;
   "schema/tables/blueprint_plan_steps": typeof schema_tables_blueprint_plan_steps;
   "schema/tables/blueprint_plans": typeof schema_tables_blueprint_plans;
+  "schema/tables/blueprint_run_observations": typeof schema_tables_blueprint_run_observations;
   "schema/tables/blueprint_run_step_attempts": typeof schema_tables_blueprint_run_step_attempts;
   "schema/tables/blueprint_runs": typeof schema_tables_blueprint_runs;
   "schema/tables/bot_action_events": typeof schema_tables_bot_action_events;

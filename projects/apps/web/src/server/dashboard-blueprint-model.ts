@@ -191,7 +191,7 @@ export type DashboardBlueprintBackupsResult =
     | DashboardBlueprintErrorResult;
 
 export type DashboardBlueprintRunsResult =
-    | { type: 'runs'; plans: DashboardBlueprintPlan[] }
+    | { type: 'runs'; plans: DashboardBlueprintPlan[]; targetGuildName: string }
     | DashboardBlueprintErrorResult;
 
 export type DashboardBlueprintBackupResult =

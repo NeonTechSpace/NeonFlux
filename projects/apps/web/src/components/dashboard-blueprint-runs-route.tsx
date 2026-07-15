@@ -82,7 +82,6 @@ export function DashboardBlueprintRunsRoute() {
             <DashboardBlueprintRunsSurface
                 workspace={{
                     busyAction,
-                    deleteConfirmationByPlanId: runOperations.deleteConfirmationByPlanId,
                     runProgressIssue:
                         runProgress.issueCode && activePlan
                             ? { code: runProgress.issueCode, planId: activePlan.id }
@@ -91,14 +90,7 @@ export function DashboardBlueprintRunsRoute() {
                     plans,
                     latestPlan: plans.at(0),
                     preflightByPlanId: runOperations.preflightByPlanId,
-                    onApplyRun: (plan) => void runOperations.applyPlan(plan),
-                    onApprovePlan: (plan) => void runOperations.reviewAndPreflight(plan),
                     onControlRun: (plan, request) => void runOperations.controlRun(plan, request),
-                    onDeleteConfirmationChange: (planId, confirmation) =>
-                        runOperations.setDeleteConfirmationByPlanId((current) => ({
-                            ...current,
-                            [planId]: confirmation,
-                        })),
                     onLoadPlanSteps: (plan) => void inspection.loadPlanSteps(plan),
                     onLoadPlanDecisions: (plan) => void inspection.loadPlanDecisions(plan),
                     onPreflightRun: (plan) => void runOperations.preflightPlan(plan),

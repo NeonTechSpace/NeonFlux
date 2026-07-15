@@ -12,16 +12,12 @@ import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboar
 
 export type DashboardBlueprintRunsWorkspace = {
     busyAction: BlueprintBusyAction | undefined;
-    deleteConfirmationByPlanId: Record<string, string>;
     runProgressIssue: { code: string; planId: string } | undefined;
     runProgressRetrying: boolean;
     plans: DashboardBlueprintPlan[];
     latestPlan: DashboardBlueprintPlan | undefined;
     preflightByPlanId: Record<string, DashboardBlueprintPreflightView>;
-    onApplyRun: (plan: DashboardBlueprintPlan) => void;
-    onApprovePlan: (plan: DashboardBlueprintPlan) => void;
     onControlRun: (plan: DashboardBlueprintPlan, request: 'pause' | 'resume' | 'cancel') => void;
-    onDeleteConfirmationChange: (planId: string, confirmation: string) => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
     onLoadPlanDecisions: (plan: DashboardBlueprintPlan) => void;
     onPreflightRun: (plan: DashboardBlueprintPlan) => void;
@@ -73,11 +69,7 @@ export function DashboardBlueprintRunsSurface({ workspace }: { workspace: Dashbo
                                     latestPlan={workspace.latestPlan}
                                     busyAction={workspace.busyAction}
                                     preflightByPlanId={workspace.preflightByPlanId}
-                                    deleteConfirmationByPlanId={workspace.deleteConfirmationByPlanId}
-                                    onDeleteConfirmationChange={workspace.onDeleteConfirmationChange}
-                                    onApprove={workspace.onApprovePlan}
                                     onPreflight={workspace.onPreflightRun}
-                                    onApply={workspace.onApplyRun}
                                     onControl={workspace.onControlRun}
                                     onLoadPlanSteps={workspace.onLoadPlanSteps}
                                     onLoadDecisions={workspace.onLoadPlanDecisions}

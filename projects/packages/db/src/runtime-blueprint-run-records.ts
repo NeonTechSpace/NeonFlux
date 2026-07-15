@@ -16,7 +16,19 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
         guildId: stringValue(record.guildId),
         preflightDigest: stringValue(record.preflightDigest),
         preflightExpiresAt: requiredDate(record.preflightExpiresAt),
-        preflightLiveFingerprint: stringValue(record.preflightLiveFingerprint),
+        fingerprintVersion: literalNumberValue(record.fingerprintVersion, 2),
+        expectedStructureFingerprint: stringValue(record.expectedStructureFingerprint),
+        expectedCapabilityFingerprint: stringValue(record.expectedCapabilityFingerprint),
+        authorizationDecision: nullableLiteral(record.authorizationDecision, [
+            'authorized',
+            'structure_changed',
+            'capability_changed',
+            'structure_and_capability_changed',
+            'restore_observation_diverged',
+            'preflight_expired',
+            'fingerprint_version_mismatch',
+        ]),
+        authorizationMismatch: nullableJsonRecord(record.authorizationMismatchJson),
         mutationAuthorizedAt: date(record.mutationAuthorizedAt),
         mutationAuthorizationLeaseId: nullableString(record.mutationAuthorizationLeaseId),
         protocolVersion: positiveIntegerValue(record.protocolVersion),
@@ -118,7 +130,12 @@ export function toPreflight(input: unknown): BlueprintPlanPreflightRecord {
         id: identifier(record),
         planId: stringValue(record.planId),
         planDigest: stringValue(record.planDigest),
-        liveFingerprint: stringValue(record.liveFingerprint),
+        fingerprintVersion: literalNumberValue(record.fingerprintVersion, 2),
+        structureFingerprint: stringValue(record.structureFingerprint),
+        capabilityFingerprint: stringValue(record.capabilityFingerprint),
+        mutationFenceManifestJson: stringValue(record.mutationFenceManifestJson),
+        observedAt: requiredDate(record.observedAt),
+        observationSource: literalValue(record.observationSource, ['resident-client']),
         preflightDigest: stringValue(record.preflightDigest),
         report: recordValue(record.report),
         status: literalValue(record.status, ['ready', 'blocked', 'stale']),
@@ -139,6 +156,13 @@ export function toApproval(input: unknown): BlueprintPlanApprovalRecord {
         destructiveStepCount: nullableNumber(record.destructiveStepCount),
         destructiveApprovedAt: date(record.destructiveApprovedAt),
         destructivePreflightDigest: nullableString(record.destructivePreflightDigest),
+        fingerprintVersion:
+            record.fingerprintVersion === undefined || record.fingerprintVersion === null
+                ? null
+                : literalNumberValue(record.fingerprintVersion, 2),
+        approvedStructureFingerprint: nullableString(record.approvedStructureFingerprint),
+        approvedCapabilityFingerprint: nullableString(record.approvedCapabilityFingerprint),
+        confirmationMethod: nullableLiteral(record.confirmationMethod, ['acknowledgement', 'target_name']),
     };
 }
 
@@ -210,6 +234,11 @@ function positiveIntegerValue(value: unknown): number {
     return parsed;
 }
 
+function literalNumberValue<const TValue extends number>(value: unknown, expected: TValue): TValue {
+    if (value !== expected) throw new Error('invalid-number-literal');
+    return expected;
+}
+
 function nullableNumber(value: unknown): number | null {
     return value === undefined || value === null ? null : numberValue(value);
 }
@@ -221,6 +250,13 @@ function stringMapValue(value: unknown): Record<string, string> {
 
 function nullableRecord(value: unknown): Record<string, unknown> | null {
     return value === undefined || value === null ? null : recordValue(value);
+}
+
+function nullableJsonRecord(value: unknown): Record<string, unknown> | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string') throw new Error('invalid-json');
+    const parsed: unknown = JSON.parse(value);
+    return recordValue(parsed);
 }
 
 function literalValue<const TValue extends string>(value: unknown, allowed: readonly TValue[]): TValue {

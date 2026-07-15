@@ -3,8 +3,19 @@ import {
     isDashboardBlueprintPreflightReady,
 } from '../server/dashboard-blueprint-preflight.js';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import { getDashboardBlueprintDeleteApprovalText } from '../server/dashboard-blueprint-contracts.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
+
+export type DashboardBlueprintConfirmationDraft = {
+    understandsDeletion: boolean;
+    understandsRestorePointRequirement: boolean;
+    targetGuildName: string;
+};
+
+export const emptyDashboardBlueprintConfirmation: DashboardBlueprintConfirmationDraft = {
+    understandsDeletion: false,
+    understandsRestorePointRequirement: false,
+    targetGuildName: '',
+};
 
 type DashboardBlueprintDeployNextAction =
     | 'apply'
@@ -17,7 +28,6 @@ type DashboardBlueprintDeployNextAction =
 export type DashboardBlueprintDeployReadiness = {
     canApply: boolean;
     destructiveApprovalCount: number;
-    expectedDeleteText: string;
     hardBlockerCount: number;
     nextAction: DashboardBlueprintDeployNextAction;
     preflightExpired: boolean;
@@ -26,22 +36,19 @@ export type DashboardBlueprintDeployReadiness = {
 };
 
 export function readDashboardBlueprintDeployReadiness({
-    deleteConfirmation,
+    confirmation,
+    targetGuildName,
     now = Date.now(),
     preflightReport,
     plan,
 }: {
-    deleteConfirmation: string;
+    confirmation: DashboardBlueprintConfirmationDraft;
+    targetGuildName: string;
     now?: number;
     preflightReport: DashboardBlueprintPreflightView | undefined;
     plan: DashboardBlueprintPlan;
 }): DashboardBlueprintDeployReadiness {
     const destructiveApprovalCount = preflightReport?.summary.destructiveApprovalRequired ?? 0;
-    const expectedDeleteText = getDashboardBlueprintDeleteApprovalText(
-        plan.id,
-        destructiveApprovalCount,
-        plan.deleteSetDigest ?? ''
-    );
     const expiresAt = preflightReport?.expiresAt ? new Date(preflightReport.expiresAt).getTime() : undefined;
     const preflightExpired = expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= now);
     const retryPreflightRequired =
@@ -54,7 +61,13 @@ export function readDashboardBlueprintDeployReadiness({
         !preflightExpired &&
         !retryPreflightRequired
     );
-    const confirmationMatches = destructiveApprovalCount === 0 || deleteConfirmation.trim() === expectedDeleteText;
+    const confirmationMatches =
+        destructiveApprovalCount === 0 ||
+        (plan.policy !== 'merge' &&
+            confirmation.understandsDeletion &&
+            (plan.policy !== 'rebuild' ||
+                (confirmation.understandsRestorePointRequirement &&
+                    normalizeTargetName(confirmation.targetGuildName) === normalizeTargetName(targetGuildName))));
     const canApply = preflightReady && confirmationMatches;
     const hasChanges = plan.planStepCount > 0;
 
@@ -76,11 +89,14 @@ export function readDashboardBlueprintDeployReadiness({
     return {
         canApply,
         destructiveApprovalCount,
-        expectedDeleteText,
         hardBlockerCount,
         nextAction,
         preflightExpired,
         preflightReady,
         retryPreflightRequired,
     };
+}
+
+function normalizeTargetName(value: string): string {
+    return value.normalize('NFC').trim();
 }

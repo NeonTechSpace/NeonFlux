@@ -20,6 +20,15 @@ Parent workspace instructions apply.
 - Shutdown stops intake, waits for a finite grace period, clears queued work, aborts active work where safe, observes late settlements, and emits one redacted aggregate warning.
 - Every detached task and timer has instance-owned lifecycle, observed rejection, and explicit shutdown. Leave no module-global promise tail, unhandled `void` promise, or interval beyond the app instance.
 
+## Blueprint mutation fence
+
+- Convex permits one active Blueprint run per guild. Process a run only while its canonical protocol and fingerprint versions, lease ID, owner, expiry, and state remain valid.
+- Read the protocol version from `@neonflux/blueprint`; never hard-code it here. Mixed or unsupported protocol, fingerprint, persisted-row, or runtime contracts fail closed before provider access or mutation.
+- Required order: claim under a fenced lease; validate persisted authority; read the restore observation; persist the restore point; read a separate authorization observation; obtain Convex authorization; then start provider step `0`.
+- No mutation occurs after restore failure, preflight expiry, fingerprint disagreement, structure or capability change, divergent observations, or invalid lease.
+- One provider observation uses one internally consistent representation of each collection. Do not combine independently fetched roles, channels, overwrites, or capabilities into one snapshot.
+- Blueprint logs are structured and redacted. Never log snapshots, provider bodies, typed confirmations, credentials, cookies, tokens, or private environment data.
+
 ## Internal provider-read service
 
 - Start it after bot readiness and stop intake before provider-client teardown.

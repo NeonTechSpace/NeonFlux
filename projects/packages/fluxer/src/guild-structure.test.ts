@@ -1,5 +1,7 @@
 import { Client, type Client as FluxerClient, type Guild, type GuildChannel, type Role } from '@fluxerjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createBlueprintMutationFenceManifest } from '@neonflux/blueprint/mutation-fence';
+import { toBlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 
 import {
     readFluxerBotGuildStructure,
@@ -81,7 +83,7 @@ describe('readFluxerGuildStructure', () => {
 
         expect(result.isOk()).toBe(true);
         expect(fetchGuild).toHaveBeenCalledWith('guild-1');
-        expect(guild.fetchRoles).toHaveBeenCalledOnce();
+        expect(guild.fetchRoles).not.toHaveBeenCalled();
         expect(guild.fetchChannels).toHaveBeenCalledOnce();
         expect(result._unsafeUnwrap()).toStrictEqual({
             guildId: 'guild-1',
@@ -162,6 +164,39 @@ describe('readFluxerGuildStructure', () => {
             protectionReason: 'bot',
         });
         expect(result._unsafeUnwrap().roles.find((role) => role.id === 'owner-role')?.position).toBe(10);
+    });
+
+    it('projects SDK and raw role observations to the same semantic mutation fence', async () => {
+        const roles = [
+            createRole({ id: 'role-a', name: 'A', position: 1 }),
+            createRole({ id: 'role-b', name: 'B', position: 2 }),
+        ];
+        const sdkResult = await readFluxerGuildStructure({
+            client: createClient(createFetchGuildMock(Promise.resolve(createGuild({ roles })))),
+            guildId: 'guild-1',
+        });
+        const rawResult = await readFluxerGuildStructure({
+            client: createClient(
+                createFetchGuildMock(
+                    Promise.resolve(
+                        createGuild({
+                            roles: [...roles].reverse(),
+                            rawRoles: [{ id: 'role-b' }, { id: 'role-a' }],
+                        })
+                    )
+                )
+            ),
+            guildId: 'guild-1',
+        });
+
+        const sdkManifest = await createBlueprintMutationFenceManifest(
+            toBlueprintSnapshot(sdkResult._unsafeUnwrap(), '2026-07-15T00:00:00.000Z')
+        );
+        const rawManifest = await createBlueprintMutationFenceManifest(
+            toBlueprintSnapshot(rawResult._unsafeUnwrap(), '2026-07-15T00:00:01.000Z')
+        );
+        expect(rawManifest.structureDigest).toBe(sdkManifest.structureDigest);
+        expect(rawManifest.capabilityDigest).toBe(sdkManifest.capabilityDigest);
     });
 
     it('returns empty arrays for empty guild structures', async () => {
@@ -458,7 +493,13 @@ function createGuild(
         client: options.rawRoles
             ? {
                   rest: {
-                      get: vi.fn().mockResolvedValue(options.rawRoles),
+                      get: vi
+                          .fn()
+                          .mockResolvedValue(
+                              options.rawRoles.map((rawRole, index) =>
+                                  mergeRawRole(options.roles?.[index] ?? createRole(), rawRole)
+                              )
+                          ),
                   },
               }
             : {},
@@ -474,6 +515,23 @@ function createGuild(
             },
         }),
     } as unknown as TestGuild;
+}
+
+function mergeRawRole(role: Role, override: unknown): Record<string, unknown> {
+    const roleRecord = role as unknown as Record<string, unknown>;
+    const overrideRecord =
+        typeof override === 'object' && override !== null ? (override as Record<string, unknown>) : {};
+    const permissions = roleRecord.permissions as { valueOf?: () => unknown } | undefined;
+    return {
+        id: roleRecord.id,
+        name: roleRecord.name,
+        position: roleRecord.position,
+        color: roleRecord.color,
+        permissions: permissions?.valueOf?.() ?? roleRecord.permissions,
+        hoist: roleRecord.hoist,
+        mentionable: roleRecord.mentionable,
+        ...overrideRecord,
+    };
 }
 
 type MockRole = {

@@ -64,6 +64,7 @@ export async function loadDashboardBlueprintRuns(
     }
     return {
         type: 'runs',
+        targetGuildName: context.guild.name,
         plans: planStateResults.map(({ plan, preflight, run }) => {
             const runRecord = run.isOk() ? run.value : null;
             const recoveryAvailable =

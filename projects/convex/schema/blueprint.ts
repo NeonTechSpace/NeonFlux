@@ -7,6 +7,7 @@ import { blueprintPlanApprovalsTable } from './tables/blueprint_plan_approvals.j
 import { blueprintRunsTable } from './tables/blueprint_runs.js';
 import { blueprintPlanDecisionsTable } from './tables/blueprint_plan_decisions.js';
 import { blueprintPlanPreflightsTable } from './tables/blueprint_plan_preflights.js';
+import { blueprintRunObservationsTable } from './tables/blueprint_run_observations.js';
 
 export const blueprintTables = {
     structureBackups: structureBackupsTable,
@@ -18,4 +19,5 @@ export const blueprintTables = {
     blueprintRuns: blueprintRunsTable,
     blueprintPlanDecisions: blueprintPlanDecisionsTable,
     blueprintPlanPreflights: blueprintPlanPreflightsTable,
+    blueprintRunObservations: blueprintRunObservationsTable,
 };

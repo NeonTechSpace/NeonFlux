@@ -27,6 +27,7 @@ export function DashboardBlueprintWorkspaceShell({
     activePlan,
     runProgressIssue,
     runTransport,
+    showActiveRunStrip = true,
     children,
 }: {
     guildId: string;
@@ -36,17 +37,19 @@ export function DashboardBlueprintWorkspaceShell({
     activePlan?: Pick<DashboardBlueprintPlan, 'id' | 'run'>;
     runProgressIssue?: { code: string; planId: string };
     runTransport: DashboardBlueprintProgressTransport;
+    showActiveRunStrip?: boolean;
     children: ReactNode;
 }) {
-    const activeRunStrip = activePlan?.run ? (
-        <BlueprintRunStrip
-            key={activePlan.id}
-            guildId={guildId}
-            plan={activePlan}
-            hasProgressIssue={runProgressIssue?.planId === activePlan.id}
-            transport={runTransport}
-        />
-    ) : undefined;
+    const activeRunStrip =
+        showActiveRunStrip && activePlan?.run ? (
+            <BlueprintRunStrip
+                key={activePlan.id}
+                guildId={guildId}
+                plan={activePlan}
+                hasProgressIssue={runProgressIssue?.planId === activePlan.id}
+                transport={runTransport}
+            />
+        ) : undefined;
 
     return (
         <DashboardFeaturePage

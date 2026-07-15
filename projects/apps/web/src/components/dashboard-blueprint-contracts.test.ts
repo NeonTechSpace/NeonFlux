@@ -3,16 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
     formatDashboardBlueprintRunPhase,
     formatDashboardBlueprintRunState,
-    getDashboardBlueprintDeleteApprovalText,
 } from '../server/dashboard-blueprint-contracts.js';
 
 describe('Server Blueprint panel contracts', () => {
-    it('binds destructive confirmation to run, count, and delete manifest', () => {
-        expect(getDashboardBlueprintDeleteApprovalText('run-7', 12, 'abcdef0123456789')).toBe(
-            'DELETE run-7 12 abcdef012345'
-        );
-    });
-
     it('describes rate-limit waits and final verification instead of presenting them as queued', () => {
         const queued = formatDashboardBlueprintRunPhase('queued');
         const waiting = formatDashboardBlueprintRunPhase('waiting_rate_limit');

@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import {
-    createBlueprintSnapshotFingerprintInput,
-    canonicalJsonStringify,
+    createBlueprintMutationFenceManifest,
     deriveBlueprintCursorAuthority,
     normalizeBlueprintPersistedPlanAuthority,
     normalizeBlueprintPlanStep,
@@ -168,12 +167,30 @@ export async function runNextBlueprintRun(input: {
             });
             return 'progressed';
         }
+        const restoreObservedAt = new Date();
+        const restoreStructure = toBlueprintSnapshot(restoreSnapshot.value, restoreObservedAt.toISOString());
+        let restoreManifest;
+        try {
+            restoreManifest = await createBlueprintMutationFenceManifest(restoreStructure);
+        } catch (error) {
+            await finalizeBlueprintRun(input.database.db, {
+                errorType: readMutationFenceConstructionError(error),
+                runId: run.id,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                now: new Date(),
+                status: 'failed_before_mutation',
+            });
+            return 'progressed';
+        }
         const restorePoint = await ensureBlueprintRunRestorePoint(input.database.db, {
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
+            manifest: toJsonRecord(restoreManifest),
             now: new Date(),
-            structure: toPortableBlueprintSnapshot(restoreSnapshot.value),
+            observedAt: restoreObservedAt,
+            structure: toPortableBlueprintSnapshot(restoreSnapshot.value, restoreObservedAt.toISOString()),
         });
         if (restorePoint.isErr()) {
             await finalizeBlueprintRun(input.database.db, {
@@ -205,16 +222,33 @@ export async function runNextBlueprintRun(input: {
             });
             return 'progressed';
         }
-        const authorizationStructure = toBlueprintSnapshot(authorizationSnapshot.value);
-        const liveFingerprint = createHash('sha256')
-            .update(canonicalJsonStringify(createBlueprintSnapshotFingerprintInput(authorizationStructure)))
-            .digest('hex');
+        const authorizationObservedAt = new Date();
+        const authorizationStructure = toBlueprintSnapshot(
+            authorizationSnapshot.value,
+            authorizationObservedAt.toISOString()
+        );
+        let authorizationManifest;
+        try {
+            authorizationManifest = await createBlueprintMutationFenceManifest(authorizationStructure);
+        } catch (error) {
+            await finalizeBlueprintRun(input.database.db, {
+                errorType: readMutationFenceConstructionError(error),
+                runId: run.id,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                now: new Date(),
+                restorePointBackupId,
+                status: 'failed_before_mutation',
+            });
+            return 'progressed';
+        }
         const authorization = await authorizeBlueprintRunMutation(input.database.db, {
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
-            liveFingerprint,
+            manifest: toJsonRecord(authorizationManifest),
             now: new Date(),
+            observedAt: authorizationObservedAt,
             structure: authorizationStructure,
         });
         if (authorization.isErr()) {
@@ -629,6 +663,10 @@ export async function runNextBlueprintRun(input: {
     return 'progressed';
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> {
+    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
 export function startBlueprintRunWorker(input: {
     botToken: string;
     database: RuntimeDbClient;
@@ -699,6 +737,12 @@ export function startBlueprintRunWorker(input: {
 
 function fallbackRetryAfterMs(targetType: string | undefined): number {
     return targetType === 'role' || targetType === 'role-order' ? 60_000 : 10_000;
+}
+
+function readMutationFenceConstructionError(error: unknown): string {
+    return error instanceof Error && error.message === 'blueprint-mutation-fence-manifest-too-large'
+        ? 'mutation-fence-manifest-too-large'
+        : 'pre-mutation-observation-invalid';
 }
 
 function runPhaseForStep(

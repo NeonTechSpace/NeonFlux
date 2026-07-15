@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../dashboard-blueprint-run-protocol.js';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import {
-    createEmptyDecisionSummary,
-    getDashboardBlueprintDeleteApprovalText,
-} from '../server/dashboard-blueprint-contracts.js';
+import { createEmptyDecisionSummary } from '../server/dashboard-blueprint-contracts.js';
+import { DashboardBlueprintDeployActionBar } from './dashboard-blueprint-deploy-action-bar.js';
+import { emptyDashboardBlueprintConfirmation } from './dashboard-blueprint-deploy-readiness.js';
+import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
-import { DashboardBlueprintHistory } from './dashboard-blueprint-history.js';
+import { DashboardBlueprintActiveDeployment } from './dashboard-blueprint-history.js';
 
 afterEach(cleanup);
 
@@ -20,20 +20,18 @@ describe('Server Blueprint action inspection', () => {
     it('keeps raw action details secondary while selecting the canonical Explorer item', async () => {
         const run = createRun();
         render(
-            <DashboardBlueprintHistory
-                plans={[run]}
-                latestPlan={run}
+            <DashboardBlueprintActiveDeployment
+                plan={run}
                 busyAction={undefined}
-                preflightByPlanId={{}}
-                deleteConfirmationByPlanId={{}}
-                onDeleteConfirmationChange={vi.fn()}
-                onApprove={vi.fn()}
+                preflightReport={undefined}
+                confirmation={undefined}
+                targetGuildName='Guild One'
                 onPreflight={vi.fn()}
-                onApply={vi.fn()}
                 onControl={vi.fn()}
                 onLoadPlanSteps={vi.fn()}
                 onLoadDecisions={vi.fn()}
                 onRecoveryPlan={vi.fn()}
+                journeyStep='review'
             />
         );
         await waitForDeploymentReview();
@@ -66,20 +64,18 @@ describe('Server Blueprint action inspection', () => {
             },
         });
         render(
-            <DashboardBlueprintHistory
-                plans={[run]}
-                latestPlan={run}
+            <DashboardBlueprintActiveDeployment
+                plan={run}
                 busyAction={undefined}
-                preflightByPlanId={{}}
-                deleteConfirmationByPlanId={{}}
-                onDeleteConfirmationChange={vi.fn()}
-                onApprove={vi.fn()}
+                preflightReport={undefined}
+                confirmation={undefined}
+                targetGuildName='Guild One'
                 onPreflight={vi.fn()}
-                onApply={vi.fn()}
                 onControl={onControl}
                 onLoadPlanSteps={vi.fn()}
                 onLoadDecisions={vi.fn()}
                 onRecoveryPlan={vi.fn()}
+                journeyStep='review'
             />
         );
 
@@ -142,18 +138,16 @@ describe('Server Blueprint action inspection', () => {
         expect(onPreflight).toHaveBeenCalledWith(run);
     });
 
-    it('surfaces a stale action as the next blocker and selects its Roles detail', async () => {
+    it('surfaces a stale action as the next blocker and loads its durable decisions', async () => {
         const run = createRun({ status: 'approved' });
-        renderHistory(run, { preflightByPlanId: { [run.id]: createPreflight({ status: 'stale' }) } });
+        const onLoadDecisions = vi.fn();
+        renderHistory(run, { preflightReport: createPreflight({ status: 'stale' }), onLoadDecisions });
         await waitForDeploymentReview();
 
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Review first blocker' }));
 
-        expect(screen.getByRole('button', { name: 'Roles, 0' }).getAttribute('aria-pressed')).toBe('true');
-        expect(
-            within(screen.getByRole('complementary', { name: 'Blueprint inspector' })).getByText('update role')
-        ).toBeTruthy();
+        expect(onLoadDecisions).toHaveBeenCalledWith(run);
     });
 
     it('routes inspected channel and role actions to their owned Explorer sections', async () => {
@@ -208,11 +202,9 @@ describe('Server Blueprint action inspection', () => {
         render(<ControlledHistory run={run} preflight={preflight} />);
         await waitForDeploymentReview();
 
-        expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
-        const input = screen.getByLabelText('Confirm 1 irreversible delete');
-        fireEvent.change(input, {
-            target: { value: getDashboardBlueprintDeleteApprovalText(run.id, 1, run.deleteSetDigest ?? '') },
-        });
+        const deployButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Deploy blueprint' });
+        expect(deployButton.disabled).toBe(true);
+        fireEvent.click(screen.getByRole('checkbox', { name: /1 existing object will be removed/i }));
 
         expect(screen.getByRole('button', { name: 'Apply 1 change, including 1 deletion' })).toBeTruthy();
     });
@@ -231,9 +223,7 @@ describe('Server Blueprint action inspection', () => {
         };
         const plan = createRun({ status: 'approved', run: runProgress });
         const view = renderHistory(plan, {
-            preflightByPlanId: {
-                [plan.id]: createPreflight({ checkedAt: '2026-07-13T10:00:00.000Z' }),
-            },
+            preflightReport: createPreflight({ checkedAt: '2026-07-13T10:00:00.000Z' }),
         });
         await waitForDeploymentReview();
 
@@ -242,25 +232,46 @@ describe('Server Blueprint action inspection', () => {
 
         view.rerender(
             historyElement(plan, {
-                preflightByPlanId: {
-                    [plan.id]: createPreflight({
-                        checkedAt: '2026-07-13T10:02:00.000Z',
-                        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-                    }),
-                },
+                preflightReport: createPreflight({
+                    checkedAt: '2026-07-13T10:02:00.000Z',
+                    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                }),
             })
         );
         expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeTruthy();
 
         view.rerender(
             historyElement(createRun({ status: 'approved' }), {
-                preflightByPlanId: {
-                    'run-1': createPreflight({ expiresAt: '2025-01-01T00:00:00.000Z' }),
-                },
+                preflightReport: createPreflight({ expiresAt: '2025-01-01T00:00:00.000Z' }),
             })
         );
         expect(screen.getByRole('button', { name: 'Refresh safety check' })).toBeTruthy();
         expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+    });
+
+    it('offers a fresh safety check from the safe-stop result', () => {
+        const onPreflight = vi.fn();
+        const plan = createRun({
+            status: 'approved',
+            run: {
+                id: 'run-1',
+                protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+                status: 'failed_before_mutation',
+                phase: 'complete',
+                completedSteps: 0,
+                failedSteps: 0,
+                totalSteps: 1,
+                createdAt: '2026-07-15T10:00:00.000Z',
+                updatedAt: '2026-07-15T10:01:00.000Z',
+            },
+        });
+
+        renderHistory(plan, { journeyStep: 'deploy', onPreflight });
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh safety check' }));
+
+        expect(onPreflight).toHaveBeenCalledWith(plan);
+        expect(screen.getByText('0 of 1')).toBeTruthy();
+        expect(screen.getByText(/Restore required: No/u)).toBeTruthy();
     });
 });
 
@@ -268,36 +279,60 @@ async function waitForDeploymentReview(): Promise<void> {
     await waitFor(() => expect(screen.queryByText('Loading deployment review…')).toBeNull(), { timeout: 5_000 });
 }
 
-function renderHistory(
-    run: DashboardBlueprintPlan,
-    overrides: Partial<Parameters<typeof DashboardBlueprintHistory>[0]> = {}
-) {
+function renderHistory(run: DashboardBlueprintPlan, overrides: HistoryTestOverrides = {}) {
     return render(historyElement(run, overrides));
 }
 
-function historyElement(
-    run: DashboardBlueprintPlan,
-    overrides: Partial<Parameters<typeof DashboardBlueprintHistory>[0]> = {}
-) {
+function historyElement(run: DashboardBlueprintPlan, overrides: HistoryTestOverrides = {}) {
+    const onApply = overrides.onApply ?? vi.fn();
+    const onApprove = overrides.onApprove ?? vi.fn();
+    const onConfirmationChange = overrides.onConfirmationChange ?? vi.fn();
+    const onLoadDecisions = overrides.onLoadDecisions ?? vi.fn();
+    const onPreflight = overrides.onPreflight ?? vi.fn();
+    const journeyStep = overrides.journeyStep ?? 'review';
+    const confirmation = overrides.confirmation ?? emptyDashboardBlueprintConfirmation;
+    const preflightReport = overrides.preflightReport;
+    const targetGuildName = overrides.targetGuildName ?? 'Guild One';
+
     return (
-        <DashboardBlueprintHistory
-            plans={[run]}
-            latestPlan={run}
-            busyAction={undefined}
-            preflightByPlanId={{}}
-            deleteConfirmationByPlanId={{}}
-            onDeleteConfirmationChange={vi.fn()}
-            onApprove={vi.fn()}
-            onPreflight={vi.fn()}
-            onApply={vi.fn()}
-            onControl={vi.fn()}
-            onLoadPlanSteps={vi.fn()}
-            onLoadDecisions={vi.fn()}
-            onRecoveryPlan={vi.fn()}
-            {...overrides}
-        />
+        <>
+            {journeyStep === 'deploy' ? null : (
+                <DashboardBlueprintDeployActionBar
+                    busyAction={overrides.busyAction}
+                    confirmation={confirmation}
+                    onApply={() => onApply(run)}
+                    onApprove={() => onApprove(run)}
+                    onConfirmationChange={(value) => onConfirmationChange(run.id, value)}
+                    onPreflight={() => onPreflight(run)}
+                    onReviewBlocker={() => onLoadDecisions(run)}
+                    plan={run}
+                    preflightReport={preflightReport}
+                    targetGuildName={targetGuildName}
+                />
+            )}
+            <DashboardBlueprintActiveDeployment
+                plan={run}
+                busyAction={overrides.busyAction}
+                preflightReport={preflightReport}
+                confirmation={confirmation}
+                targetGuildName={targetGuildName}
+                onPreflight={onPreflight}
+                onControl={overrides.onControl ?? vi.fn()}
+                onLoadPlanSteps={overrides.onLoadPlanSteps ?? vi.fn()}
+                onLoadDecisions={onLoadDecisions}
+                onInspectPlanStep={overrides.onInspectPlanStep}
+                onRecoveryPlan={overrides.onRecoveryPlan ?? vi.fn()}
+                journeyStep={journeyStep}
+            />
+        </>
     );
 }
+
+type HistoryTestOverrides = Partial<Parameters<typeof DashboardBlueprintActiveDeployment>[0]> & {
+    onApply?: (plan: DashboardBlueprintPlan) => void;
+    onApprove?: (plan: DashboardBlueprintPlan) => void;
+    onConfirmationChange?: (planId: string, value: DashboardBlueprintConfirmationDraft) => void;
+};
 
 function ControlledHistory({
     run,
@@ -306,12 +341,13 @@ function ControlledHistory({
     run: DashboardBlueprintPlan;
     preflight: DashboardBlueprintPreflightView;
 }) {
-    const [confirmation, setConfirmation] = useState('');
+    const [confirmation, setConfirmation] = useState(emptyDashboardBlueprintConfirmation);
 
     return historyElement(run, {
-        preflightByPlanId: { [run.id]: preflight },
-        deleteConfirmationByPlanId: { [run.id]: confirmation },
-        onDeleteConfirmationChange: (_planId, value) => setConfirmation(value),
+        preflightReport: preflight,
+        confirmation,
+        targetGuildName: 'Guild One',
+        onConfirmationChange: (_planId, value) => setConfirmation(value),
     });
 }
 

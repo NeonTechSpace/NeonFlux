@@ -331,9 +331,11 @@ export function buildStructureBackupDocument(
     if (status === STRUCTURE_BACKUP_STATUS.succeeded && !structure) {
         return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
     }
-    if (structure && normalizeBlueprintSnapshot(structure).type === 'invalid') {
+    const normalizedStructure = structure ? normalizeBlueprintSnapshot(structure) : undefined;
+    if (normalizedStructure?.type === 'invalid') {
         return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
     }
+    const snapshot = normalizedStructure?.type === 'valid' ? normalizedStructure.snapshot : undefined;
 
     const createdByUserId = normalizeOptionalString(input.createdByUserId);
     const errorMessage = normalizeOptionalString(input.errorMessage);
@@ -350,19 +352,19 @@ export function buildStructureBackupDocument(
     return {
         ok: true,
         value: {
-            categoryCount: normalizeNonNegativeInteger(input.categoryCount),
-            channelCount: normalizeNonNegativeInteger(input.channelCount),
+            categoryCount: snapshot?.categories.length ?? 0,
+            channelCount: snapshot?.channels.length ?? 0,
             completedAt,
             createdAt,
             ...(createdByUserId ? { createdByUserId } : {}),
             ...(errorMessage ? { errorMessage } : {}),
             guildId: guildId.value,
             name,
-            roleCount: normalizeNonNegativeInteger(input.roleCount),
+            roleCount: snapshot?.roles.length ?? 0,
             sortKey: normalizeBackupSortKey(input.sortKey, createdAt),
             source,
             status,
-            ...(structure ? { structure } : {}),
+            ...(snapshot ? { structure: snapshot } : {}),
         },
     };
 }
@@ -982,72 +984,6 @@ export function classifyBlueprintRunReclaim(input: {
     return input.hasStartedAttempt ? 'outcome_unknown' : 'reclaim';
 }
 
-export function classifyBlueprintRunPreMutationAuthorization(input: {
-    completedMutationSteps: number;
-    expectedLiveFingerprint: string;
-    expiresAt: string;
-    liveFingerprint?: string;
-    nextStepSequence: number;
-    now: string;
-}) {
-    if (input.nextStepSequence > 0 || input.completedMutationSteps > 0) return 'not_required' as const;
-    if (input.expiresAt <= input.now) return 'preflight_expired' as const;
-    if (input.liveFingerprint === undefined) return 'authorization_required' as const;
-    return input.liveFingerprint === input.expectedLiveFingerprint
-        ? ('authorized' as const)
-        : ('live_fingerprint_stale' as const);
-}
-
-export function resolveBlueprintRunMutationAuthorization(input: {
-    completedMutationSteps: number;
-    expectedLiveFingerprint: string;
-    expiresAt: string;
-    leaseId: string;
-    liveFingerprint: string;
-    nextStepSequence: number;
-    now: string;
-    structure: unknown;
-}):
-    | { type: 'not_required' | 'preflight_expired' | 'live_fingerprint_stale' }
-    | {
-          type: 'authorized';
-          runPatch: {
-              mutationAuthorizedAt: string;
-              mutationAuthorizationLeaseId: string;
-              updatedAt: string;
-          };
-          restorePointPatch: {
-              categoryCount: number;
-              channelCount: number;
-              completedAt: string;
-              roleCount: number;
-              structure: Record<string, unknown>;
-          };
-      }
-    | { type: 'invalid_snapshot' } {
-    const authorization = classifyBlueprintRunPreMutationAuthorization(input);
-    if (authorization === 'authorization_required') return { type: 'invalid_snapshot' };
-    if (authorization !== 'authorized') return { type: authorization };
-    const snapshot = normalizeBlueprintSnapshot(input.structure);
-    if (snapshot.type === 'invalid') return { type: 'invalid_snapshot' };
-    const structure = snapshot.snapshot;
-    return {
-        type: 'authorized',
-        runPatch: {
-            mutationAuthorizedAt: input.now,
-            mutationAuthorizationLeaseId: input.leaseId,
-            updatedAt: input.now,
-        },
-        restorePointPatch: {
-            categoryCount: structure.categories.length,
-            channelCount: structure.channels.length,
-            completedAt: input.now,
-            roleCount: structure.roles.length,
-            structure,
-        },
-    };
-}
-
 export function isBlueprintRunMutationAuthorizedForLease(input: {
     completedMutationSteps: number;
     expiresAt: string;
@@ -1070,6 +1006,31 @@ export function isBlueprintRunRetryPreflightFresh(input: {
     preflightCheckedAt: string;
 }): boolean {
     return input.latestRun?.status !== 'failed_before_mutation' || input.preflightCheckedAt > input.latestRun.updatedAt;
+}
+
+export type BlueprintRunAuthorizationDecision =
+    | 'structure_changed'
+    | 'capability_changed'
+    | 'structure_and_capability_changed'
+    | 'restore_observation_diverged'
+    | 'preflight_expired'
+    | 'fingerprint_version_mismatch';
+
+export function resolveBlueprintRunAuthorizationDecision(input: {
+    capabilityChanged: boolean;
+    fingerprintVersionsCurrent: boolean;
+    now: string;
+    preflightExpiresAt: string;
+    restoreObservationEqual: boolean;
+    structureChanged: boolean;
+}): BlueprintRunAuthorizationDecision | undefined {
+    if (!input.fingerprintVersionsCurrent) return 'fingerprint_version_mismatch';
+    if (input.preflightExpiresAt <= input.now) return 'preflight_expired';
+    if (!input.restoreObservationEqual) return 'restore_observation_diverged';
+    if (input.structureChanged && input.capabilityChanged) return 'structure_and_capability_changed';
+    if (input.structureChanged) return 'structure_changed';
+    if (input.capabilityChanged) return 'capability_changed';
+    return undefined;
 }
 
 export function resolveExpiredBlueprintRunControl(controlRequest: unknown): 'paused' | 'cancelled' {

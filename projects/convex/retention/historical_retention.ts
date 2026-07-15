@@ -62,6 +62,8 @@ export type HistoricalRetentionOperations = {
     findRemainingPlanPhase: (planId: string) => Promise<BlueprintRemainingPhase | null>;
     hasProtectedRun: (planId: string) => Promise<boolean>;
     loadRunStepAttemptIds: (runId: string, limit: number) => Promise<string[]>;
+    loadRunObservationIds: (runId: string, limit: number) => Promise<string[]>;
+    deleteRunObservationIds: (ids: string[]) => Promise<void>;
     loadBlueprintPlanChildIds: (phase: BlueprintChildPhase, planId: string, limit: number) => Promise<string[]>;
     loadExpiredAuditEventIds: (cutoff: string, limit: number) => Promise<string[]>;
     loadFirstRun: (planId: string) => Promise<{ id: string; status: string } | null>;
@@ -225,7 +227,15 @@ async function pruneBlueprintRun(
         attemptIds.slice(0, historicalRetentionBatchSize)
     );
 
-    if (!hasMore) await operations.deleteRun(run.id);
+    if (attemptIds.length > 0 || hasMore) {
+        await schedulePlanPhase(operations, input, 'blueprint-runs');
+        return;
+    }
+
+    const observationIds = await operations.loadRunObservationIds(run.id, historicalRetentionBatchSize + 1);
+    const hasMoreObservations = observationIds.length > historicalRetentionBatchSize;
+    await operations.deleteRunObservationIds(observationIds.slice(0, historicalRetentionBatchSize));
+    if (!hasMoreObservations) await operations.deleteRun(run.id);
     await schedulePlanPhase(operations, input, 'blueprint-runs');
 }
 
@@ -323,6 +333,11 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
         deleteRun: async (runId) => {
             await ctx.db.delete('blueprintRuns', runId as GenericId<'blueprintRuns'>);
         },
+        deleteRunObservationIds: async (ids) => {
+            for (const id of ids) {
+                await ctx.db.delete('blueprintRunObservations', id as GenericId<'blueprintRunObservations'>);
+            }
+        },
         deletePlan: async (planId) => {
             await ctx.db.delete('blueprintPlans', planId as GenericId<'blueprintPlans'>);
         },
@@ -335,6 +350,13 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
                     .withIndex('by_run_plan_step_attempt', (index) =>
                         index.eq('runId', runId as GenericId<'blueprintRuns'>)
                     )
+                    .take(limit)
+            ).map((row) => String(row._id)),
+        loadRunObservationIds: async (runId, limit) =>
+            (
+                await ctx.db
+                    .query('blueprintRunObservations')
+                    .withIndex('by_run_phase', (index) => index.eq('runId', runId as GenericId<'blueprintRuns'>))
                     .take(limit)
             ).map((row) => String(row._id)),
         loadBlueprintPlanChildIds: async (phase, planId, limit) =>

@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getWebDb } from './db.server.js';
 import { applyDashboardBlueprintPlan, controlDashboardBlueprintRun } from './dashboard-blueprint-apply.server.js';
-import { getDashboardBlueprintDeleteApprovalText } from './dashboard-blueprint-contracts.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 
 vi.mock('@neonflux/db', async (importActual) => ({
@@ -43,9 +42,10 @@ describe('Server Blueprint enqueue boundary', () => {
         vi.mocked(getWebDb).mockResolvedValue({ db: {} } as never);
         vi.mocked(loadAuthorizedBlueprintContext).mockResolvedValue({
             type: 'authorized',
-            guild: { id: 'guild-1' },
+            guild: { id: 'guild-1', name: 'Guild One' },
             actor: { actorUserId: 'user-1', metadata: {} },
         } as never);
+        vi.mocked(approveBlueprintPlan).mockResolvedValue(ok({} as never));
     });
 
     it('enqueues the approved plan against the exact reviewed preflight digest', async () => {
@@ -70,6 +70,13 @@ describe('Server Blueprint enqueue boundary', () => {
                     actorUserId: 'user-1',
                     targetId: 'run-1',
                 }),
+            })
+        );
+        expect(approveBlueprintPlan).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+                confirmationMethod: 'acknowledgement',
+                destructivePreflightDigest: 'preflight-digest',
             })
         );
     });
@@ -105,7 +112,7 @@ describe('Server Blueprint enqueue boundary', () => {
         expect(enqueueBlueprintRun).not.toHaveBeenCalled();
     });
 
-    it('requires delete approval text bound to the persisted count and digest', async () => {
+    it('requires risk-based deletion acknowledgement', async () => {
         vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([{ actionType: 'delete' }])));
 
         const result = await applyDashboardBlueprintPlan(request, {
@@ -113,14 +120,43 @@ describe('Server Blueprint enqueue boundary', () => {
             planId: 'run-1',
             planDigest: 'plan-digest',
             preflightDigest: 'preflight-digest',
-            destructiveConfirmationText: 'DELETE 1 wrong',
+            confirmation: {},
         });
 
         expect(result).toEqual({
             type: 'destructive-confirmation-mismatch',
-            expectedText: getDashboardBlueprintDeleteApprovalText('run-1', 1, 'delete-digest'),
+            message: 'Acknowledge that 1 existing objects will be removed.',
         });
         expect(approveBlueprintPlan).not.toHaveBeenCalled();
+    });
+
+    it('requires rebuild acknowledgements and the NFC-normalized case-sensitive target name', async () => {
+        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(
+            ok(createRun([{ actionType: 'delete' }], { policy: 'rebuild' }))
+        );
+
+        const missingRestore = await applyDashboardBlueprintPlan(request, {
+            guildId: 'guild-1',
+            planId: 'run-1',
+            planDigest: 'plan-digest',
+            preflightDigest: 'preflight-digest',
+            confirmation: { understandsDeletion: true, targetGuildName: 'Guild One' },
+        });
+        expect(missingRestore).toMatchObject({ type: 'destructive-confirmation-mismatch' });
+
+        const wrongCase = await applyDashboardBlueprintPlan(request, {
+            guildId: 'guild-1',
+            planId: 'run-1',
+            planDigest: 'plan-digest',
+            preflightDigest: 'preflight-digest',
+            confirmation: {
+                understandsDeletion: true,
+                understandsRestorePointRequirement: true,
+                targetGuildName: 'guild one',
+            },
+        });
+        expect(wrongCase).toMatchObject({ type: 'destructive-confirmation-mismatch' });
+        expect(enqueueBlueprintRun).not.toHaveBeenCalled();
     });
 
     it('only allows cancellation while an run is queued or paused', async () => {
@@ -183,7 +219,10 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 });
 
-function createRun(steps: Array<{ actionType: string }>) {
+function createRun(
+    steps: Array<{ actionType: string }>,
+    overrides: Partial<{ policy: 'merge' | 'synchronize' | 'rebuild' }> = {}
+) {
     return {
         id: 'run-1',
         guildId: 'guild-1',
@@ -199,6 +238,7 @@ function createRun(steps: Array<{ actionType: string }>) {
         requestedSnapshotDigest: 'snapshot-digest',
         createdAt: now,
         updatedAt: now,
+        ...overrides,
         steps: steps.map((step, sequence) => ({
             id: `action-${sequence}`,
             planId: 'run-1',

@@ -463,8 +463,18 @@ function validateDashboardBlueprintApplyInput(input: unknown): DashboardBlueprin
         planId: readString(payload.planId),
         planDigest: readString(payload.planDigest),
         preflightDigest: readString(payload.preflightDigest),
-        destructiveConfirmationText: readString(payload.destructiveConfirmationText) || undefined,
+        confirmation: readDashboardBlueprintConfirmation(payload.confirmation),
     };
+}
+
+function readDashboardBlueprintConfirmation(value: unknown): DashboardBlueprintApplyInput['confirmation'] {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const payload = value as Record<string, unknown>;
+    const confirmation: NonNullable<DashboardBlueprintApplyInput['confirmation']> = {};
+    if (payload.understandsDeletion === true) confirmation.understandsDeletion = true;
+    if (payload.understandsRestorePointRequirement === true) confirmation.understandsRestorePointRequirement = true;
+    if (typeof payload.targetGuildName === 'string') confirmation.targetGuildName = payload.targetGuildName;
+    return confirmation;
 }
 
 export function validateDashboardBlueprintRunControlInput(input: unknown): DashboardBlueprintRunControlInput {

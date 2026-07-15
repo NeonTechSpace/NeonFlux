@@ -5,7 +5,11 @@ import {
     DashboardBlueprintPlanStepInspector,
     DashboardBlueprintPlanStepPreview,
 } from './dashboard-blueprint-plan-step-inspection.js';
-import { readDashboardBlueprintDeployReadiness } from './dashboard-blueprint-deploy-readiness.js';
+import {
+    emptyDashboardBlueprintConfirmation,
+    readDashboardBlueprintDeployReadiness,
+} from './dashboard-blueprint-deploy-readiness.js';
+import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 import { DashboardBlueprintExplorer } from './dashboard-blueprint-explorer.js';
 import {
     readDashboardBlueprintExplorerEntityKey as readDashboardBlueprintExplorerPlanStepEntityKey,
@@ -16,39 +20,28 @@ import type {
     DashboardBlueprintExplorerSection,
 } from './dashboard-blueprint-explorer-snapshot.js';
 import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-blueprint-panel-requested-snapshot.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
-import {
-    dashboardDangerActionClassName,
-    dashboardFieldClassName,
-    dashboardPrimaryActionClassName,
-    dashboardSecondaryActionClassName,
-} from './dashboard-ui.js';
 
 export function DashboardBlueprintDeployReview({
     busyAction,
-    deleteConfirmation,
-    onApprove,
-    onApply,
-    onDeleteConfirmationChange,
+    confirmation = emptyDashboardBlueprintConfirmation,
+    targetGuildName,
     onInspectPlanStep,
     onLoadPlanSteps,
-    onLoadDecisions,
-    onPreflight,
     preflightReport,
     plan,
+    journeyStep,
 }: {
     busyAction: BlueprintBusyAction | undefined;
-    deleteConfirmation: string;
-    onApprove: (plan: DashboardBlueprintPlan) => void;
-    onApply: (plan: DashboardBlueprintPlan) => void;
-    onDeleteConfirmationChange: (planId: string, confirmation: string) => void;
+    confirmation?: DashboardBlueprintConfirmationDraft;
+    targetGuildName: string;
     onInspectPlanStep?: (plan: DashboardBlueprintPlan, action: DashboardBlueprintPlanStep) => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
-    onLoadDecisions: (plan: DashboardBlueprintPlan) => void;
-    onPreflight: (plan: DashboardBlueprintPlan) => void;
     preflightReport: DashboardBlueprintPreflightView | undefined;
     plan: DashboardBlueprintPlan;
+    journeyStep: DashboardBlueprintDeployJourneyStep;
 }) {
     const snapshot = useMemo(() => readRequestedFinalStateExplorerSnapshot(plan), [plan]);
     const [section, setSection] = useState<DashboardBlueprintExplorerSection>('channels');
@@ -58,7 +51,8 @@ export function DashboardBlueprintDeployReview({
     const [inspectedPlanStep, setInspectedPlanStep] = useState<DashboardBlueprintPlanStep>();
     const now = useExpiryClock(preflightReport?.expiresAt);
     const readiness = readDashboardBlueprintDeployReadiness({
-        deleteConfirmation,
+        confirmation,
+        targetGuildName,
         now,
         preflightReport,
         plan,
@@ -73,15 +67,6 @@ export function DashboardBlueprintDeployReview({
             setSelectedBySection((current) => ({ ...current, [nextSection]: entityKey }));
         }
         onInspectPlanStep?.(plan, action);
-    }
-
-    function revealFirstBlocker(): void {
-        const firstBlocker = preflightReport?.steps.find((action) => action.status !== 'ready');
-        const action = firstBlocker
-            ? plan.steps.find((candidate) => candidate.id === firstBlocker.planStepId)
-            : undefined;
-        if (action) revealPlanStep(action);
-        else onLoadDecisions(plan);
     }
 
     const targetDetail = formatTargetDetail(
@@ -99,69 +84,63 @@ export function DashboardBlueprintDeployReview({
                 plan={plan}
             />
 
-            <DashboardBlueprintExplorer
-                busyAction={busyAction}
-                drift={undefined}
-                overlayMode={`plan:${plan.id}`}
-                preflightByPlanId={preflightReport ? { [plan.id]: preflightReport } : {}}
-                plans={[plan]}
-                section={section}
-                selectedEntityKey={selectedBySection[section]}
-                comparisonTarget={{ label: 'Current server', detail: targetDetail, type: 'live' }}
-                source={{
-                    label: snapshot?.guildName ? `${snapshot.guildName} requested blueprint` : 'Requested blueprint',
-                    detail: snapshot ? 'Requested final state' : 'Stored source snapshot unavailable',
-                    snapshot,
-                    type: 'requested-final-state',
-                }}
-                onCompareDriftBaseline={() => undefined}
-                onCompareImportJson={() => undefined}
-                onCompareLive={() => undefined}
-                onCompareRequestedFinalState={() => undefined}
-                onInspectImportJson={() => undefined}
-                onInspectRequestedFinalState={() => undefined}
-                onLoadPlanSteps={onLoadPlanSteps}
-                onLoadLive={() => undefined}
-                onOverlayModeChange={() => undefined}
-                onSectionChange={setSection}
-                onSelectedEntityKeyChange={(key) =>
-                    setSelectedBySection((current) => (key ? { ...current, [section]: key } : current))
-                }
-                presentation='review'
-            />
-
-            <NextSafeAction
-                busyAction={busyAction}
-                deleteConfirmation={deleteConfirmation}
-                onApprove={() => onApprove(plan)}
-                onApply={() => onApply(plan)}
-                onDeleteConfirmationChange={(value) => onDeleteConfirmationChange(plan.id, value)}
-                onPreflight={() => onPreflight(plan)}
-                onReviewBlocker={revealFirstBlocker}
-                readiness={readiness}
-                plan={plan}
-            />
-
-            <details className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-3'>
-                <summary
-                    data-dashboard-disclosure
-                    className='cursor-pointer text-xs font-semibold text-[var(--dash-text-muted)]'>
-                    Technical plan steps
-                </summary>
-                <DashboardBlueprintPlanStepPreview
-                    actions={plan.steps}
-                    changeCount={plan.planStepCount}
-                    isLoading={busyAction === `plan-steps:${plan.id}`}
-                    onLoad={() => onLoadPlanSteps(plan)}
-                    onInspectPlanStep={revealPlanStep}
+            {journeyStep === 'review' ? (
+                <DashboardBlueprintExplorer
+                    busyAction={busyAction}
+                    drift={undefined}
+                    overlayMode={`plan:${plan.id}`}
+                    preflightByPlanId={preflightReport ? { [plan.id]: preflightReport } : {}}
+                    plans={[plan]}
+                    section={section}
+                    selectedEntityKey={selectedBySection[section]}
+                    comparisonTarget={{ label: 'Current server', detail: targetDetail, type: 'live' }}
+                    source={{
+                        label: snapshot?.guildName
+                            ? `${snapshot.guildName} requested blueprint`
+                            : 'Requested blueprint',
+                        detail: snapshot ? 'Requested final state' : 'Stored source snapshot unavailable',
+                        snapshot,
+                        type: 'requested-final-state',
+                    }}
+                    onCompareDriftBaseline={() => undefined}
+                    onCompareImportJson={() => undefined}
+                    onCompareLive={() => undefined}
+                    onCompareRequestedFinalState={() => undefined}
+                    onInspectImportJson={() => undefined}
+                    onInspectRequestedFinalState={() => undefined}
+                    onLoadPlanSteps={onLoadPlanSteps}
+                    onLoadLive={() => undefined}
+                    onOverlayModeChange={() => undefined}
+                    onSectionChange={setSection}
+                    onSelectedEntityKeyChange={(key) =>
+                        setSelectedBySection((current) => (key ? { ...current, [section]: key } : current))
+                    }
+                    presentation='review'
                 />
-                {inspectedPlanStep ? (
-                    <DashboardBlueprintPlanStepInspector
-                        action={inspectedPlanStep}
-                        onClose={() => setInspectedPlanStep(undefined)}
+            ) : null}
+
+            {journeyStep === 'review' ? (
+                <details className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-bg)] p-3'>
+                    <summary
+                        data-dashboard-disclosure
+                        className='cursor-pointer text-xs font-semibold text-[var(--dash-text-muted)]'>
+                        Technical plan steps
+                    </summary>
+                    <DashboardBlueprintPlanStepPreview
+                        actions={plan.steps}
+                        changeCount={plan.planStepCount}
+                        isLoading={busyAction === `plan-steps:${plan.id}`}
+                        onLoad={() => onLoadPlanSteps(plan)}
+                        onInspectPlanStep={revealPlanStep}
                     />
-                ) : null}
-            </details>
+                    {inspectedPlanStep ? (
+                        <DashboardBlueprintPlanStepInspector
+                            action={inspectedPlanStep}
+                            onClose={() => setInspectedPlanStep(undefined)}
+                        />
+                    ) : null}
+                </details>
+            ) : null}
         </section>
     );
 }
@@ -246,118 +225,11 @@ function ReadinessChecklist({
     );
 }
 
-function NextSafeAction({
-    busyAction,
-    deleteConfirmation,
-    onApprove,
-    onApply,
-    onDeleteConfirmationChange,
-    onPreflight,
-    onReviewBlocker,
-    readiness,
-    plan,
-}: {
-    busyAction: BlueprintBusyAction | undefined;
-    deleteConfirmation: string;
-    onApprove: () => void;
-    onApply: () => void;
-    onDeleteConfirmationChange: (value: string) => void;
-    onPreflight: () => void;
-    onReviewBlocker: () => void;
-    readiness: ReturnType<typeof readDashboardBlueprintDeployReadiness>;
-    plan: DashboardBlueprintPlan;
-}) {
-    if (readiness.nextAction === 'none') return null;
-
-    return (
-        <div className='rounded-[var(--dash-radius-control)] border border-[color:var(--dash-info)]/35 bg-[var(--dash-info-soft)] p-3'>
-            <p className='text-xs font-semibold text-[var(--dash-text)]'>Next safe action</p>
-            <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                {formatNextActionDetail(readiness.nextAction)}
-            </p>
-            {readiness.nextAction === 'confirm-delete' ? (
-                <label className='mt-2 block text-xs font-semibold text-[var(--dash-text)]'>
-                    Type {readiness.expectedDeleteText} to confirm {readiness.destructiveApprovalCount} irreversible
-                    delete
-                    {readiness.destructiveApprovalCount === 1 ? '' : 's'}
-                    <input
-                        aria-label={`Confirm ${readiness.destructiveApprovalCount} irreversible delete${readiness.destructiveApprovalCount === 1 ? '' : 's'}`}
-                        value={deleteConfirmation}
-                        onChange={(event) => onDeleteConfirmationChange(event.currentTarget.value)}
-                        className={`mt-2 ${dashboardFieldClassName} focus:border-[var(--dash-danger)]`}
-                    />
-                </label>
-            ) : (
-                <div className='mt-2 flex justify-end'>
-                    <button
-                        type='button'
-                        disabled={Boolean(busyAction)}
-                        onClick={
-                            readiness.nextAction === 'approve'
-                                ? onApprove
-                                : readiness.nextAction === 'preflight'
-                                  ? onPreflight
-                                  : readiness.nextAction === 'apply'
-                                    ? onApply
-                                    : onReviewBlocker
-                        }
-                        className={
-                            readiness.nextAction === 'apply' && readiness.destructiveApprovalCount > 0
-                                ? dashboardDangerActionClassName
-                                : readiness.nextAction === 'review-blocker' || readiness.nextAction === 'preflight'
-                                  ? dashboardSecondaryActionClassName
-                                  : dashboardPrimaryActionClassName
-                        }>
-                        {formatNextActionLabel(readiness, plan, busyAction)}
-                    </button>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function formatNextActionDetail(
-    action: ReturnType<typeof readDashboardBlueprintDeployReadiness>['nextAction']
-): string {
-    if (action === 'approve') {
-        return 'Records this exact review. NeonFlux will immediately check the live server again; nothing changes yet.';
-    }
-    if (action === 'preflight') return 'Re-reads the live server; it does not change server state.';
-    if (action === 'confirm-delete') return 'Confirmation is bound to this plan and its checked deletion set.';
-    if (action === 'apply') return 'Starts the durable deployment after saving its restore point.';
-    return 'Inspect the blocking change before correcting the source and creating a new plan.';
-}
-
-function formatNextActionLabel(
-    readiness: ReturnType<typeof readDashboardBlueprintDeployReadiness>,
-    plan: DashboardBlueprintPlan,
-    busyAction: BlueprintBusyAction | undefined
-): string {
-    if (readiness.nextAction === 'approve') {
-        return busyAction === `approval:${plan.id}` || busyAction === `preflight:${plan.id}`
-            ? 'Checking live server'
-            : 'Continue to final check';
-    }
-    if (readiness.nextAction === 'preflight') {
-        return busyAction === `preflight:${plan.id}`
-            ? 'Checking live server'
-            : readiness.preflightExpired || readiness.retryPreflightRequired
-              ? 'Refresh safety check'
-              : 'Plan safety check';
-    }
-    if (readiness.nextAction === 'apply') {
-        return busyAction === `apply:${plan.id}`
-            ? 'Starting deployment'
-            : `Apply ${plan.changeCount} change${plan.changeCount === 1 ? '' : 's'}${readiness.destructiveApprovalCount ? `, including ${readiness.destructiveApprovalCount} deletion${readiness.destructiveApprovalCount === 1 ? '' : 's'}` : ''}`;
-    }
-    return 'Review first blocker';
-}
-
 function formatSafetyStep(
     report: DashboardBlueprintPreflightView | undefined,
     readiness: ReturnType<typeof readDashboardBlueprintDeployReadiness>
 ): string {
-    if (!report) return 'Not plan yet.';
+    if (!report) return 'Not run yet.';
     if (readiness.retryPreflightRequired) return 'Must be newer than the failed deployment attempt.';
     if (readiness.preflightExpired) return 'Expired; refresh before apply.';
     if (readiness.hardBlockerCount) {
@@ -371,7 +243,7 @@ function formatTargetDetail(
     expired: boolean,
     retryRequired: boolean
 ): string {
-    if (!report) return 'Fresh safety check not plan';
+    if (!report) return 'Fresh safety check not run';
     if (retryRequired) return 'Fresh safety check required after failed attempt';
     if (expired) return 'Safety check expired';
     return report.checkedAt ? `Safety checked ${formatDate(report.checkedAt)}` : 'Safety check complete';

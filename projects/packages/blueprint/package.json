@@ -57,6 +57,12 @@
             "production": "./dist/identity.js",
             "import": "./dist/identity.js"
         },
+        "./mutation-fence": {
+            "types": "./src/mutation-fence.ts",
+            "development": "./src/mutation-fence.ts",
+            "production": "./dist/mutation-fence.js",
+            "import": "./dist/mutation-fence.js"
+        },
         "./plan": {
             "types": "./src/plan.ts",
             "development": "./src/plan.ts",

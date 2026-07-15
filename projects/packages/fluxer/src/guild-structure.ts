@@ -1,4 +1,4 @@
-import type { Client, Guild, GuildChannel, Role } from '@fluxerjs/core';
+import type { Client, Guild, GuildChannel } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
@@ -46,6 +46,12 @@ export type FluxerGuildStructure = {
     roles: FluxerGuildRole[];
     channels: FluxerGuildChannel[];
     categories: FluxerGuildChannel[];
+};
+
+export type FluxerGuildStructureObservation = {
+    observedAt: string;
+    source: 'resident-client' | 'token-client';
+    structure: FluxerGuildStructure;
 };
 
 export type ReadFluxerGuildStructureInput = {
@@ -101,6 +107,28 @@ export async function readFluxerBotGuildStructure(
     }
 }
 
+export async function readFluxerBotGuildStructureObservation(
+    input: ReadFluxerBotGuildStructureInput
+): Promise<Result<FluxerGuildStructureObservation, ReadFluxerBotGuildStructureError>> {
+    const result = await readFluxerBotGuildStructure(input);
+    return result.map((structure) => ({
+        observedAt: new Date().toISOString(),
+        source: 'token-client' as const,
+        structure,
+    }));
+}
+
+export async function readFluxerGuildStructureObservation(
+    input: ReadFluxerGuildStructureInput
+): Promise<Result<FluxerGuildStructureObservation, ReadFluxerGuildStructureError>> {
+    const result = await readFluxerGuildStructure(input);
+    return result.map((structure) => ({
+        observedAt: new Date().toISOString(),
+        source: 'resident-client' as const,
+        structure,
+    }));
+}
+
 export async function readFluxerGuildStructure(
     input: ReadFluxerGuildStructureInput
 ): Promise<Result<FluxerGuildStructure, ReadFluxerGuildStructureError>> {
@@ -130,7 +158,6 @@ export async function readFluxerGuildStructure(
         input.client,
         guildResult.value,
         structureResult.value.roles,
-        structureResult.value.rawRoles,
         input.botUserId
     );
 
@@ -141,7 +168,6 @@ export async function readFluxerGuildStructure(
     const normalizedRoles = normalizeRoles(
         structureResult.value.roles,
         guildId,
-        structureResult.value.rawRoles,
         botHighestRolePositionResult.value?.roleIds
     );
     const normalizedChannelResult = normalizeChannels(structureResult.value.channels);
@@ -180,38 +206,30 @@ async function fetchGuildStructure(
     guild: Guild
 ): Promise<
     Result<
-        { roles: Role[]; rawRoles?: unknown[]; channels: GuildChannel[] },
+        { roles: unknown[]; channels: GuildChannel[] },
         Extract<ReadFluxerGuildStructureError, { type: 'fetch-failed' }>
     >
 > {
     try {
-        const [roles, rawRoles, channels] = await Promise.all([
-            guild.fetchRoles(),
-            fetchRawGuildRoles(guild),
-            guild.fetchChannels(),
-        ]);
+        const [roles, channels] = await Promise.all([fetchGuildRoles(guild), guild.fetchChannels()]);
 
-        return ok({ roles, ...(rawRoles ? { rawRoles } : {}), channels });
+        return ok({ roles, channels });
     } catch (error) {
         return err({ type: 'fetch-failed', error });
     }
 }
 
-async function fetchRawGuildRoles(guild: Guild): Promise<unknown[] | undefined> {
+async function fetchGuildRoles(guild: Guild): Promise<unknown[]> {
     const rest = readClientRest(guild);
     const guildId = readGuildId(guild);
 
-    if (!rest || !guildId) return undefined;
+    if (!rest || !guildId) return guild.fetchRoles();
 
-    try {
-        const data = await rest.get(`/guilds/${guildId}/roles`, { auth: true });
-        if (Array.isArray(data)) return data.map((role: unknown) => role);
-        if (!isObject(data)) return [];
+    const data = await rest.get(`/guilds/${guildId}/roles`, { auth: true });
+    if (Array.isArray(data)) return data.map((role: unknown) => role);
+    if (!isObject(data)) throw new Error('Invalid guild roles response.');
 
-        return Object.values(data);
-    } catch {
-        return undefined;
-    }
+    return Object.values(data);
 }
 
 function readClientRest(guild: Guild): { get: (path: string, options?: unknown) => Promise<unknown> } | undefined {
@@ -231,8 +249,7 @@ function readGuildId(guild: Guild): string | undefined {
 async function readBotHighestRolePosition(
     client: Client,
     guild: Guild,
-    roles: Role[],
-    rawRoles?: unknown[],
+    roles: unknown[],
     authenticatedBotUserId?: string
 ): Promise<Result<FluxerBotHighestRole | undefined, Extract<ReadFluxerGuildStructureError, { type: 'fetch-failed' }>>> {
     const botUserId = authenticatedBotUserId ?? readClientUserId(client);
@@ -250,8 +267,8 @@ async function readBotHighestRolePosition(
             return ok(undefined);
         }
 
-        const rolePositionById = createRolePositionById(roles, rawRoles);
-        const roleHierarchyRankById = createRoleHierarchyRankById(roles, rawRoles);
+        const rolePositionById = createRolePositionById(roles);
+        const roleHierarchyRankById = createRoleHierarchyRankById(roles);
         const highestRole = roleIds.reduce<FluxerBotHighestRole | undefined>((highest, roleId) => {
             const position = rolePositionById.get(roleId);
             if (typeof position !== 'number') return highest;
@@ -304,43 +321,30 @@ function readMemberRoleIds(member: unknown): string[] | undefined {
     return [...roleIds].filter((roleId): roleId is string => typeof roleId === 'string' && roleId.trim().length > 0);
 }
 
-function createRolePositionById(roles: Role[], rawRoles?: unknown[]): Map<string, number> {
+function createRolePositionById(roles: unknown[]): Map<string, number> {
     const rolePositionById = new Map<string, number>();
 
     for (const role of roles) {
-        if (typeof role.id === 'string' && typeof role.position === 'number') {
-            rolePositionById.set(role.id, role.position);
-        }
-    }
-
-    for (const rawRole of rawRoles ?? []) {
-        if (!isObject(rawRole) || typeof rawRole.id !== 'string') continue;
-
-        const position = readRolePosition(rawRole);
+        if (!isObject(role) || typeof role.id !== 'string') continue;
+        const position = readRolePosition(role);
         if (typeof position === 'number') {
-            rolePositionById.set(rawRole.id, position);
+            rolePositionById.set(role.id, position);
         }
     }
 
     return rolePositionById;
 }
 
-function createRoleHierarchyRankById(roles: Role[], rawRoles?: unknown[]): Map<string, number> {
-    const roleHierarchyRankById = new Map<string, number>();
-
-    roles.forEach((role, index) => {
-        if (typeof role.id === 'string') {
-            roleHierarchyRankById.set(role.id, index);
-        }
-    });
-
-    (rawRoles ?? []).forEach((rawRole, index) => {
-        if (isObject(rawRole) && typeof rawRole.id === 'string') {
-            roleHierarchyRankById.set(rawRole.id, index);
-        }
-    });
-
-    return roleHierarchyRankById;
+function createRoleHierarchyRankById(roles: unknown[]): Map<string, number> {
+    const orderedRoles = roles
+        .filter(isObject)
+        .filter((role): role is Record<string, unknown> & { id: string } => typeof role.id === 'string')
+        .filter((role) => typeof readRolePosition(role) === 'number')
+        .sort((left, right) => {
+            const positionDifference = (readRolePosition(right) ?? 0) - (readRolePosition(left) ?? 0);
+            return positionDifference !== 0 ? positionDifference : left.id.localeCompare(right.id);
+        });
+    return new Map(orderedRoles.map((role, index) => [role.id, index]));
 }
 
 function compareRoleHierarchy(
@@ -360,7 +364,6 @@ function compareRoleHierarchy(
 function normalizeRoles(
     roles: unknown,
     guildId: string,
-    rawRoles?: unknown[],
     botRoleIds: readonly string[] = []
 ): FluxerGuildRole[] | undefined {
     if (!Array.isArray(roles)) {
@@ -369,20 +372,13 @@ function normalizeRoles(
 
     const normalizedRoles: FluxerGuildRole[] = [];
     const botRoleIdSet = new Set(botRoleIds);
-    const rawRoleRankById = createRoleHierarchyRankById([], rawRoles);
-    const rawRoleById = new Map(
-        (rawRoles ?? [])
-            .filter(isObject)
-            .filter((role): role is Record<string, unknown> & { id: string } => typeof role.id === 'string')
-            .map((role) => [role.id, role])
-    );
+    const roleRankById = createRoleHierarchyRankById(roles);
 
     for (const role of roles) {
         const normalizedRole = normalizeRole(
             role,
             guildId,
-            isObject(role) ? rawRoleById.get(String(role.id)) : undefined,
-            isObject(role) ? rawRoleRankById.get(String(role.id)) : undefined,
+            isObject(role) ? roleRankById.get(String(role.id)) : undefined,
             isObject(role) && typeof role.id === 'string' && botRoleIdSet.has(role.id)
         );
 
@@ -399,7 +395,6 @@ function normalizeRoles(
 function normalizeRole(
     role: unknown,
     guildId: string,
-    rawRole?: Record<string, unknown>,
     hierarchyRank?: number,
     isBotAssignedRole = false
 ): FluxerGuildRole | undefined {
@@ -421,13 +416,13 @@ function normalizeRole(
         return undefined;
     }
 
-    const position = (rawRole ? readRolePosition(rawRole) : undefined) ?? readRolePosition(role);
+    const position = readRolePosition(role);
 
     if (typeof position !== 'number') {
         return undefined;
     }
 
-    const protection = isBotAssignedRole ? 'bot' : readRoleProtection(rawRole ?? role, guildId);
+    const protection = isBotAssignedRole ? 'bot' : readRoleProtection(role, guildId);
 
     return {
         id: role.id,

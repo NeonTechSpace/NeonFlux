@@ -43,7 +43,7 @@ This file contains durable constraints for `apps/web`. Parent workspace instruct
 - Same-guild sibling navigation keeps the persistent owner mounted while the unresolved leaf changes. Pending identity is not authority. Cross-guild navigation removes stale content and unsafe transient state.
 - Lazy-load charts, tree and diff explorers, syntax languages, and future animation runtimes at the interaction that needs them. Each lazy route or tool has local actionable code-load retry that preserves confirmed surrounding state.
 - Navigation acknowledges intent synchronously, closes departing overlays safely, updates pending identity, and preserves correct focus for cancellation versus navigation.
-- After route or import changes, regenerate routes, build production, and inspect the transitive graph. Keep optional heavy tools out of shell and unrelated leaf graphs.
+- After route or import changes, regenerate routes, build production, and inspect the transitive graph. The bundle-boundary guard is the executable source for accepted imports and direct-entry ceilings. Parent shell and Blueprint runtime closures must exclude leaf-only implementations; explorers, deployment review, charts, and other heavy tools remain dynamic chunks. Raising a ceiling requires a measured production build and explicit justification.
 
 ## Styling, accessibility, and performance
 
@@ -51,8 +51,17 @@ This file contains durable constraints for `apps/web`. Parent workspace instruct
 - Controls need intentional pointer and disabled cursors, visible keyboard focus, accessible names, and at least 44px touch targets where touch is expected.
 - Critical actions are never hover-only. Dragging has a keyboard or direct-control alternative. Charts and visual state have text equivalents. Color and animation never carry meaning alone.
 - Use effects only to synchronize external systems. Prefer server data, render-time derivation, event handlers, and stable query caches. Reserve layout effects for unavoidable pre-paint DOM measurement.
-- Verify relevant responsive, zoom, short-height, keyboard, screen-reader, reduced-motion, empty and large data, and server-count states.
+- Verify relevant responsive, zoom, short-height, keyboard, screen-reader, reduced-motion, empty and large data, and server-count states. Material navigation, sticky-action, or overlay work covers `1600x1000`, `1280x800`, `1024x768`, `768x1024`, `390x844`, short `800x300`, and `200%` zoom.
 - Virtualize costly long collections when warranted, keep heavy work out of render, pause continuous hidden work, and avoid broad refetches.
+
+## Blueprint Deploy contract
+
+- Deploy has six user-facing stages: Source, Configure, Review, Safety, Confirm, and Deploy. Durable plan and run state owns the resumable stage; route search is only a navigation hint.
+- The Deploy leaf owns the active journey and detailed run progress. History is retrospective and the cross-route Blueprint strip is suppressed on Deploy.
+- Keep the stepper, reserved status region, summary, and primary-action owner stable while stage content changes. One visible primary action gives an actionable disabled reason.
+- Browser state and confirmation inputs are never authority. Before enqueue, the server reloads and reauthorizes guild, plan, policy, delete set, preflight, fingerprints, and active-run state.
+- Confirmation follows risk: none for non-destructive work; deletion acknowledgement for destructive synchronization; deletion and restore-point acknowledgements plus authoritative guild name for rebuild.
+- Async stage changes replace content inside the stable Deploy shell rather than inserting progress, recovery, or safety cards above unrelated review content.
 
 ## Test and review standard
 

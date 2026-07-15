@@ -5,6 +5,18 @@ import { jsonValue, optionalString, optionalTimestamp, timestamp } from '../shar
 
 export const blueprintRunsTable = defineTable({
     appliedSteps: v.number(),
+    authorizationDecision: v.optional(
+        v.union(
+            v.literal('authorized'),
+            v.literal('structure_changed'),
+            v.literal('capability_changed'),
+            v.literal('structure_and_capability_changed'),
+            v.literal('restore_observation_diverged'),
+            v.literal('preflight_expired'),
+            v.literal('fingerprint_version_mismatch')
+        )
+    ),
+    authorizationMismatchJson: optionalString,
     completedMutationSteps: v.number(),
     completedAt: optionalTimestamp,
     controlRequest: v.optional(v.union(v.literal('pause'), v.literal('cancel'))),
@@ -14,6 +26,7 @@ export const blueprintRunsTable = defineTable({
     currentStepId: optionalString,
     currentStepLabel: optionalString,
     failedSteps: v.number(),
+    fingerprintVersion: v.literal(2),
     guildId: v.string(),
     heartbeatAt: optionalTimestamp,
     idMap: jsonValue,
@@ -24,6 +37,8 @@ export const blueprintRunsTable = defineTable({
     notStartedSteps: v.number(),
     mutationAuthorizedAt: optionalTimestamp,
     mutationAuthorizationLeaseId: optionalString,
+    expectedCapabilityFingerprint: v.string(),
+    expectedStructureFingerprint: v.string(),
     phase: v.union(
         v.literal('queued'),
         v.literal('preparing'),
@@ -39,7 +54,6 @@ export const blueprintRunsTable = defineTable({
     ),
     preflightDigest: v.string(),
     preflightExpiresAt: timestamp,
-    preflightLiveFingerprint: v.string(),
     protocolVersion: v.number(),
     retryAt: optionalTimestamp,
     restorePointBackupId: optionalString,

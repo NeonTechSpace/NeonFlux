@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { BLUEPRINT_SNAPSHOT_LIMITS } from '@neonflux/blueprint/snapshot';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
     getDashboardAuditEventsBaseQueryKey,
@@ -9,6 +10,11 @@ import {
 } from '../dashboard-query-keys.js';
 import { useDashboardBlueprintDeployDraftState } from './dashboard-blueprint-deploy-draft-state.js';
 import { DashboardBlueprintDeploySurface } from './dashboard-blueprint-deploy-surface.js';
+import {
+    deriveDashboardBlueprintDeployJourney,
+    isDashboardBlueprintSourceReady,
+} from './dashboard-blueprint-deploy-stage.js';
+import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import { formatDashboardBlueprintExplorerSnapshotJson } from './dashboard-blueprint-explorer-json.js';
 import { parseDashboardBlueprintExplorerSnapshot } from './dashboard-blueprint-explorer-snapshot.js';
 import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
@@ -25,7 +31,13 @@ import {
     DashboardBlueprintSurfaceContent,
 } from './dashboard-blueprint-surface-state.js';
 
-export function DashboardBlueprintDeployRoute() {
+export function DashboardBlueprintDeployRoute({
+    requestedPlanId,
+    requestedStep,
+}: {
+    requestedPlanId?: string;
+    requestedStep?: DashboardBlueprintDeployJourneyStep;
+}) {
     const runtime = useDashboardBlueprintRuntime();
     const {
         activePlan,
@@ -43,9 +55,11 @@ export function DashboardBlueprintDeployRoute() {
         structurePolicy,
     } = runtime;
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
     const runsQuery = useDashboardBlueprintRunsQuery(guildId);
     const [status, setStatus] = useState<PanelStatus | undefined>();
     const [busyAction, setBusyAction] = useState<BlueprintBusyAction | undefined>();
+    const [sourceFile, setSourceFile] = useState<{ name: string; size: number }>();
 
     async function refreshRuns(): Promise<void> {
         await Promise.all([
@@ -90,11 +104,13 @@ export function DashboardBlueprintDeployRoute() {
         if (!file) return;
         setStatus(undefined);
         if (file.size > BLUEPRINT_SNAPSHOT_LIMITS.maxJsonBytes) {
+            setSourceFile(undefined);
             setStatus({ tone: 'error', message: 'Blueprint JSON must be 4 MiB or smaller.' });
             return;
         }
         try {
             setImportJson(await file.text());
+            setSourceFile({ name: file.name, size: file.size });
             deployDraft.clearRoleMappings();
             setStatus({ tone: 'neutral', message: `Loaded ${file.name}. Create a deployment plan to review changes.` });
         } catch {
@@ -122,10 +138,73 @@ export function DashboardBlueprintDeployRoute() {
     function startNewDeployment(): void {
         setDeployFlow({ type: 'choose' });
         setImportJson('');
+        setSourceFile(undefined);
         setStructurePolicy('synchronize');
         deployDraft.clearRoleMappings();
         setStatus(undefined);
     }
+
+    const plans = useMemo(
+        () =>
+            (runsQuery.data?.plans ?? []).map((plan) => ({
+                ...plan,
+                steps: inspection.stepPagesByPlanId[plan.id]?.steps ?? plan.steps,
+                decisions: inspection.decisionPagesByPlanId[plan.id]?.decisions ?? plan.decisions,
+                ...(plan.id === activePlan?.id && runProgress.run ? { run: runProgress.run } : {}),
+            })),
+        [
+            activePlan?.id,
+            inspection.decisionPagesByPlanId,
+            inspection.stepPagesByPlanId,
+            runProgress.run,
+            runsQuery.data?.plans,
+        ]
+    );
+    const latestPlan = plans.at(0);
+    const requestedPlan = requestedPlanId ? plans.find((plan) => plan.id === requestedPlanId) : undefined;
+    const requestedPlanMissing = Boolean(requestedPlanId && !requestedPlan);
+    const deployPlan =
+        deployFlow.type === 'latest'
+            ? latestPlan
+            : deployFlow.type === 'plan'
+              ? (plans.find((plan) => plan.id === deployFlow.plan.id) ?? deployFlow.plan)
+              : undefined;
+    const journey = deriveDashboardBlueprintDeployJourney({
+        choosingSource: deployFlow.type === 'choose',
+        hasParsedSource: isDashboardBlueprintSourceReady(importJson),
+        plan: deployPlan,
+        preflight: deployPlan?.preflight,
+    });
+
+    useEffect(() => {
+        if (!runsQuery.data || !requestedPlanId) return;
+        if (!requestedPlan) return;
+        if (deployFlow.type !== 'plan' || deployFlow.plan.id !== requestedPlan.id) {
+            setDeployFlow({ type: 'plan', plan: requestedPlan });
+        }
+    }, [deployFlow, requestedPlan, requestedPlanId, runsQuery.data, setDeployFlow]);
+
+    useEffect(() => {
+        if (!runsQuery.data) return;
+        if (requestedPlanMissing) return;
+        const canonicalPlanId = deployPlan?.id;
+        if (requestedPlanId === canonicalPlanId && requestedStep === journey.step) return;
+        void navigate({
+            to: '/dashboard/$guildId/blueprint/deploy',
+            params: { guildId },
+            search: { ...(canonicalPlanId ? { plan: canonicalPlanId } : {}), step: journey.step },
+            replace: true,
+        });
+    }, [
+        deployPlan?.id,
+        guildId,
+        journey.step,
+        navigate,
+        requestedPlanId,
+        requestedPlanMissing,
+        requestedStep,
+        runsQuery.data,
+    ]);
 
     if (!runsQuery.data && runsQuery.isError) {
         return (
@@ -141,24 +220,15 @@ export function DashboardBlueprintDeployRoute() {
     }
     if (!runsQuery.data) return <DashboardBlueprintPendingSurface surface='deploy' />;
 
-    const plans = runsQuery.data.plans.map((plan) => ({
-        ...plan,
-        steps: inspection.stepPagesByPlanId[plan.id]?.steps ?? plan.steps,
-        decisions: inspection.decisionPagesByPlanId[plan.id]?.decisions ?? plan.decisions,
-        ...(plan.id === activePlan?.id && runProgress.run ? { run: runProgress.run } : {}),
-    }));
-    const latestPlan = plans.at(0);
-    const deployPlan =
-        deployFlow.type === 'latest'
-            ? latestPlan
-            : deployFlow.type === 'plan'
-              ? (plans.find((plan) => plan.id === deployFlow.plan.id) ?? deployFlow.plan)
-              : undefined;
     const refreshError = runsQuery.isError ? runsQuery.error : statusError;
 
     return (
         <DashboardBlueprintSurfaceContent
-            status={status}
+            status={
+                requestedPlanMissing
+                    ? { tone: 'error', message: 'This Blueprint plan is not available for the selected server.' }
+                    : status
+            }
             refreshIssue={refreshError ? { code: readDashboardBlueprintDiagnosticCode(refreshError) } : undefined}
             refreshRetrying={runsQuery.isFetching || runtime.statusRefreshing}
             onRetryRefresh={() => {
@@ -168,9 +238,9 @@ export function DashboardBlueprintDeployRoute() {
             <DashboardBlueprintDeploySurface
                 workspace={{
                     busyAction,
-                    deleteConfirmationByPlanId: runOperations.deleteConfirmationByPlanId,
-                    deployChoosingSource: deployFlow.type === 'choose',
-                    deployPlan,
+                    confirmationByPlanId: runOperations.confirmationByPlanId,
+                    deployChoosingSource: requestedPlanMissing || deployFlow.type === 'choose',
+                    deployPlan: requestedPlanMissing ? undefined : deployPlan,
                     runProgressIssue:
                         runProgress.issueCode && activePlan
                             ? { code: runProgress.issueCode, planId: activePlan.id }
@@ -181,7 +251,10 @@ export function DashboardBlueprintDeployRoute() {
                     restoreShortcutBackupId: deployPlan?.run?.restorePointBackupId,
                     roleMappingConflicts: deployDraft.roleMappingConflicts,
                     roleMappings: deployDraft.roleMappings,
+                    sourceFile,
                     structurePolicy,
+                    targetGuildId: guildId,
+                    targetGuildName: runsQuery.data.targetGuildName,
                     onApplyRun: (plan) => void runOperations.applyPlan(plan),
                     onApprovePlan: (plan) => void runOperations.reviewAndPreflight(plan),
                     onControlRun: (plan, request) => void runOperations.controlRun(plan, request),
@@ -197,13 +270,14 @@ export function DashboardBlueprintDeployRoute() {
                             if (plan) setDeployFlow({ type: 'plan', plan });
                         })();
                     },
-                    onDeleteConfirmationChange: (planId, confirmation) =>
-                        runOperations.setDeleteConfirmationByPlanId((current) => ({
+                    onConfirmationChange: (planId, confirmation) =>
+                        runOperations.setConfirmationByPlanId((current) => ({
                             ...current,
                             [planId]: confirmation,
                         })),
                     onImportJsonChange: (value) => {
                         setImportJson(value);
+                        setSourceFile(undefined);
                         deployDraft.clearRoleMappings();
                     },
                     onImportStructureFile: importStructureFile,

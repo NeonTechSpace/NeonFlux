@@ -1,4 +1,11 @@
 import { v, type GenericId } from 'convex/values';
+import {
+    BLUEPRINT_MUTATION_FENCE_VERSION,
+    compareBlueprintMutationFenceManifests,
+    createBlueprintMutationFenceManifest,
+    parseBlueprintMutationFenceManifest,
+} from '@neonflux/blueprint/mutation-fence';
+import { normalizeBlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 
 import { mutation, type MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
@@ -22,9 +29,8 @@ import {
     buildBackupSortCursor,
     buildStructureBackupDocument,
     classifyBlueprintRunReclaim,
-    classifyBlueprintRunPreMutationAuthorization,
-    resolveBlueprintRunMutationAuthorization,
     resolveExpiredBlueprintRunControl,
+    resolveBlueprintRunAuthorizationDecision,
     validateBlueprintRunCheckpointIdMap,
     validateBlueprintRunProgressTransition,
 } from './blueprint_model.js';
@@ -50,23 +56,14 @@ export const claimNextBlueprintRun = mutation({
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         let run = await findCurrentQueuedOrWaitingBlueprintRun(ctx, args.now);
-        if (run?.status === 'queued') {
-            const authorization = classifyBlueprintRunPreMutationAuthorization({
-                completedMutationSteps: run.completedMutationSteps,
-                expectedLiveFingerprint: run.preflightLiveFingerprint,
-                expiresAt: run.preflightExpiresAt,
-                nextStepSequence: run.nextStepSequence,
+        if (run?.status === 'queued' && run.preflightExpiresAt <= args.now) {
+            await finalizeBlueprintRunInMutation(ctx, {
+                errorType: 'preflight-expired-before-claim',
+                run,
                 now: args.now,
+                status: 'failed_before_mutation',
             });
-            if (authorization === 'preflight_expired') {
-                await finalizeBlueprintRunInMutation(ctx, {
-                    errorType: 'preflight-expired-before-claim',
-                    run,
-                    now: args.now,
-                    status: 'failed_before_mutation',
-                });
-                return null;
-            }
+            return null;
         }
         if (!run) {
             for (const status of ['running', 'pause_requested', 'verifying'] as const) {
@@ -180,11 +177,13 @@ export const claimNextBlueprintRun = mutation({
 
 export const authorizeBlueprintRunMutation = mutation({
     args: {
+        fingerprintVersion: v.literal(BLUEPRINT_MUTATION_FENCE_VERSION),
         runId: v.id('blueprintRuns'),
         leaseId: v.string(),
         leaseOwner: v.string(),
-        liveFingerprint: v.string(),
+        manifestJson: v.string(),
         now: v.string(),
+        observedAt: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         structureJson: v.string(),
     },
@@ -204,29 +203,91 @@ export const authorizeBlueprintRunMutation = mutation({
             throw new Error('blueprint-run-lease-lost');
         }
         if (!run.restorePointBackupId) throw new Error('blueprint-run-restore-point-required');
-        const authorization = resolveBlueprintRunMutationAuthorization({
-            completedMutationSteps: run.completedMutationSteps,
-            expectedLiveFingerprint: run.preflightLiveFingerprint,
-            expiresAt: run.preflightExpiresAt,
-            leaseId: args.leaseId,
-            liveFingerprint: args.liveFingerprint,
-            nextStepSequence: run.nextStepSequence,
-            now: args.now,
-            structure: parseJsonRecord(args.structureJson, 'blueprint-run-authorization-snapshot-invalid'),
-        });
-        if (authorization.type === 'not_required') {
+        if (run.nextStepSequence > 0 || run.completedMutationSteps > 0 || run.mutationAuthorizedAt) {
             return { kind: 'not_required' as const, run: { ...run, id: run._id } };
         }
-        const rejectionReason =
-            authorization.type === 'preflight_expired' || authorization.type === 'live_fingerprint_stale'
-                ? authorization.type
-                : undefined;
+        const snapshotValue = parseJsonRecord(args.structureJson, 'blueprint-run-authorization-snapshot-invalid');
+        const normalizedSnapshot = normalizeBlueprintSnapshot(snapshotValue);
+        if (normalizedSnapshot.type === 'invalid') throw new Error('blueprint-run-authorization-snapshot-invalid');
+        const suppliedManifest = parseBlueprintMutationFenceManifest(
+            parseJsonRecord(args.manifestJson, 'blueprint-run-authorization-manifest-invalid')
+        );
+        const actualManifest = await createBlueprintMutationFenceManifest(normalizedSnapshot.snapshot);
+        if (
+            suppliedManifest.structureDigest !== actualManifest.structureDigest ||
+            suppliedManifest.capabilityDigest !== actualManifest.capabilityDigest ||
+            suppliedManifest.guildId !== run.guildId
+        ) {
+            throw new Error('blueprint-run-authorization-manifest-invalid');
+        }
+        const restoreObservation = await ctx.db
+            .query('blueprintRunObservations')
+            .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
+            .unique();
+        if (!restoreObservation) throw new Error('blueprint-run-restore-observation-required');
+        const restoreManifest = parseBlueprintMutationFenceManifest(
+            parseJsonRecord(restoreObservation.manifestJson, 'blueprint-run-restore-observation-invalid')
+        );
+        const preflight = await ctx.db
+            .query('blueprintPlanPreflights')
+            .withIndex('by_plan_checked', (q) => q.eq('planId', run.planId))
+            .order('desc')
+            .first();
+        if (preflight?.preflightDigest !== run.preflightDigest) {
+            throw new Error('blueprint-run-preflight-missing');
+        }
+        const expectedManifest = parseBlueprintMutationFenceManifest(
+            parseJsonRecord(preflight.mutationFenceManifestJson, 'blueprint-run-preflight-manifest-invalid')
+        );
+        const restoreComparison = compareBlueprintMutationFenceManifests(restoreManifest, actualManifest);
+        const expectedComparison = compareBlueprintMutationFenceManifests(expectedManifest, actualManifest);
+        const rejectionReason = resolveBlueprintRunAuthorizationDecision({
+            capabilityChanged: expectedComparison.capabilityChanged,
+            fingerprintVersionsCurrent: areBlueprintFingerprintVersionsCurrent(
+                run.fingerprintVersion,
+                preflight.fingerprintVersion,
+                args.fingerprintVersion
+            ),
+            now: args.now,
+            preflightExpiresAt: run.preflightExpiresAt,
+            restoreObservationEqual: restoreComparison.equal,
+            structureChanged: expectedComparison.structureChanged,
+        });
+        const existingAuthorizationObservation = await ctx.db
+            .query('blueprintRunObservations')
+            .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'authorization'))
+            .unique();
+        const authorizationObservation = {
+            capabilityFingerprint: actualManifest.capabilityDigest,
+            fingerprintVersion: args.fingerprintVersion,
+            guildId: run.guildId,
+            manifestJson: JSON.stringify(actualManifest),
+            observedAt: args.observedAt,
+            phase: 'authorization' as const,
+            runId: run._id,
+            source: 'token-client' as const,
+            structureFingerprint: actualManifest.structureDigest,
+        };
+        if (existingAuthorizationObservation) {
+            await ctx.db.patch(
+                'blueprintRunObservations',
+                existingAuthorizationObservation._id,
+                authorizationObservation
+            );
+        } else {
+            await ctx.db.insert('blueprintRunObservations', authorizationObservation);
+        }
         if (rejectionReason) {
+            const mismatch =
+                rejectionReason === 'restore_observation_diverged' ? restoreComparison : expectedComparison;
+            const observationPatch = {
+                authorizationDecision: rejectionReason,
+                authorizationMismatchJson: JSON.stringify(mismatch),
+                updatedAt: args.now,
+            };
+            await ctx.db.patch('blueprintRuns', run._id, observationPatch);
             const patch = await finalizeBlueprintRunInMutation(ctx, {
-                errorType:
-                    rejectionReason === 'preflight_expired'
-                        ? 'preflight-expired-before-mutation'
-                        : 'live-fingerprint-stale-before-mutation',
+                errorType: authorizationErrorType(rejectionReason),
                 run,
                 now: args.now,
                 restorePointBackupId: run.restorePointBackupId,
@@ -235,11 +296,8 @@ export const authorizeBlueprintRunMutation = mutation({
             return {
                 kind: 'rejected' as const,
                 reason: rejectionReason,
-                run: { ...run, ...patch, id: run._id },
+                run: { ...run, ...observationPatch, ...patch, id: run._id },
             };
-        }
-        if (authorization.type !== 'authorized') {
-            throw new Error('blueprint-run-authorization-snapshot-invalid');
         }
         const restorePointId = run.restorePointBackupId as GenericId<'structureBackups'>;
         const restorePoint = await ctx.db.get('structureBackups', restorePointId);
@@ -250,11 +308,17 @@ export const authorizeBlueprintRunMutation = mutation({
         ) {
             throw new Error('blueprint-run-restore-point-invalid');
         }
-        await ctx.db.patch('structureBackups', restorePointId, authorization.restorePointPatch);
-        await ctx.db.patch('blueprintRuns', run._id, authorization.runPatch);
+        const authorizationPatch = {
+            authorizationDecision: 'authorized' as const,
+            authorizationMismatchJson: undefined,
+            mutationAuthorizedAt: args.now,
+            mutationAuthorizationLeaseId: args.leaseId,
+            updatedAt: args.now,
+        };
+        await ctx.db.patch('blueprintRuns', run._id, authorizationPatch);
         return {
             kind: 'authorized' as const,
-            run: { ...run, ...authorization.runPatch, id: run._id },
+            run: { ...run, ...authorizationPatch, id: run._id },
         };
     },
 });
@@ -293,10 +357,13 @@ export const renewBlueprintRunLease = mutation({
 
 export const ensureBlueprintRunRestorePoint = mutation({
     args: {
+        fingerprintVersion: v.literal(BLUEPRINT_MUTATION_FENCE_VERSION),
         runId: v.id('blueprintRuns'),
         leaseId: v.string(),
         leaseOwner: v.string(),
+        manifestJson: v.string(),
         now: v.string(),
+        observedAt: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         structureJson: v.string(),
     },
@@ -304,7 +371,23 @@ export const ensureBlueprintRunRestorePoint = mutation({
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const run = await requireRunLease(ctx, args.runId, args.leaseId, args.leaseOwner, args.now, ['running']);
-        if (run.restorePointBackupId) return { backupId: run.restorePointBackupId };
+        const manifest = parseBlueprintMutationFenceManifest(
+            parseJsonRecord(args.manifestJson, 'blueprint-run-restore-observation-invalid')
+        );
+        if (
+            manifest.guildId !== run.guildId ||
+            !areBlueprintFingerprintVersionsCurrent(run.fingerprintVersion, args.fingerprintVersion)
+        ) {
+            throw new Error('blueprint-run-restore-observation-invalid');
+        }
+        if (run.restorePointBackupId) {
+            const observation = await ctx.db
+                .query('blueprintRunObservations')
+                .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
+                .unique();
+            if (!observation) throw new Error('blueprint-run-restore-observation-required');
+            return { backupId: run.restorePointBackupId };
+        }
         const built = buildStructureBackupDocument(
             {
                 createdAt: args.now,
@@ -318,6 +401,17 @@ export const ensureBlueprintRunRestorePoint = mutation({
         );
         if (!built.ok) throw new Error('structure-restore-point-invalid');
         const backupId = await ctx.db.insert('structureBackups', built.value);
+        await ctx.db.insert('blueprintRunObservations', {
+            capabilityFingerprint: manifest.capabilityDigest,
+            fingerprintVersion: args.fingerprintVersion,
+            guildId: run.guildId,
+            manifestJson: JSON.stringify(manifest),
+            observedAt: args.observedAt,
+            phase: 'restore',
+            runId: run._id,
+            source: 'token-client',
+            structureFingerprint: manifest.structureDigest,
+        });
         await ctx.db.patch('blueprintRuns', run._id, {
             restorePointBackupId: String(backupId),
             updatedAt: args.now,
@@ -611,4 +705,33 @@ function parseJsonRecord(value: string, errorType: string): Record<string, unkno
         // The stable domain error below is the only parse detail callers need.
     }
     throw new Error(errorType);
+}
+
+function areBlueprintFingerprintVersionsCurrent(...versions: readonly number[]): boolean {
+    return versions.every((version) => version === BLUEPRINT_MUTATION_FENCE_VERSION);
+}
+
+function authorizationErrorType(
+    reason:
+        | 'preflight_expired'
+        | 'structure_changed'
+        | 'capability_changed'
+        | 'structure_and_capability_changed'
+        | 'restore_observation_diverged'
+        | 'fingerprint_version_mismatch'
+): string {
+    switch (reason) {
+        case 'preflight_expired':
+            return 'preflight-expired-before-mutation';
+        case 'structure_changed':
+            return 'live-structure-changed-before-mutation';
+        case 'capability_changed':
+            return 'bot-capability-changed-before-mutation';
+        case 'structure_and_capability_changed':
+            return 'live-structure-and-capability-changed-before-mutation';
+        case 'restore_observation_diverged':
+            return 'restore-observation-diverged-before-mutation';
+        case 'fingerprint_version_mismatch':
+            return 'fingerprint-version-mismatch-before-mutation';
+    }
 }

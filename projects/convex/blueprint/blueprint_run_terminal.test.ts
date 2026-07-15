@@ -6,16 +6,16 @@ describe('Blueprint run terminal notification', () => {
     it.each([
         ['succeeded', 'audit'],
         ['partially_applied', 'audit'],
-        ['failed_before_mutation', 'blueprint'],
+        ['failed_before_mutation', 'audit'],
         ['needs_reconciliation', 'audit'],
         ['outcome_unknown', 'audit'],
         ['cancelled', 'audit'],
-    ] satisfies Array<[BlueprintRunTerminalStatus, 'audit' | 'blueprint']>)(
+    ] satisfies Array<[BlueprintRunTerminalStatus, 'audit']>)(
         'routes %s through exactly one canonical destination',
         (status, canonicalDestination) => {
             const notification = blueprintRunTerminalNotification(status);
             expect(notification.canonicalDestination).toBe(canonicalDestination);
-            expect('auditAction' in notification).toBe(canonicalDestination === 'audit');
+            expect('auditAction' in notification).toBe(true);
         }
     );
 

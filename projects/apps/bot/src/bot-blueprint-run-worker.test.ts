@@ -73,6 +73,13 @@ describe('Blueprint run worker', () => {
             categories: [],
             channels: [],
         });
+        vi.mocked(toBlueprintSnapshot).mockReturnValue({
+            version: 1,
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [],
+        } as never);
     });
     afterEach(() => vi.useRealTimers());
 
@@ -229,7 +236,12 @@ describe('Blueprint run worker', () => {
         });
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok({} as never));
-        vi.mocked(toBlueprintSnapshot).mockReturnValue({ roles: [], categories: [], channels: [] } as never);
+        vi.mocked(toBlueprintSnapshot).mockReturnValue({
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [],
+        } as never);
 
         await expect(
             runNextBlueprintRun({
@@ -272,7 +284,12 @@ describe('Blueprint run worker', () => {
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(ok({ actions: [], idMap: {} }));
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok({} as never));
-        vi.mocked(toBlueprintSnapshot).mockReturnValue({ roles: [], categories: [], channels: [] } as never);
+        vi.mocked(toBlueprintSnapshot).mockReturnValue({
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [],
+        } as never);
 
         await runWorker();
 
@@ -294,15 +311,25 @@ describe('Blueprint run worker', () => {
             categories: [],
             channels: [],
         });
-        vi.mocked(toBlueprintSnapshot).mockReturnValueOnce({
-            version: 1,
-            guildName: 'changed-before-mutation',
-            roles: [],
-            categories: [],
-            channels: [],
-        });
+        vi.mocked(toBlueprintSnapshot)
+            .mockReturnValueOnce({
+                version: 1,
+                guildId: 'guild-1',
+                guildName: 'restore-state',
+                roles: [],
+                categories: [],
+                channels: [],
+            })
+            .mockReturnValueOnce({
+                version: 1,
+                guildId: 'guild-1',
+                guildName: 'changed-before-mutation',
+                roles: [],
+                categories: [],
+                channels: [],
+            });
         vi.mocked(authorizeBlueprintRunMutation).mockResolvedValue(
-            ok({ kind: 'rejected', reason: 'live_fingerprint_stale', run })
+            ok({ kind: 'rejected', reason: 'structure_changed', run })
         );
 
         await expect(runWorker()).resolves.toBe('progressed');
@@ -716,7 +743,12 @@ describe('Blueprint run worker', () => {
         });
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok({} as never));
-        vi.mocked(toBlueprintSnapshot).mockReturnValue({ roles: [], categories: [], channels: [] } as never);
+        vi.mocked(toBlueprintSnapshot).mockReturnValue({
+            guildId: 'guild-1',
+            roles: [],
+            categories: [],
+            channels: [],
+        } as never);
 
         await runWorker();
 
@@ -772,6 +804,7 @@ describe('Blueprint run worker', () => {
         } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok({} as never));
         vi.mocked(toBlueprintSnapshot).mockReturnValue({
+            guildId: 'guild-1',
             roles: [{ id: 'unexpected' }],
             categories: [],
             channels: [],
@@ -793,7 +826,11 @@ function workerRun(overrides: Partial<BlueprintRunRecord> = {}): BlueprintRunRec
         guildId: 'guild-1',
         preflightDigest: 'preflight',
         preflightExpiresAt: new Date('2026-07-11T12:05:00.000Z'),
-        preflightLiveFingerprint: 'live-fingerprint',
+        fingerprintVersion: 2,
+        expectedStructureFingerprint: 'structure-fingerprint',
+        expectedCapabilityFingerprint: 'capability-fingerprint',
+        authorizationDecision: null,
+        authorizationMismatch: null,
         mutationAuthorizedAt: null,
         mutationAuthorizationLeaseId: null,
         protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,

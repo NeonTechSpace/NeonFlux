@@ -16,13 +16,12 @@ import {
     buildBlueprintPlanStepDocument,
     chooseLatestStructureDriftBaselineBackup,
     classifyBlueprintRunReclaim,
-    classifyBlueprintRunPreMutationAuthorization,
     isStructureBackupRetentionEligible,
     isBlueprintRunMutationAuthorizedForLease,
     isBlueprintPlanDecisionLedgerComplete,
     isBlueprintRunRetryPreflightFresh,
     resolveExpiredBlueprintRunControl,
-    resolveBlueprintRunMutationAuthorization,
+    resolveBlueprintRunAuthorizationDecision,
     resolveBlueprintRunStepAttemptCompletionStatus,
     resolveBlueprintRunReferenceAuthority,
     resolveBlueprintRunIdMap,
@@ -36,50 +35,30 @@ import {
 
 const now = '2026-06-28T12:00:00.000Z';
 const emptySnapshot: BlueprintSnapshot = { version: 1, roles: [], categories: [], channels: [] };
-const populatedSnapshot: BlueprintSnapshot = {
-    version: 1,
-    roles: [
-        {
-            color: 0,
-            hoist: false,
-            id: 'role-1',
-            mentionable: false,
-            name: 'Member',
-            permissions: '0',
-            position: 0,
-        },
-    ],
-    categories: [
-        {
-            id: 'category-1',
-            name: 'Community',
-            parentId: null,
-            permissionOverwrites: [],
-            position: 0,
-            type: 4,
-        },
-    ],
-    channels: [
-        {
-            id: 'channel-1',
-            name: 'general',
-            parentId: 'category-1',
-            permissionOverwrites: [],
-            position: 0,
-            type: 0,
-        },
-        {
-            id: 'channel-2',
-            name: 'random',
-            parentId: 'category-1',
-            permissionOverwrites: [],
-            position: 1,
-            type: 0,
-        },
-    ],
-};
 
 describe('structure model', () => {
+    it.each([
+        [{ fingerprintVersionsCurrent: false }, 'fingerprint_version_mismatch'],
+        [{ preflightExpiresAt: '2026-06-28T11:59:59.000Z' }, 'preflight_expired'],
+        [{ restoreObservationEqual: false }, 'restore_observation_diverged'],
+        [{ structureChanged: true, capabilityChanged: true }, 'structure_and_capability_changed'],
+        [{ structureChanged: true }, 'structure_changed'],
+        [{ capabilityChanged: true }, 'capability_changed'],
+        [{}, undefined],
+    ] as const)('classifies mutation-fence authorization decision %#', (override, expected) => {
+        expect(
+            resolveBlueprintRunAuthorizationDecision({
+                capabilityChanged: false,
+                fingerprintVersionsCurrent: true,
+                now,
+                preflightExpiresAt: '2026-06-28T12:05:00.000Z',
+                restoreObservationEqual: true,
+                structureChanged: false,
+                ...override,
+            })
+        ).toBe(expected);
+    });
+
     it('requires retry preflight to postdate a failed-before-mutation run', () => {
         const failedRun = {
             status: 'failed_before_mutation',
@@ -117,36 +96,13 @@ describe('structure model', () => {
         ).toBe(true);
     });
 
-    it('requires a fresh matching live fingerprint before the first provider mutation', () => {
+    it('requires lease-fenced authorization before the first provider mutation', () => {
         const boundary = {
             completedMutationSteps: 0,
-            expectedLiveFingerprint: 'live-1',
             expiresAt: '2026-06-28T12:05:00.000Z',
             nextStepSequence: 0,
             now,
         };
-
-        expect(classifyBlueprintRunPreMutationAuthorization(boundary)).toBe('authorization_required');
-        expect(classifyBlueprintRunPreMutationAuthorization({ ...boundary, liveFingerprint: 'live-2' })).toBe(
-            'live_fingerprint_stale'
-        );
-        expect(
-            classifyBlueprintRunPreMutationAuthorization({
-                ...boundary,
-                liveFingerprint: 'live-1',
-                now: boundary.expiresAt,
-            })
-        ).toBe('preflight_expired');
-        expect(classifyBlueprintRunPreMutationAuthorization({ ...boundary, liveFingerprint: 'live-1' })).toBe(
-            'authorized'
-        );
-        expect(
-            classifyBlueprintRunPreMutationAuthorization({
-                ...boundary,
-                completedMutationSteps: 1,
-                liveFingerprint: 'changed-by-this-run',
-            })
-        ).toBe('not_required');
         expect(
             isBlueprintRunMutationAuthorizedForLease({
                 completedMutationSteps: 0,
@@ -169,34 +125,6 @@ describe('structure model', () => {
                 now,
             })
         ).toBe(true);
-
-        const authorized = resolveBlueprintRunMutationAuthorization({
-            ...boundary,
-            leaseId: 'lease-1',
-            liveFingerprint: 'live-1',
-            structure: populatedSnapshot,
-        });
-        expect(authorized).toMatchObject({
-            type: 'authorized',
-            runPatch: {
-                mutationAuthorizedAt: now,
-                mutationAuthorizationLeaseId: 'lease-1',
-            },
-            restorePointPatch: {
-                roleCount: 1,
-                categoryCount: 1,
-                channelCount: 2,
-                structure: populatedSnapshot,
-            },
-        });
-        expect(
-            resolveBlueprintRunMutationAuthorization({
-                ...boundary,
-                leaseId: 'lease-1',
-                liveFingerprint: 'live-2',
-                structure: { roles: [], categories: [], channels: [] },
-            })
-        ).toEqual({ type: 'live_fingerprint_stale' });
     });
 
     it('seeds runs with every resolved source-to-target match and leaves creates unresolved', () => {

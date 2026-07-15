@@ -1,5 +1,6 @@
 import { api } from '@neonflux/convex-api';
 import type { Id } from '@neonflux/convex-api/data-model';
+import { BLUEPRINT_MUTATION_FENCE_VERSION } from '@neonflux/blueprint/mutation-fence';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -71,8 +72,9 @@ export async function authorizeBlueprintRunMutation(
         runId: string;
         leaseId: string;
         leaseOwner: string;
-        liveFingerprint: string;
+        manifest: Record<string, unknown>;
         now: Date;
+        observedAt: Date;
         structure: Record<string, unknown>;
     }
 ): Promise<Result<BlueprintRunMutationAuthorizationRecord, BlueprintRepositoryError>> {
@@ -82,8 +84,10 @@ export async function authorizeBlueprintRunMutation(
                 runId: input.runId as Id<'blueprintRuns'>,
                 leaseId: input.leaseId,
                 leaseOwner: input.leaseOwner,
-                liveFingerprint: input.liveFingerprint,
+                fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
+                manifestJson: JSON.stringify(input.manifest),
                 now: input.now.toISOString(),
+                observedAt: input.observedAt.toISOString(),
                 protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
                 structureJson: JSON.stringify(input.structure),
             })
@@ -94,7 +98,14 @@ export async function authorizeBlueprintRunMutation(
         }
         if (kind !== 'rejected') throw new Error('invalid-blueprint-run-authorization-kind');
         const reason = value.reason;
-        if (reason !== 'preflight_expired' && reason !== 'live_fingerprint_stale') {
+        if (
+            reason !== 'preflight_expired' &&
+            reason !== 'structure_changed' &&
+            reason !== 'capability_changed' &&
+            reason !== 'structure_and_capability_changed' &&
+            reason !== 'restore_observation_diverged' &&
+            reason !== 'fingerprint_version_mismatch'
+        ) {
             throw new Error('invalid-blueprint-run-authorization-reason');
         }
         return ok({ kind, reason, run: toBlueprintRun(value.run) });
@@ -158,6 +169,7 @@ export async function recordBlueprintPlanPreflight(
             planId: input.planId as Id<'blueprintPlans'>,
             checkedAt: input.checkedAt.toISOString(),
             expiresAt: input.expiresAt.toISOString(),
+            observedAt: input.observedAt.toISOString(),
         });
         return ok(toPreflight(record));
     } catch {
@@ -209,7 +221,17 @@ export async function listBlueprintPlanDecisionsPage(
 
 export async function approveBlueprintPlan(
     db: BlueprintDb,
-    input: Omit<BlueprintPlanApprovalRecord, 'id'> & { audit?: BlueprintAuditInput }
+    input: Omit<
+        BlueprintPlanApprovalRecord,
+        | 'id'
+        | 'fingerprintVersion'
+        | 'approvedStructureFingerprint'
+        | 'approvedCapabilityFingerprint'
+        | 'confirmationMethod'
+    > & {
+        audit?: BlueprintAuditInput;
+        confirmationMethod?: 'acknowledgement' | 'target_name';
+    }
 ): Promise<Result<BlueprintPlanApprovalRecord, BlueprintRepositoryError>> {
     try {
         const record = await db.client.mutation(api.blueprint.approveBlueprintPlan, {
@@ -224,6 +246,7 @@ export async function approveBlueprintPlan(
             ...(input.destructivePreflightDigest
                 ? { destructivePreflightDigest: input.destructivePreflightDigest }
                 : {}),
+            ...(input.confirmationMethod ? { confirmationMethod: input.confirmationMethod } : {}),
             planDigest: input.planDigest,
             planId: input.planId as Id<'blueprintPlans'>,
         });
@@ -363,7 +386,15 @@ export async function requestBlueprintRunControl(
 
 export async function ensureBlueprintRunRestorePoint(
     db: BlueprintDb,
-    input: { runId: string; leaseId: string; leaseOwner: string; now: Date; structure: Record<string, unknown> }
+    input: {
+        runId: string;
+        leaseId: string;
+        leaseOwner: string;
+        manifest: Record<string, unknown>;
+        now: Date;
+        observedAt: Date;
+        structure: Record<string, unknown>;
+    }
 ): Promise<Result<{ backupId: string }, BlueprintRepositoryError>> {
     try {
         return ok(
@@ -371,7 +402,10 @@ export async function ensureBlueprintRunRestorePoint(
                 runId: input.runId as Id<'blueprintRuns'>,
                 leaseId: input.leaseId,
                 leaseOwner: input.leaseOwner,
+                fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
+                manifestJson: JSON.stringify(input.manifest),
                 now: input.now.toISOString(),
+                observedAt: input.observedAt.toISOString(),
                 protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
                 structureJson: JSON.stringify(input.structure),
             })

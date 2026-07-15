@@ -8,6 +8,8 @@ import {
     formatDashboardBlueprintRunState,
 } from '../server/dashboard-blueprint-contracts.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
+import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
+import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import {
     dashboardConfirmationTransition,
     dashboardConfirmationVariants,
@@ -55,11 +57,7 @@ export function DashboardBlueprintHistory({
     latestPlan,
     busyAction,
     preflightByPlanId,
-    deleteConfirmationByPlanId,
-    onDeleteConfirmationChange,
-    onApprove,
     onPreflight,
-    onApply,
     onControl,
     onLoadPlanSteps,
     onLoadDecisions,
@@ -70,11 +68,7 @@ export function DashboardBlueprintHistory({
     latestPlan: DashboardBlueprintPlan | undefined;
     busyAction: BlueprintBusyAction | undefined;
     preflightByPlanId: Record<string, DashboardBlueprintPreflightView>;
-    deleteConfirmationByPlanId: Record<string, string>;
-    onDeleteConfirmationChange: (planId: string, confirmation: string) => void;
-    onApprove: (plan: DashboardBlueprintPlan) => void;
     onPreflight: (plan: DashboardBlueprintPlan) => void;
-    onApply: (plan: DashboardBlueprintPlan) => void;
     onControl: (plan: DashboardBlueprintPlan, request: 'pause' | 'resume' | 'cancel') => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
     onLoadDecisions: (plan: DashboardBlueprintPlan) => void;
@@ -103,11 +97,7 @@ export function DashboardBlueprintHistory({
                               }
                             : undefined)
                     }
-                    deleteConfirmation={deleteConfirmationByPlanId[plan.id] ?? ''}
-                    onDeleteConfirmationChange={onDeleteConfirmationChange}
-                    onApprove={onApprove}
                     onPreflight={onPreflight}
-                    onApply={onApply}
                     onControl={onControl}
                     onLoadPlanSteps={onLoadPlanSteps}
                     onLoadDecisions={onLoadDecisions}
@@ -119,36 +109,80 @@ export function DashboardBlueprintHistory({
     );
 }
 
-function PlanCard({
+export function DashboardBlueprintActiveDeployment({
     plan,
-    isLatest,
     busyAction,
     preflightReport,
-    deleteConfirmation,
-    onDeleteConfirmationChange,
-    onApprove,
+    confirmation,
+    targetGuildName,
     onPreflight,
-    onApply,
     onControl,
     onLoadPlanSteps,
     onLoadDecisions,
     onInspectPlanStep,
     onRecoveryPlan,
+    journeyStep,
 }: {
     plan: DashboardBlueprintPlan;
-    isLatest: boolean;
     busyAction: BlueprintBusyAction | undefined;
     preflightReport: DashboardBlueprintPreflightView | undefined;
-    deleteConfirmation: string;
-    onDeleteConfirmationChange: (planId: string, confirmation: string) => void;
-    onApprove: (plan: DashboardBlueprintPlan) => void;
+    confirmation: DashboardBlueprintConfirmationDraft | undefined;
+    targetGuildName: string;
     onPreflight: (plan: DashboardBlueprintPlan) => void;
-    onApply: (plan: DashboardBlueprintPlan) => void;
     onControl: (plan: DashboardBlueprintPlan, request: 'pause' | 'resume' | 'cancel') => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
     onLoadDecisions: (plan: DashboardBlueprintPlan) => void;
     onInspectPlanStep?: (plan: DashboardBlueprintPlan, action: DashboardBlueprintPlanStep) => void;
     onRecoveryPlan: (plan: DashboardBlueprintPlan) => void;
+    journeyStep: DashboardBlueprintDeployJourneyStep;
+}) {
+    return (
+        <PlanCard
+            plan={plan}
+            isLatest
+            busyAction={busyAction}
+            preflightReport={preflightReport}
+            confirmation={confirmation}
+            targetGuildName={targetGuildName}
+            onPreflight={onPreflight}
+            onControl={onControl}
+            onLoadPlanSteps={onLoadPlanSteps}
+            onLoadDecisions={onLoadDecisions}
+            onInspectPlanStep={onInspectPlanStep}
+            onRecoveryPlan={onRecoveryPlan}
+            activeJourneyStep={journeyStep}
+        />
+    );
+}
+
+function PlanCard({
+    plan,
+    isLatest,
+    busyAction,
+    preflightReport,
+    confirmation,
+    targetGuildName,
+    onPreflight,
+    onControl,
+    onLoadPlanSteps,
+    onLoadDecisions,
+    onInspectPlanStep,
+    onRecoveryPlan,
+    activeJourneyStep,
+}: {
+    plan: DashboardBlueprintPlan;
+    isLatest: boolean;
+    busyAction: BlueprintBusyAction | undefined;
+    preflightReport: DashboardBlueprintPreflightView | undefined;
+    confirmation?: DashboardBlueprintConfirmationDraft;
+    targetGuildName?: string;
+    onPreflight: (plan: DashboardBlueprintPlan) => void;
+    onControl: (plan: DashboardBlueprintPlan, request: 'pause' | 'resume' | 'cancel') => void;
+    onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
+    onLoadDecisions: (plan: DashboardBlueprintPlan) => void;
+    onInspectPlanStep?: (plan: DashboardBlueprintPlan, action: DashboardBlueprintPlanStep) => void;
+    onRecoveryPlan: (plan: DashboardBlueprintPlan) => void;
+    activeJourneyStep?: DashboardBlueprintDeployJourneyStep;
 }) {
     const isRecoveryBusy = busyAction === `recovery:${plan.id}`;
     const hasChanges = plan.planStepCount > 0;
@@ -199,11 +233,14 @@ function PlanCard({
                 <RunProgress
                     plan={plan.run}
                     busy={busyAction === `control:${plan.id}`}
+                    refreshingSafety={busyAction === `preflight:${plan.id}`}
+                    showSafeStopRecovery={activeJourneyStep === 'deploy'}
                     onControl={(request) => onControl(plan, request)}
+                    onRefreshSafetyCheck={() => onPreflight(plan)}
                 />
             ) : null}
             {plan.verification ? <VerificationResult verification={plan.verification} /> : null}
-            {hasChanges ? (
+            {hasChanges && activeJourneyStep && activeJourneyStep !== 'deploy' ? (
                 <Suspense
                     fallback={
                         <p role='status' className='mt-3 text-sm text-[var(--dash-text-muted)]'>
@@ -214,14 +251,11 @@ function PlanCard({
                         plan={plan}
                         busyAction={busyAction}
                         preflightReport={preflightReport}
-                        deleteConfirmation={deleteConfirmation}
-                        onDeleteConfirmationChange={onDeleteConfirmationChange}
-                        onApprove={onApprove}
-                        onPreflight={onPreflight}
-                        onApply={onApply}
+                        confirmation={confirmation}
+                        targetGuildName={targetGuildName ?? ''}
                         onLoadPlanSteps={onLoadPlanSteps}
-                        onLoadDecisions={onLoadDecisions}
                         onInspectPlanStep={onInspectPlanStep}
+                        journeyStep={activeJourneyStep}
                     />
                 </Suspense>
             ) : null}
@@ -344,10 +378,16 @@ function RunProgress({
     plan,
     busy,
     onControl,
+    onRefreshSafetyCheck,
+    refreshingSafety,
+    showSafeStopRecovery,
 }: {
     plan: NonNullable<DashboardBlueprintPlan['run']>;
     busy: boolean;
     onControl: (request: 'pause' | 'resume' | 'cancel') => void;
+    onRefreshSafetyCheck: () => void;
+    refreshingSafety: boolean;
+    showSafeStopRecovery: boolean;
 }) {
     const percent = plan.totalSteps > 0 ? Math.round((plan.completedSteps / plan.totalSteps) * 100) : 0;
     const hasCompatibleProtocol = plan.protocolVersion === BLUEPRINT_RUN_PROTOCOL_VERSION;
@@ -381,6 +421,24 @@ function RunProgress({
                     transition={dashboardConfirmationTransition}
                 />
             </div>
+            <ol
+                className='mt-3 grid grid-cols-2 gap-1 text-[11px] sm:grid-cols-3 lg:grid-cols-6'
+                aria-label='Deployment timeline'>
+                {['Queued', 'Creating restore point', 'Authorizing', 'Applying', 'Verifying', 'Complete'].map(
+                    (label, index) => (
+                        <li
+                            key={label}
+                            aria-current={readRunTimelineIndex(plan) === index ? 'step' : undefined}
+                            className={`rounded-[var(--dash-radius-control)] border px-2 py-1.5 ${
+                                readRunTimelineIndex(plan) >= index
+                                    ? 'border-[color:var(--dash-primary)]/40 text-[var(--dash-text)]'
+                                    : 'border-[var(--dash-border)] text-[var(--dash-text-subtle)]'
+                            }`}>
+                            {index + 1}. {label}
+                        </li>
+                    )
+                )}
+            </ol>
             <dl className='mt-3 grid gap-3 text-xs sm:grid-cols-3'>
                 <div>
                     <dt className='text-[var(--dash-text-subtle)]'>Operation</dt>
@@ -407,6 +465,14 @@ function RunProgress({
                     <dd className='mt-1 text-[var(--dash-text)]'>{formatDate(plan.completedAt ?? plan.updatedAt)}</dd>
                 </div>
             </dl>
+            {plan.status === 'failed_before_mutation' ? (
+                <SafeStopSummary
+                    run={plan}
+                    refreshingSafety={refreshingSafety}
+                    showRecovery={showSafeStopRecovery}
+                    onRefreshSafetyCheck={onRefreshSafetyCheck}
+                />
+            ) : null}
             <details className='mt-3 border-t border-[var(--dash-border)] pt-2 text-[11px] text-[var(--dash-text-subtle)]'>
                 <summary
                     data-dashboard-disclosure
@@ -463,6 +529,112 @@ function RunProgress({
             </div>
         </div>
     );
+}
+
+function readRunTimelineIndex(run: NonNullable<DashboardBlueprintPlan['run']>): number {
+    if (run.status === 'failed_before_mutation') return 2;
+    if (
+        ['succeeded', 'partially_applied', 'needs_reconciliation', 'outcome_unknown', 'cancelled'].includes(run.status)
+    ) {
+        return 5;
+    }
+    if (run.phase === 'verifying') return 4;
+    if (
+        ['create', 'update', 'delete', 'channel_order', 'role_order', 'waiting_rate_limit', 'paused'].includes(
+            run.phase
+        )
+    ) {
+        return 3;
+    }
+    if (run.authorizationDecision === 'authorized') return 3;
+    if (run.restorePointBackupId) return 2;
+    if (run.phase === 'preparing') return 1;
+    return 0;
+}
+
+function SafeStopSummary({
+    run,
+    onRefreshSafetyCheck,
+    refreshingSafety,
+    showRecovery,
+}: {
+    run: NonNullable<DashboardBlueprintPlan['run']>;
+    onRefreshSafetyCheck: () => void;
+    refreshingSafety: boolean;
+    showRecovery: boolean;
+}) {
+    const changed = readAuthorizationChangedCounts(run.authorizationMismatch);
+    return (
+        <div className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-warning)]/35 bg-[var(--dash-warning-soft)] p-3'>
+            <p className='text-sm font-semibold text-[var(--dash-text)]'>Deployment stopped safely</p>
+            <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                {formatAuthorizationDecision(run.authorizationDecision)} NeonFlux stopped before applying the first
+                change.
+            </p>
+            <dl className='mt-3 grid gap-2 text-xs sm:grid-cols-3'>
+                <div>
+                    <dt className='text-[var(--dash-text-subtle)]'>Changes applied</dt>
+                    <dd className='font-semibold text-[var(--dash-text)]'>0 of {run.totalSteps}</dd>
+                </div>
+                <div>
+                    <dt className='text-[var(--dash-text-subtle)]'>Restore point</dt>
+                    <dd className='font-semibold text-[var(--dash-text)]'>
+                        {run.restorePointBackupId ? 'Created' : 'Not created'} · Restore required: No
+                    </dd>
+                </div>
+                <div>
+                    <dt className='text-[var(--dash-text-subtle)]'>Observed</dt>
+                    <dd className='font-semibold text-[var(--dash-text)]'>{formatDate(run.updatedAt)}</dd>
+                </div>
+            </dl>
+            {changed ? (
+                <p className='mt-2 text-xs text-[var(--dash-text-muted)]'>
+                    Roles changed: {changed.roles} · Categories changed: {changed.categories} · Channels changed:{' '}
+                    {changed.channels}
+                </p>
+            ) : null}
+            {showRecovery ? (
+                <button
+                    type='button'
+                    onClick={onRefreshSafetyCheck}
+                    disabled={refreshingSafety}
+                    className={`mt-3 ${dashboardSecondaryActionClassName}`}>
+                    {refreshingSafety ? 'Refreshing safety check' : 'Refresh safety check'}
+                </button>
+            ) : null}
+            <details className='mt-2 text-xs text-[var(--dash-text-subtle)]'>
+                <summary className='cursor-pointer'>Technical details</summary>
+                <code className='mt-1 block'>{run.errorType ?? run.authorizationDecision ?? 'safe-stop'}</code>
+            </details>
+        </div>
+    );
+}
+
+function formatAuthorizationDecision(decision: NonNullable<DashboardBlueprintPlan['run']>['authorizationDecision']) {
+    if (decision === 'capability_changed') return 'The bot’s role or permissions changed after the safety check.';
+    if (decision === 'structure_and_capability_changed') {
+        return 'The target structure and the bot’s capabilities changed after the safety check.';
+    }
+    if (decision === 'restore_observation_diverged') {
+        return 'The target changed while NeonFlux was securing the restore point.';
+    }
+    if (decision === 'preflight_expired') return 'The safety check expired before authorization.';
+    if (decision === 'fingerprint_version_mismatch') return 'The deployment safety protocol changed.';
+    return 'The target no longer matched the latest safety check.';
+}
+
+function readAuthorizationChangedCounts(value: Record<string, unknown> | undefined) {
+    if (!value) return undefined;
+    const count = (key: string): number => {
+        const collection = value[key];
+        if (!collection || typeof collection !== 'object') return 0;
+        const record = collection as Record<string, unknown>;
+        return ['addedCount', 'removedCount', 'changedCount'].reduce(
+            (total, field) => total + (typeof record[field] === 'number' ? record[field] : 0),
+            0
+        );
+    };
+    return { roles: count('roles'), categories: count('categories'), channels: count('channels') };
 }
 
 function formatRunOutcome(status: NonNullable<DashboardBlueprintPlan['run']>['status']): string {

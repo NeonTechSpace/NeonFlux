@@ -5,6 +5,7 @@ export * from './contracts.js';
 export * from './diff.js';
 export * from './provider-steps.js';
 export * from './identity.js';
+export * from './mutation-fence.js';
 export * from './plan.js';
 export * from './plan-builders.js';
 export * from './preflight-report.js';

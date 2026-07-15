@@ -18,6 +18,8 @@ import {
     toUnexpectedErrorStatus,
 } from './dashboard-blueprint-panel-status.js';
 import type { DashboardBlueprintPreflightView, PanelStatus } from './dashboard-blueprint-panel-types.js';
+import { emptyDashboardBlueprintConfirmation } from './dashboard-blueprint-deploy-readiness.js';
+import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 
 export function useDashboardBlueprintRunOperations({
     guildId,
@@ -34,7 +36,9 @@ export function useDashboardBlueprintRunOperations({
     setBusyAction: Dispatch<SetStateAction<BlueprintBusyAction | undefined>>;
     setStatus: Dispatch<SetStateAction<PanelStatus | undefined>>;
 }) {
-    const [deleteConfirmationByPlanId, setDeleteConfirmationByPlanId] = useState<Record<string, string>>({});
+    const [confirmationByPlanId, setConfirmationByPlanId] = useState<
+        Record<string, DashboardBlueprintConfirmationDraft>
+    >({});
     const [preflightByPlanId, setPreflightByPlanId] = useState<Record<string, DashboardBlueprintPreflightView>>({});
     const [preflightDigestByPlanId, setPreflightDigestByPlanId] = useState<Partial<Record<string, string>>>({});
 
@@ -96,10 +100,15 @@ export function useDashboardBlueprintRunOperations({
             if (result.preflightDigest) {
                 setPreflightDigestByPlanId((current) => ({ ...current, [plan.id]: result.preflightDigest! }));
             }
+            setConfirmationByPlanId((current) => ({
+                ...current,
+                [plan.id]: emptyDashboardBlueprintConfirmation,
+            }));
             setStatus({
                 tone: 'neutral',
                 message: `Preflight checked ${result.report.summary.total} planned changes. No server changes were applied.`,
             });
+            await refreshRuns();
             await refreshAuditEvents();
         } catch {
             setStatus(toUnexpectedErrorStatus());
@@ -124,7 +133,7 @@ export function useDashboardBlueprintRunOperations({
                     planId: plan.id,
                     planDigest: plan.planDigest,
                     preflightDigest: preflightDigestByPlanId[plan.id] ?? plan.preflight?.digest ?? '',
-                    destructiveConfirmationText: deleteConfirmationByPlanId[plan.id],
+                    confirmation: toConfirmationInput(confirmationByPlanId[plan.id]),
                 },
             });
             if (result.type !== 'queued') {
@@ -132,7 +141,10 @@ export function useDashboardBlueprintRunOperations({
                 return;
             }
 
-            setDeleteConfirmationByPlanId((current) => ({ ...current, [plan.id]: '' }));
+            setConfirmationByPlanId((current) => ({
+                ...current,
+                [plan.id]: emptyDashboardBlueprintConfirmation,
+            }));
             setStatus({
                 tone: 'success',
                 message: 'Deployment queued. Progress will update while the bot applies and verifies the plan.',
@@ -209,10 +221,21 @@ export function useDashboardBlueprintRunOperations({
         applyPlan,
         controlRun,
         createRecoveryPlan,
-        deleteConfirmationByPlanId,
+        confirmationByPlanId,
         preflightByPlanId,
         preflightPlan,
         reviewAndPreflight,
-        setDeleteConfirmationByPlanId,
+        setConfirmationByPlanId,
+    };
+}
+
+function toConfirmationInput(confirmation: DashboardBlueprintConfirmationDraft | undefined) {
+    if (!confirmation) return undefined;
+    return {
+        ...(confirmation.understandsDeletion ? { understandsDeletion: true as const } : {}),
+        ...(confirmation.understandsRestorePointRequirement
+            ? { understandsRestorePointRequirement: true as const }
+            : {}),
+        ...(confirmation.targetGuildName ? { targetGuildName: confirmation.targetGuildName } : {}),
     };
 }

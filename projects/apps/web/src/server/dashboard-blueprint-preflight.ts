@@ -672,14 +672,17 @@ function preflightDeleteAction(
         );
     }
 
-    if (
-        targetType === 'role' &&
-        isRoleBlockedByBotHierarchy(currentItem, current.botHighestRolePosition, current.botHighestRoleHierarchyRank)
-    ) {
+    const deleteHierarchyBlock =
+        targetType === 'role' ? readRoleHierarchyBlock(currentItem, current.botHighestRolePosition) : undefined;
+    if (deleteHierarchyBlock) {
         return toPreflightPlanStep(
             action,
             'unsupported',
-            'The bot role must be above this role before it can be deleted.'
+            deleteHierarchyBlock === 'ambiguous'
+                ? 'role-hierarchy-ambiguous: the bot and target role share a provider position, so authority cannot be proven.'
+                : deleteHierarchyBlock === 'unavailable'
+                  ? 'role-hierarchy-ambiguous: provider hierarchy authority is unavailable.'
+                  : 'The bot role must be above this role before it can be deleted.'
         );
     }
 
@@ -736,18 +739,17 @@ function preflightUpdateAction(
             );
         }
 
-        if (
-            targetType === 'role' &&
-            isRoleBlockedByBotHierarchy(
-                currentItem,
-                current.botHighestRolePosition,
-                current.botHighestRoleHierarchyRank
-            )
-        ) {
+        const updateHierarchyBlock =
+            targetType === 'role' ? readRoleHierarchyBlock(currentItem, current.botHighestRolePosition) : undefined;
+        if (updateHierarchyBlock) {
             return toPreflightPlanStep(
                 action,
                 'unsupported',
-                'The bot role must be above this role before it can be updated.'
+                updateHierarchyBlock === 'ambiguous'
+                    ? 'role-hierarchy-ambiguous: the bot and target role share a provider position, so authority cannot be proven.'
+                    : updateHierarchyBlock === 'unavailable'
+                      ? 'role-hierarchy-ambiguous: provider hierarchy authority is unavailable.'
+                      : 'The bot role must be above this role before it can be updated.'
             );
         }
 
@@ -912,50 +914,24 @@ function isRoleProtectionReason(value: unknown): boolean {
     return value === 'everyone' || value === 'bot' || value === 'integration' || value === 'managed';
 }
 
-function isRoleBlockedByBotHierarchy(
-    role: { position?: unknown; hierarchyRank?: unknown; name?: unknown },
-    botHighestRolePosition: number | undefined,
-    botHighestRoleHierarchyRank: number | undefined
-): boolean {
-    return (
-        role.name !== '@everyone' &&
-        isRolePositionBlockedByBotHierarchy(
-            role.position,
-            role.hierarchyRank,
-            botHighestRolePosition,
-            botHighestRoleHierarchyRank
-        )
-    );
-}
-
-function isRolePositionBlockedByBotHierarchy(
-    position: unknown,
-    hierarchyRank: unknown,
-    botHighestRolePosition: number | undefined,
-    botHighestRoleHierarchyRank: number | undefined
-): boolean {
+function readRoleHierarchyBlock(
+    role: { position?: unknown; name?: unknown },
+    botHighestRolePosition: number | undefined
+): 'blocked' | 'ambiguous' | 'unavailable' | undefined {
+    if (role.name === '@everyone') return undefined;
+    const position = role.position;
     if (
         typeof position !== 'number' ||
         typeof botHighestRolePosition !== 'number' ||
         !Number.isFinite(position) ||
         !Number.isFinite(botHighestRolePosition)
     ) {
-        return false;
+        return 'unavailable';
     }
 
-    if (position > botHighestRolePosition) return true;
-    if (position < botHighestRolePosition) return false;
-
-    if (
-        typeof hierarchyRank === 'number' &&
-        typeof botHighestRoleHierarchyRank === 'number' &&
-        Number.isFinite(hierarchyRank) &&
-        Number.isFinite(botHighestRoleHierarchyRank)
-    ) {
-        return hierarchyRank <= botHighestRoleHierarchyRank;
-    }
-
-    return true;
+    if (position > botHighestRolePosition) return 'blocked';
+    if (position === botHighestRolePosition) return 'ambiguous';
+    return undefined;
 }
 
 type StructureReferenceTargetType = TargetType | 'channel-or-category';

@@ -7,13 +7,16 @@ import {
     blueprintPlanStatuses,
 } from '@neonflux/db';
 import type { BlueprintPlanStepRecord } from '@neonflux/db';
+import {
+    BLUEPRINT_MUTATION_FENCE_VERSION,
+    createBlueprintMutationFenceManifest,
+} from '@neonflux/blueprint/mutation-fence';
 
 import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
 import { createBlueprintAuditInput, loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';
 import {
-    createDashboardBlueprintSnapshotFingerprintInput,
     diffDashboardBlueprintSnapshot,
     normalizeDashboardBlueprintSnapshot,
     toDashboardBlueprintSnapshot,
@@ -114,22 +117,29 @@ export async function preflightDashboardBlueprintPlan(
             ? prependDashboardBlueprintProjectionBlocker(stepReport, projectionCheck.message)
             : stepReport;
     const checkedAt = new Date();
-    const liveFingerprint = blueprintPlanDigest(createDashboardBlueprintSnapshotFingerprintInput(currentSnapshot));
+    const mutationFenceManifest = await createBlueprintMutationFenceManifest(currentSnapshot);
     const preflightStatus = isDashboardBlueprintPreflightReady(report) ? 'ready' : 'blocked';
     const preflightDigest = blueprintPlanDigest({
         checkedAt: checkedAt.toISOString(),
-        liveFingerprint,
+        capabilityFingerprint: mutationFenceManifest.capabilityDigest,
+        fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
         planDigest: planResult.value.planDigest,
         report,
         status: preflightStatus,
+        structureFingerprint: mutationFenceManifest.structureDigest,
     });
     const persistedPreflight = await recordBlueprintPlanPreflight(database.db, {
         planId: planId,
         planDigest: planResult.value.planDigest,
-        liveFingerprint,
+        capabilityFingerprint: mutationFenceManifest.capabilityDigest,
+        fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
+        mutationFenceManifestJson: JSON.stringify(mutationFenceManifest),
+        observedAt: checkedAt,
+        observationSource: 'resident-client',
         preflightDigest,
         report: toJsonRecord(report),
         status: preflightStatus,
+        structureFingerprint: mutationFenceManifest.structureDigest,
         checkedAt,
         expiresAt: new Date(checkedAt.getTime() + 5 * 60 * 1000),
         audit: createBlueprintAuditInput(context, blueprintAuditActions.preflightChecked, planId, {
