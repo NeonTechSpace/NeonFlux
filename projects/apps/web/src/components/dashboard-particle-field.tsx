@@ -3,8 +3,8 @@ import Particles, { ParticlesProvider } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 
 const particleColors = ['#5ad7ff', '#5ad7ff', '#76a9ff', '#9d8cff', '#d86dff'];
-const particleLinkDistance = 158;
-const particleHoverRadius = 104;
+const particleLinkDistance = 132;
+const particleHoverRadius = 80;
 
 const dashboardParticleOptions = createDashboardParticleOptions();
 
@@ -65,7 +65,7 @@ function createDashboardParticleOptions() {
                 color: '#75d8ff',
                 distance: particleLinkDistance,
                 enable: true,
-                opacity: 0.24,
+                opacity: 1,
                 width: 0.9,
             },
             move: {
@@ -91,14 +91,9 @@ function createDashboardParticleOptions() {
             },
             opacity: {
                 animation: {
-                    enable: true,
-                    speed: 0.14,
-                    sync: false,
+                    enable: false,
                 },
-                value: {
-                    max: 0.82,
-                    min: 0.34,
-                },
+                value: 0.62,
             },
             paint: {
                 color: {
