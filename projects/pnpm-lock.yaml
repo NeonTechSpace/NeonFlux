@@ -4,10 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  '@fluxerjs/core@2.0.1': 8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3
-  '@fluxerjs/rest@2.0.1': a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496
-
 importers:
 
   .:
@@ -395,8 +391,8 @@ importers:
   packages/fluxer:
     dependencies:
       '@fluxerjs/core':
-        specifier: 2.0.1
-        version: 2.0.1(patch_hash=8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3)
+        specifier: 2.0.2
+        version: 2.0.2
       '@neonflux/blueprint':
         specifier: workspace:*
         version: link:../blueprint
@@ -1079,12 +1075,12 @@ packages:
   '@fluxerjs/collection@2.0.0':
     resolution: {integrity: sha512-NF2Qwh5uTcyp4DI6T8vWz70uUH8NxvijQwyqMYc9H8fhJZYFoWoL1iUrFu8D9pH2THEDvlSAUw7ees90iU8axA==}
 
-  '@fluxerjs/core@2.0.1':
-    resolution: {integrity: sha512-ySxsxQou6Mi+6dshzcay1zhEbTV+/FmYcT4BEazVTDF5ZXN0DTg+iH59MeRHOvj4+CZ4l77aO59pC68edHUSzQ==}
+  '@fluxerjs/core@2.0.2':
+    resolution: {integrity: sha512-fPxgqbE5O5d+ld1w7M7cfqiK+jxJHGG3nbGjr7tkCUuaqq6jtqVtgtgAP0PyKAKIDsC/Vj2pTB8yEp7I9SVRfw==}
     engines: {node: '>=18.0.0'}
 
-  '@fluxerjs/rest@2.0.1':
-    resolution: {integrity: sha512-Bl4FYBJ4V3t7cDcgYYMOuAAHlgCsF8XHjllXLJiEUQ82YD2gJmfK/9JbmOz0NF5n4+BznjnFfCzN7MocoshkyA==}
+  '@fluxerjs/rest@2.0.2':
+    resolution: {integrity: sha512-gDk226kW078H0mjkGUhYhVB5YR0rcYbP9gBh44S4R3ZFRIl53cyy8NHay7yEeyMP87FCq77vnmE+QrL4tT3UOA==}
 
   '@fluxerjs/types@2.0.0':
     resolution: {integrity: sha512-p7KXabbP7HEvrlvhmqdLavcAjeW5KssaD1y7ykY66aSv72rJJVIMtey3VNjOZKKmWyH27IQMDWX1nilVEpjamg==}
@@ -7011,11 +7007,11 @@ snapshots:
 
   '@fluxerjs/collection@2.0.0': {}
 
-  '@fluxerjs/core@2.0.1(patch_hash=8d5d0b27d21e5264e36c8a354a4f59901765e8d8a48db35685f927e011f391f3)':
+  '@fluxerjs/core@2.0.2':
     dependencies:
       '@fluxerjs/builders': 2.0.0
       '@fluxerjs/collection': 2.0.0
-      '@fluxerjs/rest': 2.0.1(patch_hash=a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496)
+      '@fluxerjs/rest': 2.0.2
       '@fluxerjs/types': 2.0.0
       '@fluxerjs/util': 2.0.0
       '@fluxerjs/ws': 2.0.1
@@ -7023,7 +7019,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@fluxerjs/rest@2.0.1(patch_hash=a474d1d3d3422d89deac67846422b687564834f3c591bd87b6a723fe3b173496)':
+  '@fluxerjs/rest@2.0.2':
     dependencies:
       '@fluxerjs/types': 2.0.0
       undici: 7.28.0
