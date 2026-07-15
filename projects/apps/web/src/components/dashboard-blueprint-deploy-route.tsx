@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { BLUEPRINT_SNAPSHOT_LIMITS, isBlueprintSnapshotJsonWithinByteLimit } from '@neonflux/blueprint/snapshot';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import {
     getDashboardAuditEventsBaseQueryKey,
@@ -9,6 +9,7 @@ import {
     getDashboardBlueprintStatusQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardBlueprintDeployDraftState } from './dashboard-blueprint-deploy-draft-state.js';
+import { useDashboardBlueprintDeployRouteSync } from './dashboard-blueprint-deploy-route-sync.js';
 import { DashboardBlueprintDeploySurface } from './dashboard-blueprint-deploy-surface.js';
 import { readDashboardBlueprintSourceFiles } from './dashboard-blueprint-deploy-source-state.js';
 import type { DashboardBlueprintSourceState } from './dashboard-blueprint-deploy-source-state.js';
@@ -214,35 +215,33 @@ export function DashboardBlueprintDeployRoute({
         preflight: deployPlan?.preflight,
     });
 
-    useEffect(() => {
-        if (!runsQuery.data || !requestedPlanId) return;
-        if (!requestedPlan) return;
-        if (deployFlow.type !== 'plan' || deployFlow.plan.id !== requestedPlan.id) {
-            setDeployFlow({ type: 'plan', plan: requestedPlan });
-        }
-    }, [deployFlow, requestedPlan, requestedPlanId, runsQuery.data, setDeployFlow]);
-
-    useEffect(() => {
-        if (!runsQuery.data) return;
-        if (requestedPlanMissing) return;
-        const canonicalPlanId = deployPlan?.id;
-        if (requestedPlanId === canonicalPlanId && requestedStep === journey.step) return;
-        void navigate({
-            to: '/dashboard/$guildId/blueprint/deploy',
-            params: { guildId },
-            search: { ...(canonicalPlanId ? { plan: canonicalPlanId } : {}), step: journey.step },
-            replace: true,
-        });
-    }, [
-        deployPlan?.id,
+    const selectRequestedPlan = useCallback(
+        (plan: (typeof plans)[number]) => setDeployFlow({ type: 'plan', plan }),
+        [setDeployFlow]
+    );
+    const replaceDeployRoute = useCallback(
+        (planId: string | undefined, step: DashboardBlueprintDeployJourneyStep) => {
+            void navigate({
+                to: '/dashboard/$guildId/blueprint/deploy',
+                params: { guildId },
+                search: { ...(planId ? { plan: planId } : {}), step },
+                replace: true,
+            });
+        },
+        [guildId, navigate]
+    );
+    useDashboardBlueprintDeployRouteSync({
         guildId,
-        journey.step,
-        navigate,
+        ready: Boolean(runsQuery.data),
         requestedPlanId,
-        requestedPlanMissing,
         requestedStep,
-        runsQuery.data,
-    ]);
+        requestedPlan,
+        requestedPlanMissing,
+        selectedPlanId: deployPlan?.id,
+        selectedStep: journey.step,
+        onSelectRequestedPlan: selectRequestedPlan,
+        onReplaceRoute: replaceDeployRoute,
+    });
 
     if (!runsQuery.data && runsQuery.isError) {
         return (
