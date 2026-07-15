@@ -1,20 +1,30 @@
 import { api } from '@neonflux/convex-api';
 import type { Id } from '@neonflux/convex-api/data-model';
 import { BLUEPRINT_MUTATION_FENCE_VERSION } from '@neonflux/blueprint/mutation-fence';
+import { normalizeBlueprintPlanDecision } from '@neonflux/blueprint/runtime-contracts';
+import type { BlueprintVerificationResult } from '@neonflux/blueprint/persisted-authority';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
     BlueprintRunStepAttemptRecord,
+    BlueprintRunStepPreparationRecord,
+    BlueprintRunStepStartRecord,
     BlueprintPlanApprovalRecord,
+    BlueprintPlanAuthorityRecord,
     BlueprintPlanDecisionPageRecord,
     BlueprintPlanDecisionRecord,
+    BlueprintPlanMetadataRecord,
+    BlueprintPlanPreflightEvidenceRecord,
+    BlueprintPlanPreflightMetadataRecord,
+    BlueprintPlanPreflightSummaryRecord,
+    BlueprintPlanStepRecord,
     BlueprintRunClaimRecord,
     BlueprintRunMutationAuthorizationRecord,
     BlueprintRunPhase,
     BlueprintRunRecord,
+    BlueprintRunSummaryRecord,
+    BlueprintRunVerificationEvidenceRecord,
     BlueprintRepositoryError,
-    BlueprintPlanPreflightRecord,
-    BlueprintPlanRecord,
 } from './contracts-blueprint.js';
 import type { ConvexDatabase } from './convex.js';
 import {
@@ -30,8 +40,13 @@ import {
     toBlueprintRunStepAttempt,
     toDecision,
     toBlueprintRun,
-    toPreflight,
-    toBlueprintPlan,
+    toPreflightMetadata,
+    toPreflightEvidence,
+    toBlueprintPlanMetadata,
+    toBlueprintPlanAuthority,
+    toBlueprintPlanExecutionAuthority,
+    toBlueprintRunCursor,
+    toBlueprintRunVerificationEvidence,
 } from './runtime-blueprint-run-records.js';
 
 type BlueprintDb = ConvexDatabase;
@@ -51,7 +66,13 @@ export async function transitionBlueprintPlanState(
         planId: string;
         status: 'draft' | 'needs_input' | 'review_ready' | 'approved' | 'obsolete';
     }
-): Promise<Result<BlueprintPlanRecord, BlueprintRepositoryError>> {
+): Promise<Result<BlueprintPlanMetadataRecord, BlueprintRepositoryError>> {
+    if (
+        input.expectedStatus === 'draft' &&
+        (input.status === 'needs_input' || input.status === 'review_ready' || input.status === 'approved')
+    ) {
+        return err({ type: 'database-error' });
+    }
     try {
         const record = await db.client.mutation(api.blueprint.transitionBlueprintPlanState, {
             ...(input.audit ? { audit: input.audit } : {}),
@@ -60,7 +81,23 @@ export async function transitionBlueprintPlanState(
             planId: input.planId as Id<'blueprintPlans'>,
             status: input.status,
         });
-        return ok(toBlueprintPlan(record));
+        return ok(toBlueprintPlanMetadata(record));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function finalizeBlueprintPlan(
+    db: BlueprintDb,
+    input: { audit?: BlueprintAuditInput; now: Date; planId: string }
+): Promise<Result<BlueprintPlanMetadataRecord, BlueprintRepositoryError>> {
+    try {
+        const record = await db.client.mutation(api.blueprint.finalizeBlueprintPlan, {
+            ...(input.audit ? { audit: input.audit } : {}),
+            now: input.now.toISOString(),
+            planId: input.planId as Id<'blueprintPlans'>,
+        });
+        return ok(toBlueprintPlanMetadata(record));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -114,17 +151,47 @@ export async function authorizeBlueprintRunMutation(
     }
 }
 
-export async function findLatestBlueprintPlanPreflight(db: BlueprintDb, input: { guildId: string; planId: string }) {
+export async function listLatestBlueprintPlanPreflightSummaries(
+    db: BlueprintDb,
+    input: { guildId: string; planIds: string[] }
+): Promise<Result<Record<string, BlueprintPlanPreflightSummaryRecord | null>, BlueprintRepositoryError>> {
+    const planIds = normalizePlanIds(input.planIds);
+    if (!planIds) return err({ field: 'planIds', type: 'invalid-value' });
     try {
-        const record = await db.client.query(api.blueprint.findLatestBlueprintPlanPreflight, {
-            guildId: input.guildId,
-            planId: input.planId as Id<'blueprintPlans'>,
-        });
-        return record ? ok(toPreflight({ ...record, id: record._id })) : ok(null);
+        const value = recordValue(
+            await db.client.query(api.blueprint.listLatestBlueprintPlanPreflightSummaries, {
+                guildId: input.guildId,
+                planIds: planIds as Array<Id<'blueprintPlans'>>,
+            })
+        );
+        return ok(
+            Object.fromEntries(
+                planIds.map((planId) => {
+                    const record = value[planId];
+                    return [planId, record === undefined || record === null ? null : toPreflightMetadata(record)];
+                })
+            )
+        );
     } catch {
-        return err({ type: 'database-error' } as const);
+        return err({ type: 'database-error' });
     }
 }
+
+export async function getBlueprintPlanPreflightEvidence(
+    db: BlueprintDb,
+    input: { guildId: string; preflightId: string }
+): Promise<Result<BlueprintPlanPreflightEvidenceRecord, BlueprintRepositoryError>> {
+    try {
+        const record = await db.client.query(api.blueprint.getBlueprintPlanPreflightEvidence, {
+            guildId: input.guildId,
+            preflightId: input.preflightId as Id<'blueprintPlanPreflights'>,
+        });
+        return record ? ok(toPreflightEvidence(record)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function findLatestBlueprintPlanApproval(db: BlueprintDb, input: { guildId: string; planId: string }) {
     try {
         const record = await db.client.query(api.blueprint.findLatestBlueprintPlanApproval, {
@@ -136,15 +203,44 @@ export async function findLatestBlueprintPlanApproval(db: BlueprintDb, input: { 
         return err({ type: 'database-error' } as const);
     }
 }
-export async function findLatestBlueprintRunForPlan(db: BlueprintDb, input: { guildId: string; planId: string }) {
+export async function listLatestBlueprintRunSummaries(
+    db: BlueprintDb,
+    input: { guildId: string; planIds: string[] }
+): Promise<Result<Record<string, BlueprintRunSummaryRecord | null>, BlueprintRepositoryError>> {
+    const planIds = normalizePlanIds(input.planIds);
+    if (!planIds) return err({ field: 'planIds', type: 'invalid-value' });
     try {
-        const record = await db.client.query(api.blueprint.findLatestBlueprintRunForPlan, {
-            guildId: input.guildId,
-            planId: input.planId as Id<'blueprintPlans'>,
-        });
-        return record ? ok(toBlueprintRun({ ...record, id: record._id })) : ok(null);
+        const value = recordValue(
+            await db.client.query(api.blueprint.listLatestBlueprintRunSummaries, {
+                guildId: input.guildId,
+                planIds: planIds as Array<Id<'blueprintPlans'>>,
+            })
+        );
+        return ok(
+            Object.fromEntries(
+                planIds.map((planId) => {
+                    const record = value[planId];
+                    return [planId, record === undefined || record === null ? null : toBlueprintRun(record)];
+                })
+            )
+        );
     } catch {
-        return err({ type: 'database-error' } as const);
+        return err({ type: 'database-error' });
+    }
+}
+
+export async function getBlueprintRunVerificationEvidence(
+    db: BlueprintDb,
+    input: { guildId: string; runId: string }
+): Promise<Result<BlueprintRunVerificationEvidenceRecord, BlueprintRepositoryError>> {
+    try {
+        const record = await db.client.query(api.blueprint.getBlueprintRunVerificationEvidence, {
+            guildId: input.guildId,
+            runId: input.runId as Id<'blueprintRuns'>,
+        });
+        return record ? ok(toBlueprintRunVerificationEvidence(record)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
     }
 }
 
@@ -153,7 +249,7 @@ export async function findActiveBlueprintRun(db: BlueprintDb, input: { guildId: 
         const record = await db.client.query(api.blueprint.findActiveBlueprintRun, {
             guildId: input.guildId,
         });
-        return record ? ok(toBlueprintRun({ ...record, id: record._id })) : ok(null);
+        return record ? ok(toBlueprintRun(record)) : ok(null);
     } catch {
         return err({ type: 'database-error' } as const);
     }
@@ -161,38 +257,63 @@ export async function findActiveBlueprintRun(db: BlueprintDb, input: { guildId: 
 
 export async function recordBlueprintPlanPreflight(
     db: BlueprintDb,
-    input: Omit<BlueprintPlanPreflightRecord, 'id'> & { audit?: BlueprintAuditInput }
-): Promise<Result<BlueprintPlanPreflightRecord, BlueprintRepositoryError>> {
+    input: {
+        audit?: BlueprintAuditInput;
+        metadata: Omit<BlueprintPlanPreflightMetadataRecord, 'id'>;
+        evidence: Omit<BlueprintPlanPreflightEvidenceRecord, 'createdAt' | 'id' | 'planId' | 'preflightId'>;
+        sealedPlan: {
+            authority: BlueprintPlanAuthorityRecord;
+            decisions: Array<Pick<BlueprintPlanDecisionRecord, 'decision' | 'sequence'>>;
+            steps: Array<Pick<BlueprintPlanStepRecord, 'sequence' | 'step'>>;
+        };
+    }
+): Promise<Result<BlueprintPlanPreflightMetadataRecord, BlueprintRepositoryError>> {
     try {
         const record = await db.client.mutation(api.blueprint.recordBlueprintPlanPreflight, {
-            ...input,
-            planId: input.planId as Id<'blueprintPlans'>,
-            checkedAt: input.checkedAt.toISOString(),
-            expiresAt: input.expiresAt.toISOString(),
-            observedAt: input.observedAt.toISOString(),
+            ...(input.audit ? { audit: input.audit } : {}),
+            metadata: {
+                ...input.metadata,
+                planId: input.metadata.planId as Id<'blueprintPlans'>,
+                checkedAt: input.metadata.checkedAt.toISOString(),
+                expiresAt: input.metadata.expiresAt.toISOString(),
+                observedAt: input.metadata.observedAt.toISOString(),
+            },
+            evidence: input.evidence,
+            sealedPlan: {
+                authority: {
+                    ...input.sealedPlan.authority,
+                    createdAt: input.sealedPlan.authority.createdAt.toISOString(),
+                },
+                decisions: input.sealedPlan.decisions,
+                steps: input.sealedPlan.steps,
+            },
         });
-        return ok(toPreflight(record));
+        return ok(toPreflightMetadata(record));
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function recordBlueprintPlanDecisionsBatch(
+export async function writeBlueprintPlanDecisionBatch(
     db: BlueprintDb,
-    input: { decisions: Array<Omit<BlueprintPlanDecisionRecord, 'id' | 'createdAt'>>; now: Date; planId: string }
+    input: {
+        decisions: Array<Pick<BlueprintPlanDecisionRecord, 'decision' | 'sequence'>>;
+        now: Date;
+        planId: string;
+    }
 ): Promise<Result<BlueprintPlanDecisionRecord[], BlueprintRepositoryError>> {
+    if (input.decisions.length < 1 || input.decisions.length > 100 || !hasContiguousSequences(input.decisions)) {
+        return err({ field: 'decisions', type: 'invalid-value' });
+    }
+    const decisions = [];
+    for (const entry of input.decisions) {
+        const decision = normalizeBlueprintPlanDecision(entry.decision);
+        if (decision.type === 'invalid') return err({ field: 'decision', type: 'invalid-value' });
+        decisions.push({ sequence: entry.sequence, decision: decision.value });
+    }
     try {
-        const records = await db.client.mutation(api.blueprint.recordBlueprintPlanDecisionsBatch, {
-            decisions: input.decisions.map(({ planId, sourceId, targetId, logicalId, name, ...decision }) => {
-                void planId;
-                return {
-                    ...decision,
-                    ...(sourceId ? { sourceId } : {}),
-                    ...(targetId ? { targetId } : {}),
-                    ...(logicalId ? { logicalId } : {}),
-                    ...(name ? { name } : {}),
-                };
-            }),
+        const records = await db.client.mutation(api.blueprint.writeBlueprintPlanDecisionBatch, {
+            decisions,
             now: input.now.toISOString(),
             planId: input.planId as Id<'blueprintPlans'>,
         });
@@ -302,12 +423,26 @@ export async function claimNextBlueprintRun(
                 status: requiredString(claim.status),
             });
         }
+        if (claim.kind === 'authority_invalid') {
+            return ok({
+                kind: 'authority_invalid',
+                errorType: requiredString(claim.errorType),
+                guildId: requiredString(claim.guildId),
+                mayHaveExternalEffects: requiredBoolean(claim.mayHaveExternalEffects),
+                runId: requiredString(claim.runId),
+                status: requiredLiteral(claim.status, ['failed_before_mutation', 'partially_applied']),
+            });
+        }
         if (claim.kind !== 'claimed') throw new Error('invalid-blueprint-run-claim-kind');
         return ok({
             kind: 'claimed',
             run: toBlueprintRun(claim.run),
-            plan: toBlueprintPlan(claim.plan),
+            cursor: toBlueprintRunCursor(claim.cursor),
+            plan: toBlueprintPlanMetadata(claim.plan),
+            authority: toBlueprintPlanAuthority(claim.authority),
+            executionAuthority: toBlueprintPlanExecutionAuthority(claim.executionAuthority),
             steps: arrayValue(claim.steps).map(toBlueprintPlanStep),
+            decisions: arrayValue(claim.decisions).map(toDecision),
             attempts: arrayValue(claim.attempts).map(toBlueprintRunStepAttempt),
         });
     } catch {
@@ -330,6 +465,11 @@ function requiredString(value: unknown): string {
 function requiredBoolean(value: unknown): boolean {
     if (typeof value !== 'boolean') throw new Error('invalid-boolean');
     return value;
+}
+
+function requiredLiteral<const T extends string>(value: unknown, allowed: readonly T[]): T {
+    if (typeof value !== 'string' || !allowed.includes(value as T)) throw new Error('invalid-literal');
+    return value as T;
 }
 
 function requiredPositiveInteger(value: unknown): number {
@@ -390,20 +530,17 @@ export async function ensureBlueprintRunRestorePoint(
         runId: string;
         leaseId: string;
         leaseOwner: string;
-        manifest: Record<string, unknown>;
         now: Date;
         observedAt: Date;
         structure: Record<string, unknown>;
     }
-): Promise<Result<{ backupId: string }, BlueprintRepositoryError>> {
+): Promise<Result<{ backupId: string; snapshotDigest: string }, BlueprintRepositoryError>> {
     try {
         return ok(
             await db.client.mutation(api.blueprint.ensureBlueprintRunRestorePoint, {
                 runId: input.runId as Id<'blueprintRuns'>,
                 leaseId: input.leaseId,
                 leaseOwner: input.leaseOwner,
-                fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
-                manifestJson: JSON.stringify(input.manifest),
                 now: input.now.toISOString(),
                 observedAt: input.observedAt.toISOString(),
                 protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
@@ -426,7 +563,6 @@ export async function checkpointBlueprintRun(
         errorType?: string;
         runId: string;
         failedSteps: number;
-        idMap: Record<string, string>;
         leaseId: string;
         leaseOwner: string;
         nextStepSequence: number;
@@ -434,19 +570,17 @@ export async function checkpointBlueprintRun(
         now: Date;
         phase: BlueprintRunPhase;
         retryAt?: Date;
-        restorePointBackupId?: string;
         status: 'running' | 'waiting_rate_limit' | 'pause_requested' | 'paused' | 'verifying';
         skippedSteps: number;
         totalMutationSteps: number;
     }
 ): Promise<Result<BlueprintRunRecord, BlueprintRepositoryError>> {
     try {
-        const { idMap, retryAt, now, runId, ...fields } = input;
+        const { retryAt, now, runId, ...fields } = input;
         return ok(
             toBlueprintRun(
                 await db.client.mutation(api.blueprint.checkpointBlueprintRun, {
                     ...fields,
-                    idMapJson: JSON.stringify(idMap),
                     runId: runId as Id<'blueprintRuns'>,
                     now: now.toISOString(),
                     protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
@@ -466,23 +600,26 @@ export async function prepareBlueprintRunStepAttempt(
         attempt: number;
         runId: string;
         leaseId: string;
+        leaseExpiresAt: Date;
         leaseOwner: string;
         now: Date;
         requestKey: string;
     }
-): Promise<Result<BlueprintRunStepAttemptRecord, BlueprintRepositoryError>> {
+): Promise<Result<BlueprintRunStepPreparationRecord, BlueprintRepositoryError>> {
     try {
-        return ok(
-            toBlueprintRunStepAttempt(
-                await db.client.mutation(api.blueprint.prepareBlueprintRunStepAttempt, {
-                    ...input,
-                    planStepId: input.planStepId as Id<'blueprintPlanSteps'>,
-                    runId: input.runId as Id<'blueprintRuns'>,
-                    now: input.now.toISOString(),
-                    protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
-                })
-            )
-        );
+        const result = await db.client.mutation(api.blueprint.prepareBlueprintRunStepAttempt, {
+            ...input,
+            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
+            planStepId: input.planStepId as Id<'blueprintPlanSteps'>,
+            runId: input.runId as Id<'blueprintRuns'>,
+            now: input.now.toISOString(),
+            protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+        });
+        return ok({
+            kind: requiredLiteral(result.kind, ['prepared', 'control_requested']),
+            attempt: toBlueprintRunStepAttempt(result.attempt),
+            run: toBlueprintRun(result.run),
+        });
     } catch {
         return err({ type: 'database-error' });
     }
@@ -493,22 +630,25 @@ export async function startBlueprintRunStepAttempt(
     input: {
         attemptId: string;
         leaseId: string;
+        leaseExpiresAt: Date;
         leaseOwner: string;
         now: Date;
     }
-): Promise<Result<BlueprintRunStepAttemptRecord, BlueprintRepositoryError>> {
+): Promise<Result<BlueprintRunStepStartRecord, BlueprintRepositoryError>> {
     try {
-        return ok(
-            toBlueprintRunStepAttempt(
-                await db.client.mutation(api.blueprint.startBlueprintRunStepAttempt, {
-                    attemptId: input.attemptId as Id<'blueprintRunStepAttempts'>,
-                    leaseId: input.leaseId,
-                    leaseOwner: input.leaseOwner,
-                    now: input.now.toISOString(),
-                    protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
-                })
-            )
-        );
+        const result = await db.client.mutation(api.blueprint.startBlueprintRunStepAttempt, {
+            attemptId: input.attemptId as Id<'blueprintRunStepAttempts'>,
+            leaseId: input.leaseId,
+            leaseExpiresAt: input.leaseExpiresAt.toISOString(),
+            leaseOwner: input.leaseOwner,
+            now: input.now.toISOString(),
+            protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+        });
+        return ok({
+            kind: requiredLiteral(result.kind, ['started', 'control_requested']),
+            attempt: toBlueprintRunStepAttempt(result.attempt),
+            run: toBlueprintRun(result.run),
+        });
     } catch {
         return err({ type: 'database-error' });
     }
@@ -526,7 +666,6 @@ export async function completeAndCheckpointBlueprintRunStepAttempt(
         currentStepLabel?: string;
         errorType?: string;
         failedSteps: number;
-        idMap: Record<string, string>;
         leaseId: string;
         leaseOwner: string;
         nextStepSequence: number;
@@ -555,11 +694,10 @@ export async function completeAndCheckpointBlueprintRunStepAttempt(
     }
 ): Promise<Result<{ attempt: BlueprintRunStepAttemptRecord; run: BlueprintRunRecord }, BlueprintRepositoryError>> {
     try {
-        const { attemptId, idMap, now, retryAt, ...fields } = input;
+        const { attemptId, now, retryAt, ...fields } = input;
         const result = await db.client.mutation(api.blueprint.completeAndCheckpointBlueprintRunStepAttempt, {
             ...fields,
             attemptId: attemptId as Id<'blueprintRunStepAttempts'>,
-            idMapJson: JSON.stringify(idMap),
             now: now.toISOString(),
             protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
             ...(retryAt ? { retryAt: retryAt.toISOString() } : {}),
@@ -578,7 +716,6 @@ export async function finalizeBlueprintRun(
         leaseId: string;
         leaseOwner: string;
         now: Date;
-        restorePointBackupId?: string;
         status:
             | 'succeeded'
             | 'partially_applied'
@@ -586,8 +723,9 @@ export async function finalizeBlueprintRun(
             | 'needs_reconciliation'
             | 'outcome_unknown'
             | 'cancelled';
-        verificationResult?: Record<string, unknown>;
+        verificationResult?: BlueprintVerificationResult;
         verificationStatus?: 'matched' | 'mismatch' | 'read_failed';
+        verificationEvidenceDigest?: string;
     }
 ): Promise<Result<BlueprintRunRecord, BlueprintRepositoryError>> {
     try {
@@ -599,11 +737,30 @@ export async function finalizeBlueprintRun(
                     runId: input.runId as Id<'blueprintRuns'>,
                     now: input.now.toISOString(),
                     protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
-                    ...(verificationResult ? { verificationResultJson: JSON.stringify(verificationResult) } : {}),
+                    ...(verificationResult ? { verificationResult } : {}),
                 })
             )
         );
     } catch {
         return err({ type: 'database-error' });
     }
+}
+
+function normalizePlanIds(values: readonly string[]): string[] | undefined {
+    if (values.length < 1 || values.length > 20) return undefined;
+    const normalized = values.map((value) => value.trim());
+    if (normalized.some((value) => value.length === 0) || new Set(normalized).size !== normalized.length) {
+        return undefined;
+    }
+    return normalized;
+}
+
+function hasContiguousSequences(entries: ReadonlyArray<{ sequence: number }>): boolean {
+    const firstSequence = entries[0]?.sequence;
+    return (
+        firstSequence !== undefined &&
+        Number.isSafeInteger(firstSequence) &&
+        firstSequence >= 0 &&
+        entries.every((entry, index) => entry.sequence === firstSequence + index)
+    );
 }

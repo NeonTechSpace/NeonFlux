@@ -31,6 +31,7 @@ export type DashboardBlueprintPlanDecision = {
 };
 
 export type DashboardBlueprintPlanPreflight = {
+    id: string;
     checkedAt: string;
     expiresAt: string;
     digest: string;
@@ -89,6 +90,8 @@ export type DashboardBlueprintRunProgress = {
     retryAt?: string;
     errorType?: string;
     restorePointBackupId?: string;
+    verificationStatus?: 'matched' | 'mismatch' | 'read_failed';
+    verificationEvidenceDigest?: string;
     createdAt: string;
     startedAt?: string;
     updatedAt: string;

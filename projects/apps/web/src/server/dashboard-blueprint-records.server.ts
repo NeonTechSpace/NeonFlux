@@ -7,29 +7,19 @@ import type {
     StructureBackupSummaryRecord,
     BlueprintPlanStepRecord,
     BlueprintRunRecord,
-    BlueprintPlanPreflightRecord,
-    BlueprintPlanRecord,
-    BlueprintPlanWithStepsRecord,
+    BlueprintPlanPreflightSummaryRecord,
+    BlueprintPlanMetadataRecord,
+    BlueprintPlanAuthorityRecord,
     StructureObservedEventStateRecord,
 } from '@neonflux/db';
 
 import type { AuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
-import { normalizeDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
-import type {
-    DashboardBlueprintPlan as DashboardBlueprintDiffPlan,
-    DashboardBlueprintSnapshot,
-} from './dashboard-blueprint-diff.js';
-import type { DashboardBlueprintPreflightReport } from './dashboard-blueprint-preflight.js';
-import {
-    createEmptyDecisionSummary,
-    dashboardBlueprintRunPhases,
-    isDashboardBlueprintPolicy,
-} from './dashboard-blueprint-contracts.js';
+import type { DashboardBlueprintPlan as DashboardBlueprintDiffPlan } from './dashboard-blueprint-diff.js';
+import { dashboardBlueprintRunPhases } from './dashboard-blueprint-contracts.js';
 import type {
     DashboardBlueprintDecisionSummary,
     DashboardBlueprintRunProgress,
     DashboardBlueprintPlanPreflight,
-    DashboardBlueprintPolicy,
 } from './dashboard-blueprint-contracts.js';
 import type {
     DashboardBlueprintBackupPage,
@@ -130,20 +120,12 @@ function toDashboardScheduledDriftStatus(
 }
 
 export function toDashboardBlueprintPlan(
-    record: BlueprintPlanRecord | BlueprintPlanWithStepsRecord
+    record: BlueprintPlanMetadataRecord,
+    options: { authority?: BlueprintPlanAuthorityRecord; steps?: BlueprintPlanStepRecord[] } = {}
 ): DashboardBlueprintPlan {
-    const steps = 'steps' in record ? record.steps : [];
-    const summary = readPlanSummary(record.plan);
-    const requestedSnapshot = readRequestedSnapshot(record.plan);
-    const requestedSnapshotStoredAt = readRequestedSnapshotStoredAt(record.plan);
-    const policy = readPolicy(record.plan);
-    if (!policy || record.plan.planVersion !== 3) throw new Error('invalid-server-blueprint-v3-plan');
-    const decisionSummary = readDecisionSummary(record.plan);
-    const planDigest = typeof record.plan.planDigest === 'string' ? record.plan.planDigest : '';
-    if (!planDigest) throw new Error('invalid-server-blueprint-v3-digest');
+    const { authority, steps = [] } = options;
+    const summary = record.summary;
     const changeCount = summary.creates + summary.updates + summary.deletes;
-    const planStepCount = readPlanStepCount(record.plan);
-    const planBlockerCount = Array.isArray(record.plan.blockers) ? record.plan.blockers.length : 1;
     return {
         id: record.id,
         status: record.status,
@@ -152,33 +134,30 @@ export function toDashboardBlueprintPlan(
         updatedAt: record.updatedAt.toISOString(),
         summary,
         changeCount,
-        planStepCount,
-        planBlockerCount,
-        steps: shouldInlinePlanSteps(planStepCount, steps) ? steps.map(toDashboardPlanStep) : [],
-        ...(requestedSnapshot ? { requestedSnapshot } : {}),
-        ...(requestedSnapshot && requestedSnapshotStoredAt ? { requestedSnapshotStoredAt } : {}),
-        policy,
-        decisionSummary,
+        planStepCount: record.stepCount,
+        planBlockerCount: record.blockerCount,
+        steps: shouldInlinePlanSteps(record.stepCount, steps) ? steps.map(toDashboardPlanStep) : [],
+        ...(authority ? { requestedSnapshot: authority.requestedSnapshot } : {}),
+        ...(authority ? { requestedSnapshotStoredAt: authority.provenance.requestedSnapshotStoredAt } : {}),
+        policy: record.policy,
+        decisionSummary: toDashboardDecisionSummary(record.decisionSummary),
         decisions: [],
-        planDigest,
+        planDigest: record.planDigest,
         deleteStepCount: record.deleteStepCount,
         ...(record.deleteSetDigest ? { deleteSetDigest: record.deleteSetDigest } : {}),
     };
 }
 
-export function toDashboardPlanPreflight(
-    record: BlueprintPlanPreflightRecord
-): DashboardBlueprintPlanPreflight & { report: DashboardBlueprintPreflightReport } {
-    const report = record.report as DashboardBlueprintPreflightReport;
+export function toDashboardPlanPreflight(record: BlueprintPlanPreflightSummaryRecord): DashboardBlueprintPlanPreflight {
     const blockerCount =
-        report.summary.stale + report.summary.mappingRequired + report.summary.unsupported + report.summary.invalidPlan;
+        record.summary.stale + record.summary.mappingRequired + record.summary.unsupported + record.summary.invalidPlan;
     return {
+        id: record.id,
         checkedAt: record.checkedAt.toISOString(),
         expiresAt: record.expiresAt.toISOString(),
         digest: record.preflightDigest,
-        status: record.status === 'ready' ? 'ready' : 'blocked',
+        status: record.status,
         blockerCount,
-        report,
     };
 }
 
@@ -206,6 +185,8 @@ export function toDashboardRun(record: BlueprintRunRecord): DashboardBlueprintRu
         ...(record.retryAt ? { retryAt: record.retryAt.toISOString() } : {}),
         ...(record.errorType ? { errorType: record.errorType } : {}),
         ...(record.restorePointBackupId ? { restorePointBackupId: record.restorePointBackupId } : {}),
+        ...(record.verificationStatus ? { verificationStatus: record.verificationStatus } : {}),
+        ...(record.verificationEvidenceDigest ? { verificationEvidenceDigest: record.verificationEvidenceDigest } : {}),
         createdAt: record.createdAt.toISOString(),
         ...(record.startedAt ? { startedAt: record.startedAt.toISOString() } : {}),
         updatedAt: record.updatedAt.toISOString(),
@@ -240,15 +221,14 @@ function readNonNegativeCount(value: unknown): number {
 }
 
 export function toDashboardPlanStep(record: BlueprintPlanStepRecord): DashboardBlueprintPlanStep {
-    const details = toJsonRecord(record.details);
-    const label = typeof details.label === 'string' ? details.label : undefined;
+    const details = toJsonRecord(record.step.details);
     return {
         id: record.id,
         sequence: record.sequence,
-        actionType: record.actionType,
-        targetType: record.targetType,
-        ...(record.targetId ? { targetId: record.targetId } : {}),
-        ...(label ? { label } : {}),
+        actionType: record.step.actionType,
+        targetType: record.step.targetType,
+        targetId: record.step.targetId,
+        label: record.step.label,
         details,
     };
 }
@@ -270,27 +250,6 @@ export function toDashboardObservedState(
     };
 }
 
-export function readRequestedSnapshot(plan: Record<string, unknown>): DashboardBlueprintSnapshot | undefined {
-    if (plan.requestedSnapshotVersion !== 1) return undefined;
-    const result = normalizeDashboardBlueprintSnapshot(plan.requestedSnapshot);
-    return result.type === 'valid' ? result.snapshot : undefined;
-}
-
-export function readPolicy(plan: Record<string, unknown>): DashboardBlueprintPolicy | undefined {
-    return isDashboardBlueprintPolicy(plan.policy) ? plan.policy : undefined;
-}
-
-export function summarizePlanSteps(steps: BlueprintPlanStepRecord[]): DashboardBlueprintDiffPlan['summary'] {
-    return {
-        creates: steps.filter((step) => step.actionType === 'create').length,
-        updates: steps.filter((step) => step.actionType === 'update').length,
-        deletes: steps.filter((step) => step.actionType === 'delete').length,
-        roles: steps.filter((step) => step.targetType === 'role').length,
-        categories: steps.filter((step) => step.targetType === 'category').length,
-        channels: steps.filter((step) => step.targetType === 'channel').length,
-    };
-}
-
 export function mapRepositoryError(error: { type: string }): DashboardBlueprintErrorResult {
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
 }
@@ -303,39 +262,20 @@ function shouldInlinePlanSteps(planStepCount: number, steps: BlueprintPlanStepRe
     return steps.length > 0 && steps.length === planStepCount && steps.length <= dashboardPlanStepInlineLimit;
 }
 
-function readPlanStepCount(plan: Record<string, unknown>): number {
-    const count = plan.planStepCount;
-    if (!Number.isInteger(count) || typeof count !== 'number' || count < 0) {
-        throw new Error('invalid-server-blueprint-v3-run-count');
-    }
-    return count;
-}
-
-function readPlanSummary(plan: Record<string, unknown>): DashboardBlueprintDiffPlan['summary'] {
-    const summary = isObject(plan.summary) ? plan.summary : {};
+function toDashboardDecisionSummary(
+    summary: BlueprintPlanMetadataRecord['decisionSummary']
+): DashboardBlueprintDecisionSummary {
     return {
-        creates: readNumber(summary.creates),
-        updates: readNumber(summary.updates),
-        deletes: readNumber(summary.deletes),
-        roles: readNumber(summary.roles),
-        categories: readNumber(summary.categories),
-        channels: readNumber(summary.channels),
+        'no-op': summary.noOp,
+        create: summary.create,
+        update: summary.update,
+        delete: summary.delete,
+        'protected-retained': summary.protectedRetained,
+        'protected-omitted': summary.protectedOmitted,
+        'unmanaged-retained': summary.unmanagedRetained,
+        'blocked-ambiguous': summary.blockedAmbiguous,
+        'blocked-unsupported': summary.blockedUnsupported,
     };
-}
-
-function readRequestedSnapshotStoredAt(plan: Record<string, unknown>): string | undefined {
-    return typeof plan.requestedSnapshotStoredAt === 'string' && plan.requestedSnapshotStoredAt.trim()
-        ? plan.requestedSnapshotStoredAt.trim()
-        : undefined;
-}
-
-function readDecisionSummary(plan: Record<string, unknown>): DashboardBlueprintDecisionSummary {
-    if (!isObject(plan.decisionSummary)) throw new Error('invalid-server-blueprint-decision-summary');
-    const summary = createEmptyDecisionSummary();
-    for (const classification of Object.keys(summary) as Array<keyof DashboardBlueprintDecisionSummary>) {
-        summary[classification] = readNonNegativeNumber(plan.decisionSummary[classification]);
-    }
-    return summary;
 }
 
 function readPlanSummaryRecord(
@@ -375,12 +315,4 @@ function readLiveCountsRecord(value: Record<string, unknown> | null) {
 
 function readNonNegativeNumber(value: unknown): number {
     return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
-}
-
-function readNumber(value: unknown): number {
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
 }

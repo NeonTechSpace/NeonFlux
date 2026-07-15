@@ -1,34 +1,41 @@
 import '@tanstack/react-start/server-only';
 
 import {
-    createBlueprintPlan,
-    findBlueprintPlanByGuildId,
+    blueprintAuditActions,
+    createBlueprintPlanDraft,
+    finalizeBlueprintPlan,
+    getBlueprintPlanAuthority,
+    getBlueprintPlanMetadata,
     listBlueprintPlanDecisionsPage,
-    recordBlueprintPlanStepsBatch,
-    recordBlueprintPlanDecisionsBatch,
-    blueprintPlanStatuses,
-    transitionBlueprintPlanState,
+    writeBlueprintPlanDecisionBatch,
+    writeBlueprintPlanStepBatch,
 } from '@neonflux/db';
-import type { BlueprintPlanStepRecord } from '@neonflux/db';
-import { normalizeBlueprintPlan } from '@neonflux/blueprint/runtime-contracts';
+import type { BlueprintPlanDecisionRecord, BlueprintPlanStepRecord } from '@neonflux/db';
+import {
+    BLUEPRINT_PLAN_AUTHORITY_VERSION,
+    BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
+    BLUEPRINT_PLAN_VERSION,
+    createBlueprintPlanIntegrityDigests,
+    createBlueprintPlanCreationRequestKey,
+    createBlueprintPlanExecutionAuthorityContentDigest,
+    deriveBlueprintPlanExecutionAuthorityBody,
+    normalizeBlueprintPlan,
+} from '@neonflux/blueprint';
+import type {
+    BlueprintPlanAuthorityBodyV1,
+    BlueprintPlanDecision,
+    BlueprintPlanDecisionLedgerEntryV1,
+    BlueprintPlanStep,
+    BlueprintPlanStepLedgerEntryV1,
+} from '@neonflux/blueprint';
 
 import { getWebDb } from './db.server.js';
-import { blueprintPlanDigest } from './dashboard-blueprint-apply-plan.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { AuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { DashboardBlueprintPlan, DashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
-import { createEmptyDecisionSummary } from './dashboard-blueprint-contracts.js';
-import type {
-    DashboardBlueprintDecisionSummary,
-    DashboardBlueprintPolicy,
-    DashboardBlueprintPlanDecision,
-} from './dashboard-blueprint-contracts.js';
+import type { DashboardBlueprintPolicy, DashboardBlueprintPlanDecision } from './dashboard-blueprint-contracts.js';
 import type { DashboardBlueprintErrorResult, DashboardBlueprintPlanResult } from './dashboard-blueprint-model.js';
-import {
-    dashboardPlanStepInlineLimit,
-    toDashboardBlueprintPlan,
-    toJsonRecord,
-} from './dashboard-blueprint-records.server.js';
+import { dashboardPlanStepInlineLimit, toDashboardBlueprintPlan } from './dashboard-blueprint-records.server.js';
 import type { BlueprintAuditPayload } from './dashboard-blueprint-records.server.js';
 
 export type DashboardBlueprintDecisionPageInput = {
@@ -43,65 +50,39 @@ export type DashboardBlueprintDecisionPageResult =
     | { type: 'invalid-input'; message: string }
     | DashboardBlueprintErrorResult;
 
-export function createDashboardBlueprintPlanDigests(
+export function createDashboardBlueprintPlanAuthority(
     plan: DashboardBlueprintPlan,
-    requested: DashboardBlueprintSnapshot
-) {
-    const deleteSteps = plan.steps.filter((step) => step.actionType === 'delete');
+    requestedSnapshot: DashboardBlueprintSnapshot,
+    options: {
+        source?: string;
+        requestedSnapshotStoredAt: string;
+        sourcePlanId?: string;
+        sourceRunId?: string;
+    }
+): BlueprintPlanAuthorityBodyV1 {
+    const source = options.source ?? 'dashboard-json';
+    if (source !== 'dashboard-json' && source !== 'backup' && source !== 'dashboard-recovery-plan') {
+        throw new Error('invalid-blueprint-plan-provenance-source');
+    }
     return {
-        planDigest: blueprintPlanDigest(plan.fingerprintInput),
-        requestedSnapshotDigest: blueprintPlanDigest(requested),
-        deleteStepCount: deleteSteps.length,
-        deleteSetDigest:
-            deleteSteps.length > 0
-                ? blueprintPlanDigest(deleteSteps.map((step) => `${step.targetType}:${step.targetId}`).sort())
-                : null,
+        requestedSnapshot,
+        projectedSnapshot: plan.projectedSnapshot,
+        roleProjection: plan.roleProjection,
+        mappings: plan.mappings,
+        referenceAuthority: {
+            sourceTargetMap: plan.sourceTargetMap,
+            knownTargetKinds: plan.knownTargetKinds,
+        },
+        blockers: plan.blockers,
+        provenance: {
+            source,
+            requestedGuildId: requestedSnapshot.guildId ?? null,
+            requestedExportedAt: requestedSnapshot.exportedAt ?? null,
+            requestedSnapshotStoredAt: options.requestedSnapshotStoredAt,
+            ...(options.sourcePlanId ? { sourcePlanId: options.sourcePlanId } : {}),
+            ...(options.sourceRunId ? { sourceRunId: options.sourceRunId } : {}),
+        },
     };
-}
-
-function materializeDashboardBlueprintPlanDecisions(
-    plan: DashboardBlueprintPlan,
-    requested: DashboardBlueprintSnapshot
-): DashboardBlueprintPlanDecision[] {
-    const sourceNames = new Map(
-        [...requested.roles, ...requested.categories, ...requested.channels].map((item) => [
-            item.id,
-            item.name ?? item.id,
-        ])
-    );
-    const projectedNames = new Map(
-        [...plan.projectedSnapshot.roles, ...plan.projectedSnapshot.categories, ...plan.projectedSnapshot.channels].map(
-            (item) => [item.id, item.name ?? item.id]
-        )
-    );
-    return plan.decisions.map((decision) => {
-        const logicalId = decision.sourceId ?? decision.targetId ?? 'unknown';
-        const changeLabel = plan.changes.find(
-            (change) => change.targetId === decision.sourceId || change.targetId === decision.targetId
-        )?.label;
-        return {
-            logicalId,
-            targetType: decision.targetType,
-            name:
-                (decision.sourceId ? sourceNames.get(decision.sourceId) : undefined) ??
-                (decision.targetId ? projectedNames.get(decision.targetId) : undefined) ??
-                changeLabel ??
-                logicalId,
-            classification: decision.classification,
-            ...(decision.sourceId ? { sourceId: decision.sourceId } : {}),
-            ...(decision.targetId ? { targetId: decision.targetId } : {}),
-            fields: decision.changes?.map((change) => change.field) ?? [],
-            reason: decision.reason,
-        };
-    });
-}
-
-function summarizeDashboardBlueprintPlanDecisions(
-    decisions: DashboardBlueprintPlanDecision[]
-): DashboardBlueprintDecisionSummary {
-    const summary = createEmptyDecisionSummary();
-    for (const decision of decisions) summary[decision.classification] += 1;
-    return summary;
 }
 
 export async function persistDashboardBlueprintPlan(
@@ -125,150 +106,171 @@ export async function persistDashboardBlueprintPlan(
     }
     plan = normalizedPlan.value;
     const database = await getWebDb();
-    const requestedSnapshotStoredAt = new Date().toISOString();
-    const { planDigest, deleteStepCount, deleteSetDigest, requestedSnapshotDigest } =
-        createDashboardBlueprintPlanDigests(plan, requestedSnapshot);
-    const reviewDecisions = materializeDashboardBlueprintPlanDecisions(plan, requestedSnapshot);
-    const runResult = await createBlueprintPlan(database.db, {
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const sourcePlanId = readOptionalMetadataText(options.planMetadata, 'sourcePlanId');
+    const sourceRunId = readOptionalMetadataText(options.planMetadata, 'sourceRunId');
+    const authority = createDashboardBlueprintPlanAuthority(plan, requestedSnapshot, {
+        source: options.source,
+        requestedSnapshotStoredAt: createdAt,
+        ...(sourcePlanId ? { sourcePlanId } : {}),
+        ...(sourceRunId ? { sourceRunId } : {}),
+    });
+    const executionAuthority = deriveBlueprintPlanExecutionAuthorityBody(authority);
+    const steps: BlueprintPlanStepLedgerEntryV1[] = plan.steps.map((step, sequence) => ({ sequence, step }));
+    const decisions: BlueprintPlanDecisionLedgerEntryV1[] = plan.decisions.map((decision, sequence) => ({
+        sequence,
+        decision,
+    }));
+    let integrity: Awaited<ReturnType<typeof createBlueprintPlanIntegrityDigests>>;
+    let executionAuthorityContentDigest: string;
+    try {
+        [integrity, executionAuthorityContentDigest] = await Promise.all([
+            createBlueprintPlanIntegrityDigests({
+                guildId: context.guild.id,
+                policy: options.policy,
+                summary: plan.summary,
+                authority,
+                executionAuthority,
+                steps,
+                decisions,
+            }),
+            createBlueprintPlanExecutionAuthorityContentDigest({
+                guildId: context.guild.id,
+                authority: executionAuthority,
+            }),
+        ]);
+    } catch {
+        return { type: 'invalid-input', message: 'The generated Blueprint authority could not be sealed.' };
+    }
+
+    const draftResult = await createBlueprintPlanDraft(database.db, {
         guildId: context.guild.id,
         createdByUserId: context.actor.actorUserId,
-        planVersion: 3,
-        policy: options.policy,
-        planDigest,
-        deleteStepCount,
-        ...(deleteSetDigest ? { deleteSetDigest } : {}),
-        requestedSnapshotDigest,
-        plan: toJsonRecord({
-            summary: plan.summary,
-            planStepCount: plan.steps.length,
-            steps: plan.steps,
-            knownTargetKinds: plan.knownTargetKinds,
-            sourceTargetMap: plan.sourceTargetMap,
-            roleProjection: plan.roleProjection,
-            ...(options.roleMappings && Object.keys(options.roleMappings).length > 0
-                ? { roleMappings: options.roleMappings }
-                : {}),
-            ...(options.categoryMappings && Object.keys(options.categoryMappings).length > 0
-                ? { categoryMappings: options.categoryMappings }
-                : {}),
-            ...(options.channelMappings && Object.keys(options.channelMappings).length > 0
-                ? { channelMappings: options.channelMappings }
-                : {}),
-            requestedGuildId: requestedSnapshot.guildId ?? null,
-            requestedExportedAt: requestedSnapshot.exportedAt ?? null,
-            requestedSnapshot,
-            requestedSnapshotStoredAt,
-            requestedSnapshotVersion: 1,
-            source: options.source ?? 'dashboard-json',
-            ...(options.planMetadata ?? {}),
-            planVersion: 3,
+        creationRequestKey: await createBlueprintPlanCreationRequestKey({
+            authority,
+            blockerCount: integrity.blockerCount,
+            createdByUserId: context.actor.actorUserId,
+            decisionLedger: { count: integrity.decisionCount, digest: integrity.decisionLedgerDigest },
+            decisionSummary: integrity.decisionSummary,
+            deleteLedger: { count: integrity.deleteStepCount, digest: integrity.deleteSetDigest },
+            executionAuthorityDigest: integrity.executionAuthorityDigest,
+            guildId: context.guild.id,
             policy: options.policy,
-            planDigest,
-            decisionSummary: summarizeDashboardBlueprintPlanDecisions(reviewDecisions),
-            blockers: plan.blockers,
-            projectedSnapshot: plan.projectedSnapshot,
-            fingerprintInput: plan.fingerprintInput,
+            ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
+            stepLedger: { count: integrity.stepCount, digest: integrity.stepLedgerDigest },
+            summary: plan.summary,
         }),
+        planVersion: BLUEPRINT_PLAN_VERSION,
+        policy: options.policy,
+        summary: plan.summary,
+        decisionSummary: integrity.decisionSummary,
+        blockerCount: integrity.blockerCount,
+        requestedSnapshotDigest: integrity.requestedSnapshotDigest,
+        projectedSnapshotDigest: integrity.projectedSnapshotDigest,
+        authorityVersion: BLUEPRINT_PLAN_AUTHORITY_VERSION,
+        authorityDigest: integrity.authorityDigest,
+        executionAuthorityVersion: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
+        executionAuthorityDigest: integrity.executionAuthorityDigest,
+        stepCount: integrity.stepCount,
+        stepLedgerDigest: integrity.stepLedgerDigest,
+        decisionCount: integrity.decisionCount,
+        decisionLedgerDigest: integrity.decisionLedgerDigest,
+        deleteStepCount: integrity.deleteStepCount,
+        ...(integrity.deleteSetDigest ? { deleteSetDigest: integrity.deleteSetDigest } : {}),
+        planDigest: integrity.planDigest,
+        authority: {
+            version: BLUEPRINT_PLAN_AUTHORITY_VERSION,
+            ...authority,
+            authorityDigest: integrity.authorityDigest,
+        },
+        executionAuthority: {
+            version: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
+            ...executionAuthority,
+            contentDigest: executionAuthorityContentDigest,
+            executionAuthorityDigest: integrity.executionAuthorityDigest,
+        },
+        now,
         ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
     });
-    if (runResult.isErr()) return { type: 'database-error' };
+    if (draftResult.isErr()) return { type: 'database-error' };
 
-    const decisionRecords = await recordDashboardBlueprintPlanDecisions(runResult.value.id, reviewDecisions);
-    if (decisionRecords === 'database-error') {
-        await markBlueprintPlanStepWriteFailed(runResult.value.id);
-        return { type: 'database-error' };
+    const planId = draftResult.value.id;
+    let finalizedPlan = draftResult.value;
+    let stepRecords: BlueprintPlanStepRecord[] = [];
+    if (draftResult.value.status === 'draft') {
+        const decisionRecords = await writeDecisionBatches(planId, decisions, now);
+        if (decisionRecords === 'database-error') return { type: 'database-error' };
+        const writtenSteps = await writeStepBatches(planId, steps, now);
+        if (writtenSteps === 'database-error') return { type: 'database-error' };
+        stepRecords = writtenSteps;
+        const finalized = await finalizeBlueprintPlan(database.db, {
+            planId,
+            now: new Date(),
+            audit: options.audit?.(planId) ?? {
+                action: blueprintAuditActions.planCreated,
+                actorUserId: context.actor.actorUserId,
+                targetId: planId,
+                metadata: { source: 'dashboard', planDigest: draftResult.value.planDigest },
+            },
+        });
+        if (finalized.isErr()) return { type: 'database-error' };
+        finalizedPlan = finalized.value;
     }
-    const stepRecords = await recordPlanStepBatches(
-        runResult.value.id,
-        plan.steps.map((step, index) => ({
-            actionType: step.actionType,
-            targetType: step.targetType,
-            ...(step.targetId ? { targetId: step.targetId } : {}),
-            sequence: index,
-            details: toJsonRecord(step.details),
-        }))
-    );
-    if (stepRecords === 'database-error') {
-        await markBlueprintPlanStepWriteFailed(runResult.value.id);
-        return { type: 'database-error' };
-    }
-    const updatedRunResult = await transitionBlueprintPlanState(database.db, {
-        audit: options.audit?.(runResult.value.id),
-        planId: runResult.value.id,
-        expectedStatus: blueprintPlanStatuses.draft,
-        now: new Date(),
-        status: blueprintPlanStatuses.reviewReady,
+    const persistedAuthority = await getBlueprintPlanAuthority(database.db, {
+        guildId: context.guild.id,
+        planId,
     });
-    if (updatedRunResult.isErr()) return { type: 'database-error' };
+    if (persistedAuthority.isErr()) return { type: 'database-error' };
     return {
         type: 'plan-created',
-        plan: toDashboardBlueprintPlan({ ...updatedRunResult.value, steps: stepRecords }),
+        plan: toDashboardBlueprintPlan(finalizedPlan, {
+            authority: persistedAuthority.value,
+            steps: stepRecords,
+        }),
     };
 }
 
-async function recordPlanStepBatches(
+async function writeStepBatches(
     planId: string,
-    actions: Array<{
-        actionType: string;
-        details?: Record<string, unknown>;
-        sequence: number;
-        status?: string;
-        targetId?: string;
-        targetType: string;
-    }>
+    steps: Array<{ sequence: number; step: BlueprintPlanStep }>,
+    now: Date
 ): Promise<BlueprintPlanStepRecord[] | 'database-error'> {
-    if (actions.length === 0) return [];
+    if (steps.length === 0) return [];
     const database = await getWebDb();
     const records: BlueprintPlanStepRecord[] = [];
-    for (let index = 0; index < actions.length; index += 100) {
-        const result = await recordBlueprintPlanStepsBatch(database.db, {
+    for (let offset = 0; offset < steps.length; offset += 100) {
+        const result = await writeBlueprintPlanStepBatch(database.db, {
             planId,
-            steps: actions.slice(index, index + 100),
+            now,
+            steps: steps.slice(offset, offset + 100),
         });
         if (result.isErr()) return 'database-error';
-        if (records.length <= dashboardPlanStepInlineLimit) {
+        if (records.length < dashboardPlanStepInlineLimit) {
             records.push(...result.value.slice(0, dashboardPlanStepInlineLimit - records.length));
         }
     }
     return records;
 }
 
-async function markBlueprintPlanStepWriteFailed(planId: string): Promise<void> {
-    const database = await getWebDb();
-    await transitionBlueprintPlanState(database.db, {
-        planId,
-        expectedStatus: blueprintPlanStatuses.draft,
-        now: new Date(),
-        status: blueprintPlanStatuses.obsolete,
-    });
-}
-
-async function recordDashboardBlueprintPlanDecisions(
+async function writeDecisionBatches(
     planId: string,
-    decisions: DashboardBlueprintPlanDecision[]
-): Promise<'database-error' | void> {
+    decisions: Array<{ sequence: number; decision: BlueprintPlanDecision }>,
+    now: Date
+): Promise<BlueprintPlanDecisionRecord[] | 'database-error'> {
+    if (decisions.length === 0) return [];
     const database = await getWebDb();
+    const records: BlueprintPlanDecisionRecord[] = [];
     for (let offset = 0; offset < decisions.length; offset += 100) {
-        const result = await recordBlueprintPlanDecisionsBatch(database.db, {
+        const result = await writeBlueprintPlanDecisionBatch(database.db, {
             planId,
-            now: new Date(),
-            decisions: decisions.slice(offset, offset + 100).map((decision, index) => ({
-                planId,
-                sequence: offset + index,
-                targetType: decision.targetType,
-                classification: decision.classification,
-                sourceId: decision.sourceId ?? null,
-                targetId: decision.targetId ?? null,
-                logicalId: decision.logicalId,
-                name: decision.name,
-                details: {
-                    fields: decision.fields,
-                    ...(decision.reason ? { reason: decision.reason } : {}),
-                },
-            })),
+            now,
+            decisions: decisions.slice(offset, offset + 100),
         });
         if (result.isErr()) return 'database-error';
+        records.push(...result.value);
     }
+    return records;
 }
 
 export async function readDashboardBlueprintPlanDecisionPage(
@@ -280,8 +282,8 @@ export async function readDashboardBlueprintPlanDecisionPage(
     const planId = input.planId.trim();
     if (!planId) return { type: 'invalid-input', message: 'Choose a Blueprint plan.' };
     const database = await getWebDb();
-    const run = await findBlueprintPlanByGuildId(database.db, { guildId: context.guild.id, planId });
-    if (run.isErr()) return run.error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
+    const plan = await getBlueprintPlanMetadata(database.db, { guildId: context.guild.id, planId });
+    if (plan.isErr()) return plan.error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
     const page = await listBlueprintPlanDecisionsPage(database.db, {
         guildId: context.guild.id,
         planId,
@@ -291,18 +293,26 @@ export async function readDashboardBlueprintPlanDecisionPage(
     if (page.isErr()) return page.error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
     return {
         type: 'decision-page',
-        decisions: page.value.decisions.map((decision) => ({
-            logicalId: decision.logicalId ?? decision.sourceId ?? decision.targetId ?? decision.id,
-            targetType: decision.targetType as DashboardBlueprintPlanDecision['targetType'],
-            name: decision.name ?? decision.logicalId ?? decision.id,
-            classification: decision.classification as DashboardBlueprintPlanDecision['classification'],
-            ...(decision.sourceId ? { sourceId: decision.sourceId } : {}),
-            ...(decision.targetId ? { targetId: decision.targetId } : {}),
-            fields: Array.isArray(decision.details.fields)
-                ? decision.details.fields.filter((field): field is string => typeof field === 'string')
-                : [],
-            ...(typeof decision.details.reason === 'string' ? { reason: decision.details.reason } : {}),
-        })),
+        decisions: page.value.decisions.map(({ id, decision }) => toDashboardPlanDecision(id, decision)),
         ...(page.value.nextCursor !== null ? { nextCursor: page.value.nextCursor } : {}),
     };
+}
+
+function toDashboardPlanDecision(id: string, decision: BlueprintPlanDecision): DashboardBlueprintPlanDecision {
+    const logicalId = decision.sourceId ?? decision.targetId ?? id;
+    return {
+        logicalId,
+        targetType: decision.targetType,
+        name: logicalId,
+        classification: decision.classification,
+        ...(decision.sourceId ? { sourceId: decision.sourceId } : {}),
+        ...(decision.targetId ? { targetId: decision.targetId } : {}),
+        fields: decision.changes?.map((change) => change.field) ?? [],
+        reason: decision.reason,
+    };
+}
+
+function readOptionalMetadataText(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+    const value = metadata?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }

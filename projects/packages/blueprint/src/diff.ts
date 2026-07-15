@@ -1,12 +1,14 @@
 import { isProtectedBlueprintRole, type BlueprintRole } from './contracts.js';
 import type { BlueprintRoleProjection } from './role-projection.js';
 import type { BlueprintSnapshot } from './snapshot.js';
-import type {
-    BlueprintDiffOptions,
-    BlueprintFieldSummary,
-    BlueprintPlan,
-    BlueprintPlanStep,
-    BlueprintPlanSummary,
+import { summarizeBlueprintPlanChanges } from './plan-summary.js';
+import {
+    BLUEPRINT_PLAN_VERSION,
+    type BlueprintDiffOptions,
+    type BlueprintFieldSummary,
+    type BlueprintPlan,
+    type BlueprintPlanStep,
+    type BlueprintPlanSummary,
 } from './plan.js';
 import {
     emptyIdentity,
@@ -20,7 +22,6 @@ import {
     buildDecisions,
     buildProjectedSnapshot,
     buildRebuildDecisions,
-    createFingerprintInput,
     findUnsupportedChannelChanges,
 } from './plan-builders.js';
 import {
@@ -52,7 +53,6 @@ export type {
     BlueprintFieldSummary,
     BlueprintPlan,
     BlueprintPlanBlocker,
-    BlueprintPlanFingerprintInput,
     BlueprintPlanStep,
     BlueprintPlanSummary,
     BlueprintPolicy,
@@ -185,26 +185,21 @@ export function diffBlueprintSnapshot(
         preservedProtectedOverwriteIds,
         blockedSourceIds,
     });
-    const fingerprintInput = createFingerprintInput(
-        options.policy,
-        knownTargetKinds,
-        sourceTargetMap,
-        projectedSnapshot,
-        decisions,
-        steps
-    );
-
     return {
-        version: 3,
+        version: BLUEPRINT_PLAN_VERSION,
         policy: options.policy,
-        summary: summarizeChanges(changes),
+        summary: summarizeBlueprintPlanChanges(changes),
         changes,
         steps,
         knownTargetKinds,
         sourceTargetMap,
+        mappings: {
+            roles: { ...(options.roleMappings ?? {}) },
+            categories: { ...(options.categoryMappings ?? {}) },
+            channels: { ...(options.channelMappings ?? {}) },
+        },
         roleProjection: roleResult.projection,
         projectedSnapshot,
-        fingerprintInput,
         decisions,
         blockers,
     };
@@ -272,26 +267,17 @@ function createRebuildPlan(current: BlueprintSnapshot, requested: BlueprintSnaps
         preservedProtectedOverwriteIds: new Set(),
         blockedSourceIds: new Set(),
     });
-    const fingerprintInput = createFingerprintInput(
-        'rebuild',
-        knownTargetKinds,
-        sourceTargetMap,
-        projectedSnapshot,
-        decisions,
-        steps
-    );
-
     return {
-        version: 3,
+        version: BLUEPRINT_PLAN_VERSION,
         policy: 'rebuild',
-        summary: summarizeChanges(changes),
+        summary: summarizeBlueprintPlanChanges(changes),
         changes,
         steps,
         knownTargetKinds,
         sourceTargetMap,
+        mappings: { roles: {}, categories: {}, channels: {} },
         roleProjection: roleResult.projection,
         projectedSnapshot,
-        fingerprintInput,
         decisions,
         blockers: [],
     };
@@ -372,18 +358,6 @@ function buildRoleOrderChange(
             after,
             changes: [{ field: 'roleOrder', after }],
         },
-    };
-}
-
-function summarizeChanges(changes: BlueprintPlanStep[]): BlueprintPlanSummary {
-    return {
-        creates: changes.filter((change) => change.actionType === 'create').length,
-        updates: changes.filter((change) => change.actionType === 'update').length,
-        deletes: changes.filter((change) => change.actionType === 'delete').length,
-        roles: changes.filter((change) => change.targetType === 'role' || change.targetType === 'role-order').length,
-        categories: changes.filter((change) => change.targetType === 'category').length,
-        channels: changes.filter((change) => change.targetType === 'channel' || change.targetType === 'channel-order')
-            .length,
     };
 }
 

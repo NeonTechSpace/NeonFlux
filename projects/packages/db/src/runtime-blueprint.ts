@@ -1,4 +1,5 @@
 import { api } from '@neonflux/convex-api';
+import type { Id } from '@neonflux/convex-api/data-model';
 import { normalizeBlueprintPlanStep } from '@neonflux/blueprint/runtime-contracts';
 import type {
     StructureBackupRecord,
@@ -8,9 +9,11 @@ import type {
     StructureBackupSummaryRecord,
     BlueprintPlanStepPageRecord,
     BlueprintPlanStepRecord,
+    BlueprintPlanAuthorityRecord,
+    BlueprintPlanExecutionAuthorityRecord,
+    BlueprintPlanMetadataRecord,
     BlueprintRepositoryError,
-    BlueprintPlanRecord,
-    BlueprintPlanWithStepsRecord,
+    BlueprintPlanSummaryRecord,
     StructureObservedEventStateRecord,
 } from './contracts-blueprint.js';
 import { err, ok, type Result } from 'neverthrow';
@@ -31,9 +34,9 @@ import {
     toBackupSummaryRecord,
     toBlueprintPlanStepPageRecord,
     toBlueprintPlanStepRecord,
-    toBlueprintPlanRecord,
     toObservedEventStateRecord,
 } from './runtime-blueprint-records.js';
+import { toBlueprintPlanAuthority, toBlueprintPlanMetadata } from './runtime-blueprint-run-records.js';
 
 type BlueprintDb = ConvexDatabase;
 type BlueprintAuditInput = {
@@ -587,60 +590,101 @@ export async function recordStructureScheduledDriftResult(
     }
 }
 
-export async function createBlueprintPlan(
+export async function createBlueprintPlanDraft(
     db: BlueprintDb,
-    input: {
+    input: Omit<
+        BlueprintPlanMetadataRecord,
+        'createdAt' | 'createdByUserId' | 'deleteSetDigest' | 'id' | 'sourceBackupId' | 'status' | 'updatedAt'
+    > & {
+        authority: Omit<BlueprintPlanAuthorityRecord, 'createdAt' | 'guildId' | 'id' | 'planId'>;
+        creationRequestKey: string;
         createdByUserId?: string;
-        deleteStepCount: number;
         deleteSetDigest?: string;
-        guildId: string;
-        plan?: Record<string, unknown>;
-        planDigest: string;
-        planVersion: 3;
-        policy: 'merge' | 'synchronize' | 'rebuild';
-        requestedSnapshotDigest: string;
+        executionAuthority: Omit<BlueprintPlanExecutionAuthorityRecord, 'createdAt' | 'guildId' | 'id' | 'planId'>;
+        now: Date;
         sourceBackupId?: string;
     }
-): Promise<Result<BlueprintPlanRecord, BlueprintRepositoryError>> {
+): Promise<Result<BlueprintPlanMetadataRecord, BlueprintRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const deleteSetDigest = normalizeOptionalText(input.deleteSetDigest);
     const planDigest = normalizeRequiredText(input.planDigest, 'planDigest');
     const requestedSnapshotDigest = normalizeRequiredText(input.requestedSnapshotDigest, 'requestedSnapshotDigest');
+    const projectedSnapshotDigest = normalizeRequiredText(input.projectedSnapshotDigest, 'projectedSnapshotDigest');
+    const authorityDigest = normalizeRequiredText(input.authorityDigest, 'authorityDigest');
+    const executionAuthorityDigest = normalizeRequiredText(input.executionAuthorityDigest, 'executionAuthorityDigest');
+    const stepLedgerDigest = normalizeRequiredText(input.stepLedgerDigest, 'stepLedgerDigest');
+    const decisionLedgerDigest = normalizeRequiredText(input.decisionLedgerDigest, 'decisionLedgerDigest');
     if (guildId.isErr()) return err(guildId.error);
-    if (!Number.isInteger(input.deleteStepCount) || input.deleteStepCount < 0)
-        return err({ field: 'deleteStepCount', type: 'invalid-value' });
+    for (const [field, value] of [
+        ['blockerCount', input.blockerCount],
+        ['stepCount', input.stepCount],
+        ['decisionCount', input.decisionCount],
+        ['deleteStepCount', input.deleteStepCount],
+    ] as const) {
+        if (!Number.isSafeInteger(value) || value < 0) return err({ field, type: 'invalid-value' });
+    }
     if (input.deleteStepCount > 0 && !deleteSetDigest) return err({ field: 'deleteSetDigest', type: 'missing-input' });
     if (input.deleteStepCount === 0 && deleteSetDigest) return err({ field: 'deleteSetDigest', type: 'invalid-value' });
     if (planDigest.isErr()) return err(planDigest.error);
     if (requestedSnapshotDigest.isErr()) return err(requestedSnapshotDigest.error);
+    if (projectedSnapshotDigest.isErr()) return err(projectedSnapshotDigest.error);
+    if (authorityDigest.isErr()) return err(authorityDigest.error);
+    if (executionAuthorityDigest.isErr()) return err(executionAuthorityDigest.error);
+    if (stepLedgerDigest.isErr()) return err(stepLedgerDigest.error);
+    if (decisionLedgerDigest.isErr()) return err(decisionLedgerDigest.error);
 
     try {
         const plan = await db.client.mutation(
-            api.blueprint.createBlueprintPlan,
+            api.blueprint.createBlueprintPlanDraft,
             compactConvexArgs({
-                createdByUserId: normalizeOptionalText(input.createdByUserId),
-                deleteStepCount: input.deleteStepCount,
-                deleteSetDigest,
-                guildId: guildId.value,
-                plan: input.plan ?? {},
-                planDigest: planDigest.value,
-                planVersion: input.planVersion,
-                policy: input.policy,
-                requestedSnapshotDigest: requestedSnapshotDigest.value,
-                sourceBackupId: normalizeOptionalText(input.sourceBackupId),
+                metadata: compactConvexArgs({
+                    authorityDigest: authorityDigest.value,
+                    authorityVersion: input.authorityVersion,
+                    blockerCount: input.blockerCount,
+                    createdByUserId: normalizeOptionalText(input.createdByUserId ?? undefined),
+                    decisionCount: input.decisionCount,
+                    decisionLedgerDigest: decisionLedgerDigest.value,
+                    decisionSummary: input.decisionSummary,
+                    deleteSetDigest,
+                    deleteStepCount: input.deleteStepCount,
+                    executionAuthorityDigest: executionAuthorityDigest.value,
+                    executionAuthorityVersion: input.executionAuthorityVersion,
+                    guildId: guildId.value,
+                    planDigest: planDigest.value,
+                    planVersion: input.planVersion,
+                    policy: input.policy,
+                    projectedSnapshotDigest: projectedSnapshotDigest.value,
+                    requestedSnapshotDigest: requestedSnapshotDigest.value,
+                    sourceBackupId: normalizeOptionalText(input.sourceBackupId ?? undefined),
+                    stepCount: input.stepCount,
+                    stepLedgerDigest: stepLedgerDigest.value,
+                    summary: input.summary,
+                }),
+                authority: {
+                    ...input.authority,
+                    authorityDigest: authorityDigest.value,
+                    guildId: guildId.value,
+                },
+                creationRequestKey: input.creationRequestKey,
+                executionAuthority: {
+                    ...input.executionAuthority,
+                    executionAuthorityDigest: executionAuthorityDigest.value,
+                    guildId: guildId.value,
+                },
+                now: input.now.toISOString(),
             })
         );
 
-        return ok(toBlueprintPlanRecord(plan));
+        return ok(toBlueprintPlanMetadata(plan));
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function listBlueprintPlansByGuildId(
+export async function listBlueprintPlanSummariesByGuildId(
     db: BlueprintDb,
     input: { guildId: string; limit?: number }
-): Promise<Result<BlueprintPlanRecord[], BlueprintRepositoryError>> {
+): Promise<Result<BlueprintPlanSummaryRecord[], BlueprintRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const limit = normalizeLimit(input.limit);
 
@@ -648,21 +692,21 @@ export async function listBlueprintPlansByGuildId(
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const plans = await db.client.query(api.blueprint.listBlueprintPlansByGuildId, {
+        const plans = await db.client.query(api.blueprint.listBlueprintPlanSummariesByGuildId, {
             guildId: guildId.value,
             limit: limit.value,
         });
 
-        return ok(plans.map(toBlueprintPlanRecord));
+        return ok(plans.map(toBlueprintPlanMetadata));
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function findBlueprintPlanByGuildId(
+export async function getBlueprintPlanMetadata(
     db: BlueprintDb,
     input: { guildId: string; planId: string }
-): Promise<Result<BlueprintPlanRecord, BlueprintRepositoryError>> {
+): Promise<Result<BlueprintPlanMetadataRecord, BlueprintRepositoryError>> {
     const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const planId = normalizeRequiredText(input.planId, 'planId');
 
@@ -670,37 +714,48 @@ export async function findBlueprintPlanByGuildId(
     if (planId.isErr()) return err(planId.error);
 
     try {
-        const plan = await db.client.query(api.blueprint.findBlueprintPlanByGuildId, {
+        const plan = await db.client.query(api.blueprint.getBlueprintPlanMetadata, {
             guildId: guildId.value,
-            planId: planId.value,
+            planId: planId.value as Id<'blueprintPlans'>,
         });
 
-        return plan ? ok(toBlueprintPlanRecord(plan)) : err({ type: 'not-found' });
+        return plan ? ok(toBlueprintPlanMetadata(plan)) : err({ type: 'not-found' });
     } catch {
         return err({ type: 'database-error' });
     }
 }
 
-export async function findBlueprintPlanWithStepsByGuildId(
+export async function getBlueprintPlanAuthority(
     db: BlueprintDb,
     input: { guildId: string; planId: string }
-): Promise<Result<BlueprintPlanWithStepsRecord, BlueprintRepositoryError>> {
-    const plan = await findBlueprintPlanByGuildId(db, input);
-    if (plan.isErr()) return err(plan.error);
+): Promise<Result<BlueprintPlanAuthorityRecord, BlueprintRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
+    const planId = normalizeRequiredText(input.planId, 'planId');
 
-    const steps = await listAllBlueprintPlanStepsByPlanId(db, { planId: plan.value.id });
-    if (steps.isErr()) return err(steps.error);
+    if (guildId.isErr()) return err(guildId.error);
+    if (planId.isErr()) return err(planId.error);
 
-    return ok({ ...plan.value, steps: steps.value });
+    try {
+        const authority = await db.client.query(api.blueprint.getBlueprintPlanAuthority, {
+            guildId: guildId.value,
+            planId: planId.value as Id<'blueprintPlans'>,
+        });
+
+        return authority ? ok(toBlueprintPlanAuthority(authority)) : err({ type: 'not-found' });
+    } catch {
+        return err({ type: 'database-error' });
+    }
 }
 
 export async function listBlueprintPlanStepsByPlanIdPage(
     db: BlueprintDb,
-    input: { cursor?: string; limit?: number; planId: string }
+    input: { cursor?: string; guildId: string; limit?: number; planId: string }
 ): Promise<Result<BlueprintPlanStepPageRecord, BlueprintRepositoryError>> {
+    const guildId = normalizeRequiredText(input.guildId, 'guildId');
     const planId = normalizeRequiredText(input.planId, 'planId');
     const limit = normalizeLimit(input.limit, blueprintPlanStepPageSize);
 
+    if (guildId.isErr()) return err(guildId.error);
     if (planId.isErr()) return err(planId.error);
     if (limit.isErr()) return err(limit.error);
 
@@ -709,8 +764,9 @@ export async function listBlueprintPlanStepsByPlanIdPage(
             api.blueprint.listBlueprintPlanStepsByPlanIdPage,
             compactConvexArgs({
                 cursor: normalizeOptionalText(input.cursor),
+                guildId: guildId.value,
                 limit: limit.value,
-                planId: planId.value,
+                planId: planId.value as Id<'blueprintPlans'>,
             })
         );
 
@@ -722,7 +778,7 @@ export async function listBlueprintPlanStepsByPlanIdPage(
 
 export async function listAllBlueprintPlanStepsByPlanId(
     db: BlueprintDb,
-    input: { planId: string }
+    input: { guildId: string; planId: string }
 ): Promise<Result<BlueprintPlanStepRecord[], BlueprintRepositoryError>> {
     const steps: BlueprintPlanStepRecord[] = [];
     let cursor: string | undefined;
@@ -730,6 +786,7 @@ export async function listAllBlueprintPlanStepsByPlanId(
     do {
         const page = await listBlueprintPlanStepsByPlanIdPage(db, {
             ...(cursor ? { cursor } : {}),
+            guildId: input.guildId,
             limit: blueprintPlanStepPageSize,
             planId: input.planId,
         });
@@ -743,39 +800,14 @@ export async function listAllBlueprintPlanStepsByPlanId(
     return ok(steps);
 }
 
-export async function recordBlueprintPlanStep(
-    db: BlueprintDb,
-    input: {
-        actionType: string;
-        details?: Record<string, unknown>;
-        planId: string;
-        sequence: number;
-        targetId?: string;
-        targetType: string;
-    }
-): Promise<Result<BlueprintPlanStepRecord, BlueprintRepositoryError>> {
-    const normalizedInput = normalizeBlueprintPlanStepInput(input);
-    if (normalizedInput.isErr()) return err(normalizedInput.error);
-
-    try {
-        const step = await db.client.mutation(api.blueprint.recordBlueprintPlanStep, normalizedInput.value);
-
-        return ok(toBlueprintPlanStepRecord(step));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function recordBlueprintPlanStepsBatch(
+export async function writeBlueprintPlanStepBatch(
     db: BlueprintDb,
     input: {
         steps: Array<{
-            actionType: string;
-            details?: Record<string, unknown>;
             sequence: number;
-            targetId?: string;
-            targetType: string;
+            step: BlueprintPlanStepRecord['step'];
         }>;
+        now: Date;
         planId: string;
     }
 ): Promise<Result<BlueprintPlanStepRecord[], BlueprintRepositoryError>> {
@@ -784,27 +816,22 @@ export async function recordBlueprintPlanStepsBatch(
     if (input.steps.length < 1 || input.steps.length > 100) {
         return err({ field: 'steps', type: 'invalid-value' });
     }
-    if (new Set(input.steps.map((step) => step.sequence)).size !== input.steps.length) {
+    if (!hasContiguousSequences(input.steps)) {
         return err({ field: 'sequence', type: 'invalid-value' });
     }
 
     const steps = [];
-    for (const step of input.steps) {
-        const normalized = normalizeBlueprintPlanStepInput({ ...step, planId: planId.value });
-        if (normalized.isErr()) return err(normalized.error);
-        steps.push({
-            actionType: normalized.value.actionType,
-            details: normalized.value.details,
-            sequence: normalized.value.sequence,
-            ...(normalized.value.targetId ? { targetId: normalized.value.targetId } : {}),
-            targetType: normalized.value.targetType,
-        });
+    for (const entry of input.steps) {
+        const normalized = normalizeBlueprintPlanStep(entry.step);
+        if (normalized.type === 'invalid') return err({ field: 'step', type: 'invalid-value' });
+        steps.push({ sequence: entry.sequence, step: normalized.value });
     }
 
     try {
-        const records = await db.client.mutation(api.blueprint.recordBlueprintPlanStepsBatch, {
+        const records = await db.client.mutation(api.blueprint.writeBlueprintPlanStepBatch, {
             steps,
-            planId: planId.value,
+            now: input.now.toISOString(),
+            planId: planId.value as Id<'blueprintPlans'>,
         });
 
         return ok(records.map(toBlueprintPlanStepRecord));
@@ -836,47 +863,14 @@ function normalizeObservedEventInput(input: {
     });
 }
 
-function normalizeBlueprintPlanStepInput(input: {
-    actionType: string;
-    details?: Record<string, unknown>;
-    planId: string;
-    sequence?: number;
-    targetId?: string;
-    targetType: string;
-}) {
-    const planId = normalizeRequiredText(input.planId, 'planId');
-    const actionType = normalizeRequiredText(input.actionType, 'actionType');
-    const targetType = normalizeRequiredText(input.targetType, 'targetType');
-    const targetId = normalizeOptionalText(input.targetId);
-    const sequence = input.sequence;
-
-    if (planId.isErr()) return err(planId.error);
-    if (actionType.isErr()) return err(actionType.error);
-    if (targetType.isErr()) return err(targetType.error);
-    if (!Number.isInteger(sequence) || typeof sequence !== 'number' || sequence < 0) {
-        return err({ field: 'sequence', type: 'invalid-value' as const });
-    }
-
-    const details = input.details ?? {};
-    const planStep = normalizeBlueprintPlanStep({
-        actionType: actionType.value,
-        targetType: targetType.value,
-        ...(targetId ? { targetId } : {}),
-        label: typeof details.label === 'string' ? details.label : '',
-        details,
-    });
-    if (planStep.type === 'invalid') {
-        return err({ field: 'details', type: 'invalid-value' as const });
-    }
-
-    return ok({
-        actionType: actionType.value,
-        details: planStep.value.details,
-        planId: planId.value,
-        sequence,
-        ...(targetId ? { targetId } : {}),
-        targetType: targetType.value,
-    });
+function hasContiguousSequences(entries: ReadonlyArray<{ sequence: number }>): boolean {
+    const firstSequence = entries[0]?.sequence;
+    return (
+        firstSequence !== undefined &&
+        Number.isSafeInteger(firstSequence) &&
+        firstSequence >= 0 &&
+        entries.every((entry, index) => entry.sequence === firstSequence + index)
+    );
 }
 
 function normalizeBlueprintAuditInput(input: BlueprintAuditInput | undefined):

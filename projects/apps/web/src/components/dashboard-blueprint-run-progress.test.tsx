@@ -21,14 +21,19 @@ const unmountViews: Array<() => void> = [];
 
 const mocks = vi.hoisted(() => {
     const liveClient = vi.fn();
+    const liveStatus = { phase: 'connected' };
     return {
         fetchToken: vi.fn(),
         httpClient: vi.fn(),
         httpQuery: vi.fn(),
         liveClient,
         liveClients: [] as MockLiveClient[],
+        liveStatus,
         restartLiveTransport: vi.fn(),
-        sharedLiveClient: { watchQuery: liveClient },
+        sharedLiveClient: {
+            connectionState: () => ({ isWebSocketConnected: liveStatus.phase === 'connected' }),
+            watchQuery: liveClient,
+        },
     };
 });
 
@@ -43,7 +48,7 @@ vi.mock('./dashboard-live-provider.js', () => ({
         client: mocks.sharedLiveClient,
         confirmManageableGuildScope: vi.fn(),
         restart: mocks.restartLiveTransport,
-        status: { authentication: 'authenticated', generation: 1, phase: 'connected' },
+        status: { authentication: 'authenticated', generation: 1, phase: mocks.liveStatus.phase },
     }),
 }));
 
@@ -56,6 +61,7 @@ describe('Server Blueprint progress transport', () => {
             return { query: mocks.httpQuery };
         });
         mocks.liveClients.length = 0;
+        mocks.liveStatus.phase = 'connected';
         mocks.restartLiveTransport.mockReset();
         mocks.liveClient.mockReset().mockImplementation(function MockWatchQuery() {
             const client: MockLiveClient = {
@@ -194,31 +200,162 @@ describe('Server Blueprint progress transport', () => {
         await waitFor(() => expect(screen.getByTestId('retrying').textContent).toBe('no'));
     });
 
-    it('expires old transport success and reports a later dual-transport stall', async () => {
+    it('keeps an unchanged connected watch healthy without recurring polling', async () => {
         mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
-        const { queryClient } = renderProgress({ initialRun: run(), planId: 'run-1' });
-        const queryKey = blueprintProgressKey('guild-1', 'run-1');
+        renderProgress({ initialRun: run(), planId: 'run-1' });
 
         await waitFor(() => expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2'));
-        vi.useFakeTimers();
         const liveClient = mocks.liveClients[0];
         liveClient.localQueryResult.mockReturnValue(
             runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
         );
         act(() => liveClient.callback?.());
-        mocks.httpQuery.mockReturnValue(new Promise<RunQueryResult>(() => undefined));
+        await waitFor(() => expect(screen.getByTestId('transport').textContent).toBe('live:confirmed'));
+        const requestCount = mocks.httpQuery.mock.calls.length;
+        vi.useFakeTimers();
 
-        await act(async () => {
-            const refetch = queryClient.refetchQueries({ queryKey });
-            await vi.advanceTimersByTimeAsync(60_000);
-            await refetch;
-        });
+        await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
-        expect(queryClient.getQueryState(queryKey)?.error).toMatchObject({
-            name: 'TimeoutError',
-        });
-        expect(screen.getByTestId('issue').textContent).toBe('BLUEPRINT_PROGRESS_TIMEOUT');
+        expect(mocks.httpQuery).toHaveBeenCalledTimes(requestCount);
+        expect(screen.getByTestId('issue').textContent).toBe('none');
+        expect(screen.getByTestId('transport').textContent).toBe('live:confirmed');
         expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2');
+    });
+
+    it('enables polling after a connected watch stays silent through its initial timeout', async () => {
+        vi.useFakeTimers();
+        mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        renderProgress({ initialRun: run(), planId: 'run-1' });
+
+        await act(async () => vi.advanceTimersByTimeAsync(0));
+        expect(mocks.liveClients).toHaveLength(1);
+        expect(screen.getByTestId('progress').textContent).toBe('run-1:running:1/2');
+        const bootstrapRequests = mocks.httpQuery.mock.calls.length;
+
+        await act(async () => vi.advanceTimersByTimeAsync(12_000));
+        expect(screen.getByTestId('transport').textContent).toBe('reconnecting:unconfirmed');
+        await act(async () => vi.advanceTimersByTimeAsync(4_000));
+
+        expect(mocks.httpQuery.mock.calls.length).toBeGreaterThan(bootstrapRequests);
+        expect(screen.getByTestId('transport').textContent).toBe('polling:confirmed');
+    });
+
+    it('polls whenever the live provider is unavailable', async () => {
+        vi.useFakeTimers();
+        mocks.liveStatus.phase = 'unavailable';
+        mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        renderProgress({ initialRun: run(), planId: 'run-1' });
+
+        await act(async () => vi.advanceTimersByTimeAsync(0));
+        expect(screen.getByTestId('transport').textContent).toBe('polling:confirmed');
+        const bootstrapRequests = mocks.httpQuery.mock.calls.length;
+        await act(async () => vi.advanceTimersByTimeAsync(4_000));
+
+        expect(mocks.httpQuery.mock.calls.length).toBeGreaterThan(bootstrapRequests);
+    });
+
+    it('polls while the live provider reconnects and stops after the watch recovers', async () => {
+        mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        const view = renderProgress({ initialRun: run(), planId: 'run-1' });
+        await waitFor(() => expect(mocks.liveClients).toHaveLength(1));
+        const liveClient = mocks.liveClients[0];
+        liveClient.localQueryResult.mockReturnValue(
+            runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
+        );
+        act(() => liveClient.callback?.());
+        await waitFor(() => expect(screen.getByTestId('transport').textContent).toBe('live:confirmed'));
+        const bootstrapRequests = mocks.httpQuery.mock.calls.length;
+        vi.useFakeTimers();
+
+        mocks.liveStatus.phase = 'reconnecting';
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(4_000));
+        expect(mocks.httpQuery.mock.calls.length).toBeGreaterThan(bootstrapRequests);
+
+        mocks.liveStatus.phase = 'connected';
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+        const requestsBeforeWatchRecovery = mocks.httpQuery.mock.calls.length;
+        await act(async () => vi.advanceTimersByTimeAsync(4_000));
+        expect(mocks.httpQuery.mock.calls.length).toBeGreaterThan(requestsBeforeWatchRecovery);
+        expect(screen.getByTestId('transport').textContent).toBe('polling:confirmed');
+
+        act(() => liveClient.callback?.());
+        const recoveredRequests = mocks.httpQuery.mock.calls.length;
+        await act(async () => vi.advanceTimersByTimeAsync(8_000));
+
+        expect(mocks.httpQuery).toHaveBeenCalledTimes(recoveredRequests);
+        expect(screen.getByTestId('transport').textContent).toBe('live:confirmed');
+    });
+
+    it('accepts a recovered watch result that arrives before React publishes the connected phase', async () => {
+        mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        const view = renderProgress({ initialRun: run(), planId: 'run-1' });
+        await waitFor(() => expect(mocks.liveClients).toHaveLength(1));
+        const liveClient = mocks.liveClients[0];
+        liveClient.localQueryResult.mockReturnValue(
+            runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
+        );
+        act(() => liveClient.callback?.());
+        await waitFor(() => expect(screen.getByTestId('transport').textContent).toBe('live:confirmed'));
+
+        mocks.liveStatus.phase = 'reconnecting';
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+        expect(screen.getByTestId('transport').textContent).not.toBe('live:confirmed');
+
+        mocks.liveStatus.phase = 'connected';
+        act(() => liveClient.callback?.());
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+
+        expect(screen.getByTestId('transport').textContent).toBe('live:confirmed');
+    });
+
+    it('reports fallback failure while a reconnected watch is still unconfirmed', async () => {
+        mocks.httpQuery.mockResolvedValue(runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' }));
+        const view = renderProgress({ initialRun: run(), planId: 'run-1' });
+        await waitFor(() => expect(mocks.liveClients).toHaveLength(1));
+        const liveClient = mocks.liveClients[0];
+        liveClient.localQueryResult.mockReturnValue(
+            runQueryResult({ appliedSteps: 1, updatedAt: '2026-07-11T12:00:01.000Z' })
+        );
+        act(() => liveClient.callback?.());
+        await waitFor(() => expect(screen.getByTestId('transport').textContent).toBe('live:confirmed'));
+
+        mocks.liveStatus.phase = 'reconnecting';
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+        mocks.liveStatus.phase = 'connected';
+        view.rerender(
+            <ProgressProvider queryClient={view.queryClient}>
+                <ProgressProbe initialRun={run()} planId='run-1' />
+            </ProgressProvider>
+        );
+
+        mocks.httpQuery.mockRejectedValue(new Error('progress fallback failed'));
+        await act(async () => {
+            await view.queryClient.refetchQueries({ queryKey: blueprintProgressKey('guild-1', 'run-1') });
+        });
+
+        await waitFor(() => expect(screen.getByTestId('issue').textContent).toBe('BLUEPRINT_PROGRESS_READ_FAILED'));
+        expect(screen.getByTestId('transport').textContent).toBe('reconnecting:unconfirmed');
     });
 
     it('keeps terminal progress sticky and refreshes the canonical workspace once', async () => {

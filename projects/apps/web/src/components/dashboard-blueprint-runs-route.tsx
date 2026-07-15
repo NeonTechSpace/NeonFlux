@@ -7,6 +7,10 @@ import {
     getDashboardBlueprintStatusQueryKey,
 } from '../dashboard-query-keys.js';
 import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import {
+    useDashboardBlueprintPreflightEvidenceQuery,
+    useDashboardBlueprintVerificationEvidenceQuery,
+} from './dashboard-blueprint-cold-detail-queries.js';
 import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { readDashboardBlueprintDiagnosticCode } from './dashboard-blueprint-progress.js';
 import { useDashboardBlueprintPlanInspectionState } from './dashboard-blueprint-plan-inspection-state.js';
@@ -26,6 +30,7 @@ export function DashboardBlueprintRunsRoute() {
     const runsQuery = useDashboardBlueprintRunsQuery(guildId);
     const [status, setStatus] = useState<PanelStatus | undefined>();
     const [busyAction, setBusyAction] = useState<BlueprintBusyAction | undefined>();
+    const [visibleEvidencePlanId, setVisibleEvidencePlanId] = useState<string>();
 
     async function refreshRuns(): Promise<void> {
         await Promise.all([
@@ -47,6 +52,19 @@ export function DashboardBlueprintRunsRoute() {
         setBusyAction,
         setStatus,
     });
+    const visibleEvidencePlan = runsQuery.data?.plans.find((plan) => plan.id === visibleEvidencePlanId);
+    const preflightEvidenceQuery = useDashboardBlueprintPreflightEvidenceQuery({
+        checkedAt: visibleEvidencePlan?.preflight?.checkedAt,
+        enabled: Boolean(visibleEvidencePlan),
+        expiresAt: visibleEvidencePlan?.preflight?.expiresAt,
+        guildId,
+        preflightId: visibleEvidencePlan?.preflight?.id,
+    });
+    const verificationEvidenceQuery = useDashboardBlueprintVerificationEvidenceQuery({
+        enabled: Boolean(visibleEvidencePlan?.run?.verificationEvidenceDigest),
+        guildId,
+        runId: visibleEvidencePlan?.run?.id,
+    });
 
     if (!runsQuery.data && runsQuery.isError) {
         return (
@@ -64,11 +82,20 @@ export function DashboardBlueprintRunsRoute() {
 
     const plans = runsQuery.data.plans.map((plan) => ({
         ...plan,
+        ...(plan.id === visibleEvidencePlanId && verificationEvidenceQuery.data
+            ? { verification: verificationEvidenceQuery.data }
+            : {}),
         steps: inspection.stepPagesByPlanId[plan.id]?.steps ?? plan.steps,
         decisions: inspection.decisionPagesByPlanId[plan.id]?.decisions ?? plan.decisions,
         ...(plan.id === activePlan?.id && runProgress.run ? { run: runProgress.run } : {}),
     }));
-    const refreshError = runsQuery.isError ? runsQuery.error : statusError;
+    const refreshError = runsQuery.isError
+        ? runsQuery.error
+        : preflightEvidenceQuery.isError
+          ? preflightEvidenceQuery.error
+          : verificationEvidenceQuery.isError
+            ? verificationEvidenceQuery.error
+            : statusError;
 
     return (
         <DashboardBlueprintSurfaceContent
@@ -77,6 +104,8 @@ export function DashboardBlueprintRunsRoute() {
             refreshRetrying={runsQuery.isFetching || runtime.statusRefreshing}
             onRetryRefresh={() => {
                 if (runsQuery.isError) void runsQuery.refetch();
+                if (preflightEvidenceQuery.isError) void preflightEvidenceQuery.refetch();
+                if (verificationEvidenceQuery.isError) void verificationEvidenceQuery.refetch();
                 if (statusError) retryStatus();
             }}>
             <DashboardBlueprintRunsSurface
@@ -89,10 +118,23 @@ export function DashboardBlueprintRunsRoute() {
                     runProgressRetrying: runProgress.retrying,
                     plans,
                     latestPlan: plans.at(0),
-                    preflightByPlanId: runOperations.preflightByPlanId,
+                    preflightByPlanId: Object.fromEntries(
+                        plans.flatMap((plan) => {
+                            const persisted =
+                                plan.id === visibleEvidencePlanId ? preflightEvidenceQuery.data : undefined;
+                            if (persisted) return [[plan.id, persisted]];
+                            return Object.hasOwn(runOperations.preflightByPlanId, plan.id)
+                                ? [[plan.id, runOperations.preflightByPlanId[plan.id]]]
+                                : [];
+                        })
+                    ),
                     onControlRun: (plan, request) => void runOperations.controlRun(plan, request),
                     onLoadPlanSteps: (plan) => void inspection.loadPlanSteps(plan),
                     onLoadPlanDecisions: (plan) => void inspection.loadPlanDecisions(plan),
+                    onPlanEvidenceVisibilityChange: (plan, visible) =>
+                        setVisibleEvidencePlanId((current) =>
+                            visible ? plan.id : current === plan.id ? undefined : current
+                        ),
                     onPreflightRun: (plan) => void runOperations.preflightPlan(plan),
                     onRecoveryPlan: (plan) => {
                         void (async () => {

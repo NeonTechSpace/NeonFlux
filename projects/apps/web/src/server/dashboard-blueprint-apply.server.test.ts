@@ -1,12 +1,13 @@
 import {
     approveBlueprintPlan,
     enqueueBlueprintRun,
-    findLatestBlueprintRunForPlan,
-    findBlueprintPlanWithStepsByGuildId,
+    listLatestBlueprintRunSummaries,
+    getBlueprintPlanMetadata,
     requestBlueprintRunControl,
     BLUEPRINT_RUN_PROTOCOL_VERSION,
 } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
+import type { BlueprintPlanMetadataRecord } from '@neonflux/db';
 import { err, ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,8 +19,8 @@ vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
     approveBlueprintPlan: vi.fn(),
     enqueueBlueprintRun: vi.fn(),
-    findLatestBlueprintRunForPlan: vi.fn(),
-    findBlueprintPlanWithStepsByGuildId: vi.fn(),
+    listLatestBlueprintRunSummaries: vi.fn(),
+    getBlueprintPlanMetadata: vi.fn(),
     requestBlueprintRunControl: vi.fn(),
 }));
 vi.mock('./db.server.js', () => ({ getWebDb: vi.fn() }));
@@ -49,7 +50,7 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('enqueues the approved plan against the exact reviewed preflight digest', async () => {
-        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([{ actionType: 'create' }])));
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(ok(createRun([{ actionType: 'create' }])));
         vi.mocked(enqueueBlueprintRun).mockResolvedValue(ok(createRunRecord('queued') as never));
 
         const result = await applyDashboardBlueprintPlan(request, {
@@ -85,7 +86,7 @@ describe('Server Blueprint enqueue boundary', () => {
         [{ type: 'blueprint-run-review-stale' }, { type: 'review-stale' }],
         [{ type: 'blueprint-guild-run-active' }, { type: 'run-active' }],
     ] as const)('preserves an actionable enqueue conflict for the UI', async (repositoryError, expected) => {
-        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([{ actionType: 'create' }])));
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(ok(createRun([{ actionType: 'create' }])));
         vi.mocked(enqueueBlueprintRun).mockResolvedValue(err(repositoryError));
 
         const result = await applyDashboardBlueprintPlan(request, {
@@ -99,7 +100,7 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('does not enqueue an approved plan with no actions', async () => {
-        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([])));
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(ok(createRun([])));
 
         const result = await applyDashboardBlueprintPlan(request, {
             guildId: 'guild-1',
@@ -113,7 +114,7 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('requires risk-based deletion acknowledgement', async () => {
-        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(ok(createRun([{ actionType: 'delete' }])));
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(ok(createRun([{ actionType: 'delete' }])));
 
         const result = await applyDashboardBlueprintPlan(request, {
             guildId: 'guild-1',
@@ -131,7 +132,7 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('requires rebuild acknowledgements and the NFC-normalized case-sensitive target name', async () => {
-        vi.mocked(findBlueprintPlanWithStepsByGuildId).mockResolvedValue(
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(
             ok(createRun([{ actionType: 'delete' }], { policy: 'rebuild' }))
         );
 
@@ -160,7 +161,9 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('only allows cancellation while an run is queued or paused', async () => {
-        vi.mocked(findLatestBlueprintRunForPlan).mockResolvedValue(ok(createRunRecord('running') as never));
+        vi.mocked(listLatestBlueprintRunSummaries).mockResolvedValue(
+            ok({ 'run-1': createRunRecord('running') } as never)
+        );
 
         const result = await controlDashboardBlueprintRun(request, {
             guildId: 'guild-1',
@@ -174,7 +177,9 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('attributes an accepted pause command to the dashboard actor', async () => {
-        vi.mocked(findLatestBlueprintRunForPlan).mockResolvedValue(ok(createRunRecord('running') as never));
+        vi.mocked(listLatestBlueprintRunSummaries).mockResolvedValue(
+            ok({ 'run-1': createRunRecord('running') } as never)
+        );
         vi.mocked(requestBlueprintRunControl).mockResolvedValue(ok(createRunRecord('pause_requested') as never));
 
         const result = await controlDashboardBlueprintRun(request, {
@@ -199,8 +204,13 @@ describe('Server Blueprint enqueue boundary', () => {
     });
 
     it('rejects control of a durable run created by another protocol', async () => {
-        vi.mocked(findLatestBlueprintRunForPlan).mockResolvedValue(
-            ok({ ...createRunRecord('paused'), protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION + 1 } as never)
+        vi.mocked(listLatestBlueprintRunSummaries).mockResolvedValue(
+            ok({
+                'run-1': {
+                    ...createRunRecord('paused'),
+                    protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION + 1,
+                },
+            } as never)
         );
 
         const result = await controlDashboardBlueprintRun(request, {
@@ -222,34 +232,44 @@ describe('Server Blueprint enqueue boundary', () => {
 function createRun(
     steps: Array<{ actionType: string }>,
     overrides: Partial<{ policy: 'merge' | 'synchronize' | 'rebuild' }> = {}
-) {
+): BlueprintPlanMetadataRecord {
     return {
         id: 'run-1',
         guildId: 'guild-1',
         deleteStepCount: steps.filter((step) => step.actionType === 'delete').length,
         deleteSetDigest: 'delete-digest',
         planDigest: 'plan-digest',
-        planVersion: 2,
+        planVersion: 4 as const,
         policy: 'synchronize' as const,
         createdByUserId: 'user-1',
-        status: 'approved',
+        status: 'approved' as const,
         sourceBackupId: null,
-        plan: {},
         requestedSnapshotDigest: 'snapshot-digest',
+        projectedSnapshotDigest: 'projected-digest',
+        authorityVersion: 1 as const,
+        authorityDigest: 'authority-digest',
+        executionAuthorityVersion: 1 as const,
+        executionAuthorityDigest: 'execution-digest',
+        stepCount: steps.length,
+        stepLedgerDigest: 'step-digest',
+        decisionCount: 0,
+        decisionLedgerDigest: 'decision-digest',
+        blockerCount: 0,
+        summary: { creates: 0, updates: 0, deletes: 0, roles: 0, categories: 0, channels: 0 },
+        decisionSummary: {
+            noOp: 0,
+            create: 0,
+            update: 0,
+            delete: 0,
+            protectedRetained: 0,
+            protectedOmitted: 0,
+            unmanagedRetained: 0,
+            blockedAmbiguous: 0,
+            blockedUnsupported: 0,
+        },
         createdAt: now,
         updatedAt: now,
         ...overrides,
-        steps: steps.map((step, sequence) => ({
-            id: `action-${sequence}`,
-            planId: 'run-1',
-            sequence,
-            actionType: step.actionType,
-            targetType: 'role',
-            targetId: 'role-1',
-            details: {},
-            createdAt: now,
-            updatedAt: now,
-        })),
     };
 }
 

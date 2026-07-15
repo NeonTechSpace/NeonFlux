@@ -28,10 +28,17 @@ export type HistoricalRetentionPhase =
     | 'audit-events'
     | 'blueprint-plan-select'
     | 'blueprint-runs'
+    | 'blueprint-run-verification-evidence'
+    | 'blueprint-run-id-mappings'
+    | 'blueprint-run-cursors'
     | 'blueprint-plan-steps'
     | 'blueprint-plan-decisions'
     | 'blueprint-plan-approvals'
+    | 'blueprint-plan-preflight-evidence'
     | 'blueprint-plan-preflights'
+    | 'blueprint-plan-execution-authority-buckets'
+    | 'blueprint-plan-execution-authorities'
+    | 'blueprint-plan-authorities'
     | 'blueprint-plan';
 
 type BlueprintChildPhase = Exclude<
@@ -58,11 +65,17 @@ export type HistoricalRetentionOperations = {
         ids: string[]
     ) => Promise<void>;
     deleteRun: (runId: string) => Promise<void>;
+    deleteRunCursorIds: (ids: string[]) => Promise<void>;
+    deleteRunIdMappingIds: (ids: string[]) => Promise<void>;
+    deleteRunVerificationEvidenceIds: (ids: string[]) => Promise<void>;
     deletePlan: (planId: string) => Promise<void>;
     findRemainingPlanPhase: (planId: string) => Promise<BlueprintRemainingPhase | null>;
     hasProtectedRun: (planId: string) => Promise<boolean>;
     loadRunStepAttemptIds: (runId: string, limit: number) => Promise<string[]>;
     loadRunObservationIds: (runId: string, limit: number) => Promise<string[]>;
+    loadRunCursorIds: (runId: string, limit: number) => Promise<string[]>;
+    loadRunIdMappingIds: (runId: string, limit: number) => Promise<string[]>;
+    loadRunVerificationEvidenceIds: (runId: string, limit: number) => Promise<string[]>;
     deleteRunObservationIds: (ids: string[]) => Promise<void>;
     loadBlueprintPlanChildIds: (phase: BlueprintChildPhase, planId: string, limit: number) => Promise<string[]>;
     loadExpiredAuditEventIds: (cutoff: string, limit: number) => Promise<string[]>;
@@ -79,10 +92,17 @@ const historicalRetentionPhaseValidator = v.union(
     v.literal('audit-events'),
     v.literal('blueprint-plan-select'),
     v.literal('blueprint-runs'),
+    v.literal('blueprint-run-verification-evidence'),
+    v.literal('blueprint-run-id-mappings'),
+    v.literal('blueprint-run-cursors'),
     v.literal('blueprint-plan-steps'),
     v.literal('blueprint-plan-decisions'),
     v.literal('blueprint-plan-approvals'),
+    v.literal('blueprint-plan-preflight-evidence'),
     v.literal('blueprint-plan-preflights'),
+    v.literal('blueprint-plan-execution-authority-buckets'),
+    v.literal('blueprint-plan-execution-authorities'),
+    v.literal('blueprint-plan-authorities'),
     v.literal('blueprint-plan')
 );
 
@@ -212,7 +232,7 @@ async function pruneBlueprintRun(
 ): Promise<void> {
     const run = await operations.loadFirstRun(input.planId);
     if (!run) {
-        await schedulePlanPhase(operations, input, 'blueprint-plan-steps');
+        await schedulePlanPhase(operations, input, 'blueprint-run-verification-evidence');
         return;
     }
     if (!isDeletableBlueprintRunStatus(run.status)) {
@@ -235,7 +255,39 @@ async function pruneBlueprintRun(
     const observationIds = await operations.loadRunObservationIds(run.id, historicalRetentionBatchSize + 1);
     const hasMoreObservations = observationIds.length > historicalRetentionBatchSize;
     await operations.deleteRunObservationIds(observationIds.slice(0, historicalRetentionBatchSize));
-    if (!hasMoreObservations) await operations.deleteRun(run.id);
+    if (hasMoreObservations) {
+        await schedulePlanPhase(operations, input, 'blueprint-runs');
+        return;
+    }
+
+    const verificationEvidenceIds = await operations.loadRunVerificationEvidenceIds(
+        run.id,
+        historicalRetentionBatchSize + 1
+    );
+    const hasMoreVerificationEvidence = verificationEvidenceIds.length > historicalRetentionBatchSize;
+    await operations.deleteRunVerificationEvidenceIds(verificationEvidenceIds.slice(0, historicalRetentionBatchSize));
+    if (hasMoreVerificationEvidence) {
+        await schedulePlanPhase(operations, input, 'blueprint-runs');
+        return;
+    }
+
+    const cursorIds = await operations.loadRunCursorIds(run.id, historicalRetentionBatchSize + 1);
+    const mappingIds = await operations.loadRunIdMappingIds(run.id, historicalRetentionBatchSize + 1);
+    const hasMoreMappings = mappingIds.length > historicalRetentionBatchSize;
+    await operations.deleteRunIdMappingIds(mappingIds.slice(0, historicalRetentionBatchSize));
+    if (mappingIds.length > 0 || hasMoreMappings) {
+        await schedulePlanPhase(operations, input, 'blueprint-runs');
+        return;
+    }
+
+    const hasMoreCursors = cursorIds.length > historicalRetentionBatchSize;
+    await operations.deleteRunCursorIds(cursorIds.slice(0, historicalRetentionBatchSize));
+    if (hasMoreCursors) {
+        await schedulePlanPhase(operations, input, 'blueprint-runs');
+        return;
+    }
+
+    await operations.deleteRun(run.id);
     await schedulePlanPhase(operations, input, 'blueprint-runs');
 }
 
@@ -279,13 +331,27 @@ async function planRemainsEligible(
 
 function nextBlueprintPhase(phase: BlueprintChildPhase): HistoricalRetentionPhase {
     switch (phase) {
+        case 'blueprint-run-verification-evidence':
+            return 'blueprint-run-id-mappings';
+        case 'blueprint-run-id-mappings':
+            return 'blueprint-run-cursors';
+        case 'blueprint-run-cursors':
+            return 'blueprint-plan-steps';
         case 'blueprint-plan-steps':
             return 'blueprint-plan-decisions';
         case 'blueprint-plan-decisions':
             return 'blueprint-plan-approvals';
         case 'blueprint-plan-approvals':
+            return 'blueprint-plan-preflight-evidence';
+        case 'blueprint-plan-preflight-evidence':
             return 'blueprint-plan-preflights';
         case 'blueprint-plan-preflights':
+            return 'blueprint-plan-execution-authority-buckets';
+        case 'blueprint-plan-execution-authority-buckets':
+            return 'blueprint-plan-execution-authorities';
+        case 'blueprint-plan-execution-authorities':
+            return 'blueprint-plan-authorities';
+        case 'blueprint-plan-authorities':
             return 'blueprint-plan';
     }
 }
@@ -333,6 +399,22 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
         deleteRun: async (runId) => {
             await ctx.db.delete('blueprintRuns', runId as GenericId<'blueprintRuns'>);
         },
+        deleteRunCursorIds: async (ids) => {
+            for (const id of ids) await ctx.db.delete('blueprintRunCursors', id as GenericId<'blueprintRunCursors'>);
+        },
+        deleteRunIdMappingIds: async (ids) => {
+            for (const id of ids) {
+                await ctx.db.delete('blueprintRunIdMappings', id as GenericId<'blueprintRunIdMappings'>);
+            }
+        },
+        deleteRunVerificationEvidenceIds: async (ids) => {
+            for (const id of ids) {
+                await ctx.db.delete(
+                    'blueprintRunVerificationEvidence',
+                    id as GenericId<'blueprintRunVerificationEvidence'>
+                );
+            }
+        },
         deleteRunObservationIds: async (ids) => {
             for (const id of ids) {
                 await ctx.db.delete('blueprintRunObservations', id as GenericId<'blueprintRunObservations'>);
@@ -357,6 +439,27 @@ function createHistoricalRetentionOperations(ctx: MutationCtx): HistoricalRetent
                 await ctx.db
                     .query('blueprintRunObservations')
                     .withIndex('by_run_phase', (index) => index.eq('runId', runId as GenericId<'blueprintRuns'>))
+                    .take(limit)
+            ).map((row) => String(row._id)),
+        loadRunCursorIds: async (runId, limit) =>
+            (
+                await ctx.db
+                    .query('blueprintRunCursors')
+                    .withIndex('by_run', (index) => index.eq('runId', runId as GenericId<'blueprintRuns'>))
+                    .take(limit)
+            ).map((row) => String(row._id)),
+        loadRunIdMappingIds: async (runId, limit) =>
+            (
+                await ctx.db
+                    .query('blueprintRunIdMappings')
+                    .withIndex('by_run', (index) => index.eq('runId', runId as GenericId<'blueprintRuns'>))
+                    .take(limit)
+            ).map((row) => String(row._id)),
+        loadRunVerificationEvidenceIds: async (runId, limit) =>
+            (
+                await ctx.db
+                    .query('blueprintRunVerificationEvidence')
+                    .withIndex('by_run', (index) => index.eq('runId', runId as GenericId<'blueprintRuns'>))
                     .take(limit)
             ).map((row) => String(row._id)),
         loadBlueprintPlanChildIds: async (phase, planId, limit) =>
@@ -422,6 +525,27 @@ async function loadBlueprintPlanChildIds(
 ): Promise<string[]> {
     const typedPlanId = planId as GenericId<'blueprintPlans'>;
     switch (phase) {
+        case 'blueprint-run-verification-evidence':
+            return (
+                await ctx.db
+                    .query('blueprintRunVerificationEvidence')
+                    .withIndex('by_plan_created', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
+        case 'blueprint-run-id-mappings':
+            return (
+                await ctx.db
+                    .query('blueprintRunIdMappings')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
+        case 'blueprint-run-cursors':
+            return (
+                await ctx.db
+                    .query('blueprintRunCursors')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
         case 'blueprint-plan-steps':
             return (
                 await ctx.db
@@ -443,11 +567,39 @@ async function loadBlueprintPlanChildIds(
                     .withIndex('by_plan_approved', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
+        case 'blueprint-plan-preflight-evidence':
+            return (
+                await ctx.db
+                    .query('blueprintPlanPreflightEvidence')
+                    .withIndex('by_plan_created', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
         case 'blueprint-plan-preflights':
             return (
                 await ctx.db
                     .query('blueprintPlanPreflights')
                     .withIndex('by_plan_checked', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
+        case 'blueprint-plan-execution-authority-buckets':
+            return (
+                await ctx.db
+                    .query('blueprintPlanExecutionAuthorityBuckets')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
+        case 'blueprint-plan-execution-authorities':
+            return (
+                await ctx.db
+                    .query('blueprintPlanExecutionAuthorities')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
+        case 'blueprint-plan-authorities':
+            return (
+                await ctx.db
+                    .query('blueprintPlanAuthorities')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
     }
@@ -462,6 +614,18 @@ async function deleteBlueprintChild(
         case 'blueprint-run-step-attempts':
             await ctx.db.delete('blueprintRunStepAttempts', id as GenericId<'blueprintRunStepAttempts'>);
             return;
+        case 'blueprint-run-verification-evidence':
+            await ctx.db.delete(
+                'blueprintRunVerificationEvidence',
+                id as GenericId<'blueprintRunVerificationEvidence'>
+            );
+            return;
+        case 'blueprint-run-id-mappings':
+            await ctx.db.delete('blueprintRunIdMappings', id as GenericId<'blueprintRunIdMappings'>);
+            return;
+        case 'blueprint-run-cursors':
+            await ctx.db.delete('blueprintRunCursors', id as GenericId<'blueprintRunCursors'>);
+            return;
         case 'blueprint-plan-steps':
             await ctx.db.delete('blueprintPlanSteps', id as GenericId<'blueprintPlanSteps'>);
             return;
@@ -471,8 +635,26 @@ async function deleteBlueprintChild(
         case 'blueprint-plan-approvals':
             await ctx.db.delete('blueprintPlanApprovals', id as GenericId<'blueprintPlanApprovals'>);
             return;
+        case 'blueprint-plan-preflight-evidence':
+            await ctx.db.delete('blueprintPlanPreflightEvidence', id as GenericId<'blueprintPlanPreflightEvidence'>);
+            return;
         case 'blueprint-plan-preflights':
             await ctx.db.delete('blueprintPlanPreflights', id as GenericId<'blueprintPlanPreflights'>);
+            return;
+        case 'blueprint-plan-execution-authority-buckets':
+            await ctx.db.delete(
+                'blueprintPlanExecutionAuthorityBuckets',
+                id as GenericId<'blueprintPlanExecutionAuthorityBuckets'>
+            );
+            return;
+        case 'blueprint-plan-execution-authorities':
+            await ctx.db.delete(
+                'blueprintPlanExecutionAuthorities',
+                id as GenericId<'blueprintPlanExecutionAuthorities'>
+            );
+            return;
+        case 'blueprint-plan-authorities':
+            await ctx.db.delete('blueprintPlanAuthorities', id as GenericId<'blueprintPlanAuthorities'>);
             return;
     }
 }
@@ -488,10 +670,17 @@ async function findRemainingPlanPhase(ctx: MutationCtx, planId: string): Promise
         return 'blueprint-runs';
     }
     for (const phase of [
+        'blueprint-run-verification-evidence',
+        'blueprint-run-id-mappings',
+        'blueprint-run-cursors',
         'blueprint-plan-steps',
         'blueprint-plan-decisions',
         'blueprint-plan-approvals',
+        'blueprint-plan-preflight-evidence',
         'blueprint-plan-preflights',
+        'blueprint-plan-execution-authority-buckets',
+        'blueprint-plan-execution-authorities',
+        'blueprint-plan-authorities',
     ] as const) {
         if ((await loadBlueprintPlanChildIds(ctx, phase, planId, 1)).length > 0) return phase;
     }

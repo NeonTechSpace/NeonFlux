@@ -1,4 +1,3 @@
-import { diffBlueprintSnapshot } from '@neonflux/blueprint/diff';
 import type { BlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 import { describe, expect, it } from 'vitest';
 
@@ -12,24 +11,24 @@ import {
     buildStructureDriftLeaseClaimPatch,
     buildStructureDriftLeaseClearPatch,
     buildStructureScheduledDriftResultPatch,
-    buildBlueprintPlanDocument,
-    buildBlueprintPlanStepDocument,
     chooseLatestStructureDriftBaselineBackup,
     classifyBlueprintRunReclaim,
     isStructureBackupRetentionEligible,
     isBlueprintRunMutationAuthorizedForLease,
-    isBlueprintPlanDecisionLedgerComplete,
     isBlueprintRunRetryPreflightFresh,
     resolveExpiredBlueprintRunControl,
     resolveBlueprintRunAuthorizationDecision,
     resolveBlueprintRunStepAttemptCompletionStatus,
+    resolveBlueprintRunStepAttemptCompletionRetry,
+    selectBlueprintRunClaimAttempt,
     resolveBlueprintRunReferenceAuthority,
     resolveBlueprintRunIdMap,
     validateBlueprintRunAttemptIdMapTransition,
+    validateBlueprintRunAttemptIndexedMappingDelta,
     validateBlueprintRunCheckpointIdMap,
     validateBlueprintRunIdMapTransition,
     validateBlueprintRunProgressTransition,
-    validateBlueprintPlanDecisionSequences,
+    validateBlueprintRunStepAttemptCompletionTransition,
     toStructureObservedEventStateRecord,
 } from './blueprint_model.js';
 
@@ -141,6 +140,11 @@ describe('structure model', () => {
                     'source-create': null,
                     'source-role': 'target-role',
                 },
+                initialIdMap: {
+                    'source-category': 'target-category',
+                    'source-channel': 'target-channel',
+                    'source-role': 'target-role',
+                },
             })
         ).toStrictEqual({
             'source-category': 'target-category',
@@ -150,13 +154,13 @@ describe('structure model', () => {
     });
 
     it('rejects malformed run source-to-target maps', () => {
-        expect(() => resolveBlueprintRunIdMap({})).toThrow('blueprint-plan-source-target-map-invalid');
-        expect(() => resolveBlueprintRunIdMap({ knownTargetKinds: {}, sourceTargetMap: { source: 42 } })).toThrow(
-            'blueprint-plan-source-target-map-invalid'
-        );
-        expect(() => resolveBlueprintRunIdMap({ knownTargetKinds: { target: 'guild' }, sourceTargetMap: {} })).toThrow(
-            'blueprint-plan-known-target-kinds-invalid'
-        );
+        expect(() => resolveBlueprintRunIdMap({})).toThrow('blueprint-run-id-map-invalid');
+        expect(() =>
+            resolveBlueprintRunIdMap({ initialIdMap: {}, knownTargetKinds: {}, sourceTargetMap: { source: 42 } })
+        ).toThrow('blueprint-plan-source-target-map-invalid');
+        expect(() =>
+            resolveBlueprintRunIdMap({ initialIdMap: {}, knownTargetKinds: { target: 'guild' }, sourceTargetMap: {} })
+        ).toThrow('blueprint-plan-known-target-kinds-invalid');
     });
 
     it('keeps destination identity authority separate from unresolved creates', () => {
@@ -171,6 +175,7 @@ describe('structure model', () => {
                     'created-channel': null,
                     'matched-category': 'target-category',
                 },
+                initialIdMap: { 'matched-category': 'target-category' },
             })
         ).toStrictEqual({
             idMap: { 'matched-category': 'target-category' },
@@ -184,6 +189,7 @@ describe('structure model', () => {
 
     it('allows only monotonic create-id extensions of a run map', () => {
         const plan = {
+            initialIdMap: { 'source-matched': 'target-role' },
             knownTargetKinds: { 'guild-1': 'role', 'target-role': 'role' },
             sourceTargetMap: {
                 'source-created': null,
@@ -194,21 +200,21 @@ describe('structure model', () => {
         expect(
             validateBlueprintRunIdMapTransition({
                 next: { 'source-created': 'created-role', 'source-matched': 'target-role' },
-                plan,
+                authority: plan,
                 previous: { 'source-matched': 'target-role' },
             })
         ).toStrictEqual({ 'source-created': 'created-role', 'source-matched': 'target-role' });
         expect(() =>
             validateBlueprintRunIdMapTransition({
                 next: { 'source-matched': 'different-role' },
-                plan,
+                authority: plan,
                 previous: { 'source-matched': 'target-role' },
             })
         ).toThrow('blueprint-run-id-map-regression');
         expect(() =>
             validateBlueprintRunIdMapTransition({
                 next: { 'unknown-source': 'created-role', 'source-matched': 'target-role' },
-                plan,
+                authority: plan,
                 previous: { 'source-matched': 'target-role' },
             })
         ).toThrow('blueprint-run-id-map-unknown-source');
@@ -216,6 +222,7 @@ describe('structure model', () => {
 
     it('lets an applied recreate replace only its deleted source mapping with the provider id', () => {
         const plan = {
+            initialIdMap: { 'source-channel': 'old-channel' },
             knownTargetKinds: { 'guild-1': 'role', 'old-channel': 'channel' },
             sourceTargetMap: { 'source-channel': 'old-channel' },
         };
@@ -226,7 +233,7 @@ describe('structure model', () => {
                 attemptState: 'started',
                 createdId: 'new-channel',
                 next: { 'source-channel': 'new-channel' },
-                plan,
+                authority: plan,
                 previous: { 'source-channel': 'old-channel' },
                 resultState: 'applied',
             })
@@ -234,14 +241,14 @@ describe('structure model', () => {
         expect(
             validateBlueprintRunCheckpointIdMap({
                 next: { 'source-channel': 'new-channel' },
-                plan,
+                authority: plan,
                 previous: { 'source-channel': 'new-channel' },
             })
         ).toStrictEqual({ 'source-channel': 'new-channel' });
         expect(() =>
             validateBlueprintRunCheckpointIdMap({
                 next: { 'source-channel': 'new-channel' },
-                plan,
+                authority: plan,
                 previous: { 'source-channel': 'old-channel' },
             })
         ).toThrow('blueprint-run-id-map-regression');
@@ -276,6 +283,64 @@ describe('structure model', () => {
                 requestedStatus: 'waiting_rate_limit',
             })
         ).toBe('cancelled');
+    });
+
+    it('persists only a valid newly-created ID mapping as a per-step delta', () => {
+        expect(
+            validateBlueprintRunAttemptIndexedMappingDelta({
+                planStep: { actionType: 'create', targetId: 'created' },
+                attemptState: 'started',
+                resultState: 'applied',
+                createdId: 'target-created',
+                sourceMappingPresent: true,
+                sourceTargetId: null,
+                createdTargetKnown: false,
+            })
+        ).toStrictEqual({ sourceId: 'created', targetId: 'target-created' });
+        expect(() =>
+            validateBlueprintRunAttemptIndexedMappingDelta({
+                planStep: { actionType: 'update', targetId: 'existing' },
+                attemptState: 'started',
+                resultState: 'applied',
+                createdId: 'unexpected',
+                sourceMappingPresent: false,
+                sourceTargetId: undefined,
+                createdTargetKnown: false,
+            })
+        ).toThrow('blueprint-run-id-map-attempt-change');
+        expect(() =>
+            validateBlueprintRunAttemptIndexedMappingDelta({
+                planStep: { actionType: 'create', targetId: 'created' },
+                attemptState: 'pending',
+                resultState: 'applied',
+                createdId: 'target-created',
+                sourceMappingPresent: true,
+                sourceTargetId: null,
+                createdTargetKnown: false,
+            })
+        ).toThrow('blueprint-run-create-id-map-invalid');
+        expect(() =>
+            validateBlueprintRunAttemptIndexedMappingDelta({
+                planStep: { actionType: 'create', targetId: 'created' },
+                attemptState: 'started',
+                resultState: 'applied',
+                createdId: 'target-created',
+                sourceMappingPresent: false,
+                sourceTargetId: undefined,
+                createdTargetKnown: false,
+            })
+        ).toThrow('blueprint-run-create-id-map-invalid');
+        expect(() =>
+            validateBlueprintRunAttemptIndexedMappingDelta({
+                planStep: { actionType: 'create', targetId: 'created' },
+                attemptState: 'started',
+                resultState: 'applied',
+                createdId: 'target-created',
+                sourceMappingPresent: true,
+                sourceTargetId: null,
+                createdTargetKnown: true,
+            })
+        ).toThrow('blueprint-run-create-id-map-invalid');
     });
 
     it('keeps run counters and the plan-step cursor as one monotonic state', () => {
@@ -331,6 +396,82 @@ describe('structure model', () => {
                 previous,
             })
         ).toThrow('blueprint-run-progress-regression');
+    });
+
+    it('accepts only the exact counter delta for a completed plan-step attempt', () => {
+        const run = {
+            appliedSteps: 2,
+            completedMutationSteps: 2,
+            failedSteps: 0,
+            nextStepSequence: 2,
+            skippedSteps: 0,
+        };
+        const applied = {
+            appliedSteps: 3,
+            completedMutationSteps: 3,
+            failedSteps: 0,
+            nextStepSequence: 3,
+            skippedSteps: 0,
+            state: 'applied' as const,
+            status: 'running' as const,
+        };
+        expect(() =>
+            validateBlueprintRunStepAttemptCompletionTransition({ attempt: { state: 'started' }, args: applied, run })
+        ).not.toThrow();
+        expect(() =>
+            validateBlueprintRunStepAttemptCompletionTransition({
+                attempt: { state: 'started' },
+                args: { ...applied, appliedSteps: 4, completedMutationSteps: 4 },
+                run,
+            })
+        ).toThrow('blueprint-run-attempt-progress-invalid');
+        expect(() =>
+            validateBlueprintRunStepAttemptCompletionTransition({
+                attempt: { state: 'pending' },
+                args: applied,
+                run,
+            })
+        ).toThrow('blueprint-run-attempt-progress-invalid');
+    });
+
+    it('accepts an exact terminal completion retry and rejects a conflicting retry', () => {
+        expect(
+            resolveBlueprintRunStepAttemptCompletionRetry({
+                attemptState: 'applied',
+                completionDigest: 'digest-1',
+                incomingDigest: 'digest-1',
+            })
+        ).toBe('return_committed');
+        expect(() =>
+            resolveBlueprintRunStepAttemptCompletionRetry({
+                attemptState: 'applied',
+                completionDigest: 'digest-1',
+                incomingDigest: 'digest-2',
+            })
+        ).toThrow('blueprint-run-step-attempt-completion-conflict');
+        expect(
+            resolveBlueprintRunStepAttemptCompletionRetry({
+                attemptState: 'started',
+                incomingDigest: 'digest-1',
+            })
+        ).toBe('continue');
+    });
+
+    it('reuses only the latest unique pending attempt at claim time', () => {
+        const failed = { attempt: 3, state: 'failed' } as const;
+        const pending = { attempt: 4, state: 'pending' } as const;
+        expect(selectBlueprintRunClaimAttempt([pending, failed])).toBe(pending);
+        expect(selectBlueprintRunClaimAttempt([failed])).toBe(failed);
+        expect(selectBlueprintRunClaimAttempt([])).toBeNull();
+        expect(() => selectBlueprintRunClaimAttempt([pending, { attempt: 2, state: 'pending' }])).toThrow(
+            'blueprint-run-pending-attempt-conflict'
+        );
+        expect(() => selectBlueprintRunClaimAttempt([pending, { attempt: 5, state: 'failed' }])).toThrow(
+            'blueprint-run-pending-attempt-conflict'
+        );
+        expect(() => selectBlueprintRunClaimAttempt([pending, { attempt: 4, state: 'failed' }])).toThrow(
+            'blueprint-run-step-attempt-history-invalid'
+        );
     });
 
     it('builds backups with defaults and validates structure shape', () => {
@@ -505,31 +646,6 @@ describe('structure model', () => {
         ).toBe('reclaim');
         expect(resolveExpiredBlueprintRunControl('pause')).toBe('paused');
         expect(resolveExpiredBlueprintRunControl('cancel')).toBe('cancelled');
-    });
-
-    it('rejects sparse and colliding decision-ledger sequences', () => {
-        expect(validateBlueprintPlanDecisionSequences([10, 12])).toBe('sparse');
-        expect(validateBlueprintPlanDecisionSequences([1, 0])).toBe('sparse');
-        expect(validateBlueprintPlanDecisionSequences([2, 3], [], 0)).toBe('gap');
-        expect(validateBlueprintPlanDecisionSequences([10, 11], [3, 11])).toBe('collision');
-        expect(validateBlueprintPlanDecisionSequences([10, 11], [3, 4])).toBeNull();
-    });
-
-    it('requires a complete contiguous decision ledger before review', () => {
-        const plan = { decisionSummary: { create: 1, update: 1, delete: 0 } };
-        expect(
-            isBlueprintPlanDecisionLedgerComplete(plan, [
-                { classification: 'create', sequence: 0 },
-                { classification: 'update', sequence: 1 },
-            ])
-        ).toBe(true);
-        expect(isBlueprintPlanDecisionLedgerComplete(plan, [{ classification: 'create', sequence: 0 }])).toBe(false);
-        expect(
-            isBlueprintPlanDecisionLedgerComplete(plan, [
-                { classification: 'create', sequence: 0 },
-                { classification: 'update', sequence: 2 },
-            ])
-        ).toBe(false);
     });
 
     it('recalculates next automatic backup time when cadence changes', () => {
@@ -776,108 +892,6 @@ describe('structure model', () => {
             updatedAt: now,
         });
         expect(mismatch).toBeNull();
-    });
-
-    it('rejects plan-step records without an explicit sequence', () => {
-        const invalid = buildBlueprintPlanStepDocument(
-            {
-                actionType: 'create',
-                details: { name: 'announcements' },
-                planId: 'run-1',
-                targetType: 'channel',
-            },
-            now
-        );
-
-        expect(invalid).toStrictEqual({
-            error: { field: 'sequence', type: 'invalid-value' },
-            ok: false,
-        });
-    });
-
-    it('requires canonical Blueprint plan authority and target-specific step details before persistence', () => {
-        const requested: BlueprintSnapshot = {
-            ...emptySnapshot,
-            categories: [
-                {
-                    id: 'source-category',
-                    name: 'Announcements',
-                    parentId: null,
-                    permissionOverwrites: [],
-                    position: 0,
-                    type: 4,
-                },
-            ],
-        };
-        const plan = diffBlueprintSnapshot(emptySnapshot, requested, { policy: 'merge' });
-        const persistedPlan = {
-            blockers: plan.blockers,
-            fingerprintInput: plan.fingerprintInput,
-            knownTargetKinds: plan.knownTargetKinds,
-            planStepCount: plan.steps.length,
-            planVersion: 3,
-            policy: plan.policy,
-            projectedSnapshot: plan.projectedSnapshot,
-            requestedSnapshot: requested,
-            requestedSnapshotVersion: 1,
-            roleProjection: plan.roleProjection,
-            sourceTargetMap: plan.sourceTargetMap,
-            steps: plan.steps,
-            summary: plan.summary,
-        };
-        const document = buildBlueprintPlanDocument(
-            {
-                deleteStepCount: 0,
-                guildId: 'guild-1',
-                plan: persistedPlan,
-                planDigest: 'plan-digest',
-                planVersion: 3,
-                policy: 'merge',
-                requestedSnapshotDigest: 'snapshot-digest',
-            },
-            now
-        );
-        const invalidPlan = buildBlueprintPlanDocument(
-            {
-                deleteStepCount: 0,
-                guildId: 'guild-1',
-                plan: { ...persistedPlan, fingerprintInput: {} },
-                planDigest: 'plan-digest',
-                planVersion: 3,
-                policy: 'merge',
-                requestedSnapshotDigest: 'snapshot-digest',
-            },
-            now
-        );
-        const step = plan.steps[0];
-        if (!step) throw new Error('expected-planner-step');
-        const persistedStep = buildBlueprintPlanStepDocument(
-            {
-                actionType: step.actionType,
-                details: step.details,
-                planId: 'plan-1',
-                sequence: 0,
-                targetId: step.targetId,
-                targetType: step.targetType,
-            },
-            now
-        );
-        const invalidStep = buildBlueprintPlanStepDocument(
-            {
-                actionType: step.actionType,
-                details: { label: step.label },
-                planId: 'plan-1',
-                sequence: 0,
-                targetId: step.targetId,
-                targetType: step.targetType,
-            },
-            now
-        );
-
-        expect(document.ok).toBe(true);
-        expect(invalidPlan).toStrictEqual({ error: { field: 'plan', type: 'invalid-value' }, ok: false });
-        expect(persistedStep.ok).toBe(true);
-        expect(invalidStep).toStrictEqual({ error: { field: 'details', type: 'invalid-value' }, ok: false });
     });
 
     it('increments observed event state and reads malformed counters as zero', () => {

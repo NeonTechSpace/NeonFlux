@@ -6,9 +6,9 @@ import type {
     StructureBackupSummaryRecord,
     BlueprintPlanStepPageRecord,
     BlueprintPlanStepRecord,
-    BlueprintPlanRecord,
     StructureObservedEventStateRecord,
 } from './contracts-blueprint.js';
+import { normalizeBlueprintPlanStep } from '@neonflux/blueprint';
 import type { GuildFeatureRepositoryError } from './contracts.js';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -52,12 +52,9 @@ export type ConvexStructureBackupRetentionPruneRecord = {
     hasMore: boolean;
     nextRetentionPruneAt: string | null;
 };
-export type ConvexBlueprintPlanRecord = Omit<BlueprintPlanRecord, 'createdAt' | 'updatedAt'> & {
+export type ConvexBlueprintPlanStepRecord = Omit<BlueprintPlanStepRecord, 'createdAt' | 'step'> & {
     createdAt: string;
-    updatedAt: string;
-};
-export type ConvexBlueprintPlanStepRecord = Omit<BlueprintPlanStepRecord, 'createdAt'> & {
-    createdAt: string;
+    step: unknown;
 };
 export type ConvexBlueprintPlanStepPageRecord = {
     steps: ConvexBlueprintPlanStepRecord[];
@@ -177,17 +174,12 @@ export function toBackupRetentionPruneRecord(
     };
 }
 
-export function toBlueprintPlanRecord(record: ConvexBlueprintPlanRecord): BlueprintPlanRecord {
-    return {
-        ...record,
-        createdAt: new Date(record.createdAt),
-        updatedAt: new Date(record.updatedAt),
-    };
-}
-
 export function toBlueprintPlanStepRecord(record: ConvexBlueprintPlanStepRecord): BlueprintPlanStepRecord {
+    const step = normalizeBlueprintPlanStep(record.step);
+    if (step.type === 'invalid') throw new Error('invalid-blueprint-plan-step');
     return {
         ...record,
+        step: step.value,
         createdAt: new Date(record.createdAt),
     };
 }

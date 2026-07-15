@@ -22,7 +22,6 @@ const progressPollIntervalMs = 4_000;
 const progressPollRequestTimeoutMs = 10_000;
 const progressPollStaleTimeMs = 1_500;
 const progressTokenRequestTimeoutMs = 6_000;
-const progressTransportHealthMaxAgeMs = 12_000;
 const progressWatchTimeoutMs = 12_000;
 const progressTokenRefreshWindowMs = 30_000;
 const progressTokenFallbackLifetimeMs = 60_000;
@@ -81,9 +80,10 @@ export function useDashboardBlueprintRunProgress({
     initialRun: DashboardBlueprintRunProgress | undefined;
 }) {
     const queryClient = useQueryClient();
-    const { client: liveClient, restart: restartLiveTransport } = useDashboardLive();
+    const { client: liveClient, restart: restartLiveTransport, status: liveStatus } = useDashboardLive();
     const [watchAttempt, setWatchAttempt] = useState(0);
     const [watchIssue, setWatchIssue] = useState<ProgressIssue>();
+    const [watchRecoveryPlanId, setWatchRecoveryPlanId] = useState<string>();
     const [liveHealth, setLiveHealth] = useState<ProgressTransportHealth>();
     const [pollHealth, setPollHealth] = useState<ProgressTransportHealth>();
     const [retrying, setRetrying] = useState(false);
@@ -95,6 +95,14 @@ export function useDashboardBlueprintRunProgress({
         setPollHealth({ confirmedAt: Date.now(), planId: confirmedPlanId });
     }, []);
     const convexUrl = readDashboardConvexUrl();
+    const liveConnectionNeedsPolling = liveStatus.phase !== 'connected';
+    const pollingFallbackEnabled =
+        !liveClient ||
+        liveConnectionNeedsPolling ||
+        watchRecoveryPlanId === planId ||
+        (watchIssue !== undefined &&
+            watchIssue.planId === planId &&
+            !isProgressProtocolIncompatibility(watchIssue.code));
     const queryKey = useMemo(
         () => getDashboardBlueprintRunProgressQueryKey(guildId, planId ?? 'none'),
         [guildId, planId]
@@ -137,6 +145,8 @@ export function useDashboardBlueprintRunProgress({
                 deadline.dispose();
             }
         },
+        // One bootstrap read races the watch so a stalled subscription cannot leave stale SSR data indefinitely.
+        // Recurring four-second polling is still disabled while the direct watch is healthy.
         enabled: Boolean(convexUrl && planId),
         initialData: { run: initialRun ?? null },
         initialDataUpdatedAt: 0,
@@ -145,6 +155,11 @@ export function useDashboardBlueprintRunProgress({
                 return false;
             }
             const { run } = query.state.data ?? { run: null };
+            if (
+                !pollingFallbackEnabled ||
+                (liveStatus.phase === 'connected' && watchRecoveryPlanId !== planId && liveHealth?.planId === planId)
+            )
+                return false;
             return run && isTerminalDashboardBlueprintRun(run) ? false : progressPollIntervalMs;
         },
         refetchIntervalInBackground: false,
@@ -207,35 +222,22 @@ export function useDashboardBlueprintRunProgress({
     }, [initialRun, queryClient, queryKey, planId]);
 
     useEffect(() => {
-        const currentHealth = [liveHealth, pollHealth].filter(
-            (health): health is ProgressTransportHealth =>
-                health !== undefined && planId !== undefined && health.planId === planId
-        );
-        if (currentHealth.length === 0) return undefined;
-
-        const nextExpiry = Math.min(
-            ...currentHealth.map((health) => health.confirmedAt + progressTransportHealthMaxAgeMs)
-        );
-        const timeout = setTimeout(
-            () => {
-                const now = Date.now();
-                setLiveHealth((current) => (isExpiredTransportHealth(current, planId, now) ? undefined : current));
-                setPollHealth((current) => (isExpiredTransportHealth(current, planId, now) ? undefined : current));
-            },
-            Math.max(0, nextExpiry - Date.now()) + 1
-        );
-
-        return () => clearTimeout(timeout);
-    }, [liveHealth, pollHealth, planId]);
+        if (!planId || liveStatus.phase === 'connected') return;
+        // A provider phase transition is an external transport discontinuity. Latch it until this
+        // exact watch produces a post-reconnect result; socket reconnection alone is not recovery.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setWatchRecoveryPlanId(planId);
+    }, [liveStatus.phase, planId]);
 
     useEffect(() => {
         if (!planId || terminal || !liveClient) return undefined;
 
         const activePlanId = planId;
+        const activeLiveClient = liveClient;
         let active = true;
         let receivedResult = false;
         let unsubscribe: () => void = () => undefined;
-        let watch: ReturnType<typeof liveClient.watchQuery> | undefined;
+        let watch: ReturnType<typeof activeLiveClient.watchQuery> | undefined;
         const timeout = setTimeout(() => {
             if (!receivedResult) recordWatchIssue('BLUEPRINT_PROGRESS_TIMEOUT');
         }, progressWatchTimeoutMs);
@@ -243,6 +245,7 @@ export function useDashboardBlueprintRunProgress({
         function recordWatchIssue(code: string): void {
             if (!active) return;
             setLiveHealth((current) => (current?.planId === activePlanId ? undefined : current));
+            setPollHealth((current) => (current?.planId === activePlanId ? undefined : current));
             setWatchIssue((current) =>
                 current?.code === code && current.planId === activePlanId
                     ? current
@@ -251,7 +254,7 @@ export function useDashboardBlueprintRunProgress({
         }
 
         function readProgress(): void {
-            if (!active) return;
+            if (!active || !activeLiveClient.connectionState().isWebSocketConnected) return;
             try {
                 const result = watch?.localQueryResult();
                 if (result === undefined) return;
@@ -264,6 +267,7 @@ export function useDashboardBlueprintRunProgress({
                     })
                 );
                 setLiveHealth({ confirmedAt: Date.now(), planId: activePlanId });
+                setWatchRecoveryPlanId((current) => (current === activePlanId ? undefined : current));
                 setWatchIssue(undefined);
             } catch (error) {
                 clearTimeout(timeout);
@@ -272,7 +276,7 @@ export function useDashboardBlueprintRunProgress({
         }
 
         try {
-            watch = liveClient.watchQuery(api.blueprint.findBlueprintRunProgressForGuild, {
+            watch = activeLiveClient.watchQuery(api.blueprint.findBlueprintRunProgressForGuild, {
                 guildId,
                 protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
                 planId: activePlanId as Id<'blueprintPlans'>,
@@ -310,23 +314,20 @@ export function useDashboardBlueprintRunProgress({
               planId: planId ?? 'none',
           }
         : undefined;
-    // The expiry timer wakes the UI, but background-tab throttling can delay it. Re-check wall-clock freshness
-    // whenever React renders so an old confirmation never suppresses a current transport failure.
-    // eslint-disable-next-line react-hooks/purity
-    const healthCheckedAt = Date.now();
+    const liveHealthy =
+        liveStatus.phase === 'connected' &&
+        watchRecoveryPlanId !== planId &&
+        isCurrentTransportHealth(liveHealth, planId);
+    const pollHealthy =
+        pollingFallbackEnabled && pollIssue === undefined && isCurrentTransportHealth(pollHealth, planId);
     const activeWatchIssue =
         watchIssue &&
         watchIssue.planId === planId &&
-        (isProgressProtocolIncompatibility(watchIssue.code) ||
-            !isTransportHealthRecentAt(pollHealth, planId, watchIssue.at, healthCheckedAt))
+        (isProgressProtocolIncompatibility(watchIssue.code) || !pollHealthy)
             ? watchIssue
             : undefined;
     const activePollIssue =
-        pollIssue &&
-        (isProgressProtocolIncompatibility(pollIssue.code) ||
-            !isTransportHealthRecentAt(liveHealth, planId, pollIssue.at, healthCheckedAt))
-            ? pollIssue
-            : undefined;
+        pollIssue && (isProgressProtocolIncompatibility(pollIssue.code) || !liveHealthy) ? pollIssue : undefined;
     const activeIssues = [activeWatchIssue, activePollIssue].filter(
         (issue): issue is ProgressIssue => issue !== undefined
     );
@@ -342,10 +343,6 @@ export function useDashboardBlueprintRunProgress({
             )?.code;
 
     const effectiveIssueCode = planId && !convexUrl ? 'BLUEPRINT_PROGRESS_TRANSPORT_UNAVAILABLE' : issueCode;
-    const liveHealthy =
-        isCurrentTransportHealth(liveHealth, planId) && !isExpiredTransportHealth(liveHealth, planId, healthCheckedAt);
-    const pollHealthy =
-        isCurrentTransportHealth(pollHealth, planId) && !isExpiredTransportHealth(pollHealth, planId, healthCheckedAt);
     const confirmedAt = Math.max(liveHealthy ? liveHealth.confirmedAt : 0, pollHealthy ? pollHealth.confirmedAt : 0);
     const transport: DashboardBlueprintProgressTransport = {
         mode: !planId
@@ -376,6 +373,7 @@ export function useDashboardBlueprintRunProgress({
             setRetrying(true);
             setLiveHealth(undefined);
             setPollHealth(undefined);
+            setWatchRecoveryPlanId(planId);
             setWatchIssue(undefined);
             restartLiveTransport();
             setWatchAttempt((current) => current + 1);
@@ -477,32 +475,6 @@ function isCurrentTransportHealth(
     planId: string | undefined
 ): health is ProgressTransportHealth {
     return health !== undefined && health.planId === planId;
-}
-
-function isTransportHealthRecentAt(
-    health: ProgressTransportHealth | undefined,
-    planId: string | undefined,
-    issueTime: number,
-    currentTime: number
-): boolean {
-    if (!isCurrentTransportHealth(health, planId)) return false;
-    const ageAtIssue = issueTime - health.confirmedAt;
-    const currentAge = currentTime - health.confirmedAt;
-    return (
-        ageAtIssue <= progressTransportHealthMaxAgeMs &&
-        currentAge >= 0 &&
-        currentAge <= progressTransportHealthMaxAgeMs
-    );
-}
-
-function isExpiredTransportHealth(
-    health: ProgressTransportHealth | undefined,
-    planId: string | undefined,
-    now: number
-): boolean {
-    if (!isCurrentTransportHealth(health, planId)) return false;
-    const age = now - health.confirmedAt;
-    return age < 0 || age > progressTransportHealthMaxAgeMs;
 }
 
 function isProgressBackendIncompatibility(message: string): boolean {

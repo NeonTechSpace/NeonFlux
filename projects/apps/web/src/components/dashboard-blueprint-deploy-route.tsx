@@ -9,6 +9,12 @@ import {
     getDashboardBlueprintStatusQueryKey,
 } from '../dashboard-query-keys.js';
 import { useDashboardBlueprintDeployDraftState } from './dashboard-blueprint-deploy-draft-state.js';
+import {
+    mergeDashboardBlueprintPlanColdDetail,
+    useDashboardBlueprintPlanAuthorityQuery,
+    useDashboardBlueprintPreflightEvidenceQuery,
+    useDashboardBlueprintVerificationEvidenceQuery,
+} from './dashboard-blueprint-cold-detail-queries.js';
 import { useDashboardBlueprintDeployRouteSync } from './dashboard-blueprint-deploy-route-sync.js';
 import { DashboardBlueprintDeploySurface } from './dashboard-blueprint-deploy-surface.js';
 import { readDashboardBlueprintSourceFiles } from './dashboard-blueprint-deploy-source-state.js';
@@ -202,7 +208,7 @@ export function DashboardBlueprintDeployRoute({
     const latestPlan = plans.at(0);
     const requestedPlan = requestedPlanId ? plans.find((plan) => plan.id === requestedPlanId) : undefined;
     const requestedPlanMissing = Boolean(requestedPlanId && !requestedPlan);
-    const deployPlan =
+    const selectedDeployPlan =
         deployFlow.type === 'latest'
             ? latestPlan
             : deployFlow.type === 'plan'
@@ -211,9 +217,49 @@ export function DashboardBlueprintDeployRoute({
     const journey = deriveDashboardBlueprintDeployJourney({
         draftStep: deployFlow.type === 'draft' ? deployFlow.step : undefined,
         hasParsedSource: isDashboardBlueprintSourceReady(importJson),
-        plan: deployPlan,
-        preflight: deployPlan?.preflight,
+        plan: selectedDeployPlan,
+        preflight: selectedDeployPlan?.preflight,
     });
+    const authorityQuery = useDashboardBlueprintPlanAuthorityQuery({
+        enabled: journey.step === 'review',
+        guildId,
+        planId: selectedDeployPlan?.id,
+    });
+    const preflightEvidenceQuery = useDashboardBlueprintPreflightEvidenceQuery({
+        checkedAt: selectedDeployPlan?.preflight?.checkedAt,
+        enabled: journey.step === 'safety' || journey.step === 'confirm',
+        expiresAt: selectedDeployPlan?.preflight?.expiresAt,
+        guildId,
+        preflightId: selectedDeployPlan?.preflight?.id,
+    });
+    const verificationEvidenceQuery = useDashboardBlueprintVerificationEvidenceQuery({
+        enabled: journey.step === 'deploy' && Boolean(selectedDeployPlan?.run?.verificationEvidenceDigest),
+        guildId,
+        runId: selectedDeployPlan?.run?.id,
+    });
+    const selectedAuthority =
+        selectedDeployPlan && authorityQuery.data?.id === selectedDeployPlan.id ? authorityQuery.data : undefined;
+    const reviewAuthority =
+        journey.step === 'review' && selectedDeployPlan
+            ? {
+                  planId: selectedDeployPlan.id,
+                  status: selectedAuthority
+                      ? ('ready' as const)
+                      : authorityQuery.isError
+                        ? ('error' as const)
+                        : ('loading' as const),
+                  retrying: authorityQuery.isFetching,
+              }
+            : { status: 'idle' as const, retrying: false };
+    const deployPlan = selectedDeployPlan
+        ? {
+              ...mergeDashboardBlueprintPlanColdDetail(selectedDeployPlan, selectedAuthority),
+              ...(verificationEvidenceQuery.data ? { verification: verificationEvidenceQuery.data } : {}),
+              steps: inspection.stepPagesByPlanId[selectedDeployPlan.id]?.steps ?? selectedDeployPlan.steps,
+              decisions:
+                  inspection.decisionPagesByPlanId[selectedDeployPlan.id]?.decisions ?? selectedDeployPlan.decisions,
+          }
+        : undefined;
 
     const selectRequestedPlan = useCallback(
         (plan: (typeof plans)[number]) => setDeployFlow({ type: 'plan', plan }),
@@ -257,7 +303,15 @@ export function DashboardBlueprintDeployRoute({
     }
     if (!runsQuery.data) return <DashboardBlueprintPendingSurface surface='deploy' />;
 
-    const refreshError = runsQuery.isError ? runsQuery.error : statusError;
+    const coldDetailError = [authorityQuery, preflightEvidenceQuery, verificationEvidenceQuery].find(
+        (query) => query.isError
+    )?.error;
+    const refreshError = runsQuery.isError ? runsQuery.error : (coldDetailError ?? statusError);
+    const persistedPreflight = preflightEvidenceQuery.data;
+    const preflightByPlanId =
+        deployPlan && persistedPreflight
+            ? { ...runOperations.preflightByPlanId, [deployPlan.id]: persistedPreflight }
+            : runOperations.preflightByPlanId;
 
     return (
         <DashboardBlueprintSurfaceContent onRetryRefresh={() => undefined}>
@@ -280,7 +334,8 @@ export function DashboardBlueprintDeployRoute({
                             ? { code: runProgress.issueCode, planId: activePlan.id }
                             : undefined,
                     runProgressRetrying: runProgress.retrying,
-                    preflightByPlanId: runOperations.preflightByPlanId,
+                    preflightByPlanId,
+                    reviewAuthority,
                     refreshIssue: refreshError
                         ? { code: readDashboardBlueprintDiagnosticCode(refreshError) }
                         : undefined,
@@ -292,7 +347,10 @@ export function DashboardBlueprintDeployRoute({
                     targetGuildId: guildId,
                     targetGuildName: runsQuery.data.targetGuildName,
                     onApplyRun: (plan) => void runOperations.applyPlan(plan),
-                    onApprovePlan: (plan) => void runOperations.reviewAndPreflight(plan),
+                    onApprovePlan: (plan) => {
+                        if (reviewAuthority.status !== 'ready' || reviewAuthority.planId !== plan.id) return;
+                        void runOperations.reviewAndPreflight(plan);
+                    },
                     onControlRun: (plan, request) => void runOperations.controlRun(plan, request),
                     onCreatePlan: () => {
                         void (async () => {
@@ -331,6 +389,9 @@ export function DashboardBlueprintDeployRoute({
                     onRetryRunProgress: runProgress.retry,
                     onRetryRefresh: () => {
                         if (runsQuery.isError) void runsQuery.refetch();
+                        if (authorityQuery.isError) void authorityQuery.refetch();
+                        if (preflightEvidenceQuery.isError) void preflightEvidenceQuery.refetch();
+                        if (verificationEvidenceQuery.isError) void verificationEvidenceQuery.refetch();
                         if (statusError) retryStatus();
                     },
                     onRoleMappingChange: (sourceId, targetId) =>

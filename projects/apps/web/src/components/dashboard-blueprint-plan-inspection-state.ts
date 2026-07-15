@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import {
@@ -19,16 +19,33 @@ export function useDashboardBlueprintPlanInspectionState({
     setBusyAction: Dispatch<SetStateAction<BlueprintBusyAction | undefined>>;
     setStatus: Dispatch<SetStateAction<PanelStatus | undefined>>;
 }) {
-    const [stepPagesByPlanId, setStepPagesByPlanId] = useState<Partial<Record<string, PlanStepPageState>>>({});
-    const [decisionPagesByPlanId, setDecisionPagesByPlanId] = useState<
-        Partial<Record<string, { decisions: DashboardBlueprintPlan['decisions']; nextCursor?: number }>>
-    >({});
+    const [stepPageState, setStepPageState] = useState<{
+        guildId: string;
+        pages: Partial<Record<string, PlanStepPageState>>;
+    }>({ guildId, pages: {} });
+    const [decisionPageState, setDecisionPageState] = useState<{
+        guildId: string;
+        pages: Partial<Record<string, { decisions: DashboardBlueprintPlan['decisions']; nextCursor?: number }>>;
+    }>({ guildId, pages: {} });
+    const stepPagesByPlanId = stepPageState.guildId === guildId ? stepPageState.pages : {};
+    const decisionPagesByPlanId = decisionPageState.guildId === guildId ? decisionPageState.pages : {};
+    const requestSequencesRef = useRef(new Map<string, number>());
+    const guildIdRef = useRef(guildId);
+    useEffect(() => {
+        guildIdRef.current = guildId;
+        requestSequencesRef.current.clear();
+    }, [guildId]);
 
     function seedPlanSteps(plan: DashboardBlueprintPlan): void {
-        setStepPagesByPlanId((current) => ({ ...current, [plan.id]: { steps: plan.steps } }));
+        setStepPageState((current) => ({
+            guildId,
+            pages: { ...(current.guildId === guildId ? current.pages : {}), [plan.id]: { steps: plan.steps } },
+        }));
     }
 
     async function loadPlanSteps(plan: DashboardBlueprintPlan): Promise<void> {
+        const requestKey = `steps:${guildId}:${plan.id}`;
+        const requestSequence = beginDetailRequest(requestKey);
         setBusyAction(`plan-steps:${plan.id}`);
 
         try {
@@ -42,6 +59,8 @@ export function useDashboardBlueprintPlanInspectionState({
                 },
             });
 
+            if (!isCurrentDetailRequest(requestKey, requestSequence)) return;
+
             if (result.type !== 'plan-step-page') {
                 setStatus(
                     result.type === 'invalid-input'
@@ -51,24 +70,30 @@ export function useDashboardBlueprintPlanInspectionState({
                 return;
             }
 
-            setStepPagesByPlanId((current) => {
-                const existingPage = current[plan.id];
+            setStepPageState((current) => {
+                const pages = current.guildId === guildId ? current.pages : {};
+                const existingPage = pages[plan.id];
                 return {
-                    ...current,
-                    [plan.id]: {
-                        steps: [...(existingPage?.steps ?? []), ...result.page.steps],
-                        ...(result.page.nextCursor ? { nextCursor: result.page.nextCursor } : {}),
+                    guildId,
+                    pages: {
+                        ...pages,
+                        [plan.id]: {
+                            steps: [...(existingPage?.steps ?? []), ...result.page.steps],
+                            ...(result.page.nextCursor ? { nextCursor: result.page.nextCursor } : {}),
+                        },
                     },
                 };
             });
         } catch {
-            setStatus(toUnexpectedErrorStatus());
+            if (isCurrentDetailRequest(requestKey, requestSequence)) setStatus(toUnexpectedErrorStatus());
         } finally {
-            setBusyAction(undefined);
+            if (isCurrentDetailRequest(requestKey, requestSequence)) setBusyAction(undefined);
         }
     }
 
     async function loadPlanDecisions(plan: DashboardBlueprintPlan): Promise<void> {
+        const requestKey = `decisions:${guildId}:${plan.id}`;
+        const requestSequence = beginDetailRequest(requestKey);
         setBusyAction(`decisions:${plan.id}`);
 
         try {
@@ -81,22 +106,42 @@ export function useDashboardBlueprintPlanInspectionState({
                     limit: 50,
                 },
             });
+            if (!isCurrentDetailRequest(requestKey, requestSequence)) return;
             if (result.type !== 'decision-page') {
                 setStatus(toErrorStatus(result.type));
                 return;
             }
-            setDecisionPagesByPlanId((pages) => ({
-                ...pages,
-                [plan.id]: {
-                    decisions: [...(pages[plan.id]?.decisions ?? []), ...result.decisions],
-                    ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
-                },
-            }));
+            setDecisionPageState((current) => {
+                const pages = current.guildId === guildId ? current.pages : {};
+                return {
+                    guildId,
+                    pages: {
+                        ...pages,
+                        [plan.id]: {
+                            decisions: [...(pages[plan.id]?.decisions ?? []), ...result.decisions],
+                            ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
+                        },
+                    },
+                };
+            });
         } catch {
-            setStatus(toUnexpectedErrorStatus());
+            if (isCurrentDetailRequest(requestKey, requestSequence)) setStatus(toUnexpectedErrorStatus());
         } finally {
-            setBusyAction(undefined);
+            if (isCurrentDetailRequest(requestKey, requestSequence)) setBusyAction(undefined);
         }
+    }
+
+    function beginDetailRequest(requestKey: string): number {
+        const next = (requestSequencesRef.current.get(requestKey) ?? 0) + 1;
+        requestSequencesRef.current.set(requestKey, next);
+        return next;
+    }
+
+    function isCurrentDetailRequest(requestKey: string, requestSequence: number): boolean {
+        return (
+            requestSequencesRef.current.get(requestKey) === requestSequence &&
+            requestKey.includes(`:${guildIdRef.current}:`)
+        );
     }
 
     return {

@@ -60,7 +60,6 @@ describe('guild structure v3 plan', () => {
             const plan = diffBlueprintSnapshot(current, requested, { policy });
 
             expect(plan.knownTargetKinds).toStrictEqual(expected);
-            expect(plan.fingerprintInput.knownTargetKinds).toStrictEqual(expected);
         }
     });
 
@@ -91,7 +90,7 @@ describe('guild structure v3 plan', () => {
         const requested = snapshot({ roles: [role('member')] });
         const first = diffBlueprintSnapshot(requested, requested, { policy: 'synchronize' });
 
-        expect(first.version).toBe(3);
+        expect(first.version).toBe(4);
         expect(first.sourceTargetMap).toStrictEqual({ member: 'member' });
         expect(first.decisions).toContainEqual({
             targetType: 'role',

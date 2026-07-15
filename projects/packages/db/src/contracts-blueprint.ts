@@ -1,3 +1,15 @@
+import type {
+    BlueprintPlanAuthorityV1,
+    BlueprintPlanDecision,
+    BlueprintPlanExecutionAuthorityV1,
+    BlueprintPlanStep,
+    BlueprintPlanSummary,
+    BlueprintPreflightEvidenceV1,
+    BlueprintPreflightReportSummary,
+    BlueprintRunCursorV1,
+    BlueprintRunVerificationEvidenceV1,
+} from '@neonflux/blueprint';
+
 import type { GuildFeatureRepositoryError } from './contracts.js';
 
 export const BLUEPRINT_FEATURE = 'blueprint';
@@ -132,22 +144,61 @@ export type StructureBackupRetentionPruneRecord = {
     nextRetentionPruneAt: Date | null;
 };
 
-export type BlueprintPlanRecord = {
+export type BlueprintPlanDecisionSummaryRecord = {
+    noOp: number;
+    create: number;
+    update: number;
+    delete: number;
+    protectedRetained: number;
+    protectedOmitted: number;
+    unmanagedRetained: number;
+    blockedAmbiguous: number;
+    blockedUnsupported: number;
+};
+
+export type BlueprintPlanMetadataRecord = {
     id: string;
     guildId: string;
+    sourceBackupId: string | null;
+    status: 'draft' | 'needs_input' | 'review_ready' | 'approved' | 'obsolete';
+    policy: 'merge' | 'synchronize' | 'rebuild';
+    planVersion: 4;
+    summary: BlueprintPlanSummary;
+    decisionSummary: BlueprintPlanDecisionSummaryRecord;
+    blockerCount: number;
+    requestedSnapshotDigest: string;
+    projectedSnapshotDigest: string;
+    authorityVersion: 1;
+    authorityDigest: string;
+    executionAuthorityVersion: 1;
+    executionAuthorityDigest: string;
+    stepCount: number;
+    stepLedgerDigest: string;
+    decisionCount: number;
+    decisionLedgerDigest: string;
     deleteStepCount: number;
     deleteSetDigest: string | null;
     planDigest: string;
-    planVersion: number;
-    policy: 'merge' | 'synchronize' | 'rebuild';
     createdByUserId: string | null;
-    status: string;
-    sourceBackupId: string | null;
-    plan: Record<string, unknown>;
-    requestedSnapshotDigest: string;
     createdAt: Date;
+    sealedAt?: Date | null;
     updatedAt: Date;
 };
+
+/** A deliberately cold, immutable plan-owned authority record. */
+export type BlueprintPlanAuthorityRecord = Omit<BlueprintPlanAuthorityV1, 'createdAt'> & {
+    id: string;
+    createdAt: Date;
+};
+
+/** A bounded immutable projection used by per-step execution paths. */
+export type BlueprintPlanExecutionAuthorityRecord = Omit<BlueprintPlanExecutionAuthorityV1, 'createdAt'> & {
+    id: string;
+    createdAt: Date;
+};
+
+/** List/history DTO. It intentionally contains metadata only. */
+export type BlueprintPlanSummaryRecord = BlueprintPlanMetadataRecord;
 
 export const blueprintRunStatuses = {
     queued: 'queued',
@@ -188,21 +239,31 @@ export const blueprintRunStepAttemptStates = {
     unknown: 'unknown',
 } as const;
 
-export type BlueprintPlanPreflightRecord = {
+export type BlueprintPlanPreflightMetadataRecord = {
     id: string;
     planId: string;
+    guildId: string;
+    status: 'ready' | 'blocked' | 'stale';
+    summary: BlueprintPreflightReportSummary;
+    checkedAt: Date;
+    observedAt: Date;
+    expiresAt: Date;
+    observationSource: 'resident-client';
     planDigest: string;
     fingerprintVersion: 2;
     structureFingerprint: string;
     capabilityFingerprint: string;
-    mutationFenceManifestJson: string;
-    observedAt: Date;
-    observationSource: 'resident-client';
+    evidenceVersion: 1;
+    evidenceDigest: string;
     preflightDigest: string;
-    report: Record<string, unknown>;
-    status: 'ready' | 'blocked' | 'stale';
-    checkedAt: Date;
-    expiresAt: Date;
+};
+
+/** List/history DTO. It intentionally excludes the report and mutation-fence manifest. */
+export type BlueprintPlanPreflightSummaryRecord = BlueprintPlanPreflightMetadataRecord;
+
+export type BlueprintPlanPreflightEvidenceRecord = Omit<BlueprintPreflightEvidenceV1, 'createdAt'> & {
+    id: string;
+    createdAt: Date;
 };
 
 export type BlueprintPlanApprovalRecord = {
@@ -225,11 +286,13 @@ export type BlueprintRunRecord = {
     id: string;
     planId: string;
     guildId: string;
+    preflightId: string;
     preflightDigest: string;
     preflightExpiresAt: Date;
     fingerprintVersion: 2;
     expectedStructureFingerprint: string;
     expectedCapabilityFingerprint: string;
+    executionAuthorityDigest: string;
     authorizationDecision:
         | 'authorized'
         | 'structure_changed'
@@ -253,7 +316,6 @@ export type BlueprintRunRecord = {
     appliedSteps: number;
     failedSteps: number;
     skippedSteps: number;
-    idMap: Record<string, string>;
     retryAt: Date | null;
     errorType: string | null;
     currentStepDomain: string | null;
@@ -267,10 +329,27 @@ export type BlueprintRunRecord = {
     completedAt: Date | null;
     controlRequest: 'pause' | 'cancel' | null;
     restorePointBackupId: string | null;
-    verificationResult: Record<string, unknown> | null;
-    verificationStatus: string | null;
+    restorePointSnapshotDigest: string | null;
+    verificationStatus: 'matched' | 'mismatch' | 'read_failed' | null;
+    verificationEvidenceVersion: 1 | null;
+    verificationEvidenceDigest: string | null;
+    terminalDigest: string | null;
+    terminalRequestDigest: string | null;
     createdAt: Date;
     updatedAt: Date;
+};
+
+/** List/history DTO. It intentionally excludes cursor and verification evidence. */
+export type BlueprintRunSummaryRecord = BlueprintRunRecord;
+
+export type BlueprintRunCursorRecord = Omit<BlueprintRunCursorV1, 'updatedAt'> & {
+    id: string;
+    updatedAt: Date;
+};
+
+export type BlueprintRunVerificationEvidenceRecord = Omit<BlueprintRunVerificationEvidenceV1, 'createdAt'> & {
+    id: string;
+    createdAt: Date;
 };
 
 export type BlueprintRunMutationAuthorizationRecord =
@@ -291,9 +370,17 @@ export type BlueprintRunStepAttemptRecord = {
     id: string;
     runId: string;
     planStepId: string;
+    planStepSequence: number;
+    stepDigest: string;
+    actionType: 'create' | 'update' | 'delete';
+    targetType: 'role' | 'category' | 'channel' | 'role-order' | 'channel-order';
+    targetId: string;
+    sourceId: string | null;
+    displayLabel: string;
     attempt: number;
     state: 'pending' | 'started' | 'applied' | 'failed' | 'unknown';
     requestKey: string;
+    completionDigest: string | null;
     createdId: string | null;
     errorType: string | null;
     retryAt: Date | null;
@@ -301,6 +388,18 @@ export type BlueprintRunStepAttemptRecord = {
     completedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+};
+
+export type BlueprintRunStepPreparationRecord = {
+    kind: 'prepared' | 'control_requested';
+    attempt: BlueprintRunStepAttemptRecord;
+    run: BlueprintRunRecord;
+};
+
+export type BlueprintRunStepStartRecord = {
+    kind: 'started' | 'control_requested';
+    attempt: BlueprintRunStepAttemptRecord;
+    run: BlueprintRunRecord;
 };
 
 export type BlueprintRunProtocolMismatchRecord = {
@@ -317,23 +416,29 @@ export type BlueprintRunClaimRecord =
     | {
           kind: 'claimed';
           run: BlueprintRunRecord;
-          plan: BlueprintPlanRecord;
+          cursor: BlueprintRunCursorRecord;
+          plan: BlueprintPlanMetadataRecord;
+          authority: BlueprintPlanAuthorityRecord;
+          executionAuthority: BlueprintPlanExecutionAuthorityRecord;
           steps: BlueprintPlanStepRecord[];
+          decisions: BlueprintPlanDecisionRecord[];
           attempts: BlueprintRunStepAttemptRecord[];
       }
-    | BlueprintRunProtocolMismatchRecord;
+    | BlueprintRunProtocolMismatchRecord
+    | {
+          kind: 'authority_invalid';
+          errorType: string;
+          guildId: string;
+          mayHaveExternalEffects: boolean;
+          runId: string;
+          status: 'failed_before_mutation' | 'partially_applied';
+      };
 
 export type BlueprintPlanDecisionRecord = {
     id: string;
     planId: string;
     sequence: number;
-    targetType: string;
-    classification: string;
-    sourceId: string | null;
-    targetId: string | null;
-    logicalId: string | null;
-    name: string | null;
-    details: Record<string, unknown>;
+    decision: BlueprintPlanDecision;
     createdAt: Date;
 };
 
@@ -346,10 +451,7 @@ export type BlueprintPlanStepRecord = {
     id: string;
     planId: string;
     sequence: number;
-    actionType: string;
-    targetType: string;
-    targetId: string | null;
-    details: Record<string, unknown>;
+    step: BlueprintPlanStep;
     createdAt: Date;
 };
 
@@ -367,8 +469,11 @@ export type BlueprintRepositoryError =
     | { type: 'blueprint-guild-run-active' }
     | { type: 'blueprint-run-empty' };
 
-export type BlueprintPlanWithStepsRecord = BlueprintPlanRecord & {
+export type BlueprintPlanDetailRecord = {
+    plan: BlueprintPlanMetadataRecord;
+    authority: BlueprintPlanAuthorityRecord;
     steps: BlueprintPlanStepRecord[];
+    decisions: BlueprintPlanDecisionRecord[];
 };
 
 export type StructureObservedEventStateRecord = {

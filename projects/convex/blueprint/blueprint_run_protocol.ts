@@ -95,60 +95,45 @@ export async function findCurrentQueuedOrWaitingBlueprintRun(ctx: MutationCtx, n
         .first();
 }
 
-export function listCurrentBlueprintRunReclaimCandidates(
+export function findCurrentBlueprintRunReclaimCandidate(
     ctx: MutationCtx,
-    status: 'pause_requested' | 'running' | 'verifying'
+    status: 'pause_requested' | 'running' | 'verifying',
+    now: string
 ) {
     return ctx.db
         .query('blueprintRuns')
-        .withIndex('by_status_protocol_retry', (q) =>
-            q.eq('status', status).eq('protocolVersion', BLUEPRINT_RUN_PROTOCOL_VERSION)
+        .withIndex('by_status_protocol_lease_expiry', (q) =>
+            q.eq('status', status).eq('protocolVersion', BLUEPRINT_RUN_PROTOCOL_VERSION).lte('leaseExpiresAt', now)
         )
-        .collect();
+        .first();
 }
 
 export async function findRunnableBlueprintRunProtocolMismatch(
-    ctx: MutationCtx,
-    now: string
+    ctx: MutationCtx
 ): Promise<BlueprintRunProtocolMismatch | null> {
-    const queued = await findMismatchedByStatus(ctx, 'queued');
-    if (queued && isRunnableBlueprintRunProtocolMismatch(queued, now)) {
-        return toBlueprintRunProtocolMismatch(queued);
-    }
-
-    const waiting = await findMismatchedByStatus(ctx, 'waiting_rate_limit', now);
-    if (waiting && isRunnableBlueprintRunProtocolMismatch(waiting, now)) {
-        return toBlueprintRunProtocolMismatch(waiting);
-    }
-
-    for (const status of ['running', 'pause_requested', 'verifying'] as const) {
-        const candidates = await ctx.db
-            .query('blueprintRuns')
-            .withIndex('by_status_retry', (q) => q.eq('status', status))
-            // This diagnostic fallback runs only after no current-protocol work exists; indexes cannot express !=.
-            // eslint-disable-next-line @convex-dev/no-filter-in-query
-            .filter((q) => q.neq(q.field('protocolVersion'), BLUEPRINT_RUN_PROTOCOL_VERSION))
-            .collect();
-        for (const candidate of candidates) {
-            if (isRunnableBlueprintRunProtocolMismatch(candidate, now)) {
-                return toBlueprintRunProtocolMismatch(candidate);
-            }
-        }
+    for (const status of ['queued', 'waiting_rate_limit', 'running', 'pause_requested', 'verifying'] as const) {
+        const candidate = await findMismatchedByStatus(ctx, status);
+        if (candidate) return toBlueprintRunProtocolMismatch(candidate);
     }
 
     return null;
 }
 
-function findMismatchedByStatus(ctx: MutationCtx, status: 'queued' | 'waiting_rate_limit', retryAt?: string) {
-    return (
-        ctx.db
-            .query('blueprintRuns')
-            .withIndex('by_status_retry', (q) =>
-                retryAt === undefined ? q.eq('status', status) : q.eq('status', status).lte('retryAt', retryAt)
-            )
-            // This diagnostic fallback runs only after no current-protocol work exists; indexes cannot express !=.
-            // eslint-disable-next-line @convex-dev/no-filter-in-query
-            .filter((q) => q.neq(q.field('protocolVersion'), BLUEPRINT_RUN_PROTOCOL_VERSION))
-            .first()
-    );
+async function findMismatchedByStatus(
+    ctx: MutationCtx,
+    status: 'queued' | 'waiting_rate_limit' | 'running' | 'pause_requested' | 'verifying'
+) {
+    const older = await ctx.db
+        .query('blueprintRuns')
+        .withIndex('by_status_protocol_retry', (q) =>
+            q.eq('status', status).lt('protocolVersion', BLUEPRINT_RUN_PROTOCOL_VERSION)
+        )
+        .first();
+    if (older) return older;
+    return ctx.db
+        .query('blueprintRuns')
+        .withIndex('by_status_protocol_retry', (q) =>
+            q.eq('status', status).gt('protocolVersion', BLUEPRINT_RUN_PROTOCOL_VERSION)
+        )
+        .first();
 }

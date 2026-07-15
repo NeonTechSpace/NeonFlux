@@ -45,6 +45,12 @@
             "production": "./dist/diff.js",
             "import": "./dist/diff.js"
         },
+        "./execution-authority": {
+            "types": "./src/execution-authority.ts",
+            "development": "./src/execution-authority.ts",
+            "production": "./dist/execution-authority.js",
+            "import": "./dist/execution-authority.js"
+        },
         "./provider-steps": {
             "types": "./src/provider-steps.ts",
             "development": "./src/provider-steps.ts",
@@ -56,6 +62,12 @@
             "development": "./src/identity.ts",
             "production": "./dist/identity.js",
             "import": "./dist/identity.js"
+        },
+        "./integrity": {
+            "types": "./src/integrity.ts",
+            "development": "./src/integrity.ts",
+            "production": "./dist/integrity.js",
+            "import": "./dist/integrity.js"
         },
         "./mutation-fence": {
             "types": "./src/mutation-fence.ts",
@@ -74,6 +86,18 @@
             "development": "./src/plan-builders.ts",
             "production": "./dist/plan-builders.js",
             "import": "./dist/plan-builders.js"
+        },
+        "./plan-summary": {
+            "types": "./src/plan-summary.ts",
+            "development": "./src/plan-summary.ts",
+            "production": "./dist/plan-summary.js",
+            "import": "./dist/plan-summary.js"
+        },
+        "./persisted-authority": {
+            "types": "./src/persisted-authority.ts",
+            "development": "./src/persisted-authority.ts",
+            "production": "./dist/persisted-authority.js",
+            "import": "./dist/persisted-authority.js"
         },
         "./preflight-report": {
             "types": "./src/preflight-report.ts",

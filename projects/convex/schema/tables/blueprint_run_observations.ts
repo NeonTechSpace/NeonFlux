@@ -10,6 +10,8 @@ export const blueprintRunObservationsTable = defineTable({
     manifestJson: v.string(),
     observedAt: timestamp,
     phase: v.union(v.literal('restore'), v.literal('authorization')),
+    restorePointBackupId: v.optional(v.id('structureBackups')),
+    restorePointSnapshotDigest: v.optional(v.string()),
     runId: v.id('blueprintRuns'),
     source: v.literal('token-client'),
     structureFingerprint: v.string(),

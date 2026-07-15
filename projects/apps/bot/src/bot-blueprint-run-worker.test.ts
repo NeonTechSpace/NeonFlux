@@ -9,26 +9,18 @@ import {
     ensureBlueprintRunRestorePoint,
     finalizeBlueprintRun,
     prepareBlueprintRunStepAttempt,
-    renewBlueprintRunLease,
     startBlueprintRunStepAttempt,
     BLUEPRINT_RUN_PROTOCOL_VERSION,
-    type BlueprintPlanStepRecord,
     type BlueprintRunRecord,
-    type BlueprintPlanRecord,
 } from '@neonflux/db';
-import {
-    createBlueprintSnapshotFingerprintInput,
-    deriveBlueprintCursorAuthority,
-    normalizeBlueprintSnapshot,
-    toBlueprintSnapshot,
-    toPortableBlueprintSnapshot,
-} from '@neonflux/blueprint';
+import { deriveBlueprintCursorAuthority, normalizeBlueprintSnapshot, toBlueprintSnapshot } from '@neonflux/blueprint';
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
+import { validateClaimedBlueprintRunAuthority } from './bot-blueprint-run-authority.js';
 import { runNextBlueprintRun, startBlueprintRunWorker } from './bot-blueprint-run-worker.js';
 
 vi.mock('@neonflux/db', () => ({
-    BLUEPRINT_RUN_PROTOCOL_VERSION: 5,
+    BLUEPRINT_RUN_PROTOCOL_VERSION: 7,
     authorizeBlueprintRunMutation: vi.fn(),
     checkpointBlueprintRun: vi.fn(),
     claimNextBlueprintRun: vi.fn(),
@@ -36,16 +28,16 @@ vi.mock('@neonflux/db', () => ({
     ensureBlueprintRunRestorePoint: vi.fn(),
     finalizeBlueprintRun: vi.fn(),
     prepareBlueprintRunStepAttempt: vi.fn(),
-    renewBlueprintRunLease: vi.fn(),
     startBlueprintRunStepAttempt: vi.fn(),
 }));
 vi.mock('@neonflux/blueprint', async (importActual) => ({
     ...(await importActual<Record<string, unknown>>()),
-    createBlueprintSnapshotFingerprintInput: vi.fn(),
     deriveBlueprintCursorAuthority: vi.fn(),
     normalizeBlueprintSnapshot: vi.fn(),
     toBlueprintSnapshot: vi.fn(),
-    toPortableBlueprintSnapshot: vi.fn(),
+}));
+vi.mock('./bot-blueprint-run-authority.js', () => ({
+    validateClaimedBlueprintRunAuthority: vi.fn(),
 }));
 vi.mock('@neonflux/fluxer', () => ({
     applyFluxerBotGuildStructureActions: vi.fn(),
@@ -61,18 +53,9 @@ describe('Blueprint run worker', () => {
             ok: true,
         });
         vi.mocked(authorizeBlueprintRunMutation).mockResolvedValue(ok({ kind: 'authorized', run: workerRun() }));
-        vi.mocked(createBlueprintSnapshotFingerprintInput).mockReturnValue({
-            version: 1,
-            roles: [],
-            categories: [],
-            channels: [],
-        });
-        vi.mocked(toPortableBlueprintSnapshot).mockReturnValue({
-            version: 1,
-            roles: [],
-            categories: [],
-            channels: [],
-        });
+        vi.mocked(validateClaimedBlueprintRunAuthority).mockImplementation((claim) =>
+            Promise.resolve(validAuthority((claim as unknown as { steps: TestPlanStep[] }).steps))
+        );
         vi.mocked(toBlueprintSnapshot).mockReturnValue({
             version: 1,
             guildId: 'guild-1',
@@ -108,6 +91,38 @@ describe('Blueprint run worker', () => {
         vi.mocked(claimNextBlueprintRun).mockResolvedValue(ok(mismatch));
 
         await expect(runWorker()).resolves.toStrictEqual(mismatch);
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+        expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
+    });
+
+    it('accepts a server-quarantined invalid authority without retrying or provider access', async () => {
+        vi.mocked(claimNextBlueprintRun).mockResolvedValue(
+            ok({
+                kind: 'authority_invalid',
+                errorType: 'blueprint-plan-integrity-mismatch',
+                guildId: 'guild-1',
+                mayHaveExternalEffects: false,
+                runId: 'run-1',
+                status: 'failed_before_mutation',
+            })
+        );
+
+        await expect(runWorker()).resolves.toBe('progressed');
+        expect(validateClaimedBlueprintRunAuthority).not.toHaveBeenCalled();
+        expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
+    });
+
+    it('fails closed if an older protocol is ever returned as claimed', async () => {
+        const run = workerRun({ protocolVersion: 6 });
+        mockClaim(run, [workerStep()]);
+
+        await expect(runWorker()).resolves.toMatchObject({
+            kind: 'protocol_mismatch',
+            runId: 'run-1',
+            runProtocolVersion: 6,
+            requiredProtocolVersion: 7,
+        });
+        expect(validateClaimedBlueprintRunAuthority).not.toHaveBeenCalled();
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
     });
@@ -183,8 +198,44 @@ describe('Blueprint run worker', () => {
         );
     });
 
-    it('persists intent before mutation, checkpoints the id map, verifies, and finalizes', async () => {
-        const action = {
+    it('backs off repeated idle polls and returns to the base delay after progress', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        vi.mocked(claimNextBlueprintRun)
+            .mockResolvedValueOnce(ok(null))
+            .mockResolvedValueOnce(ok(null))
+            .mockResolvedValueOnce(
+                ok({
+                    kind: 'authority_invalid',
+                    errorType: 'blueprint-plan-integrity-mismatch',
+                    guildId: 'guild-1',
+                    mayHaveExternalEffects: false,
+                    runId: 'run-1',
+                    status: 'failed_before_mutation',
+                })
+            )
+            .mockResolvedValue(ok(null));
+        const worker = startBlueprintRunWorker({
+            botToken: 'token',
+            database: { db: {} } as never,
+            logger: { error: vi.fn() } as never,
+        });
+
+        await vi.advanceTimersByTimeAsync(1_999);
+        expect(claimNextBlueprintRun).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(3);
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(4);
+        await worker.stop();
+    });
+
+    it('persists intent before mutation, records the created mapping, verifies, and finalizes', async () => {
+        const action: TestPlanStep = {
             id: 'action-1',
             planId: 'plan-1',
             sequence: 0,
@@ -199,28 +250,28 @@ describe('Blueprint run worker', () => {
             ok({
                 kind: 'claimed',
                 run,
-                plan: {
-                    id: 'plan-1',
-                    guildId: 'guild-1',
-                    policy: 'synchronize',
-                    plan: workerPlanDocument([action], 'synchronize'),
-                } as never,
+                plan: workerPlanRecord([action], 'synchronize'),
                 steps: [action],
                 attempts: [],
-            })
+            } as never)
         );
-        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'pending' } as never));
-        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'started' } as never));
+        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'prepared', attempt: { id: 'attempt-1', state: 'pending' } as never, run })
+        );
+        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'started', attempt: { id: 'attempt-1', state: 'started' } as never, run })
+        );
         vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(ok({ attempt: {} as never, run }));
-        vi.mocked(ensureBlueprintRunRestorePoint).mockResolvedValue(ok({ backupId: 'backup-1' }));
+        vi.mocked(ensureBlueprintRunRestorePoint).mockResolvedValue(
+            ok({ backupId: 'backup-1', snapshotDigest: 'a'.repeat(64) })
+        );
         vi.mocked(checkpointBlueprintRun).mockResolvedValue(ok(run));
-        vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(run));
         vi.mocked(finalizeBlueprintRun).mockResolvedValue(ok(run));
         vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
             expect(await input.beforeAction?.(firstAction(input.actions))).toBe(true);
-            expect(checkpointBlueprintRun).toHaveBeenLastCalledWith(
+            expect(prepareBlueprintRunStepAttempt).toHaveBeenLastCalledWith(
                 expect.anything(),
-                expect.objectContaining({ currentStepId: 'action-1', phase: 'create' })
+                expect.objectContaining({ planStepId: 'action-1' })
             );
             expect(await input.beforeMutation?.()).toBe(true);
             await input.onActionResult?.(
@@ -250,24 +301,30 @@ describe('Blueprint run worker', () => {
                 leaseOwner: 'worker',
             })
         ).resolves.toBe('progressed');
-        expect(toPortableBlueprintSnapshot).toHaveBeenCalledOnce();
-        expect(ensureBlueprintRunRestorePoint).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.objectContaining({
-                structure: { version: 1, roles: [], categories: [], channels: [] },
-            })
-        );
+        const restorePointInput: unknown = vi.mocked(ensureBlueprintRunRestorePoint).mock.calls[0]?.[1];
+        expect(restorePointInput).toMatchObject({ structure: { guildId: 'guild-1' } });
         expect(startBlueprintRunStepAttempt).toHaveBeenCalledBefore(
             vi.mocked(completeAndCheckpointBlueprintRunStepAttempt)
         );
-        expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledWith(
+        expect(prepareBlueprintRunStepAttempt).toHaveBeenCalledOnce();
+        expect(startBlueprintRunStepAttempt).toHaveBeenCalledOnce();
+        expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledExactlyOnceWith(
             expect.anything(),
-            expect.objectContaining({ idMap: { 'source-role': 'role-1' }, phase: 'create' })
+            expect.objectContaining({ createdId: 'role-1', phase: 'create' })
+        );
+        expect(checkpointBlueprintRun).toHaveBeenCalledExactlyOnceWith(
+            expect.anything(),
+            expect.objectContaining({ phase: 'verifying', status: 'verifying' })
         );
         expect(finalizeBlueprintRun).toHaveBeenLastCalledWith(
             expect.anything(),
             expect.objectContaining({ status: 'succeeded' })
         );
+        const finalization: unknown = vi.mocked(finalizeBlueprintRun).mock.calls.at(-1)?.[1];
+        if (!finalization || typeof finalization !== 'object')
+            throw new Error('Expected Blueprint finalization input.');
+        const verificationEvidenceDigest = (finalization as Record<string, unknown>).verificationEvidenceDigest;
+        expect(verificationEvidenceDigest).toMatch(/^[0-9a-f]{64}$/u);
     });
 
     it('reuses an attached restore point without creating another one', async () => {
@@ -300,17 +357,12 @@ describe('Blueprint run worker', () => {
     it('uses a separate post-restore read and stops before provider mutation when authorization rejects it', async () => {
         const run = workerRun();
         mockClaim(run, [workerStep()]);
-        vi.mocked(ensureBlueprintRunRestorePoint).mockResolvedValue(ok({ backupId: 'backup-1' }));
+        vi.mocked(ensureBlueprintRunRestorePoint).mockResolvedValue(
+            ok({ backupId: 'backup-1', snapshotDigest: 'a'.repeat(64) })
+        );
         vi.mocked(readFluxerBotGuildStructure)
             .mockResolvedValueOnce(ok({ guildName: 'restore-state' } as never))
             .mockResolvedValueOnce(ok({ guildName: 'changed-before-mutation' } as never));
-        vi.mocked(toPortableBlueprintSnapshot).mockReturnValueOnce({
-            version: 1,
-            guildName: 'restore-state',
-            roles: [],
-            categories: [],
-            channels: [],
-        });
         vi.mocked(toBlueprintSnapshot)
             .mockReturnValueOnce({
                 version: 1,
@@ -419,7 +471,7 @@ describe('Blueprint run worker', () => {
 
         expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledWith(
             expect.anything(),
-            expect.objectContaining({ idMap: {}, nextStepSequence: 0, state: 'unknown', status: 'outcome_unknown' })
+            expect.objectContaining({ nextStepSequence: 0, state: 'unknown', status: 'outcome_unknown' })
         );
         expect(finalizeBlueprintRun).not.toHaveBeenCalled();
     });
@@ -428,9 +480,12 @@ describe('Blueprint run worker', () => {
         const run = workerRun({ restorePointBackupId: 'backup-1' });
         const action = workerStep();
         mockClaim(run, [action]);
-        vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(run));
-        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'pending' } as never));
-        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'started' } as never));
+        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'prepared', attempt: { id: 'attempt-1', state: 'pending' } as never, run })
+        );
+        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'started', attempt: { id: 'attempt-1', state: 'started' } as never, run })
+        );
         vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(err({ type: 'database-error' }));
         vi.mocked(finalizeBlueprintRun).mockResolvedValue(ok(run));
         vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
@@ -442,11 +497,8 @@ describe('Blueprint run worker', () => {
 
         await runWorker();
 
-        expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledOnce();
-        expect(checkpointBlueprintRun).toHaveBeenCalledExactlyOnceWith(
-            expect.anything(),
-            expect.objectContaining({ nextStepSequence: 0, phase: 'create' })
-        );
+        expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledTimes(2);
+        expect(checkpointBlueprintRun).not.toHaveBeenCalled();
         expect(finalizeBlueprintRun).toHaveBeenLastCalledWith(
             expect.anything(),
             expect.objectContaining({ status: 'outcome_unknown' })
@@ -463,10 +515,13 @@ describe('Blueprint run worker', () => {
         });
         const action = workerStep();
         mockClaim(run, [action]);
-        vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(run));
         vi.mocked(checkpointBlueprintRun).mockResolvedValue(ok(run));
-        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'pending' } as never));
-        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'started' } as never));
+        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'prepared', attempt: { id: 'attempt-1', state: 'pending' } as never, run })
+        );
+        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'started', attempt: { id: 'attempt-1', state: 'started' } as never, run })
+        );
         vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(
             ok({ attempt: {} as never, run: unknownExecution })
         );
@@ -494,7 +549,16 @@ describe('Blueprint run worker', () => {
         const action = workerStep();
         mockClaim(run, [action]);
         mockMutationPersistence(run);
-        vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(cancelRequested));
+        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+            ok({
+                kind: 'control_requested',
+                attempt: { id: 'attempt-1', state: 'pending' } as never,
+                run: cancelRequested,
+            })
+        );
+        vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ attempt: {} as never, run: workerRun({ ...cancelRequested, status: 'cancelled' }) })
+        );
         vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
             await input.beforeAction?.(firstAction(input.actions));
             expect(await input.beforeMutation?.()).toBe(false);
@@ -504,11 +568,8 @@ describe('Blueprint run worker', () => {
 
         await runWorker();
 
-        expect(completeAndCheckpointBlueprintRunStepAttempt).not.toHaveBeenCalled();
-        expect(finalizeBlueprintRun).toHaveBeenLastCalledWith(
-            expect.anything(),
-            expect.objectContaining({ status: 'cancelled' })
-        );
+        expect(completeAndCheckpointBlueprintRunStepAttempt).toHaveBeenCalledOnce();
+        expect(finalizeBlueprintRun).not.toHaveBeenCalled();
     });
 
     it('pauses at the persisted high-water cursor', async () => {
@@ -517,7 +578,16 @@ describe('Blueprint run worker', () => {
         const action = workerStep();
         mockClaim(run, [action]);
         mockMutationPersistence(run);
-        vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(pauseRequested));
+        vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+            ok({
+                kind: 'control_requested',
+                attempt: { id: 'attempt-1', state: 'pending' } as never,
+                run: pauseRequested,
+            })
+        );
+        vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ attempt: {} as never, run: workerRun({ ...pauseRequested, status: 'paused' }) })
+        );
         vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
             await input.beforeAction?.(firstAction(input.actions));
             expect(await input.beforeMutation?.()).toBe(false);
@@ -527,16 +597,13 @@ describe('Blueprint run worker', () => {
 
         await runWorker();
 
-        expect(checkpointBlueprintRun).toHaveBeenLastCalledWith(
-            expect.anything(),
-            expect.objectContaining({ nextStepSequence: 0, status: 'paused' })
-        );
+        expect(checkpointBlueprintRun).not.toHaveBeenCalled();
         expect(finalizeBlueprintRun).not.toHaveBeenCalled();
     });
 
     it('retries an order action from its own cursor after a provider rate limit', async () => {
         const run = workerRun({ restorePointBackupId: 'backup-1' });
-        const orderAction = {
+        const orderAction: TestPlanStep = {
             ...workerStep(),
             actionType: 'update',
             targetId: 'role-order',
@@ -610,15 +677,22 @@ describe('Blueprint run worker', () => {
                 plan: workerPlanRecord([validAction]),
                 steps: [corruptAction],
                 attempts: [],
-            })
+            } as never)
         );
+        vi.mocked(validateClaimedBlueprintRunAuthority).mockResolvedValueOnce({
+            type: 'invalid',
+            errorType: 'invalid-blueprint-plan-step-ledger',
+        });
         vi.mocked(finalizeBlueprintRun).mockResolvedValue(ok(run));
 
         await expect(runWorker()).resolves.toBe('progressed');
 
         expect(finalizeBlueprintRun).toHaveBeenCalledWith(
             expect.anything(),
-            expect.objectContaining({ errorType: 'invalid-blueprint-plan-step', status: 'failed_before_mutation' })
+            expect.objectContaining({
+                errorType: 'invalid-blueprint-plan-step-ledger',
+                status: 'failed_before_mutation',
+            })
         );
         expect(readFluxerBotGuildStructure).not.toHaveBeenCalled();
         expect(ensureBlueprintRunRestorePoint).not.toHaveBeenCalled();
@@ -646,7 +720,7 @@ describe('Blueprint run worker', () => {
         expect(applyFluxerBotGuildStructureActions).not.toHaveBeenCalled();
         expect(finalizeBlueprintRun).toHaveBeenCalledWith(
             expect.anything(),
-            expect.objectContaining({ status: 'partially_applied', restorePointBackupId: 'backup-1' })
+            expect.objectContaining({ status: 'partially_applied' })
         );
     });
 
@@ -688,18 +762,66 @@ describe('Blueprint run worker', () => {
         );
     });
 
-    it('resumes at role ordering without replaying an already completed channel order', async () => {
+    it('reuses the exact pending attempt across repeated reclaim before provider start', async () => {
         const run = workerRun({
             appliedSteps: 1,
             completedMutationSteps: 1,
-            idMap: { 'source-channel': 'target-channel', 'source-role': 'target-role' },
             nextStepSequence: 1,
             notStartedSteps: 1,
             restorePointBackupId: 'backup-1',
             totalSteps: 2,
             totalMutationSteps: 2,
         });
-        const channelOrder = {
+        const action = { ...workerStep(), sequence: 1 };
+        const pendingAttempt = {
+            id: 'attempt-4',
+            attempt: 4,
+            planStepId: action.id,
+            requestKey: 'stable-pending-request-key',
+            state: 'pending',
+        };
+        const olderPendingAttempt = {
+            ...pendingAttempt,
+            id: 'attempt-3',
+            attempt: 3,
+            requestKey: 'older-pending-request-key',
+        };
+        mockClaim(run, [action], {}, [pendingAttempt, olderPendingAttempt]);
+        vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(
+            ok({ kind: 'prepared', attempt: pendingAttempt as never, run })
+        );
+        vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(err({ type: 'database-error' }));
+        vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
+            expect(await input.beforeAction?.(firstAction(input.actions))).toBe(true);
+            throw new Error('simulated process loss before provider start');
+        });
+
+        await expect(runWorker()).resolves.toBe('progressed');
+        await expect(runWorker()).resolves.toBe('progressed');
+
+        expect(prepareBlueprintRunStepAttempt).toHaveBeenCalledTimes(2);
+        for (const [, input] of vi.mocked(prepareBlueprintRunStepAttempt).mock.calls) {
+            expect(input).toMatchObject({
+                attempt: 4,
+                planStepId: action.id,
+                requestKey: 'stable-pending-request-key',
+            });
+        }
+        expect(startBlueprintRunStepAttempt).not.toHaveBeenCalled();
+    });
+
+    it('resumes at role ordering without replaying an already completed channel order', async () => {
+        const resumedIdMap = { 'source-channel': 'target-channel', 'source-role': 'target-role' };
+        const run = workerRun({
+            appliedSteps: 1,
+            completedMutationSteps: 1,
+            nextStepSequence: 1,
+            notStartedSteps: 1,
+            restorePointBackupId: 'backup-1',
+            totalSteps: 2,
+            totalMutationSteps: 2,
+        });
+        const channelOrder: TestPlanStep = {
             ...workerStep(),
             id: 'channel-order',
             sequence: 0,
@@ -719,7 +841,7 @@ describe('Blueprint run worker', () => {
                 ],
             },
         };
-        const roleOrder = {
+        const roleOrder: TestPlanStep = {
             ...workerStep(),
             id: 'role-order',
             sequence: 1,
@@ -732,14 +854,14 @@ describe('Blueprint run worker', () => {
                 changes: [{ field: 'roleOrder', after: [{ sourceId: 'source-role', position: 1 }] }],
             },
         };
-        mockClaim(run, [channelOrder, roleOrder]);
+        mockClaim(run, [channelOrder, roleOrder], resumedIdMap);
         mockMutationPersistence(run);
         vi.mocked(applyFluxerBotGuildStructureActions).mockImplementation(async (input) => {
             expect(input.actions.map((action) => action.id)).toStrictEqual(['role-order']);
             await input.beforeAction?.(firstAction(input.actions));
             await input.beforeMutation?.();
-            await input.onActionResult?.({ id: 'role-order', status: 'applied' }, run.idMap);
-            return ok({ actions: [{ id: 'role-order', status: 'applied' }], idMap: run.idMap });
+            await input.onActionResult?.({ id: 'role-order', status: 'applied' }, resumedIdMap);
+            return ok({ actions: [{ id: 'role-order', status: 'applied' }], idMap: resumedIdMap });
         });
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(ok({} as never));
@@ -817,6 +939,25 @@ describe('Blueprint run worker', () => {
             expect.objectContaining({ status: 'needs_reconciliation', verificationStatus: 'mismatch' })
         );
     });
+
+    it('surfaces terminal verification persistence failures', async () => {
+        const run = workerRun({
+            appliedSteps: 1,
+            completedMutationSteps: 1,
+            nextStepSequence: 1,
+            restorePointBackupId: 'backup-1',
+            notStartedSteps: 0,
+        });
+        mockClaim(run, [workerStep()]);
+        vi.mocked(checkpointBlueprintRun).mockResolvedValue(ok(run));
+        vi.mocked(finalizeBlueprintRun).mockResolvedValue(err({ type: 'database-error' }));
+        vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
+        vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
+            err({ type: 'login-failed', error: new Error('offline') })
+        );
+
+        await expect(runWorker()).rejects.toThrow('blueprint-run-finalize-failed');
+    });
 });
 
 function workerRun(overrides: Partial<BlueprintRunRecord> = {}): BlueprintRunRecord {
@@ -824,11 +965,13 @@ function workerRun(overrides: Partial<BlueprintRunRecord> = {}): BlueprintRunRec
         id: 'run-1',
         planId: 'plan-1',
         guildId: 'guild-1',
+        preflightId: 'preflight-1',
         preflightDigest: 'preflight',
         preflightExpiresAt: new Date('2026-07-11T12:05:00.000Z'),
         fingerprintVersion: 2,
         expectedStructureFingerprint: 'structure-fingerprint',
         expectedCapabilityFingerprint: 'capability-fingerprint',
+        executionAuthorityDigest: 'a'.repeat(64),
         authorizationDecision: null,
         authorizationMismatch: null,
         mutationAuthorizedAt: null,
@@ -844,7 +987,6 @@ function workerRun(overrides: Partial<BlueprintRunRecord> = {}): BlueprintRunRec
         appliedSteps: 0,
         failedSteps: 0,
         skippedSteps: 0,
-        idMap: {},
         retryAt: null,
         errorType: null,
         currentStepDomain: null,
@@ -858,8 +1000,12 @@ function workerRun(overrides: Partial<BlueprintRunRecord> = {}): BlueprintRunRec
         completedAt: null,
         controlRequest: null,
         restorePointBackupId: null,
-        verificationResult: null,
+        restorePointSnapshotDigest: null,
         verificationStatus: null,
+        verificationEvidenceVersion: null,
+        verificationEvidenceDigest: null,
+        terminalDigest: null,
+        terminalRequestDigest: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides,
@@ -878,7 +1024,18 @@ function runProtocolMismatch() {
     };
 }
 
-function workerStep(): BlueprintPlanStepRecord {
+type TestPlanStep = {
+    id: string;
+    planId: string;
+    sequence: number;
+    actionType: 'create' | 'update' | 'delete';
+    targetType: string;
+    targetId: string | null;
+    details: Record<string, unknown> & { label: string };
+    createdAt: Date;
+};
+
+function workerStep(): TestPlanStep {
     return {
         id: 'action-1',
         planId: 'plan-1',
@@ -904,87 +1061,105 @@ function workerRoleSnapshot() {
     };
 }
 
-function mockClaim(run: BlueprintRunRecord, steps: BlueprintPlanStepRecord[]) {
+function mockClaim(
+    run: BlueprintRunRecord,
+    steps: TestPlanStep[],
+    cursorIdMap: Record<string, string> = {},
+    attempts: unknown[] = []
+) {
     vi.mocked(claimNextBlueprintRun).mockResolvedValue(
         ok({
             kind: 'claimed',
             run,
             plan: workerPlanRecord(steps),
+            authority: {},
+            executionAuthority: {},
+            cursor: {},
             steps,
-            attempts: [],
-        })
+            decisions: [],
+            attempts,
+        } as never)
     );
+    vi.mocked(validateClaimedBlueprintRunAuthority).mockResolvedValueOnce(validAuthority(steps, cursorIdMap));
 }
 
 function mockMutationPersistence(run: BlueprintRunRecord) {
-    vi.mocked(renewBlueprintRunLease).mockResolvedValue(ok(run));
-    vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'pending' } as never));
-    vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(ok({ id: 'attempt-1', state: 'started' } as never));
+    vi.mocked(prepareBlueprintRunStepAttempt).mockResolvedValue(
+        ok({ kind: 'prepared', attempt: { id: 'attempt-1', state: 'pending' } as never, run })
+    );
+    vi.mocked(startBlueprintRunStepAttempt).mockResolvedValue(
+        ok({ kind: 'started', attempt: { id: 'attempt-1', state: 'started' } as never, run })
+    );
     vi.mocked(completeAndCheckpointBlueprintRunStepAttempt).mockResolvedValue(ok({ attempt: {} as never, run }));
     vi.mocked(checkpointBlueprintRun).mockResolvedValue(ok(run));
     vi.mocked(finalizeBlueprintRun).mockResolvedValue(ok(run));
 }
 
-function workerPlanRecord(steps: BlueprintPlanStepRecord[]): BlueprintPlanRecord {
+function workerPlanRecord(steps: TestPlanStep[], policy: 'merge' | 'synchronize' = 'merge') {
+    const digest = '0'.repeat(64);
     return {
         id: 'plan-1',
         guildId: 'guild-1',
+        sourceBackupId: null,
         deleteStepCount: 0,
         deleteSetDigest: null,
-        planDigest: 'plan-digest',
-        planVersion: 3,
-        policy: 'merge',
+        planDigest: digest,
+        planVersion: 4,
+        policy,
         createdByUserId: null,
         status: 'approved',
-        sourceBackupId: null,
-        plan: workerPlanDocument(steps),
-        requestedSnapshotDigest: 'snapshot-digest',
+        summary: {
+            creates: steps.filter((step) => step.actionType === 'create').length,
+            updates: steps.filter((step) => step.actionType === 'update').length,
+            deletes: steps.filter((step) => step.actionType === 'delete').length,
+            roles: steps.filter((step) => step.targetType === 'role').length,
+            categories: steps.filter((step) => step.targetType === 'category').length,
+            channels: steps.filter((step) => step.targetType === 'channel').length,
+        },
+        decisionSummary: {
+            noOp: 0,
+            create: 0,
+            update: 0,
+            delete: 0,
+            protectedRetained: 0,
+            protectedOmitted: 0,
+            unmanagedRetained: 0,
+            blockedAmbiguous: 0,
+            blockedUnsupported: 0,
+        },
+        blockerCount: 0,
+        requestedSnapshotDigest: digest,
+        projectedSnapshotDigest: digest,
+        authorityVersion: 1,
+        authorityDigest: digest,
+        executionAuthorityVersion: 1,
+        executionAuthorityDigest: digest,
+        stepCount: steps.length,
+        stepLedgerDigest: digest,
+        decisionCount: 0,
+        decisionLedgerDigest: digest,
         createdAt: new Date(),
         updatedAt: new Date(),
     };
 }
 
-function workerPlanDocument(steps: BlueprintPlanStepRecord[], policy: 'merge' | 'synchronize' = 'merge') {
-    const snapshot = { version: 1, roles: [], categories: [], channels: [] };
-    const providerSteps = steps.map((step) => ({
-        actionType: step.actionType,
-        targetType: step.targetType,
-        ...(step.targetId ? { targetId: step.targetId } : {}),
-        label: typeof step.details.label === 'string' ? step.details.label : '',
-        details: step.details,
-    }));
-    const summary = {
-        creates: steps.filter((step) => step.actionType === 'create').length,
-        updates: steps.filter((step) => step.actionType === 'update').length,
-        deletes: steps.filter((step) => step.actionType === 'delete').length,
-        roles: steps.filter((step) => step.targetType === 'role').length,
-        categories: steps.filter((step) => step.targetType === 'category').length,
-        channels: steps.filter((step) => step.targetType === 'channel').length,
-    };
-    const knownTargetKinds = { 'guild-1': 'role' as const };
-    const sourceTargetMap = { 'source-role': null };
+function validAuthority(steps: TestPlanStep[], idMap: Record<string, string> = {}) {
+    const snapshot = { version: 1 as const, roles: [], categories: [], channels: [] };
     return {
-        planVersion: 3,
-        policy,
-        summary,
-        changes: providerSteps,
-        steps: providerSteps,
-        knownTargetKinds,
-        sourceTargetMap,
-        roleProjection: {},
-        projectedSnapshot: snapshot,
-        fingerprintInput: {
-            version: 3,
-            policy,
-            knownTargetKinds,
-            sourceTargetMap,
-            projectedSnapshot: snapshot,
+        type: 'valid' as const,
+        value: {
+            authority: { projectedSnapshot: snapshot },
+            executionAuthority: {
+                sourceGuildId: 'source-guild',
+                sourceTargetMap: { 'source-role': null },
+                knownTargetKinds: { 'guild-1': 'role' as const },
+                initialIdMap: {},
+            },
+            cursor: { idMap },
+            steps,
             decisions: [],
-            steps: providerSteps,
         },
-        blockers: [],
-        requestedGuildId: 'source-guild',
-    };
+    } as never;
 }
 
 function firstAction<TAction>(actions: TAction[]): TAction {

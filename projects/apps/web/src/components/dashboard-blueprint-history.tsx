@@ -38,6 +38,8 @@ export type BlueprintBusyAction =
     | `backup-delete:${string}`
     | `backup-import:${string}`
     | 'plan'
+    | `plan-authority:${string}`
+    | `plan-evidence:${string}`
     | `plan-steps:${string}`
     | `decisions:${string}`
     | `approval:${string}`
@@ -87,16 +89,7 @@ export function DashboardBlueprintHistory({
                     plan={plan}
                     isLatest={latestPlan?.id === plan.id}
                     busyAction={busyAction}
-                    preflightReport={
-                        preflightByPlanId[plan.id] ??
-                        (plan.preflight
-                            ? {
-                                  ...plan.preflight.report,
-                                  checkedAt: plan.preflight.checkedAt,
-                                  expiresAt: plan.preflight.expiresAt,
-                              }
-                            : undefined)
-                    }
+                    preflightReport={preflightByPlanId[plan.id]}
                     onPreflight={onPreflight}
                     onControl={onControl}
                     onLoadPlanSteps={onLoadPlanSteps}
@@ -684,28 +677,9 @@ function VerificationResult({ verification }: { verification: NonNullable<Dashbo
 
     return (
         <div className='mt-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-3 text-xs text-[var(--dash-danger)]'>
-            <p>
-                Post-apply verification found {verification.mismatchCount} projected result mismatch
-                {verification.mismatchCount === 1 ? '' : 'es'}.
-            </p>
-            {verification.preview.length > 0 ? (
-                <ul className='mt-2 space-y-1 font-mono text-[11px] text-[var(--dash-text)]'>
-                    {verification.preview.map((mismatch) => (
-                        <li
-                            key={`${mismatch.logicalId}:${mismatch.field}:${formatVerificationValue(mismatch.expected)}:${formatVerificationValue(mismatch.actual)}`}>
-                            {mismatch.logicalId}.{mismatch.field}: expected {formatVerificationValue(mismatch.expected)}
-                            , got {formatVerificationValue(mismatch.actual)}
-                        </li>
-                    ))}
-                </ul>
-            ) : null}
+            <p>Post-apply verification did not match the projected result.</p>
         </div>
     );
-}
-
-function formatVerificationValue(value: unknown): string {
-    if (value === undefined) return 'missing';
-    return JSON.stringify(value);
 }
 
 function formatDate(value: string): string {

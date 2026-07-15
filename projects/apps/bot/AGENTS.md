@@ -23,7 +23,7 @@ Parent workspace instructions apply.
 ## Blueprint mutation fence
 
 - Convex permits one active Blueprint run per guild. Process a run only while its canonical protocol and fingerprint versions, lease ID, owner, expiry, and state remain valid.
-- Read the protocol version from `@neonflux/blueprint`; never hard-code it here. Mixed or unsupported protocol, fingerprint, persisted-row, or runtime contracts fail closed before provider access or mutation.
+- Read the protocol version from `@neonflux/blueprint`; never hard-code it here. The canonical protocol binds plan metadata, immutable full authority, compact execution authority, step and decision ledgers, and run cursors with domain-separated SHA-256 digests. Mixed or unsupported protocol, fingerprint, persisted-row, authority, ledger, cursor, or runtime contracts fail closed before provider access or mutation.
 - Required order: claim under a fenced lease; validate persisted authority; read the restore observation; persist the restore point; read a separate authorization observation; obtain Convex authorization; then start provider step `0`.
 - No mutation occurs after restore failure, preflight expiry, fingerprint disagreement, structure or capability change, divergent observations, or invalid lease.
 - One provider observation uses one internally consistent representation of each collection. Do not combine independently fetched roles, channels, overwrites, or capabilities into one snapshot.

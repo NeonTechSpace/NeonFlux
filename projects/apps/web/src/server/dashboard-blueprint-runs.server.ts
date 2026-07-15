@@ -2,11 +2,11 @@ import '@tanstack/react-start/server-only';
 
 import {
     findActiveBlueprintRun,
-    findLatestBlueprintRunForPlan,
-    findLatestBlueprintPlanPreflight,
-    findBlueprintPlanByGuildId,
+    getBlueprintPlanMetadata,
     listBlueprintPlanStepsByPlanIdPage,
-    listBlueprintPlansByGuildId,
+    listBlueprintPlanSummariesByGuildId,
+    listLatestBlueprintPlanPreflightSummaries,
+    listLatestBlueprintRunSummaries,
 } from '@neonflux/db';
 
 import { getWebDb } from './db.server.js';
@@ -48,34 +48,36 @@ export async function loadDashboardBlueprintRuns(
     const context = await loadAuthorizedBlueprintContext(request, guildId);
     if (context.type !== 'authorized') return context;
     const database = await getWebDb();
-    const plansResult = await listBlueprintPlansByGuildId(database.db, { guildId: context.guild.id, limit: 20 });
+
+    // History deliberately has three bounded dependencies: plan metadata, preflight metadata, and hot runs.
+    const plansResult = await listBlueprintPlanSummariesByGuildId(database.db, {
+        guildId: context.guild.id,
+        limit: 20,
+    });
     if (plansResult.isErr()) return { type: 'database-error' };
-    const planStateResults = await Promise.all(
-        plansResult.value.map(async (plan) => {
-            const [preflight, run] = await Promise.all([
-                findLatestBlueprintPlanPreflight(database.db, { guildId: context.guild.id, planId: plan.id }),
-                findLatestBlueprintRunForPlan(database.db, { guildId: context.guild.id, planId: plan.id }),
-            ]);
-            return { plan, preflight, run };
-        })
-    );
-    if (planStateResults.some(({ preflight, run }) => preflight.isErr() || run.isErr())) {
-        return { type: 'database-error' };
+    const plans = plansResult.value;
+    const planIds = plans.map((plan) => plan.id);
+    if (planIds.length === 0) {
+        return { type: 'runs', targetGuildName: context.guild.name, plans: [] };
     }
+    const [preflights, runs] = await Promise.all([
+        listLatestBlueprintPlanPreflightSummaries(database.db, { guildId: context.guild.id, planIds }),
+        listLatestBlueprintRunSummaries(database.db, { guildId: context.guild.id, planIds }),
+    ]);
+    if (preflights.isErr() || runs.isErr()) return { type: 'database-error' };
+
     return {
         type: 'runs',
         targetGuildName: context.guild.name,
-        plans: planStateResults.map(({ plan, preflight, run }) => {
-            const runRecord = run.isOk() ? run.value : null;
+        plans: plans.map((plan) => {
+            const preflight = preflights.value[plan.id];
+            const run = runs.value[plan.id];
             const recoveryAvailable =
-                runRecord !== null &&
-                ['partially_applied', 'needs_reconciliation', 'outcome_unknown'].includes(runRecord.status);
+                run !== null && ['partially_applied', 'needs_reconciliation', 'outcome_unknown'].includes(run.status);
             return {
                 ...toDashboardBlueprintPlan(plan),
-                ...(preflight.isOk() && preflight.value
-                    ? { preflight: toDashboardPlanPreflight(preflight.value) }
-                    : {}),
-                ...(runRecord ? { run: toDashboardRun(runRecord) } : {}),
+                ...(preflight ? { preflight: toDashboardPlanPreflight(preflight) } : {}),
+                ...(run ? { run: toDashboardRun(run) } : {}),
                 ...(recoveryAvailable ? { recoveryAvailable: true } : {}),
             };
         }),
@@ -91,15 +93,16 @@ export async function readDashboardBlueprintPlanStepPage(
     const planId = input.planId.trim();
     if (!planId) return { type: 'invalid-input', message: 'Choose a Blueprint plan.' };
     const database = await getWebDb();
-    const planResult = await findBlueprintPlanByGuildId(database.db, {
+    const planResult = await getBlueprintPlanMetadata(database.db, {
         guildId: context.guild.id,
-        planId: planId,
+        planId,
     });
     if (planResult.isErr()) return mapRepositoryError(planResult.error);
     const pageResult = await listBlueprintPlanStepsByPlanIdPage(database.db, {
         cursor: input.cursor,
+        guildId: context.guild.id,
         limit: input.limit,
-        planId: planId,
+        planId,
     });
     if (pageResult.isErr()) return mapRepositoryError(pageResult.error);
     return {

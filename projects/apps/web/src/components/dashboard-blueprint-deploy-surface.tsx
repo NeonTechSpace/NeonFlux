@@ -49,6 +49,11 @@ export type DashboardBlueprintDeployWorkspace = {
     operationStatus: PanelStatus | undefined;
     pasteJson: string;
     preflightByPlanId: Record<string, DashboardBlueprintPreflightView>;
+    reviewAuthority: {
+        planId?: string;
+        status: 'idle' | 'loading' | 'ready' | 'error';
+        retrying: boolean;
+    };
     refreshIssue: { code: string } | undefined;
     refreshRetrying: boolean;
     roleMappingConflicts: DashboardBlueprintRoleMappingConflict[];
@@ -85,15 +90,7 @@ export type DashboardBlueprintDeployWorkspace = {
 export function DashboardBlueprintDeploySurface({ workspace }: { workspace: DashboardBlueprintDeployWorkspace }) {
     const stepHeadingRef = useRef<HTMLHeadingElement>(null);
     const cachedPreflight = workspace.deployPlan ? workspace.preflightByPlanId[workspace.deployPlan.id] : undefined;
-    const activePreflightReport =
-        cachedPreflight ??
-        (workspace.deployPlan?.preflight
-            ? {
-                  ...workspace.deployPlan.preflight.report,
-                  checkedAt: workspace.deployPlan.preflight.checkedAt,
-                  expiresAt: workspace.deployPlan.preflight.expiresAt,
-              }
-            : undefined);
+    const activePreflightReport = cachedPreflight;
     const journeyNow = useExpiryClock(activePreflightReport?.expiresAt);
     const journey = deriveDashboardBlueprintDeployJourney({
         draftStep: workspace.deployDraftStep,
@@ -299,6 +296,28 @@ function DeployStatusRegion({
                 onRetry={workspace.onRetryRunProgress}
             />
         );
+    } else if (journeyStep === 'review' && workspace.reviewAuthority.status === 'loading') {
+        content = (
+            <p className='text-sm font-medium text-[var(--dash-text)]' role='status'>
+                Loading the exact persisted plan for review…
+            </p>
+        );
+    } else if (journeyStep === 'review' && workspace.reviewAuthority.status === 'error') {
+        content = (
+            <DashboardStatus
+                tone='danger'
+                actions={
+                    <button
+                        type='button'
+                        onClick={workspace.onRetryRefresh}
+                        disabled={workspace.reviewAuthority.retrying}
+                        className={dashboardSecondaryActionClassName}>
+                        {workspace.reviewAuthority.retrying ? 'Retrying…' : 'Retry plan review'}
+                    </button>
+                }>
+                The exact persisted plan could not load. Approval remains locked until it is available.
+            </DashboardStatus>
+        );
     } else if (workspace.refreshIssue) {
         content = (
             <DashboardStatus
@@ -414,6 +433,9 @@ function DeployActionRegion({
                 onPreflight={() => workspace.onPreflightRun(plan)}
                 onApply={() => workspace.onApplyRun(plan)}
                 onReviewBlocker={() => workspace.onLoadPlanDecisions(plan)}
+                reviewAuthorityReady={
+                    workspace.reviewAuthority.planId === plan.id && workspace.reviewAuthority.status === 'ready'
+                }
             />
         );
     } else {

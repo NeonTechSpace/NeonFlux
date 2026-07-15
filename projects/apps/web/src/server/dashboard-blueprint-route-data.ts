@@ -43,6 +43,14 @@ import type {
     DashboardBlueprintRunControlInput,
     DashboardBlueprintRunControlResult,
 } from './dashboard-blueprint-apply.server.js';
+import type {
+    DashboardBlueprintPlanAuthorityInput,
+    DashboardBlueprintPlanAuthorityResult,
+    DashboardBlueprintPreflightEvidenceInput,
+    DashboardBlueprintPreflightEvidenceResult,
+    DashboardBlueprintVerificationEvidenceInput,
+    DashboardBlueprintVerificationEvidenceResult,
+} from './dashboard-blueprint-plan-detail.server.js';
 
 type DashboardGuildRouteInput = {
     guildId: string;
@@ -252,6 +260,34 @@ export const readDashboardBlueprintPlanDecisionPageRouteData = createServerFn({ 
         return readDashboardBlueprintPlanDecisionPage(getRequest(), data);
     });
 
+export const readDashboardBlueprintPlanAuthorityRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardBlueprintPlanAuthorityInput)
+    .handler(async ({ data }): Promise<DashboardBlueprintPlanAuthorityResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { readDashboardBlueprintPlanAuthority } = await import('./dashboard-blueprint-plan-detail.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return readDashboardBlueprintPlanAuthority(getRequest(), data);
+    });
+
+export const readDashboardBlueprintPreflightEvidenceRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardBlueprintPreflightEvidenceInput)
+    .handler(async ({ data }): Promise<DashboardBlueprintPreflightEvidenceResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { readDashboardBlueprintPreflightEvidence } = await import('./dashboard-blueprint-plan-detail.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return readDashboardBlueprintPreflightEvidence(getRequest(), data);
+    });
+
+export const readDashboardBlueprintVerificationEvidenceRouteData = createServerFn({ method: 'GET' })
+    .validator(validateDashboardBlueprintVerificationEvidenceInput)
+    .handler(async ({ data }): Promise<DashboardBlueprintVerificationEvidenceResult> => {
+        const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
+        const { readDashboardBlueprintVerificationEvidence } =
+            await import('./dashboard-blueprint-plan-detail.server.js');
+        setResponseHeader('Cache-Control', 'no-store');
+        return readDashboardBlueprintVerificationEvidence(getRequest(), data);
+    });
+
 export const preflightDashboardBlueprintPlanRouteData = createServerFn({ method: 'POST' })
     .validator(validateDashboardBlueprintPreflightInput)
     .handler(async ({ data }): Promise<DashboardBlueprintPreflightResult> => {
@@ -289,6 +325,24 @@ function validateDashboardGuildRouteInput(input: unknown): DashboardGuildRouteIn
     return {
         guildId: readString((input as Record<string, unknown>).guildId),
     };
+}
+
+function validateDashboardBlueprintPlanAuthorityInput(input: unknown): DashboardBlueprintPlanAuthorityInput {
+    if (!input || typeof input !== 'object') return { guildId: '', planId: '' };
+    const payload = input as Record<string, unknown>;
+    return { guildId: readString(payload.guildId), planId: readString(payload.planId) };
+}
+
+function validateDashboardBlueprintPreflightEvidenceInput(input: unknown): DashboardBlueprintPreflightEvidenceInput {
+    const payload = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+    return { guildId: readString(payload.guildId), preflightId: readString(payload.preflightId) };
+}
+
+function validateDashboardBlueprintVerificationEvidenceInput(
+    input: unknown
+): DashboardBlueprintVerificationEvidenceInput {
+    const payload = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+    return { guildId: readString(payload.guildId), runId: readString(payload.runId) };
 }
 
 export function validateDashboardBlueprintPlanInput(input: unknown): DashboardBlueprintPlanInput {

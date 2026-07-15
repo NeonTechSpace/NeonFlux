@@ -58,3 +58,15 @@ export function getDashboardBlueprintRunProgressBaseQueryKey(guildId: string) {
 export function getDashboardBlueprintRunProgressQueryKey(guildId: string, planId: string) {
     return [...getDashboardBlueprintRunProgressBaseQueryKey(guildId), planId] as const;
 }
+
+export function getDashboardBlueprintPlanAuthorityQueryKey(guildId: string, planId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'plan-authority', planId] as const;
+}
+
+export function getDashboardBlueprintPreflightEvidenceQueryKey(guildId: string, preflightId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'preflight-evidence', preflightId] as const;
+}
+
+export function getDashboardBlueprintVerificationEvidenceQueryKey(guildId: string, runId: string) {
+    return [...getDashboardBlueprintQueryKey(guildId), 'verification-evidence', runId] as const;
+}

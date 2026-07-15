@@ -1,11 +1,15 @@
 import { err, ok } from 'neverthrow';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { getDocumentSize } from 'convex/values';
 
 import { loadRuntimeConfig } from '@neonflux/config';
+import { createBlueprintMutationFenceManifest, createBlueprintPreflightEvidenceDigests } from '@neonflux/blueprint';
+import type { BlueprintSnapshot } from '@neonflux/blueprint';
 import {
     createRuntimeDb,
     createWebSession,
-    findLatestBlueprintRunForPlan,
+    getBlueprintPlanAuthority,
+    listLatestBlueprintRunSummaries,
     listDashboardPostingOperationsByGuild,
     upsertBotInstallation,
     upsertDeploymentConfig,
@@ -23,6 +27,7 @@ import {
 } from '../../src/server/dashboard-blueprint-plans.server.js';
 import { preflightDashboardBlueprintPlan } from '../../src/server/dashboard-blueprint-preflight.server.js';
 import { isDashboardBlueprintPreflightReady } from '../../src/server/dashboard-blueprint-preflight.js';
+import { loadDashboardBlueprintRuns } from '../../src/server/dashboard-blueprint-runs.server.js';
 import { loadDashboardGuildAccess } from '../../src/server/dashboard-guild-access.server.js';
 import {
     postDashboardGuildMessage,
@@ -293,14 +298,183 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                 leaseOwner: 'e2e-blueprint-worker',
             })
         ).resolves.toBe('progressed');
-        const run = await findLatestBlueprintRunForPlan(botDatabase.db, {
+        const runs = await listLatestBlueprintRunSummaries(botDatabase.db, {
             guildId,
-            planId: freshPlan.plan.id,
+            planIds: [freshPlan.plan.id],
         });
-        expect(run.isOk()).toBe(true);
-        expect(run._unsafeUnwrap()).toMatchObject({ status: 'succeeded', verificationStatus: 'matched' });
+        expect(runs.isOk()).toBe(true);
+        expect(runs._unsafeUnwrap()[freshPlan.plan.id]).toMatchObject({
+            status: 'succeeded',
+            verificationStatus: 'matched',
+        });
         expect(fakeProvider.applyBlueprint).toHaveBeenCalledOnce();
     }, 60_000);
+
+    it.runIf(process.env.NEONFLUX_BLUEPRINT_IO_ACCEPTANCE === 'neonflux-blueprint-io-v1')(
+        'passes Blueprint I/O acceptance with twenty plans and a 474-step worker run',
+        async () => {
+            const { baseline, desired } = blueprintIoAcceptanceSnapshots();
+            let live: BlueprintSnapshot = baseline;
+            let appliedCreateCount = 0;
+            let rateLimitInjected = false;
+
+            fakeProvider.readWebStructure.mockImplementation(async () => ok(live));
+            fakeProvider.readBlueprint.mockImplementation(async () => ok(live));
+            fakeProvider.applyBlueprint.mockClear();
+            fakeProvider.applyBlueprint.mockImplementation(async (unknownInput: unknown) => {
+                const input = unknownInput as FakeBlueprintApplyInput;
+                const results: FakeBlueprintActionResult[] = [];
+                for (const action of input.actions) {
+                    if ((await input.beforeAction?.(action)) === false) break;
+                    if ((await input.beforeMutation?.()) === false) break;
+                    if (!rateLimitInjected && appliedCreateCount === 400) {
+                        rateLimitInjected = true;
+                        const result: FakeBlueprintActionResult = {
+                            errorType: 'rate-limited',
+                            id: action.id,
+                            retryAfterMs: 0,
+                            status: 'failed',
+                        };
+                        results.push(result);
+                        await input.onActionResult?.(result, input.idMap);
+                        break;
+                    }
+                    const createdId =
+                        action.actionType === 'create' && action.targetId ? `created-${action.targetId}` : undefined;
+                    if (action.targetId && createdId) input.idMap[action.targetId] = createdId;
+                    const result: FakeBlueprintActionResult = {
+                        ...(createdId ? { createdId } : {}),
+                        id: action.id,
+                        status: 'applied',
+                    };
+                    results.push(result);
+                    if (createdId) appliedCreateCount += 1;
+                    if ((await input.onActionResult?.(result, input.idMap)) === false) break;
+                }
+                if (rateLimitInjected && appliedCreateCount === 473) {
+                    live = {
+                        ...desired,
+                        channels: desired.channels.map((channel) => {
+                            const targetId = input.idMap[channel.id];
+                            return targetId ? { ...channel, id: targetId } : channel;
+                        }),
+                    };
+                }
+                return ok({ actions: results, idMap: input.idMap });
+            });
+
+            const planIds = new Set<string>();
+            for (let index = 0; index < 19; index += 1) {
+                const summaryPlan = await createPlan({
+                    ...baseline,
+                    roles: baseline.roles.map((role) => ({ ...role, name: `I/O summary ${String(index)}` })),
+                });
+                if (summaryPlan.type !== 'plan-created') throw new Error('Expected a unique summary plan.');
+                expect(planIds.has(summaryPlan.plan.id)).toBe(false);
+                planIds.add(summaryPlan.plan.id);
+            }
+
+            const largePlan = await createPlan(desired);
+            if (largePlan.type !== 'plan-created') throw new Error('Expected the large I/O acceptance plan.');
+            expect(planIds.has(largePlan.plan.id)).toBe(false);
+            planIds.add(largePlan.plan.id);
+            expect(planIds.size).toBe(20);
+            expect(largePlan.plan.planStepCount).toBe(474);
+            const authorityResult = await getBlueprintPlanAuthority(botDatabase.db, {
+                guildId,
+                planId: largePlan.plan.id,
+            });
+            if (authorityResult.isErr()) throw new Error('Expected the persisted I/O acceptance authority.');
+            const { id: _authorityId, createdAt: authorityCreatedAt, ...authorityDocument } = authorityResult.value;
+            const authorityBytes = getDocumentSize({
+                ...authorityDocument,
+                createdAt: authorityCreatedAt.toISOString(),
+            });
+            expect(authorityBytes).toBeGreaterThanOrEqual(600 * 1024);
+            expect(authorityBytes).toBeLessThanOrEqual(690 * 1024);
+            expect((await approvePlan(largePlan.plan)).type).toBe('approved');
+            const preflight = await preflightDashboardBlueprintPlan(authenticatedRequest, {
+                guildId,
+                planId: largePlan.plan.id,
+            });
+            if (preflight.type !== 'preflight' || !preflight.preflightDigest) {
+                throw new Error('Expected the large I/O acceptance preflight.');
+            }
+            expect(isDashboardBlueprintPreflightReady(preflight.report)).toBe(true);
+            expect(
+                (
+                    await applyDashboardBlueprintPlan(authenticatedRequest, {
+                        guildId,
+                        planId: largePlan.plan.id,
+                        planDigest: largePlan.plan.planDigest,
+                        preflightDigest: preflight.preflightDigest,
+                    })
+                ).type
+            ).toBe('queued');
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            const newerPreflight = await preflightDashboardBlueprintPlan(authenticatedRequest, {
+                guildId,
+                planId: largePlan.plan.id,
+            });
+            if (newerPreflight.type !== 'preflight' || !newerPreflight.checkedAt) {
+                throw new Error('Expected a newer timestamped I/O acceptance preflight.');
+            }
+
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_WORKER_START_MARKER');
+            await expect(
+                runNextBlueprintRun({
+                    botToken: 'fake-provider-token',
+                    database: botDatabase,
+                    leaseOwner: 'e2e-blueprint-io-worker-1',
+                })
+            ).resolves.toBe('progressed');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            await expect(
+                runNextBlueprintRun({
+                    botToken: 'fake-provider-token',
+                    database: botDatabase,
+                    leaseOwner: 'e2e-blueprint-io-worker-2',
+                })
+            ).resolves.toBe('progressed');
+            expect(fakeProvider.applyBlueprint).toHaveBeenCalledTimes(2);
+            expect((fakeProvider.applyBlueprint.mock.calls[0]?.[0] as FakeBlueprintApplyInput).actions).toHaveLength(
+                474
+            );
+            expect((fakeProvider.applyBlueprint.mock.calls[1]?.[0] as FakeBlueprintApplyInput).actions).toHaveLength(
+                74
+            );
+            expect(appliedCreateCount).toBe(473);
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_WORKER_END_MARKER');
+
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_HISTORY_START_MARKER');
+            const history = await loadDashboardBlueprintRuns(authenticatedRequest, guildId);
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_HISTORY_END_MARKER');
+            expect(history.type).toBe('runs');
+            if (history.type !== 'runs') throw new Error('Expected Blueprint History data.');
+            expect(history.plans).toHaveLength(20);
+            expect(history.plans[0]?.id).toBe(largePlan.plan.id);
+            expect(history.plans[0]?.run?.status).toBe('succeeded');
+            const latestPreflight = history.plans[0]?.preflight;
+            if (!latestPreflight) throw new Error('Expected the persisted I/O acceptance preflight summary.');
+            const mutationFenceManifest = await createBlueprintMutationFenceManifest(baseline);
+            const evidenceDigests = await createBlueprintPreflightEvidenceDigests({
+                report: newerPreflight.report,
+                mutationFenceManifest,
+            });
+            const preflightEvidenceBytes = getDocumentSize({
+                version: 1,
+                preflightId: latestPreflight.id,
+                planId: largePlan.plan.id,
+                report: newerPreflight.report,
+                mutationFenceManifest,
+                ...evidenceDigests,
+                createdAt: newerPreflight.checkedAt,
+            });
+            expect(preflightEvidenceBytes).toBeGreaterThanOrEqual(140 * 1024);
+            expect(preflightEvidenceBytes).toBeLessThanOrEqual(200 * 1024);
+        },
+        600_000
+    );
 
     it('persists an ambiguous Blueprint mutation as outcome unknown and never replays it', async () => {
         const desired = blueprintSnapshot('Ambiguous desired');
@@ -352,12 +526,12 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                 leaseOwner: 'e2e-blueprint-worker-unknown',
             })
         ).resolves.toBe('progressed');
-        const run = await findLatestBlueprintRunForPlan(botDatabase.db, {
+        const runs = await listLatestBlueprintRunSummaries(botDatabase.db, {
             guildId,
-            planId: plan.plan.id,
+            planIds: [plan.plan.id],
         });
-        expect(run.isOk()).toBe(true);
-        expect(run._unsafeUnwrap()).toMatchObject({ status: 'outcome_unknown' });
+        expect(runs.isOk()).toBe(true);
+        expect(runs._unsafeUnwrap()[plan.plan.id]).toMatchObject({ status: 'outcome_unknown' });
 
         await expect(
             runNextBlueprintRun({
@@ -403,8 +577,9 @@ function postingStructure(channelType: number) {
     };
 }
 
-function blueprintSnapshot(roleName: string) {
+function blueprintSnapshot(roleName: string): BlueprintSnapshot {
     return {
+        version: 1,
         botHighestRolePosition: 2,
         categories: [],
         channels: [],
@@ -425,9 +600,87 @@ function blueprintSnapshot(roleName: string) {
     };
 }
 
-function createPlan(desired: ReturnType<typeof blueprintSnapshot>) {
+function blueprintIoAcceptanceSnapshots(): { baseline: BlueprintSnapshot; desired: BlueprintSnapshot } {
+    const baseline: BlueprintSnapshot = {
+        ...blueprintSnapshot('I/O baseline'),
+        channels: Array.from({ length: 27 }, (_, index) =>
+            blueprintIoChannel(`existing-${String(index)}`, index, 2_048, false)
+        ),
+    };
+    return {
+        baseline,
+        desired: {
+            ...baseline,
+            channels: [
+                ...baseline.channels,
+                ...Array.from({ length: 473 }, (_, index) =>
+                    blueprintIoChannel(`channel-${String(index)}`, index + baseline.channels.length, 340, true)
+                ),
+            ],
+        },
+    };
+}
+
+function blueprintIoChannel(
+    id: string,
+    position: number,
+    urlLength: number,
+    useMaximumNameLength: boolean
+): BlueprintSnapshot['channels'][number] {
+    const urlPrefix = 'https://example.invalid/';
+    return {
+        id,
+        name: useMaximumNameLength ? `${id}-`.padEnd(100, 'n') : id,
+        parentId: null,
+        permissionOverwrites: [],
+        position,
+        type: 0,
+        url: urlPrefix.padEnd(urlLength, 'x'),
+    };
+}
+
+async function markBlueprintIoAcceptancePhase(
+    markerEnvironmentKey:
+        | 'NEONFLUX_BLUEPRINT_IO_WORKER_START_MARKER'
+        | 'NEONFLUX_BLUEPRINT_IO_WORKER_END_MARKER'
+        | 'NEONFLUX_BLUEPRINT_IO_HISTORY_START_MARKER'
+        | 'NEONFLUX_BLUEPRINT_IO_HISTORY_END_MARKER'
+): Promise<void> {
+    const url = process.env.CONVEX_SELF_HOSTED_URL;
+    const adminKey = process.env.CONVEX_SELF_HOSTED_ADMIN_KEY;
+    const marker = process.env[markerEnvironmentKey];
+    if (!url || url !== process.env.CONVEX_URL || new URL(url).hostname !== '127.0.0.1' || !adminKey || !marker) {
+        throw new Error('Blueprint I/O phase marker is not bound to the owned self-hosted deployment.');
+    }
+    const response = await fetch(`${url}/api/function`, {
+        body: JSON.stringify({
+            args: { marker },
+            format: 'convex_encoded_json',
+            path: 'runtime:blueprintIoAcceptanceMarker',
+        }),
+        headers: {
+            Authorization: `Convex ${adminKey}`,
+            'Content-Type': 'application/json',
+        },
+        method: 'POST',
+    });
+    const result = (await response.json()) as unknown;
+    if (
+        !response.ok ||
+        typeof result !== 'object' ||
+        result === null ||
+        !('status' in result) ||
+        result.status !== 'success' ||
+        !('value' in result) ||
+        result.value !== marker
+    ) {
+        throw new Error('Blueprint I/O phase marker invocation failed.');
+    }
+}
+
+function createPlan(desired: BlueprintSnapshot) {
     return createDashboardBlueprintPlan(authenticatedRequest, {
-        backupJson: JSON.stringify({ version: 1, ...desired }),
+        backupJson: JSON.stringify(desired),
         guildId,
         policy: 'merge',
     });
@@ -441,11 +694,13 @@ function approvePlan(plan: { id: string; planDigest: string }) {
     });
 }
 
-type FakeBlueprintAction = { id: string };
+type FakeBlueprintAction = { actionType?: string; id: string; targetId?: string };
 type FakeBlueprintActionResult = {
+    createdId?: string;
     errorType?: string;
     id: string;
     mutationOutcome?: 'unknown';
+    retryAfterMs?: number;
     status: 'applied' | 'failed';
 };
 type FakeBlueprintApplyInput = {

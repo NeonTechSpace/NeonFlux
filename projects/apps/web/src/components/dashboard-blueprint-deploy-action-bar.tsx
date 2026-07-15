@@ -23,6 +23,7 @@ export function DashboardBlueprintDeployActionBar({
     onReviewBlocker,
     plan,
     preflightReport,
+    reviewAuthorityReady,
     targetGuildName,
 }: {
     busyAction: BlueprintBusyAction | undefined;
@@ -33,6 +34,7 @@ export function DashboardBlueprintDeployActionBar({
     onReviewBlocker: () => void;
     plan: DashboardBlueprintPlan;
     preflightReport: DashboardBlueprintPreflightView | undefined;
+    reviewAuthorityReady: boolean;
     targetGuildName: string;
 }) {
     const now = useExpiryClock(preflightReport?.expiresAt);
@@ -61,16 +63,22 @@ export function DashboardBlueprintDeployActionBar({
             <div className='shrink-0'>
                 <button
                     type='button'
-                    disabled={Boolean(busyAction) || readiness.nextAction === 'confirm-delete'}
-                    onClick={
-                        readiness.nextAction === 'approve'
-                            ? onApprove
-                            : readiness.nextAction === 'preflight'
-                              ? onPreflight
-                              : readiness.nextAction === 'apply'
-                                ? onApply
-                                : onReviewBlocker
+                    disabled={
+                        Boolean(busyAction) ||
+                        readiness.nextAction === 'confirm-delete' ||
+                        (readiness.nextAction === 'approve' && !reviewAuthorityReady)
                     }
+                    onClick={() => {
+                        if (readiness.nextAction === 'approve') {
+                            if (reviewAuthorityReady) onApprove();
+                        } else if (readiness.nextAction === 'preflight') {
+                            onPreflight();
+                        } else if (readiness.nextAction === 'apply') {
+                            onApply();
+                        } else {
+                            onReviewBlocker();
+                        }
+                    }}
                     className={`w-full sm:w-auto ${
                         (readiness.nextAction === 'apply' || readiness.nextAction === 'confirm-delete') &&
                         readiness.destructiveApprovalCount > 0

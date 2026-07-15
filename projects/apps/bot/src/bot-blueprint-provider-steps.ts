@@ -16,32 +16,6 @@ export function toBlueprintApplyAction(step: {
     };
 }
 
-export function readBlueprintTargetKinds(value: unknown): Record<string, 'role' | 'category' | 'channel'> {
-    if (!isObject(value)) return {};
-    return Object.fromEntries(
-        Object.entries(value).filter(
-            (entry): entry is [string, 'role' | 'category' | 'channel'] =>
-                Boolean(entry[0].trim()) &&
-                entry[0] === entry[0].trim() &&
-                (entry[1] === 'role' || entry[1] === 'category' || entry[1] === 'channel')
-        )
-    );
-}
-
-export function readResolvedBlueprintSourceTargetMap(value: unknown): Record<string, string> {
-    if (!isObject(value)) return {};
-    return Object.fromEntries(
-        Object.entries(value).filter(
-            (entry): entry is [string, string] =>
-                Boolean(entry[0].trim()) &&
-                entry[0] === entry[0].trim() &&
-                typeof entry[1] === 'string' &&
-                Boolean(entry[1].trim()) &&
-                entry[1] === entry[1].trim()
-        )
-    );
-}
-
 function readChanges(value: unknown) {
     if (!Array.isArray(value)) return undefined;
     return value.flatMap((change) =>

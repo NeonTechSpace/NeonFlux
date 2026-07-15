@@ -62,7 +62,15 @@ export function toPortableBlueprintSnapshot(
     structure: BlueprintStructure,
     exportedAt = new Date().toISOString()
 ): BlueprintSnapshot {
-    const snapshot = toBlueprintSnapshot(structure, exportedAt);
+    return toPortableBlueprintRestoreSnapshot(toBlueprintSnapshot(structure, exportedAt));
+}
+
+/**
+ * Derives the durable recovery snapshot from one already-normalized full
+ * observation. This is intentionally deterministic: callers must not supply a
+ * second independently-built portable snapshot alongside the full snapshot.
+ */
+export function toPortableBlueprintRestoreSnapshot(snapshot: BlueprintSnapshot): BlueprintSnapshot {
     const botRoleIds = new Set(snapshot.roles.filter((role) => role.protectionReason === 'bot').map((role) => role.id));
 
     if (botRoleIds.size === 0) return snapshot;

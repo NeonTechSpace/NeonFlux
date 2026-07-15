@@ -256,7 +256,7 @@ function VerificationResult({ verification }: { verification: NonNullable<Dashbo
                 ? 'Post-apply verification matched the projected result.'
                 : verification.status === 'read-failed'
                   ? 'Post-apply verification could not read the server. The result is not verified.'
-                  : `Post-apply verification found ${verification.mismatchCount} mismatches.`}
+                  : 'Post-apply verification did not match the projected result.'}
         </div>
     );
 }

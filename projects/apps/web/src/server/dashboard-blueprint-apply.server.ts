@@ -3,8 +3,8 @@ import '@tanstack/react-start/server-only';
 import {
     approveBlueprintPlan,
     enqueueBlueprintRun,
-    findLatestBlueprintRunForPlan,
-    findBlueprintPlanWithStepsByGuildId,
+    getBlueprintPlanMetadata,
+    listLatestBlueprintRunSummaries,
     blueprintAuditActions,
     BLUEPRINT_RUN_PROTOCOL_VERSION,
     blueprintPlanStatuses,
@@ -75,7 +75,7 @@ export async function applyDashboardBlueprintPlan(
     if (!planId) return { type: 'invalid-input', message: 'Choose an approved Blueprint plan to queue.' };
 
     const database = await getWebDb();
-    const planResult = await findBlueprintPlanWithStepsByGuildId(database.db, {
+    const planResult = await getBlueprintPlanMetadata(database.db, {
         guildId: context.guild.id,
         planId: planId,
     });
@@ -83,7 +83,7 @@ export async function applyDashboardBlueprintPlan(
     if (planResult.value.status !== blueprintPlanStatuses.approved) {
         return { type: 'not-applicable', status: planResult.value.status };
     }
-    if (planResult.value.steps.length === 0) return { type: 'nothing-to-apply' };
+    if (planResult.value.stepCount === 0) return { type: 'nothing-to-apply' };
     if (!input.planDigest || input.planDigest !== planResult.value.planDigest) {
         return { type: 'plan-digest-mismatch' };
     }
@@ -151,7 +151,7 @@ export async function applyDashboardBlueprintPlan(
         now: new Date(),
         preflightDigest: input.preflightDigest,
         audit: createBlueprintAuditInput(context, blueprintAuditActions.runQueued, planId, {
-            stepCount: planResult.value.steps.length,
+            stepCount: planResult.value.stepCount,
             deleteStepCount,
             planDigest: planResult.value.planDigest,
             preflightDigest: input.preflightDigest,
@@ -183,25 +183,26 @@ export async function controlDashboardBlueprintRun(
     if (!input.planId || !input.runId) return { type: 'invalid-input', message: 'Choose a Blueprint run.' };
 
     const database = await getWebDb();
-    const latest = await findLatestBlueprintRunForPlan(database.db, {
+    const latestRuns = await listLatestBlueprintRunSummaries(database.db, {
         guildId: context.guild.id,
-        planId: input.planId,
+        planIds: [input.planId],
     });
-    if (latest.isErr()) return mapRepositoryError(latest.error);
-    if (!latest.value || latest.value.id !== input.runId) return { type: 'not-found' };
-    if (latest.value.protocolVersion !== BLUEPRINT_RUN_PROTOCOL_VERSION) {
+    if (latestRuns.isErr()) return mapRepositoryError(latestRuns.error);
+    const latest = latestRuns.value[input.planId];
+    if (!latest || latest.id !== input.runId) return { type: 'not-found' };
+    if (latest.protocolVersion !== BLUEPRINT_RUN_PROTOCOL_VERSION) {
         return {
             type: 'run-protocol-incompatible',
-            runProtocolVersion: latest.value.protocolVersion,
+            runProtocolVersion: latest.protocolVersion,
             requiredProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         };
     }
 
     const allowed =
-        (input.request === 'pause' && ['running', 'waiting_rate_limit'].includes(latest.value.status)) ||
-        (input.request === 'resume' && latest.value.status === 'paused') ||
-        (input.request === 'cancel' && ['queued', 'paused'].includes(latest.value.status));
-    if (!allowed) return { type: 'not-controllable', status: latest.value.status };
+        (input.request === 'pause' && ['running', 'waiting_rate_limit'].includes(latest.status)) ||
+        (input.request === 'resume' && latest.status === 'paused') ||
+        (input.request === 'cancel' && ['queued', 'paused'].includes(latest.status));
+    if (!allowed) return { type: 'not-controllable', status: latest.status };
 
     const result = await requestBlueprintRunControl(database.db, {
         audit: createBlueprintAuditInput(

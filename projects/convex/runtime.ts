@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 
-import { query } from './_generated/server.js';
+import { internalQuery, query } from './_generated/server.js';
 import { requireNeonFluxService } from './auth.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from './runtime_contract_model.js';
 
@@ -15,5 +15,16 @@ export const readRuntimeContract = query({
         return {
             blueprintRunProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         };
+    },
+});
+
+export const blueprintIoAcceptanceMarker = internalQuery({
+    args: {
+        marker: v.string(),
+    },
+    returns: v.string(),
+    handler: (_ctx, args) => {
+        console.warn(`NEONFLUX_BLUEPRINT_IO_MARKER ${args.marker}`);
+        return args.marker;
     },
 });

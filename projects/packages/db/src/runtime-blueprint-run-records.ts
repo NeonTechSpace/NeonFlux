@@ -1,11 +1,27 @@
+import {
+    normalizeBlueprintPlanAuthority,
+    normalizeBlueprintPlanDecision,
+    normalizeBlueprintPlanExecutionAuthority,
+    normalizeBlueprintPlanStep,
+    normalizeBlueprintPreflightEvidence,
+    normalizeBlueprintRunCursor,
+    normalizeBlueprintRunVerificationEvidence,
+    type BlueprintContractResult,
+} from '@neonflux/blueprint';
+
 import type {
-    BlueprintRunStepAttemptRecord,
-    BlueprintPlanStepRecord,
     BlueprintPlanApprovalRecord,
+    BlueprintPlanAuthorityRecord,
     BlueprintPlanDecisionRecord,
+    BlueprintPlanExecutionAuthorityRecord,
+    BlueprintPlanMetadataRecord,
+    BlueprintPlanPreflightEvidenceRecord,
+    BlueprintPlanPreflightMetadataRecord,
+    BlueprintPlanStepRecord,
+    BlueprintRunCursorRecord,
     BlueprintRunRecord,
-    BlueprintPlanPreflightRecord,
-    BlueprintPlanRecord,
+    BlueprintRunStepAttemptRecord,
+    BlueprintRunVerificationEvidenceRecord,
 } from './contracts-blueprint.js';
 
 export function toBlueprintRun(input: unknown): BlueprintRunRecord {
@@ -14,11 +30,13 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
         id: identifier(record),
         planId: stringValue(record.planId),
         guildId: stringValue(record.guildId),
+        preflightId: stringValue(record.preflightId),
         preflightDigest: stringValue(record.preflightDigest),
         preflightExpiresAt: requiredDate(record.preflightExpiresAt),
         fingerprintVersion: literalNumberValue(record.fingerprintVersion, 2),
         expectedStructureFingerprint: stringValue(record.expectedStructureFingerprint),
         expectedCapabilityFingerprint: stringValue(record.expectedCapabilityFingerprint),
+        executionAuthorityDigest: sha256Value(record.executionAuthorityDigest),
         authorizationDecision: nullableLiteral(record.authorizationDecision, [
             'authorized',
             'structure_changed',
@@ -28,7 +46,7 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
             'preflight_expired',
             'fingerprint_version_mismatch',
         ]),
-        authorizationMismatch: nullableJsonRecord(record.authorizationMismatchJson),
+        authorizationMismatch: nullableJsonRecord(record.authorizationMismatch ?? record.authorizationMismatchJson),
         mutationAuthorizedAt: date(record.mutationAuthorizedAt),
         mutationAuthorizationLeaseId: nullableString(record.mutationAuthorizationLeaseId),
         protocolVersion: positiveIntegerValue(record.protocolVersion),
@@ -46,9 +64,9 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
             'outcome_unknown',
             'cancelled',
         ]),
-        nextStepSequence: numberValue(record.nextStepSequence),
-        totalSteps: numberValue(record.totalSteps),
-        notStartedSteps: numberValue(record.notStartedSteps),
+        nextStepSequence: nonNegativeIntegerValue(record.nextStepSequence),
+        totalSteps: nonNegativeIntegerValue(record.totalSteps),
+        notStartedSteps: nonNegativeIntegerValue(record.notStartedSteps),
         phase: literalValue(record.phase, [
             'queued',
             'preparing',
@@ -62,12 +80,11 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
             'verifying',
             'complete',
         ]),
-        totalMutationSteps: numberValue(record.totalMutationSteps),
-        completedMutationSteps: numberValue(record.completedMutationSteps),
-        appliedSteps: numberValue(record.appliedSteps),
-        failedSteps: numberValue(record.failedSteps),
-        skippedSteps: numberValue(record.skippedSteps),
-        idMap: stringMapValue(record.idMap),
+        totalMutationSteps: nonNegativeIntegerValue(record.totalMutationSteps),
+        completedMutationSteps: nonNegativeIntegerValue(record.completedMutationSteps),
+        appliedSteps: nonNegativeIntegerValue(record.appliedSteps),
+        failedSteps: nonNegativeIntegerValue(record.failedSteps),
+        skippedSteps: nonNegativeIntegerValue(record.skippedSteps),
         retryAt: date(record.retryAt),
         errorType: nullableString(record.errorType),
         leaseId: nullableString(record.leaseId),
@@ -81,11 +98,47 @@ export function toBlueprintRun(input: unknown): BlueprintRunRecord {
         completedAt: date(record.completedAt),
         controlRequest: nullableLiteral(record.controlRequest, ['pause', 'cancel']),
         restorePointBackupId: nullableString(record.restorePointBackupId),
-        verificationResult: nullableRecord(record.verificationResult),
+        restorePointSnapshotDigest: nullableSha256Value(record.restorePointSnapshotDigest),
         verificationStatus: nullableLiteral(record.verificationStatus, ['matched', 'mismatch', 'read_failed']),
+        verificationEvidenceVersion: nullableLiteralNumber(record.verificationEvidenceVersion, 1),
+        verificationEvidenceDigest: nullableSha256Value(record.verificationEvidenceDigest),
+        terminalDigest: nullableSha256Value(record.terminalDigest),
+        terminalRequestDigest: nullableSha256Value(record.terminalRequestDigest),
         createdAt: requiredDate(record.createdAt),
         updatedAt: requiredDate(record.updatedAt),
     };
+}
+
+export function toBlueprintRunCursor(input: unknown): BlueprintRunCursorRecord {
+    const record = recordValue(input);
+    const value = unwrapContract(
+        normalizeBlueprintRunCursor({
+            version: record.version,
+            runId: record.runId,
+            planId: record.planId,
+            idMap: record.idMap,
+            updatedAt: record.updatedAt,
+        }),
+        'invalid-blueprint-run-cursor'
+    );
+    return { ...value, id: identifier(record), updatedAt: requiredDate(value.updatedAt) };
+}
+
+export function toBlueprintRunVerificationEvidence(input: unknown): BlueprintRunVerificationEvidenceRecord {
+    const record = recordValue(input);
+    const value = unwrapContract(
+        normalizeBlueprintRunVerificationEvidence({
+            version: record.version,
+            runId: record.runId,
+            planId: record.planId,
+            verificationStatus: record.verificationStatus,
+            result: record.result,
+            verificationEvidenceDigest: record.verificationEvidenceDigest,
+            createdAt: record.createdAt,
+        }),
+        'invalid-blueprint-run-verification-evidence'
+    );
+    return { ...value, id: identifier(record), createdAt: requiredDate(value.createdAt) };
 }
 
 export function toBlueprintRunStepAttempt(input: unknown): BlueprintRunStepAttemptRecord {
@@ -94,9 +147,17 @@ export function toBlueprintRunStepAttempt(input: unknown): BlueprintRunStepAttem
         id: identifier(record),
         runId: stringValue(record.runId),
         planStepId: stringValue(record.planStepId),
-        attempt: numberValue(record.attempt),
+        planStepSequence: nonNegativeIntegerValue(record.planStepSequence),
+        stepDigest: sha256Value(record.stepDigest),
+        actionType: literalValue(record.actionType, ['create', 'update', 'delete']),
+        targetType: literalValue(record.targetType, ['role', 'category', 'channel', 'role-order', 'channel-order']),
+        targetId: stringValue(record.targetId),
+        sourceId: nullableString(record.sourceId),
+        displayLabel: stringValue(record.displayLabel),
+        attempt: nonNegativeIntegerValue(record.attempt),
         state: literalValue(record.state, ['pending', 'started', 'applied', 'failed', 'unknown']),
         requestKey: stringValue(record.requestKey),
+        completionDigest: nullableString(record.completionDigest),
         createdId: nullableString(record.createdId),
         errorType: nullableString(record.errorType),
         retryAt: date(record.retryAt),
@@ -109,39 +170,55 @@ export function toBlueprintRunStepAttempt(input: unknown): BlueprintRunStepAttem
 
 export function toDecision(input: unknown): BlueprintPlanDecisionRecord {
     const record = recordValue(input);
+    const decision = unwrapContract(normalizeBlueprintPlanDecision(record.decision), 'invalid-blueprint-plan-decision');
     return {
         id: identifier(record),
         planId: stringValue(record.planId),
-        sequence: numberValue(record.sequence),
-        targetType: stringValue(record.targetType),
-        classification: stringValue(record.classification),
-        sourceId: nullableString(record.sourceId),
-        targetId: nullableString(record.targetId),
-        logicalId: nullableString(record.logicalId),
-        name: nullableString(record.name),
-        details: recordValue(record.details),
+        sequence: nonNegativeIntegerValue(record.sequence),
+        decision,
         createdAt: requiredDate(record.createdAt),
     };
 }
 
-export function toPreflight(input: unknown): BlueprintPlanPreflightRecord {
+export function toPreflightMetadata(input: unknown): BlueprintPlanPreflightMetadataRecord {
     const record = recordValue(input);
     return {
         id: identifier(record),
         planId: stringValue(record.planId),
+        guildId: stringValue(record.guildId),
+        status: literalValue(record.status, ['ready', 'blocked', 'stale']),
+        summary: preflightSummaryValue(record.summary),
+        checkedAt: requiredDate(record.checkedAt),
+        observedAt: requiredDate(record.observedAt),
+        expiresAt: requiredDate(record.expiresAt),
+        observationSource: literalValue(record.observationSource, ['resident-client']),
         planDigest: stringValue(record.planDigest),
         fingerprintVersion: literalNumberValue(record.fingerprintVersion, 2),
         structureFingerprint: stringValue(record.structureFingerprint),
         capabilityFingerprint: stringValue(record.capabilityFingerprint),
-        mutationFenceManifestJson: stringValue(record.mutationFenceManifestJson),
-        observedAt: requiredDate(record.observedAt),
-        observationSource: literalValue(record.observationSource, ['resident-client']),
+        evidenceVersion: literalNumberValue(record.evidenceVersion, 1),
+        evidenceDigest: stringValue(record.evidenceDigest),
         preflightDigest: stringValue(record.preflightDigest),
-        report: recordValue(record.report),
-        status: literalValue(record.status, ['ready', 'blocked', 'stale']),
-        checkedAt: requiredDate(record.checkedAt),
-        expiresAt: requiredDate(record.expiresAt),
     };
+}
+
+export function toPreflightEvidence(input: unknown): BlueprintPlanPreflightEvidenceRecord {
+    const record = recordValue(input);
+    const value = unwrapContract(
+        normalizeBlueprintPreflightEvidence({
+            version: record.version,
+            preflightId: record.preflightId,
+            planId: record.planId,
+            report: record.report,
+            mutationFenceManifest: record.mutationFenceManifest,
+            reportDigest: record.reportDigest,
+            manifestDigest: record.manifestDigest,
+            evidenceDigest: record.evidenceDigest,
+            createdAt: record.createdAt,
+        }),
+        'invalid-blueprint-preflight-evidence'
+    );
+    return { ...value, id: identifier(record), createdAt: requiredDate(value.createdAt) };
 }
 
 export function toApproval(input: unknown): BlueprintPlanApprovalRecord {
@@ -166,36 +243,88 @@ export function toApproval(input: unknown): BlueprintPlanApprovalRecord {
     };
 }
 
-export function toBlueprintPlan(input: unknown): BlueprintPlanRecord {
+export function toBlueprintPlanMetadata(input: unknown): BlueprintPlanMetadataRecord {
     const record = recordValue(input);
     return {
         id: identifier(record),
         guildId: stringValue(record.guildId),
-        deleteStepCount: numberValue(record.deleteStepCount),
+        sourceBackupId: nullableString(record.sourceBackupId),
+        status: literalValue(record.status, ['draft', 'needs_input', 'review_ready', 'approved', 'obsolete']),
+        policy: literalValue(record.policy, ['merge', 'synchronize', 'rebuild']),
+        planVersion: literalNumberValue(record.planVersion, 4),
+        summary: planSummaryValue(record.summary),
+        decisionSummary: decisionSummaryValue(record.decisionSummary),
+        blockerCount: nonNegativeIntegerValue(record.blockerCount),
+        requestedSnapshotDigest: stringValue(record.requestedSnapshotDigest),
+        projectedSnapshotDigest: stringValue(record.projectedSnapshotDigest),
+        authorityVersion: literalNumberValue(record.authorityVersion, 1),
+        authorityDigest: stringValue(record.authorityDigest),
+        executionAuthorityVersion: literalNumberValue(record.executionAuthorityVersion, 1),
+        executionAuthorityDigest: stringValue(record.executionAuthorityDigest),
+        stepCount: nonNegativeIntegerValue(record.stepCount),
+        stepLedgerDigest: stringValue(record.stepLedgerDigest),
+        decisionCount: nonNegativeIntegerValue(record.decisionCount),
+        decisionLedgerDigest: stringValue(record.decisionLedgerDigest),
+        deleteStepCount: nonNegativeIntegerValue(record.deleteStepCount),
         deleteSetDigest: nullableString(record.deleteSetDigest),
         planDigest: stringValue(record.planDigest),
-        planVersion: numberValue(record.planVersion),
-        policy: literalValue(record.policy, ['merge', 'synchronize', 'rebuild']),
         createdByUserId: nullableString(record.createdByUserId),
-        status: stringValue(record.status),
-        sourceBackupId: nullableString(record.sourceBackupId),
-        plan: recordValue(record.plan),
-        requestedSnapshotDigest: stringValue(record.requestedSnapshotDigest),
         createdAt: requiredDate(record.createdAt),
+        sealedAt: date(record.sealedAt),
         updatedAt: requiredDate(record.updatedAt),
     };
 }
 
+export function toBlueprintPlanAuthority(input: unknown): BlueprintPlanAuthorityRecord {
+    const record = recordValue(input);
+    const value = unwrapContract(
+        normalizeBlueprintPlanAuthority({
+            version: record.version,
+            planId: record.planId,
+            guildId: record.guildId,
+            requestedSnapshot: record.requestedSnapshot,
+            projectedSnapshot: record.projectedSnapshot,
+            roleProjection: record.roleProjection,
+            mappings: record.mappings,
+            referenceAuthority: record.referenceAuthority,
+            blockers: record.blockers,
+            provenance: record.provenance,
+            authorityDigest: record.authorityDigest,
+            createdAt: record.createdAt,
+        }),
+        'invalid-blueprint-plan-authority'
+    );
+    return { ...value, id: identifier(record), createdAt: requiredDate(value.createdAt) };
+}
+
+export function toBlueprintPlanExecutionAuthority(input: unknown): BlueprintPlanExecutionAuthorityRecord {
+    const record = recordValue(input);
+    const value = unwrapContract(
+        normalizeBlueprintPlanExecutionAuthority({
+            version: record.version,
+            planId: record.planId,
+            guildId: record.guildId,
+            ...(record.sourceGuildId === undefined ? {} : { sourceGuildId: record.sourceGuildId }),
+            sourceTargetMap: record.sourceTargetMap,
+            knownTargetKinds: record.knownTargetKinds,
+            initialIdMap: record.initialIdMap,
+            contentDigest: record.contentDigest,
+            executionAuthorityDigest: record.executionAuthorityDigest,
+            createdAt: record.createdAt,
+        }),
+        'invalid-blueprint-plan-execution-authority'
+    );
+    return { ...value, id: identifier(record), createdAt: requiredDate(value.createdAt) };
+}
+
 export function toBlueprintPlanStep(input: unknown): BlueprintPlanStepRecord {
     const record = recordValue(input);
+    const step = unwrapContract(normalizeBlueprintPlanStep(record.step), 'invalid-blueprint-plan-step');
     return {
         id: identifier(record),
         planId: stringValue(record.planId),
-        sequence: numberValue(record.sequence),
-        actionType: stringValue(record.actionType),
-        targetType: stringValue(record.targetType),
-        targetId: nullableString(record.targetId),
-        details: recordValue(record.details),
+        sequence: nonNegativeIntegerValue(record.sequence),
+        step,
         createdAt: requiredDate(record.createdAt),
     };
 }
@@ -207,7 +336,12 @@ export function recordValue(value: unknown): Record<string, unknown> {
 
 export function arrayValue(value: unknown): unknown[] {
     if (!Array.isArray(value)) throw new Error('invalid-array');
-    return value as unknown[];
+    return value;
+}
+
+function unwrapContract<T>(result: BlueprintContractResult<T>, message: string): T {
+    if (result.type === 'invalid') throw new Error(message);
+    return result.value;
 }
 
 function identifier(record: Record<string, unknown>): string {
@@ -215,17 +349,33 @@ function identifier(record: Record<string, unknown>): string {
 }
 
 function stringValue(value: unknown): string {
-    if (typeof value !== 'string') throw new Error('invalid-string');
+    if (typeof value !== 'string' || value.length === 0) throw new Error('invalid-string');
     return value;
+}
+
+function sha256Value(value: unknown): string {
+    const digest = stringValue(value);
+    if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error('invalid-sha256');
+    return digest;
 }
 
 function nullableString(value: unknown): string | null {
     return value === undefined || value === null ? null : stringValue(value);
 }
 
+function nullableSha256Value(value: unknown): string | null {
+    return value === undefined || value === null ? null : sha256Value(value);
+}
+
 function numberValue(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('invalid-number');
     return value;
+}
+
+function nonNegativeIntegerValue(value: unknown): number {
+    const parsed = numberValue(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('invalid-non-negative-integer');
+    return parsed;
 }
 
 function positiveIntegerValue(value: unknown): number {
@@ -239,24 +389,18 @@ function literalNumberValue<const TValue extends number>(value: unknown, expecte
     return expected;
 }
 
+function nullableLiteralNumber<const TValue extends number>(value: unknown, expected: TValue): TValue | null {
+    return value === undefined || value === null ? null : literalNumberValue(value, expected);
+}
+
 function nullableNumber(value: unknown): number | null {
     return value === undefined || value === null ? null : numberValue(value);
 }
 
-function stringMapValue(value: unknown): Record<string, string> {
-    const record = recordValue(value);
-    return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, stringValue(item)]));
-}
-
-function nullableRecord(value: unknown): Record<string, unknown> | null {
-    return value === undefined || value === null ? null : recordValue(value);
-}
-
 function nullableJsonRecord(value: unknown): Record<string, unknown> | null {
     if (value === undefined || value === null) return null;
-    if (typeof value !== 'string') throw new Error('invalid-json');
-    const parsed: unknown = JSON.parse(value);
-    return recordValue(parsed);
+    if (typeof value === 'string') return recordValue(JSON.parse(value) as unknown);
+    return recordValue(value);
 }
 
 function literalValue<const TValue extends string>(value: unknown, allowed: readonly TValue[]): TValue {
@@ -277,4 +421,48 @@ function requiredDate(value: unknown): Date {
 
 function date(value: unknown): Date | null {
     return value === undefined || value === null ? null : requiredDate(value);
+}
+
+function countRecord<TField extends string>(value: unknown, fields: readonly TField[]): Record<TField, number> {
+    const record = recordValue(value);
+    if (
+        Object.keys(record).length !== fields.length ||
+        Object.keys(record).some((field) => !fields.includes(field as TField))
+    ) {
+        throw new Error('invalid-count-record');
+    }
+    return Object.fromEntries(fields.map((field) => [field, nonNegativeIntegerValue(record[field])])) as Record<
+        TField,
+        number
+    >;
+}
+
+function planSummaryValue(value: unknown): BlueprintPlanMetadataRecord['summary'] {
+    return countRecord(value, ['creates', 'updates', 'deletes', 'roles', 'categories', 'channels']);
+}
+
+function decisionSummaryValue(value: unknown): BlueprintPlanMetadataRecord['decisionSummary'] {
+    return countRecord(value, [
+        'noOp',
+        'create',
+        'update',
+        'delete',
+        'protectedRetained',
+        'protectedOmitted',
+        'unmanagedRetained',
+        'blockedAmbiguous',
+        'blockedUnsupported',
+    ]);
+}
+
+function preflightSummaryValue(value: unknown): BlueprintPlanPreflightMetadataRecord['summary'] {
+    return countRecord(value, [
+        'total',
+        'ready',
+        'stale',
+        'mappingRequired',
+        'destructiveApprovalRequired',
+        'unsupported',
+        'invalidPlan',
+    ]);
 }

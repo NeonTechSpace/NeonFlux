@@ -2,13 +2,7 @@ import { isProtectedBlueprintRole, type BlueprintChannel, type BlueprintRole } f
 import { mapRequestedChannel, projectChannelOrder, type CollectionIdentity } from './channel-projection.js';
 import type { BlueprintRoleProjection } from './role-projection.js';
 import type { BlueprintSnapshot } from './snapshot.js';
-import type {
-    BlueprintPlanDecision,
-    BlueprintPlanBlocker,
-    BlueprintPlanFingerprintInput,
-    BlueprintPlanStep,
-    BlueprintPolicy,
-} from './plan.js';
+import type { BlueprintPlanDecision, BlueprintPlanBlocker, BlueprintPlanStep } from './plan.js';
 
 function isProtectedSnapshotRole(role: BlueprintRole, guildId: string | undefined): boolean {
     return (
@@ -311,23 +305,4 @@ function compareProjectedChannels(left: BlueprintChannel, right: BlueprintChanne
         (left.position ?? 0) - (right.position ?? 0) ||
         left.id.localeCompare(right.id)
     );
-}
-
-export function createFingerprintInput(
-    policy: BlueprintPolicy,
-    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>,
-    sourceTargetMap: Record<string, string | null>,
-    projectedSnapshot: BlueprintSnapshot,
-    decisions: BlueprintPlanDecision[],
-    steps: BlueprintPlanStep[]
-): BlueprintPlanFingerprintInput {
-    return {
-        version: 3,
-        policy,
-        knownTargetKinds,
-        sourceTargetMap,
-        projectedSnapshot,
-        decisions,
-        steps,
-    };
 }

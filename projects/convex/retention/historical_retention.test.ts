@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { recordBlueprintPlanStep } from '../blueprint/blueprint.js';
+import { writeBlueprintPlanStepBatch } from '../blueprint/blueprint_plan_persistence.js';
 import { enqueueBlueprintRun } from '../blueprint/blueprint_plan_review.js';
 import {
     deletableBlueprintRunStatuses,
@@ -192,7 +192,7 @@ describe('historical retention', () => {
             },
         };
         const enqueueHandler = (enqueueBlueprintRun as unknown as TestMutation)._handler;
-        const recordActionHandler = (recordBlueprintPlanStep as unknown as TestMutation)._handler;
+        const recordActionHandler = (writeBlueprintPlanStepBatch as unknown as TestMutation)._handler;
         try {
             await expect(
                 enqueueHandler(claimedRunContext, {
@@ -204,12 +204,11 @@ describe('historical retention', () => {
             ).rejects.toThrow('blueprint-run-plan-not-approved');
             await expect(
                 recordActionHandler(claimedRunContext, {
-                    actionType: 'create_channel',
+                    now,
                     planId: 'plan-old',
-                    sequence: 0,
-                    targetType: 'channel',
+                    steps: [{ sequence: 0, step: {} }],
                 })
-            ).rejects.toThrow('blueprint-plan-step-ledger-immutable');
+            ).rejects.toThrow('blueprint-plan-ledger-immutable');
         } finally {
             if (previousIssuer === undefined) delete process.env.NEONFLUX_WEB_AUTH_JWT_ISSUER;
             else process.env.NEONFLUX_WEB_AUTH_JWT_ISSUER = previousIssuer;
@@ -283,6 +282,59 @@ describe('historical retention', () => {
         );
     });
 
+    it('deletes verification evidence and the mutable cursor before deleting their terminal run', async () => {
+        const operations = createOperations({
+            loadFirstRun: vi.fn(() => Promise.resolve({ id: 'run-1', status: 'succeeded' })),
+            loadRunVerificationEvidenceIds: vi.fn(() => Promise.resolve(['verification-1'])),
+            loadRunIdMappingIds: vi.fn(() => Promise.resolve([])),
+            loadRunCursorIds: vi.fn(() => Promise.resolve(['cursor-1'])),
+        });
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
+        });
+
+        expect(operations.deleteRunVerificationEvidenceIds).toHaveBeenCalledWith(['verification-1']);
+        expect(operations.deleteRunCursorIds).toHaveBeenCalledWith(['cursor-1']);
+        expect(operations.deleteRun).toHaveBeenCalledExactlyOnceWith('run-1');
+        expect(vi.mocked(operations.deleteRunVerificationEvidenceIds).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(operations.deleteRunCursorIds).mock.invocationCallOrder[0] ?? 0
+        );
+        expect(vi.mocked(operations.deleteRunCursorIds).mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(operations.deleteRun).mock.invocationCallOrder[0] ?? 0
+        );
+    });
+
+    it('deletes run ID mappings before the cursor and run', async () => {
+        const operations = createOperations({
+            loadFirstRun: vi.fn(() => Promise.resolve({ id: 'run-1', status: 'succeeded' })),
+            loadRunIdMappingIds: vi.fn().mockResolvedValueOnce(['mapping-1']).mockResolvedValueOnce([]),
+            loadRunCursorIds: vi.fn(() => Promise.resolve(['cursor-1'])),
+        });
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
+        });
+        expect(operations.deleteRunIdMappingIds).toHaveBeenCalledWith(['mapping-1']);
+        expect(operations.deleteRunCursorIds).not.toHaveBeenCalled();
+        expect(operations.deleteRun).not.toHaveBeenCalled();
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase: 'blueprint-runs',
+            planId: 'plan-old',
+        });
+        expect(operations.deleteRunCursorIds).toHaveBeenCalledWith(['cursor-1']);
+        expect(operations.deleteRun).toHaveBeenCalledWith('run-1');
+    });
+
     it('treats an old draft with no run as eligible workflow history', async () => {
         const operations = createOperations();
 
@@ -295,7 +347,7 @@ describe('historical retention', () => {
 
         expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
             cutoff,
-            phase: 'blueprint-plan-steps',
+            phase: 'blueprint-run-verification-evidence',
             planId: 'plan-draft',
         });
     });
@@ -388,6 +440,33 @@ describe('historical retention', () => {
             planId: 'plan-old',
         });
     });
+
+    it.each([
+        ['blueprint-run-verification-evidence', 'blueprint-run-id-mappings'],
+        ['blueprint-run-id-mappings', 'blueprint-run-cursors'],
+        ['blueprint-run-cursors', 'blueprint-plan-steps'],
+        ['blueprint-plan-approvals', 'blueprint-plan-preflight-evidence'],
+        ['blueprint-plan-preflight-evidence', 'blueprint-plan-preflights'],
+        ['blueprint-plan-preflights', 'blueprint-plan-execution-authority-buckets'],
+        ['blueprint-plan-execution-authority-buckets', 'blueprint-plan-execution-authorities'],
+        ['blueprint-plan-execution-authorities', 'blueprint-plan-authorities'],
+        ['blueprint-plan-authorities', 'blueprint-plan'],
+    ] as const)('advances drained %s into %s', async (phase, nextPhase) => {
+        const operations = createOperations();
+
+        await executeHistoricalRetentionBatch(operations, {
+            cutoff,
+            now,
+            phase,
+            planId: 'plan-old',
+        });
+
+        expect(operations.schedule).toHaveBeenCalledExactlyOnceWith({
+            cutoff,
+            phase: nextPhase,
+            planId: 'plan-old',
+        });
+    });
 });
 
 function createOperations(
@@ -398,12 +477,18 @@ function createOperations(
         deleteAuditEventIds: vi.fn(() => Promise.resolve()),
         deleteBlueprintChildIds: vi.fn(() => Promise.resolve()),
         deleteRunObservationIds: vi.fn(() => Promise.resolve()),
+        deleteRunCursorIds: vi.fn(() => Promise.resolve()),
+        deleteRunIdMappingIds: vi.fn(() => Promise.resolve()),
+        deleteRunVerificationEvidenceIds: vi.fn(() => Promise.resolve()),
         deleteRun: vi.fn(() => Promise.resolve()),
         deletePlan: vi.fn(() => Promise.resolve()),
         findRemainingPlanPhase: vi.fn(() => Promise.resolve(null)),
         hasProtectedRun: vi.fn(() => Promise.resolve(false)),
         loadRunStepAttemptIds: vi.fn(() => Promise.resolve([])),
         loadRunObservationIds: vi.fn(() => Promise.resolve([])),
+        loadRunCursorIds: vi.fn(() => Promise.resolve([])),
+        loadRunIdMappingIds: vi.fn(() => Promise.resolve([])),
+        loadRunVerificationEvidenceIds: vi.fn(() => Promise.resolve([])),
         loadBlueprintPlanChildIds: vi.fn(() => Promise.resolve([])),
         loadExpiredAuditEventIds: vi.fn(() => Promise.resolve([])),
         loadFirstRun: vi.fn(() => Promise.resolve(null)),

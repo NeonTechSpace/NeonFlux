@@ -1,4 +1,4 @@
-import { findBlueprintPlanByGuildId, listBlueprintPlanDecisionsPage } from '@neonflux/db';
+import { getBlueprintPlanMetadata, listBlueprintPlanDecisionsPage } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { ok } from 'neverthrow';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import { readDashboardBlueprintPlanDecisionPage } from './dashboard-blueprint-pl
 
 vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
-    findBlueprintPlanByGuildId: vi.fn(),
+    getBlueprintPlanMetadata: vi.fn(),
     listBlueprintPlanDecisionsPage: vi.fn(),
 }));
 vi.mock('./db.server.js', () => ({ getWebDb: vi.fn() }));
@@ -23,7 +23,7 @@ describe('Server Blueprint decision paging', () => {
             guild: { id: 'guild-1' },
             actor: { actorUserId: 'user-1', metadata: {} },
         } as never);
-        vi.mocked(findBlueprintPlanByGuildId).mockResolvedValue(ok({ id: 'run-1' } as never));
+        vi.mocked(getBlueprintPlanMetadata).mockResolvedValue(ok({ id: 'run-1' } as never));
     });
 
     it('returns a scoped, bounded decision page and cursor', async () => {
@@ -34,13 +34,14 @@ describe('Server Blueprint decision paging', () => {
                         id: 'decision-1',
                         planId: 'run-1',
                         sequence: 0,
-                        targetType: 'role',
-                        classification: 'no-op',
-                        sourceId: 'source-role',
-                        targetId: 'target-role',
-                        logicalId: 'source-role',
-                        name: 'Admin',
-                        details: { fields: ['name'] },
+                        decision: {
+                            targetType: 'role',
+                            classification: 'no-op',
+                            reason: 'matched-equal',
+                            sourceId: 'source-role',
+                            targetId: 'target-role',
+                            changes: [{ field: 'name', before: 'Admin', after: 'Admin' }],
+                        },
                         createdAt: new Date(),
                     },
                 ],

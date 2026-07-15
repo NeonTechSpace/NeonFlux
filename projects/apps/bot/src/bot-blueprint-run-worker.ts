@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+    BLUEPRINT_RUN_PROTOCOL_VERSION,
     createBlueprintMutationFenceManifest,
+    createBlueprintRunVerificationEvidenceDigest,
     deriveBlueprintCursorAuthority,
-    normalizeBlueprintPersistedPlanAuthority,
-    normalizeBlueprintPlanStep,
     toBlueprintSnapshot,
-    toPortableBlueprintSnapshot,
 } from '@neonflux/blueprint';
 import type { AppLogger } from '@neonflux/core/logging';
 import {
@@ -17,7 +16,6 @@ import {
     ensureBlueprintRunRestorePoint,
     finalizeBlueprintRun,
     prepareBlueprintRunStepAttempt,
-    renewBlueprintRunLease,
     startBlueprintRunStepAttempt,
     type RuntimeDbClient,
     type BlueprintRunStepAttemptRecord,
@@ -27,11 +25,8 @@ import {
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { verifyProjectedStructureSnapshot } from './bot-blueprint-run-verification.js';
-import {
-    readResolvedBlueprintSourceTargetMap,
-    readBlueprintTargetKinds,
-    toBlueprintApplyAction,
-} from './bot-blueprint-provider-steps.js';
+import { toBlueprintApplyAction } from './bot-blueprint-provider-steps.js';
+import { validateClaimedBlueprintRunAuthority } from './bot-blueprint-run-authority.js';
 
 const leaseTtlMs = 3 * 60_000;
 const workerFailureBackoffMinMs = 2_000;
@@ -63,37 +58,38 @@ export async function runNextBlueprintRun(input: {
     }
     if (!claim.value) return 'idle';
     if (claim.value.kind === 'protocol_mismatch') return claim.value;
-    const { run, plan, steps } = claim.value;
-    const planAuthority = normalizeBlueprintPersistedPlanAuthority(plan.plan);
-    const invalidStep = steps.find((action) => {
-        const result = normalizeBlueprintPlanStep({
-            actionType: action.actionType,
-            targetType: action.targetType,
-            ...(action.targetId ? { targetId: action.targetId } : {}),
-            label: typeof action.details.label === 'string' ? action.details.label : '',
-            details: action.details,
-        });
-        return result.type === 'invalid';
-    });
-    if (planAuthority.type === 'invalid' || invalidStep) {
-        await finalizeBlueprintRun(input.database.db, {
-            errorType:
-                planAuthority.type === 'invalid' ? 'invalid-blueprint-plan-authority' : 'invalid-blueprint-plan-step',
+    if (claim.value.kind === 'authority_invalid') return 'progressed';
+    if (claim.value.run.protocolVersion !== BLUEPRINT_RUN_PROTOCOL_VERSION) {
+        return {
+            kind: 'protocol_mismatch',
+            runId: claim.value.run.id,
+            runProtocolVersion: claim.value.run.protocolVersion,
+            guildId: claim.value.run.guildId,
+            mayHaveExternalEffects: claim.value.run.appliedSteps > 0,
+            requiredProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
+            status: claim.value.run.status,
+        };
+    }
+    const validated = await validateClaimedBlueprintRunAuthority(claim.value);
+    const { run } = claim.value;
+    if (validated.type === 'invalid') {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
+            errorType: validated.errorType,
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            ...(run.restorePointBackupId ? { restorePointBackupId: run.restorePointBackupId } : {}),
             status: run.appliedSteps > 0 ? 'partially_applied' : 'failed_before_mutation',
         });
         return 'progressed';
     }
-    const pendingAttempts = new Map<string, BlueprintRunStepAttemptRecord>();
+    const { authority, executionAuthority, cursor, steps } = validated.value;
     const attemptCounts = new Map<string, number>();
+    const pendingAttempts = new Map<string, BlueprintRunStepAttemptRecord>();
     for (const attempt of claim.value.attempts) {
         attemptCounts.set(attempt.planStepId, Math.max(attemptCounts.get(attempt.planStepId) ?? 0, attempt.attempt));
-        const pending = pendingAttempts.get(attempt.planStepId);
-        if (attempt.state === 'pending' && (!pending || attempt.attempt > pending.attempt)) {
+        const latestPending = pendingAttempts.get(attempt.planStepId);
+        if (attempt.state === 'pending' && (!latestPending || attempt.attempt > latestPending.attempt)) {
             pendingAttempts.set(attempt.planStepId, attempt);
         }
     }
@@ -123,41 +119,39 @@ export async function runNextBlueprintRun(input: {
     let appliedSteps = run.appliedSteps;
     let failedSteps = run.failedSteps;
     let completedMutationSteps = run.completedMutationSteps;
-    let latestIdMap = run.idMap;
+    let latestIdMap = cursor.idMap;
     let nextStepSequence = run.nextStepSequence;
     const executableSteps = steps.filter((action) => action.sequence >= run.nextStepSequence);
-    const knownTargetKinds = readBlueprintTargetKinds(plan.plan.knownTargetKinds);
-    const initialIdMap = readResolvedBlueprintSourceTargetMap(plan.plan.sourceTargetMap);
-    const sourceGuildId = typeof plan.plan.requestedGuildId === 'string' ? plan.plan.requestedGuildId : undefined;
+    const knownTargetKinds = executionAuthority.knownTargetKinds;
+    const initialIdMap = executionAuthority.initialIdMap;
+    const sourceGuildId = executionAuthority.sourceGuildId;
     const referenceValidation = deriveBlueprintCursorAuthority({
         actions: steps.map(toBlueprintApplyAction),
         cursor: run.nextStepSequence,
-        runIdMap: run.idMap,
+        runIdMap: cursor.idMap,
         guildId: run.guildId,
         initialIdMap,
         knownTargetKinds,
         ...(sourceGuildId ? { sourceGuildId } : {}),
     });
     if (!referenceValidation.ok) {
-        await finalizeBlueprintRun(input.database.db, {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: `${referenceValidation.errorType}:${referenceValidation.actionId}`,
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            ...(run.restorePointBackupId ? { restorePointBackupId: run.restorePointBackupId } : {}),
             status: run.appliedSteps > 0 ? 'partially_applied' : 'failed_before_mutation',
         });
         return 'progressed';
     }
-    let restorePointBackupId = run.restorePointBackupId;
-    if (!restorePointBackupId) {
+    if (!run.restorePointBackupId) {
         const restoreSnapshot = await readFluxerBotGuildStructure({
             botToken: input.botToken,
             guildId: run.guildId,
         });
         if (restoreSnapshot.isErr()) {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: 'restore-point-read-failed',
                 runId: run.id,
                 leaseId,
@@ -169,31 +163,16 @@ export async function runNextBlueprintRun(input: {
         }
         const restoreObservedAt = new Date();
         const restoreStructure = toBlueprintSnapshot(restoreSnapshot.value, restoreObservedAt.toISOString());
-        let restoreManifest;
-        try {
-            restoreManifest = await createBlueprintMutationFenceManifest(restoreStructure);
-        } catch (error) {
-            await finalizeBlueprintRun(input.database.db, {
-                errorType: readMutationFenceConstructionError(error),
-                runId: run.id,
-                leaseId,
-                leaseOwner: input.leaseOwner,
-                now: new Date(),
-                status: 'failed_before_mutation',
-            });
-            return 'progressed';
-        }
         const restorePoint = await ensureBlueprintRunRestorePoint(input.database.db, {
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
-            manifest: toJsonRecord(restoreManifest),
             now: new Date(),
             observedAt: restoreObservedAt,
-            structure: toPortableBlueprintSnapshot(restoreSnapshot.value, restoreObservedAt.toISOString()),
+            structure: toJsonRecord(restoreStructure),
         });
         if (restorePoint.isErr()) {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: 'restore-point-persist-failed',
                 runId: run.id,
                 leaseId,
@@ -203,7 +182,6 @@ export async function runNextBlueprintRun(input: {
             });
             return 'progressed';
         }
-        restorePointBackupId = restorePoint.value.backupId;
     }
     if (run.nextStepSequence === 0 && run.appliedSteps === 0 && run.completedMutationSteps === 0) {
         const authorizationSnapshot = await readFluxerBotGuildStructure({
@@ -211,13 +189,12 @@ export async function runNextBlueprintRun(input: {
             guildId: run.guildId,
         });
         if (authorizationSnapshot.isErr()) {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: 'pre-mutation-live-read-failed',
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                restorePointBackupId,
                 status: 'failed_before_mutation',
             });
             return 'progressed';
@@ -231,13 +208,12 @@ export async function runNextBlueprintRun(input: {
         try {
             authorizationManifest = await createBlueprintMutationFenceManifest(authorizationStructure);
         } catch (error) {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: readMutationFenceConstructionError(error),
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                restorePointBackupId,
                 status: 'failed_before_mutation',
             });
             return 'progressed';
@@ -252,13 +228,12 @@ export async function runNextBlueprintRun(input: {
             structure: authorizationStructure,
         });
         if (authorization.isErr()) {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: 'pre-mutation-authorization-failed',
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                restorePointBackupId,
                 status: 'failed_before_mutation',
             });
             return 'progressed';
@@ -281,104 +256,62 @@ export async function runNextBlueprintRun(input: {
                     else state.persistenceFailure = 'attempt-not-completed';
                     return false;
                 }
-                const renewed = await renewBlueprintRunLease(input.database.db, {
-                    runId: run.id,
-                    leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
-                    leaseId,
-                    leaseOwner: input.leaseOwner,
-                    now: new Date(),
-                });
-                state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
-                state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
-                state.leaseActive = state.controlStatus === 'running';
-                if (!state.leaseActive) return false;
                 const persistedStep = steps.find((candidate) => candidate.id === action.id);
                 if (persistedStep?.sequence !== nextStepSequence) {
                     state.persistenceFailure = 'blueprint-run-step-sequence-invalid';
                     return false;
                 }
-                currentStepId = action.id;
-                const phaseCheckpoint = await checkpointBlueprintRun(input.database.db, {
-                    appliedSteps,
-                    completedMutationSteps,
-                    currentStepDomain: persistedStep.targetType,
-                    currentStepId: action.id,
-                    ...(typeof persistedStep.details.label === 'string'
-                        ? { currentStepLabel: persistedStep.details.label }
-                        : {}),
-                    runId: run.id,
-                    failedSteps,
-                    idMap: latestIdMap,
-                    leaseId,
-                    leaseOwner: input.leaseOwner,
-                    nextStepSequence,
-                    notStartedSteps: Math.max(0, steps.length - nextStepSequence),
-                    now: new Date(),
-                    phase: runPhaseForStep(action.actionType, action.targetType),
-                    skippedSteps: 0,
-                    status: 'running',
-                    totalMutationSteps: run.totalMutationSteps,
-                });
-                if (phaseCheckpoint.isErr()) {
-                    state.persistenceFailure = 'step-phase-checkpoint-failed';
-                    return false;
-                }
-
-                const pending = pendingAttempts.get(action.id);
-                if (pending) {
-                    activeAttempt = pending;
-                    activeAttemptStepId = action.id;
-                    activeAttemptStarted = false;
-                    pendingAttempts.delete(action.id);
-                    return true;
-                }
-
-                const attempt = (attemptCounts.get(action.id) ?? 0) + 1;
+                const pendingAttempt = pendingAttempts.get(action.id);
+                const attempt = pendingAttempt?.attempt ?? (attemptCounts.get(action.id) ?? 0) + 1;
+                const preparedAt = new Date();
                 const prepared = await prepareBlueprintRunStepAttempt(input.database.db, {
                     planStepId: action.id,
                     attempt,
                     runId: run.id,
                     leaseId,
+                    leaseExpiresAt: new Date(preparedAt.getTime() + leaseTtlMs),
                     leaseOwner: input.leaseOwner,
-                    now: new Date(),
-                    requestKey: `${run.id}:${action.id}:${String(attempt)}`,
+                    now: preparedAt,
+                    requestKey: pendingAttempt?.requestKey ?? `${run.id}:${action.id}:${String(attempt)}`,
                 });
                 if (prepared.isErr()) {
                     state.persistenceFailure = 'attempt-prepare-failed';
                     return false;
                 }
+                state.controlStatus = prepared.value.run.status;
+                state.controlRequest = prepared.value.run.controlRequest;
+                state.leaseActive = prepared.value.kind === 'prepared' && prepared.value.run.status === 'running';
+                if (!state.leaseActive) return false;
+                pendingAttempts.delete(action.id);
                 attemptCounts.set(action.id, attempt);
-                activeAttempt = prepared.value;
+                currentStepId = action.id;
+                activeAttempt = prepared.value.attempt;
                 activeAttemptStepId = action.id;
                 activeAttemptStarted = false;
                 return true;
             },
             beforeMutation: async () => {
-                const renewed = await renewBlueprintRunLease(input.database.db, {
-                    runId: run.id,
-                    leaseExpiresAt: new Date(Date.now() + leaseTtlMs),
-                    leaseId,
-                    leaseOwner: input.leaseOwner,
-                    now: new Date(),
-                });
-                state.controlStatus = renewed.isOk() && renewed.value ? renewed.value.status : 'outcome_unknown';
-                state.controlRequest = renewed.isOk() && renewed.value ? renewed.value.controlRequest : null;
-                state.leaseActive = state.controlStatus === 'running';
-                if (!state.leaseActive || !currentStepId || !activeAttempt || activeAttemptStepId !== currentStepId) {
+                if (!currentStepId || !activeAttempt || activeAttemptStepId !== currentStepId) {
                     return false;
                 }
                 if (!activeAttemptStarted) {
+                    const startedAt = new Date();
                     const started = await startBlueprintRunStepAttempt(input.database.db, {
                         attemptId: activeAttempt.id,
                         leaseId,
+                        leaseExpiresAt: new Date(startedAt.getTime() + leaseTtlMs),
                         leaseOwner: input.leaseOwner,
-                        now: new Date(),
+                        now: startedAt,
                     });
                     if (started.isErr()) {
                         state.persistenceFailure = 'attempt-start-failed';
                         return false;
                     }
-                    activeAttempt = started.value;
+                    state.controlStatus = started.value.run.status;
+                    state.controlRequest = started.value.run.controlRequest;
+                    state.leaseActive = started.value.kind === 'started' && started.value.run.status === 'running';
+                    if (!state.leaseActive) return false;
+                    activeAttempt = started.value.attempt;
                     activeAttemptStarted = true;
                 }
                 return true;
@@ -446,7 +379,6 @@ export async function runNextBlueprintRun(input: {
                     currentStepId: action.id,
                     ...(typeof action.details.label === 'string' ? { currentStepLabel: action.details.label } : {}),
                     failedSteps,
-                    idMap: latestIdMap,
                     leaseId,
                     leaseOwner: input.leaseOwner,
                     nextStepSequence,
@@ -464,7 +396,7 @@ export async function runNextBlueprintRun(input: {
                     status: requestedStatus,
                     totalMutationSteps: run.totalMutationSteps,
                 };
-                const persisted = await completeAndCheckpointBlueprintRunStepAttempt(input.database.db, {
+                const persisted = await completeBlueprintRunStepAttemptWithRetry(input.database.db, {
                     ...progress,
                     attemptId: attempt.id,
                     ...(actionResult.createdId ? { createdId: actionResult.createdId } : {}),
@@ -506,7 +438,7 @@ export async function runNextBlueprintRun(input: {
             const providerOutcomeUnknown = attempt.state === 'started';
             const caughtFailedSteps = providerOutcomeUnknown ? failedSteps : failedSteps + 1;
             const caughtNextStepSequence = providerOutcomeUnknown ? nextStepSequence : action.sequence + 1;
-            const persisted = await completeAndCheckpointBlueprintRunStepAttempt(input.database.db, {
+            const persisted = await completeBlueprintRunStepAttemptWithRetry(input.database.db, {
                 appliedSteps,
                 attemptId: attempt.id,
                 completedMutationSteps,
@@ -515,7 +447,6 @@ export async function runNextBlueprintRun(input: {
                 ...(typeof action.details.label === 'string' ? { currentStepLabel: action.details.label } : {}),
                 errorType: providerOutcomeUnknown ? 'mutation-callback-outcome-unknown' : 'mutation-callback-failed',
                 failedSteps: caughtFailedSteps,
-                idMap: latestIdMap,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 nextStepSequence: caughtNextStepSequence,
@@ -534,13 +465,12 @@ export async function runNextBlueprintRun(input: {
             if (persisted.isOk()) return 'progressed';
         }
         if (activeAttempt?.state === 'started') {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 errorType: 'mutation-callback-outcome-unknown',
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                restorePointBackupId,
                 status: 'outcome_unknown',
             });
         }
@@ -551,48 +481,44 @@ export async function runNextBlueprintRun(input: {
     }
     if (state.atomicCompletionFailed) return 'progressed';
     if (state.outcomeUnknown) {
-        await finalizeBlueprintRun(input.database.db, {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: 'mutation-result-persistence-failed',
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            restorePointBackupId,
             status: 'outcome_unknown',
         });
         return 'progressed';
     }
     const terminalErrorType = state.persistenceFailure;
     if (terminalErrorType) {
-        await finalizeBlueprintRun(input.database.db, {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: terminalErrorType,
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
             status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-            restorePointBackupId,
         });
         return 'progressed';
     }
     if (state.controlStatus === 'pause_requested') {
         if (state.controlRequest === 'cancel') {
-            await finalizeBlueprintRun(input.database.db, {
+            await persistBlueprintRunTerminalOrThrow(input.database.db, {
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                restorePointBackupId,
                 status: 'cancelled',
             });
             return 'progressed';
         }
-        await checkpointBlueprintRun(input.database.db, {
+        await persistBlueprintRunCheckpointOrThrow(input.database.db, {
             appliedSteps,
             completedMutationSteps,
             runId: run.id,
             failedSteps,
-            idMap: latestIdMap,
             leaseId,
             leaseOwner: input.leaseOwner,
             nextStepSequence,
@@ -607,28 +533,26 @@ export async function runNextBlueprintRun(input: {
     }
     if (state.rateLimited) return 'progressed';
     if (result.isErr() || !state.leaseActive) {
-        await finalizeBlueprintRun(input.database.db, {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: result.isErr() ? result.error.type : 'run-control-requested',
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
             status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-            restorePointBackupId,
         });
         return 'progressed';
     }
     latestIdMap = result.value.idMap;
     const unhandledFailure = result.value.actions.find((action) => action.status === 'failed');
     if (unhandledFailure || nextStepSequence !== steps.length || failedSteps > 0) {
-        await finalizeBlueprintRun(input.database.db, {
+        await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: unhandledFailure?.errorType ?? 'blueprint-run-incomplete',
             runId: run.id,
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
             status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-            restorePointBackupId,
         });
         return 'progressed';
     }
@@ -637,7 +561,6 @@ export async function runNextBlueprintRun(input: {
         completedMutationSteps,
         runId: run.id,
         failedSteps,
-        idMap: latestIdMap,
         leaseId,
         leaseOwner: input.leaseOwner,
         nextStepSequence,
@@ -649,18 +572,55 @@ export async function runNextBlueprintRun(input: {
         totalMutationSteps: run.totalMutationSteps,
     });
     if (verificationCheckpoint.isErr()) return 'progressed';
-    const verification = await verifyProjectedStructureSnapshot(input.botToken, run.guildId, plan.plan, latestIdMap);
-    await finalizeBlueprintRun(input.database.db, {
+    const verification = await verifyProjectedStructureSnapshot(
+        input.botToken,
+        run.guildId,
+        authority.projectedSnapshot,
+        latestIdMap
+    );
+    const verificationEvidenceDigest = await createBlueprintRunVerificationEvidenceDigest({
+        runId: run.id,
+        verificationStatus: verification.status,
+        result: verification,
+    });
+    await persistBlueprintRunTerminalOrThrow(input.database.db, {
         runId: run.id,
         leaseId,
         leaseOwner: input.leaseOwner,
         now: new Date(),
-        restorePointBackupId,
         status: verification.status === 'matched' ? 'succeeded' : 'needs_reconciliation',
+        verificationEvidenceDigest,
         verificationResult: verification,
         verificationStatus: verification.status,
     });
     return 'progressed';
+}
+
+async function persistBlueprintRunTerminalOrThrow(
+    db: Parameters<typeof finalizeBlueprintRun>[0],
+    input: Parameters<typeof finalizeBlueprintRun>[1]
+) {
+    const result = await finalizeBlueprintRun(db, input);
+    if (result.isErr()) throw new Error('blueprint-run-finalize-failed');
+    return result.value;
+}
+
+async function persistBlueprintRunCheckpointOrThrow(
+    db: Parameters<typeof checkpointBlueprintRun>[0],
+    input: Parameters<typeof checkpointBlueprintRun>[1]
+) {
+    const result = await checkpointBlueprintRun(db, input);
+    if (result.isErr()) throw new Error('blueprint-run-checkpoint-failed');
+    return result.value;
+}
+
+async function completeBlueprintRunStepAttemptWithRetry(
+    db: Parameters<typeof completeAndCheckpointBlueprintRunStepAttempt>[0],
+    input: Parameters<typeof completeAndCheckpointBlueprintRunStepAttempt>[1]
+) {
+    const first = await completeAndCheckpointBlueprintRunStepAttempt(db, input);
+    if (first.isOk()) return first;
+    return completeAndCheckpointBlueprintRunStepAttempt(db, input);
 }
 
 function toJsonRecord(value: unknown): Record<string, unknown> {
@@ -675,32 +635,43 @@ export function startBlueprintRunWorker(input: {
 }) {
     const leaseOwner = `blueprint-run-worker:${randomUUID()}`;
     let running: Promise<void> | undefined;
-    let reportedProtocolMismatchKey: string | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let disabled = false;
     let failureCount = 0;
-    let nextAttemptAt = 0;
+    let idleCount = 0;
+    const baseIntervalMs = input.intervalMs ?? 2_000;
+    const idleDelays = input.intervalMs === undefined ? [2_000, 5_000, 10_000, 20_000, 30_000] : [baseIntervalMs];
+    const schedule = (delayMs: number) => {
+        if (disabled) return;
+        const jitteredDelay = input.intervalMs === undefined ? jitterWorkerDelay(delayMs) : delayMs;
+        timer = setTimeout(tick, jitteredDelay);
+    };
     const tick = () => {
-        if (disabled || running || Date.now() < nextAttemptAt) return;
+        if (disabled || running) return;
+        let nextDelayMs: number | undefined;
         running = runNextBlueprintRun({ ...input, leaseOwner })
             .then((result) => {
                 failureCount = 0;
-                nextAttemptAt = 0;
-                if (typeof result === 'string') {
-                    reportedProtocolMismatchKey = undefined;
+                if (result === 'idle') {
+                    idleCount += 1;
+                    nextDelayMs = idleDelays[Math.min(idleCount - 1, idleDelays.length - 1)];
+                    return;
+                }
+                idleCount = 0;
+                if (result === 'progressed') {
+                    nextDelayMs = baseIntervalMs;
                     return;
                 }
                 if (result.kind === 'backend_incompatible') {
                     disabled = true;
-                    clearInterval(interval);
                     input.logger.error('blueprint_run.backend_incompatible', {
                         action: 'worker_disabled',
                     });
                     return;
                 }
-                const mismatchKey = `${result.runId}:${String(result.runProtocolVersion)}:${String(result.requiredProtocolVersion)}`;
-                if (mismatchKey === reportedProtocolMismatchKey) return;
-                reportedProtocolMismatchKey = mismatchKey;
+                disabled = true;
                 input.logger.error('blueprint_run.protocol_mismatch', {
+                    action: 'worker_disabled',
                     runId: result.runId,
                     runProtocolVersion: result.runProtocolVersion,
                     guildId: result.guildId,
@@ -715,7 +686,7 @@ export function startBlueprintRunWorker(input: {
                     workerFailureBackoffMaxMs,
                     workerFailureBackoffMinMs * 2 ** Math.min(failureCount - 1, 20)
                 );
-                nextAttemptAt = Date.now() + retryAfterMs;
+                nextDelayMs = retryAfterMs;
                 input.logger.error('blueprint_run.worker_failed', {
                     error: error instanceof Error ? error.message : String(error),
                     retryAfterMs,
@@ -723,16 +694,21 @@ export function startBlueprintRunWorker(input: {
             })
             .finally(() => {
                 running = undefined;
+                if (nextDelayMs !== undefined) schedule(nextDelayMs);
             });
     };
-    const interval = setInterval(tick, input.intervalMs ?? 2_000);
     tick();
     return {
         async stop() {
-            clearInterval(interval);
+            disabled = true;
+            if (timer) clearTimeout(timer);
             await running;
         },
     };
+}
+
+function jitterWorkerDelay(delayMs: number): number {
+    return Math.max(1, Math.round(delayMs * (0.9 + Math.random() * 0.2)));
 }
 
 function fallbackRetryAfterMs(targetType: string | undefined): number {

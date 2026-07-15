@@ -95,6 +95,26 @@ describe('Blueprint run runtime boundary', () => {
         );
     });
 
+    it('preserves a terminal authority-invalid claim instead of retrying the cold authority', async () => {
+        const invalidClaim = {
+            kind: 'authority_invalid',
+            errorType: 'blueprint-plan-integrity-mismatch',
+            guildId: 'guild-1',
+            mayHaveExternalEffects: false,
+            runId: 'run-1',
+            status: 'failed_before_mutation',
+        };
+        const mutation = vi.fn().mockResolvedValue(invalidClaim);
+        const result = await claimNextBlueprintRun({ client: { mutation } } as never, {
+            leaseExpiresAt: new Date('2026-07-11T12:03:00.000Z'),
+            leaseId: 'lease-1',
+            leaseOwner: 'worker-1',
+            now: new Date('2026-07-11T12:00:00.000Z'),
+        });
+
+        expect(result._unsafeUnwrap()).toStrictEqual(invalidClaim);
+    });
+
     it('rejects malformed mismatch metadata at the repository boundary', async () => {
         const mutation = vi.fn().mockResolvedValue({
             runId: 'run-old',
@@ -155,7 +175,7 @@ function runRecord(overrides: Record<string, unknown> = {}) {
         createdAt: '2026-07-11T11:59:00.000Z',
         failedSteps: 0,
         guildId: 'guild-1',
-        idMap: {},
+        preflightId: 'preflight-record-1',
         mutationAuthorizedAt: null,
         mutationAuthorizationLeaseId: null,
         nextStepSequence: 0,
@@ -163,9 +183,13 @@ function runRecord(overrides: Record<string, unknown> = {}) {
         phase: 'complete',
         preflightDigest: 'preflight-1',
         preflightExpiresAt: '2026-07-11T12:05:00.000Z',
+        restorePointSnapshotDigest: null,
+        terminalDigest: null,
+        terminalRequestDigest: null,
         fingerprintVersion: 2,
         expectedStructureFingerprint: 'structure-1',
         expectedCapabilityFingerprint: 'capability-1',
+        executionAuthorityDigest: 'a'.repeat(64),
         protocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
         planId: 'plan-1',
         skippedSteps: 0,

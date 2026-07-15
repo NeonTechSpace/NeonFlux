@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { diffBlueprintSnapshot } from './diff.js';
 import {
     normalizeBlueprintPlan,
-    normalizeBlueprintPersistedPlanAuthority,
     normalizeBlueprintPlanDecision,
     normalizeBlueprintPlanStep,
 } from './runtime-contracts.js';
@@ -25,7 +24,7 @@ describe('Blueprint runtime contracts', () => {
         expect(normalizeBlueprintPlan(plan)).toEqual({ type: 'valid', value: plan });
     });
 
-    it('validates persisted run authority from provider steps without inventing conceptual changes', () => {
+    it('uses plan format 4 without a persisted fingerprint-input copy', () => {
         const snapshotResult = normalizeBlueprintSnapshot({
             guildId: 'guild-1',
             roles: [],
@@ -36,21 +35,10 @@ describe('Blueprint runtime contracts', () => {
         const plan = diffBlueprintSnapshot(snapshotResult.snapshot, snapshotResult.snapshot, {
             policy: 'synchronize',
         });
-        const {
-            changes: _reviewOnlyChanges,
-            decisions: _fingerprintedDecisions,
-            version: planVersion,
-            ...stored
-        } = plan;
-        void _reviewOnlyChanges;
-        void _fingerprintedDecisions;
-
-        const normalized = normalizeBlueprintPersistedPlanAuthority({ ...stored, planVersion });
-
-        expect(normalized.type).toBe('valid');
-        if (normalized.type !== 'valid') return;
-        expect(normalized.value.steps).toEqual(plan.steps);
-        expect('changes' in normalized.value).toBe(false);
+        expect(plan.version).toBe(4);
+        expect('fingerprintInput' in plan).toBe(false);
+        expect(normalizeBlueprintPlan({ ...plan, version: 3 })).toMatchObject({ type: 'invalid' });
+        expect(normalizeBlueprintPlan({ ...plan, fingerprintInput: {} })).toMatchObject({ type: 'invalid' });
     });
 
     it('rejects an ordering step disguised as a create', () => {

@@ -2,6 +2,8 @@ import type { BlueprintRoleProjection } from './role-projection.js';
 import type { BlueprintChannel, BlueprintPermissionOverwrite, BlueprintRole } from './contracts.js';
 import type { BlueprintSnapshot } from './snapshot.js';
 
+export const BLUEPRINT_PLAN_VERSION = 4 as const;
+
 export type BlueprintPolicy = 'merge' | 'synchronize' | 'rebuild';
 
 export type BlueprintProviderOperation =
@@ -165,14 +167,12 @@ export type BlueprintPlanBlocker = {
     fields: Array<'type' | 'url'>;
 };
 
-export type BlueprintPlanFingerprintInput = {
-    version: 3;
-    policy: BlueprintPolicy;
-    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
-    sourceTargetMap: Record<string, string | null>;
-    projectedSnapshot: BlueprintSnapshot;
-    decisions: BlueprintPlanDecision[];
-    steps: BlueprintPlanStep[];
+export type BlueprintEntityKind = 'role' | 'category' | 'channel';
+
+export type BlueprintPlanMappings = {
+    roles: Record<string, string>;
+    categories: Record<string, string>;
+    channels: Record<string, string>;
 };
 
 export type BlueprintPlanSummary = {
@@ -184,17 +184,29 @@ export type BlueprintPlanSummary = {
     channels: number;
 };
 
+export type BlueprintPlanDecisionSummary = {
+    noOp: number;
+    create: number;
+    update: number;
+    delete: number;
+    protectedRetained: number;
+    protectedOmitted: number;
+    unmanagedRetained: number;
+    blockedAmbiguous: number;
+    blockedUnsupported: number;
+};
+
 export type BlueprintPlan = {
-    version: 3;
+    version: typeof BLUEPRINT_PLAN_VERSION;
     policy: BlueprintPolicy;
     summary: BlueprintPlanSummary;
     changes: BlueprintPlanStep[];
     steps: BlueprintPlanStep[];
-    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
+    knownTargetKinds: Record<string, BlueprintEntityKind>;
     sourceTargetMap: Record<string, string | null>;
+    mappings: BlueprintPlanMappings;
     roleProjection: BlueprintRoleProjection;
     projectedSnapshot: BlueprintSnapshot;
-    fingerprintInput: BlueprintPlanFingerprintInput;
     decisions: BlueprintPlanDecision[];
     blockers: BlueprintPlanBlocker[];
 };

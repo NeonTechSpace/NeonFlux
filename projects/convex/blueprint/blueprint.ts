@@ -19,8 +19,6 @@ import {
     buildStructureDriftLeaseClearPatch,
     buildStructureScheduledDriftResultPatch,
     chooseLatestStructureDriftBaselineBackup,
-    buildBlueprintPlanStepDocument,
-    buildBlueprintPlanDocument,
     normalizeBackupName,
     normalizeBackupRetentionDays,
     isStructureBackupRetentionEligible,
@@ -28,16 +26,12 @@ import {
     normalizeRequiredGuildId,
     STRUCTURE_BACKUP_SOURCE,
     STRUCTURE_BACKUP_STATUS,
-    BLUEPRINT_PLAN_STATUS,
     toStructureBackupRecord,
     toStructureBackupSettingsRecord,
     toStructureBackupSummaryRecord,
-    toBlueprintPlanStepRecord,
-    toBlueprintPlanRecord,
     toStructureObservedEventStateRecord,
     type StructureBackupDocument,
     type StructureBackupSettingsDocument,
-    type BlueprintPlanDocument,
     type StructureObservedEventStateDocument,
 } from './blueprint_model.js';
 
@@ -46,7 +40,6 @@ type StructureMutationCtx = MutationCtx;
 type StoredGuildDocument = { _id: GenericId<'guilds'>; guildId: string };
 type StoredBackupDocument = StructureBackupDocument & { _id: GenericId<'structureBackups'> };
 type StoredBackupSettingsDocument = StructureBackupSettingsDocument & { _id: GenericId<'structureBackupSettings'> };
-type StoredBlueprintPlanDocument = BlueprintPlanDocument & { _id: GenericId<'blueprintPlans'> };
 type StoredObservedEventDocument = StructureObservedEventStateDocument & { _id: GenericId<'guildFeatureSettings'> };
 
 const allowedStructureServices = ['bot', 'web'] as const;
@@ -135,42 +128,6 @@ const backupRetentionPruneResultValidator = v.object({
     hasMore: v.boolean(),
     nextRetentionPruneAt: nullableString,
 });
-const planStepRecordValidator = v.object({
-    actionType: v.string(),
-    createdAt: v.string(),
-    details: v.any(),
-    id: v.string(),
-    planId: v.string(),
-    sequence: v.number(),
-    targetId: nullableString,
-    targetType: v.string(),
-});
-const planStepPageValidator = v.object({
-    steps: v.array(planStepRecordValidator),
-    nextCursor: nullableString,
-});
-const planRecordValidator = v.object({
-    createdAt: v.string(),
-    createdByUserId: nullableString,
-    guildId: v.string(),
-    deleteStepCount: v.number(),
-    deleteSetDigest: nullableString,
-    planDigest: v.string(),
-    planVersion: v.number(),
-    policy: v.union(v.literal('merge'), v.literal('synchronize'), v.literal('rebuild')),
-    id: v.string(),
-    plan: v.any(),
-    requestedSnapshotDigest: v.string(),
-    sourceBackupId: nullableString,
-    status: v.union(
-        v.literal('draft'),
-        v.literal('needs_input'),
-        v.literal('review_ready'),
-        v.literal('approved'),
-        v.literal('obsolete')
-    ),
-    updatedAt: v.string(),
-});
 const observedStateValidator = v.object({
     createdAt: v.optional(v.string()),
     guildId: v.string(),
@@ -182,14 +139,6 @@ const observedStateValidator = v.object({
     targetChangeCounts: v.record(v.string(), v.number()),
     updatedAt: v.optional(v.string()),
 });
-const blueprintPlanStepInputValidator = v.object({
-    actionType: v.string(),
-    details: v.optional(v.any()),
-    sequence: v.number(),
-    targetId: v.optional(v.union(v.string(), v.null())),
-    targetType: v.string(),
-});
-
 export const findStructureObservedEventStateByGuildId = query({
     args: { guildId: v.string() },
     returns: observedStateValidator,
@@ -809,147 +758,6 @@ export const recordStructureScheduledDriftResult = mutation({
     },
 });
 
-export const createBlueprintPlan = mutation({
-    args: {
-        createdAt: v.optional(v.string()),
-        createdByUserId: v.optional(v.union(v.string(), v.null())),
-        guildId: v.string(),
-        deleteStepCount: v.number(),
-        deleteSetDigest: v.optional(v.string()),
-        planDigest: v.string(),
-        planVersion: v.number(),
-        policy: v.union(v.literal('merge'), v.literal('synchronize'), v.literal('rebuild')),
-        plan: v.optional(v.any()),
-        requestedSnapshotDigest: v.string(),
-        sourceBackupId: v.optional(v.union(v.string(), v.null())),
-    },
-    returns: planRecordValidator,
-    handler: async (ctx: StructureMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-
-        await requireGuildDocument(ctx, guildId);
-        await requireSourceBackupIfProvided(ctx, { guildId, sourceBackupId: args.sourceBackupId });
-
-        const document = unwrap(buildBlueprintPlanDocument({ ...args, guildId }, new Date().toISOString()));
-        const id = await ctx.db.insert('blueprintPlans', document);
-
-        return toBlueprintPlanRecord({ ...document, _id: id });
-    },
-});
-
-export const listBlueprintPlansByGuildId = query({
-    args: { guildId: v.string(), limit: v.optional(v.number()) },
-    returns: v.array(planRecordValidator),
-    handler: async (ctx: StructureQueryCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const plans = await ctx.db
-            .query('blueprintPlans')
-            .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
-            .order('desc')
-            .take(normalizeLimit(args.limit));
-
-        return plans.map(toBlueprintPlanRecord);
-    },
-});
-
-export const findBlueprintPlanByGuildId = query({
-    args: { guildId: v.string(), planId: v.string() },
-    returns: v.union(planRecordValidator, v.null()),
-    handler: async (ctx: StructureQueryCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const plan = await findPlanById(ctx, parsePlanId(args.planId));
-
-        return plan?.guildId === args.guildId ? toBlueprintPlanRecord(plan) : null;
-    },
-});
-
-export const recordBlueprintPlanStep = mutation({
-    args: {
-        actionType: v.string(),
-        details: v.optional(v.any()),
-        planId: v.string(),
-        sequence: v.number(),
-        targetId: v.optional(v.union(v.string(), v.null())),
-        targetType: v.string(),
-    },
-    returns: planStepRecordValidator,
-    handler: async (ctx: StructureMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const plan = await requirePlan(ctx, args.planId);
-        if (plan.status !== BLUEPRINT_PLAN_STATUS.draft) {
-            throw new Error('blueprint-plan-step-ledger-immutable');
-        }
-
-        await assertAvailableBlueprintPlanStepSequence(ctx, plan._id, args.sequence);
-
-        const document = unwrap(buildBlueprintPlanStepDocument(args, new Date().toISOString()));
-        const id = await ctx.db.insert('blueprintPlanSteps', document);
-
-        return toBlueprintPlanStepRecord({ ...document, _id: id });
-    },
-});
-
-export const recordBlueprintPlanStepsBatch = mutation({
-    args: { planId: v.string(), steps: v.array(blueprintPlanStepInputValidator) },
-    returns: v.array(planStepRecordValidator),
-    handler: async (ctx: StructureMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        if (args.steps.length < 1 || args.steps.length > 100) {
-            throw new Error('blueprint-plan-step-batch-size-invalid');
-        }
-
-        const plan = await requirePlan(ctx, args.planId);
-        if (plan.status !== BLUEPRINT_PLAN_STATUS.draft) {
-            throw new Error('blueprint-plan-step-ledger-immutable');
-        }
-        assertUniquePlanStepSequences(args.steps.map((step) => step.sequence));
-        await assertAvailableBlueprintPlanStepSequences(
-            ctx,
-            plan._id,
-            args.steps.map((step) => step.sequence)
-        );
-
-        const now = new Date().toISOString();
-        const records = [];
-        for (const step of args.steps) {
-            const document = unwrap(buildBlueprintPlanStepDocument({ ...step, planId: args.planId }, now));
-            const id = await ctx.db.insert('blueprintPlanSteps', document);
-            records.push(toBlueprintPlanStepRecord({ ...document, _id: id }));
-        }
-
-        return records;
-    },
-});
-
-export const listBlueprintPlanStepsByPlanIdPage = query({
-    args: { cursor: v.optional(v.union(v.string(), v.null())), limit: v.optional(v.number()), planId: v.string() },
-    returns: planStepPageValidator,
-    handler: async (ctx: StructureQueryCtx, args) => {
-        await requireNeonFluxService(ctx, allowedStructureServices);
-        const planId = parsePlanId(args.planId);
-        const limit = normalizeLimit(args.limit);
-        const cursor = normalizeCursor(args.cursor);
-        const queryWithCursor =
-            cursor === undefined
-                ? ctx.db
-                      .query('blueprintPlanSteps')
-                      .withIndex('by_plan_sequence', (index) => index.eq('planId', planId))
-                : ctx.db
-                      .query('blueprintPlanSteps')
-                      .withIndex('by_plan_sequence', (index) => index.eq('planId', planId).gt('sequence', cursor));
-        const steps = await queryWithCursor.order('asc').take(limit + 1);
-        const page = steps.slice(0, limit);
-        const extra = steps.at(limit);
-
-        return {
-            steps: page.map(toBlueprintPlanStepRecord),
-            nextCursor: extra ? String(page.at(-1)?.sequence ?? extra.sequence) : null,
-        };
-    },
-});
-
 async function recordBackupAttempt(
     ctx: StructureMutationCtx,
     guildId: string,
@@ -1052,67 +860,6 @@ function isDriftDue(setting: StructureBackupSettingsDocument, now: string): bool
     return Number.isFinite(parsedNow) && Number.isFinite(parsedNextDriftCheckAt) && parsedNextDriftCheckAt <= parsedNow;
 }
 
-async function findPlanById(
-    ctx: StructureQueryCtx | StructureMutationCtx,
-    planId: GenericId<'blueprintPlans'>
-): Promise<StoredBlueprintPlanDocument | null> {
-    return await ctx.db.get('blueprintPlans', planId);
-}
-
-async function requireSourceBackupIfProvided(
-    ctx: StructureMutationCtx,
-    input: { guildId: string; sourceBackupId?: string | null | undefined }
-): Promise<void> {
-    const sourceBackupId = normalizeOptionalString(input.sourceBackupId);
-    if (!sourceBackupId) return;
-
-    const backup = await findBackupById(ctx, parseBackupId(sourceBackupId));
-    if (backup?.guildId !== input.guildId) throw new Error('structure-backup-not-found');
-}
-
-async function requirePlan(ctx: StructureMutationCtx, planId: string): Promise<StoredBlueprintPlanDocument> {
-    const plan = await findPlanById(ctx, parsePlanId(planId));
-    if (!plan) throw new Error('blueprint-plan-not-found');
-    return plan;
-}
-
-async function assertAvailableBlueprintPlanStepSequence(
-    ctx: StructureMutationCtx,
-    planId: GenericId<'blueprintPlans'>,
-    sequence: number
-): Promise<void> {
-    const existing = await ctx.db
-        .query('blueprintPlanSteps')
-        .withIndex('by_plan_sequence', (index) => index.eq('planId', planId).eq('sequence', sequence))
-        .first();
-
-    if (existing) {
-        throw new Error('blueprint-plan-step-sequence-duplicate');
-    }
-}
-
-async function assertAvailableBlueprintPlanStepSequences(
-    ctx: StructureMutationCtx,
-    planId: GenericId<'blueprintPlans'>,
-    sequences: number[]
-): Promise<void> {
-    if (sequences.length === 0) return;
-
-    const minSequence = Math.min(...sequences);
-    const maxSequence = Math.max(...sequences);
-    const requestedSequences = new Set(sequences);
-    const existing = await ctx.db
-        .query('blueprintPlanSteps')
-        .withIndex('by_plan_sequence', (index) =>
-            index.eq('planId', planId).gte('sequence', minSequence).lte('sequence', maxSequence)
-        )
-        .take(sequences.length);
-
-    if (existing.some((step) => requestedSequences.has(step.sequence))) {
-        throw new Error('blueprint-plan-step-sequence-duplicate');
-    }
-}
-
 export async function recordBlueprintAuditInMutation(
     ctx: StructureMutationCtx,
     guildId: string,
@@ -1147,14 +894,6 @@ export async function recordBlueprintAuditInMutation(
     });
 }
 
-function assertUniquePlanStepSequences(sequences: number[]): void {
-    const uniqueSequences = new Set(sequences);
-
-    if (uniqueSequences.size !== sequences.length) {
-        throw new Error('blueprint-plan-step-sequence-duplicate');
-    }
-}
-
 async function isGuildInEffectiveBotScope(
     ctx: StructureQueryCtx | StructureMutationCtx,
     guildId: string
@@ -1186,12 +925,6 @@ async function requireGuildDocument(ctx: StructureMutationCtx, guildId: string):
 
     if (!guild) throw new Error('guild-not-found');
     return guild;
-}
-
-function normalizeCursor(value: string | null | undefined): number | undefined {
-    if (!value) return undefined;
-    const cursor = Number(value);
-    return Number.isInteger(cursor) && cursor >= 0 ? cursor : undefined;
 }
 
 function normalizeBackupSortCursor(value: string | null | undefined): string | undefined {
@@ -1228,10 +961,6 @@ function unwrapRequiredString(value: string, field: string): string {
 
 function parseBackupId(backupId: string): GenericId<'structureBackups'> {
     return unwrapRequiredString(backupId, 'backupId') as GenericId<'structureBackups'>;
-}
-
-function parsePlanId(planId: string): GenericId<'blueprintPlans'> {
-    return unwrapRequiredString(planId, 'planId') as GenericId<'blueprintPlans'>;
 }
 
 function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {

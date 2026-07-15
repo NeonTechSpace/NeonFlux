@@ -24,6 +24,7 @@ export type DashboardBlueprintRunsWorkspace = {
     onControlRun: (plan: DashboardBlueprintPlan, request: 'pause' | 'resume' | 'cancel') => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
     onLoadPlanDecisions: (plan: DashboardBlueprintPlan) => void;
+    onPlanEvidenceVisibilityChange: (plan: DashboardBlueprintPlan, visible: boolean) => void;
     onPreflightRun: (plan: DashboardBlueprintPlan) => void;
     onRecoveryPlan: (plan: DashboardBlueprintPlan) => void;
     onRetryRunProgress: () => void;
@@ -51,7 +52,13 @@ export function DashboardBlueprintRunsSurface({ workspace }: { workspace: Dashbo
                         <span>Action</span>
                     </div>
                     {workspace.plans.map((plan) => (
-                        <details key={plan.id} role='listitem' className='group border-b border-[var(--dash-border)]'>
+                        <details
+                            key={plan.id}
+                            role='listitem'
+                            className='group border-b border-[var(--dash-border)]'
+                            onToggle={(event) => {
+                                workspace.onPlanEvidenceVisibilityChange(plan, event.currentTarget.open);
+                            }}>
                             <motion.summary
                                 data-dashboard-disclosure
                                 className='grid cursor-pointer list-none gap-2 px-2 py-4 marker:hidden md:grid-cols-[10rem_minmax(15rem,1fr)_9rem_10rem] md:items-center md:gap-4'

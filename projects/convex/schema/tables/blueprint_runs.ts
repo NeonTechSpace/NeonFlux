@@ -1,7 +1,7 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-import { jsonValue, optionalString, optionalTimestamp, timestamp } from '../shared.js';
+import { optionalString, optionalTimestamp, timestamp } from '../shared.js';
 
 export const blueprintRunsTable = defineTable({
     appliedSteps: v.number(),
@@ -22,6 +22,7 @@ export const blueprintRunsTable = defineTable({
     controlRequest: v.optional(v.union(v.literal('pause'), v.literal('cancel'))),
     createdAt: timestamp,
     errorType: optionalString,
+    executionAuthorityDigest: v.string(),
     currentStepDomain: optionalString,
     currentStepId: optionalString,
     currentStepLabel: optionalString,
@@ -29,7 +30,6 @@ export const blueprintRunsTable = defineTable({
     fingerprintVersion: v.literal(2),
     guildId: v.string(),
     heartbeatAt: optionalTimestamp,
-    idMap: jsonValue,
     leaseExpiresAt: optionalTimestamp,
     leaseId: optionalString,
     leaseOwner: optionalString,
@@ -52,11 +52,13 @@ export const blueprintRunsTable = defineTable({
         v.literal('verifying'),
         v.literal('complete')
     ),
+    preflightId: v.id('blueprintPlanPreflights'),
     preflightDigest: v.string(),
     preflightExpiresAt: timestamp,
     protocolVersion: v.number(),
     retryAt: optionalTimestamp,
     restorePointBackupId: optionalString,
+    restorePointSnapshotDigest: optionalString,
     planId: v.id('blueprintPlans'),
     startedAt: optionalTimestamp,
     status: v.union(
@@ -77,11 +79,15 @@ export const blueprintRunsTable = defineTable({
     totalSteps: v.number(),
     totalMutationSteps: v.number(),
     updatedAt: timestamp,
-    verificationResult: v.optional(jsonValue),
+    terminalDigest: optionalString,
+    terminalRequestDigest: optionalString,
+    verificationEvidenceDigest: optionalString,
+    verificationEvidenceVersion: v.optional(v.literal(1)),
     verificationStatus: v.optional(v.union(v.literal('matched'), v.literal('mismatch'), v.literal('read_failed'))),
 })
     .index('by_status_retry', ['status', 'retryAt'])
     .index('by_status_protocol_retry', ['status', 'protocolVersion', 'retryAt'])
+    .index('by_status_protocol_lease_expiry', ['status', 'protocolVersion', 'leaseExpiresAt'])
     .index('by_guild_status', ['guildId', 'status'])
     .index('by_plan_status', ['planId', 'status'])
     .index('by_plan_created', ['planId', 'createdAt']);

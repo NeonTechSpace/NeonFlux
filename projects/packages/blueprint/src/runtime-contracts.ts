@@ -3,10 +3,12 @@ import type {
     BlueprintPlan,
     BlueprintPlanBlocker,
     BlueprintPlanDecision,
+    BlueprintPlanMappings,
     BlueprintPlanStep,
     BlueprintPlanSummary,
     BlueprintPolicy,
 } from './plan.js';
+import { summarizeBlueprintPlanChanges } from './plan-summary.js';
 import {
     hasOnlyKeys,
     isBlueprintChannelChanges,
@@ -20,7 +22,6 @@ import {
 import { normalizeBlueprintSnapshot } from './snapshot.js';
 
 export type BlueprintContractResult<T> = { type: 'valid'; value: T } | { type: 'invalid'; message: string };
-export type BlueprintPersistedPlanAuthority = Omit<BlueprintPlan, 'changes'>;
 
 const maximumLedgerEntries = 10_000;
 const policies = new Set<BlueprintPolicy>(['merge', 'synchronize', 'rebuild']);
@@ -220,6 +221,19 @@ function validateStepDetails(
 
 export function normalizeBlueprintPlanDecision(value: unknown): BlueprintContractResult<BlueprintPlanDecision> {
     if (!isRecord(value)) return invalid('Blueprint plan decision must be an object.');
+    if (
+        !hasOnlyKeys(value, [
+            'targetType',
+            'classification',
+            'reason',
+            'sourceId',
+            'targetId',
+            'changes',
+            'candidateTargetIds',
+        ])
+    ) {
+        return invalid('Blueprint plan decision contains unsupported fields.');
+    }
     if (typeof value.targetType !== 'string' || !entityKinds.has(value.targetType)) {
         return invalid('Blueprint plan decision has an invalid targetType.');
     }
@@ -249,13 +263,34 @@ export function normalizeBlueprintPlanDecision(value: unknown): BlueprintContrac
 }
 
 export function normalizeBlueprintPlan(value: unknown): BlueprintContractResult<BlueprintPlan> {
-    if (!isRecord(value) || value.version !== 3 || !policies.has(value.policy as BlueprintPolicy)) {
+    if (
+        !isRecord(value) ||
+        !hasOnlyKeys(value, [
+            'version',
+            'policy',
+            'summary',
+            'changes',
+            'steps',
+            'knownTargetKinds',
+            'sourceTargetMap',
+            'mappings',
+            'roleProjection',
+            'projectedSnapshot',
+            'decisions',
+            'blockers',
+        ]) ||
+        value.version !== 4 ||
+        !policies.has(value.policy as BlueprintPolicy)
+    ) {
         return invalid('Blueprint plan must use a supported version and policy.');
     }
     const summary = normalizeSummary(value.summary);
     if (!summary) return invalid('Blueprint plan summary is malformed.');
     const changes = normalizeLedger(value.changes, normalizeBlueprintPlanStep, 'changes');
     if (changes.type === 'invalid') return changes;
+    if (!samePlanSummary(summary, summarizeBlueprintPlanChanges(changes.value))) {
+        return invalid('Blueprint plan summary does not match its logical changes.');
+    }
     const steps = normalizeLedger(value.steps, normalizeBlueprintPlanStep, 'steps');
     if (steps.type === 'invalid') return steps;
     const decisions = normalizeLedger(value.decisions, normalizeBlueprintPlanDecision, 'decisions');
@@ -268,28 +303,10 @@ export function normalizeBlueprintPlan(value: unknown): BlueprintContractResult<
     if (!isKnownTargetKindMap(value.knownTargetKinds)) {
         return invalid('Blueprint plan known-target authority is malformed.');
     }
+    const mappings = normalizePlanMappings(value.mappings);
+    if (!mappings) return invalid('Blueprint plan mappings are malformed.');
     const blockers = normalizeBlockers(value.blockers);
     if (!blockers) return invalid('Blueprint plan blockers are malformed.');
-    if (!isRecord(value.fingerprintInput)) return invalid('Blueprint plan fingerprint input is missing.');
-    const fingerprint = value.fingerprintInput;
-    if (
-        fingerprint.version !== 3 ||
-        fingerprint.policy !== value.policy ||
-        !isKnownTargetKindMap(fingerprint.knownTargetKinds) ||
-        !isStringMap(fingerprint.sourceTargetMap, true)
-    ) {
-        return invalid('Blueprint plan fingerprint authority is malformed.');
-    }
-    const fingerprintSnapshot = normalizeBlueprintSnapshot(fingerprint.projectedSnapshot);
-    if (fingerprintSnapshot.type === 'invalid') return invalid(fingerprintSnapshot.message);
-    const fingerprintDecisions = normalizeLedger(
-        fingerprint.decisions,
-        normalizeBlueprintPlanDecision,
-        'fingerprint decisions'
-    );
-    if (fingerprintDecisions.type === 'invalid') return fingerprintDecisions;
-    const fingerprintSteps = normalizeLedger(fingerprint.steps, normalizeBlueprintPlanStep, 'fingerprint steps');
-    if (fingerprintSteps.type === 'invalid') return fingerprintSteps;
 
     return {
         type: 'valid',
@@ -300,45 +317,10 @@ export function normalizeBlueprintPlan(value: unknown): BlueprintContractResult<
             steps: steps.value,
             decisions: decisions.value,
             blockers,
+            mappings,
             projectedSnapshot: projectedSnapshot.snapshot,
-            fingerprintInput: {
-                ...(fingerprint as BlueprintPlan['fingerprintInput']),
-                decisions: fingerprintDecisions.value,
-                steps: fingerprintSteps.value,
-                projectedSnapshot: fingerprintSnapshot.snapshot,
-            },
         },
     };
-}
-
-export function normalizeBlueprintPersistedPlanAuthority(
-    value: unknown
-): BlueprintContractResult<BlueprintPersistedPlanAuthority> {
-    if (!isRecord(value) || !isRecord(value.fingerprintInput)) {
-        return invalid('Persisted Blueprint plan authority is malformed.');
-    }
-    const normalized = normalizeBlueprintPlan({
-        version: value.planVersion,
-        policy: value.policy,
-        summary: value.summary,
-        changes: value.steps,
-        steps: value.steps,
-        knownTargetKinds: value.knownTargetKinds,
-        sourceTargetMap: value.sourceTargetMap,
-        roleProjection: value.roleProjection,
-        projectedSnapshot: value.projectedSnapshot,
-        fingerprintInput: value.fingerprintInput,
-        decisions: value.fingerprintInput.decisions,
-        blockers: value.blockers,
-    });
-    if (normalized.type === 'invalid') return normalized;
-
-    // Conceptual changes are review-only. Durable run authority intentionally contains
-    // the provider-step ledger plus the approved fingerprint, so it must not invent a
-    // second persisted representation of the conceptual change ledger.
-    const { changes: _reviewOnlyChanges, ...authority } = normalized.value;
-    void _reviewOnlyChanges;
-    return { type: 'valid', value: authority };
 }
 
 function normalizeLedger<T>(
@@ -361,8 +343,36 @@ function normalizeLedger<T>(
 function normalizeSummary(value: unknown): BlueprintPlanSummary | undefined {
     if (!isRecord(value)) return undefined;
     const fields = ['creates', 'updates', 'deletes', 'roles', 'categories', 'channels'] as const;
+    if (!hasOnlyKeys(value, fields)) return undefined;
     if (fields.some((field) => !isCount(value[field]))) return undefined;
     return Object.fromEntries(fields.map((field) => [field, value[field]])) as BlueprintPlanSummary;
+}
+
+function samePlanSummary(left: BlueprintPlanSummary, right: BlueprintPlanSummary): boolean {
+    return (
+        left.creates === right.creates &&
+        left.updates === right.updates &&
+        left.deletes === right.deletes &&
+        left.roles === right.roles &&
+        left.categories === right.categories &&
+        left.channels === right.channels
+    );
+}
+
+function normalizePlanMappings(value: unknown): BlueprintPlanMappings | undefined {
+    if (!isRecord(value) || !hasOnlyKeys(value, ['roles', 'categories', 'channels'])) return undefined;
+    if (
+        !isStringMap(value.roles, false) ||
+        !isStringMap(value.categories, false) ||
+        !isStringMap(value.channels, false)
+    ) {
+        return undefined;
+    }
+    return {
+        roles: value.roles as Record<string, string>,
+        categories: value.categories as Record<string, string>,
+        channels: value.channels as Record<string, string>,
+    };
 }
 
 function normalizeBlockers(value: unknown): BlueprintPlanBlocker[] | undefined {

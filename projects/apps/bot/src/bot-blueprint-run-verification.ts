@@ -1,30 +1,35 @@
-import { canonicalJsonStringify, normalizeBlueprintSnapshot, toBlueprintSnapshot } from '@neonflux/blueprint';
+import {
+    normalizeBlueprintSnapshot,
+    sha256CanonicalJson,
+    toBlueprintSnapshot,
+    type BlueprintSnapshot,
+    type BlueprintVerificationResult,
+} from '@neonflux/blueprint';
 import { readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 export async function verifyProjectedStructureSnapshot(
     botToken: string,
     guildId: string,
-    plan: Record<string, unknown>,
+    projectedSnapshot: BlueprintSnapshot,
     idMap: Record<string, string>
-): Promise<{
-    status: 'matched' | 'mismatch' | 'read_failed';
-    expectedFingerprint?: string;
-    actualFingerprint?: string;
-}> {
-    const projected = normalizeBlueprintSnapshot(plan.projectedSnapshot);
-    if (projected.type !== 'valid') return { status: 'mismatch' };
+): Promise<BlueprintVerificationResult> {
+    const projected = normalizeBlueprintSnapshot(projectedSnapshot);
+    if (projected.type !== 'valid') {
+        return { version: 1, status: 'read_failed', reason: 'projected-snapshot-invalid' };
+    }
     const current = await readFluxerBotGuildStructure({ botToken, guildId });
-    if (current.isErr()) return { status: 'read_failed' };
+    if (current.isErr()) return { version: 1, status: 'read_failed', reason: 'provider-read-failed' };
     const actual = toBlueprintSnapshot(current.value);
-    const expectedFingerprint = canonicalJsonStringify(resolveSnapshotIds(projected.snapshot, idMap, guildId));
-    const actualFingerprint = canonicalJsonStringify({
-        roles: actual.roles,
-        categories: actual.categories,
-        channels: actual.channels,
-    });
-    return expectedFingerprint === actualFingerprint
-        ? { status: 'matched', expectedFingerprint, actualFingerprint }
-        : { status: 'mismatch', expectedFingerprint, actualFingerprint };
+    const [expectedStructureDigest, actualStructureDigest] = await Promise.all([
+        sha256CanonicalJson(resolveSnapshotIds(projected.snapshot, idMap, guildId)),
+        sha256CanonicalJson({ roles: actual.roles, categories: actual.categories, channels: actual.channels }),
+    ]);
+    return {
+        version: 1,
+        status: expectedStructureDigest === actualStructureDigest ? 'matched' : 'mismatch',
+        expectedStructureDigest,
+        actualStructureDigest,
+    };
 }
 
 function resolveSnapshotIds(snapshot: Record<string, unknown>, idMap: Record<string, string>, guildId: string) {

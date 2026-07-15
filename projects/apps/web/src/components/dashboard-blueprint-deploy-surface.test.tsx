@@ -1,14 +1,18 @@
 /** @vitest-environment jsdom */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+/* eslint-disable testing-library/no-manual-cleanup -- this root Vitest suite does not register Testing Library's automatic cleanup */
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
 import { isDashboardBlueprintSourceReady } from './dashboard-blueprint-deploy-stage.js';
 import { DashboardBlueprintDeploySurface } from './dashboard-blueprint-deploy-surface.js';
 import type { DashboardBlueprintDeployWorkspace } from './dashboard-blueprint-deploy-surface.js';
 import type { DashboardBlueprintSourceState } from './dashboard-blueprint-deploy-source-state.js';
+
+afterEach(cleanup);
 
 describe('DashboardBlueprintDeploySurface', () => {
     it('resets to Source and advances only after explicit continuation', async () => {
@@ -66,16 +70,56 @@ describe('DashboardBlueprintDeploySurface', () => {
 
         expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Retrying…' }).disabled).toBe(true);
     });
+
+    it('locks approval while the exact plan authority is loading', () => {
+        const onApprovePlan = vi.fn();
+        render(<DeployFlowHarness reviewAuthorityStatus='loading' reviewPlanHasSteps onApprovePlan={onApprovePlan} />);
+
+        expect(screen.getByText(/Loading the exact persisted plan/u)).toBeTruthy();
+        const approve = screen.getByRole<HTMLButtonElement>('button', { name: 'Continue to final check' });
+        expect(approve.disabled).toBe(true);
+        fireEvent.click(approve);
+        expect(onApprovePlan).not.toHaveBeenCalled();
+    });
+
+    it('keeps approval locked after an authority error and exposes an explicit retry', () => {
+        const onApprovePlan = vi.fn();
+        const onRetryRefresh = vi.fn();
+        render(
+            <DeployFlowHarness
+                reviewAuthorityStatus='error'
+                reviewPlanHasSteps
+                onApprovePlan={onApprovePlan}
+                onRetryRefresh={onRetryRefresh}
+            />
+        );
+
+        expect(screen.getByText(/Approval remains locked/u)).toBeTruthy();
+        const approve = screen.getByRole<HTMLButtonElement>('button', { name: 'Continue to final check' });
+        expect(approve.disabled).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Retry plan review' }));
+        expect(onRetryRefresh).toHaveBeenCalledOnce();
+        expect(onApprovePlan).not.toHaveBeenCalled();
+    });
 });
 
 function DeployFlowHarness({
+    onApprovePlan = () => {},
+    onRetryRefresh = () => {},
+    reviewAuthorityStatus = 'ready',
+    reviewPlanHasSteps = false,
     runProgressIssue,
     runProgressRetrying = false,
 }: {
+    onApprovePlan?: DashboardBlueprintDeployWorkspace['onApprovePlan'];
+    onRetryRefresh?: () => void;
+    reviewAuthorityStatus?: 'idle' | 'loading' | 'ready' | 'error';
+    reviewPlanHasSteps?: boolean;
     runProgressIssue?: DashboardBlueprintDeployWorkspace['runProgressIssue'];
     runProgressRetrying?: boolean;
 } = {}) {
     const run = createImportRun();
+    if (reviewPlanHasSteps) run.planStepCount = 1;
     const [draftStep, setDraftStep] = useState<'source' | 'configure' | undefined>();
     const [sourceState, setSourceState] = useState<DashboardBlueprintSourceState>({
         status: 'empty',
@@ -94,6 +138,7 @@ function DeployFlowHarness({
         operationStatus: undefined,
         pasteJson,
         preflightByPlanId: {},
+        reviewAuthority: { planId: run.id, status: reviewAuthorityStatus, retrying: false },
         refreshIssue: undefined,
         refreshRetrying: false,
         runProgressIssue,
@@ -114,7 +159,7 @@ function DeployFlowHarness({
         targetGuildId: 'guild-1',
         targetGuildName: 'Guild One',
         onApplyRun: () => {},
-        onApprovePlan: () => {},
+        onApprovePlan,
         onControlRun: () => {},
         onCreatePlan: () => {},
         onCreateRestorePlan: () => {},
@@ -140,7 +185,7 @@ function DeployFlowHarness({
         onPreflightRun: () => {},
         onRecoveryPlan: () => {},
         onRetryRunProgress: () => {},
-        onRetryRefresh: () => {},
+        onRetryRefresh,
         onRoleMappingChange: () => {},
         onStartNewBlueprintDeployment: () => {
             setDraftStep('source');

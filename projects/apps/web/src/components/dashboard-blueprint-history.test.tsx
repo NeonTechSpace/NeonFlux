@@ -306,6 +306,7 @@ function historyElement(run: DashboardBlueprintPlan, overrides: HistoryTestOverr
                     onReviewBlocker={() => onLoadDecisions(run)}
                     plan={run}
                     preflightReport={preflightReport}
+                    reviewAuthorityReady
                     targetGuildName={targetGuildName}
                 />
             )}

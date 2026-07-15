@@ -2,7 +2,6 @@ import type {
     DashboardBlueprintPlan as DashboardBlueprintDiffPlan,
     DashboardBlueprintSnapshot,
 } from './dashboard-blueprint-diff.js';
-import type { DashboardBlueprintPreflightReport } from './dashboard-blueprint-preflight.js';
 import type {
     DashboardBlueprintDecisionSummary,
     DashboardBlueprintRunProgress,
@@ -91,16 +90,12 @@ export type DashboardBlueprintPlanStep = {
     details: DashboardBlueprintJsonRecord;
 };
 
-type DashboardBlueprintVerification = {
+export type DashboardBlueprintVerification = {
     status: 'matched' | 'mismatch' | 'read-failed';
     verifiedAt: string;
-    mismatchCount: number;
-    preview: Array<{
-        logicalId: string;
-        field: string;
-        expected?: DashboardBlueprintJsonValue;
-        actual?: DashboardBlueprintJsonValue;
-    }>;
+    expectedStructureDigest?: string;
+    actualStructureDigest?: string;
+    failureReason?: string;
 };
 
 export type DashboardBlueprintPlan = {
@@ -124,7 +119,7 @@ export type DashboardBlueprintPlan = {
     planDigest: string;
     deleteStepCount: number;
     deleteSetDigest?: string;
-    preflight?: DashboardBlueprintPlanPreflight & { report: DashboardBlueprintPreflightReport };
+    preflight?: DashboardBlueprintPlanPreflight;
     run?: DashboardBlueprintRunProgress;
 };
 

@@ -27,30 +27,29 @@ describe('Blueprint run verification fingerprints', () => {
             'token',
             'guild-1',
             {
-                projectedSnapshot: {
-                    version: 1,
-                    guildName: 'Source',
-                    guildId: 'source-guild',
-                    roles: [
-                        {
-                            position: 1,
-                            permissions: '0',
-                            name: 'Role',
-                            mentionable: false,
-                            id: 'source-role',
-                            hoist: false,
-                            color: 0,
-                        },
-                    ],
-                    categories: [],
-                    channels: [],
-                },
+                version: 1,
+                guildName: 'Source',
+                guildId: 'source-guild',
+                roles: [
+                    {
+                        position: 1,
+                        permissions: '0',
+                        name: 'Role',
+                        mentionable: false,
+                        id: 'source-role',
+                        hoist: false,
+                        color: 0,
+                    },
+                ],
+                categories: [],
+                channels: [],
             },
             { 'source-role': 'role-1' }
         );
 
         expect(result).toMatchObject({ status: 'matched' });
-        expect(result.expectedFingerprint).toBe(result.actualFingerprint);
+        if (result.status === 'read_failed') throw new Error('unexpected-verification-read-failure');
+        expect(result.expectedStructureDigest).toBe(result.actualStructureDigest);
     });
 
     it('preserves array order in projection fingerprints', async () => {
@@ -67,13 +66,11 @@ describe('Blueprint run verification fingerprints', () => {
             'token',
             'guild-1',
             {
-                projectedSnapshot: {
-                    version: 1,
-                    guildId: 'guild-1',
-                    roles: [role('role-1', 'First'), role('role-2', 'Second')],
-                    categories: [],
-                    channels: [],
-                },
+                version: 1,
+                guildId: 'guild-1',
+                roles: [role('role-1', 'First'), role('role-2', 'Second')],
+                categories: [],
+                channels: [],
             },
             {}
         );

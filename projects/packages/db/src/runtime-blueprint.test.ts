@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { BlueprintPlanStep } from '@neonflux/blueprint';
 
 import type {
     StructureBackupSettingsRecord,
@@ -13,19 +14,18 @@ import {
     clearStructureBackupSettingLease,
     clearStructureDriftSettingLease,
     createStructureBackup,
-    createBlueprintPlan,
+    createBlueprintPlanDraft,
     deleteStructureBackup,
     findLatestStructureDriftBaselineBackupByGuildId,
     findStructureBackupByGuildId,
-    findBlueprintPlanByGuildId,
+    getBlueprintPlanMetadata,
     findStructureObservedEventStateByGuildId,
     listStructureBackupSummariesByGuildId,
     listStructureBackupsByGuildId,
-    listBlueprintPlansByGuildId,
+    listBlueprintPlanSummariesByGuildId,
     pruneExpiredStructureBackupsForGuild,
     listDueStructureDriftSettings,
-    recordBlueprintPlanStep,
-    recordBlueprintPlanStepsBatch,
+    writeBlueprintPlanStepBatch,
     recordStructureObservedEvent,
     recordStructureScheduledDriftResult,
 } from './runtime-blueprint.js';
@@ -55,9 +55,11 @@ const backup = {
     status: 'succeeded',
     structure: { channels: [] },
 };
-const step = {
+const planStep: BlueprintPlanStep = {
     actionType: 'create',
-    createdAt: '2026-07-03T08:15:00.000Z',
+    targetType: 'channel',
+    targetId: 'channel-1',
+    label: 'general',
     details: {
         label: 'general',
         after: {
@@ -69,27 +71,52 @@ const step = {
             permissionOverwrites: [],
         },
     },
+};
+const step = {
+    createdAt: '2026-07-03T08:15:00.000Z',
+    step: planStep,
     id: 'step-1',
     planId: 'plan-1',
     sequence: 0,
-    targetId: 'channel-1',
-    targetType: 'channel',
 };
 const planRecord = {
-    steps: [step],
+    authorityDigest: 'authority-digest',
+    authorityVersion: 1,
+    blockerCount: 0,
+    decisionCount: 0,
+    decisionLedgerDigest: 'decision-ledger-digest',
+    decisionSummary: {
+        noOp: 0,
+        create: 0,
+        update: 0,
+        delete: 0,
+        protectedRetained: 0,
+        protectedOmitted: 0,
+        unmanagedRetained: 0,
+        blockedAmbiguous: 0,
+        blockedUnsupported: 0,
+    },
     deleteStepCount: 1,
     deleteSetDigest: 'delete-digest',
     createdAt: '2026-07-03T08:10:00.000Z',
     createdByUserId: 'user-1',
     guildId: 'guild-1',
     id: 'plan-1',
-    plan: { changes: 1 },
+    executionAuthorityDigest: 'execution-authority-digest',
+    executionAuthorityVersion: 1,
+    planDigest: 'plan-digest',
+    planVersion: 4,
+    policy: 'synchronize',
+    projectedSnapshotDigest: 'projected-snapshot-digest',
     requestedSnapshotDigest: 'snapshot-digest',
     sourceBackupId: 'backup-1',
     status: 'draft',
+    stepCount: 1,
+    stepLedgerDigest: 'step-ledger-digest',
+    summary: { creates: 1, updates: 0, deletes: 0, roles: 0, categories: 0, channels: 1 },
     updatedAt: '2026-07-03T08:10:00.000Z',
 };
-type TestBlueprintPlanRecord = ReturnType<typeof withoutSteps>;
+type TestBlueprintPlanRecord = typeof planRecord;
 type TestSettingsRecord = Omit<
     StructureBackupSettingsRecord,
     | 'createdAt'
@@ -145,8 +172,8 @@ describe('Convex structure database functions', () => {
     it('routes backups and Blueprint plans through Convex', async () => {
         const restorePointBackup = { ...backup, source: 'restore_point' };
         const db = createConvexDb({
-            mutationResults: [restorePointBackup, withoutSteps(planRecord), step],
-            queryResults: [[backup], [backup], backup, [withoutSteps(planRecord)], withoutSteps(planRecord)],
+            mutationResults: [restorePointBackup, planRecord, [step]],
+            queryResults: [[backup], [backup], backup, [planRecord], planRecord],
         });
 
         const createdBackup = await createStructureBackup(db, {
@@ -161,27 +188,13 @@ describe('Convex structure database functions', () => {
             guildId: ' guild-1 ',
             backupId: ' backup-1 ',
         });
-        const createdPlan = await createBlueprintPlan(db, {
-            createdByUserId: ' user-1 ',
-            deleteStepCount: 1,
-            deleteSetDigest: ' delete-digest ',
-            guildId: ' guild-1 ',
-            plan: planRecord.plan,
-            planDigest: ' plan-digest ',
-            planVersion: 3,
-            policy: 'synchronize',
-            requestedSnapshotDigest: ' snapshot-digest ',
-            sourceBackupId: ' backup-1 ',
-        });
-        const runs = await listBlueprintPlansByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
-        const foundPlan = await findBlueprintPlanByGuildId(db, { guildId: ' guild-1 ', planId: ' plan-1 ' });
-        const recordedStep = await recordBlueprintPlanStep(db, {
-            actionType: ' create ',
-            details: step.details,
+        const createdPlan = await createBlueprintPlanDraft(db, createPlanDraftInput());
+        const runs = await listBlueprintPlanSummariesByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
+        const foundPlan = await getBlueprintPlanMetadata(db, { guildId: ' guild-1 ', planId: ' plan-1 ' });
+        const recordedSteps = await writeBlueprintPlanStepBatch(db, {
+            now: new Date('2026-07-03T08:15:00.000Z'),
             planId: ' plan-1 ',
-            sequence: 0,
-            targetId: ' channel-1 ',
-            targetType: ' channel ',
+            steps: [{ sequence: 0, step: step.step }],
         });
 
         expect(createdBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(restorePointBackup));
@@ -192,10 +205,10 @@ describe('Convex structure database functions', () => {
         expect(backups._unsafeUnwrap()).toStrictEqual([toBackupRecord(backup)]);
         expect(backupSummaries._unsafeUnwrap()).toStrictEqual([toBackupSummaryRecord(backup)]);
         expect(foundBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
-        expect(createdPlan._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutSteps(planRecord)));
-        expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(withoutSteps(planRecord))]);
-        expect(foundPlan._unsafeUnwrap()).toStrictEqual(toRunRecord(withoutSteps(planRecord)));
-        expect(recordedStep._unsafeUnwrap()).toStrictEqual(toBlueprintPlanStepRecord(step));
+        expect(createdPlan._unsafeUnwrap()).toStrictEqual(toRunRecord(planRecord));
+        expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(planRecord)]);
+        expect(foundPlan._unsafeUnwrap()).toStrictEqual(toRunRecord(planRecord));
+        expect(recordedSteps._unsafeUnwrap()).toStrictEqual([toBlueprintPlanStepRecord(step)]);
         expect(db.client.mutationCalls[0]?.args).toStrictEqual({
             createdByUserId: 'user-1',
             guildId: 'guild-1',
@@ -422,20 +435,17 @@ describe('Convex structure database functions', () => {
     it('rejects duplicate Blueprint plan-step sequences before batch writes', async () => {
         const db = createConvexDb({});
 
-        const result = await recordBlueprintPlanStepsBatch(db, {
+        const result = await writeBlueprintPlanStepBatch(db, {
+            now: new Date('2026-07-03T08:15:00.000Z'),
             planId: 'plan-1',
             steps: [
                 {
-                    actionType: 'create',
-                    details: step.details,
                     sequence: 0,
-                    targetType: 'channel',
+                    step: step.step,
                 },
                 {
-                    actionType: 'update',
-                    details: step.details,
                     sequence: 0,
-                    targetType: 'channel',
+                    step: step.step,
                 },
             ],
         });
@@ -459,7 +469,7 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             targetType: 'channel',
         });
-        const invalidLimit = await listBlueprintPlansByGuildId(db, {
+        const invalidLimit = await listBlueprintPlanSummariesByGuildId(db, {
             guildId: 'guild-1',
             limit: 0,
         });
@@ -467,19 +477,23 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             backupId: 'backup-1',
         });
-        const missingStepSequence = await recordBlueprintPlanStep(db, {
-            actionType: 'create',
-            details: {},
+        const missingStepSequence = await writeBlueprintPlanStepBatch(db, {
+            now: new Date(),
             planId: 'plan-1',
-            targetType: 'channel',
-        } as Parameters<typeof recordBlueprintPlanStep>[1]);
-        const invalidStepDetails = await recordBlueprintPlanStep(db, {
-            actionType: 'create',
-            details: { label: 'general', after: { id: 'channel-1', name: 'general' } },
+            steps: [{ sequence: Number.NaN, step: step.step }],
+        });
+        const invalidStepDetails = await writeBlueprintPlanStepBatch(db, {
+            now: new Date(),
             planId: 'plan-1',
-            sequence: 0,
-            targetId: 'channel-1',
-            targetType: 'channel',
+            steps: [
+                {
+                    sequence: 0,
+                    step: {
+                        ...step.step,
+                        details: { label: 'general', after: { id: 'channel-1', name: 'general' } },
+                    } as never,
+                },
+            ],
         });
 
         expect(missingGuild._unsafeUnwrapErr()).toStrictEqual({ field: 'guildId', type: 'missing-input' });
@@ -487,14 +501,74 @@ describe('Convex structure database functions', () => {
         expect(invalidLimit._unsafeUnwrapErr()).toStrictEqual({ field: 'limit', type: 'invalid-value' });
         expect(missingSnapshot._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
         expect(missingStepSequence._unsafeUnwrapErr()).toStrictEqual({ field: 'sequence', type: 'invalid-value' });
-        expect(invalidStepDetails._unsafeUnwrapErr()).toStrictEqual({ field: 'details', type: 'invalid-value' });
+        expect(invalidStepDetails._unsafeUnwrapErr()).toStrictEqual({ field: 'step', type: 'invalid-value' });
     });
 });
 
-function withoutSteps(record: typeof planRecord) {
-    const { steps, ...plan } = record;
-    void steps;
-    return plan;
+function createPlanDraftInput(): Parameters<typeof createBlueprintPlanDraft>[1] {
+    const snapshot = {
+        version: 1 as const,
+        guildId: 'guild-1',
+        roles: [],
+        categories: [],
+        channels: [],
+    };
+    const referenceAuthority = { sourceTargetMap: {}, knownTargetKinds: {} };
+    return {
+        authority: {
+            version: 1,
+            requestedSnapshot: snapshot,
+            projectedSnapshot: snapshot,
+            roleProjection: {
+                version: 2,
+                mode: 'synchronize',
+                roles: [],
+                skippedProtectedSourceIds: [],
+                retainedProtectedTargetIds: [],
+            },
+            mappings: { roles: {}, categories: {}, channels: {} },
+            referenceAuthority,
+            blockers: [],
+            provenance: {
+                source: 'dashboard-json',
+                requestedGuildId: 'guild-1',
+                requestedExportedAt: null,
+                requestedSnapshotStoredAt: '2026-07-03T08:10:00.000Z',
+            },
+            authorityDigest: ' authority-digest ',
+        },
+        authorityDigest: ' authority-digest ',
+        authorityVersion: 1,
+        blockerCount: 0,
+        creationRequestKey: 'user-1:plan-digest',
+        createdByUserId: ' user-1 ',
+        decisionCount: 0,
+        decisionLedgerDigest: ' decision-ledger-digest ',
+        decisionSummary: planRecord.decisionSummary,
+        deleteSetDigest: ' delete-digest ',
+        deleteStepCount: 1,
+        executionAuthority: {
+            version: 1,
+            sourceGuildId: 'guild-1',
+            ...referenceAuthority,
+            initialIdMap: {},
+            contentDigest: ' content-digest ',
+            executionAuthorityDigest: ' execution-authority-digest ',
+        },
+        executionAuthorityDigest: ' execution-authority-digest ',
+        executionAuthorityVersion: 1,
+        guildId: ' guild-1 ',
+        now: new Date('2026-07-03T08:10:00.000Z'),
+        planDigest: ' plan-digest ',
+        planVersion: 4,
+        policy: 'synchronize',
+        projectedSnapshotDigest: ' projected-snapshot-digest ',
+        requestedSnapshotDigest: ' snapshot-digest ',
+        sourceBackupId: ' backup-1 ',
+        stepCount: 1,
+        stepLedgerDigest: ' step-ledger-digest ',
+        summary: planRecord.summary,
+    };
 }
 
 function toObservedStateRecord(record: typeof observedState) {
@@ -520,6 +594,7 @@ function toRunRecord(record: TestBlueprintPlanRecord) {
     return {
         ...record,
         createdAt: new Date(record.createdAt),
+        sealedAt: null,
         updatedAt: new Date(record.updatedAt),
     };
 }

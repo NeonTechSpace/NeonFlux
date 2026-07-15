@@ -1,49 +1,40 @@
 import { describe, expect, it } from 'vitest';
 
-import { createDashboardBlueprintPlanDigests } from './dashboard-blueprint-plan-persistence.server.js';
+import { diffDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
+import type { DashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
+import { createDashboardBlueprintPlanAuthority } from './dashboard-blueprint-plan-persistence.server.js';
 
-describe('Server Blueprint persisted plan authority', () => {
-    it('omits a delete manifest when a plan has no deletes', () => {
-        const result = createDashboardBlueprintPlanDigests(
-            { fingerprintInput: { version: 3 }, steps: [] } as never,
-            { version: 1, roles: [], categories: [], channels: [] } as never
-        );
+describe('Server Blueprint v4 authority construction', () => {
+    it('separates immutable snapshots and reference authority from canonical ledgers', () => {
+        const snapshot = createSnapshot();
+        const plan = diffDashboardBlueprintSnapshot(snapshot, snapshot, { policy: 'synchronize' });
+        const authority = createDashboardBlueprintPlanAuthority(plan, snapshot, {
+            source: 'dashboard-json',
+            requestedSnapshotStoredAt: '2026-07-15T10:00:00.000Z',
+        });
 
-        expect(result.deleteStepCount).toBe(0);
-        expect(result.deleteSetDigest).toBeNull();
-        expect(result.planDigest).toHaveLength(64);
-    });
-
-    it('binds a deterministic digest and count to the exact delete manifest', () => {
-        const deleteActions = [
-            { actionType: 'delete', targetType: 'role', targetId: 'role-1' },
-            { actionType: 'delete', targetType: 'channel', targetId: 'channel-1' },
-        ];
-        const plan = createPlan(deleteActions);
-        const snapshot = { version: 1, roles: [], categories: [], channels: [] } as never;
-
-        const first = createDashboardBlueprintPlanDigests(plan, snapshot);
-        const second = createDashboardBlueprintPlanDigests(plan, snapshot);
-        const reordered = createDashboardBlueprintPlanDigests(createPlan([...deleteActions].reverse()), snapshot);
-        const changed = createDashboardBlueprintPlanDigests(
-            createPlan(
-                deleteActions.map((action) =>
-                    action.targetId === 'role-1' ? { ...action, targetId: 'role-2' } : action
-                )
-            ),
-            snapshot
-        );
-        expect(first).toEqual(second);
-        expect(first.deleteStepCount).toBe(2);
-        expect(first.deleteSetDigest).toHaveLength(64);
-        expect(reordered.deleteSetDigest).toBe(first.deleteSetDigest);
-        expect(changed.deleteSetDigest).not.toBe(first.deleteSetDigest);
+        expect(authority).toMatchObject({
+            requestedSnapshot: snapshot,
+            projectedSnapshot: plan.projectedSnapshot,
+            referenceAuthority: {
+                sourceTargetMap: plan.sourceTargetMap,
+                knownTargetKinds: plan.knownTargetKinds,
+            },
+            provenance: { source: 'dashboard-json' },
+        });
+        expect(authority).not.toHaveProperty('steps');
+        expect(authority).not.toHaveProperty('decisions');
+        expect(authority).not.toHaveProperty('fingerprintInput');
     });
 });
 
-function createPlan(steps: Array<{ actionType: string; targetType: string; targetId: string }>) {
+function createSnapshot(): DashboardBlueprintSnapshot {
     return {
-        fingerprintInput: { version: 3, policy: 'rebuild', steps },
-        steps,
-    } as never;
+        version: 1,
+        guildId: 'guild-1',
+        guildName: 'Guild',
+        roles: [],
+        categories: [],
+        channels: [],
+    };
 }

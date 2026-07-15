@@ -1,37 +1,57 @@
-import { v, type GenericId } from 'convex/values';
+import { getDocumentSize, v, type GenericId } from 'convex/values';
 import {
     BLUEPRINT_MUTATION_FENCE_VERSION,
     compareBlueprintMutationFenceManifests,
     createBlueprintMutationFenceManifest,
     parseBlueprintMutationFenceManifest,
 } from '@neonflux/blueprint/mutation-fence';
-import { normalizeBlueprintSnapshot } from '@neonflux/blueprint/snapshot';
+import { normalizeBlueprintSnapshot, toPortableBlueprintRestoreSnapshot } from '@neonflux/blueprint/snapshot';
+import {
+    createBlueprintPreflightDigest,
+    createBlueprintRestorePointSnapshotDigest,
+    createBlueprintRunVerificationEvidenceDigest,
+    validateBlueprintPreflightEvidenceIntegrity,
+    validateBlueprintRunVerificationEvidenceIntegrity,
+} from '@neonflux/blueprint/integrity';
+import {
+    normalizeBlueprintRunVerificationEvidence,
+    type BlueprintVerificationResult,
+} from '@neonflux/blueprint/persisted-authority';
 
 import { mutation, type MutationCtx } from '../_generated/server.js';
+import type { Doc } from '../_generated/dataModel.js';
 import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { auditInputValidator, recordBlueprintAuditInMutation } from './blueprint.js';
 import {
+    assertBlueprintRunTerminalRecordInvariant,
     buildBlueprintRunPausedPatch,
+    createBlueprintRunControlCancellationRequestDigest,
+    createBlueprintRunTerminalRequestDigestForRecord,
+    createBlueprintRunTerminalSourceDigest,
     finalizeBlueprintRunInMutation,
-    resolveBlueprintRunFinalizationStatus,
+    resolveBlueprintRunTerminalOutcome,
+    resolveBlueprintRunTerminalRetryRequestDigest,
 } from './blueprint_run_terminal_mutation.js';
-import { assertBlueprintRunPlanLedger } from './blueprint_run_ledger.js';
+import { patchBlueprintRunChecked } from './blueprint_run_persistence.js';
+import { assertBlueprintRunRestoreObservationManifest } from './blueprint_run_restore.js';
+import { tryLoadAndValidateBlueprintPlanAuthority } from './blueprint_plan_persistence.js';
 import {
     assertCurrentBlueprintRunProtocol,
     findCurrentQueuedOrWaitingBlueprintRun,
     findRunnableBlueprintRunProtocolMismatch,
-    listCurrentBlueprintRunReclaimCandidates,
+    findCurrentBlueprintRunReclaimCandidate,
 } from './blueprint_run_protocol.js';
 import {
     buildBackupSortCursor,
     buildStructureBackupDocument,
     classifyBlueprintRunReclaim,
+    isBlueprintRunMutationAuthorizedForLease,
     resolveExpiredBlueprintRunControl,
     resolveBlueprintRunAuthorizationDecision,
-    validateBlueprintRunCheckpointIdMap,
+    selectBlueprintRunClaimAttempt,
     validateBlueprintRunProgressTransition,
 } from './blueprint_model.js';
 
@@ -62,13 +82,20 @@ export const claimNextBlueprintRun = mutation({
                 run,
                 now: args.now,
                 status: 'failed_before_mutation',
+                terminalRequestSourceDigest: await createBlueprintRunTerminalSourceDigest({
+                    kind: 'claim_expiry',
+                    identity: {
+                        preflightExpiresAt: run.preflightExpiresAt,
+                        preflightId: String(run.preflightId),
+                    },
+                }),
             });
             return null;
         }
         if (!run) {
             for (const status of ['running', 'pause_requested', 'verifying'] as const) {
-                const candidates = await listCurrentBlueprintRunReclaimCandidates(ctx, status);
-                for (const candidate of candidates) {
+                const candidate = await findCurrentBlueprintRunReclaimCandidate(ctx, status, args.now);
+                if (candidate) {
                     assertCurrentBlueprintRunProtocol(candidate);
                     const startedAttempt = await ctx.db
                         .query('blueprintRunStepAttempts')
@@ -86,6 +113,14 @@ export const claimNextBlueprintRun = mutation({
                             errorType: 'expired-lease-with-started-attempt',
                             now: args.now,
                             status: 'outcome_unknown',
+                            terminalRequestSourceDigest: await createBlueprintRunTerminalSourceDigest({
+                                kind: 'claim_expiry',
+                                identity: {
+                                    attemptId: startedAttempt ? String(startedAttempt._id) : null,
+                                    leaseId: candidate.leaseId ?? null,
+                                    requestKey: startedAttempt?.requestKey ?? null,
+                                },
+                            }),
                         });
                         continue;
                     }
@@ -96,6 +131,9 @@ export const claimNextBlueprintRun = mutation({
                                 run: candidate,
                                 now: args.now,
                                 status: 'cancelled',
+                                terminalRequestDigest: await createBlueprintRunControlCancellationRequestDigest(
+                                    String(candidate._id)
+                                ),
                             });
                             continue;
                         }
@@ -108,7 +146,7 @@ export const claimNextBlueprintRun = mutation({
                             status: 'paused' as const,
                             updatedAt: args.now,
                         };
-                        await ctx.db.patch('blueprintRuns', candidate._id, controlPatch);
+                        await patchBlueprintRunChecked(ctx, candidate, controlPatch);
                         await markDashboardLiveAreasChangedInMutation(ctx, {
                             areas: blueprintRunLiveAreas,
                             guildId: candidate.guildId,
@@ -124,23 +162,43 @@ export const claimNextBlueprintRun = mutation({
                         continue;
                     }
                     run = candidate;
-                    break;
                 }
                 if (run) break;
             }
         }
-        if (!run) return findRunnableBlueprintRunProtocolMismatch(ctx, args.now);
+        if (!run) return findRunnableBlueprintRunProtocolMismatch(ctx);
         assertCurrentBlueprintRunProtocol(run);
         const plan = await ctx.db.get('blueprintPlans', run.planId);
+        const validated = plan
+            ? await tryLoadAndValidateBlueprintPlanAuthority(ctx, plan)
+            : ({ type: 'invalid', errorType: 'blueprint-plan-not-found' } as const);
+        if (
+            validated.type === 'invalid' ||
+            run.totalSteps !== validated.value.steps.length ||
+            run.totalMutationSteps !== validated.value.steps.length ||
+            run.executionAuthorityDigest !== validated.value.executionAuthority.executionAuthorityDigest
+        ) {
+            const errorType =
+                validated.type === 'invalid'
+                    ? validated.errorType
+                    : run.executionAuthorityDigest !== validated.value.executionAuthority.executionAuthorityDigest
+                      ? 'blueprint-run-execution-authority-digest-mismatch'
+                      : 'blueprint-run-step-count-invalid';
+            return quarantineInvalidBlueprintRunClaim(ctx, run, args.now, errorType);
+        }
         if (!plan) throw new Error('blueprint-plan-not-found');
-        const steps = await ctx.db
-            .query('blueprintPlanSteps')
-            .withIndex('by_plan_sequence', (q) => q.eq('planId', run.planId))
-            .order('asc')
-            .collect();
-        await assertBlueprintRunPlanLedger(plan, steps);
-        if (run.totalSteps !== steps.length || run.totalMutationSteps !== steps.length) {
-            throw new Error('blueprint-run-step-count-invalid');
+        const validatedAuthority = validated.value;
+        const cursors = await ctx.db
+            .query('blueprintRunCursors')
+            .withIndex('by_run', (q) => q.eq('runId', run._id))
+            .take(2);
+        const cursor = cursors[0];
+        if (cursors.length !== 1 || cursor?.planId !== plan._id) {
+            return quarantineInvalidBlueprintRunClaim(ctx, run, args.now, 'blueprint-run-cursor-invalid');
+        }
+        const cursorIdMap = await loadBlueprintRunCursorIdMap(ctx, run, cursor, validatedAuthority.executionAuthority);
+        if (!cursorIdMap) {
+            return quarantineInvalidBlueprintRunClaim(ctx, run, args.now, 'blueprint-run-cursor-invalid');
         }
         const patch = {
             errorType: undefined,
@@ -155,25 +213,107 @@ export const claimNextBlueprintRun = mutation({
             status: 'running' as const,
             updatedAt: args.now,
         };
-        await ctx.db.patch('blueprintRuns', run._id, patch);
-        await markDashboardLiveAreasChangedInMutation(ctx, {
-            areas: blueprintRunLiveAreas,
-            guildId: run.guildId,
-            now: args.now,
-        });
-        const attempts = await ctx.db
-            .query('blueprintRunStepAttempts')
-            .withIndex('by_run_state', (q) => q.eq('runId', run._id))
-            .collect();
+        await patchBlueprintRunChecked(ctx, run, patch);
+        const currentPlanStep = validatedAuthority.steps.find((step) => step.sequence === run.nextStepSequence);
+        const currentStepAttempts = currentPlanStep
+            ? await ctx.db
+                  .query('blueprintRunStepAttempts')
+                  .withIndex('by_run_plan_step_attempt', (q) =>
+                      q.eq('runId', run._id).eq('planStepId', currentPlanStep._id)
+                  )
+                  .order('desc')
+                  .take(11)
+            : [];
+        let latestAttempt: (typeof currentStepAttempts)[number] | null;
+        try {
+            latestAttempt = selectBlueprintRunClaimAttempt(currentStepAttempts);
+        } catch {
+            return quarantineInvalidBlueprintRunClaim(ctx, run, args.now, 'blueprint-run-pending-attempt-conflict');
+        }
         return {
             kind: 'claimed' as const,
             run: { ...run, ...patch, id: run._id },
-            plan,
-            steps,
-            attempts,
+            cursor: { ...cursor, id: cursor._id, idMap: cursorIdMap },
+            plan: { ...plan, id: plan._id },
+            authority: { ...validatedAuthority.authorityDocument, id: validatedAuthority.authorityDocument._id },
+            executionAuthority: {
+                ...validatedAuthority.executionAuthorityDocument,
+                id: validatedAuthority.executionAuthorityDocument._id,
+            },
+            steps: validatedAuthority.steps.map((step) => ({ ...step, id: step._id })),
+            decisions: validatedAuthority.decisions.map((decision) => ({ ...decision, id: decision._id })),
+            attempts: latestAttempt ? [latestAttempt] : [],
         };
     },
 });
+
+async function loadBlueprintRunCursorIdMap(
+    ctx: MutationCtx,
+    run: Doc<'blueprintRuns'>,
+    cursor: Doc<'blueprintRunCursors'>,
+    executionAuthority: {
+        initialIdMap: Record<string, string>;
+        knownTargetKinds: Record<string, string>;
+        sourceTargetMap: Record<string, string | null>;
+    }
+): Promise<Record<string, string> | null> {
+    if (!Number.isSafeInteger(cursor.mappingCount) || cursor.mappingCount < 0 || cursor.mappingCount > run.totalSteps) {
+        return null;
+    }
+    const mappings = await ctx.db
+        .query('blueprintRunIdMappings')
+        .withIndex('by_run', (q) => q.eq('runId', run._id))
+        .collect();
+    if (mappings.length !== cursor.mappingCount) return null;
+    const idMap = { ...executionAuthority.initialIdMap };
+    const targetIds = new Set(Object.values(idMap));
+    for (const mapping of mappings) {
+        if (
+            mapping.planId !== run.planId ||
+            executionAuthority.sourceTargetMap[mapping.sourceId] !== null ||
+            Object.hasOwn(idMap, mapping.sourceId) ||
+            Object.hasOwn(executionAuthority.knownTargetKinds, mapping.targetId) ||
+            targetIds.has(mapping.targetId)
+        ) {
+            return null;
+        }
+        idMap[mapping.sourceId] = mapping.targetId;
+        targetIds.add(mapping.targetId);
+    }
+    return getDocumentSize(idMap) <= 256 * 1024 ? idMap : null;
+}
+
+async function quarantineInvalidBlueprintRunClaim(
+    ctx: MutationCtx,
+    run: Doc<'blueprintRuns'>,
+    now: string,
+    errorType: string
+) {
+    const mayHaveExternalEffects = run.appliedSteps > 0 || run.completedMutationSteps > 0;
+    const status = mayHaveExternalEffects ? ('partially_applied' as const) : ('failed_before_mutation' as const);
+    await finalizeBlueprintRunInMutation(ctx, {
+        errorType: `authority-invalid:${errorType}`,
+        run,
+        now,
+        status,
+        terminalRequestSourceDigest: await createBlueprintRunTerminalSourceDigest({
+            kind: 'authority_rejection',
+            identity: {
+                errorType,
+                executionAuthorityDigest: run.executionAuthorityDigest,
+                planId: String(run.planId),
+            },
+        }),
+    });
+    return {
+        kind: 'authority_invalid' as const,
+        errorType,
+        guildId: run.guildId,
+        mayHaveExternalEffects,
+        runId: String(run._id),
+        status,
+    };
+}
 
 export const authorizeBlueprintRunMutation = mutation({
     args: {
@@ -202,8 +342,23 @@ export const authorizeBlueprintRunMutation = mutation({
         ) {
             throw new Error('blueprint-run-lease-lost');
         }
-        if (!run.restorePointBackupId) throw new Error('blueprint-run-restore-point-required');
-        if (run.nextStepSequence > 0 || run.completedMutationSteps > 0 || run.mutationAuthorizedAt) {
+        if (!run.restorePointBackupId || !run.restorePointSnapshotDigest) {
+            throw new Error('blueprint-run-restore-point-required');
+        }
+        const restoreObservation = await validateBlueprintRunRestorePoint(ctx, run);
+        if (
+            isBlueprintRunMutationAuthorizedForLease({
+                completedMutationSteps: run.completedMutationSteps,
+                expiresAt: run.preflightExpiresAt,
+                leaseId: args.leaseId,
+                ...(run.mutationAuthorizedAt ? { mutationAuthorizedAt: run.mutationAuthorizedAt } : {}),
+                ...(run.mutationAuthorizationLeaseId
+                    ? { mutationAuthorizationLeaseId: run.mutationAuthorizationLeaseId }
+                    : {}),
+                nextStepSequence: run.nextStepSequence,
+                now: args.now,
+            })
+        ) {
             return { kind: 'not_required' as const, run: { ...run, id: run._id } };
         }
         const snapshotValue = parseJsonRecord(args.structureJson, 'blueprint-run-authorization-snapshot-invalid');
@@ -220,25 +375,50 @@ export const authorizeBlueprintRunMutation = mutation({
         ) {
             throw new Error('blueprint-run-authorization-manifest-invalid');
         }
-        const restoreObservation = await ctx.db
-            .query('blueprintRunObservations')
-            .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
-            .unique();
-        if (!restoreObservation) throw new Error('blueprint-run-restore-observation-required');
         const restoreManifest = parseBlueprintMutationFenceManifest(
             parseJsonRecord(restoreObservation.manifestJson, 'blueprint-run-restore-observation-invalid')
         );
-        const preflight = await ctx.db
-            .query('blueprintPlanPreflights')
-            .withIndex('by_plan_checked', (q) => q.eq('planId', run.planId))
-            .order('desc')
-            .first();
-        if (preflight?.preflightDigest !== run.preflightDigest) {
+        const preflight = await ctx.db.get('blueprintPlanPreflights', run.preflightId);
+        if (
+            preflight?.planId !== run.planId ||
+            preflight.guildId !== run.guildId ||
+            preflight.preflightDigest !== run.preflightDigest ||
+            preflight.expiresAt !== run.preflightExpiresAt
+        ) {
             throw new Error('blueprint-run-preflight-missing');
         }
-        const expectedManifest = parseBlueprintMutationFenceManifest(
-            parseJsonRecord(preflight.mutationFenceManifestJson, 'blueprint-run-preflight-manifest-invalid')
+        const preflightEvidence = await ctx.db
+            .query('blueprintPlanPreflightEvidence')
+            .withIndex('by_preflight', (q) => q.eq('preflightId', preflight._id))
+            .unique();
+        if (!preflightEvidence) throw new Error('blueprint-run-preflight-missing');
+        const evidenceIntegrity = await validateBlueprintPreflightEvidenceIntegrity(
+            stripConvexMetadata(preflightEvidence)
         );
+        if (
+            evidenceIntegrity.type === 'invalid' ||
+            evidenceIntegrity.value.preflightId !== String(preflight._id) ||
+            evidenceIntegrity.value.planId !== String(run.planId) ||
+            evidenceIntegrity.value.evidenceDigest !== preflight.evidenceDigest
+        ) {
+            throw new Error('blueprint-run-preflight-evidence-invalid');
+        }
+        const expectedPreflightDigest = await createBlueprintPreflightDigest({
+            planId: String(run.planId),
+            planDigest: preflight.planDigest,
+            status: preflight.status,
+            checkedAt: preflight.checkedAt,
+            observedAt: preflight.observedAt,
+            expiresAt: preflight.expiresAt,
+            fingerprintVersion: preflight.fingerprintVersion,
+            structureFingerprint: preflight.structureFingerprint,
+            capabilityFingerprint: preflight.capabilityFingerprint,
+            evidenceDigest: preflight.evidenceDigest,
+        });
+        if (expectedPreflightDigest !== preflight.preflightDigest) {
+            throw new Error('blueprint-run-preflight-digest-invalid');
+        }
+        const expectedManifest = parseBlueprintMutationFenceManifest(preflightEvidence.mutationFenceManifest);
         const restoreComparison = compareBlueprintMutationFenceManifests(restoreManifest, actualManifest);
         const expectedComparison = compareBlueprintMutationFenceManifests(expectedManifest, actualManifest);
         const rejectionReason = resolveBlueprintRunAuthorizationDecision({
@@ -285,28 +465,22 @@ export const authorizeBlueprintRunMutation = mutation({
                 authorizationMismatchJson: JSON.stringify(mismatch),
                 updatedAt: args.now,
             };
-            await ctx.db.patch('blueprintRuns', run._id, observationPatch);
+            await patchBlueprintRunChecked(ctx, run, observationPatch);
             const patch = await finalizeBlueprintRunInMutation(ctx, {
                 errorType: authorizationErrorType(rejectionReason),
                 run,
                 now: args.now,
-                restorePointBackupId: run.restorePointBackupId,
                 status: 'failed_before_mutation',
+                terminalRequestSourceDigest: await createBlueprintRunTerminalSourceDigest({
+                    kind: 'authorization_rejection',
+                    identity: { actualManifest, rejectionReason },
+                }),
             });
             return {
                 kind: 'rejected' as const,
                 reason: rejectionReason,
                 run: { ...run, ...observationPatch, ...patch, id: run._id },
             };
-        }
-        const restorePointId = run.restorePointBackupId as GenericId<'structureBackups'>;
-        const restorePoint = await ctx.db.get('structureBackups', restorePointId);
-        if (
-            restorePoint?.guildId !== run.guildId ||
-            restorePoint.source !== 'restore_point' ||
-            restorePoint.status !== 'succeeded'
-        ) {
-            throw new Error('blueprint-run-restore-point-invalid');
         }
         const authorizationPatch = {
             authorizationDecision: 'authorized' as const,
@@ -315,7 +489,7 @@ export const authorizeBlueprintRunMutation = mutation({
             mutationAuthorizationLeaseId: args.leaseId,
             updatedAt: args.now,
         };
-        await ctx.db.patch('blueprintRuns', run._id, authorizationPatch);
+        await patchBlueprintRunChecked(ctx, run, authorizationPatch);
         return {
             kind: 'authorized' as const,
             run: { ...run, ...authorizationPatch, id: run._id },
@@ -346,7 +520,7 @@ export const renewBlueprintRunLease = mutation({
             return null;
         }
         if (!['running', 'pause_requested', 'verifying'].includes(run.status)) return null;
-        await ctx.db.patch('blueprintRuns', run._id, {
+        await patchBlueprintRunChecked(ctx, run, {
             heartbeatAt: args.now,
             leaseExpiresAt: args.leaseExpiresAt,
             updatedAt: args.now,
@@ -357,36 +531,32 @@ export const renewBlueprintRunLease = mutation({
 
 export const ensureBlueprintRunRestorePoint = mutation({
     args: {
-        fingerprintVersion: v.literal(BLUEPRINT_MUTATION_FENCE_VERSION),
         runId: v.id('blueprintRuns'),
         leaseId: v.string(),
         leaseOwner: v.string(),
-        manifestJson: v.string(),
         now: v.string(),
         observedAt: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         structureJson: v.string(),
     },
-    returns: v.object({ backupId: v.string() }),
+    returns: v.object({ backupId: v.string(), snapshotDigest: v.string() }),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const run = await requireRunLease(ctx, args.runId, args.leaseId, args.leaseOwner, args.now, ['running']);
-        const manifest = parseBlueprintMutationFenceManifest(
-            parseJsonRecord(args.manifestJson, 'blueprint-run-restore-observation-invalid')
-        );
-        if (
-            manifest.guildId !== run.guildId ||
-            !areBlueprintFingerprintVersionsCurrent(run.fingerprintVersion, args.fingerprintVersion)
-        ) {
+        const snapshotValue = parseJsonRecord(args.structureJson, 'structure-restore-point-json-invalid');
+        const normalizedSnapshot = normalizeBlueprintSnapshot(snapshotValue);
+        if (normalizedSnapshot.type === 'invalid' || normalizedSnapshot.snapshot.guildId !== run.guildId) {
             throw new Error('blueprint-run-restore-observation-invalid');
         }
+        const manifest = await createBlueprintMutationFenceManifest(normalizedSnapshot.snapshot);
+        const portableSnapshot = toPortableBlueprintRestoreSnapshot(normalizedSnapshot.snapshot);
+        const snapshotDigest = await createBlueprintRestorePointSnapshotDigest(portableSnapshot);
         if (run.restorePointBackupId) {
-            const observation = await ctx.db
-                .query('blueprintRunObservations')
-                .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
-                .unique();
-            if (!observation) throw new Error('blueprint-run-restore-observation-required');
-            return { backupId: run.restorePointBackupId };
+            await validateBlueprintRunRestorePoint(ctx, run, {
+                expectedManifest: manifest,
+                expectedSnapshotDigest: snapshotDigest,
+            });
+            return { backupId: run.restorePointBackupId, snapshotDigest };
         }
         const built = buildStructureBackupDocument(
             {
@@ -395,7 +565,7 @@ export const ensureBlueprintRunRestorePoint = mutation({
                 sortKey: buildBackupSortCursor({ createdAt: args.now, id: crypto.randomUUID() }),
                 source: 'restore_point',
                 status: 'succeeded',
-                structure: parseJsonRecord(args.structureJson, 'structure-restore-point-json-invalid'),
+                structure: portableSnapshot,
             },
             args.now
         );
@@ -403,22 +573,82 @@ export const ensureBlueprintRunRestorePoint = mutation({
         const backupId = await ctx.db.insert('structureBackups', built.value);
         await ctx.db.insert('blueprintRunObservations', {
             capabilityFingerprint: manifest.capabilityDigest,
-            fingerprintVersion: args.fingerprintVersion,
+            fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
             guildId: run.guildId,
             manifestJson: JSON.stringify(manifest),
             observedAt: args.observedAt,
             phase: 'restore',
+            restorePointBackupId: backupId,
+            restorePointSnapshotDigest: snapshotDigest,
             runId: run._id,
             source: 'token-client',
             structureFingerprint: manifest.structureDigest,
         });
-        await ctx.db.patch('blueprintRuns', run._id, {
+        await patchBlueprintRunChecked(ctx, run, {
             restorePointBackupId: String(backupId),
+            restorePointSnapshotDigest: snapshotDigest,
             updatedAt: args.now,
         });
-        return { backupId: String(backupId) };
+        return { backupId: String(backupId), snapshotDigest };
     },
 });
+
+async function validateBlueprintRunRestorePoint(
+    ctx: MutationCtx,
+    run: Doc<'blueprintRuns'>,
+    input: {
+        expectedManifest?: ReturnType<typeof parseBlueprintMutationFenceManifest>;
+        expectedSnapshotDigest?: string;
+    } = {}
+): Promise<Doc<'blueprintRunObservations'>> {
+    if (!run.restorePointBackupId || !run.restorePointSnapshotDigest) {
+        throw new Error('blueprint-run-restore-point-required');
+    }
+    const backupId = run.restorePointBackupId as GenericId<'structureBackups'>;
+    const [backup, observation] = await Promise.all([
+        ctx.db.get('structureBackups', backupId),
+        ctx.db
+            .query('blueprintRunObservations')
+            .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
+            .unique(),
+    ]);
+    const backupStructure: unknown = backup?.structure;
+    const observationManifestJson = observation?.manifestJson;
+    if (
+        backup?.guildId !== run.guildId ||
+        backup.source !== 'restore_point' ||
+        backup.status !== 'succeeded' ||
+        !backupStructure ||
+        observation?.guildId !== run.guildId ||
+        observation.restorePointBackupId !== backupId ||
+        observation.restorePointSnapshotDigest !== run.restorePointSnapshotDigest ||
+        !observationManifestJson
+    ) {
+        throw new Error('blueprint-run-restore-point-invalid');
+    }
+    const normalized = normalizeBlueprintSnapshot(backupStructure);
+    if (normalized.type === 'invalid' || normalized.snapshot.guildId !== run.guildId) {
+        throw new Error('blueprint-run-restore-point-invalid');
+    }
+    const digest = await createBlueprintRestorePointSnapshotDigest(normalized.snapshot);
+    if (
+        digest !== run.restorePointSnapshotDigest ||
+        (input.expectedSnapshotDigest !== undefined && digest !== input.expectedSnapshotDigest)
+    ) {
+        throw new Error('blueprint-run-restore-point-invalid');
+    }
+    const manifest = parseBlueprintMutationFenceManifest(
+        parseJsonRecord(observationManifestJson, 'blueprint-run-restore-observation-invalid')
+    );
+    assertBlueprintRunRestoreObservationManifest({
+        ...(input.expectedManifest ? { expectedManifest: input.expectedManifest } : {}),
+        guildId: run.guildId,
+        manifest,
+        observationCapabilityFingerprint: observation.capabilityFingerprint,
+        observationStructureFingerprint: observation.structureFingerprint,
+    });
+    return observation;
+}
 
 export const requestBlueprintRunControl = mutation({
     args: {
@@ -434,7 +664,27 @@ export const requestBlueprintRunControl = mutation({
         const run = await ctx.db.get('blueprintRuns', args.runId);
         if (!run) return null;
         assertCurrentBlueprintRunProtocol(run);
-        if (terminalStatuses.includes(run.status as never)) return { ...run, id: run._id };
+        const cancellationRequestDigest =
+            args.request === 'cancel'
+                ? await createBlueprintRunControlCancellationRequestDigest(String(run._id))
+                : undefined;
+        if (terminalStatuses.includes(run.status as never)) {
+            if (args.request !== 'cancel' || run.status !== 'cancelled') {
+                throw new Error('blueprint-run-control-invalid');
+            }
+            if (!cancellationRequestDigest) throw new Error('blueprint-run-control-invalid');
+            const evidence = await ctx.db
+                .query('blueprintRunVerificationEvidence')
+                .withIndex('by_run', (q) => q.eq('runId', run._id))
+                .unique();
+            await assertBlueprintRunTerminalRecordInvariant({
+                evidence,
+                expectedTerminalRequestDigest: cancellationRequestDigest,
+                run,
+                status: 'cancelled',
+            });
+            return { ...run, id: run._id };
+        }
         let status: 'queued' | 'pause_requested' | 'paused' | 'cancelled';
         let controlRequest: 'pause' | 'cancel' | undefined;
         if (args.request === 'resume') {
@@ -454,10 +704,12 @@ export const requestBlueprintRunControl = mutation({
             await recordBlueprintAuditInMutation(ctx, run.guildId, args.audit, args.now, String(run._id));
         }
         if (status === 'cancelled') {
+            if (!cancellationRequestDigest) throw new Error('blueprint-run-control-invalid');
             const patch = await finalizeBlueprintRunInMutation(ctx, {
                 run,
                 now: args.now,
                 status,
+                terminalRequestDigest: cancellationRequestDigest,
             });
             return { ...run, ...patch, id: run._id };
         }
@@ -466,7 +718,7 @@ export const requestBlueprintRunControl = mutation({
             status,
             updatedAt: args.now,
         };
-        await ctx.db.patch('blueprintRuns', run._id, patch);
+        await patchBlueprintRunChecked(ctx, run, patch);
         await markDashboardLiveAreasChangedInMutation(ctx, {
             areas: blueprintRunLiveAreas,
             guildId: run.guildId,
@@ -502,7 +754,6 @@ export const checkpointBlueprintRun = mutation({
         errorType: v.optional(v.string()),
         runId: v.id('blueprintRuns'),
         failedSteps: v.number(),
-        idMapJson: v.string(),
         leaseId: v.string(),
         leaseOwner: v.string(),
         nextStepSequence: v.number(),
@@ -523,7 +774,6 @@ export const checkpointBlueprintRun = mutation({
         ),
         retryAt: v.optional(v.string()),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
-        restorePointBackupId: v.optional(v.string()),
         status: v.union(
             v.literal('running'),
             v.literal('waiting_rate_limit'),
@@ -546,25 +796,11 @@ export const checkpointBlueprintRun = mutation({
             next: args,
             previous: run,
         });
-        if (
-            run.restorePointBackupId &&
-            args.restorePointBackupId &&
-            run.restorePointBackupId !== args.restorePointBackupId
-        ) {
-            throw new Error('blueprint-run-restore-point-conflict');
-        }
         if (run.status === 'pause_requested' && args.status !== 'pause_requested' && args.status !== 'paused') {
             throw new Error('blueprint-run-pause-fence');
         }
         if (run.status === 'verifying' && args.status !== 'verifying')
             throw new Error('blueprint-run-verification-fence');
-        const plan = await ctx.db.get('blueprintPlans', run.planId);
-        if (!plan) throw new Error('blueprint-plan-not-found');
-        const idMap = validateBlueprintRunCheckpointIdMap({
-            next: parseJsonRecord(args.idMapJson, 'blueprint-run-id-map-invalid'),
-            plan: plan.plan,
-            previous: run.idMap,
-        });
         const patch = {
             appliedSteps: args.appliedSteps,
             completedMutationSteps: args.completedMutationSteps,
@@ -573,23 +809,21 @@ export const checkpointBlueprintRun = mutation({
             ...(args.currentStepLabel ? { currentStepLabel: args.currentStepLabel } : {}),
             ...(args.errorType ? { errorType: args.errorType } : {}),
             failedSteps: args.failedSteps,
-            idMap,
             nextStepSequence: args.nextStepSequence,
             notStartedSteps: args.notStartedSteps,
             phase: args.phase,
             ...(args.retryAt ? { retryAt: args.retryAt } : {}),
-            ...(args.restorePointBackupId ? { restorePointBackupId: args.restorePointBackupId } : {}),
             skippedSteps: args.skippedSteps,
             status: args.status,
             totalMutationSteps: args.totalMutationSteps,
         };
-        await ctx.db.patch('blueprintRuns', run._id, { ...patch, updatedAt: args.now });
-        await markDashboardLiveAreasChangedInMutation(ctx, {
-            areas: blueprintRunLiveAreas,
-            guildId: run.guildId,
-            now: args.now,
-        });
-        if (args.status === 'paused')
+        await patchBlueprintRunChecked(ctx, run, { ...patch, updatedAt: args.now });
+        if (args.status === 'paused') {
+            await markDashboardLiveAreasChangedInMutation(ctx, {
+                areas: blueprintRunLiveAreas,
+                guildId: run.guildId,
+                now: args.now,
+            });
             await recordBlueprintAuditInMutation(
                 ctx,
                 run.guildId,
@@ -597,6 +831,7 @@ export const checkpointBlueprintRun = mutation({
                 args.now,
                 String(run._id)
             );
+        }
         return { ...run, ...patch, updatedAt: args.now };
     },
 });
@@ -609,7 +844,6 @@ export const finalizeBlueprintRun = mutation({
         leaseOwner: v.string(),
         now: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
-        restorePointBackupId: v.optional(v.string()),
         status: v.union(
             v.literal('succeeded'),
             v.literal('partially_applied'),
@@ -618,25 +852,76 @@ export const finalizeBlueprintRun = mutation({
             v.literal('outcome_unknown'),
             v.literal('cancelled')
         ),
-        verificationResultJson: v.optional(v.string()),
+        verificationEvidenceDigest: v.optional(v.string()),
+        verificationResult: v.optional(v.any()),
         verificationStatus: v.optional(v.union(v.literal('matched'), v.literal('mismatch'), v.literal('read_failed'))),
     },
     returns: v.any(),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
+        const existingRun = await ctx.db.get('blueprintRuns', args.runId);
+        if (!existingRun) throw new Error('blueprint-run-not-found');
+        assertCurrentBlueprintRunProtocol(existingRun);
+        const preservesVerificationEvidence = args.status === 'succeeded' || args.status === 'needs_reconciliation';
+        const hasAnyVerificationEvidence =
+            args.verificationResult !== undefined ||
+            args.verificationStatus !== undefined ||
+            args.verificationEvidenceDigest !== undefined;
+        if (!preservesVerificationEvidence && hasAnyVerificationEvidence) {
+            throw new Error('blueprint-run-verification-invalid');
+        }
+        const terminalRequestDigest = await createBlueprintRunTerminalRequestDigestForRecord({
+            runId: String(existingRun._id),
+            requestedStatus: args.status,
+            ...(args.errorType ? { errorType: args.errorType } : {}),
+            ...(args.verificationEvidenceDigest ? { verificationEvidenceDigest: args.verificationEvidenceDigest } : {}),
+            ...(args.verificationResult !== undefined ? { verificationResult: args.verificationResult } : {}),
+            ...(args.verificationStatus ? { verificationStatus: args.verificationStatus } : {}),
+        });
+        if (terminalStatuses.includes(existingRun.status as never)) {
+            const retryRequestDigest = await resolveBlueprintRunTerminalRetryRequestDigest({
+                requestedTerminalRequestDigest: terminalRequestDigest,
+                runId: String(existingRun._id),
+                status: existingRun.status as (typeof terminalStatuses)[number],
+                storedTerminalRequestDigest: existingRun.terminalRequestDigest,
+            });
+            const existingEvidence = await ctx.db
+                .query('blueprintRunVerificationEvidence')
+                .withIndex('by_run', (q) => q.eq('runId', existingRun._id))
+                .unique();
+            await assertBlueprintRunTerminalRecordInvariant({
+                evidence: existingEvidence,
+                expectedTerminalRequestDigest: retryRequestDigest,
+                run: existingRun,
+                status: existingRun.status as (typeof terminalStatuses)[number],
+            });
+            return { ...existingRun, id: existingRun._id };
+        }
+        const verificationResolution = preservesVerificationEvidence
+            ? await resolveBlueprintRunVerificationEvidence(existingRun, args)
+            : undefined;
+        const requestedStatus =
+            verificationResolution?.forcedReconciliation ||
+            (verificationResolution && verificationResolution.evidence.verificationStatus !== 'matched')
+                ? ('needs_reconciliation' as const)
+                : args.status;
         const run = await requireRunLease(ctx, args.runId, args.leaseId, args.leaseOwner, args.now, [
             'running',
             'pause_requested',
             'verifying',
         ]);
-        const resolvedStatus = resolveBlueprintRunFinalizationStatus({
+        const outcome = resolveBlueprintRunTerminalOutcome({
             ...(run.controlRequest ? { controlRequest: run.controlRequest } : {}),
+            ...(args.errorType ? { requestedErrorType: args.errorType } : {}),
+            ...(verificationResolution?.forcedReconciliation
+                ? { forcedErrorType: verificationResolution.errorType }
+                : {}),
             runStatus: run.status,
-            requestedStatus: args.status,
+            requestedStatus,
         });
-        if (resolvedStatus === 'paused') {
+        if (outcome.status === 'paused') {
             const patch = buildBlueprintRunPausedPatch(args.now);
-            await ctx.db.patch('blueprintRuns', run._id, patch);
+            await patchBlueprintRunChecked(ctx, run, patch);
             await markDashboardLiveAreasChangedInMutation(ctx, {
                 areas: blueprintRunLiveAreas,
                 guildId: run.guildId,
@@ -651,28 +936,112 @@ export const finalizeBlueprintRun = mutation({
             );
             return { ...run, ...patch, id: run._id };
         }
-        const preservesVerificationResult = resolvedStatus === 'succeeded' || resolvedStatus === 'needs_reconciliation';
+        const verificationEvidence = outcome.preservesVerificationEvidence
+            ? verificationResolution?.evidence
+            : undefined;
+        const resolvedTerminalRequestDigest =
+            outcome.status === 'cancelled' && run.controlRequest === 'cancel'
+                ? await createBlueprintRunControlCancellationRequestDigest(String(run._id))
+                : terminalRequestDigest;
+        const existingEvidence = await ctx.db
+            .query('blueprintRunVerificationEvidence')
+            .withIndex('by_run', (q) => q.eq('runId', run._id))
+            .unique();
+        if (existingEvidence) throw new Error('blueprint-run-verification-evidence-conflict');
+        if (outcome.preservesVerificationEvidence) {
+            if (!verificationEvidence) throw new Error('blueprint-run-verification-invalid');
+            await ctx.db.insert('blueprintRunVerificationEvidence', verificationEvidence);
+        }
         const patch = await finalizeBlueprintRunInMutation(ctx, {
             run,
             now: args.now,
-            status: resolvedStatus,
-            ...(args.errorType ? { errorType: args.errorType } : {}),
-            ...(args.restorePointBackupId ? { restorePointBackupId: args.restorePointBackupId } : {}),
-            ...(preservesVerificationResult && args.verificationResultJson
+            status: outcome.status,
+            terminalRequestDigest: resolvedTerminalRequestDigest,
+            ...(outcome.errorType ? { errorType: outcome.errorType } : {}),
+            ...(verificationEvidence
                 ? {
-                      verificationResult: parseJsonRecord(
-                          args.verificationResultJson,
-                          'blueprint-run-verification-invalid'
-                      ),
+                      verificationEvidenceDigest: verificationEvidence.verificationEvidenceDigest,
+                      verificationEvidenceVersion: 1 as const,
+                      verificationStatus: verificationEvidence.verificationStatus,
                   }
-                : {}),
-            ...(preservesVerificationResult && args.verificationStatus
-                ? { verificationStatus: args.verificationStatus }
                 : {}),
         });
         return { ...run, ...patch, id: run._id };
     },
 });
+
+async function resolveBlueprintRunVerificationEvidence(
+    run: { _id: GenericId<'blueprintRuns'>; planId: GenericId<'blueprintPlans'> },
+    input: {
+        now: string;
+        verificationEvidenceDigest?: string;
+        verificationResult?: unknown;
+        verificationStatus?: 'matched' | 'mismatch' | 'read_failed';
+    }
+) {
+    const normalized = normalizeBlueprintRunVerificationEvidence({
+        version: 1,
+        runId: String(run._id),
+        planId: String(run.planId),
+        verificationStatus: input.verificationStatus,
+        result: input.verificationResult,
+        verificationEvidenceDigest: input.verificationEvidenceDigest,
+        createdAt: input.now,
+    });
+    if (normalized.type === 'valid') {
+        const expectedDigest = await createBlueprintRunVerificationEvidenceDigest({
+            runId: String(run._id),
+            verificationStatus: normalized.value.verificationStatus,
+            result: normalized.value.result,
+        });
+        const evidence = {
+            version: 1 as const,
+            runId: run._id,
+            planId: run.planId,
+            verificationStatus: normalized.value.verificationStatus,
+            result: normalized.value.result,
+            verificationEvidenceDigest: expectedDigest,
+            createdAt: input.now,
+        };
+        if (expectedDigest === input.verificationEvidenceDigest) {
+            if (getDocumentSize(evidence) <= 700 * 1024) {
+                const integrity = await validateBlueprintRunVerificationEvidenceIntegrity(evidence);
+                if (integrity.type === 'valid') {
+                    return { evidence, forcedReconciliation: false as const };
+                }
+            } else {
+                return createVerificationFailureEvidence(run, input.now, 'verification-evidence-too-large');
+            }
+        }
+    }
+    return createVerificationFailureEvidence(run, input.now, 'verification-evidence-invalid');
+}
+
+async function createVerificationFailureEvidence(
+    run: { _id: GenericId<'blueprintRuns'>; planId: GenericId<'blueprintPlans'> },
+    createdAt: string,
+    reason: 'verification-evidence-invalid' | 'verification-evidence-too-large'
+) {
+    const result: BlueprintVerificationResult = { version: 1, status: 'read_failed', reason };
+    const verificationEvidenceDigest = await createBlueprintRunVerificationEvidenceDigest({
+        runId: String(run._id),
+        verificationStatus: 'read_failed',
+        result,
+    });
+    return {
+        errorType: reason,
+        forcedReconciliation: true as const,
+        evidence: {
+            version: 1 as const,
+            runId: run._id,
+            planId: run.planId,
+            verificationStatus: 'read_failed' as const,
+            result,
+            verificationEvidenceDigest,
+            createdAt,
+        },
+    };
+}
 
 export async function requireRunLease(
     ctx: MutationCtx,
@@ -734,4 +1103,13 @@ function authorizationErrorType(
         case 'fingerprint_version_mismatch':
             return 'fingerprint-version-mismatch-before-mutation';
     }
+}
+
+function stripConvexMetadata<T extends { _id: unknown; _creationTime: unknown }>(
+    value: T
+): Omit<T, '_id' | '_creationTime'> {
+    const { _id: ignoredId, _creationTime: ignoredCreationTime, ...document } = value;
+    void ignoredId;
+    void ignoredCreationTime;
+    return document;
 }

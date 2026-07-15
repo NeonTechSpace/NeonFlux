@@ -37,14 +37,12 @@ export const findBlueprintRunProgressForGuild = query({
     returns: v.union(v.null(), runProgressValidator),
     handler: async (ctx, args) => {
         await requireGuildAccess(ctx, args.guildId);
-        const plan = await ctx.db.get('blueprintPlans', args.planId);
-        if (plan?.guildId !== args.guildId) return null;
         const run = await ctx.db
             .query('blueprintRuns')
             .withIndex('by_plan_created', (q) => q.eq('planId', args.planId))
             .order('desc')
             .first();
-        if (!run) return null;
+        if (run?.guildId !== args.guildId) return null;
         return {
             appliedSteps: run.appliedSteps,
             ...(run.completedAt ? { completedAt: run.completedAt } : {}),

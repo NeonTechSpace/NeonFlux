@@ -3,18 +3,13 @@ import '@tanstack/react-start/server-only';
 import {
     approveBlueprintPlan,
     findStructureBackupByGuildId,
-    findBlueprintPlanWithStepsByGuildId,
+    getBlueprintPlanMetadata,
     blueprintAuditActions,
     blueprintPlanStatuses,
 } from '@neonflux/db';
 
 import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
-import {
-    readPersistedCategoryMappings,
-    readPersistedChannelMappings,
-    readPersistedRoleMappings,
-} from './dashboard-blueprint-apply-plan.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import { toDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
 import { isDashboardBlueprintPolicy } from './dashboard-blueprint-contracts.js';
@@ -33,9 +28,6 @@ import { persistDashboardBlueprintPlan } from './dashboard-blueprint-plan-persis
 import {
     createBlueprintAuditPayload,
     mapRepositoryError,
-    readPolicy,
-    readRequestedSnapshot,
-    summarizePlanSteps,
     toDashboardBlueprintPlan,
 } from './dashboard-blueprint-records.server.js';
 import {
@@ -141,7 +133,7 @@ export async function approveDashboardBlueprintPlan(
     const planId = input.planId.trim();
     if (!planId) return { type: 'invalid-input', message: 'Choose a deployment plan to approve.' };
     const database = await getWebDb();
-    const planResult = await findBlueprintPlanWithStepsByGuildId(database.db, {
+    const planResult = await getBlueprintPlanMetadata(database.db, {
         guildId: context.guild.id,
         planId: planId,
     });
@@ -151,11 +143,10 @@ export async function approveDashboardBlueprintPlan(
     }
     const planDigest = planResult.value.planDigest;
     if (!planDigest || input.planDigest !== planDigest) return { type: 'plan-digest-mismatch' };
-    const blockers = Array.isArray(planResult.value.plan.blockers) ? planResult.value.plan.blockers : [];
-    if (blockers.length > 0) {
+    if (planResult.value.blockerCount > 0) {
         return { type: 'invalid-input', message: 'Resolve every blocked blueprint decision before approval.' };
     }
-    const summary = summarizePlanSteps(planResult.value.steps);
+    const summary = planResult.value.summary;
     const approvedAt = new Date();
     const approvalResult = await approveBlueprintPlan(database.db, {
         planId: planId,
@@ -167,7 +158,7 @@ export async function approveDashboardBlueprintPlan(
         destructiveApprovedAt: null,
         destructivePreflightDigest: null,
         audit: createBlueprintAuditPayload(context, blueprintAuditActions.planApproved, planId, {
-            stepCount: planResult.value.steps.length,
+            stepCount: planResult.value.stepCount,
             createCount: summary.creates,
             updateCount: summary.updates,
             deleteCount: summary.deletes,
@@ -180,7 +171,6 @@ export async function approveDashboardBlueprintPlan(
             ...planResult.value,
             status: blueprintPlanStatuses.approved,
             updatedAt: approvedAt,
-            steps: planResult.value.steps,
         }),
     };
 }
@@ -195,18 +185,15 @@ export async function createDashboardBlueprintRecoveryPlan(
     if (!planId) return { type: 'invalid-input', message: 'Choose a deployment that needs reconciliation.' };
     const recoverySource = await loadDashboardBlueprintRecoverySource(context.guild.id, planId);
     if (recoverySource.type !== 'source') return recoverySource;
-    const { plan: sourcePlan, run: sourceRun } = recoverySource;
-    const requestedSnapshot = readRequestedSnapshot(sourcePlan.plan);
-    if (!requestedSnapshot) return { type: 'invalid-input', message: 'This plan has no source snapshot.' };
+    const { detail: sourceDetail, run: sourceRun } = recoverySource;
+    const sourcePlan = sourceDetail.plan;
+    const requestedSnapshot = sourceDetail.authority.requestedSnapshot;
     const currentResult = await readDashboardBotGuildStructure(context.guild.id);
     if (currentResult.isErr()) return mapBotStructureReadError(currentResult.error);
-    if (!readPolicy(sourcePlan.plan)) {
-        return { type: 'invalid-input', message: 'This plan is not a current Server Blueprint plan.' };
-    }
     const policy: DashboardBlueprintPolicy = 'synchronize';
-    const roleMappings = readPersistedRoleMappings(sourcePlan.plan);
-    const categoryMappings = readPersistedCategoryMappings(sourcePlan.plan);
-    const channelMappings = readPersistedChannelMappings(sourcePlan.plan);
+    const roleMappings = sourceDetail.authority.mappings.roles;
+    const categoryMappings = sourceDetail.authority.mappings.categories;
+    const channelMappings = sourceDetail.authority.mappings.channels;
     const planResult = tryDiffDashboardBlueprintSnapshot(
         toDashboardBlueprintSnapshot(currentResult.value),
         requestedSnapshot,

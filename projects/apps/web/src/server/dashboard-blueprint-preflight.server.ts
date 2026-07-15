@@ -1,34 +1,24 @@
 import '@tanstack/react-start/server-only';
 
-import {
-    findBlueprintPlanWithStepsByGuildId,
-    recordBlueprintPlanPreflight,
-    blueprintAuditActions,
-    blueprintPlanStatuses,
-} from '@neonflux/db';
-import type { BlueprintPlanStepRecord } from '@neonflux/db';
+import { blueprintAuditActions, blueprintPlanStatuses, recordBlueprintPlanPreflight } from '@neonflux/db';
+import type { BlueprintPlanAuthorityRecord, BlueprintPlanMetadataRecord, BlueprintPlanStepRecord } from '@neonflux/db';
 import {
     BLUEPRINT_MUTATION_FENCE_VERSION,
+    BLUEPRINT_PREFLIGHT_EVIDENCE_VERSION,
     createBlueprintMutationFenceManifest,
-} from '@neonflux/blueprint/mutation-fence';
+    createBlueprintPlanIntegrityDigests,
+    createBlueprintPreflightDigest,
+    createBlueprintPreflightEvidenceDigests,
+    deriveBlueprintPlanExecutionAuthorityBody,
+} from '@neonflux/blueprint';
 
 import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
 import { createBlueprintAuditInput, loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';
-import {
-    diffDashboardBlueprintSnapshot,
-    normalizeDashboardBlueprintSnapshot,
-    toDashboardBlueprintSnapshot,
-} from './dashboard-blueprint-diff.js';
+import { diffDashboardBlueprintSnapshot, toDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
 import type { DashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
-import {
-    readPersistedCategoryMappings,
-    readPersistedChannelMappings,
-    readPersistedRoleMappings,
-    readBlueprintPolicy,
-    blueprintPlanDigest,
-} from './dashboard-blueprint-apply-plan.js';
+import { loadDashboardBlueprintPlanAuthorityDetail } from './dashboard-blueprint-plan-detail.server.js';
 import {
     preflightDashboardBlueprintPlan as evaluateDashboardBlueprintPlanPreflight,
     isDashboardBlueprintPreflightReady,
@@ -64,35 +54,17 @@ export async function preflightDashboardBlueprintPlan(
     input: DashboardBlueprintPreflightInput
 ): Promise<DashboardBlueprintPreflightResult> {
     const context = await loadAuthorizedBlueprintContext(request, input.guildId);
-
     if (context.type !== 'authorized') return context;
-
     const planId = input.planId.trim();
+    if (!planId) return { type: 'invalid-input', message: 'Choose an approved deployment plan to check.' };
 
-    if (!planId) {
-        return { type: 'invalid-input', message: 'Choose an approved deployment plan to check.' };
+    const detail = await loadDashboardBlueprintPlanAuthorityDetail(context.guild.id, planId);
+    if (detail.isErr()) return mapRepositoryError(detail.error);
+    const { plan, authority, steps } = detail.value;
+    if (plan.status !== blueprintPlanStatuses.approved) {
+        return { type: 'not-preflightable', status: plan.status };
     }
-
-    const database = await getWebDb();
-    const planResult = await findBlueprintPlanWithStepsByGuildId(database.db, {
-        guildId: context.guild.id,
-        planId: planId,
-    });
-
-    if (planResult.isErr()) return mapRepositoryError(planResult.error);
-
-    if (planResult.value.status !== blueprintPlanStatuses.approved) {
-        return { type: 'not-preflightable', status: planResult.value.status };
-    }
-
-    const policy = readBlueprintPolicy(planResult.value.plan);
-    const referenceAuthority = readStructureReferenceAuthority(planResult.value.plan);
-    if (!policy || !referenceAuthority || !matchesReviewedPlanSteps(planResult.value.plan, planResult.value.steps)) {
-        return { type: 'not-preflightable', status: 'invalid-v3-plan' };
-    }
-
     const currentResult = await readDashboardBotGuildStructure(context.guild.id);
-
     if (currentResult.isErr()) {
         return currentResult.error === 'not-configured'
             ? { type: 'bot-token-missing' }
@@ -100,48 +72,66 @@ export async function preflightDashboardBlueprintPlan(
     }
 
     const currentSnapshot = toDashboardBlueprintSnapshot(currentResult.value);
-    const projectionCheck = checkDashboardBlueprintPlanProjection(currentSnapshot, planResult.value.plan);
-    const stepReport = evaluateDashboardBlueprintPlanPreflight(
-        currentSnapshot,
-        planResult.value.steps.map(toPreflightPlanStep),
-        {
-            idMap: referenceAuthority.idMap,
-            knownTargetIds: Object.keys(referenceAuthority.knownTargetKinds),
-            policy,
-            sourceIds: referenceAuthority.sourceIds,
-            ...(referenceAuthority.sourceGuildId ? { sourceGuildId: referenceAuthority.sourceGuildId } : {}),
-        }
-    );
+    const projectionCheck = await checkDashboardBlueprintPlanProjection(currentSnapshot, plan, authority);
+    const executionAuthority = deriveBlueprintPlanExecutionAuthorityBody(authority);
+    const stepReport = evaluateDashboardBlueprintPlanPreflight(currentSnapshot, steps.map(toPreflightPlanStep), {
+        idMap: executionAuthority.initialIdMap,
+        knownTargetIds: Object.keys(executionAuthority.knownTargetKinds),
+        policy: plan.policy,
+        sourceIds: Object.keys(executionAuthority.sourceTargetMap),
+        ...(executionAuthority.sourceGuildId ? { sourceGuildId: executionAuthority.sourceGuildId } : {}),
+    });
     const report =
         projectionCheck.status === 'stale'
             ? prependDashboardBlueprintProjectionBlocker(stepReport, projectionCheck.message)
             : stepReport;
     const checkedAt = new Date();
+    const expiresAt = new Date(checkedAt.getTime() + 5 * 60 * 1000);
     const mutationFenceManifest = await createBlueprintMutationFenceManifest(currentSnapshot);
-    const preflightStatus = isDashboardBlueprintPreflightReady(report) ? 'ready' : 'blocked';
-    const preflightDigest = blueprintPlanDigest({
+    const status = isDashboardBlueprintPreflightReady(report) ? 'ready' : 'blocked';
+    const evidenceDigests = await createBlueprintPreflightEvidenceDigests({ report, mutationFenceManifest });
+    const preflightDigest = await createBlueprintPreflightDigest({
+        planId,
+        planDigest: plan.planDigest,
+        status,
         checkedAt: checkedAt.toISOString(),
-        capabilityFingerprint: mutationFenceManifest.capabilityDigest,
+        observedAt: checkedAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
         fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
-        planDigest: planResult.value.planDigest,
-        report,
-        status: preflightStatus,
         structureFingerprint: mutationFenceManifest.structureDigest,
+        capabilityFingerprint: mutationFenceManifest.capabilityDigest,
+        evidenceDigest: evidenceDigests.evidenceDigest,
     });
-    const persistedPreflight = await recordBlueprintPlanPreflight(database.db, {
-        planId: planId,
-        planDigest: planResult.value.planDigest,
-        capabilityFingerprint: mutationFenceManifest.capabilityDigest,
-        fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
-        mutationFenceManifestJson: JSON.stringify(mutationFenceManifest),
-        observedAt: checkedAt,
-        observationSource: 'resident-client',
-        preflightDigest,
-        report: toJsonRecord(report),
-        status: preflightStatus,
-        structureFingerprint: mutationFenceManifest.structureDigest,
-        checkedAt,
-        expiresAt: new Date(checkedAt.getTime() + 5 * 60 * 1000),
+    const database = await getWebDb();
+    const persisted = await recordBlueprintPlanPreflight(database.db, {
+        metadata: {
+            planId,
+            guildId: context.guild.id,
+            status,
+            summary: report.summary,
+            checkedAt,
+            observedAt: checkedAt,
+            expiresAt,
+            observationSource: 'resident-client',
+            planDigest: plan.planDigest,
+            fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
+            structureFingerprint: mutationFenceManifest.structureDigest,
+            capabilityFingerprint: mutationFenceManifest.capabilityDigest,
+            evidenceVersion: BLUEPRINT_PREFLIGHT_EVIDENCE_VERSION,
+            evidenceDigest: evidenceDigests.evidenceDigest,
+            preflightDigest,
+        },
+        evidence: {
+            version: BLUEPRINT_PREFLIGHT_EVIDENCE_VERSION,
+            report,
+            mutationFenceManifest,
+            ...evidenceDigests,
+        },
+        sealedPlan: {
+            authority,
+            decisions: detail.value.decisions.map(({ decision, sequence }) => ({ decision, sequence })),
+            steps: steps.map(({ sequence, step }) => ({ sequence, step })),
+        },
         audit: createBlueprintAuditInput(context, blueprintAuditActions.preflightChecked, planId, {
             changeCount: report.summary.total,
             readyCount: report.summary.ready,
@@ -150,219 +140,77 @@ export async function preflightDashboardBlueprintPlan(
             destructiveApprovalRequiredCount: report.summary.destructiveApprovalRequired,
             unsupportedCount: report.summary.unsupported,
             invalidPlanCount: report.summary.invalidPlan,
-            planDigest: planResult.value.planDigest,
+            planDigest: plan.planDigest,
             preflightDigest,
         }),
     });
-
-    if (persistedPreflight.isErr()) return { type: 'database-error' };
+    if (persisted.isErr()) return { type: 'database-error' };
 
     return {
         type: 'preflight',
         planId,
         preflightDigest,
         checkedAt: checkedAt.toISOString(),
-        expiresAt: new Date(checkedAt.getTime() + 5 * 60 * 1000).toISOString(),
+        expiresAt: expiresAt.toISOString(),
         report,
     };
 }
 
-export function checkDashboardBlueprintPlanProjection(
+export async function checkDashboardBlueprintPlanProjection(
     current: DashboardBlueprintSnapshot,
-    persistedPlan: Record<string, unknown>
-): { status: 'current' } | { status: 'stale'; message: string } {
-    const requested = normalizeDashboardBlueprintSnapshot(persistedPlan.requestedSnapshot);
-    const persistedDigest = typeof persistedPlan.planDigest === 'string' ? persistedPlan.planDigest : undefined;
-    const referenceAuthority = readStructureReferenceAuthority(persistedPlan);
-    if (requested.type !== 'valid' || !persistedDigest || persistedPlan.planVersion !== 3 || !referenceAuthority) {
-        return {
-            status: 'stale',
-            message: 'The reviewed blueprint projection is incomplete. Create a new plan before applying.',
-        };
-    }
-
+    plan: BlueprintPlanMetadataRecord,
+    authority: BlueprintPlanAuthorityRecord
+): Promise<{ status: 'current' } | { status: 'stale'; message: string }> {
     try {
-        const policy = readBlueprintPolicy(persistedPlan);
-        if (!policy) throw new Error('invalid-v3-plan');
-        const recomputed = diffDashboardBlueprintSnapshot(current, requested.snapshot, {
-            policy,
-            roleMappings: readPersistedRoleMappings(persistedPlan),
-            categoryMappings: readPersistedCategoryMappings(persistedPlan),
-            channelMappings: readPersistedChannelMappings(persistedPlan),
+        const recomputed = diffDashboardBlueprintSnapshot(current, authority.requestedSnapshot, {
+            policy: plan.policy,
+            roleMappings: authority.mappings.roles,
+            categoryMappings: authority.mappings.categories,
+            channelMappings: authority.mappings.channels,
         });
-        const recomputedReferenceAuthority = readStructureReferenceAuthority({
-            knownTargetKinds: recomputed.knownTargetKinds,
-            requestedGuildId: requested.snapshot.guildId ?? null,
-            sourceTargetMap: recomputed.sourceTargetMap,
+        const recomputedAuthority = {
+            requestedSnapshot: authority.requestedSnapshot,
+            projectedSnapshot: recomputed.projectedSnapshot,
+            roleProjection: recomputed.roleProjection,
+            mappings: recomputed.mappings,
+            referenceAuthority: {
+                sourceTargetMap: recomputed.sourceTargetMap,
+                knownTargetKinds: recomputed.knownTargetKinds,
+            },
+            blockers: recomputed.blockers,
+            provenance: authority.provenance,
+        };
+        const executionAuthority = deriveBlueprintPlanExecutionAuthorityBody(recomputedAuthority);
+        const integrity = await createBlueprintPlanIntegrityDigests({
+            guildId: plan.guildId,
+            policy: plan.policy,
+            summary: recomputed.summary,
+            authority: recomputedAuthority,
+            executionAuthority,
+            steps: recomputed.steps.map((step, sequence) => ({ sequence, step })),
+            decisions: recomputed.decisions.map((decision, sequence) => ({ sequence, decision })),
         });
-
-        if (
-            recomputedReferenceAuthority &&
-            sameStructureReferenceAuthority(referenceAuthority, recomputedReferenceAuthority) &&
-            blueprintPlanDigest(recomputed.fingerprintInput) === persistedDigest
-        ) {
-            return { status: 'current' };
-        }
+        if (integrity.planDigest === plan.planDigest) return { status: 'current' };
     } catch {
-        // Any newly invalid or ambiguous identity assignment invalidates the reviewed projection.
+        // Any invalid or ambiguous identity assignment invalidates the reviewed projection.
     }
-
     return {
         status: 'stale',
         message: 'The live server no longer matches the reviewed projection. Create a refreshed plan before applying.',
     };
 }
 
-function toPreflightPlanStep(action: BlueprintPlanStepRecord): DashboardBlueprintPreflightInputPlanStep {
-    const details = toJsonRecord(action.details);
-    const label = typeof details.label === 'string' ? details.label : undefined;
-
+function toPreflightPlanStep(record: BlueprintPlanStepRecord): DashboardBlueprintPreflightInputPlanStep {
     return {
-        id: action.id,
-        actionType: action.actionType,
-        targetType: action.targetType,
-        ...(action.targetId ? { targetId: action.targetId } : {}),
-        ...(label ? { label } : {}),
-        details,
+        id: record.id,
+        actionType: record.step.actionType,
+        targetType: record.step.targetType,
+        targetId: record.step.targetId,
+        label: record.step.label,
+        details: JSON.parse(JSON.stringify(record.step.details)) as Record<string, unknown>,
     };
-}
-
-function matchesReviewedPlanSteps(plan: Record<string, unknown>, steps: BlueprintPlanStepRecord[]): boolean {
-    const persistedSteps = plan.steps;
-    const fingerprintInput = isObject(plan.fingerprintInput) ? plan.fingerprintInput : undefined;
-    const fingerprintSteps = fingerprintInput?.steps;
-    if (!Array.isArray(persistedSteps) || !Array.isArray(fingerprintSteps)) return false;
-    if (
-        persistedSteps.length !== steps.length ||
-        blueprintPlanDigest(persistedSteps) !== blueprintPlanDigest(fingerprintSteps)
-    ) {
-        return false;
-    }
-    return persistedSteps.every((value, sequence) => {
-        if (!isObject(value)) return false;
-        const details = isObject(value.details) ? value.details : undefined;
-        const step = steps[sequence];
-        if (
-            !details ||
-            step.sequence !== sequence ||
-            typeof value.label !== 'string' ||
-            typeof value.actionType !== 'string' ||
-            typeof value.targetType !== 'string' ||
-            (value.targetId !== undefined && typeof value.targetId !== 'string')
-        ) {
-            return false;
-        }
-        return (
-            blueprintPlanDigest({
-                actionType: value.actionType,
-                details,
-                ...('targetId' in value ? { targetId: value.targetId } : {}),
-                targetType: value.targetType,
-            }) ===
-            blueprintPlanDigest({
-                actionType: step.actionType,
-                details: toJsonRecord(step.details),
-                ...(step.targetId ? { targetId: step.targetId } : {}),
-                targetType: step.targetType,
-            })
-        );
-    });
 }
 
 function mapRepositoryError(error: { type: string }): DashboardBlueprintErrorResult {
     return error.type === 'not-found' ? { type: 'not-found' } : { type: 'database-error' };
-}
-
-function toJsonRecord(value: unknown): Record<string, unknown> {
-    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-}
-
-type StructureReferenceAuthority = {
-    idMap: Record<string, string>;
-    knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
-    sourceGuildId?: string;
-    sourceIds: string[];
-    sourceTargetMap: Record<string, string | null>;
-};
-
-function readStructureReferenceAuthority(plan: Record<string, unknown>): StructureReferenceAuthority | undefined {
-    const sourceTargetMap = plan.sourceTargetMap;
-    const knownTargetKinds = plan.knownTargetKinds;
-    if (!isObject(sourceTargetMap) || Array.isArray(sourceTargetMap) || !isObject(knownTargetKinds)) {
-        return undefined;
-    }
-
-    const normalizedKnownTargetKinds: Record<string, 'role' | 'category' | 'channel'> = {};
-    const knownTargetIdSet = new Set<string>();
-    for (const [targetId, kind] of Object.entries(knownTargetKinds)) {
-        if (
-            !isCanonicalReferenceId(targetId) ||
-            knownTargetIdSet.has(targetId) ||
-            (kind !== 'role' && kind !== 'category' && kind !== 'channel')
-        ) {
-            return undefined;
-        }
-        knownTargetIdSet.add(targetId);
-        normalizedKnownTargetKinds[targetId] = kind;
-    }
-    const targetIds = Object.keys(normalizedKnownTargetKinds);
-    const sortedTargetIds = [...targetIds].sort((left, right) => left.localeCompare(right));
-    if (!targetIds.every((targetId, index) => targetId === sortedTargetIds[index])) {
-        return undefined;
-    }
-
-    const idMapEntries: Array<[string, string]> = [];
-    const sourceIds: string[] = [];
-    const sourceTargetEntries: Array<[string, string | null]> = [];
-    const mappedTargetIds = new Set<string>();
-    for (const [sourceId, targetId] of Object.entries(sourceTargetMap)) {
-        if (!isCanonicalReferenceId(sourceId) || (targetId !== null && !isCanonicalReferenceId(targetId))) {
-            return undefined;
-        }
-        sourceIds.push(sourceId);
-        sourceTargetEntries.push([sourceId, targetId]);
-        if (targetId === null) continue;
-        if (!knownTargetIdSet.has(targetId) || mappedTargetIds.has(targetId)) return undefined;
-        mappedTargetIds.add(targetId);
-        idMapEntries.push([sourceId, targetId]);
-    }
-
-    const sourceGuildId = plan.requestedGuildId;
-    if (sourceGuildId !== null && sourceGuildId !== undefined && !isCanonicalReferenceId(sourceGuildId)) {
-        return undefined;
-    }
-
-    return {
-        idMap: Object.fromEntries(idMapEntries),
-        knownTargetKinds: normalizedKnownTargetKinds,
-        ...(typeof sourceGuildId === 'string' ? { sourceGuildId } : {}),
-        sourceIds: sourceIds.sort((left, right) => left.localeCompare(right)),
-        sourceTargetMap: Object.fromEntries(sourceTargetEntries.sort(([left], [right]) => left.localeCompare(right))),
-    };
-}
-
-function sameStructureReferenceAuthority(
-    left: StructureReferenceAuthority,
-    right: StructureReferenceAuthority
-): boolean {
-    return (
-        blueprintPlanDigest({
-            knownTargetKinds: left.knownTargetKinds,
-            sourceGuildId: left.sourceGuildId ?? null,
-            sourceTargetMap: left.sourceTargetMap,
-        }) ===
-        blueprintPlanDigest({
-            knownTargetKinds: right.knownTargetKinds,
-            sourceGuildId: right.sourceGuildId ?? null,
-            sourceTargetMap: right.sourceTargetMap,
-        })
-    );
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isCanonicalReferenceId(value: unknown): value is string {
-    return typeof value === 'string' && Boolean(value) && value === value.trim();
 }

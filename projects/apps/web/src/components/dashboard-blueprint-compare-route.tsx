@@ -8,6 +8,10 @@ import {
     getDashboardBlueprintStatusQueryKey,
 } from '../dashboard-query-keys.js';
 import { createDashboardBlueprintBackupCreation } from './dashboard-blueprint-backup-creation.js';
+import {
+    mergeDashboardBlueprintPlanColdDetail,
+    useDashboardBlueprintPlanAuthorityQuery,
+} from './dashboard-blueprint-cold-detail-queries.js';
 import { useDashboardBlueprintBackupsQuery } from './dashboard-blueprint-backups-query.js';
 import { DashboardBlueprintCompareSurface } from './dashboard-blueprint-compare-surface.js';
 import { createDashboardBlueprintDriftActions } from './dashboard-blueprint-drift-actions.js';
@@ -86,6 +90,17 @@ export function DashboardBlueprintCompareRoute() {
         setStatus,
     });
     const driftActions = createDashboardBlueprintDriftActions({ guildId, setBusyAction, setDriftState, setStatus });
+    const selectedOverlayPlanId = explorer.explorerOverlayMode.startsWith('plan:')
+        ? explorer.explorerOverlayMode.slice('plan:'.length)
+        : undefined;
+    const selectedOverlayPlan = selectedOverlayPlanId
+        ? runsQuery.data?.plans.find((plan) => plan.id === selectedOverlayPlanId)
+        : undefined;
+    const authorityQuery = useDashboardBlueprintPlanAuthorityQuery({
+        enabled: Boolean(selectedOverlayPlan),
+        guildId,
+        planId: selectedOverlayPlan?.id,
+    });
 
     const coldErrorQuery = [backupsQuery, runsQuery].find((query) => !query.data && query.isError);
     if (coldErrorQuery) {
@@ -106,11 +121,20 @@ export function DashboardBlueprintCompareRoute() {
     if (!backupsQuery.data || !runsQuery.data) return <DashboardBlueprintPendingSurface surface='compare' />;
 
     const plans = runsQuery.data.plans.map((plan) => ({
-        ...plan,
+        ...mergeDashboardBlueprintPlanColdDetail(
+            plan,
+            plan.id === selectedOverlayPlan?.id && authorityQuery.data?.id === plan.id ? authorityQuery.data : undefined
+        ),
         steps: inspection.stepPagesByPlanId[plan.id]?.steps ?? plan.steps,
         ...(plan.id === activePlan?.id && runProgress.run ? { run: runProgress.run } : {}),
     }));
-    const refreshError = backupsQuery.isError ? backupsQuery.error : runsQuery.isError ? runsQuery.error : statusError;
+    const refreshError = backupsQuery.isError
+        ? backupsQuery.error
+        : runsQuery.isError
+          ? runsQuery.error
+          : authorityQuery.isError
+            ? authorityQuery.error
+            : statusError;
 
     return (
         <DashboardBlueprintSurfaceContent
@@ -120,6 +144,7 @@ export function DashboardBlueprintCompareRoute() {
             onRetryRefresh={() => {
                 if (backupsQuery.isError) void backupsQuery.refetch();
                 if (runsQuery.isError) void runsQuery.refetch();
+                if (authorityQuery.isError) void authorityQuery.refetch();
                 if (statusError) retryStatus();
             }}>
             <DashboardBlueprintCompareSurface

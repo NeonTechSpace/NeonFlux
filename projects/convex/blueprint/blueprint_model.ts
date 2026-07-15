@@ -1,9 +1,4 @@
-import {
-    normalizeBlueprintPlanStep,
-    normalizeBlueprintPersistedPlanAuthority,
-} from '@neonflux/blueprint/runtime-contracts';
 import { normalizeBlueprintSnapshot } from '@neonflux/blueprint/snapshot';
-import type { GenericId } from 'convex/values';
 
 export const STRUCTURE_BACKUP_SOURCE = {
     manual: 'manual',
@@ -29,14 +24,6 @@ export const STRUCTURE_SCHEDULED_DRIFT_STATUS = {
     clean: 'clean',
     failed: 'failed',
     noBaseline: 'no_baseline',
-} as const;
-
-export const BLUEPRINT_PLAN_STATUS = {
-    draft: 'draft',
-    needsInput: 'needs_input',
-    reviewReady: 'review_ready',
-    approved: 'approved',
-    obsolete: 'obsolete',
 } as const;
 
 export type StructureBackupInput = {
@@ -125,58 +112,6 @@ export type StructureScheduledDriftResultInput = {
     summary?: Record<string, unknown> | null;
 };
 
-export type BlueprintPlanInput = {
-    createdAt?: string | null;
-    createdByUserId?: string | null;
-    guildId?: string | null;
-    deleteStepCount?: number | null;
-    deleteSetDigest?: string | null;
-    planDigest?: string | null;
-    planVersion?: number | null;
-    policy?: string | null;
-    plan?: Record<string, unknown> | null;
-    requestedSnapshotDigest?: string | null;
-    sourceBackupId?: string | null;
-    status?: string | null;
-    updatedAt?: string | null;
-};
-
-export type BlueprintPlanDocument = {
-    createdAt: string;
-    createdByUserId?: string;
-    guildId: string;
-    deleteStepCount: number;
-    deleteSetDigest?: string;
-    planDigest: string;
-    planVersion: number;
-    policy: 'merge' | 'synchronize' | 'rebuild';
-    plan: Record<string, unknown>;
-    requestedSnapshotDigest: string;
-    sourceBackupId?: GenericId<'structureBackups'>;
-    status: 'draft' | 'needs_input' | 'review_ready' | 'approved' | 'obsolete';
-    updatedAt: string;
-};
-
-export type BlueprintPlanStepInput = {
-    actionType?: string | null;
-    createdAt?: string | null;
-    details?: Record<string, unknown> | null;
-    planId?: string | null;
-    sequence?: number | null;
-    targetId?: string | null;
-    targetType?: string | null;
-};
-
-export type BlueprintPlanStepDocument = {
-    actionType: 'create' | 'update' | 'delete';
-    createdAt: string;
-    details: Record<string, unknown>;
-    planId: GenericId<'blueprintPlans'>;
-    sequence: number;
-    targetId?: string;
-    targetType: 'role' | 'category' | 'channel' | 'channel-order' | 'role-order';
-};
-
 export type StructureObservedEventStateDocument = {
     config: Record<string, unknown>;
     createdAt: string;
@@ -227,43 +162,6 @@ export type StructureBackupSettingsRecord = {
     nextRetentionPruneAt: string | null;
     retentionDays: number;
     updatedAt?: string;
-};
-
-export type BlueprintPlanRecord = {
-    createdAt: string;
-    createdByUserId: string | null;
-    guildId: string;
-    deleteStepCount: number;
-    deleteSetDigest: string | null;
-    planDigest: string;
-    planVersion: number;
-    policy: 'merge' | 'synchronize' | 'rebuild';
-    id: string;
-    plan: Record<string, unknown>;
-    requestedSnapshotDigest: string;
-    sourceBackupId: string | null;
-    status: 'draft' | 'needs_input' | 'review_ready' | 'approved' | 'obsolete';
-    updatedAt: string;
-};
-
-export type BlueprintPlanStepRecord = {
-    actionType: string;
-    createdAt: string;
-    details: Record<string, unknown>;
-    id: string;
-    planId: string;
-    sequence: number;
-    targetId: string | null;
-    targetType: string;
-};
-
-export type BlueprintPlanStepPageRecord = {
-    steps: BlueprintPlanStepRecord[];
-    nextCursor: string | null;
-};
-
-export type BlueprintPlanWithStepsRecord = BlueprintPlanRecord & {
-    steps: BlueprintPlanStepRecord[];
 };
 
 export type StructureObservedEventStateRecord = {
@@ -628,112 +526,6 @@ export function buildStructureBackupAttemptPatch(
     };
 }
 
-export function buildBlueprintPlanDocument(
-    input: BlueprintPlanInput,
-    now: string
-): StructureInputResult<BlueprintPlanDocument> {
-    const guildId = normalizeRequiredString(input.guildId, 'guildId');
-    const deleteStepCount = input.deleteStepCount;
-    const deleteSetDigest = normalizeOptionalString(input.deleteSetDigest);
-    const planDigest = normalizeRequiredString(input.planDigest, 'planDigest');
-    const requestedSnapshotDigest = normalizeRequiredString(input.requestedSnapshotDigest, 'requestedSnapshotDigest');
-    const policy = normalizeImportPolicy(input.policy);
-    const status = normalizeBlueprintPlanStatus(input.status);
-    const plan = normalizeRecord(input.plan ?? {});
-    const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
-    const updatedAt = input.updatedAt === undefined ? now : normalizeTimestamp(input.updatedAt);
-
-    if (!guildId.ok) return guildId;
-    if (typeof deleteStepCount !== 'number' || !Number.isInteger(deleteStepCount) || deleteStepCount < 0)
-        return { error: { field: 'deleteStepCount', type: 'invalid-value' }, ok: false };
-    if (deleteStepCount > 0 && !deleteSetDigest)
-        return { error: { field: 'deleteSetDigest', type: 'missing-input' }, ok: false };
-    if (deleteStepCount === 0 && deleteSetDigest)
-        return { error: { field: 'deleteSetDigest', type: 'invalid-value' }, ok: false };
-    if (!planDigest.ok) return planDigest;
-    if (!requestedSnapshotDigest.ok) return requestedSnapshotDigest;
-    if (!policy) return { error: { field: 'policy', type: 'invalid-value' }, ok: false };
-    if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
-    if (input.planVersion !== 3) return { error: { field: 'planVersion', type: 'invalid-value' }, ok: false };
-    if (!plan || normalizeBlueprintPersistedPlanAuthority(plan).type === 'invalid') {
-        return { error: { field: 'plan', type: 'invalid-value' }, ok: false };
-    }
-    if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
-    if (!updatedAt) return { error: { field: 'updatedAt', type: 'invalid-value' }, ok: false };
-
-    const createdByUserId = normalizeOptionalString(input.createdByUserId);
-    const sourceBackupId = normalizeOptionalString(input.sourceBackupId);
-
-    return {
-        ok: true,
-        value: {
-            createdAt,
-            ...(createdByUserId ? { createdByUserId } : {}),
-            guildId: guildId.value,
-            deleteStepCount,
-            ...(deleteSetDigest ? { deleteSetDigest } : {}),
-            planDigest: planDigest.value,
-            planVersion: 3,
-            policy,
-            plan,
-            requestedSnapshotDigest: requestedSnapshotDigest.value,
-            ...(sourceBackupId ? { sourceBackupId: sourceBackupId as GenericId<'structureBackups'> } : {}),
-            status,
-            updatedAt,
-        },
-    };
-}
-
-export function buildBlueprintPlanStepDocument(
-    input: BlueprintPlanStepInput,
-    now: string
-): StructureInputResult<BlueprintPlanStepDocument> {
-    const planId = normalizeRequiredString(input.planId, 'planId');
-    const actionType = normalizeRequiredString(input.actionType, 'actionType');
-    const targetType = normalizeRequiredString(input.targetType, 'targetType');
-    const details = normalizeRecord(input.details ?? {});
-    const createdAt = input.createdAt === undefined ? now : normalizeTimestamp(input.createdAt);
-
-    if (!planId.ok) return planId;
-    if (!actionType.ok) return actionType;
-    if (!targetType.ok) return targetType;
-    if (!details) return { error: { field: 'details', type: 'invalid-value' }, ok: false };
-    if (!createdAt) return { error: { field: 'createdAt', type: 'invalid-value' }, ok: false };
-
-    const sequence = normalizeRequiredNonNegativeInteger(input.sequence);
-    const targetId = normalizeOptionalString(input.targetId);
-    const normalizedActionType = normalizeBlueprintPlanStepType(actionType.value);
-    const normalizedTargetType = normalizeImportTargetType(targetType.value);
-
-    if (sequence === undefined) return { error: { field: 'sequence', type: 'invalid-value' }, ok: false };
-    if (!normalizedActionType) return { error: { field: 'actionType', type: 'invalid-value' }, ok: false };
-    if (!normalizedTargetType) return { error: { field: 'targetType', type: 'invalid-value' }, ok: false };
-    if (
-        normalizeBlueprintPlanStep({
-            actionType: normalizedActionType,
-            details,
-            label: details.label,
-            targetId,
-            targetType: normalizedTargetType,
-        }).type === 'invalid'
-    ) {
-        return { error: { field: 'details', type: 'invalid-value' }, ok: false };
-    }
-
-    return {
-        ok: true,
-        value: {
-            actionType: normalizedActionType,
-            createdAt,
-            details,
-            planId: planId.value as GenericId<'blueprintPlans'>,
-            sequence,
-            ...(targetId ? { targetId } : {}),
-            targetType: normalizedTargetType,
-        },
-    };
-}
-
 export function buildObservedEventStateDocument(
     input: { eventType?: string | null; guildId?: string | null; targetId?: string | null; targetType?: string | null },
     existing: StructureObservedEventStateRecord,
@@ -857,40 +649,6 @@ export function toStructureBackupSettingsRecord(
         nextRetentionPruneAt: document?.nextRetentionPruneAt ?? null,
         retentionDays: normalizeBackupRetentionDays(document?.retentionDays),
         ...(document?.updatedAt ? { updatedAt: document.updatedAt } : {}),
-    };
-}
-
-export function toBlueprintPlanRecord(document: BlueprintPlanDocument & { _id: string }): BlueprintPlanRecord {
-    return {
-        createdAt: document.createdAt,
-        createdByUserId: document.createdByUserId ?? null,
-        guildId: document.guildId,
-        deleteStepCount: document.deleteStepCount,
-        deleteSetDigest: document.deleteSetDigest ?? null,
-        planDigest: document.planDigest,
-        planVersion: document.planVersion,
-        policy: document.policy,
-        id: document._id,
-        plan: document.plan,
-        requestedSnapshotDigest: document.requestedSnapshotDigest,
-        sourceBackupId: document.sourceBackupId ?? null,
-        status: document.status,
-        updatedAt: document.updatedAt,
-    };
-}
-
-export function toBlueprintPlanStepRecord(
-    document: BlueprintPlanStepDocument & { _id: string }
-): BlueprintPlanStepRecord {
-    return {
-        actionType: document.actionType,
-        createdAt: document.createdAt,
-        details: document.details,
-        id: document._id,
-        planId: document.planId,
-        sequence: document.sequence,
-        targetId: document.targetId ?? null,
-        targetType: document.targetType,
     };
 }
 
@@ -1064,42 +822,6 @@ export function resolveBlueprintRunStepAttemptCompletionStatus(input: {
     return input.controlRequest === 'cancel' ? 'cancelled' : 'paused';
 }
 
-export function validateBlueprintPlanDecisionSequences(
-    sequences: readonly number[],
-    existingSequences: readonly number[] = [],
-    expectedStart?: number
-): 'empty' | 'invalid' | 'duplicate' | 'sparse' | 'collision' | 'gap' | null {
-    if (sequences.length === 0) return 'empty';
-    if (sequences.some((sequence) => !Number.isInteger(sequence) || sequence < 0)) return 'invalid';
-    if (new Set(sequences).size !== sequences.length) return 'duplicate';
-    const min = Math.min(...sequences);
-    const max = Math.max(...sequences);
-    if (max - min + 1 !== sequences.length || sequences.some((sequence, index) => sequence !== min + index))
-        return 'sparse';
-    if (expectedStart !== undefined && min !== expectedStart) return 'gap';
-    const requested = new Set(sequences);
-    return existingSequences.some((sequence) => requested.has(sequence)) ? 'collision' : null;
-}
-
-export function isBlueprintPlanDecisionLedgerComplete(
-    plan: unknown,
-    decisions: Array<{ classification: string; sequence: number }>
-): boolean {
-    if (typeof plan !== 'object' || plan === null || Array.isArray(plan)) return false;
-    const decisionSummary = (plan as Record<string, unknown>).decisionSummary;
-    if (typeof decisionSummary !== 'object' || decisionSummary === null || Array.isArray(decisionSummary)) return false;
-    const expectedEntries = Object.entries(decisionSummary);
-    if (expectedEntries.some(([, count]) => !Number.isInteger(count) || (count as number) < 0)) return false;
-    const expectedCount = expectedEntries.reduce((total, [, count]) => total + (count as number), 0);
-    if (decisions.length !== expectedCount || decisions.some((decision, index) => decision.sequence !== index)) {
-        return false;
-    }
-    const actual = new Map<string, number>();
-    for (const decision of decisions)
-        actual.set(decision.classification, (actual.get(decision.classification) ?? 0) + 1);
-    return expectedEntries.every(([classification, count]) => (actual.get(classification) ?? 0) === count);
-}
-
 export function chooseLatestStructureDriftBaselineBackup<TBackup extends StructureBackupDocument>(
     backups: readonly TBackup[]
 ): TBackup | undefined {
@@ -1186,36 +908,6 @@ function normalizeScheduledDriftStatus(value: string | null | undefined): string
         : undefined;
 }
 
-function normalizeImportPolicy(value: string | null | undefined): 'merge' | 'synchronize' | 'rebuild' | undefined {
-    const policy = normalizeOptionalString(value);
-    return policy === 'merge' || policy === 'synchronize' || policy === 'rebuild' ? policy : undefined;
-}
-
-function normalizeBlueprintPlanStatus(value: string | null | undefined): BlueprintPlanDocument['status'] | undefined {
-    const status = normalizeOptionalString(value) ?? BLUEPRINT_PLAN_STATUS.draft;
-    return status === 'draft' ||
-        status === 'needs_input' ||
-        status === 'review_ready' ||
-        status === 'approved' ||
-        status === 'obsolete'
-        ? status
-        : undefined;
-}
-
-function normalizeBlueprintPlanStepType(value: string): BlueprintPlanStepDocument['actionType'] | undefined {
-    return value === 'create' || value === 'update' || value === 'delete' ? value : undefined;
-}
-
-function normalizeImportTargetType(value: string): BlueprintPlanStepDocument['targetType'] | undefined {
-    return value === 'role' ||
-        value === 'category' ||
-        value === 'channel' ||
-        value === 'channel-order' ||
-        value === 'role-order'
-        ? value
-        : undefined;
-}
-
 function normalizeRequiredString(value: string | null | undefined, field: string): StructureInputResult<string> {
     const normalizedValue = normalizeOptionalString(value);
     return normalizedValue
@@ -1248,10 +940,6 @@ function normalizeNonNegativeInteger(value: number | null | undefined): number {
     return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
 
-function normalizeRequiredNonNegativeInteger(value: number | null | undefined): number | undefined {
-    return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : undefined;
-}
-
 function readNonNegativeInteger(value: unknown): number {
     return Number.isInteger(value) && typeof value === 'number' && value >= 0 ? value : 0;
 }
@@ -1281,13 +969,14 @@ function readTargetChangeCounts(value: unknown): Record<string, number> {
     );
 }
 
-export function resolveBlueprintRunReferenceAuthority(plan: unknown): {
+export function resolveBlueprintRunReferenceAuthority(authority: unknown): {
     idMap: Record<string, string>;
     knownTargetKinds: Record<string, 'role' | 'category' | 'channel'>;
 } {
-    const planRecord = normalizeRecord(plan);
-    const sourceTargetMap = normalizeRecord(planRecord?.sourceTargetMap);
-    const knownTargetKinds = normalizeRecord(planRecord?.knownTargetKinds);
+    const authorityRecord = normalizeRecord(authority);
+    const sourceTargetMap = normalizeRecord(authorityRecord?.sourceTargetMap);
+    const knownTargetKinds = normalizeRecord(authorityRecord?.knownTargetKinds);
+    const initialIdMap = normalizeBlueprintRunIdMap(authorityRecord?.initialIdMap);
     if (!sourceTargetMap) throw new Error('blueprint-plan-source-target-map-invalid');
     if (!knownTargetKinds) throw new Error('blueprint-plan-known-target-kinds-invalid');
 
@@ -1326,25 +1015,29 @@ export function resolveBlueprintRunReferenceAuthority(plan: unknown): {
         throw new Error('blueprint-plan-known-target-kinds-invalid');
     }
 
+    if (stableJson(initialIdMap) !== stableJson(resolved)) {
+        throw new Error('blueprint-plan-initial-id-map-invalid');
+    }
+
     return {
-        idMap: resolved,
+        idMap: initialIdMap,
         knownTargetKinds: normalizedTargetKinds,
     };
 }
 
-export function resolveBlueprintRunIdMap(plan: unknown): Record<string, string> {
-    return resolveBlueprintRunReferenceAuthority(plan).idMap;
+export function resolveBlueprintRunIdMap(authority: unknown): Record<string, string> {
+    return resolveBlueprintRunReferenceAuthority(authority).idMap;
 }
 
 export function validateBlueprintRunIdMapTransition(input: {
+    authority: unknown;
     next: unknown;
-    plan: unknown;
     previous: unknown;
 }): Record<string, string> {
-    const sourceTargetMap = normalizeRecord(normalizeRecord(input.plan)?.sourceTargetMap);
+    const sourceTargetMap = normalizeRecord(normalizeRecord(input.authority)?.sourceTargetMap);
     const previous = normalizeBlueprintRunIdMap(input.previous);
     const next = normalizeBlueprintRunIdMap(input.next);
-    const initial = resolveBlueprintRunIdMap(input.plan);
+    const initial = resolveBlueprintRunIdMap(input.authority);
     if (!sourceTargetMap) throw new Error('blueprint-plan-source-target-map-invalid');
 
     for (const sourceId of Object.keys(initial)) {
@@ -1374,8 +1067,8 @@ function validateBlueprintRunIdMapEntries(
 }
 
 export function validateBlueprintRunCheckpointIdMap(input: {
+    authority: unknown;
     next: unknown;
-    plan: unknown;
     previous: unknown;
 }): Record<string, string> {
     const previous = normalizeBlueprintRunIdMap(input.previous);
@@ -1389,7 +1082,7 @@ export function validateBlueprintRunAttemptIdMapTransition(input: {
     attemptState: string;
     createdId?: string;
     next: unknown;
-    plan: unknown;
+    authority: unknown;
     previous: unknown;
     resultState: 'applied' | 'failed' | 'unknown';
 }): Record<string, string> {
@@ -1405,8 +1098,8 @@ export function validateBlueprintRunAttemptIdMapTransition(input: {
         typeof input.createdId === 'string' &&
         input.createdId.length > 0
     ) {
-        const sourceTargetMap = normalizeRecord(normalizeRecord(input.plan)?.sourceTargetMap);
-        const knownTargetKinds = resolveBlueprintRunReferenceAuthority(input.plan).knownTargetKinds;
+        const sourceTargetMap = normalizeRecord(normalizeRecord(input.authority)?.sourceTargetMap);
+        const knownTargetKinds = resolveBlueprintRunReferenceAuthority(input.authority).knownTargetKinds;
         const changedSources = new Set([...Object.keys(previous), ...Object.keys(next)]);
         for (const sourceId of [...changedSources]) {
             if (previous[sourceId] === next[sourceId]) changedSources.delete(sourceId);
@@ -1431,6 +1124,35 @@ export function validateBlueprintRunAttemptIdMapTransition(input: {
         throw new Error('blueprint-run-id-map-attempt-change');
     }
     return next;
+}
+
+export function validateBlueprintRunAttemptIndexedMappingDelta(input: {
+    planStep: { actionType?: string; targetId?: string };
+    attemptState: 'pending' | 'started' | 'applied' | 'failed' | 'unknown';
+    resultState: 'applied' | 'failed' | 'unknown';
+    createdId?: string;
+    sourceMappingPresent: boolean;
+    sourceTargetId: string | null | undefined;
+    createdTargetKnown: boolean;
+}): { sourceId: string; targetId: string } | null {
+    const isAppliedCreate = input.planStep.actionType === 'create' && input.resultState === 'applied';
+    if (!isAppliedCreate) {
+        if (input.createdId !== undefined) throw new Error('blueprint-run-id-map-attempt-change');
+        return null;
+    }
+    const sourceId = input.planStep.targetId;
+    const targetId = input.createdId;
+    if (
+        input.attemptState !== 'started' ||
+        !sourceId ||
+        !targetId ||
+        !input.sourceMappingPresent ||
+        input.sourceTargetId !== null ||
+        input.createdTargetKnown
+    ) {
+        throw new Error('blueprint-run-create-id-map-invalid');
+    }
+    return { sourceId, targetId };
 }
 
 export function validateBlueprintRunProgressTransition(input: {
@@ -1485,73 +1207,109 @@ export function validateBlueprintRunProgressTransition(input: {
     }
 }
 
-export function validateBlueprintRunPlanStepLedger(
-    plan: unknown,
-    steps: ReadonlyArray<{
-        actionType: string;
-        details: unknown;
-        sequence: number;
-        targetId?: string;
-        targetType: string;
-    }>
-): { deleteStepCount: number; deleteSetKeys: string[] } {
-    const planRecord = normalizeRecord(plan);
-    const fingerprintInput = normalizeRecord(planRecord?.fingerprintInput);
-    const reviewedSteps = planRecord?.steps;
-    const fingerprintSteps = fingerprintInput?.steps;
-    if (!Array.isArray(reviewedSteps) || !Array.isArray(fingerprintSteps)) {
-        throw new Error('blueprint-run-step-ledger-invalid');
+export function validateBlueprintRunStepAttemptCompletionTransition(input: {
+    attempt: { state: 'pending' | 'started' | 'applied' | 'failed' | 'unknown' };
+    args: {
+        appliedSteps: number;
+        completedMutationSteps: number;
+        failedSteps: number;
+        nextStepSequence: number;
+        retryAt?: string;
+        skippedSteps: number;
+        state: 'applied' | 'failed' | 'unknown';
+        status:
+            | 'running'
+            | 'pause_requested'
+            | 'waiting_rate_limit'
+            | 'partially_applied'
+            | 'failed_before_mutation'
+            | 'outcome_unknown';
+    };
+    run: {
+        appliedSteps: number;
+        completedMutationSteps: number;
+        failedSteps: number;
+        nextStepSequence: number;
+        skippedSteps: number;
+    };
+}): void {
+    const { args, attempt, run } = input;
+    const unchanged =
+        args.appliedSteps === run.appliedSteps &&
+        args.completedMutationSteps === run.completedMutationSteps &&
+        args.failedSteps === run.failedSteps &&
+        args.nextStepSequence === run.nextStepSequence &&
+        args.skippedSteps === run.skippedSteps;
+    const applied =
+        attempt.state === 'started' &&
+        args.state === 'applied' &&
+        args.appliedSteps === run.appliedSteps + 1 &&
+        args.completedMutationSteps === run.completedMutationSteps + 1 &&
+        args.failedSteps === run.failedSteps &&
+        args.nextStepSequence === run.nextStepSequence + 1 &&
+        args.skippedSteps === run.skippedSteps;
+    const hardFailure =
+        args.state === 'failed' &&
+        (args.status === 'partially_applied' || args.status === 'failed_before_mutation') &&
+        args.appliedSteps === run.appliedSteps &&
+        args.completedMutationSteps === run.completedMutationSteps &&
+        args.failedSteps === run.failedSteps + 1 &&
+        args.nextStepSequence === run.nextStepSequence + 1 &&
+        args.skippedSteps === run.skippedSteps;
+    const retryableFailure =
+        args.state === 'failed' &&
+        args.status === 'waiting_rate_limit' &&
+        typeof args.retryAt === 'string' &&
+        unchanged;
+    const nonMutatingFailure =
+        args.state === 'failed' && (args.status === 'running' || args.status === 'pause_requested') && unchanged;
+    const unknown =
+        attempt.state === 'started' && args.state === 'unknown' && args.status === 'outcome_unknown' && unchanged;
+    if (!applied && !hardFailure && !retryableFailure && !nonMutatingFailure && !unknown) {
+        throw new Error('blueprint-run-attempt-progress-invalid');
     }
-    if (stableJson(reviewedSteps) !== stableJson(fingerprintSteps) || reviewedSteps.length !== steps.length) {
-        throw new Error('blueprint-run-step-ledger-invalid');
-    }
-    const deleteSetKeys: string[] = [];
-    for (const [sequence, reviewedValue] of reviewedSteps.entries()) {
-        const reviewed = normalizeRecord(reviewedValue);
-        const step = steps[sequence];
-        const reviewedDetails = normalizeRecord(reviewed?.details);
-        const provider = normalizeRecord(reviewedDetails?.provider);
+}
+
+export function resolveBlueprintRunStepAttemptCompletionRetry(input: {
+    attemptState: 'pending' | 'started' | 'applied' | 'failed' | 'unknown';
+    completionDigest?: string;
+    incomingDigest: string;
+}): 'continue' | 'return_committed' {
+    if (input.attemptState === 'pending' || input.attemptState === 'started') return 'continue';
+    if (input.completionDigest === input.incomingDigest) return 'return_committed';
+    throw new Error('blueprint-run-step-attempt-completion-conflict');
+}
+
+export function selectBlueprintRunClaimAttempt<T extends { attempt: number; state: string }>(
+    attempts: readonly T[]
+): T | null {
+    if (attempts.length === 0) return null;
+    if (attempts.length > 10) throw new Error('blueprint-run-step-attempt-history-invalid');
+
+    const attemptNumbers = new Set<number>();
+    let latest: T | undefined;
+    let pending: T | undefined;
+    for (const attempt of attempts) {
         if (
-            !reviewed ||
-            !reviewedDetails ||
-            !provider ||
-            step?.sequence !== sequence ||
-            (reviewed.actionType !== 'create' &&
-                reviewed.actionType !== 'update' &&
-                reviewed.actionType !== 'delete') ||
-            typeof reviewed.targetType !== 'string' ||
-            typeof reviewed.targetId !== 'string' ||
-            typeof reviewed.label !== 'string' ||
-            reviewedDetails.label !== reviewed.label ||
-            reviewedDetails.mutationSteps !== 1 ||
-            typeof provider.groupId !== 'string' ||
-            !provider.groupId ||
-            typeof provider.operation !== 'string' ||
-            !provider.operation ||
-            !Number.isInteger(provider.step) ||
-            !Number.isInteger(provider.stepCount) ||
-            (provider.step as number) < 1 ||
-            (provider.stepCount as number) < (provider.step as number) ||
-            stableJson({
-                actionType: reviewed.actionType,
-                details: reviewedDetails,
-                targetId: reviewed.targetId,
-                targetType: reviewed.targetType,
-            }) !==
-                stableJson({
-                    actionType: step.actionType,
-                    details: step.details,
-                    targetId: step.targetId,
-                    targetType: step.targetType,
-                })
+            !Number.isSafeInteger(attempt.attempt) ||
+            attempt.attempt < 1 ||
+            attempt.attempt > 10 ||
+            attemptNumbers.has(attempt.attempt) ||
+            !['pending', 'failed'].includes(attempt.state)
         ) {
-            throw new Error('blueprint-run-step-ledger-invalid');
+            throw new Error('blueprint-run-step-attempt-history-invalid');
         }
-        if (reviewed.actionType === 'delete') {
-            deleteSetKeys.push(`${reviewed.targetType}:${reviewed.targetId}`);
+        attemptNumbers.add(attempt.attempt);
+        if (!latest || attempt.attempt > latest.attempt) latest = attempt;
+        if (attempt.state === 'pending') {
+            if (pending) throw new Error('blueprint-run-pending-attempt-conflict');
+            pending = attempt;
         }
     }
-    return { deleteStepCount: deleteSetKeys.length, deleteSetKeys: deleteSetKeys.sort() };
+    if (pending && pending.attempt !== latest?.attempt) {
+        throw new Error('blueprint-run-pending-attempt-conflict');
+    }
+    return pending ?? latest ?? null;
 }
 
 function stableJson(value: unknown): string {

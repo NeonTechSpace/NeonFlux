@@ -1,84 +1,106 @@
+import { createBlueprintPlanIntegrityDigests, deriveBlueprintPlanExecutionAuthorityBody } from '@neonflux/blueprint';
 import { describe, expect, it } from 'vitest';
 
-import { blueprintPlanDigest } from './dashboard-blueprint-apply-plan.js';
 import { diffDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
 import type { DashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';
+import { createDashboardBlueprintPlanAuthority } from './dashboard-blueprint-plan-persistence.server.js';
 import { checkDashboardBlueprintPlanProjection } from './dashboard-blueprint-preflight.server.js';
 
+const now = new Date('2026-07-15T10:00:00.000Z');
+
 describe('Server Blueprint projection preflight', () => {
-    it('accepts the exact reviewed plan projection', () => {
+    it('accepts the exact reviewed v4 projection', async () => {
         const snapshot = createSnapshot();
-        const plan = diffDashboardBlueprintSnapshot(snapshot, snapshot, { policy: 'synchronize' });
+        const { metadata, authority } = await createPersistedPlan(snapshot, snapshot, 'synchronize');
 
-        expect(
-            checkDashboardBlueprintPlanProjection(snapshot, {
-                knownTargetKinds: plan.knownTargetKinds,
-                planVersion: 3,
-                policy: 'synchronize',
-                requestedGuildId: snapshot.guildId,
-                requestedSnapshot: snapshot,
-                planDigest: blueprintPlanDigest(plan.fingerprintInput),
-                sourceTargetMap: plan.sourceTargetMap,
-            })
-        ).toEqual({ status: 'current' });
-    });
-
-    it('fails closed instead of silently discarding malformed or unauthorized reference mappings', () => {
-        const snapshot = createSnapshot();
-        const plan = diffDashboardBlueprintSnapshot(snapshot, snapshot, { policy: 'synchronize' });
-        const persisted = {
-            knownTargetKinds: plan.knownTargetKinds,
-            planVersion: 3,
-            policy: 'synchronize',
-            requestedGuildId: snapshot.guildId,
-            requestedSnapshot: snapshot,
-            planDigest: blueprintPlanDigest(plan.fingerprintInput),
-        };
-
-        expect(
-            checkDashboardBlueprintPlanProjection(snapshot, {
-                ...persisted,
-                sourceTargetMap: { unexpected: 42 },
-            })
-        ).toMatchObject({ status: 'stale' });
-        expect(
-            checkDashboardBlueprintPlanProjection(snapshot, {
-                ...persisted,
-                sourceTargetMap: { unexpected: 'not-a-known-target' },
-            })
-        ).toMatchObject({ status: 'stale' });
-    });
-
-    it('rejects a well-formed reference map that no longer matches the reviewed projection', () => {
-        const current = createSnapshot({
-            categories: [createCategory('target-a', 'A', 0), createCategory('target-b', 'B', 1)],
+        await expect(checkDashboardBlueprintPlanProjection(snapshot, metadata, authority)).resolves.toEqual({
+            status: 'current',
         });
+    });
+
+    it('rejects a live structure that no longer matches the sealed plan digest', async () => {
+        const current = createSnapshot({ categories: [createCategory('target-a', 'A', 0)] });
         const requested = createSnapshot({
             guildId: 'source-guild',
-            categories: [createCategory('source-a', 'A', 0), createCategory('source-b', 'B', 1)],
+            categories: [createCategory('source-a', 'A', 0)],
         });
-        const plan = diffDashboardBlueprintSnapshot(current, requested, { policy: 'merge' });
+        const { metadata, authority } = await createPersistedPlan(current, requested, 'merge');
+        const changed = createSnapshot({ categories: [createCategory('target-a', 'Changed', 0)] });
 
-        expect(
-            checkDashboardBlueprintPlanProjection(current, {
-                knownTargetKinds: plan.knownTargetKinds,
-                planVersion: 3,
-                policy: 'merge',
-                requestedGuildId: requested.guildId,
-                requestedSnapshot: requested,
-                planDigest: blueprintPlanDigest(plan.fingerprintInput),
-                sourceTargetMap: {
-                    'source-a': 'target-b',
-                    'source-b': 'target-a',
-                },
-            })
-        ).toMatchObject({ status: 'stale' });
-    });
-
-    it('fails closed for an incomplete persisted plan', () => {
-        expect(checkDashboardBlueprintPlanProjection(createSnapshot(), {})).toMatchObject({ status: 'stale' });
+        await expect(checkDashboardBlueprintPlanProjection(changed, metadata, authority)).resolves.toMatchObject({
+            status: 'stale',
+        });
     });
 });
+
+async function createPersistedPlan(
+    current: DashboardBlueprintSnapshot,
+    requested: DashboardBlueprintSnapshot,
+    policy: 'merge' | 'synchronize' | 'rebuild'
+) {
+    const plan = diffDashboardBlueprintSnapshot(current, requested, { policy });
+    const body = createDashboardBlueprintPlanAuthority(plan, requested, {
+        source: 'dashboard-json',
+        requestedSnapshotStoredAt: now.toISOString(),
+    });
+    const execution = deriveBlueprintPlanExecutionAuthorityBody(body);
+    const integrity = await createBlueprintPlanIntegrityDigests({
+        guildId: current.guildId!,
+        policy,
+        summary: plan.summary,
+        authority: body,
+        executionAuthority: execution,
+        steps: plan.steps.map((step, sequence) => ({ sequence, step })),
+        decisions: plan.decisions.map((decision, sequence) => ({ sequence, decision })),
+    });
+    const authority = {
+        id: 'authority-1',
+        planId: 'plan-1',
+        guildId: current.guildId!,
+        version: 1 as const,
+        ...body,
+        authorityDigest: integrity.authorityDigest,
+        createdAt: now,
+    };
+    const metadata = {
+        id: 'plan-1',
+        guildId: current.guildId!,
+        sourceBackupId: null,
+        status: 'approved' as const,
+        policy,
+        planVersion: 4 as const,
+        summary: plan.summary,
+        decisionSummary: {
+            noOp: 0,
+            create: 0,
+            update: 0,
+            delete: 0,
+            protectedRetained: 0,
+            protectedOmitted: 0,
+            unmanagedRetained: 0,
+            blockedAmbiguous: 0,
+            blockedUnsupported: 0,
+        },
+        blockerCount: plan.blockers.length,
+        requestedSnapshotDigest: integrity.requestedSnapshotDigest,
+        projectedSnapshotDigest: integrity.projectedSnapshotDigest,
+        authorityVersion: 1 as const,
+        authorityDigest: integrity.authorityDigest,
+        executionAuthorityVersion: 1 as const,
+        executionAuthorityDigest: integrity.executionAuthorityDigest,
+        stepCount: integrity.stepCount,
+        stepLedgerDigest: integrity.stepLedgerDigest,
+        decisionCount: integrity.decisionCount,
+        decisionLedgerDigest: integrity.decisionLedgerDigest,
+        deleteStepCount: integrity.deleteStepCount,
+        deleteSetDigest: integrity.deleteSetDigest,
+        planDigest: integrity.planDigest,
+        createdByUserId: 'user-1',
+        createdAt: now,
+        updatedAt: now,
+    };
+    return { metadata, authority };
+}
 
 function createSnapshot(overrides: Partial<DashboardBlueprintSnapshot> = {}): DashboardBlueprintSnapshot {
     return {

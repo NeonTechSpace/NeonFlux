@@ -51,6 +51,7 @@
         "test:ci:summary": "tsx scripts/write-vitest-ci-summary.ts",
         "test:e2e:web": "pnpm --filter neonflux-web e2e:public",
         "test:watch": "vitest watch",
+        "blueprint:io-acceptance": "tsx scripts/blueprint-io-acceptance.ts",
         "convex:codegen": "tsx scripts/convex-cli.ts codegen",
         "convex:codegen:check": "pnpm convex:codegen && git diff --exit-code -- convex/_generated",
         "convex:dev": "tsx scripts/convex-cli.ts dev",
