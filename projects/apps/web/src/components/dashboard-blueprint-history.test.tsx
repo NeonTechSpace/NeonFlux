@@ -2,7 +2,6 @@
 /* eslint-disable testing-library/no-manual-cleanup -- Vitest globals are disabled, so RTL cannot register automatic cleanup. */
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../dashboard-blueprint-run-protocol.js';
@@ -10,7 +9,6 @@ import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model
 import { createEmptyDecisionSummary } from '../server/dashboard-blueprint-contracts.js';
 import { DashboardBlueprintDeployActionBar } from './dashboard-blueprint-deploy-action-bar.js';
 import { emptyDashboardBlueprintConfirmation } from './dashboard-blueprint-deploy-readiness.js';
-import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import { DashboardBlueprintActiveDeployment } from './dashboard-blueprint-history.js';
 
@@ -192,21 +190,24 @@ describe('Server Blueprint action inspection', () => {
         ).toBeTruthy();
     });
 
-    it('requires plan-bound destructive confirmation before exposing Apply', async () => {
+    it('keeps deployment disabled until plan-bound destructive confirmation is complete', async () => {
         const run = createRun({
             status: 'approved',
             deleteStepCount: 1,
             deleteSetDigest: 'delete-digest',
         });
         const preflight = createPreflight({ status: 'destructive-approval-required' });
-        render(<ControlledHistory run={run} preflight={preflight} />);
+        const view = renderHistory(run, { preflightReport: preflight });
         await waitForDeploymentReview();
 
-        const deployButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Deploy blueprint' });
-        expect(deployButton.disabled).toBe(true);
-        fireEvent.click(screen.getByRole('checkbox', { name: /1 existing object will be removed/i }));
-
-        expect(screen.getByRole('button', { name: 'Apply 1 change, including 1 deletion' })).toBeTruthy();
+        expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Deploy blueprint' }).disabled).toBe(true);
+        view.rerender(
+            historyElement(run, {
+                preflightReport: preflight,
+                confirmation: { ...emptyDashboardBlueprintConfirmation, understandsDeletion: true },
+            })
+        );
+        expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Deploy blueprint' }).disabled).toBe(false);
     });
 
     it('requires a refreshed check when expired or older than a failed-before-mutation attempt', async () => {
@@ -238,7 +239,7 @@ describe('Server Blueprint action inspection', () => {
                 }),
             })
         );
-        expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Deploy blueprint' })).toBeTruthy();
 
         view.rerender(
             historyElement(createRun({ status: 'approved' }), {
@@ -286,7 +287,6 @@ function renderHistory(run: DashboardBlueprintPlan, overrides: HistoryTestOverri
 function historyElement(run: DashboardBlueprintPlan, overrides: HistoryTestOverrides = {}) {
     const onApply = overrides.onApply ?? vi.fn();
     const onApprove = overrides.onApprove ?? vi.fn();
-    const onConfirmationChange = overrides.onConfirmationChange ?? vi.fn();
     const onLoadDecisions = overrides.onLoadDecisions ?? vi.fn();
     const onPreflight = overrides.onPreflight ?? vi.fn();
     const journeyStep = overrides.journeyStep ?? 'review';
@@ -302,7 +302,6 @@ function historyElement(run: DashboardBlueprintPlan, overrides: HistoryTestOverr
                     confirmation={confirmation}
                     onApply={() => onApply(run)}
                     onApprove={() => onApprove(run)}
-                    onConfirmationChange={(value) => onConfirmationChange(run.id, value)}
                     onPreflight={() => onPreflight(run)}
                     onReviewBlocker={() => onLoadDecisions(run)}
                     plan={run}
@@ -331,25 +330,7 @@ function historyElement(run: DashboardBlueprintPlan, overrides: HistoryTestOverr
 type HistoryTestOverrides = Partial<Parameters<typeof DashboardBlueprintActiveDeployment>[0]> & {
     onApply?: (plan: DashboardBlueprintPlan) => void;
     onApprove?: (plan: DashboardBlueprintPlan) => void;
-    onConfirmationChange?: (planId: string, value: DashboardBlueprintConfirmationDraft) => void;
 };
-
-function ControlledHistory({
-    run,
-    preflight,
-}: {
-    run: DashboardBlueprintPlan;
-    preflight: DashboardBlueprintPreflightView;
-}) {
-    const [confirmation, setConfirmation] = useState(emptyDashboardBlueprintConfirmation);
-
-    return historyElement(run, {
-        preflightReport: preflight,
-        confirmation,
-        targetGuildName: 'Guild One',
-        onConfirmationChange: (_planId, value) => setConfirmation(value),
-    });
-}
 
 function createPreflight({
     checkedAt = '2026-07-13T10:00:00.000Z',

@@ -16,7 +16,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
     it.each(['draft', 'needs_input', 'review_ready'] as const)('keeps a %s plan in review', (status) => {
         expect(
             deriveDashboardBlueprintDeployJourney({
-                choosingSource: false,
+                draftStep: undefined,
                 hasParsedSource: false,
                 plan: { status } as DashboardBlueprintPlan,
                 preflight: undefined,
@@ -42,7 +42,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
 
         expect(
             deriveDashboardBlueprintDeployJourney({
-                choosingSource: false,
+                draftStep: undefined,
                 hasParsedSource: false,
                 plan: run,
                 preflight: undefined,
@@ -54,7 +54,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
         const plan = { status: 'approved' } as DashboardBlueprintPlan;
         expect(
             deriveDashboardBlueprintDeployJourney({
-                choosingSource: false,
+                draftStep: undefined,
                 hasParsedSource: false,
                 plan,
                 preflight: undefined,
@@ -62,7 +62,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
         ).toBe('safety');
         expect(
             deriveDashboardBlueprintDeployJourney({
-                choosingSource: false,
+                draftStep: undefined,
                 hasParsedSource: false,
                 plan,
                 preflight: { status: 'ready' },
@@ -73,7 +73,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
     it('returns an expired ready preflight to Safety', () => {
         expect(
             deriveDashboardBlueprintDeployJourney({
-                choosingSource: false,
+                draftStep: undefined,
                 hasParsedSource: false,
                 now: Date.parse('2026-07-15T10:00:00.000Z'),
                 plan: { status: 'approved' } as DashboardBlueprintPlan,
@@ -94,7 +94,7 @@ describe('deriveDashboardBlueprintDeployJourney', () => {
             },
         } as DashboardBlueprintPlan;
         const base = {
-            choosingSource: false,
+            draftStep: undefined,
             hasParsedSource: false,
             now: Date.parse('2026-07-15T10:02:00.000Z'),
             plan,

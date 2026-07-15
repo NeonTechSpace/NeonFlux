@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from 'react';
 
 import { getDashboardBlueprintQueryKey, getDashboardBlueprintStatusQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardBlueprintStatusRouteData } from '../server/dashboard-blueprint-route-data.js';
-import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
 import {
     getDashboardBlueprintSurfaceTo,
     readDashboardBlueprintSurfaceFromPathname,
@@ -15,6 +14,7 @@ import { DashboardBlueprintErrorBoundary } from './dashboard-blueprint-error-bou
 import { useDashboardBlueprintRunProgress } from './dashboard-blueprint-run-progress.js';
 import { createDashboardBlueprintReadRegistry } from './dashboard-blueprint-request-registry.js';
 import { DashboardBlueprintRuntimeProvider } from './dashboard-blueprint-runtime-context.js';
+import type { DashboardBlueprintDeployFlow } from './dashboard-blueprint-runtime-context.js';
 import { DashboardBlueprintWorkspaceShell } from './dashboard-blueprint-workspace-shell.js';
 import type { DashboardBlueprintSurface } from './dashboard-blueprint-surface.js';
 
@@ -33,9 +33,7 @@ export function DashboardBlueprintRuntime({ guildId }: { guildId: string }) {
     const readSlice = useMemo(() => createDashboardBlueprintReadRegistry(guildId), [guildId]);
     const [importJson, setImportJson] = useState('');
     const [structurePolicy, setStructurePolicy] = useState<'merge' | 'synchronize' | 'rebuild'>('synchronize');
-    const [deployFlow, setDeployFlow] = useState<
-        { type: 'latest' } | { type: 'choose' } | { type: 'plan'; plan: DashboardBlueprintPlan }
-    >({ type: 'latest' });
+    const [deployFlow, setDeployFlow] = useState<DashboardBlueprintDeployFlow>({ type: 'latest' });
     const [comparisonSource, setComparisonSource] = useState<DashboardBlueprintExplorerSource | undefined>();
     const [pendingSurface, setPendingSurface] = useState<DashboardBlueprintSurface | undefined>();
     const [failedNavigation, setFailedNavigation] = useState<

@@ -23,6 +23,7 @@ import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
 import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-blueprint-panel-requested-snapshot.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
+import { dashboardFieldClassName } from './dashboard-ui.js';
 
 export function DashboardBlueprintDeployReview({
     busyAction,
@@ -30,6 +31,7 @@ export function DashboardBlueprintDeployReview({
     targetGuildName,
     onInspectPlanStep,
     onLoadPlanSteps,
+    onConfirmationChange,
     preflightReport,
     plan,
     journeyStep,
@@ -39,6 +41,7 @@ export function DashboardBlueprintDeployReview({
     targetGuildName: string;
     onInspectPlanStep?: (plan: DashboardBlueprintPlan, action: DashboardBlueprintPlanStep) => void;
     onLoadPlanSteps: (plan: DashboardBlueprintPlan) => void;
+    onConfirmationChange?: (value: DashboardBlueprintConfirmationDraft) => void;
     preflightReport: DashboardBlueprintPreflightView | undefined;
     plan: DashboardBlueprintPlan;
     journeyStep: DashboardBlueprintDeployJourneyStep;
@@ -141,7 +144,91 @@ export function DashboardBlueprintDeployReview({
                     ) : null}
                 </details>
             ) : null}
+
+            {journeyStep === 'confirm' && onConfirmationChange ? (
+                <ConfirmationRequirements
+                    confirmation={confirmation}
+                    destructiveCount={readiness.destructiveApprovalCount}
+                    policy={plan.policy}
+                    targetGuildName={targetGuildName}
+                    onChange={onConfirmationChange}
+                />
+            ) : null}
         </section>
+    );
+}
+
+function ConfirmationRequirements({
+    confirmation,
+    destructiveCount,
+    policy,
+    targetGuildName,
+    onChange,
+}: {
+    confirmation: DashboardBlueprintConfirmationDraft;
+    destructiveCount: number;
+    policy: DashboardBlueprintPlan['policy'];
+    targetGuildName: string;
+    onChange: (value: DashboardBlueprintConfirmationDraft) => void;
+}) {
+    if (destructiveCount === 0) {
+        return (
+            <div className='rounded-[var(--dash-radius-control)] border border-[color:var(--dash-success)]/35 bg-[var(--dash-success-soft)] p-4 sm:p-5'>
+                <p className='text-sm font-semibold text-[var(--dash-text)]'>No destructive confirmation required</p>
+                <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                    The server will still revalidate the plan, target, safety check, and delete set before queueing.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <fieldset className='rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/35 bg-[var(--dash-danger-soft)] p-4 sm:p-5'>
+            <legend className='px-1 text-sm font-semibold text-[var(--dash-text)]'>Confirm destructive changes</legend>
+            <div className='mt-2 space-y-4'>
+                <label className='flex items-start gap-2 text-sm text-[var(--dash-text)]'>
+                    <input
+                        type='checkbox'
+                        checked={confirmation.understandsDeletion}
+                        onChange={(event) =>
+                            onChange({ ...confirmation, understandsDeletion: event.currentTarget.checked })
+                        }
+                        className='mt-0.5'
+                    />
+                    I understand that {destructiveCount} existing object{destructiveCount === 1 ? '' : 's'} will be
+                    removed.
+                </label>
+                {policy === 'rebuild' ? (
+                    <>
+                        <label className='flex items-start gap-2 text-sm text-[var(--dash-text)]'>
+                            <input
+                                type='checkbox'
+                                checked={confirmation.understandsRestorePointRequirement}
+                                onChange={(event) =>
+                                    onChange({
+                                        ...confirmation,
+                                        understandsRestorePointRequirement: event.currentTarget.checked,
+                                    })
+                                }
+                                className='mt-0.5'
+                            />
+                            I understand that NeonFlux must create a restore point before mutation.
+                        </label>
+                        <label className='block text-sm font-semibold text-[var(--dash-text)]'>
+                            Type the target server name to continue: {targetGuildName}
+                            <input
+                                aria-label='Target server name confirmation'
+                                value={confirmation.targetGuildName}
+                                onChange={(event) =>
+                                    onChange({ ...confirmation, targetGuildName: event.currentTarget.value })
+                                }
+                                className={`mt-2 ${dashboardFieldClassName} focus:border-[var(--dash-danger)]`}
+                            />
+                        </label>
+                    </>
+                ) : null}
+            </div>
+        </fieldset>
     );
 }
 

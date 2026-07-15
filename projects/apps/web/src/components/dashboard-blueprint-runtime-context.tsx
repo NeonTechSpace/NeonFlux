@@ -17,7 +17,7 @@ export type DashboardBlueprintReadSlice = <TResult extends StructureRequestResul
 
 export type DashboardBlueprintDeployFlow =
     | { type: 'latest' }
-    | { type: 'choose' }
+    | { type: 'draft'; step: 'source' | 'configure' }
     | { type: 'plan'; plan: DashboardBlueprintPlan };
 
 export type DashboardBlueprintRuntimeValue = {

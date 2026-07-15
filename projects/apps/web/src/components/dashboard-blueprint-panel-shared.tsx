@@ -1,7 +1,4 @@
-import { RotateCcw } from 'lucide-react';
-
 import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
-import { dashboardSecondaryActionClassName, DashboardStatus } from './dashboard-ui.js';
 
 export function MiniCount({ label, value }: { label: string; value: number }) {
     return (
@@ -27,35 +24,6 @@ export function StatusMessage({ status }: { status: PanelStatus }) {
             aria-live={status.tone === 'error' ? 'assertive' : 'polite'}>
             {status.message}
         </p>
-    );
-}
-
-export function RestorePointShortcutNotice({
-    backupId,
-    busy,
-    disabled,
-    onCreateRestorePlan,
-}: {
-    backupId: string;
-    busy: boolean;
-    disabled: boolean;
-    onCreateRestorePlan: (backupId: string) => void;
-}) {
-    return (
-        <DashboardStatus
-            tone='warning'
-            actions={
-                <button
-                    type='button'
-                    onClick={() => onCreateRestorePlan(backupId)}
-                    disabled={disabled}
-                    className={`${dashboardSecondaryActionClassName} inline-flex min-h-8 items-center gap-2 text-xs`}>
-                    <RotateCcw className='size-3.5' />
-                    {busy ? 'Creating restore plan' : 'Plan restore with Match'}
-                </button>
-            }>
-            Restore point saved before apply.
-        </DashboardStatus>
     );
 }
 

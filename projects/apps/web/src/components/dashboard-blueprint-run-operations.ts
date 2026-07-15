@@ -145,12 +145,11 @@ export function useDashboardBlueprintRunOperations({
                 ...current,
                 [plan.id]: emptyDashboardBlueprintConfirmation,
             }));
-            setStatus({
-                tone: 'success',
-                message: 'Deployment queued. Progress will update while the bot applies and verifies the plan.',
-            });
-            await refreshRuns();
-            await refreshAuditEvents();
+            setStatus({ tone: 'neutral', message: 'Queued' });
+            const refreshResults = await Promise.allSettled([refreshRuns(), refreshAuditEvents()]);
+            if (refreshResults.some((refreshResult) => refreshResult.status === 'rejected')) {
+                setStatus({ tone: 'neutral', message: 'Queued · live status is reconnecting' });
+            }
         } catch {
             setStatus(toUnexpectedErrorStatus());
         } finally {

@@ -278,7 +278,7 @@ export function DashboardBlueprintBackupsRoute() {
     }
 
     function beginDeploySource(sourceJson = ''): void {
-        setDeployFlow({ type: 'choose' });
+        setDeployFlow({ type: 'draft', step: 'source' });
         setImportJson(sourceJson);
         setStructurePolicy('synchronize');
         setStatus(sourceJson ? { tone: 'neutral', message: 'Backup loaded as the deployment source.' } : undefined);

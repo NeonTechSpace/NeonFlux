@@ -10,7 +10,6 @@ import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import {
     dashboardDangerActionClassName,
-    dashboardFieldClassName,
     dashboardPrimaryActionClassName,
     dashboardSecondaryActionClassName,
 } from './dashboard-ui.js';
@@ -20,7 +19,6 @@ export function DashboardBlueprintDeployActionBar({
     confirmation = emptyDashboardBlueprintConfirmation,
     onApprove,
     onApply,
-    onConfirmationChange,
     onPreflight,
     onReviewBlocker,
     plan,
@@ -31,7 +29,6 @@ export function DashboardBlueprintDeployActionBar({
     confirmation?: DashboardBlueprintConfirmationDraft;
     onApprove: () => void;
     onApply: () => void;
-    onConfirmationChange: (value: DashboardBlueprintConfirmationDraft) => void;
     onPreflight: () => void;
     onReviewBlocker: () => void;
     plan: DashboardBlueprintPlan;
@@ -52,67 +49,16 @@ export function DashboardBlueprintDeployActionBar({
     }
 
     return (
-        <div className='rounded-[var(--dash-radius-control)] border border-[color:var(--dash-info)]/35 bg-[var(--dash-info-soft)] p-3'>
-            <p className='text-xs font-semibold text-[var(--dash-text)]'>Next safe action</p>
-            <p className='mt-1 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                {formatNextActionDetail(readiness.nextAction)}
-            </p>
-            {readiness.nextAction === 'confirm-delete' ||
-            (readiness.nextAction === 'apply' && readiness.destructiveApprovalCount > 0) ? (
-                <div className='mt-3 space-y-3 rounded-[var(--dash-radius-control)] border border-[color:var(--dash-danger)]/30 bg-[var(--dash-bg)] p-3'>
-                    <label className='flex items-start gap-2 text-xs text-[var(--dash-text)]'>
-                        <input
-                            type='checkbox'
-                            checked={confirmation.understandsDeletion}
-                            onChange={(event) =>
-                                onConfirmationChange({
-                                    ...confirmation,
-                                    understandsDeletion: event.currentTarget.checked,
-                                })
-                            }
-                        />
-                        I understand that {readiness.destructiveApprovalCount} existing object
-                        {readiness.destructiveApprovalCount === 1 ? '' : 's'} will be removed.
-                    </label>
-                    {plan.policy === 'rebuild' ? (
-                        <>
-                            <label className='flex items-start gap-2 text-xs text-[var(--dash-text)]'>
-                                <input
-                                    type='checkbox'
-                                    checked={confirmation.understandsRestorePointRequirement}
-                                    onChange={(event) =>
-                                        onConfirmationChange({
-                                            ...confirmation,
-                                            understandsRestorePointRequirement: event.currentTarget.checked,
-                                        })
-                                    }
-                                />
-                                I understand that NeonFlux must create a restore point before mutation.
-                            </label>
-                            <label className='block text-xs font-semibold text-[var(--dash-text)]'>
-                                Type the target server name to continue: {targetGuildName}
-                                <input
-                                    aria-label='Target server name confirmation'
-                                    value={confirmation.targetGuildName}
-                                    onChange={(event) =>
-                                        onConfirmationChange({
-                                            ...confirmation,
-                                            targetGuildName: event.currentTarget.value,
-                                        })
-                                    }
-                                    className={`mt-2 ${dashboardFieldClassName} focus:border-[var(--dash-danger)]`}
-                                />
-                            </label>
-                        </>
-                    ) : null}
-                </div>
-            ) : null}
-            <div className='mt-3 flex items-end justify-between gap-3 border-t border-[var(--dash-border)] pt-3'>
-                <p className='text-xs text-[var(--dash-text-muted)]'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div>
+                <p className='text-xs font-semibold text-[var(--dash-text)]'>Next safe action</p>
+                <p className='mt-0.5 text-xs leading-5 text-[var(--dash-text-muted)]'>
                     {readiness.nextAction === 'confirm-delete'
                         ? 'Complete the confirmation requirements to enable deployment.'
-                        : 'The server revalidates the plan, target, safety check, and delete set.'}
+                        : formatNextActionDetail(readiness.nextAction)}
                 </p>
+            </div>
+            <div className='shrink-0'>
                 <button
                     type='button'
                     disabled={Boolean(busyAction) || readiness.nextAction === 'confirm-delete'}
@@ -125,14 +71,14 @@ export function DashboardBlueprintDeployActionBar({
                                 ? onApply
                                 : onReviewBlocker
                     }
-                    className={
+                    className={`w-full sm:w-auto ${
                         (readiness.nextAction === 'apply' || readiness.nextAction === 'confirm-delete') &&
                         readiness.destructiveApprovalCount > 0
                             ? dashboardDangerActionClassName
                             : readiness.nextAction === 'review-blocker' || readiness.nextAction === 'preflight'
                               ? dashboardSecondaryActionClassName
                               : dashboardPrimaryActionClassName
-                    }>
+                    }`}>
                     {formatNextActionLabel(readiness, plan, busyAction)}
                 </button>
             </div>
@@ -170,9 +116,7 @@ function formatNextActionLabel(
               : 'Plan safety check';
     }
     if (readiness.nextAction === 'apply') {
-        return busyAction === `apply:${plan.id}`
-            ? 'Starting deployment'
-            : `Apply ${plan.changeCount} change${plan.changeCount === 1 ? '' : 's'}${readiness.destructiveApprovalCount ? `, including ${readiness.destructiveApprovalCount} deletion${readiness.destructiveApprovalCount === 1 ? '' : 's'}` : ''}`;
+        return busyAction === `apply:${plan.id}` ? 'Starting deployment' : 'Deploy blueprint';
     }
     if (readiness.nextAction === 'confirm-delete') return 'Deploy blueprint';
     return 'Review first blocker';

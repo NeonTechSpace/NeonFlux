@@ -1,14 +1,18 @@
 import { motion } from 'motion/react';
+import { lazy, Suspense } from 'react';
 
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
 import { formatDashboardBlueprintRunState } from '../server/dashboard-blueprint-contracts.js';
 import { DashboardBlueprintRunIssue, formatDashboardBlueprintRunIssue } from './dashboard-blueprint-run-issue.js';
-import { DashboardBlueprintHistory } from './dashboard-blueprint-history.js';
 import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
 import { dashboardTactile } from './dashboard-motion.js';
 import { formatDate } from './dashboard-blueprint-panel-format.js';
 import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
+
+const DashboardBlueprintHistory = lazy(() =>
+    import('./dashboard-blueprint-history.js').then((module) => ({ default: module.DashboardBlueprintHistory }))
+);
 
 export type DashboardBlueprintRunsWorkspace = {
     busyAction: BlueprintBusyAction | undefined;
@@ -64,17 +68,24 @@ export function DashboardBlueprintRunsSurface({ workspace }: { workspace: Dashbo
                                 <span className='text-sm font-medium text-[var(--dash-primary)]'>Open plan</span>
                             </motion.summary>
                             <div className='pb-5'>
-                                <DashboardBlueprintHistory
-                                    plans={[plan]}
-                                    latestPlan={workspace.latestPlan}
-                                    busyAction={workspace.busyAction}
-                                    preflightByPlanId={workspace.preflightByPlanId}
-                                    onPreflight={workspace.onPreflightRun}
-                                    onControl={workspace.onControlRun}
-                                    onLoadPlanSteps={workspace.onLoadPlanSteps}
-                                    onLoadDecisions={workspace.onLoadPlanDecisions}
-                                    onRecoveryPlan={workspace.onRecoveryPlan}
-                                />
+                                <Suspense
+                                    fallback={
+                                        <p role='status' className='px-2 py-4 text-sm text-[var(--dash-text-muted)]'>
+                                            Loading run details…
+                                        </p>
+                                    }>
+                                    <DashboardBlueprintHistory
+                                        plans={[plan]}
+                                        latestPlan={workspace.latestPlan}
+                                        busyAction={workspace.busyAction}
+                                        preflightByPlanId={workspace.preflightByPlanId}
+                                        onPreflight={workspace.onPreflightRun}
+                                        onControl={workspace.onControlRun}
+                                        onLoadPlanSteps={workspace.onLoadPlanSteps}
+                                        onLoadDecisions={workspace.onLoadPlanDecisions}
+                                        onRecoveryPlan={workspace.onRecoveryPlan}
+                                    />
+                                </Suspense>
                                 {workspace.runProgressIssue?.planId === plan.id ? (
                                     <DashboardBlueprintRunIssue
                                         code={workspace.runProgressIssue.code}

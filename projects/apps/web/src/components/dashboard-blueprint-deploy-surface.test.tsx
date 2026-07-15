@@ -5,32 +5,36 @@ import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
+import { isDashboardBlueprintSourceReady } from './dashboard-blueprint-deploy-stage.js';
 import { DashboardBlueprintDeploySurface } from './dashboard-blueprint-deploy-surface.js';
 import type { DashboardBlueprintDeployWorkspace } from './dashboard-blueprint-deploy-surface.js';
+import type { DashboardBlueprintSourceState } from './dashboard-blueprint-deploy-source-state.js';
 
 describe('DashboardBlueprintDeploySurface', () => {
-    it('replaces the reviewed plan with a reset Choose flow when starting over', () => {
+    it('resets to Source and advances only after explicit continuation', async () => {
         render(<DeployFlowHarness />);
         const actionRegion = screen.getByRole('region', { name: 'Deployment action' });
 
-        expect(screen.getByText('1 changes · 0 plan steps')).toBeTruthy();
+        expect(screen.getByText('1 changes · 0 steps')).toBeTruthy();
         expect(actionRegion).toBeTruthy();
         expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Review');
 
         fireEvent.click(screen.getByRole('button', { name: 'Start over with another blueprint' }));
 
-        expect(screen.queryByText('1 changes · 0 plan steps')).toBeNull();
+        expect(screen.queryByText('1 changes · 0 steps')).toBeNull();
         expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Source');
         expect(screen.queryByText('Previous plan status')).toBeNull();
         expect(screen.getByRole('region', { name: 'Deployment action' })).toBe(actionRegion);
-        fireEvent.click(screen.getByRole('tab', { name: 'Paste JSON' }));
+        fireEvent.click(await screen.findByRole('tab', { name: 'Paste JSON' }));
         const sourceInput = screen.getByLabelText<HTMLTextAreaElement>('Blueprint JSON');
         expect(sourceInput.value).toBe('');
         fireEvent.change(sourceInput, {
             target: { value: '{"version":1,"roles":[],"categories":[],"channels":[]}' },
         });
-        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Configure');
+        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Source');
         expect(screen.getByRole('region', { name: 'Deployment action' })).toBe(actionRegion);
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to configuration' }));
+        expect(screen.getByRole('listitem', { current: 'step' }).textContent).toContain('Configure');
         expect(screen.getByRole('button', { name: 'Generate review plan' })).toBeTruthy();
         expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Match blueprint (recommended)' }).checked).toBe(
             true
@@ -72,8 +76,12 @@ function DeployFlowHarness({
     runProgressRetrying?: boolean;
 } = {}) {
     const run = createImportRun();
-    const [choosingSource, setChoosingSource] = useState(false);
-    const [importJson, setImportJson] = useState('{"old":true}');
+    const [draftStep, setDraftStep] = useState<'source' | 'configure' | undefined>();
+    const [sourceState, setSourceState] = useState<DashboardBlueprintSourceState>({
+        status: 'empty',
+        mode: 'file',
+    });
+    const [pasteJson, setPasteJson] = useState('');
     const [policy, setPolicy] = useState<'merge' | 'synchronize' | 'rebuild'>('rebuild');
     const [hasMappings, setHasMappings] = useState(true);
     const [showStatus, setShowStatus] = useState(true);
@@ -81,13 +89,15 @@ function DeployFlowHarness({
     const workspace: DashboardBlueprintDeployWorkspace = {
         busyAction: undefined,
         confirmationByPlanId: {},
-        deployChoosingSource: choosingSource,
-        deployPlan: choosingSource ? undefined : run,
+        deployDraftStep: draftStep,
+        deployPlan: draftStep ? undefined : run,
+        operationStatus: undefined,
+        pasteJson,
+        preflightByPlanId: {},
+        refreshIssue: undefined,
+        refreshRetrying: false,
         runProgressIssue,
         runProgressRetrying,
-        importJson,
-        preflightByPlanId: {},
-        restoreShortcutBackupId: undefined,
         roleMappingConflicts: hasMappings
             ? [
                   {
@@ -99,7 +109,7 @@ function DeployFlowHarness({
               ]
             : [],
         roleMappings: hasMappings ? { 'source-1': 'target-1' } : {},
-        sourceFile: undefined,
+        sourceState,
         structurePolicy: policy,
         targetGuildId: 'guild-1',
         targetGuildName: 'Guild One',
@@ -109,18 +119,33 @@ function DeployFlowHarness({
         onCreatePlan: () => {},
         onCreateRestorePlan: () => {},
         onConfirmationChange: () => {},
-        onImportJsonChange: setImportJson,
-        onImportStructureFile: async () => {},
+        onChangeSource: () => setDraftStep('source'),
+        onContinueSource: () => setDraftStep('configure'),
+        onFilesSelected: () => {},
         onInspectImportJson: () => {},
         onLoadPlanSteps: () => {},
         onLoadPlanDecisions: () => {},
+        onModeChange: (mode) => {
+            setPasteJson('');
+            setSourceState({ status: 'empty', mode });
+        },
+        onPasteJsonChange: (value) => {
+            setPasteJson(value);
+            setSourceState(
+                isDashboardBlueprintSourceReady(value)
+                    ? { status: 'ready', mode: 'paste', json: value }
+                    : { status: 'invalid', mode: 'paste', message: 'Invalid Blueprint JSON.' }
+            );
+        },
         onPreflightRun: () => {},
         onRecoveryPlan: () => {},
         onRetryRunProgress: () => {},
+        onRetryRefresh: () => {},
         onRoleMappingChange: () => {},
         onStartNewBlueprintDeployment: () => {
-            setChoosingSource(true);
-            setImportJson('');
+            setDraftStep('source');
+            setPasteJson('');
+            setSourceState({ status: 'empty', mode: 'file' });
             setPolicy('synchronize');
             setHasMappings(false);
             setShowStatus(false);

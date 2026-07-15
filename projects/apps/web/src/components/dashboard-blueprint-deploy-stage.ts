@@ -26,13 +26,13 @@ export function readDashboardBlueprintSourceSnapshot(value: string): BlueprintSn
 
 /** Durable plan and run state outrank local route and draft hints. */
 export function deriveDashboardBlueprintDeployJourney({
-    choosingSource,
+    draftStep,
     hasParsedSource,
     now = Date.now(),
     plan,
     preflight,
 }: {
-    choosingSource: boolean;
+    draftStep: 'source' | 'configure' | undefined;
     hasParsedSource: boolean;
     now?: number;
     plan: DashboardBlueprintPlan | undefined;
@@ -52,8 +52,7 @@ export function deriveDashboardBlueprintDeployJourney({
         return { index: 4, step: 'safety' };
     }
     if (plan) return { index: 3, step: 'review' };
-    if (hasParsedSource) return { index: 2, step: 'configure' };
-    if (choosingSource) return { index: 1, step: 'source' };
+    if (draftStep === 'configure' && hasParsedSource) return { index: 2, step: 'configure' };
     return { index: 1, step: 'source' };
 }
 
