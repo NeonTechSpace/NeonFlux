@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
-    aggregateBlueprintIoMetrics,
+    aggregateBlueprintIoWorkloadMetrics,
+    assertNoTransitiveColdDependencies,
     assertBlueprintIoAcceptance,
     extractBlueprintIoWorkloadMetrics,
     parseBlueprintIoMetrics,
@@ -23,14 +27,14 @@ describe('Blueprint I/O acceptance metrics', () => {
         expect(() => parseBlueprintIoMetrics('not-json')).toThrow(/malformed or truncated/u);
     });
 
-    it('measures only explicit workload phases and rejects unknown Blueprint calls inside them', () => {
+    it('measures only explicit workload phases and rejects every unknown call inside them', () => {
         const markers = {
             workerStart: 'worker-start-test',
             workerEnd: 'worker-end-test',
             historyStart: 'history-start-test',
             historyEnd: 'history-end-test',
         };
-        const records = [
+        const records: Array<Record<string, unknown>> = [
             log('blueprint:createBlueprintPlanDraft', 900_000, 1),
             markerLog(markers.workerStart),
             log('blueprint:claimNextBlueprintRun', 12, 5),
@@ -42,15 +46,34 @@ describe('Blueprint I/O acceptance metrics', () => {
         ];
         expect(
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
-        ).toStrictEqual([
-            { functionName: 'blueprint:claimNextBlueprintRun', readBytes: 12, writeBytes: 5 },
-            { functionName: 'blueprint:listBlueprintPlanSummariesByGuildId', readBytes: 6, writeBytes: 0 },
-        ]);
+        ).toStrictEqual({
+            worker: [{ functionName: 'blueprint:claimNextBlueprintRun', readBytes: 12, writeBytes: 5 }],
+            history: [{ functionName: 'blueprint:listBlueprintPlanSummariesByGuildId', readBytes: 6, writeBytes: 0 }],
+        });
 
         records.splice(3, 0, log('blueprint:getBlueprintPlanAuthority', 700 * 1024, 0));
         expect(() =>
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
-        ).toThrow(/Unexpected Blueprint function blueprint:getBlueprintPlanAuthority.*worker phase/u);
+        ).toThrow(/Unexpected Convex function blueprint:getBlueprintPlanAuthority.*worker phase/u);
+
+        records.splice(3, 1, log('runtime:getRuntimeContract', 1, 0));
+        expect(() =>
+            extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
+        ).toThrow(/Unexpected Convex function runtime:getRuntimeContract.*worker phase/u);
+
+        records.splice(3, 1);
+        records.splice(-1, 0, log('runtime:getRuntimeContract', 1, 0));
+        expect(() =>
+            extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
+        ).toThrow(/Unexpected Convex function runtime:getRuntimeContract.*History phase/u);
+
+        records.splice(-2, 1, {
+            ...log('blueprint:listBlueprintPlanSummariesByGuildId', 1, 0),
+            usageStats: undefined,
+        });
+        expect(() =>
+            extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
+        ).toThrow(/omitted its identifier or usage metrics/u);
     });
 
     it('aggregates bytes and enforces the expected request and byte budgets', () => {
@@ -67,9 +90,9 @@ describe('Blueprint I/O acceptance metrics', () => {
             ...repeat('blueprint:listLatestBlueprintPlanPreflightSummaries', 1, 1),
             ...repeat('blueprint:listLatestBlueprintRunSummaries', 1, 1),
         ];
-        const aggregates = aggregateBlueprintIoMetrics(metrics);
+        const aggregates = aggregateAcceptanceMetrics(metrics);
         expect(() => assertBlueprintIoAcceptance(aggregates)).not.toThrow();
-        expect(aggregates.get('blueprint:completeAndCheckpointBlueprintRunStepAttempt')).toMatchObject({
+        expect(aggregates.worker.get('blueprint:completeAndCheckpointBlueprintRunStepAttempt')).toMatchObject({
             maximumReadBytes: 100,
             maximumWriteBytes: 0,
             readBytes: 47_500,
@@ -96,10 +119,10 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, readBytes: 64 * 1024 + 1 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(oversized))).toThrow(/maximum is 64 KiB/u);
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(oversized))).toThrow(/maximum is 64 KiB/u);
         const missingStart = [...valid];
         missingStart.splice(2 + 475, 1);
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(missingStart))).toThrow(
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(missingStart))).toThrow(
             /executed 474 times/u
         );
         const oversizedWrite = valid.map((metric) =>
@@ -107,7 +130,7 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, writeBytes: 64 * 1024 + 1 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(oversizedWrite))).toThrow(
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(oversizedWrite))).toThrow(
             /maximum is 64 KiB/u
         );
     });
@@ -129,7 +152,7 @@ describe('Blueprint I/O acceptance metrics', () => {
         const historyWrite = valid.map((metric) =>
             metric.functionName === 'blueprint:listLatestBlueprintRunSummaries' ? { ...metric, writeBytes: 1 } : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(historyWrite))).toThrow(
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(historyWrite))).toThrow(
             /History wrote 1 bytes/u
         );
         const workerWrite = valid.map((metric) =>
@@ -137,14 +160,14 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, writeBytes: 32 * 1024 * 1024 + 1 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(workerWrite))).toThrow(/worker wrote/u);
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(workerWrite))).toThrow(/worker wrote/u);
     });
 
     it('rejects standalone renewals, an oversized reclaim, and excessive total reads', () => {
         const valid = validMetrics();
         expect(() =>
             assertBlueprintIoAcceptance(
-                aggregateBlueprintIoMetrics([
+                aggregateAcceptanceMetrics([
                     ...valid,
                     { functionName: 'blueprint:renewBlueprintRunLease', readBytes: 1, writeBytes: 1 },
                 ])
@@ -156,7 +179,7 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, readBytes: 4 * 1024 * 1024 + 1 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(oversizedClaim))).toThrow(
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(oversizedClaim))).toThrow(
             /reclaim claim read/u
         );
 
@@ -165,26 +188,75 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, readBytes: 64 * 1024 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(excessiveReads))).not.toThrow();
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(excessiveReads))).not.toThrow();
         const firstExcessiveRead = excessiveReads[0];
         if (!firstExcessiveRead) {
             throw new Error('Expected at least one Blueprint I/O metric.');
         }
         excessiveReads[0] = { ...firstExcessiveRead, readBytes: 4 * 1024 * 1024 };
-        expect(() => assertBlueprintIoAcceptance(aggregateBlueprintIoMetrics(excessiveReads))).toThrow(/worker read/u);
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(excessiveReads))).toThrow(/worker read/u);
     });
 
     it('rejects an unlisted measured Blueprint function', () => {
         expect(() =>
             assertBlueprintIoAcceptance(
-                aggregateBlueprintIoMetrics([
-                    ...validMetrics(),
-                    { functionName: 'blueprint:getBlueprintPlanAuthority', readBytes: 700 * 1024, writeBytes: 0 },
-                ])
+                aggregateBlueprintIoWorkloadMetrics({
+                    history: historyMetrics(),
+                    worker: [
+                        ...validMetrics(),
+                        { functionName: 'blueprint:getBlueprintPlanAuthority', readBytes: 700 * 1024, writeBytes: 0 },
+                    ].filter((metric) => !isHistoryMetric(metric)),
+                })
             )
-        ).toThrow(/unexpected measured function blueprint:getBlueprintPlanAuthority/u);
+        ).toThrow(/Unexpected Convex function blueprint:getBlueprintPlanAuthority.*worker phase/u);
+    });
+
+    it('rejects cold tables reached through an indirect History import', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'neonflux-history-boundary-'));
+        try {
+            const entry = join(root, 'history.ts');
+            await writeFile(entry, "export { load } from './helper.js';\n", 'utf8');
+            await writeFile(join(root, 'helper.ts'), "export { load } from './cold.js';\n", 'utf8');
+            await writeFile(
+                join(root, 'cold.ts'),
+                "export const load = (ctx: any) => ctx.db.query('blueprintPlanAuthorities');\n",
+                'utf8'
+            );
+
+            await expect(assertNoTransitiveColdDependencies(entry, root)).rejects.toThrow(
+                /history\.ts -> helper\.ts -> cold\.ts/u
+            );
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
+
+    it('accepts the current transitive History dependency graph', async () => {
+        const root = join(process.cwd(), 'convex');
+        await expect(
+            assertNoTransitiveColdDependencies(join(root, 'blueprint/blueprint_history_summaries.ts'), root)
+        ).resolves.toBeUndefined();
     });
 });
+
+function aggregateAcceptanceMetrics(metrics: ReadonlyArray<ReturnType<typeof repeat>[number]>) {
+    return aggregateBlueprintIoWorkloadMetrics({
+        history: metrics.filter(isHistoryMetric),
+        worker: metrics.filter((metric) => !isHistoryMetric(metric)),
+    });
+}
+
+function isHistoryMetric(metric: { functionName: string }): boolean {
+    return new Set([
+        'blueprint:listBlueprintPlanSummariesByGuildId',
+        'blueprint:listLatestBlueprintPlanPreflightSummaries',
+        'blueprint:listLatestBlueprintRunSummaries',
+    ]).has(metric.functionName);
+}
+
+function historyMetrics() {
+    return validMetrics().filter(isHistoryMetric);
+}
 
 function validMetrics() {
     return [

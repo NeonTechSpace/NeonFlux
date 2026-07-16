@@ -10,12 +10,9 @@ import {
     readDashboardBlueprintPreflightEvidenceRouteData,
     readDashboardBlueprintVerificationEvidenceRouteData,
 } from '../server/dashboard-blueprint-route-data.js';
-import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
+import type { DashboardBlueprintPlan, DashboardBlueprintPlanColdDetail } from '../server/dashboard-blueprint-model.js';
 
-export type DashboardBlueprintPlanColdDetail = Pick<
-    DashboardBlueprintPlan,
-    'id' | 'requestedSnapshot' | 'requestedSnapshotStoredAt'
->;
+export type { DashboardBlueprintPlanColdDetail } from '../server/dashboard-blueprint-model.js';
 
 export function useDashboardBlueprintPlanAuthorityQuery(input: { enabled: boolean; guildId: string; planId?: string }) {
     const planId = input.planId ?? '';
@@ -32,7 +29,7 @@ export function useDashboardBlueprintPlanAuthorityQuery(input: { enabled: boolea
                 data: { guildId: input.guildId, planId },
             });
             if (result.type !== 'plan-authority') throw new Error(result.type);
-            return toDashboardBlueprintPlanColdDetail(result.plan);
+            return toDashboardBlueprintPlanColdDetail(result.detail);
         },
     });
 }
@@ -51,13 +48,15 @@ export function mergeDashboardBlueprintPlanColdDetail(
     };
 }
 
-function toDashboardBlueprintPlanColdDetail(plan: DashboardBlueprintPlan): DashboardBlueprintPlanColdDetail {
+function toDashboardBlueprintPlanColdDetail(
+    detail: DashboardBlueprintPlanColdDetail
+): DashboardBlueprintPlanColdDetail {
     return {
-        id: plan.id,
-        ...(plan.requestedSnapshot === undefined ? {} : { requestedSnapshot: plan.requestedSnapshot }),
-        ...(plan.requestedSnapshotStoredAt === undefined
+        id: detail.id,
+        ...(detail.requestedSnapshot === undefined ? {} : { requestedSnapshot: detail.requestedSnapshot }),
+        ...(detail.requestedSnapshotStoredAt === undefined
             ? {}
-            : { requestedSnapshotStoredAt: plan.requestedSnapshotStoredAt }),
+            : { requestedSnapshotStoredAt: detail.requestedSnapshotStoredAt }),
     };
 }
 

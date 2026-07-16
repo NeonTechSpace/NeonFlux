@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createBlueprintPlanAuthority } from '@neonflux/blueprint/integrity';
+import { normalizeBlueprintPlanAuthority } from '@neonflux/blueprint/persisted-authority';
 
 import {
     authorizeBlueprintRunMutation,
     claimNextBlueprintRun,
     enqueueBlueprintRun,
     findActiveBlueprintRun,
+    recordBlueprintPlanPreflight,
 } from './runtime-blueprint-run.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from './runtime-contract.js';
 
@@ -165,7 +168,146 @@ describe('Blueprint run runtime boundary', () => {
 
         expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'database-error' });
     });
+
+    it('serializes preflight authority without repository metadata', async () => {
+        const mutation = vi.fn().mockRejectedValue(new Error('stop after capture'));
+        const authority = await authorityRecord();
+
+        const result = await recordBlueprintPlanPreflight({ client: { mutation } } as never, preflightInput(authority));
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'database-error' });
+        const request = mutation.mock.calls[0]?.[1] as Record<string, unknown>;
+        const sealedPlan = request.sealedPlan as Record<string, unknown>;
+        const serializedAuthority = sealedPlan.authority as Record<string, unknown>;
+        expect(Object.keys(serializedAuthority).sort()).toStrictEqual(
+            [
+                'authorityDigest',
+                'blockers',
+                'createdAt',
+                'guildId',
+                'mappings',
+                'planId',
+                'projectedSnapshot',
+                'provenance',
+                'referenceAuthority',
+                'requestedSnapshot',
+                'roleProjection',
+                'version',
+            ].sort()
+        );
+        expect(serializedAuthority).not.toHaveProperty('id');
+        expect(serializedAuthority.createdAt).toBe('2026-07-15T12:00:00.000Z');
+        expect(normalizeBlueprintPlanAuthority(serializedAuthority)).toMatchObject({ type: 'valid' });
+    });
+
+    it('rejects malformed preflight authority before calling Convex', async () => {
+        const mutation = vi.fn();
+        const authority = await authorityRecord();
+
+        const result = await recordBlueprintPlanPreflight(
+            { client: { mutation } } as never,
+            preflightInput({ ...authority, createdAt: new Date(Number.NaN) })
+        );
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ field: 'sealedPlan.authority', type: 'invalid-value' });
+        expect(mutation).not.toHaveBeenCalled();
+    });
 });
+
+async function authorityRecord() {
+    const createdAt = '2026-07-15T12:00:00.000Z';
+    const authority = await createBlueprintPlanAuthority({
+        planId: 'plan-1',
+        guildId: 'guild-1',
+        createdAt,
+        body: {
+            requestedSnapshot: {
+                version: 1,
+                guildId: 'source-guild',
+                roles: [],
+                categories: [],
+                channels: [],
+            },
+            projectedSnapshot: {
+                version: 1,
+                guildId: 'guild-1',
+                roles: [],
+                categories: [],
+                channels: [],
+            },
+            roleProjection: {
+                version: 2,
+                mode: 'synchronize',
+                roles: [],
+                skippedProtectedSourceIds: [],
+                retainedProtectedTargetIds: [],
+            },
+            mappings: { roles: {}, categories: {}, channels: {} },
+            referenceAuthority: {
+                sourceTargetMap: {},
+                knownTargetKinds: { 'guild-1': 'role' },
+            },
+            blockers: [],
+            provenance: {
+                source: 'dashboard-json',
+                requestedGuildId: 'source-guild',
+                requestedExportedAt: null,
+                requestedSnapshotStoredAt: createdAt,
+            },
+        },
+    });
+    return { ...authority, id: 'authority-1', createdAt: new Date(authority.createdAt) };
+}
+
+function preflightInput(authority: Awaited<ReturnType<typeof authorityRecord>>) {
+    const checkedAt = new Date('2026-07-15T12:00:00.000Z');
+    const summary = {
+        total: 0,
+        ready: 0,
+        stale: 0,
+        mappingRequired: 0,
+        destructiveApprovalRequired: 0,
+        unsupported: 0,
+        invalidPlan: 0,
+    };
+    return {
+        metadata: {
+            planId: 'plan-1',
+            guildId: 'guild-1',
+            status: 'ready' as const,
+            summary,
+            checkedAt,
+            observedAt: checkedAt,
+            expiresAt: new Date('2026-07-15T12:05:00.000Z'),
+            observationSource: 'resident-client' as const,
+            planDigest: 'plan-digest',
+            fingerprintVersion: 2 as const,
+            structureFingerprint: 'structure-digest',
+            capabilityFingerprint: 'capability-digest',
+            evidenceVersion: 1 as const,
+            evidenceDigest: 'evidence-digest',
+            preflightDigest: 'preflight-digest',
+        },
+        evidence: {
+            version: 1 as const,
+            report: { summary, steps: [] },
+            mutationFenceManifest: {
+                version: 2 as const,
+                guildId: 'guild-1',
+                structureDigest: 'structure-digest',
+                capabilityDigest: 'capability-digest',
+                roles: [],
+                categories: [],
+                channels: [],
+                capabilityFields: [],
+            },
+            reportDigest: 'report-digest',
+            manifestDigest: 'manifest-digest',
+            evidenceDigest: 'evidence-digest',
+        },
+        sealedPlan: { authority, decisions: [], steps: [] },
+    };
+}
 
 function runRecord(overrides: Record<string, unknown> = {}) {
     return {

@@ -35,7 +35,7 @@ describe('Blueprint cold detail queries', () => {
     it('deduplicates enabled cold reads across rerenders and never reads hidden evidence', async () => {
         vi.mocked(readDashboardBlueprintPlanAuthorityRouteData).mockResolvedValue({
             type: 'plan-authority',
-            plan: { id: 'plan-1' },
+            detail: { id: 'plan-1' },
         } as never);
         vi.mocked(readDashboardBlueprintPreflightEvidenceRouteData).mockResolvedValue({
             type: 'preflight-evidence',
@@ -96,9 +96,9 @@ describe('Blueprint cold detail queries', () => {
                 <AuthorityOnly guildId='guild-2' planId='plan-2' />
             </QueryClientProvider>
         );
-        await act(async () => second.resolve({ type: 'plan-authority', plan: { id: 'plan-2' } }));
+        await act(async () => second.resolve({ type: 'plan-authority', detail: { id: 'plan-2' } }));
         await waitFor(() => expect(screen.getByTestId('authority-id').textContent).toBe('plan-2'));
-        await act(async () => first.resolve({ type: 'plan-authority', plan: { id: 'plan-1' } }));
+        await act(async () => first.resolve({ type: 'plan-authority', detail: { id: 'plan-1' } }));
         expect(screen.getByTestId('authority-id').textContent).toBe('plan-2');
         view.unmount();
     });
@@ -106,11 +106,11 @@ describe('Blueprint cold detail queries', () => {
     it('keeps only immutable cold detail fields from the authority response', async () => {
         vi.mocked(readDashboardBlueprintPlanAuthorityRouteData).mockResolvedValue({
             type: 'plan-authority',
-            plan: {
+            detail: {
                 ...createPlan({ status: 'review_ready', updatedAt: '2026-07-15T10:00:00.000Z' }),
                 requestedSnapshotStoredAt: '2026-07-15T09:00:00.000Z',
             },
-        });
+        } as never);
         const client = queryClient();
         const view = render(
             <QueryClientProvider client={client}>

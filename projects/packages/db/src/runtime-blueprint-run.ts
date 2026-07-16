@@ -2,7 +2,11 @@ import { api } from '@neonflux/convex-api';
 import type { Id } from '@neonflux/convex-api/data-model';
 import { BLUEPRINT_MUTATION_FENCE_VERSION } from '@neonflux/blueprint/mutation-fence';
 import { normalizeBlueprintPlanDecision } from '@neonflux/blueprint/runtime-contracts';
-import type { BlueprintVerificationResult } from '@neonflux/blueprint/persisted-authority';
+import {
+    normalizeBlueprintPlanAuthority,
+    type BlueprintPlanAuthorityV1,
+    type BlueprintVerificationResult,
+} from '@neonflux/blueprint/persisted-authority';
 import { err, ok, type Result } from 'neverthrow';
 
 import type {
@@ -268,6 +272,9 @@ export async function recordBlueprintPlanPreflight(
         };
     }
 ): Promise<Result<BlueprintPlanPreflightMetadataRecord, BlueprintRepositoryError>> {
+    const authority = toBlueprintPlanAuthorityInput(input.sealedPlan.authority);
+    if (!authority) return err({ field: 'sealedPlan.authority', type: 'invalid-value' });
+
     try {
         const record = await db.client.mutation(api.blueprint.recordBlueprintPlanPreflight, {
             ...(input.audit ? { audit: input.audit } : {}),
@@ -280,10 +287,7 @@ export async function recordBlueprintPlanPreflight(
             },
             evidence: input.evidence,
             sealedPlan: {
-                authority: {
-                    ...input.sealedPlan.authority,
-                    createdAt: input.sealedPlan.authority.createdAt.toISOString(),
-                },
+                authority,
                 decisions: input.sealedPlan.decisions,
                 steps: input.sealedPlan.steps,
             },
@@ -291,6 +295,28 @@ export async function recordBlueprintPlanPreflight(
         return ok(toPreflightMetadata(record));
     } catch {
         return err({ type: 'database-error' });
+    }
+}
+
+function toBlueprintPlanAuthorityInput(authority: BlueprintPlanAuthorityRecord): BlueprintPlanAuthorityV1 | undefined {
+    try {
+        const normalized = normalizeBlueprintPlanAuthority({
+            version: authority.version,
+            planId: authority.planId,
+            guildId: authority.guildId,
+            requestedSnapshot: authority.requestedSnapshot,
+            projectedSnapshot: authority.projectedSnapshot,
+            roleProjection: authority.roleProjection,
+            mappings: authority.mappings,
+            referenceAuthority: authority.referenceAuthority,
+            blockers: authority.blockers,
+            provenance: authority.provenance,
+            authorityDigest: authority.authorityDigest,
+            createdAt: authority.createdAt.toISOString(),
+        });
+        return normalized.type === 'valid' ? normalized.value : undefined;
+    } catch {
+        return undefined;
     }
 }
 

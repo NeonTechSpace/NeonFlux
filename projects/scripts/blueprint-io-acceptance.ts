@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { stripVTControlCharacters } from 'node:util';
+import ts from 'typescript';
 
 import {
     e2eEphemeralSentinel,
@@ -20,6 +20,17 @@ const acceptanceTestName = 'passes Blueprint I/O acceptance with twenty plans an
 const acceptanceSentinel = 'neonflux-blueprint-io-v1';
 const markerFunctionName = 'runtime:blueprintIoAcceptanceMarker';
 const markerLogPrefix = 'NEONFLUX_BLUEPRINT_IO_MARKER';
+const historyColdTables = [
+    'blueprintPlanAuthorities',
+    'blueprintPlanExecutionAuthorities',
+    'blueprintPlanExecutionAuthorityBuckets',
+    'blueprintPlanPreflightEvidence',
+    'blueprintPlanSteps',
+    'blueprintPlanDecisions',
+    'blueprintRunCursors',
+    'blueprintRunVerificationEvidence',
+    'blueprintRunIdMappings',
+] as const;
 
 const historyFunctions = [
     'blueprint:listBlueprintPlanSummariesByGuildId',
@@ -38,7 +49,6 @@ const workerFunctions = [
 ] as const;
 const allowedHistoryFunctions = new Set<string>(historyFunctions);
 const allowedWorkerFunctions = new Set<string>([...workerFunctions, 'blueprint:renewBlueprintRunLease']);
-const allowedMeasuredFunctions = new Set<string>([...allowedHistoryFunctions, ...allowedWorkerFunctions]);
 
 export type BlueprintIoWorkloadMarkers = {
     workerStart: string;
@@ -59,10 +69,17 @@ export type BlueprintIoAggregate = BlueprintIoMetric & {
     maximumWriteBytes: number;
 };
 
-const expectedRequestCounts = new Map<string, number>([
-    ['blueprint:listBlueprintPlanSummariesByGuildId', 1],
-    ['blueprint:listLatestBlueprintPlanPreflightSummaries', 1],
-    ['blueprint:listLatestBlueprintRunSummaries', 1],
+export type BlueprintIoWorkloadMetrics = {
+    worker: BlueprintIoMetric[];
+    history: BlueprintIoMetric[];
+};
+
+export type BlueprintIoWorkloadAggregates = {
+    worker: Map<string, BlueprintIoAggregate>;
+    history: Map<string, BlueprintIoAggregate>;
+};
+
+const expectedWorkerRequestCounts = new Map<string, number>([
     ['blueprint:claimNextBlueprintRun', 2],
     ['blueprint:authorizeBlueprintRunMutation', 1],
     ['blueprint:ensureBlueprintRunRestorePoint', 1],
@@ -71,6 +88,12 @@ const expectedRequestCounts = new Map<string, number>([
     ['blueprint:completeAndCheckpointBlueprintRunStepAttempt', 475],
     ['blueprint:checkpointBlueprintRun', 1],
     ['blueprint:finalizeBlueprintRun', 1],
+    ['blueprint:renewBlueprintRunLease', 0],
+]);
+const expectedHistoryRequestCounts = new Map<string, number>([
+    ['blueprint:listBlueprintPlanSummariesByGuildId', 1],
+    ['blueprint:listLatestBlueprintPlanPreflightSummaries', 1],
+    ['blueprint:listLatestBlueprintRunSummaries', 1],
 ]);
 const logDrainPollMs = 250;
 const logDrainQuiescenceMs = 1_500;
@@ -123,7 +146,7 @@ async function main(): Promise<void> {
         logProcess = stream.child;
         logExit = stream.exit;
         flushLogs = stream.flush;
-        await stream.ready;
+        await withTimeout(stream.spawned, 20_000, 'Convex log stream did not spawn within 20 seconds.');
 
         await flushLogs();
         const readinessBaseline = countAcceptanceMarkerCompletions(await readFile(logPath, 'utf8').catch(() => ''));
@@ -182,22 +205,23 @@ async function main(): Promise<void> {
         flushLogs = undefined;
 
         const metrics = extractBlueprintIoWorkloadMetrics(await readFile(logPath, 'utf8'), markers);
-        const aggregates = aggregateBlueprintIoMetrics(metrics);
+        const aggregates = aggregateBlueprintIoWorkloadMetrics(metrics);
         assertBlueprintIoAcceptance(aggregates);
         await assertSummaryFunctionsHaveNoColdDependencies();
         await assertStepExecutionDependencies();
-        const workerReadBytes = sumReadBytes(aggregates, workerFunctions);
-        const workerWriteBytes = sumWriteBytes(aggregates, workerFunctions);
+        const workerReadBytes = sumAllReadBytes(aggregates.worker);
+        const workerWriteBytes = sumAllWriteBytes(aggregates.worker);
         const report = {
             completedAt: new Date().toISOString(),
-            historyReadBytes: sumReadBytes(aggregates, historyFunctions),
-            historyWriteBytes: sumWriteBytes(aggregates, historyFunctions),
+            historyReadBytes: sumAllReadBytes(aggregates.history),
+            historyWriteBytes: sumAllWriteBytes(aggregates.history),
             workerReadBytes,
             workerWriteBytes,
             workerCombinedIoBytes: workerReadBytes + workerWriteBytes,
-            functions: [...aggregates.values()].sort((left, right) =>
-                left.functionName.localeCompare(right.functionName)
-            ),
+            functions: [
+                ...[...aggregates.worker.values()].map((metric) => ({ phase: 'worker' as const, ...metric })),
+                ...[...aggregates.history.values()].map((metric) => ({ phase: 'history' as const, ...metric })),
+            ].sort((left, right) => left.functionName.localeCompare(right.functionName)),
         };
         await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -211,7 +235,7 @@ async function main(): Promise<void> {
 function startConvexLogStream(
     pnpmEntrypoint: string,
     environment: NodeJS.ProcessEnv
-): { child: ChildProcess; exit: Promise<number>; flush: () => Promise<void>; ready: Promise<void> } {
+): { child: ChildProcess; exit: Promise<number>; flush: () => Promise<void>; spawned: Promise<void> } {
     const child = spawn(
         process.execPath,
         [pnpmEntrypoint, 'exec', 'convex', 'logs', '--success', '--jsonl', '--history', '10000'],
@@ -223,20 +247,18 @@ function startConvexLogStream(
         }
     );
     let buffered = '';
-    let stderr = '';
     let writes = Promise.resolve();
-    let readySettled = false;
-    let resolveReady!: () => void;
-    let rejectReady!: (error: Error) => void;
-    const ready = new Promise<void>((resolve, reject) => {
-        resolveReady = resolve;
-        rejectReady = reject;
+    let spawnSettled = false;
+    let resolveSpawned!: () => void;
+    let rejectSpawned!: (error: Error) => void;
+    const spawned = new Promise<void>((resolve, reject) => {
+        resolveSpawned = resolve;
+        rejectSpawned = reject;
     });
-    const readyTimeout = setTimeout(() => {
-        if (readySettled) return;
-        readySettled = true;
-        rejectReady(new Error('Convex log stream did not report readiness within 20 seconds.'));
-    }, 20_000);
+    child.once('spawn', () => {
+        spawnSettled = true;
+        resolveSpawned();
+    });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
         buffered += chunk;
@@ -249,29 +271,16 @@ function startConvexLogStream(
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
         process.stderr.write(chunk);
-        stderr = `${stderr}${chunk}`.slice(-8_192);
-        if (!readySettled && stripVTControlCharacters(stderr).includes('Watching logs')) {
-            readySettled = true;
-            clearTimeout(readyTimeout);
-            resolveReady();
-        }
     });
     const exit = new Promise<number>((resolveExit, reject) => {
         child.once('error', (error) => {
-            if (!readySettled) {
-                readySettled = true;
-                clearTimeout(readyTimeout);
-                rejectReady(new Error(`Convex log stream failed before readiness: ${error.message}`));
-            }
+            if (!spawnSettled) rejectSpawned(new Error(`Convex log stream failed to spawn: ${error.message}`));
             reject(error);
         });
         child.once('exit', (code) => {
             const exitCode = code ?? 1;
-            if (!readySettled) {
-                readySettled = true;
-                clearTimeout(readyTimeout);
-                rejectReady(new Error(`Convex log stream exited before readiness with code ${String(exitCode)}.`));
-            }
+            if (!spawnSettled)
+                rejectSpawned(new Error(`Convex log stream exited before spawning with code ${String(exitCode)}.`));
             resolveExit(exitCode);
         });
     });
@@ -285,7 +294,7 @@ function startConvexLogStream(
             }
             await writes;
         },
-        ready,
+        spawned,
     };
 }
 
@@ -299,7 +308,7 @@ export function parseBlueprintIoMetrics(source: string): BlueprintIoMetric[] {
 export function extractBlueprintIoWorkloadMetrics(
     source: string,
     markers: BlueprintIoWorkloadMarkers
-): BlueprintIoMetric[] {
+): BlueprintIoWorkloadMetrics {
     const records = parseConvexLogRecords(source);
     const indices = Object.fromEntries(
         Object.entries(markers).map(([name, marker]) => [name, findAcceptanceMarkerIndex(records, marker)])
@@ -315,18 +324,18 @@ export function extractBlueprintIoWorkloadMetrics(
         throw new Error('Blueprint I/O History phase markers were out of order.');
     }
 
-    return [
-        ...extractBlueprintPhaseMetrics(
+    return {
+        worker: extractBlueprintPhaseMetrics(
             records.slice(indices.workerStart + 1, indices.workerEnd),
             'worker',
             allowedWorkerFunctions
         ),
-        ...extractBlueprintPhaseMetrics(
+        history: extractBlueprintPhaseMetrics(
             records.slice(indices.historyStart + 1, indices.historyEnd),
             'History',
             allowedHistoryFunctions
         ),
-    ];
+    };
 }
 
 export function aggregateBlueprintIoMetrics(metrics: readonly BlueprintIoMetric[]): Map<string, BlueprintIoAggregate> {
@@ -345,18 +354,22 @@ export function aggregateBlueprintIoMetrics(metrics: readonly BlueprintIoMetric[
     return aggregates;
 }
 
-export function assertBlueprintIoAcceptance(aggregates: ReadonlyMap<string, BlueprintIoAggregate>): void {
-    for (const functionName of aggregates.keys()) {
-        if (functionName.startsWith('blueprint:') && !allowedMeasuredFunctions.has(functionName)) {
-            throw new Error(`Blueprint I/O acceptance observed unexpected measured function ${functionName}.`);
-        }
-    }
-    for (const [functionName, expected] of expectedRequestCounts) {
-        assertRequestCount(aggregates, functionName, expected);
-    }
-    assertRequestCount(aggregates, 'blueprint:renewBlueprintRunLease', 0);
+export function aggregateBlueprintIoWorkloadMetrics(
+    metrics: BlueprintIoWorkloadMetrics
+): BlueprintIoWorkloadAggregates {
+    return {
+        worker: aggregateBlueprintIoMetrics(metrics.worker),
+        history: aggregateBlueprintIoMetrics(metrics.history),
+    };
+}
 
-    const completion = requireAggregate(aggregates, 'blueprint:completeAndCheckpointBlueprintRunStepAttempt');
+export function assertBlueprintIoAcceptance(aggregates: BlueprintIoWorkloadAggregates): void {
+    assertAllowedAggregates(aggregates.worker, allowedWorkerFunctions, 'worker');
+    assertAllowedAggregates(aggregates.history, allowedHistoryFunctions, 'History');
+    assertExpectedRequestCounts(aggregates.worker, expectedWorkerRequestCounts);
+    assertExpectedRequestCounts(aggregates.history, expectedHistoryRequestCounts);
+
+    const completion = requireAggregate(aggregates.worker, 'blueprint:completeAndCheckpointBlueprintRunStepAttempt');
     if (completion.maximumReadBytes > 64 * 1024) {
         throw new Error(`Blueprint completion read ${String(completion.maximumReadBytes)} bytes; maximum is 64 KiB.`);
     }
@@ -365,30 +378,30 @@ export function assertBlueprintIoAcceptance(aggregates: ReadonlyMap<string, Blue
         'blueprint:startBlueprintRunStepAttempt',
         'blueprint:completeAndCheckpointBlueprintRunStepAttempt',
     ]) {
-        const step = requireAggregate(aggregates, functionName);
+        const step = requireAggregate(aggregates.worker, functionName);
         if (step.maximumWriteBytes > 64 * 1024) {
             throw new Error(
                 `${functionName} wrote ${String(step.maximumWriteBytes)} bytes in one request; maximum is 64 KiB.`
             );
         }
     }
-    const historyReadBytes = sumReadBytes(aggregates, historyFunctions);
+    const historyReadBytes = sumAllReadBytes(aggregates.history);
     if (historyReadBytes > 512 * 1024) {
         throw new Error(`Blueprint History read ${String(historyReadBytes)} bytes; maximum is 512 KiB.`);
     }
-    const historyWriteBytes = sumWriteBytes(aggregates, historyFunctions);
+    const historyWriteBytes = sumAllWriteBytes(aggregates.history);
     if (historyWriteBytes !== 0) {
         throw new Error(`Blueprint History wrote ${String(historyWriteBytes)} bytes; expected zero.`);
     }
-    const claim = requireAggregate(aggregates, 'blueprint:claimNextBlueprintRun');
+    const claim = requireAggregate(aggregates.worker, 'blueprint:claimNextBlueprintRun');
     if (claim.maximumReadBytes > 4 * 1024 * 1024) {
         throw new Error(`Blueprint reclaim claim read ${String(claim.maximumReadBytes)} bytes; maximum is 4 MiB.`);
     }
-    const workerReadBytes = sumReadBytes(aggregates, workerFunctions);
+    const workerReadBytes = sumAllReadBytes(aggregates.worker);
     if (workerReadBytes > 32 * 1024 * 1024) {
         throw new Error(`Blueprint worker read ${String(workerReadBytes)} bytes; maximum is 32 MiB.`);
     }
-    const workerWriteBytes = sumWriteBytes(aggregates, workerFunctions);
+    const workerWriteBytes = sumAllWriteBytes(aggregates.worker);
     if (workerWriteBytes > 32 * 1024 * 1024) {
         throw new Error(`Blueprint worker wrote ${String(workerWriteBytes)} bytes; maximum is 32 MiB.`);
     }
@@ -397,6 +410,25 @@ export function assertBlueprintIoAcceptance(aggregates: ReadonlyMap<string, Blue
             `Blueprint worker combined I/O was ${String(workerReadBytes + workerWriteBytes)} bytes; maximum is 64 MiB.`
         );
     }
+}
+
+function assertAllowedAggregates(
+    aggregates: ReadonlyMap<string, BlueprintIoAggregate>,
+    allowedFunctions: ReadonlySet<string>,
+    phase: 'worker' | 'History'
+): void {
+    for (const functionName of aggregates.keys()) {
+        if (!allowedFunctions.has(functionName)) {
+            throw new Error(`Unexpected Convex function ${functionName} completed during the ${phase} phase.`);
+        }
+    }
+}
+
+function assertExpectedRequestCounts(
+    aggregates: ReadonlyMap<string, BlueprintIoAggregate>,
+    expectedCounts: ReadonlyMap<string, number>
+): void {
+    for (const [functionName, expected] of expectedCounts) assertRequestCount(aggregates, functionName, expected);
 }
 
 function assertRequestCount(
@@ -419,15 +451,12 @@ function requireAggregate(
     return aggregate;
 }
 
-function sumReadBytes(aggregates: ReadonlyMap<string, BlueprintIoAggregate>, functionNames: readonly string[]): number {
-    return functionNames.reduce((total, functionName) => total + (aggregates.get(functionName)?.readBytes ?? 0), 0);
+function sumAllReadBytes(aggregates: ReadonlyMap<string, BlueprintIoAggregate>): number {
+    return [...aggregates.values()].reduce((total, metric) => total + metric.readBytes, 0);
 }
 
-function sumWriteBytes(
-    aggregates: ReadonlyMap<string, BlueprintIoAggregate>,
-    functionNames: readonly string[]
-): number {
-    return functionNames.reduce((total, functionName) => total + (aggregates.get(functionName)?.writeBytes ?? 0), 0);
+function sumAllWriteBytes(aggregates: ReadonlyMap<string, BlueprintIoAggregate>): number {
+    return [...aggregates.values()].reduce((total, metric) => total + metric.writeBytes, 0);
 }
 
 async function failIfLogStreamExits(operation: Promise<void>, logExit: Promise<number>): Promise<void> {
@@ -464,20 +493,21 @@ async function waitForExpectedMetricsAndQuiescence(input: {
             continue;
         }
         const metrics = extractBlueprintIoWorkloadMetrics(source, input.markers);
-        const aggregates = aggregateBlueprintIoMetrics(metrics);
-        lastDeficits = [...expectedRequestCounts].flatMap(([functionName, expected]) => {
-            const actual = aggregates.get(functionName)?.requests ?? 0;
-            return actual >= expected ? [] : [`${functionName}: ${String(actual)}/${String(expected)}`];
-        });
+        const aggregates = aggregateBlueprintIoWorkloadMetrics(metrics);
+        lastDeficits = [
+            ...requestCountDeficits(aggregates.worker, expectedWorkerRequestCounts),
+            ...requestCountDeficits(aggregates.history, expectedHistoryRequestCounts),
+        ];
+        const completionCount = metrics.worker.length + metrics.history.length;
         if (lastDeficits.length === 0) {
-            if (metrics.length !== lastCompletionCount) {
-                lastCompletionCount = metrics.length;
+            if (completionCount !== lastCompletionCount) {
+                lastCompletionCount = completionCount;
                 quiescentSince = Date.now();
             } else if (Date.now() - quiescentSince >= logDrainQuiescenceMs) {
                 return;
             }
         } else {
-            lastCompletionCount = metrics.length;
+            lastCompletionCount = completionCount;
             quiescentSince = 0;
         }
         await wait(logDrainPollMs);
@@ -485,6 +515,19 @@ async function waitForExpectedMetricsAndQuiescence(input: {
     throw new Error(
         `Convex metrics did not drain before timeout. Missing completions: ${lastDeficits.join(', ') || 'none; stream never became quiescent'}.`
     );
+}
+
+function requestCountDeficits(
+    aggregates: ReadonlyMap<string, BlueprintIoAggregate>,
+    expectedCounts: ReadonlyMap<string, number>
+): string[] {
+    return [...expectedCounts].flatMap(([functionName, expected]) => {
+        const actual = aggregates.get(functionName)?.requests ?? 0;
+        if (actual > expected) {
+            throw new Error(`${functionName} executed ${String(actual)} times; expected ${String(expected)}.`);
+        }
+        return actual === expected ? [] : [`${functionName}: ${String(actual)}/${String(expected)}`];
+    });
 }
 
 async function waitForAcceptanceMarker(input: {
@@ -574,13 +617,12 @@ function extractBlueprintPhaseMetrics(
     allowedFunctions: ReadonlySet<string>
 ): BlueprintIoMetric[] {
     return records.flatMap((record) => {
-        if (record.kind !== 'Completion' || typeof record.identifier !== 'string') return [];
-        if (!record.identifier.startsWith('blueprint:')) return [];
-        if (!allowedFunctions.has(record.identifier)) {
-            throw new Error(`Unexpected Blueprint function ${record.identifier} completed during the ${phase} phase.`);
-        }
+        if (record.kind !== 'Completion') return [];
         const metric = completionMetric(record);
-        if (!metric) throw new Error(`Blueprint completion ${record.identifier} could not be measured.`);
+        if (!metric) throw new Error('Convex completion could not be measured.');
+        if (!allowedFunctions.has(metric.functionName)) {
+            throw new Error(`Unexpected Convex function ${metric.functionName} completed during the ${phase} phase.`);
+        }
         return [metric];
     });
 }
@@ -620,28 +662,25 @@ function completionMetric(value: Record<string, unknown>): BlueprintIoMetric | u
 }
 
 async function assertSummaryFunctionsHaveNoColdDependencies(): Promise<void> {
-    const summarySource = await readFile(
-        resolve(workspaceDirectory, 'convex/blueprint/blueprint_history_summaries.ts'),
-        'utf8'
-    );
-    const hotRecordsSource = await readFile(
-        resolve(workspaceDirectory, 'convex/blueprint/blueprint_hot_records.ts'),
-        'utf8'
-    );
+    const convexSourceRoot = resolve(workspaceDirectory, 'convex');
+    const summaryPath = resolve(convexSourceRoot, 'blueprint/blueprint_history_summaries.ts');
+    const hotRecordsPath = resolve(convexSourceRoot, 'blueprint/blueprint_hot_records.ts');
+    const summarySource = await readFile(summaryPath, 'utf8');
+    const hotRecordsSource = await readFile(hotRecordsPath, 'utf8');
     const allowedSummaryImports = new Set([
         'convex/values',
         '../_generated/server.js',
         '../auth.js',
         './blueprint_hot_records.js',
     ]);
-    const forbiddenSummaryImport = importSpecifiers(summarySource).find(
+    const forbiddenSummaryImport = moduleSpecifiers(summarySource, summaryPath).find(
         (specifier) => !allowedSummaryImports.has(specifier)
     );
     if (forbiddenSummaryImport) {
         throw new Error(`Blueprint History summary module imports forbidden dependency ${forbiddenSummaryImport}.`);
     }
     const allowedHotRecordImports = new Set(['convex/values', '../_generated/dataModel.js']);
-    const forbiddenHotRecordImport = importSpecifiers(hotRecordsSource).find(
+    const forbiddenHotRecordImport = moduleSpecifiers(hotRecordsSource, hotRecordsPath).find(
         (specifier) => !allowedHotRecordImports.has(specifier)
     );
     if (forbiddenHotRecordImport) {
@@ -655,34 +694,111 @@ async function assertSummaryFunctionsHaveNoColdDependencies(): Promise<void> {
     ) {
         throw new Error('Blueprint hot-record serializer may not register or invoke Convex functions.');
     }
-    const forbidden = [
-        'blueprintPlanAuthorities',
-        'blueprintPlanExecutionAuthorities',
-        'blueprintPlanExecutionAuthorityBuckets',
-        'blueprintPlanPreflightEvidence',
-        'blueprintPlanSteps',
-        'blueprintPlanDecisions',
-        'blueprintRunCursors',
-        'blueprintRunVerificationEvidence',
-        'blueprintRunIdMappings',
-    ];
-    for (const [moduleName, source] of [
-        ['History summary module', summarySource],
-        ['hot-record serializer', hotRecordsSource],
-    ] as const) {
-        const coldTable = forbidden.find((table) => source.includes(table));
-        if (coldTable) {
-            throw new Error(`Blueprint ${moduleName} has a forbidden cold dependency on ${coldTable}.`);
-        }
-    }
+    await assertNoTransitiveColdDependencies(summaryPath, convexSourceRoot, historyColdTables);
 }
 
-function importSpecifiers(source: string): string[] {
-    return [
-        ...source.matchAll(/from\s+['"]([^'"]+)['"]/gu),
-        ...source.matchAll(/\bimport\s+['"]([^'"]+)['"]/gu),
-        ...source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/gu),
-    ].flatMap((match) => (typeof match[1] === 'string' ? [match[1]] : []));
+export async function assertNoTransitiveColdDependencies(
+    entryPath: string,
+    sourceRoot: string,
+    forbiddenTables: readonly string[] = historyColdTables
+): Promise<void> {
+    const normalizedRoot = resolve(sourceRoot);
+    const visited = new Set<string>();
+    const forbidden = new Set(forbiddenTables);
+
+    async function visit(modulePath: string, chain: string[]): Promise<void> {
+        const normalizedPath = resolve(modulePath);
+        assertPathInsideSourceRoot(normalizedPath, normalizedRoot);
+        if (visited.has(normalizedPath)) return;
+        visited.add(normalizedPath);
+
+        const source = await readFile(normalizedPath, 'utf8');
+        const sourceFile = ts.createSourceFile(normalizedPath, source, ts.ScriptTarget.Latest, true);
+        const coldTable = findStringLiteral(sourceFile, forbidden);
+        if (coldTable) {
+            const pathChain = [...chain, normalizedPath]
+                .map((path) => relative(normalizedRoot, path).replaceAll('\\', '/'))
+                .join(' -> ');
+            throw new Error(`Blueprint History reaches forbidden cold table ${coldTable} through ${pathChain}.`);
+        }
+
+        for (const specifier of moduleSpecifiersFromSourceFile(sourceFile)) {
+            if (!specifier.startsWith('.')) continue;
+            if (isGeneratedConvexImport(normalizedPath, specifier, normalizedRoot)) continue;
+            const dependency = await resolveTypeScriptModule(normalizedPath, specifier, normalizedRoot);
+            await visit(dependency, [...chain, normalizedPath]);
+        }
+    }
+
+    await visit(entryPath, []);
+}
+
+function moduleSpecifiers(source: string, fileName: string): string[] {
+    return moduleSpecifiersFromSourceFile(ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true));
+}
+
+function moduleSpecifiersFromSourceFile(sourceFile: ts.SourceFile): string[] {
+    const specifiers: string[] = [];
+    const visit = (node: ts.Node): void => {
+        if (
+            (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+            node.moduleSpecifier &&
+            ts.isStringLiteralLike(node.moduleSpecifier)
+        ) {
+            specifiers.push(node.moduleSpecifier.text);
+        } else if (
+            ts.isCallExpression(node) &&
+            node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+            node.arguments.length === 1 &&
+            node.arguments[0] &&
+            ts.isStringLiteralLike(node.arguments[0])
+        ) {
+            specifiers.push(node.arguments[0].text);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return specifiers;
+}
+
+function findStringLiteral(sourceFile: ts.SourceFile, forbidden: ReadonlySet<string>): string | undefined {
+    let match: string | undefined;
+    const visit = (node: ts.Node): void => {
+        if (!match && ts.isStringLiteralLike(node) && forbidden.has(node.text)) match = node.text;
+        if (!match) ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return match;
+}
+
+async function resolveTypeScriptModule(importer: string, specifier: string, sourceRoot: string): Promise<string> {
+    const unresolved = resolve(dirname(importer), specifier);
+    assertPathInsideSourceRoot(unresolved, sourceRoot);
+    const candidates = /\.[cm]?js$/u.test(unresolved)
+        ? [unresolved.replace(/\.[cm]?js$/u, '.ts'), unresolved.replace(/\.[cm]?js$/u, '.tsx')]
+        : [unresolved, `${unresolved}.ts`, `${unresolved}.tsx`, resolve(unresolved, 'index.ts')];
+    for (const candidate of candidates) {
+        try {
+            await readFile(candidate, 'utf8');
+            return candidate;
+        } catch {
+            // Try the next TypeScript source candidate.
+        }
+    }
+    throw new Error(`Could not resolve relative History dependency ${specifier} imported by ${importer}.`);
+}
+
+function isGeneratedConvexImport(importer: string, specifier: string, sourceRoot: string): boolean {
+    const unresolved = resolve(dirname(importer), specifier);
+    const pathFromRoot = relative(sourceRoot, unresolved).replaceAll('\\', '/');
+    return pathFromRoot === '_generated' || pathFromRoot.startsWith('_generated/');
+}
+
+function assertPathInsideSourceRoot(path: string, sourceRoot: string): void {
+    const pathFromRoot = relative(sourceRoot, path);
+    if (pathFromRoot.startsWith('..') || isAbsolute(pathFromRoot)) {
+        throw new Error(`Blueprint History dependency escapes the Convex source root: ${path}.`);
+    }
 }
 
 async function assertStepExecutionDependencies(): Promise<void> {

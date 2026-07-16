@@ -29,14 +29,14 @@ import { getWebDb } from './db.server.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type {
     DashboardBlueprintErrorResult,
-    DashboardBlueprintPlan,
+    DashboardBlueprintPlanColdDetail,
     DashboardBlueprintVerification,
 } from './dashboard-blueprint-model.js';
-import { mapRepositoryError, toDashboardBlueprintPlan } from './dashboard-blueprint-records.server.js';
+import { mapRepositoryError } from './dashboard-blueprint-records.server.js';
 
 export type DashboardBlueprintPlanAuthorityInput = { guildId: string; planId: string };
 export type DashboardBlueprintPlanAuthorityResult =
-    | { type: 'plan-authority'; plan: DashboardBlueprintPlan }
+    | { type: 'plan-authority'; detail: DashboardBlueprintPlanColdDetail }
     | { type: 'invalid-input'; message: string }
     | DashboardBlueprintErrorResult;
 
@@ -49,16 +49,19 @@ export async function readDashboardBlueprintPlanAuthority(
     const planId = input.planId.trim();
     if (!planId) return { type: 'invalid-input', message: 'Choose a Blueprint plan to inspect.' };
     const database = await getWebDb();
-    const [plan, authority] = await Promise.all([
-        getBlueprintPlanMetadata(database.db, { guildId: context.guild.id, planId }),
-        getBlueprintPlanAuthority(database.db, { guildId: context.guild.id, planId }),
-    ]);
-    if (plan.isErr()) return mapRepositoryError(plan.error);
+    const authority = await getBlueprintPlanAuthority(database.db, { guildId: context.guild.id, planId });
     if (authority.isErr()) return mapRepositoryError(authority.error);
-    if (authority.value.planId !== plan.value.id || authority.value.guildId !== context.guild.id) {
+    if (authority.value.planId !== planId || authority.value.guildId !== context.guild.id) {
         return { type: 'database-error' };
     }
-    return { type: 'plan-authority', plan: toDashboardBlueprintPlan(plan.value, { authority: authority.value }) };
+    return {
+        type: 'plan-authority',
+        detail: {
+            id: authority.value.planId,
+            requestedSnapshot: authority.value.requestedSnapshot,
+            requestedSnapshotStoredAt: authority.value.provenance.requestedSnapshotStoredAt,
+        },
+    };
 }
 
 export type DashboardBlueprintPreflightEvidenceInput = { guildId: string; preflightId: string };

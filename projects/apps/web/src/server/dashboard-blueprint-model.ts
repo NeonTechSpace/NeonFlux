@@ -123,6 +123,12 @@ export type DashboardBlueprintPlan = {
     run?: DashboardBlueprintRunProgress;
 };
 
+export type DashboardBlueprintPlanColdDetail = {
+    id: string;
+    requestedSnapshot?: DashboardBlueprintSnapshot;
+    requestedSnapshotStoredAt?: string;
+};
+
 type DashboardBlueprintPlanStepPage = {
     steps: DashboardBlueprintPlanStep[];
     nextCursor?: string;
