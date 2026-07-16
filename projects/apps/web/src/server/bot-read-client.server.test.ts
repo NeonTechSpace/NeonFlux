@@ -3,7 +3,7 @@ import type { WebConfig } from '@neonflux/config';
 import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
 
 vi.mock('@neonflux/config', () => ({ loadWebConfig: vi.fn() }));
 vi.mock('@neonflux/convex/jwt', () => ({ signNeonFluxServiceJwt: vi.fn() }));
@@ -50,6 +50,40 @@ describe('dashboard bot read client', () => {
 
         expect(result).toEqual(expect.objectContaining({ error: 'not-configured' }));
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('posts an authenticated bodyless posting wake and validates the acknowledgement', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(202, { protocolVersion: 1, type: 'accepted' }));
+
+        const result = await wakeDashboardBotPostingWorker();
+
+        expect(result.isOk()).toBe(true);
+        expect(fetch).toHaveBeenCalledWith(
+            new URL('http://bot:3001/v1/posting/wake'),
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer short-lived-service-token' }),
+                method: 'POST',
+            })
+        );
+        expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty('body');
+    });
+
+    it('maps posting wake transport, authorization, and response failures without retrying', async () => {
+        vi.mocked(fetch)
+            .mockRejectedValueOnce(new DOMException('timed out', 'AbortError'))
+            .mockResolvedValueOnce(jsonResponse(401, { type: 'unauthorized' }))
+            .mockResolvedValueOnce(jsonResponse(202, { protocolVersion: 2, type: 'accepted' }));
+
+        await expect(wakeDashboardBotPostingWorker()).resolves.toEqual(
+            expect.objectContaining({ error: 'transport-failed' })
+        );
+        await expect(wakeDashboardBotPostingWorker()).resolves.toEqual(
+            expect.objectContaining({ error: 'auth-failed' })
+        );
+        await expect(wakeDashboardBotPostingWorker()).resolves.toEqual(
+            expect.objectContaining({ error: 'invalid-response' })
+        );
+        expect(fetch).toHaveBeenCalledTimes(3);
     });
 
     it.each([

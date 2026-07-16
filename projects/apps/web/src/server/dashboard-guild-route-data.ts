@@ -13,7 +13,7 @@ import type {
     DashboardAuditEventsResult,
     DashboardAuditSearchScope,
     DashboardPostMessageResult,
-    DashboardPostingChannelsResult,
+    DashboardPostingCatalogResult,
     DashboardPostingOperationsResult,
     DashboardPostingUnknownResolutionResult,
 } from './dashboard-posting.server.js';
@@ -269,15 +269,15 @@ export const readDashboardAuditEventsRouteData = createServerFn({ method: 'GET' 
         return loadDashboardGuildAuditEventsPage(getRequest(), data);
     });
 
-export const readDashboardPostingChannelsRouteData = createServerFn({ method: 'GET' })
+export const readDashboardPostingCatalogRouteData = createServerFn({ method: 'GET' })
     .validator(validateDashboardGuildRouteInput)
-    .handler(async ({ data }): Promise<DashboardPostingChannelsResult> => {
+    .handler(async ({ data }): Promise<DashboardPostingCatalogResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { loadDashboardGuildPostingChannels } = await import('./dashboard-posting.server.js');
+        const { loadDashboardGuildPostingCatalog } = await import('./dashboard-posting.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 
-        return loadDashboardGuildPostingChannels(getRequest(), data.guildId);
+        return loadDashboardGuildPostingCatalog(getRequest(), data.guildId);
     });
 
 function toDashboardCommandSettingsReadResult(

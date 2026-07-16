@@ -13,7 +13,7 @@ import type { Result } from 'neverthrow';
 
 import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
-import type { AuthenticatedFluxerContextError } from './fluxer-auth-context.server.js';
+import type { AuthenticatedFluxerContext, AuthenticatedFluxerContextError } from './fluxer-auth-context.server.js';
 
 export type DashboardGuildAccess =
     | { type: 'authorized'; mode: AppMode; guilds: DashboardGuild[] }
@@ -40,6 +40,12 @@ export async function loadDashboardGuildAccess(
         return err(authContextResult.error);
     }
 
+    return loadDashboardGuildAccessForAuthenticatedContext(authContextResult.value);
+}
+
+export async function loadDashboardGuildAccessForAuthenticatedContext(
+    authContext: AuthenticatedFluxerContext
+): Promise<Result<DashboardGuildAccess, DashboardGuildAccessError>> {
     const database = await getWebDb();
     const modeResult = await findDeploymentConfig(database.db);
 
@@ -50,7 +56,7 @@ export async function loadDashboardGuildAccess(
     const mode = toAppMode(modeResult.value);
     const config = loadWebConfig();
     const guildsResult = await listFluxerCurrentUserGuilds({
-        accessToken: authContextResult.value.accessToken,
+        accessToken: authContext.accessToken,
         limit: 200,
     });
 
@@ -65,7 +71,7 @@ export async function loadDashboardGuildAccess(
             return await selectSingleDashboardGuildAccess({
                 mode,
                 guilds,
-                fluxerUserId: authContextResult.value.fluxerUserId,
+                fluxerUserId: authContext.fluxerUserId,
                 appEnv: config.appEnv,
                 guildDefconOverride: config.guildDefconOverride,
             });
@@ -74,7 +80,7 @@ export async function loadDashboardGuildAccess(
             return selectMultiDashboardGuildAccess({
                 mode,
                 guilds,
-                fluxerUserId: authContextResult.value.fluxerUserId,
+                fluxerUserId: authContext.fluxerUserId,
                 appEnv: config.appEnv,
                 guildDefconOverride: config.guildDefconOverride,
             });

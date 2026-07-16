@@ -61,6 +61,60 @@ describe('createFluxerPlatform', () => {
         expect(fetch).toHaveBeenCalledWith('message-1');
     });
 
+    it('resolves only the focused guild channel metadata needed before dashboard posting', async () => {
+        const resolve = vi.fn().mockResolvedValue({
+            guildId: 'guild-1',
+            id: 'channel-1',
+            name: 'general',
+            type: 0,
+            permissionOverwrites: [{ id: 'secret-role-data' }],
+        });
+        const platform = createFluxerPlatform(createClient({ channels: { resolve } }));
+
+        const result = await platform.messages.resolveDashboardTarget({ channelId: ' channel-1 ' });
+
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            guildId: 'guild-1',
+            id: 'channel-1',
+            name: 'general',
+            type: 0,
+        });
+        expect(resolve).toHaveBeenCalledWith('channel-1');
+    });
+
+    it('rejects non-guild posting targets', async () => {
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({ guildId: null, id: 'dm-1', name: null, type: 1 }),
+                },
+            })
+        );
+
+        const result = await platform.messages.resolveDashboardTarget({ channelId: 'dm-1' });
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
+    });
+
+    it('rejects a channel resolver response for a different id', async () => {
+        const platform = createFluxerPlatform(
+            createClient({
+                channels: {
+                    resolve: vi.fn().mockResolvedValue({
+                        guildId: 'guild-1',
+                        id: 'channel-2',
+                        name: 'other',
+                        type: 0,
+                    }),
+                },
+            })
+        );
+
+        const result = await platform.messages.resolveDashboardTarget({ channelId: 'channel-1' });
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
+    });
+
     it('fetches recent messages without exposing SDK collections', async () => {
         const fetch = vi.fn<(options: { limit: number; before?: string }) => Promise<Map<string, Message>>>();
         fetch.mockResolvedValue(

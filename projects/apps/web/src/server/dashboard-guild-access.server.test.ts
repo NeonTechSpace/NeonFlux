@@ -6,7 +6,10 @@ import type * as NeonFluxerGuilds from '@neonflux/fluxer/guilds';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
+import {
+    loadDashboardGuildAccess,
+    loadDashboardGuildAccessForAuthenticatedContext,
+} from './dashboard-guild-access.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { AuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
@@ -104,6 +107,17 @@ describe('loadDashboardGuildAccess', () => {
         await loadDashboardGuildAccess(request);
 
         expect(findDeploymentConfig).toHaveBeenCalled();
+        expect(listFluxerCurrentUserGuilds).toHaveBeenCalledWith({
+            accessToken: authContext.accessToken,
+            limit: 200,
+        });
+    });
+
+    it('reuses an already authenticated context without reading the session or token set again', async () => {
+        const result = await loadDashboardGuildAccessForAuthenticatedContext(authContext);
+
+        expect(result.isOk()).toBe(true);
+        expect(readAuthenticatedFluxerContext).not.toHaveBeenCalled();
         expect(listFluxerCurrentUserGuilds).toHaveBeenCalledWith({
             accessToken: authContext.accessToken,
             limit: 200,

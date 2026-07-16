@@ -110,6 +110,12 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
         /^dashboard-server-overview-charts-[\w-]+\.js$/u,
         'Overview charts tool'
     );
+    const messageFormattingEntry = findSingleChunk(
+        chunks,
+        /^dashboard-fluxer-markdown-[\w-]+\.js$/u,
+        'Message formatting tool',
+        'Reveal spoiler'
+    );
     const blueprintEntry = findSingleChunk(
         chunks,
         /^blueprint-[\w-]+\.js$/u,
@@ -124,6 +130,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
         runs: findSingleChunk(chunks, /^runs-[\w-]+\.js$/u, 'Blueprint Runs leaf'),
     };
 
+    const messageFormattingChunkPattern = /^dashboard-fluxer-markdown-[\w-]+\.js$/u;
     for (const guildEntry of guildEntries) {
         assertBundleBoundary({
             chunks,
@@ -137,6 +144,7 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
                 'Listening for activity',
                 'recharts-surface',
             ],
+            forbiddenChunkPatterns: [messageFormattingChunkPattern],
         });
     }
     assertBundleBoundary({
@@ -151,11 +159,13 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
             'Open run',
             'recharts-surface',
         ],
+        forbiddenChunkPatterns: [messageFormattingChunkPattern],
     });
 
     const optionalToolChunks = [
         /^dashboard-blueprint-explorer-(?!snapshot-|json-|types-|model-|diff-|details-|channel-types-)[\w-]+\.js$/u,
         /^dashboard-blueprint-deploy-review-[\w-]+\.js$/u,
+        messageFormattingChunkPattern,
     ];
     const leafBoundaries = [
         {
@@ -221,7 +231,11 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
         },
     ];
     for (const boundary of shippedLeafBoundaries) {
-        assertBundleBoundary({ ...boundary, chunks });
+        assertBundleBoundary({
+            ...boundary,
+            chunks,
+            forbiddenChunkPatterns: [messageFormattingChunkPattern, ...(boundary.forbiddenChunkPatterns ?? [])],
+        });
     }
     assertBundleBoundary({
         chunks,
@@ -230,8 +244,22 @@ export async function checkDashboardBundleBoundaries(assetsDirectory) {
         maxEntryBytes: 410_000,
         forbidden: ['New prefix', 'Audit event explorer', 'Send message'],
     });
+    assertBundleBoundary({
+        chunks,
+        entry: messageFormattingEntry,
+        label: 'Message formatting tool',
+        maxEntryBytes: 60_000,
+        forbidden: ['Audit event explorer', 'New prefix', 'Send message'],
+    });
 
-    return { blueprintEntry, guildEntries, leafEntries, overviewChartsEntry, shippedLeafEntries };
+    return {
+        blueprintEntry,
+        guildEntries,
+        leafEntries,
+        messageFormattingEntry,
+        overviewChartsEntry,
+        shippedLeafEntries,
+    };
 }
 
 /**
@@ -277,6 +305,7 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
             result.blueprintEntry,
             ...Object.values(result.shippedLeafEntries),
             result.overviewChartsEntry,
+            result.messageFormattingEntry,
             ...Object.values(result.leafEntries),
         ]
             .map((entry) => basename(entry))

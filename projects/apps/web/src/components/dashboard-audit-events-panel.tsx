@@ -4,10 +4,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { AnimatePresence, motion } from 'motion/react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getDashboardAuditEventsQueryKey, getDashboardPostingChannelsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardAuditEventsQueryKey, getDashboardPostingCatalogQueryKey } from '../dashboard-query-keys.js';
 import {
     readDashboardAuditEventsRouteData,
-    readDashboardPostingChannelsRouteData,
+    readDashboardPostingCatalogRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type { DashboardAuditEvent, DashboardAuditSearchScope } from '../server/dashboard-posting.server.js';
 import { DashboardAuditEventRow, DashboardAuditEventsLoadMoreRow } from './dashboard-audit-event-row.js';
@@ -74,20 +74,20 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         retry: false,
     });
-    const postingChannelsQuery = useQuery({
-        queryKey: getDashboardPostingChannelsQueryKey(guildId),
+    const postingCatalogQuery = useQuery({
+        queryKey: getDashboardPostingCatalogQueryKey(guildId),
         queryFn: async () => {
-            const result = await readDashboardPostingChannelsRouteData({
+            const result = await readDashboardPostingCatalogRouteData({
                 data: {
                     guildId,
                 },
             });
 
-            if (result.type !== 'channels') {
+            if (result.type !== 'catalog') {
                 throw new DashboardGuildReadError(result.type);
             }
 
-            return result.channels;
+            return result.catalog;
         },
         retry: false,
     });
@@ -96,8 +96,8 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
         [auditEventsQuery.data]
     );
     const channelNameById = useMemo(
-        () => new Map((postingChannelsQuery.data ?? []).map((channel) => [channel.id, channel.name])),
-        [postingChannelsQuery.data]
+        () => new Map((postingCatalogQuery.data?.channels ?? []).map((channel) => [channel.id, channel.name])),
+        [postingCatalogQuery.data]
     );
     const activeSearchScope =
         dashboardAuditSearchScopes.find((scope) => scope.value === searchScope) ?? dashboardAuditSearchScopes[0];

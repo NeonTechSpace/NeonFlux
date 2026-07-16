@@ -23,8 +23,8 @@ export function getDashboardOverviewQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'overview'] as const;
 }
 
-export function getDashboardPostingChannelsQueryKey(guildId: string) {
-    return ['dashboard', 'guild', guildId, 'posting-channels'] as const;
+export function getDashboardPostingCatalogQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'posting-catalog'] as const;
 }
 
 export function getDashboardPostingOperationsQueryKey(guildId: string) {

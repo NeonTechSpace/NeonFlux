@@ -11,6 +11,12 @@ import type {
 export const botReadProtocolVersion = 1 as const;
 export const botReadJwtAudience = 'neonflux-bot-read-v1';
 export const botReadGuildStructurePathPrefix = '/v1/guilds/';
+export const botReadPostingWakePath = '/v1/posting/wake';
+
+export type BotReadPostingWakeResponse = {
+    protocolVersion: typeof botReadProtocolVersion;
+    type: 'accepted';
+};
 
 export type BotReadGuildStructureResponse =
     | { protocolVersion: typeof botReadProtocolVersion; type: 'structure'; structure: FluxerGuildStructure }
@@ -20,6 +26,16 @@ export type BotReadGuildStructureResponse =
 
 export function createBotReadGuildStructurePath(guildId: string): string {
     return `${botReadGuildStructurePathPrefix}${encodeURIComponent(guildId)}/structure`;
+}
+
+export function parseBotReadPostingWakeResponse(
+    value: unknown
+): Result<BotReadPostingWakeResponse, 'invalid-response'> {
+    return isExactRecord(value, ['protocolVersion', 'type']) &&
+        value.protocolVersion === botReadProtocolVersion &&
+        value.type === 'accepted'
+        ? ok({ protocolVersion: botReadProtocolVersion, type: 'accepted' })
+        : err('invalid-response');
 }
 
 export function parseBotReadGuildStructureResponse(

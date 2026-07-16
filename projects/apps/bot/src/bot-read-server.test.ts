@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 
 import { createNeonFluxJwks, signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 import type { AppLogger } from '@neonflux/core/logging';
-import { botReadJwtAudience } from '@neonflux/fluxer/bot-read-contract';
+import { botReadJwtAudience, botReadPostingWakePath } from '@neonflux/fluxer/bot-read-contract';
 import { readFluxerGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
 import type { FluxerBot } from '@neonflux/fluxer';
@@ -23,11 +23,13 @@ const jwks = `data:application/json,${encodeURIComponent(JSON.stringify(createNe
 const logger = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } as unknown as AppLogger;
 const bot = { client: { user: { id: 'bot-user' } } } as unknown as FluxerBot;
 let servers: BotReadServer[] = [];
+const wakePostingWorker = vi.fn();
 
 describe('bot read server', () => {
     beforeEach(() => {
         vi.mocked(readFluxerGuildStructure).mockReset();
         vi.mocked(readFluxerGuildStructure).mockResolvedValue(ok(createStructure('guild-1')));
+        wakePostingWorker.mockReset();
     });
 
     afterEach(async () => {
@@ -78,6 +80,24 @@ describe('bot read server', () => {
         expect(body).not.toContain('provider-secret-body');
     });
 
+    it('authenticates and accepts posting worker wake requests without a payload', async () => {
+        const server = await startServer();
+        const response = await wakeRequest(server, await createToken());
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toEqual({ protocolVersion: 1, type: 'accepted' });
+        expect(wakePostingWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects unauthorized, incorrectly shaped, and payload-bearing wake requests', async () => {
+        const server = await startServer();
+
+        expect((await wakeRequest(server)).status).toBe(401);
+        expect((await wakeRequest(server, await createToken(), { method: 'GET' })).status).toBe(405);
+        expect((await wakeRequest(server, await createToken(), { body: '{}' })).status).toBe(413);
+        expect(wakePostingWorker).not.toHaveBeenCalled();
+    });
+
     it('shares one in-flight read per guild and rejects new guilds when globally saturated', async () => {
         const completions = Array.from({ length: 8 }, () =>
             Promise.withResolvers<Awaited<ReturnType<typeof readFluxerGuildStructure>>>()
@@ -121,11 +141,24 @@ async function startServer(): Promise<BotReadServer> {
         host: '127.0.0.1',
         logger,
         port: 0,
+        wakePostingWorker,
         webAuthJwtIssuer: issuer,
         webAuthJwtJwks: jwks,
     });
     servers.push(server);
     return server;
+}
+
+async function wakeRequest(
+    server: BotReadServer,
+    token?: string,
+    init: { body?: string; method?: string } = {}
+): Promise<Response> {
+    return fetch(`http://127.0.0.1:${String(server.port)}${botReadPostingWakePath}`, {
+        ...(init.body ? { body: init.body } : {}),
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        method: init.method ?? 'POST',
+    });
 }
 
 async function request(server: BotReadServer, guildId: string, token?: string): Promise<Response> {

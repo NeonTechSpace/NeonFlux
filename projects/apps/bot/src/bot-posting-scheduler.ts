@@ -19,6 +19,7 @@ export function startDashboardPostingScheduler(input: {
 }) {
     const leaseOwner = `dashboard-posting-worker:${randomUUID()}`;
     let stopped = false;
+    let wakePending = false;
     let running: Promise<void> | undefined;
     let activeController: AbortController | undefined;
 
@@ -37,6 +38,12 @@ export function startDashboardPostingScheduler(input: {
                 return;
             }
             if (result.status === 'idle') return;
+            if (result.status === 'sent' && result.timings) {
+                input.logger.info('posting.operation_timing', {
+                    operationId: result.operationId,
+                    ...result.timings,
+                });
+            }
             if (result.status === 'deferred' && result.operationId === 'unknown') return;
             if (result.status === 'unknown' || result.status === 'permanent_failure') {
                 input.logger.error('posting.operation_requires_attention', {
@@ -57,14 +64,27 @@ export function startDashboardPostingScheduler(input: {
             })
             .finally(() => {
                 running = undefined;
+                if (wakePending && !stopped) {
+                    wakePending = false;
+                    queueMicrotask(startRun);
+                }
             });
     };
     const interval = setInterval(startRun, input.intervalMs ?? schedulerIntervalMs);
     startRun();
 
     return {
+        wake(): void {
+            if (stopped) return;
+            if (running) {
+                wakePending = true;
+                return;
+            }
+            startRun();
+        },
         async stop(): Promise<void> {
             stopped = true;
+            wakePending = false;
             clearInterval(interval);
             activeController?.abort('shutdown');
             if (!running) return;

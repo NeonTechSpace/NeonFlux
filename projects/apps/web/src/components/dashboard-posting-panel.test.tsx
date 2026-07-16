@@ -9,7 +9,7 @@ import type * as DashboardGuildRouteDataModule from '../server/dashboard-guild-r
 
 import {
     postDashboardMessageRouteData,
-    readDashboardPostingChannelsRouteData,
+    readDashboardPostingCatalogRouteData,
     readDashboardPostingOperationsRouteData,
     resolveDashboardPostingUnknownRouteData,
 } from '../server/dashboard-guild-route-data.js';
@@ -21,7 +21,7 @@ let unmountPanel: (() => void) | undefined;
 vi.mock('../server/dashboard-guild-route-data.js', async (importOriginal) => ({
     ...(await importOriginal<typeof DashboardGuildRouteDataModule>()),
     postDashboardMessageRouteData: vi.fn(),
-    readDashboardPostingChannelsRouteData: vi.fn(),
+    readDashboardPostingCatalogRouteData: vi.fn(),
     readDashboardPostingOperationsRouteData: vi.fn(),
     resolveDashboardPostingUnknownRouteData: vi.fn(),
 }));
@@ -37,9 +37,12 @@ describe('DashboardPostingPanel', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
-            channels: [{ id: 'channel-1', name: 'general', type: 0 }],
-            type: 'channels',
+        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
+            catalog: {
+                channels: [{ id: 'channel-1', name: 'general', type: 0 }],
+                roles: [],
+            },
+            type: 'catalog',
         });
         vi.mocked(readDashboardPostingOperationsRouteData).mockResolvedValue({ operations: [], type: 'operations' });
         vi.mocked(readDashboardPostingTemplatesRouteData).mockResolvedValue({ templates: [], type: 'templates' });
@@ -237,7 +240,7 @@ describe('DashboardPostingPanel', () => {
     });
 
     it('keeps failed posting reads visible while their explicit retries are in flight', async () => {
-        vi.mocked(readDashboardPostingChannelsRouteData)
+        vi.mocked(readDashboardPostingCatalogRouteData)
             .mockResolvedValueOnce({ type: 'database-error' })
             .mockImplementationOnce(() => new Promise(() => undefined));
         vi.mocked(readDashboardPostingOperationsRouteData)

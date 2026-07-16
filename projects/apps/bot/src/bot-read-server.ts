@@ -9,6 +9,7 @@ import type { AppLogger } from '@neonflux/core/logging';
 import {
     botReadGuildStructurePathPrefix,
     botReadJwtAudience,
+    botReadPostingWakePath,
     botReadProtocolVersion,
     type BotReadGuildStructureResponse,
 } from '@neonflux/fluxer/bot-read-contract';
@@ -29,6 +30,7 @@ export type StartBotReadServerInput = {
     host: string;
     logger: AppLogger;
     port: number;
+    wakePostingWorker(): void;
     webAuthJwtIssuer: string;
     webAuthJwtJwks: string;
 };
@@ -41,7 +43,14 @@ export async function startBotReadServer(input: StartBotReadServerInput): Promis
     const jwks = createNeonFluxJwkSetFromJwksConfig(input.webAuthJwtJwks);
     const reads = createGuildStructureReads(input);
     const server = createServer((request, response) => {
-        void handleRequest({ jwtConfig, jwks, reads, request, response }).catch(() => {
+        void handleRequest({
+            jwtConfig,
+            jwks,
+            reads,
+            request,
+            response,
+            wakePostingWorker: () => input.wakePostingWorker(),
+        }).catch(() => {
             if (!response.headersSent) writeJson(response, 500, { type: 'internal-error' });
             else response.destroy();
         });
@@ -117,9 +126,17 @@ type RequestContext = {
     reads: GuildStructureReads;
     request: IncomingMessage;
     response: ServerResponse;
+    wakePostingWorker(): void;
 };
 
 async function handleRequest(context: RequestContext): Promise<void> {
+    const pathname = readPathname(context.request.url);
+
+    if (pathname === botReadPostingWakePath) {
+        await handlePostingWake(context);
+        return;
+    }
+
     const guildId = readGuildId(context.request.url);
 
     if (!guildId) {
@@ -154,6 +171,28 @@ async function handleRequest(context: RequestContext): Promise<void> {
     writeJson(context.response, status, result);
 }
 
+async function handlePostingWake(context: RequestContext): Promise<void> {
+    if (context.request.method !== 'POST') {
+        context.response.setHeader('Allow', 'POST');
+        writeJson(context.response, 405, { type: 'method-not-allowed' });
+        return;
+    }
+
+    if (requestHasBody(context.request)) {
+        context.request.resume();
+        writeJson(context.response, 413, { type: 'payload-not-allowed' });
+        return;
+    }
+
+    if (!(await isAuthorized(context))) {
+        writeJson(context.response, 401, { type: 'unauthorized' });
+        return;
+    }
+
+    context.wakePostingWorker();
+    writeJson(context.response, 202, { protocolVersion: botReadProtocolVersion, type: 'accepted' });
+}
+
 async function isAuthorized(context: RequestContext): Promise<boolean> {
     const authorization = context.request.headers.authorization;
     if (!authorization?.startsWith('Bearer ')) return false;
@@ -174,9 +213,8 @@ async function isAuthorized(context: RequestContext): Promise<boolean> {
 }
 
 function readGuildId(requestUrl: string | undefined): string | undefined {
-    if (!requestUrl) return undefined;
-
-    const pathname = new URL(requestUrl, 'http://bot.internal').pathname;
+    const pathname = readPathname(requestUrl);
+    if (!pathname) return undefined;
     const suffix = '/structure';
     if (!pathname.startsWith(botReadGuildStructurePathPrefix) || !pathname.endsWith(suffix)) return undefined;
 
@@ -189,6 +227,26 @@ function readGuildId(requestUrl: string | undefined): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+function readPathname(requestUrl: string | undefined): string | undefined {
+    if (!requestUrl) return undefined;
+
+    try {
+        return new URL(requestUrl, 'http://bot.internal').pathname;
+    } catch {
+        return undefined;
+    }
+}
+
+function requestHasBody(request: IncomingMessage): boolean {
+    const transferEncoding = request.headers['transfer-encoding'];
+    if (transferEncoding) return true;
+
+    const contentLength = request.headers['content-length'];
+    if (!contentLength) return false;
+    const parsed = Number(contentLength);
+    return !Number.isFinite(parsed) || parsed !== 0;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {

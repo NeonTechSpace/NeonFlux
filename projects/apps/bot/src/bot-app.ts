@@ -43,7 +43,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let botReadServer: BotReadServer | undefined;
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
-    let postingScheduler: { stop(): Promise<void> } | undefined;
+    let postingScheduler: { stop(): Promise<void>; wake(): void } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
     let blueprintRunWorker: { stop(): Promise<void> } | undefined;
     let growthTelemetry: ReturnType<typeof createBotGrowthTelemetryIngestor> | undefined;
@@ -284,23 +284,30 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             }
 
             if (config.fluxerBotToken && botReadAuth) {
-                botReadServer = await startBotReadServer({
-                    bot,
-                    host: config.botReadHost,
+                postingScheduler = startDashboardPostingScheduler({
+                    context: createFeatureHandlerContext(),
                     logger,
-                    port: config.botReadPort,
-                    webAuthJwtIssuer: botReadAuth.issuer,
-                    webAuthJwtJwks: botReadAuth.jwks,
                 });
+                try {
+                    botReadServer = await startBotReadServer({
+                        bot,
+                        host: config.botReadHost,
+                        logger,
+                        port: config.botReadPort,
+                        wakePostingWorker: () => postingScheduler?.wake(),
+                        webAuthJwtIssuer: botReadAuth.issuer,
+                        webAuthJwtJwks: botReadAuth.jwks,
+                    });
+                } catch (error) {
+                    await postingScheduler.stop();
+                    postingScheduler = undefined;
+                    throw error;
+                }
                 installationRepairScheduler = startInstallationRepairScheduler({
                     bot,
                     database,
                     logger,
                     mode: deploymentMode,
-                });
-                postingScheduler = startDashboardPostingScheduler({
-                    context: createFeatureHandlerContext(),
-                    logger,
                 });
                 structureBackupScheduler = startStructureBackupScheduler({
                     client: bot.client,

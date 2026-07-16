@@ -5,10 +5,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { getDashboardPostingChannelsQueryKey, getDashboardPostingOperationsQueryKey } from '../dashboard-query-keys.js';
+import { getDashboardPostingCatalogQueryKey, getDashboardPostingOperationsQueryKey } from '../dashboard-query-keys.js';
 import {
     postDashboardMessageRouteData,
-    readDashboardPostingChannelsRouteData,
+    readDashboardPostingCatalogRouteData,
     readDashboardPostingOperationsRouteData,
     resolveDashboardPostingUnknownRouteData,
 } from '../server/dashboard-guild-route-data.js';
@@ -68,20 +68,20 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const previewEmbedResult = normalizeDashboardEmbedDraft(embedDraft);
     const previewEmbeds = previewEmbedResult.valid && previewEmbedResult.embed ? [previewEmbedResult.embed] : [];
 
-    const channelsQuery = useQuery({
-        queryKey: getDashboardPostingChannelsQueryKey(guildId),
+    const postingCatalogQuery = useQuery({
+        queryKey: getDashboardPostingCatalogQueryKey(guildId),
         queryFn: async () => {
-            const result = await readDashboardPostingChannelsRouteData({
+            const result = await readDashboardPostingCatalogRouteData({
                 data: {
                     guildId,
                 },
             });
 
-            if (result.type !== 'channels') {
+            if (result.type !== 'catalog') {
                 throw new DashboardGuildReadError(result.type);
             }
 
-            return result.channels;
+            return result.catalog;
         },
         staleTime: 30_000,
         retry: false,
@@ -100,8 +100,8 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 : false,
         retry: false,
     });
-    const channelsFailureType = channelsQuery.isError
-        ? readDashboardGuildReadFailureType(channelsQuery.error)
+    const channelsFailureType = postingCatalogQuery.isError
+        ? readDashboardGuildReadFailureType(postingCatalogQuery.error)
         : undefined;
     const operationsFailureType = operationsQuery.isError
         ? readDashboardGuildReadFailureType(operationsQuery.error)
@@ -116,7 +116,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const activeOperation = requestedActiveOperation ?? latestUnresolvedOperation;
     const unknownRequiresResolution = activeOperation?.status === 'unknown' && !activeOperation.resolution;
     const selectedChannelLabel = selectedChannelId
-        ? getPostingChannelLabel(channelsQuery.data ?? [], selectedChannelId)
+        ? getPostingChannelLabel(postingCatalogQuery.data?.channels ?? [], selectedChannelId)
         : undefined;
     const embedConfigured = hasEmbedDraftContent(embedDraft);
     const operationMessage: PostingFormMessage | undefined = activeOperation
@@ -129,7 +129,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         : 'warning',
               text: getDashboardPostingOperationConfirmationMessage(
                   activeOperation,
-                  getPostingChannelLabel(channelsQuery.data ?? [], activeOperation.requestedChannelId)
+                  getPostingChannelLabel(postingCatalogQuery.data?.channels ?? [], activeOperation.requestedChannelId)
               ),
           }
         : undefined;
@@ -273,7 +273,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         setRetryRequestKey(retryOfOperationId ? undefined : requestKey);
         mutation.mutate({
             channelId: trimmedChannelId,
-            channelLabel: getPostingChannelLabel(channelsQuery.data ?? [], trimmedChannelId),
+            channelLabel: getPostingChannelLabel(postingCatalogQuery.data?.channels ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
             embeds,
             requestKey,
@@ -306,10 +306,10 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             </div>
             <DashboardSurface as='section' tone='glass' className='space-y-5' aria-label='Message composer'>
                 <DashboardChannelPicker
-                    channels={channelsQuery.data ?? []}
-                    hasError={channelsQuery.isError || channelsRetrying}
+                    channels={postingCatalogQuery.data?.channels ?? []}
+                    hasError={postingCatalogQuery.isError || channelsRetrying}
                     errorMessage={getChannelLoadErrorMessage(channelsFailureType ?? 'database-error')}
-                    isLoading={channelsQuery.isPending && !channelsRetrying}
+                    isLoading={postingCatalogQuery.isPending && !channelsRetrying}
                     isRetrying={channelsRetrying}
                     isOpen={channelPickerOpen}
                     search={channelSearch}
@@ -321,7 +321,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                             ? () => {
                                   if (channelsRetrying) return;
                                   setChannelsRetrying(true);
-                                  void channelsQuery.refetch().finally(() => setChannelsRetrying(false));
+                                  void postingCatalogQuery.refetch().finally(() => setChannelsRetrying(false));
                               }
                             : undefined
                     }
@@ -416,7 +416,13 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 ref={previewRef}
                 className='min-w-0 scroll-mt-4 space-y-4 xl:sticky xl:top-4 xl:self-start'
                 aria-label='Preview and delivery'>
-                <DashboardPostingPreview content={content} embeds={previewEmbeds} channelLabel={selectedChannelLabel} />
+                <DashboardPostingPreview
+                    content={content}
+                    embeds={previewEmbeds}
+                    channelLabel={selectedChannelLabel}
+                    channels={postingCatalogQuery.data?.channels ?? []}
+                    roles={postingCatalogQuery.data?.roles ?? []}
+                />
                 <DashboardSurface as='section' tone='glass' padding='compact' aria-label='Message delivery'>
                     <div className='hidden xl:flex xl:items-center xl:gap-2'>
                         <motion.button
@@ -498,7 +504,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         </div>
                     ) : null}
                     <DashboardPostingOperationHistory
-                        channels={channelsQuery.data ?? []}
+                        channels={postingCatalogQuery.data?.channels ?? []}
                         operations={operationsQuery.data ?? []}
                         hasError={operationsQuery.isError || operationsRetrying}
                         errorMessage={getOperationLoadErrorMessage(operationsFailureType ?? 'database-error')}

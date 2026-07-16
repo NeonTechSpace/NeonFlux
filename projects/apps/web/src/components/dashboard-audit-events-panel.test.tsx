@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     readDashboardAuditEventsRouteData,
-    readDashboardPostingChannelsRouteData,
+    readDashboardPostingCatalogRouteData,
 } from '../server/dashboard-guild-route-data.js';
 import type * as DashboardGuildRouteDataModule from '../server/dashboard-guild-route-data.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
@@ -18,7 +18,7 @@ vi.mock('../server/dashboard-guild-route-data.js', async (importActual) => {
     return {
         ...actual,
         readDashboardAuditEventsRouteData: vi.fn(),
-        readDashboardPostingChannelsRouteData: vi.fn(),
+        readDashboardPostingCatalogRouteData: vi.fn(),
     };
 });
 
@@ -54,9 +54,9 @@ describe('DashboardAuditEventsPanel', () => {
                 },
             ],
         });
-        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
-            type: 'channels',
-            channels: [],
+        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
+            type: 'catalog',
+            catalog: { channels: [], roles: [] },
         });
 
         renderAuditPanel();
@@ -102,9 +102,9 @@ describe('DashboardAuditEventsPanel', () => {
                 },
             ],
         });
-        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
-            type: 'channels',
-            channels: [],
+        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
+            type: 'catalog',
+            catalog: { channels: [], roles: [] },
         });
 
         renderAuditPanel();
@@ -129,9 +129,9 @@ describe('DashboardAuditEventsPanel', () => {
             type: 'events',
             auditEvents: [],
         });
-        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({
-            type: 'channels',
-            channels: [],
+        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
+            type: 'catalog',
+            catalog: { channels: [], roles: [] },
         });
 
         renderAuditPanel();
@@ -179,7 +179,10 @@ describe('DashboardAuditEventsPanel', () => {
         vi.mocked(readDashboardAuditEventsRouteData)
             .mockResolvedValueOnce({ type: 'database-error' })
             .mockImplementationOnce(() => new Promise(() => undefined));
-        vi.mocked(readDashboardPostingChannelsRouteData).mockResolvedValue({ type: 'channels', channels: [] });
+        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
+            type: 'catalog',
+            catalog: { channels: [], roles: [] },
+        });
 
         renderAuditPanel();
 

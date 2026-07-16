@@ -3,7 +3,6 @@ import {
     completeDashboardPostingOperationSent,
     deferDashboardPostingOperationBeforeSend,
     failDashboardPostingOperationPermanently,
-    isDashboardPostingGuildRunnable,
     markDashboardPostingOperationSendStarted,
     markDashboardPostingOperationUnknown,
     readDashboardPostingOperationForWorker,
@@ -19,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 import { runNextDashboardPostingOperation } from './bot-posting-worker.js';
 
-const readStructure = vi.fn();
+const resolveDashboardTarget = vi.fn();
 const sendMessage = vi.fn();
 
 vi.mock('@neonflux/db', async (importActual) => ({
@@ -28,7 +27,6 @@ vi.mock('@neonflux/db', async (importActual) => ({
     completeDashboardPostingOperationSent: vi.fn(),
     deferDashboardPostingOperationBeforeSend: vi.fn(),
     failDashboardPostingOperationPermanently: vi.fn(),
-    isDashboardPostingGuildRunnable: vi.fn(),
     markDashboardPostingOperationSendStarted: vi.fn(),
     markDashboardPostingOperationUnknown: vi.fn(),
     readDashboardPostingOperationForWorker: vi.fn(),
@@ -44,13 +42,9 @@ describe('dashboard posting worker', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(createFluxerPlatform).mockReturnValue({
-            guildStructure: { read: readStructure },
-            messages: { sendDashboard: sendMessage },
+            messages: { resolveDashboardTarget, sendDashboard: sendMessage },
         } as unknown as ReturnType<typeof createFluxerPlatform>);
-        readStructure.mockResolvedValue(
-            ok({ channels: [{ id: 'channel-1', name: 'general', type: 0 }], guildId: 'guild-1', roles: [] })
-        );
-        vi.mocked(isDashboardPostingGuildRunnable).mockResolvedValue(ok(true));
+        resolveDashboardTarget.mockResolvedValue(ok({ guildId: 'guild-1', id: 'channel-1', name: 'general', type: 0 }));
         vi.mocked(deferDashboardPostingOperationBeforeSend).mockResolvedValue(ok(true));
         vi.mocked(failDashboardPostingOperationPermanently).mockResolvedValue(ok(null));
         vi.mocked(markDashboardPostingOperationUnknown).mockResolvedValue(ok(null));
@@ -72,6 +66,8 @@ describe('dashboard posting worker', () => {
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
         expect(result).toMatchObject({ operationId: 'operation-1', status: 'sent' });
+        if (result.status !== 'sent' || !result.timings) throw new Error('Expected successful-send timings.');
+        expect(Object.values(result.timings).every(Number.isFinite)).toBe(true);
         const markedOrder = vi.mocked(markDashboardPostingOperationSendStarted).mock.invocationCallOrder[0];
         const sentOrder = sendMessage.mock.invocationCallOrder[0];
         if (markedOrder === undefined || sentOrder === undefined) throw new Error('Expected mark and send calls.');
@@ -103,7 +99,7 @@ describe('dashboard posting worker', () => {
 
     it('defers a transient preflight failure without starting a send', async () => {
         vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(createOperation()));
-        readStructure.mockResolvedValue(err({ type: 'operation-failed', error: new Error('temporary') }));
+        resolveDashboardTarget.mockResolvedValue(err({ type: 'operation-failed', error: new Error('temporary') }));
 
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
@@ -115,9 +111,20 @@ describe('dashboard posting worker', () => {
 
     it.each([5, 998])('rejects non-text Fluxer channel type %s before starting a send', async (channelType) => {
         vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(createOperation()));
-        readStructure.mockResolvedValue(
-            ok({ channels: [{ id: 'channel-1', name: 'not-text', type: channelType }], guildId: 'guild-1', roles: [] })
+        resolveDashboardTarget.mockResolvedValue(
+            ok({ guildId: 'guild-1', id: 'channel-1', name: 'not-text', type: channelType })
         );
+
+        const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ errorCode: 'channel_not_postable', status: 'permanent_failure' });
+        expect(markDashboardPostingOperationSendStarted).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('rejects a resolved channel owned by another guild before starting a send', async () => {
+        vi.mocked(claimNextDashboardPostingOperation).mockResolvedValue(ok(createOperation()));
+        resolveDashboardTarget.mockResolvedValue(ok({ guildId: 'guild-2', id: 'channel-1', name: 'general', type: 0 }));
 
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 

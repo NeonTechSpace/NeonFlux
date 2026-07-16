@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
 import {
     claimNextDashboardPostingOperation,
     completeDashboardPostingOperationSent,
     deferDashboardPostingOperationBeforeSend,
     failDashboardPostingOperationPermanently,
-    isDashboardPostingGuildRunnable,
     markDashboardPostingOperationSendStarted,
     markDashboardPostingOperationUnknown,
     normalizeDashboardPostingPayload,
@@ -19,7 +19,7 @@ import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 
 export type DashboardPostingWorkerResult =
     | { status: 'idle' }
-    | { operationId: string; status: 'sent' }
+    | { operationId: string; status: 'sent'; timings?: DashboardPostingTimings }
     | { errorCode: string; operationId: string; status: 'deferred' | 'permanent_failure' | 'unknown' };
 
 const leaseTtlMs = 60_000;
@@ -28,10 +28,18 @@ const maxRetryDelayMs = 60_000;
 const maxPreSendAttempts = 5;
 const postableChannelTypes = new Set([0]);
 
+type DashboardPostingTimings = {
+    preflightMs: number;
+    providerSendMs: number;
+    queueWaitMs: number;
+    totalMs: number;
+};
+
 export async function runNextDashboardPostingOperation(
     context: BotFeatureHandlerContext,
     options: { leaseOwner: string; now?: Date; signal?: AbortSignal }
 ): Promise<DashboardPostingWorkerResult> {
+    const totalStartedAt = performance.now();
     if (options.signal?.aborted) return { errorCode: 'worker_aborted', operationId: 'unknown', status: 'deferred' };
     const now = options.now ?? new Date();
     const leaseId = randomUUID();
@@ -45,6 +53,7 @@ export async function runNextDashboardPostingOperation(
     if (!claim.value) return { status: 'idle' };
 
     const operation = claim.value;
+    const queueWaitMs = Math.max(0, now.getTime() - operation.createdAt.getTime());
     if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
     if (operation.externalMessageId && operation.externalChannelId) {
         return finalizeSent(context, operation, leaseId, now);
@@ -56,23 +65,23 @@ export async function runNextDashboardPostingOperation(
     });
     if (payload.isErr()) return fail(context, operation, leaseId, now, 'invalid_persisted_payload');
 
-    const runnable = await isDashboardPostingGuildRunnable(context.db, { guildId: operation.guildId });
-    if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
-    if (runnable.isErr()) return defer(context, operation, leaseId, now, 'scope_check_failed');
-    if (!runnable.value) return fail(context, operation, leaseId, now, 'guild_out_of_scope');
-
     const platform = createFluxerPlatform(context.client);
-    const structure = await platform.guildStructure.read({ guildId: operation.guildId });
+    const preflightStartedAt = performance.now();
+    const target = await platform.messages.resolveDashboardTarget({ channelId: operation.requestedChannelId });
     if (options.signal?.aborted) return defer(context, operation, leaseId, new Date(), 'worker_aborted_before_send');
-    if (structure.isErr()) {
-        return structure.error.type === 'missing-input'
+    if (target.isErr()) {
+        if (target.error.type === 'not-found') {
+            return fail(context, operation, leaseId, now, 'channel_not_postable');
+        }
+        return target.error.type === 'missing-input'
             ? fail(context, operation, leaseId, now, 'guild_preflight_invalid')
             : defer(context, operation, leaseId, now, 'guild_preflight_failed');
     }
-    const channel = structure.value.channels.find((candidate) => candidate.id === operation.requestedChannelId);
-    if (!channel || !postableChannelTypes.has(channel.type)) {
+    const channel = target.value;
+    if (channel.guildId !== operation.guildId || !postableChannelTypes.has(channel.type)) {
         return fail(context, operation, leaseId, now, 'channel_not_postable');
     }
+    const preflightMs = performance.now() - preflightStartedAt;
 
     const sendStarted = await markDashboardPostingOperationSendStarted(context.db, {
         leaseId,
@@ -87,6 +96,7 @@ export async function runNextDashboardPostingOperation(
         return markUnknown(context, operation, leaseId, channel.name ?? undefined, 'worker_deadline_after_send_start');
     }
 
+    const providerSendStartedAt = performance.now();
     const sent = await waitForProviderSend(
         platform.messages.sendDashboard({
             channelId: operation.requestedChannelId,
@@ -94,6 +104,7 @@ export async function runNextDashboardPostingOperation(
         }),
         options.signal
     );
+    const providerSendMs = performance.now() - providerSendStartedAt;
     if (sent === 'aborted') {
         return markUnknown(
             context,
@@ -119,7 +130,22 @@ export async function runNextDashboardPostingOperation(
         return { errorCode: 'sent_message_persistence_unknown', operationId: operation.id, status: 'unknown' };
     }
 
-    return finalizeSent(context, persisted, leaseId, new Date(), channel.name ?? undefined);
+    const finalized = await finalizeSent(context, persisted, leaseId, new Date(), channel.name ?? undefined);
+    return finalized.status === 'sent'
+        ? {
+              ...finalized,
+              timings: {
+                  preflightMs: roundedMilliseconds(preflightMs),
+                  providerSendMs: roundedMilliseconds(providerSendMs),
+                  queueWaitMs: roundedMilliseconds(queueWaitMs),
+                  totalMs: roundedMilliseconds(performance.now() - totalStartedAt),
+              },
+          }
+        : finalized;
+}
+
+function roundedMilliseconds(value: number): number {
+    return Math.max(0, Math.round(value));
 }
 
 async function waitForProviderSend<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | 'aborted'> {

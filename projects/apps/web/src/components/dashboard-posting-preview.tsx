@@ -1,17 +1,30 @@
 import { AnimatePresence, motion } from 'motion/react';
 import type { OutgoingEmbed } from '@neonflux/messaging';
-import type { CSSProperties } from 'react';
+import { Component, lazy, Suspense, useState } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
 
+import type { DashboardPostingChannel, DashboardPostingRole } from '../server/dashboard-posting.server.js';
+import type { DashboardFluxerMarkdownProps } from './dashboard-fluxer-markdown.js';
 import { dashboardInlineVariants, dashboardViewTransition } from './dashboard-motion.js';
 import { DashboardSurface } from './dashboard-ui.js';
 
 type DashboardPostingPreviewProps = {
     channelLabel?: string;
+    channels: DashboardPostingChannel[];
     content: string;
     embeds: OutgoingEmbed[];
+    roles: DashboardPostingRole[];
 };
 
-export function DashboardPostingPreview({ channelLabel, content, embeds }: DashboardPostingPreviewProps) {
+type MarkdownRenderer = ComponentType<DashboardFluxerMarkdownProps>;
+
+export function DashboardPostingPreview({
+    channelLabel,
+    channels,
+    content,
+    embeds,
+    roles,
+}: DashboardPostingPreviewProps) {
     const trimmedContent = content.trim();
     const previewEmbedItems = toPreviewEmbedItems(embeds);
 
@@ -55,14 +68,12 @@ export function DashboardPostingPreview({ channelLabel, content, embeds }: Dashb
                         animate='enter'
                         exit='exit'
                         transition={dashboardViewTransition}>
-                        {trimmedContent ? (
-                            <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#f5f7fb]'>
-                                {trimmedContent}
-                            </p>
-                        ) : null}
-                        {previewEmbedItems.map((item) => (
-                            <DashboardEmbedPreview key={item.key} embed={item.embed} />
-                        ))}
+                        <FormattedPayloadPreview
+                            channels={channels}
+                            content={trimmedContent}
+                            embeds={previewEmbedItems}
+                            roles={roles}
+                        />
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -70,12 +81,106 @@ export function DashboardPostingPreview({ channelLabel, content, embeds }: Dashb
     );
 }
 
-function DashboardEmbedPreview({ embed }: { embed: OutgoingEmbed }) {
+function FormattedPayloadPreview({
+    channels,
+    content,
+    embeds,
+    roles,
+}: {
+    channels: DashboardPostingChannel[];
+    content: string;
+    embeds: Array<{ key: string; embed: OutgoingEmbed }>;
+    roles: DashboardPostingRole[];
+}) {
+    const [loadAttempt, setLoadAttempt] = useState(0);
+    const [Markdown, setMarkdown] = useState(createLazyMarkdownRenderer);
+
+    function retry(): void {
+        setMarkdown(() => createLazyMarkdownRenderer());
+        setLoadAttempt((attempt) => attempt + 1);
+    }
+
+    return (
+        <MarkdownCodeLoadBoundary key={loadAttempt} onRetry={retry}>
+            <Suspense fallback={<MarkdownLoadingState />}>
+                {content ? (
+                    <div className='text-sm leading-6 text-[#f5f7fb]'>
+                        <Markdown source={content} context='standard' channels={channels} roles={roles} />
+                    </div>
+                ) : null}
+                {embeds.map((item) => (
+                    <DashboardEmbedPreview
+                        key={item.key}
+                        embed={item.embed}
+                        Markdown={Markdown}
+                        channels={channels}
+                        roles={roles}
+                    />
+                ))}
+            </Suspense>
+        </MarkdownCodeLoadBoundary>
+    );
+}
+
+function createLazyMarkdownRenderer() {
+    return lazy(async () => {
+        const module = await import('./dashboard-fluxer-markdown.js');
+        return { default: module.DashboardFluxerMarkdown };
+    });
+}
+
+function MarkdownLoadingState() {
+    return (
+        <div role='status' className='rounded-md border border-[#343b49] bg-[#151820] px-3 py-4 text-sm text-[#aeb8c7]'>
+            Loading formatted preview…
+        </div>
+    );
+}
+
+export class MarkdownCodeLoadBoundary extends Component<
+    { children: ReactNode; onRetry: () => void },
+    { failed: boolean }
+> {
+    state = { failed: false };
+
+    static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true };
+    }
+
+    render() {
+        if (!this.state.failed) return this.props.children;
+
+        return (
+            <div role='alert' className='rounded-md border border-[#78444a] bg-[#351d22] px-3 py-3 text-[#ffc3c7]'>
+                <p className='text-sm font-medium'>Formatted preview could not be loaded.</p>
+                <button
+                    type='button'
+                    onClick={this.props.onRetry}
+                    className='mt-2 min-h-11 cursor-pointer rounded-md border border-[#b86d76] px-3 text-sm font-semibold outline-none hover:bg-[#4a272e] focus-visible:ring-2 focus-visible:ring-[#ff9ba1]'>
+                    Retry formatted preview
+                </button>
+            </div>
+        );
+    }
+}
+
+function DashboardEmbedPreview({
+    channels,
+    embed,
+    Markdown,
+    roles,
+}: {
+    channels: DashboardPostingChannel[];
+    embed: OutgoingEmbed;
+    Markdown: MarkdownRenderer;
+    roles: DashboardPostingRole[];
+}) {
     const color = getEmbedColor(embed);
     const authorName = embed.author?.name;
     const authorIconUrl = embed.author?.iconUrl;
+    const authorUrl = readSafePreviewHttpUrl(embed.author?.url);
     const title = embed.title;
-    const titleUrl = embed.url;
+    const titleUrl = readSafePreviewHttpUrl(embed.url);
     const description = embed.description;
     const thumbnailUrl = embed.thumbnailUrl;
     const imageUrl = embed.imageUrl;
@@ -102,26 +207,74 @@ function DashboardEmbedPreview({ embed }: { embed: OutgoingEmbed }) {
                                     referrerPolicy='no-referrer'
                                 />
                             ) : null}
-                            <span className='truncate text-xs font-semibold text-[#d8dee9]'>{authorName}</span>
+                            {authorUrl ? (
+                                <a
+                                    href={authorUrl}
+                                    target='_blank'
+                                    rel='noopener noreferrer'
+                                    className='truncate text-xs font-semibold text-[#5ad7ff] no-underline outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[#5ad7ff]'>
+                                    {authorName}
+                                </a>
+                            ) : (
+                                <span className='truncate text-xs font-semibold text-[#d8dee9]'>{authorName}</span>
+                            )}
                         </div>
                     ) : null}
                     {title ? (
                         titleUrl ? (
                             <a
                                 href={titleUrl}
-                                className='block text-sm font-semibold break-words text-[#5ad7ff] hover:text-[#91e5ff]'
+                                className='block text-sm font-semibold break-words text-[#5ad7ff] no-underline outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[#5ad7ff]'
                                 target='_blank'
-                                rel='noreferrer'>
-                                {title}
+                                rel='noopener noreferrer'>
+                                <Markdown
+                                    source={title}
+                                    context='inline'
+                                    disableLinks
+                                    channels={channels}
+                                    roles={roles}
+                                />
                             </a>
                         ) : (
-                            <h4 className='text-sm font-semibold break-words text-[#f6f8fb]'>{title}</h4>
+                            <h4 className='text-sm font-semibold break-words text-[#f6f8fb]'>
+                                <Markdown source={title} context='inline' channels={channels} roles={roles} />
+                            </h4>
                         )
                     ) : null}
                     {description ? (
-                        <p className='text-sm leading-6 break-words whitespace-pre-wrap text-[#d8dee9]'>
-                            {description}
-                        </p>
+                        <div className='text-sm leading-6 text-[#d8dee9]'>
+                            <Markdown source={description} context='embed' channels={channels} roles={roles} />
+                        </div>
+                    ) : null}
+                    {embed.fields && embed.fields.length > 0 ? (
+                        <div
+                            role='list'
+                            aria-label='Embed fields'
+                            className='grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-3'>
+                            {embed.fields.map((field, index) => (
+                                <div
+                                    key={`${field.name}:${String(index)}`}
+                                    role='listitem'
+                                    className={field.inline ? 'min-w-0' : 'min-w-0 sm:col-span-3'}>
+                                    <div className='text-xs font-semibold break-words text-[#f6f8fb]'>
+                                        <Markdown
+                                            source={field.name}
+                                            context='inline'
+                                            channels={channels}
+                                            roles={roles}
+                                        />
+                                    </div>
+                                    <div className='mt-1 text-sm leading-5 text-[#d8dee9]'>
+                                        <Markdown
+                                            source={field.value}
+                                            context='embed'
+                                            channels={channels}
+                                            roles={roles}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     ) : null}
                 </div>
                 {thumbnailUrl ? (
@@ -154,7 +307,11 @@ function DashboardEmbedPreview({ embed }: { embed: OutgoingEmbed }) {
                             referrerPolicy='no-referrer'
                         />
                     ) : null}
-                    {footerText ? <span className='truncate'>{footerText}</span> : null}
+                    {footerText ? (
+                        <span className='min-w-0 break-words'>
+                            <Markdown source={footerText} context='inline' channels={channels} roles={roles} />
+                        </span>
+                    ) : null}
                     {footerText && timestamp ? <span aria-hidden='true'>|</span> : null}
                     {timestamp ? <time dateTime={timestamp}>{formatPreviewTimestamp(timestamp)}</time> : null}
                 </div>
@@ -200,4 +357,15 @@ function formatPreviewTimestamp(value: string): string {
     }
 
     return date.toLocaleString();
+}
+
+function readSafePreviewHttpUrl(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? value : undefined;
+    } catch {
+        return undefined;
+    }
 }

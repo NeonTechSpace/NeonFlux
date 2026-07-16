@@ -10,11 +10,14 @@ import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import {
+    loadDashboardGuildPageData,
+    loadDashboardGuildPageDataForAuthenticatedContext,
+} from './dashboard-guild-page.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
 import {
     loadDashboardGuildAuditEventsPage,
-    loadDashboardGuildPostingChannels,
+    loadDashboardGuildPostingCatalog,
     loadDashboardGuildPostingOperations,
     postDashboardGuildMessage,
     resolveDashboardGuildPostingUnknown,
@@ -44,6 +47,7 @@ vi.mock('./db.server.js', () => ({
 
 vi.mock('./dashboard-guild-page.server.js', () => ({
     loadDashboardGuildPageData: vi.fn(),
+    loadDashboardGuildPageDataForAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock('./fluxer-auth-context.server.js', () => ({
@@ -64,6 +68,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
 vi.mock('./bot-read-client.server.js', () => ({
     readDashboardBotGuildStructure: vi.fn(),
+    wakeDashboardBotPostingWorker: vi.fn(),
 }));
 
 vi.mock('@neonflux/fluxer/users', async (importActual) => {
@@ -85,7 +90,16 @@ describe('dashboard posting', () => {
                 name: 'Guild One',
             },
         });
+        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValue({
+            type: 'guild',
+            mode: 'multi',
+            guild: {
+                id: 'guild-1',
+                name: 'Guild One',
+            },
+        });
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
+        vi.mocked(wakeDashboardBotPostingWorker).mockResolvedValue(ok(undefined));
         vi.mocked(enqueueDashboardPostingOperation).mockResolvedValue(
             ok({ created: true, operation: createPostingOperationRecord() })
         );
@@ -117,7 +131,19 @@ describe('dashboard posting', () => {
             ok({
                 guildId: 'guild-1',
                 guildName: 'Guild 1',
-                roles: [],
+                roles: [
+                    {
+                        id: 'role-1',
+                        name: 'Operators',
+                        position: 4,
+                        color: 0x5ad7ff,
+                        permissions: '8',
+                        hoist: true,
+                        mentionable: false,
+                        protected: true,
+                        protectionReason: 'managed',
+                    },
+                ],
                 channels: [
                     {
                         id: 'channel-2',
@@ -203,7 +229,7 @@ describe('dashboard posting', () => {
     });
 
     it('denies unauthenticated users before queueing', async () => {
-        vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({ type: 'auth-required' });
+        vi.mocked(readAuthenticatedFluxerContext).mockResolvedValueOnce(err('missing-cookie'));
 
         const result = await postDashboardGuildMessage(request, {
             guildId: 'guild-1',
@@ -213,11 +239,12 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({ type: 'auth-required' });
+        expect(loadDashboardGuildPageDataForAuthenticatedContext).not.toHaveBeenCalled();
         expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
     it('denies unavailable or unauthorized guilds before queueing', async () => {
-        vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({ type: 'not-found' });
+        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValueOnce({ type: 'not-found' });
 
         await expect(
             postDashboardGuildMessage(request, {
@@ -228,7 +255,7 @@ describe('dashboard posting', () => {
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
 
-        vi.mocked(loadDashboardGuildPageData).mockResolvedValueOnce({
+        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValueOnce({
             type: 'single-unauthorized',
             configuredGuildId: 'guild-1',
             configuredGuildName: 'Guild One',
@@ -277,9 +304,7 @@ describe('dashboard posting', () => {
         expect(enqueueDashboardPostingOperation).toHaveBeenCalledWith(
             {},
             expect.objectContaining({
-                actorDisplayName: 'Neonsy',
                 actorUserId: 'actor-1',
-                actorUsername: 'neonsy',
                 content: 'hello',
                 embeds: [{ title: 'NeonFlux' }],
                 guildId: 'guild-1',
@@ -288,6 +313,9 @@ describe('dashboard posting', () => {
                 requestedChannelId: 'channel-1',
             })
         );
+        expect(readAuthenticatedFluxerContext).toHaveBeenCalledTimes(1);
+        expect(getFluxerCurrentUser).not.toHaveBeenCalled();
+        expect(wakeDashboardBotPostingWorker).toHaveBeenCalledTimes(1);
     });
 
     it('returns the existing operation for an idempotent replay', async () => {
@@ -307,6 +335,34 @@ describe('dashboard posting', () => {
             type: 'operation',
         });
         expect(enqueueDashboardPostingOperation).toHaveBeenCalledTimes(1);
+        expect(wakeDashboardBotPostingWorker).not.toHaveBeenCalled();
+    });
+
+    it('keeps the queued operation successful when the best-effort bot wake fails', async () => {
+        vi.mocked(wakeDashboardBotPostingWorker).mockResolvedValueOnce(err('transport-failed'));
+
+        const result = await postDashboardGuildMessage(request, {
+            channelId: 'channel-1',
+            content: 'hello',
+            guildId: 'guild-1',
+            requestKey: 'request-1',
+        });
+
+        expect(result).toStrictEqual({ type: 'operation', operation: createPostingOperationView() });
+        expect(wakeDashboardBotPostingWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the queued operation successful if the wake client unexpectedly rejects', async () => {
+        vi.mocked(wakeDashboardBotPostingWorker).mockRejectedValueOnce(new Error('unexpected wake failure'));
+
+        const result = await postDashboardGuildMessage(request, {
+            channelId: 'channel-1',
+            content: 'hello',
+            guildId: 'guild-1',
+            requestKey: 'request-1',
+        });
+
+        expect(result).toStrictEqual({ type: 'operation', operation: createPostingOperationView() });
     });
 
     it('maps an idempotency conflict without exposing database details', async () => {
@@ -450,34 +506,38 @@ describe('dashboard posting', () => {
             },
         });
 
-        const result = await loadDashboardGuildPostingChannels(request, 'requested-guild');
+        const result = await loadDashboardGuildPostingCatalog(request, 'requested-guild');
 
         expect(result).toStrictEqual({
-            type: 'channels',
-            channels: [
-                {
-                    id: 'channel-1',
-                    name: 'general',
-                    type: 0,
-                    position: 1,
-                },
-                {
-                    id: 'channel-2',
-                    name: 'updates',
-                    type: 0,
-                    parentId: 'category-1',
-                    parentName: 'Info',
-                    position: 2,
-                },
-            ],
+            type: 'catalog',
+            catalog: {
+                channels: [
+                    {
+                        id: 'channel-1',
+                        name: 'general',
+                        type: 0,
+                        position: 1,
+                    },
+                    {
+                        id: 'channel-2',
+                        name: 'updates',
+                        type: 0,
+                        parentId: 'category-1',
+                        parentName: 'Info',
+                        position: 2,
+                    },
+                ],
+                roles: [{ id: 'role-1', name: 'Operators', color: 0x5ad7ff }],
+            },
         });
+        expect(readDashboardBotGuildStructure).toHaveBeenCalledTimes(1);
         expect(readDashboardBotGuildStructure).toHaveBeenCalledWith('authorized-guild');
     });
 
     it('reports an unavailable bot read service before loading posting channels', async () => {
         vi.mocked(readDashboardBotGuildStructure).mockResolvedValueOnce(err('not-configured'));
 
-        const result = await loadDashboardGuildPostingChannels(request, 'guild-1');
+        const result = await loadDashboardGuildPostingCatalog(request, 'guild-1');
 
         expect(result).toStrictEqual({ type: 'bot-token-missing' });
     });
@@ -485,7 +545,7 @@ describe('dashboard posting', () => {
     it('maps channel lookup failures without leaking Fluxer errors', async () => {
         vi.mocked(readDashboardBotGuildStructure).mockResolvedValueOnce(err('read-failed'));
 
-        const result = await loadDashboardGuildPostingChannels(request, 'guild-1');
+        const result = await loadDashboardGuildPostingCatalog(request, 'guild-1');
 
         expect(result).toStrictEqual({ type: 'guild-lookup-failed' });
     });

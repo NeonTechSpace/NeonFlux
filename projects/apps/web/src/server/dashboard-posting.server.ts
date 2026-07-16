@@ -12,15 +12,18 @@ import {
 import type { BotActionEventSearchScope, DashboardPostingOperationRecord } from '@neonflux/db';
 import { parseOutgoingMessage, serializeDashboardPostingPayload } from '@neonflux/messaging';
 import type { DashboardPostingOperationResolution, OutgoingEmbed, OutgoingMessage } from '@neonflux/messaging';
-import type { FluxerGuildChannel } from '@neonflux/fluxer/guild-structure';
+import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer/guild-structure';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
 import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
-import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import {
+    loadDashboardGuildPageData,
+    loadDashboardGuildPageDataForAuthenticatedContext,
+} from './dashboard-guild-page.server.js';
 
 export type DashboardPostMessageInput = {
     guildId: string;
@@ -38,6 +41,17 @@ export type DashboardPostingChannel = {
     parentId?: string;
     parentName?: string;
     position?: number;
+};
+
+export type DashboardPostingRole = {
+    id: string;
+    name: string;
+    color: number;
+};
+
+type DashboardPostingCatalog = {
+    channels: DashboardPostingChannel[];
+    roles: DashboardPostingRole[];
 };
 
 type DashboardAuditMetadata = Record<string, string | number | boolean | null>;
@@ -112,10 +126,10 @@ export type DashboardAuditEventsResult =
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' };
 
-export type DashboardPostingChannelsResult =
+export type DashboardPostingCatalogResult =
     | {
-          type: 'channels';
-          channels: DashboardPostingChannel[];
+          type: 'catalog';
+          catalog: DashboardPostingCatalog;
       }
     | { type: 'auth-required' }
     | { type: 'not-found' }
@@ -163,16 +177,19 @@ export async function postDashboardGuildMessage(
     request: Request,
     input: DashboardPostMessageInput
 ): Promise<DashboardPostMessageResult> {
-    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
-
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
-    }
-
     const authContextResult = await readAuthenticatedFluxerContext(request);
 
     if (authContextResult.isErr()) {
         return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
+    }
+
+    const guildPageData = await loadDashboardGuildPageDataForAuthenticatedContext(
+        authContextResult.value,
+        input.guildId
+    );
+
+    if (guildPageData.type !== 'guild') {
+        return mapDashboardGuildPageError(guildPageData);
     }
 
     const payloadResult = normalizePostMessagePayload(input);
@@ -198,12 +215,9 @@ export async function postDashboardGuildMessage(
         return { type: 'invalid-message', message: 'Start a new posting attempt and try again.' };
     }
 
-    const actorProfile = await resolveAuthenticatedActorProfile(authContextResult.value);
     const database = await getWebDb();
     const payloadHash = hashDashboardPostingPayload(payload);
     const enqueueResult = await enqueueDashboardPostingOperation(database.db, {
-        ...(actorProfile?.displayName ? { actorDisplayName: actorProfile.displayName } : {}),
-        ...(actorProfile?.username ? { actorUsername: actorProfile.username } : {}),
         actorUserId: authContextResult.value.fluxerUserId,
         ...(payload.message.content ? { content: payload.message.content } : {}),
         embeds: payload.message.embeds,
@@ -216,6 +230,17 @@ export async function postDashboardGuildMessage(
 
     if (enqueueResult.isErr()) {
         return enqueueResult.error.type === 'conflict' ? { type: 'request-conflict' } : { type: 'database-error' };
+    }
+
+    if (enqueueResult.value.operation.status === 'queued') {
+        await wakeDashboardBotPostingWorker().then(
+            (wakeResult) =>
+                wakeResult.match(
+                    () => undefined,
+                    () => undefined
+                ),
+            () => undefined
+        );
     }
 
     return { type: 'operation', operation: toDashboardPostingOperation(enqueueResult.value.operation) };
@@ -295,10 +320,10 @@ export async function loadDashboardGuildAuditEventsPage(
     };
 }
 
-export async function loadDashboardGuildPostingChannels(
+export async function loadDashboardGuildPostingCatalog(
     request: Request,
     guildId: string
-): Promise<DashboardPostingChannelsResult> {
+): Promise<DashboardPostingCatalogResult> {
     const guildPageData = await loadDashboardGuildPageData(request, guildId);
 
     if (guildPageData.type !== 'guild') {
@@ -314,8 +339,11 @@ export async function loadDashboardGuildPostingChannels(
     }
 
     return {
-        type: 'channels',
-        channels: toDashboardPostingChannels(structureResult.value.channels, structureResult.value.categories),
+        type: 'catalog',
+        catalog: {
+            channels: toDashboardPostingChannels(structureResult.value.channels, structureResult.value.categories),
+            roles: toDashboardPostingRoles(structureResult.value.roles),
+        },
     };
 }
 
@@ -494,6 +522,14 @@ function toDashboardPostingChannels(
             ...(channel.position !== null ? { position: channel.position } : {}),
         }))
         .sort(compareDashboardPostingChannels);
+}
+
+function toDashboardPostingRoles(roles: FluxerGuildRole[]): DashboardPostingRole[] {
+    return roles.map((role) => ({
+        id: role.id,
+        name: role.name,
+        color: role.color,
+    }));
 }
 
 function toDashboardPostingOperation(operation: DashboardPostingOperationRecord): DashboardPostingOperation {

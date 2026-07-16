@@ -62,6 +62,24 @@ describe('dashboard bundle boundary guard', () => {
         ).toThrow(/statically reaches forbidden chunk/u);
     });
 
+    it('rejects the optional message formatter when it enters the message-builder cold graph', () => {
+        const chunks = new Map([
+            ['message-builder-fixture.js', 'import"./dashboard-fluxer-markdown-fixture.js"'],
+            ['dashboard-fluxer-markdown-fixture.js', 'export const formatter="formatted preview"'],
+        ]);
+
+        expect(() =>
+            assertBundleBoundary({
+                chunks,
+                entry: 'message-builder-fixture.js',
+                label: 'Message Builder fixture',
+                maxEntryBytes: 1_000,
+                forbidden: [],
+                forbiddenChunkPatterns: [/^dashboard-fluxer-markdown-[\w-]+\.js$/u],
+            })
+        ).toThrow(/statically reaches forbidden chunk/u);
+    });
+
     it.each([
         ['a React development runtime chunk', new Map([['jsx-dev-runtime-fixture.js', 'export const jsx = true']])],
         ['compiled jsxDEV calls', new Map([['route.js', 'jsxDEV("main", {})']])],

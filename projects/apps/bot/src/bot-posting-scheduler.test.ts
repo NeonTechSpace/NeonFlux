@@ -39,6 +39,84 @@ describe('dashboard posting scheduler', () => {
         await scheduler.stop();
     });
 
+    it('wakes an idle scheduler immediately without waiting for the fallback interval', async () => {
+        vi.mocked(runNextDashboardPostingOperation).mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: { error: vi.fn() } as never,
+        });
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
+
+        scheduler.wake();
+
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(2));
+        await scheduler.stop();
+    });
+
+    it('logs only redacted stage timings for successful posting operations', async () => {
+        const info = vi.fn();
+        vi.mocked(runNextDashboardPostingOperation)
+            .mockResolvedValueOnce({
+                operationId: 'operation-1',
+                status: 'sent',
+                timings: { preflightMs: 4, providerSendMs: 25, queueWaitMs: 7, totalMs: 41 },
+            })
+            .mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: { error: vi.fn(), info } as never,
+        });
+
+        await vi.waitFor(() => expect(info).toHaveBeenCalledTimes(1));
+
+        expect(info).toHaveBeenCalledWith('posting.operation_timing', {
+            operationId: 'operation-1',
+            preflightMs: 4,
+            providerSendMs: 25,
+            queueWaitMs: 7,
+            totalMs: 41,
+        });
+        expect(JSON.stringify(info.mock.calls)).not.toContain('content');
+        await scheduler.stop();
+    });
+
+    it('replays a wake received while a drain is still running', async () => {
+        const firstRun = Promise.withResolvers<{ status: 'idle' }>();
+        vi.mocked(runNextDashboardPostingOperation)
+            .mockReturnValueOnce(firstRun.promise)
+            .mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: { error: vi.fn() } as never,
+        });
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
+
+        scheduler.wake();
+        firstRun.resolve({ status: 'idle' });
+
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(2));
+        await scheduler.stop();
+    });
+
+    it('ignores wake requests after shutdown', async () => {
+        vi.mocked(runNextDashboardPostingOperation).mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: { error: vi.fn() } as never,
+        });
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
+        await scheduler.stop();
+
+        scheduler.wake();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1);
+    });
+
     it('aborts an overdue item and stops the current drain', async () => {
         const error = vi.fn();
         let observedSignal: AbortSignal | undefined;

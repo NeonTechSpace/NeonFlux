@@ -36,6 +36,13 @@ type FetchManyMessagesOptions = {
     around?: string;
 };
 
+export type FluxerDashboardPostingTarget = {
+    guildId: string;
+    id: string;
+    name: string | null;
+    type: number;
+};
+
 export function createMessagePlatform(client: FluxerBot['client']) {
     return {
         send: (input: {
@@ -46,6 +53,7 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         }) => sendFluxerChannelMessage({ client, ...input }),
         sendDashboard: (input: { channelId: string; message: OutgoingMessage }) =>
             sendDashboardFluxerMessage({ client, ...input }),
+        resolveDashboardTarget: (input: { channelId: string }) => resolveDashboardPostingTarget(client, input),
         fetch: (input: { channelId: string; messageId: string }) => fetchMessage(client, input),
         fetchMany: (input: { channelId: string; limit: number; before?: string; after?: string; around?: string }) =>
             fetchManyMessages(client, input),
@@ -59,6 +67,44 @@ export function createMessagePlatform(client: FluxerBot['client']) {
         delete: (input: { channelId: string; messageId: string }) => deleteMessage(client, input),
         bulkDelete: (input: { channelId: string; messageIds: string[] }) => bulkDeleteMessages(client, input),
     };
+}
+
+async function resolveDashboardPostingTarget(
+    client: FluxerBot['client'],
+    input: { channelId: string }
+): Promise<Result<FluxerDashboardPostingTarget, FluxerPlatformError>> {
+    const inputResult = requireTextInputs(input, ['channelId']);
+    if (inputResult.isErr()) return err(inputResult.error);
+    const channelId = input.channelId.trim();
+
+    try {
+        const channel = await client.channels.resolve(channelId);
+        const candidate = channel as {
+            guildId?: unknown;
+            id?: unknown;
+            name?: unknown;
+            type?: unknown;
+        };
+        if (
+            typeof candidate.guildId !== 'string' ||
+            !candidate.guildId ||
+            candidate.id !== channelId ||
+            (typeof candidate.name !== 'string' && candidate.name !== null) ||
+            typeof candidate.type !== 'number' ||
+            !Number.isFinite(candidate.type)
+        ) {
+            return err({ type: 'not-found' });
+        }
+
+        return ok({
+            guildId: candidate.guildId,
+            id: candidate.id,
+            name: candidate.name,
+            type: candidate.type,
+        });
+    } catch (error) {
+        return err(mapPlatformError(error));
+    }
 }
 
 async function fetchMessage(
