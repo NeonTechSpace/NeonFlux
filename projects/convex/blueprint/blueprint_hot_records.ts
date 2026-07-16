@@ -185,6 +185,62 @@ export function toPreflightMetadataRecord(preflight: Omit<Doc<'blueprintPlanPref
 }
 
 export function toHotRunRecord(run: Omit<Doc<'blueprintRuns'>, '_creationTime'>) {
-    const { _id, ...document } = run;
-    return { ...document, id: String(_id), planId: String(document.planId), preflightId: String(document.preflightId) };
+    return {
+        appliedSteps: run.appliedSteps,
+        ...(run.authorizationDecision === undefined ? {} : { authorizationDecision: run.authorizationDecision }),
+        ...(run.authorizationMismatchJson === undefined
+            ? {}
+            : { authorizationMismatchJson: run.authorizationMismatchJson }),
+        completedMutationSteps: run.completedMutationSteps,
+        ...(run.completedAt === undefined ? {} : { completedAt: run.completedAt }),
+        ...(run.controlRequest === undefined ? {} : { controlRequest: run.controlRequest }),
+        createdAt: run.createdAt,
+        ...(run.currentStepDomain === undefined ? {} : { currentStepDomain: run.currentStepDomain }),
+        ...(run.currentStepId === undefined ? {} : { currentStepId: run.currentStepId }),
+        ...(run.currentStepLabel === undefined ? {} : { currentStepLabel: run.currentStepLabel }),
+        ...(run.errorType === undefined ? {} : { errorType: run.errorType }),
+        executionAuthorityDigest: run.executionAuthorityDigest,
+        expectedCapabilityFingerprint: run.expectedCapabilityFingerprint,
+        expectedStructureFingerprint: run.expectedStructureFingerprint,
+        failedSteps: run.failedSteps,
+        fingerprintVersion: run.fingerprintVersion,
+        guildId: run.guildId,
+        ...(run.heartbeatAt === undefined ? {} : { heartbeatAt: run.heartbeatAt }),
+        id: String(run._id),
+        ...(run.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: run.leaseExpiresAt }),
+        ...(run.leaseId === undefined ? {} : { leaseId: run.leaseId }),
+        ...(run.leaseOwner === undefined ? {} : { leaseOwner: run.leaseOwner }),
+        ...(run.mutationAuthorizationLeaseId === undefined
+            ? {}
+            : { mutationAuthorizationLeaseId: run.mutationAuthorizationLeaseId }),
+        ...(run.mutationAuthorizedAt === undefined ? {} : { mutationAuthorizedAt: run.mutationAuthorizedAt }),
+        nextStepSequence: run.nextStepSequence,
+        notStartedSteps: run.notStartedSteps,
+        phase: run.phase,
+        planId: String(run.planId),
+        preflightDigest: run.preflightDigest,
+        preflightExpiresAt: run.preflightExpiresAt,
+        preflightId: String(run.preflightId),
+        protocolVersion: run.protocolVersion,
+        ...(run.restorePointBackupId === undefined ? {} : { restorePointBackupId: run.restorePointBackupId }),
+        ...(run.restorePointSnapshotDigest === undefined
+            ? {}
+            : { restorePointSnapshotDigest: run.restorePointSnapshotDigest }),
+        ...(run.retryAt === undefined ? {} : { retryAt: run.retryAt }),
+        skippedSteps: run.skippedSteps,
+        ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),
+        status: run.status,
+        ...(run.terminalDigest === undefined ? {} : { terminalDigest: run.terminalDigest }),
+        ...(run.terminalRequestDigest === undefined ? {} : { terminalRequestDigest: run.terminalRequestDigest }),
+        totalMutationSteps: run.totalMutationSteps,
+        totalSteps: run.totalSteps,
+        updatedAt: run.updatedAt,
+        ...(run.verificationEvidenceDigest === undefined
+            ? {}
+            : { verificationEvidenceDigest: run.verificationEvidenceDigest }),
+        ...(run.verificationEvidenceVersion === undefined
+            ? {}
+            : { verificationEvidenceVersion: run.verificationEvidenceVersion }),
+        ...(run.verificationStatus === undefined ? {} : { verificationStatus: run.verificationStatus }),
+    };
 }
