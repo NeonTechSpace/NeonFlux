@@ -6,11 +6,12 @@ import { dashboardInlineVariants, dashboardViewTransition } from './dashboard-mo
 import { DashboardSurface } from './dashboard-ui.js';
 
 type DashboardPostingPreviewProps = {
+    channelLabel?: string;
     content: string;
     embeds: OutgoingEmbed[];
 };
 
-export function DashboardPostingPreview({ content, embeds }: DashboardPostingPreviewProps) {
+export function DashboardPostingPreview({ channelLabel, content, embeds }: DashboardPostingPreviewProps) {
     const trimmedContent = content.trim();
     const previewEmbedItems = toPreviewEmbedItems(embeds);
 
@@ -18,9 +19,12 @@ export function DashboardPostingPreview({ content, embeds }: DashboardPostingPre
         <DashboardSurface as='section' tone='glass' className='space-y-4' aria-label='Message preview'>
             <div className='border-b border-[var(--dash-border)] pb-3'>
                 <p className='text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
-                    Fluxer preview
+                    Fluxer payload preview
                 </p>
-                <h3 className='mt-1 text-base font-semibold text-[var(--dash-text)]'>What members will see</h3>
+                <div className='mt-1 flex flex-wrap items-center justify-between gap-2'>
+                    <h3 className='text-base font-semibold text-[var(--dash-text)]'>Message preview</h3>
+                    <span className='text-xs text-[var(--dash-text-muted)]'>{channelLabel ?? 'Choose a channel'}</span>
+                </div>
             </div>
             <AnimatePresence initial={false} mode='popLayout'>
                 {!trimmedContent && previewEmbedItems.length === 0 ? (

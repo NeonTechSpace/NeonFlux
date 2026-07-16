@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { OUTGOING_MESSAGE_LIMITS } from '@neonflux/messaging';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -197,6 +198,42 @@ describe('DashboardPostingPanel', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Confirm replace' }));
 
         expect((message as HTMLTextAreaElement).value).toBe('Template content');
+    });
+
+    it('keeps optional embed controls collapsed until requested and validates URLs inline', () => {
+        renderPanel();
+
+        expect(screen.queryByRole('region', { name: 'Embed builder' })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Add embed' }));
+
+        const title = screen.getByRole<HTMLInputElement>('textbox', { name: 'Title' });
+        const body = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Main body' });
+        expect(title.maxLength).toBe(OUTGOING_MESSAGE_LIMITS.embedTitle);
+        expect(body.maxLength).toBe(OUTGOING_MESSAGE_LIMITS.embedDescription);
+
+        fireEvent.change(title, { target: { value: 'Release notes' } });
+        const titleUrl = screen.getByRole<HTMLInputElement>('textbox', { name: 'Title URL' });
+        fireEvent.change(titleUrl, { target: { value: 'not-a-url' } });
+
+        expect(screen.getAllByText(/complete http:\/\/ or https:\/\/ URL/i).length).toBeGreaterThan(0);
+        expect(titleUrl.getAttribute('aria-invalid')).toBe('true');
+    });
+
+    it('enables template saving only after the name and payload are ready', () => {
+        renderPanel();
+
+        const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save current' });
+        expect(save.disabled).toBe(true);
+
+        fireEvent.change(screen.getByRole('textbox', { name: 'Message content' }), {
+            target: { value: 'Release notes' },
+        });
+        expect(save.disabled).toBe(true);
+
+        fireEvent.change(screen.getByRole('textbox', { name: 'Template name' }), {
+            target: { value: 'Release update' },
+        });
+        expect(save.disabled).toBe(false);
     });
 
     it('keeps failed posting reads visible while their explicit retries are in flight', async () => {

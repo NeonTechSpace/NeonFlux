@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DASHBOARD_MESSAGE_MENTION_POLICY } from '@neonflux/messaging';
+import { DASHBOARD_MESSAGE_MENTION_POLICY, OUTGOING_MESSAGE_LIMITS } from '@neonflux/messaging';
 import type { OutgoingEmbed } from '@neonflux/messaging';
 import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { getDashboardPostingChannelsQueryKey, getDashboardPostingOperationsQueryKey } from '../dashboard-query-keys.js';
@@ -52,11 +52,14 @@ type PostingFormMessage = {
 
 export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
+    const messageContentId = useId();
+    const previewRef = useRef<HTMLElement>(null);
     const [selectedChannelId, setSelectedChannelId] = useState('');
     const [channelSearch, setChannelSearch] = useState('');
     const [channelPickerOpen, setChannelPickerOpen] = useState(false);
     const [content, setContent] = useState('');
     const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
+    const [embedEditorOpen, setEmbedEditorOpen] = useState(false);
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
     const [activeOperationId, setActiveOperationId] = useState<string>();
     const [retryRequestKey, setRetryRequestKey] = useState<string>();
@@ -112,6 +115,10 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     );
     const activeOperation = requestedActiveOperation ?? latestUnresolvedOperation;
     const unknownRequiresResolution = activeOperation?.status === 'unknown' && !activeOperation.resolution;
+    const selectedChannelLabel = selectedChannelId
+        ? getPostingChannelLabel(channelsQuery.data ?? [], selectedChannelId)
+        : undefined;
+    const embedConfigured = hasEmbedDraftContent(embedDraft);
     const operationMessage: PostingFormMessage | undefined = activeOperation
         ? {
               type:
@@ -229,6 +236,11 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         },
         onError: () => setFormMessage({ type: 'error', text: 'Could not record the delivery check. Try again.' }),
     });
+    const sendDisabled =
+        mutation.isPending ||
+        activeOperation?.status === 'queued' ||
+        activeOperation?.status === 'running' ||
+        unknownRequiresResolution;
 
     function submitMessage(event: FormEvent<HTMLFormElement>): void {
         event.preventDefault();
@@ -271,9 +283,27 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
 
     return (
         <form
-            className='grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]'
+            className='grid min-w-0 gap-4 pb-24 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)] xl:pb-0'
             onSubmit={submitMessage}
             aria-busy={mutation.isPending}>
+            <div
+                className='fixed inset-x-3 bottom-3 z-50 flex items-center gap-2 rounded-[var(--dash-radius-panel)] border border-[var(--dash-border-interactive)] bg-[rgba(7,11,18,0.94)] p-2 shadow-[var(--dash-shadow-popover)] backdrop-blur xl:hidden'
+                aria-label='Mobile message actions'>
+                <button
+                    type='button'
+                    onClick={() => previewRef.current?.scrollIntoView({ block: 'start' })}
+                    className={`${dashboardSecondaryActionClassName} flex-1`}>
+                    Preview
+                </button>
+                <motion.button
+                    type='submit'
+                    aria-label='Send current message'
+                    disabled={sendDisabled}
+                    className={`${primaryButtonClassName} flex-1`}
+                    {...dashboardTactile}>
+                    {mutation.isPending ? 'Sending…' : 'Send'}
+                </motion.button>
+            </div>
             <DashboardSurface as='section' tone='glass' className='space-y-5' aria-label='Message composer'>
                 <DashboardChannelPicker
                     channels={channelsQuery.data ?? []}
@@ -309,56 +339,89 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     }}
                 />
 
-                <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
-                    <span>Message content</span>
-                    <textarea
-                        value={content}
-                        onChange={(event) => {
-                            setContent(event.currentTarget.value);
-                            setFormMessage(undefined);
-                        }}
-                        className={fieldClassName}
-                        placeholder='Write the message NeonFlux should send.'
-                    />
-                </label>
-
-                <div className='space-y-3'>
-                    <h3 className='text-sm font-medium text-[var(--dash-text)]'>Embed editor</h3>
-                    <DashboardEmbedBuilder
-                        draft={embedDraft}
-                        onDraftChange={(nextDraft) => {
-                            setEmbedDraft(nextDraft);
-                            setFormMessage(undefined);
-                        }}
-                    />
-                </div>
-
                 <DashboardPostingTemplateControls
                     guildId={guildId}
                     content={content}
                     embeds={previewEmbeds}
                     payloadError={previewEmbedResult.valid ? undefined : previewEmbedResult.message}
                     onApplyTemplate={(template) => {
+                        const nextEmbedDraft = toDashboardEmbedDraft(template.embeds[0]);
                         setContent(template.content ?? '');
-                        setEmbedDraft(toDashboardEmbedDraft(template.embeds[0]));
+                        setEmbedDraft(nextEmbedDraft);
+                        setEmbedEditorOpen(hasEmbedDraftContent(nextEmbedDraft));
                         setFormMessage({ type: 'success', text: `Template applied: ${template.name}.` });
                     }}
                     onMessage={setFormMessage}
                 />
+
+                <div className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
+                    <div className='flex items-center justify-between gap-3'>
+                        <label htmlFor={messageContentId}>Message content</label>
+                        <span
+                            aria-hidden='true'
+                            className='text-xs font-normal text-[var(--dash-text-subtle)] tabular-nums'>
+                            {content.length.toLocaleString()} / {OUTGOING_MESSAGE_LIMITS.content.toLocaleString()}
+                        </span>
+                    </div>
+                    <textarea
+                        id={messageContentId}
+                        value={content}
+                        onChange={(event) => {
+                            setContent(event.currentTarget.value);
+                            setFormMessage(undefined);
+                        }}
+                        maxLength={OUTGOING_MESSAGE_LIMITS.content}
+                        className={fieldClassName}
+                        placeholder='Write the message NeonFlux should send.'
+                    />
+                </div>
+
+                <div className='space-y-3'>
+                    <div className='flex flex-wrap items-center justify-between gap-3'>
+                        <div>
+                            <h3 className='text-sm font-semibold text-[var(--dash-text)]'>Embed</h3>
+                            <p className='mt-1 text-xs text-[var(--dash-text-muted)]'>
+                                Optional rich content for announcements, media, and structured details.
+                            </p>
+                        </div>
+                        <motion.button
+                            type='button'
+                            aria-expanded={embedEditorOpen}
+                            onClick={() => setEmbedEditorOpen((open) => !open)}
+                            className={dashboardSecondaryActionClassName}
+                            {...dashboardTactile}>
+                            {embedEditorOpen ? 'Hide embed editor' : embedConfigured ? 'Edit embed' : 'Add embed'}
+                        </motion.button>
+                    </div>
+                    {embedEditorOpen ? (
+                        <div className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-3'>
+                            <DashboardEmbedBuilder
+                                draft={embedDraft}
+                                onDraftChange={(nextDraft) => {
+                                    setEmbedDraft(nextDraft);
+                                    setFormMessage(undefined);
+                                }}
+                            />
+                        </div>
+                    ) : embedConfigured ? (
+                        <p className='text-xs text-[var(--dash-text-muted)]'>An embed is configured and included.</p>
+                    ) : null}
+                    {!previewEmbedResult.valid ? (
+                        <DashboardStatus tone='danger'>{previewEmbedResult.message}</DashboardStatus>
+                    ) : null}
+                </div>
             </DashboardSurface>
 
-            <aside className='min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start' aria-label='Preview and delivery'>
-                <DashboardPostingPreview content={content} embeds={previewEmbeds} />
+            <aside
+                ref={previewRef}
+                className='min-w-0 scroll-mt-4 space-y-4 xl:sticky xl:top-4 xl:self-start'
+                aria-label='Preview and delivery'>
+                <DashboardPostingPreview content={content} embeds={previewEmbeds} channelLabel={selectedChannelLabel} />
                 <DashboardSurface as='section' tone='glass' padding='compact' aria-label='Message delivery'>
-                    <div className='flex flex-wrap items-center gap-3'>
+                    <div className='hidden xl:flex xl:items-center xl:gap-2'>
                         <motion.button
                             type='submit'
-                            disabled={
-                                mutation.isPending ||
-                                activeOperation?.status === 'queued' ||
-                                activeOperation?.status === 'running' ||
-                                unknownRequiresResolution
-                            }
+                            disabled={sendDisabled}
                             className={primaryButtonClassName}
                             {...dashboardTactile}>
                             {mutation.isPending ? 'Sending…' : 'Send message'}
@@ -462,6 +525,15 @@ function getPostingChannelLabel(channels: DashboardPostingChannel[], channelId: 
     const channel = channels.find((candidate) => candidate.id === channelId);
 
     return channel ? formatDashboardChannelLabel(channel) : 'the selected channel';
+}
+
+function hasEmbedDraftContent(draft: DashboardEmbedDraft): boolean {
+    return (
+        draft.includeTimestamp ||
+        Object.entries(draft).some(
+            ([key, value]) => key !== 'includeTimestamp' && typeof value === 'string' && value.trim()
+        )
+    );
 }
 
 function getChannelLoadErrorMessage(type: string): string {

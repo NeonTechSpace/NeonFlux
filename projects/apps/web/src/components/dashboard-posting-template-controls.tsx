@@ -81,6 +81,8 @@ export function DashboardPostingTemplateControls({
         () => templates.find((template) => template.id === selectedTemplateId),
         [selectedTemplateId, templates]
     );
+    const templateNameReady = Boolean(templateName.trim());
+    const payloadReady = Boolean(content.trim() || embeds.length > 0);
 
     const saveMutation = useMutation({
         mutationFn: (payload: {
@@ -187,6 +189,13 @@ export function DashboardPostingTemplateControls({
             onMessage({ type: 'error', text: 'Could not delete this template. Try again.' });
         },
     });
+    const saveDisabled =
+        templatesUnavailable ||
+        saveMutation.isPending ||
+        deleteMutation.isPending ||
+        !templateNameReady ||
+        !payloadReady ||
+        Boolean(payloadError);
 
     function saveCurrentTemplate(): void {
         const name = templateName.trim();
@@ -258,12 +267,15 @@ export function DashboardPostingTemplateControls({
     }
 
     return (
-        <section className='space-y-3 border-t border-[var(--dash-border)] pt-5' aria-label='Posting templates'>
-            <div>
-                <h3 className='text-sm font-semibold text-[var(--dash-text)]'>Templates</h3>
-                <p className='mt-1 text-xs text-[var(--dash-text-muted)]'>
-                    Save and reuse dashboard-only message payloads.
-                </p>
+        <section
+            className='space-y-3 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-3'
+            aria-label='Posting templates'>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div>
+                    <h3 className='text-sm font-semibold text-[var(--dash-text)]'>Templates</h3>
+                    <p className='mt-1 text-xs text-[var(--dash-text-muted)]'>Load a saved message before composing.</p>
+                </div>
+                <p className='mt-1 text-xs text-[var(--dash-text-muted)]'>Dashboard-only</p>
             </div>
 
             <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
@@ -361,27 +373,42 @@ export function DashboardPostingTemplateControls({
                 </div>
             </div>
 
-            <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
-                <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
-                    <span>Template name</span>
-                    <input
-                        value={templateName}
-                        onChange={(event) => setTemplateName(event.currentTarget.value)}
-                        className={fieldClassName}
-                        placeholder='Release update'
-                    />
-                </label>
-                <div className='flex items-end'>
-                    <motion.button
-                        type='button'
-                        onClick={saveCurrentTemplate}
-                        disabled={templatesUnavailable || saveMutation.isPending || deleteMutation.isPending}
-                        className={secondaryButtonClassName}
-                        {...dashboardTactile}>
-                        {saveMutation.isPending ? 'Saving…' : 'Save current'}
-                    </motion.button>
+            <details className='group border-t border-[var(--dash-border)] pt-3'>
+                <summary className='flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--dash-radius-control)] text-sm font-semibold text-[var(--dash-text)] outline-none focus-visible:shadow-[var(--dash-shadow-focus)] [&::-webkit-details-marker]:hidden'>
+                    <span>{selectedTemplate ? 'Update selected template' : 'Save as template'}</span>
+                    <span className='text-xs font-medium text-[var(--dash-text-muted)]'>Optional</span>
+                </summary>
+                <div className='grid gap-3 pt-3 lg:grid-cols-[minmax(0,1fr)_auto]'>
+                    <label className='space-y-2 text-sm font-medium text-[var(--dash-text)]'>
+                        <span>Template name</span>
+                        <input
+                            value={templateName}
+                            onChange={(event) => setTemplateName(event.currentTarget.value)}
+                            className={fieldClassName}
+                            placeholder='Release update'
+                        />
+                    </label>
+                    <div className='flex items-end'>
+                        <motion.button
+                            type='button'
+                            onClick={saveCurrentTemplate}
+                            disabled={saveDisabled}
+                            className={secondaryButtonClassName}
+                            {...dashboardTactile}>
+                            {saveMutation.isPending ? 'Saving…' : selectedTemplate ? 'Update template' : 'Save current'}
+                        </motion.button>
+                    </div>
                 </div>
-            </div>
+                {!templateNameReady || !payloadReady || payloadError ? (
+                    <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                        {!templateNameReady
+                            ? 'Enter a template name to save.'
+                            : payloadError
+                              ? payloadError
+                              : 'Add message content or an embed before saving.'}
+                    </p>
+                ) : null}
+            </details>
             <AnimatePresence initial={false}>
                 {templatesUnavailable ? (
                     <motion.div
