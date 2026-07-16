@@ -7,6 +7,8 @@ import type {
     BotActionEventRecord,
     BotInstallationRecord,
     BotInstallationRepositoryError,
+    DashboardGuildAuthorizationFacts,
+    DashboardGuildAuthorizationFactsRepositoryError,
     DeploymentConfigInput,
     DeploymentConfigRecord,
     DeploymentConfigRepositoryError,
@@ -54,6 +56,26 @@ export async function findDeploymentConfig(
         const config = await db.client.query(api.core.readDeploymentConfig, {});
 
         return config ? ok(config) : err('not-found');
+    } catch {
+        return err('database-error');
+    }
+}
+
+export async function readDashboardGuildAuthorizationFacts(
+    db: DeploymentConfigDb,
+    input: { guildId: string }
+): Promise<Result<DashboardGuildAuthorizationFacts, DashboardGuildAuthorizationFactsRepositoryError>> {
+    const guildId = input.guildId.trim();
+
+    if (!guildId) {
+        return err('missing-guild-id');
+    }
+
+    try {
+        const value: unknown = await db.client.query(api.core.readDashboardGuildAuthorizationFacts, { guildId });
+        const facts = parseDashboardGuildAuthorizationFacts(value);
+
+        return facts ? ok(facts) : err('database-error');
     } catch {
         return err('database-error');
     }
@@ -214,6 +236,49 @@ function toBotInstallationRecord(record: ConvexBotInstallationRecord): BotInstal
         installedAt: new Date(record.installedAt),
         updatedAt: new Date(record.updatedAt),
     };
+}
+
+function parseDashboardGuildAuthorizationFacts(value: unknown): DashboardGuildAuthorizationFacts | undefined {
+    if (!isRecord(value) || typeof value.botInstalled !== 'boolean' || !isStoredDefconLevel(value.storedDefconLevel)) {
+        return undefined;
+    }
+
+    const deployment = parseDashboardAuthorizationDeployment(value.deployment);
+    if (deployment === undefined) return undefined;
+
+    return {
+        botInstalled: value.botInstalled,
+        deployment,
+        storedDefconLevel: value.storedDefconLevel,
+    };
+}
+
+function parseDashboardAuthorizationDeployment(
+    value: unknown
+): DashboardGuildAuthorizationFacts['deployment'] | undefined {
+    if (value === null) return null;
+    if (!isRecord(value)) return undefined;
+
+    if (value.instanceMode === 'multi') {
+        return { instanceMode: 'multi' };
+    }
+
+    if (value.instanceMode === 'single' && typeof value.singleGuildId === 'string' && value.singleGuildId.trim()) {
+        return {
+            instanceMode: 'single',
+            singleGuildId: value.singleGuildId,
+        };
+    }
+
+    return undefined;
+}
+
+function isStoredDefconLevel(value: unknown): value is 1 | 2 | 3 | null {
+    return value === null || value === 1 || value === 2 || value === 3;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function toGuildSecurityPolicyRecord(record: ConvexGuildSecurityPolicyRecord): GuildSecurityPolicyRecord {

@@ -4,23 +4,42 @@ import { Buffer } from 'node:buffer';
 
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
+import { createNeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
+import type { NeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
 import {
-    botReadJwtAudience,
-    botReadPostingWakePath,
-    createBotReadGuildStructurePath,
-    parseBotReadGuildStructureResponse,
-    parseBotReadPostingWakeResponse,
-} from '@neonflux/fluxer/bot-read-contract';
+    botProviderReadJwtAudience,
+    createBotProviderReadGuildStructurePath,
+    parseBotProviderReadGuildStructureResponse,
+} from '@neonflux/fluxer/bot-provider-read-contract';
 import type { FluxerGuildStructure } from '@neonflux/fluxer/guild-structure';
+import {
+    parsePostingWorkerWakeResponse,
+    postingWorkerControlJwtAudience,
+    postingWorkerWakePath,
+} from '@neonflux/messaging/posting-worker-control-contract';
 import { err, ok } from 'neverthrow';
 import type { Result } from 'neverthrow';
 
-const botReadTimeoutMs = 13_000;
+const providerReadTimeoutMs = 13_000;
 const botWakeTimeoutMs = 500;
-const botReadTokenLifetimeSeconds = 60;
-const maxBotReadResponseBytes = 10 * 1024 * 1024;
+const botInternalApiTokenLifetimeSeconds = 60;
+const botInternalApiTokenRefreshSkewSeconds = 10;
+const botInternalApiTokenSigningRetryDelayMs = 5_000;
+const maxProviderReadResponseBytes = 10 * 1024 * 1024;
 const maxBotWakeResponseBytes = 1024;
+
+type BotInternalApiClientConfig = {
+    jwtIssuer: string;
+    jwtPrivateKey: string;
+    url: string;
+};
+
+type BotInternalApiClient = BotInternalApiClientConfig & {
+    postingControlToken: NeonFluxServiceAuthTokenProvider;
+    providerReadToken: NeonFluxServiceAuthTokenProvider;
+};
+
+let cachedClient: BotInternalApiClient | undefined;
 
 export type DashboardBotGuildStructureReadError =
     | 'not-configured'
@@ -35,20 +54,13 @@ export async function readDashboardBotGuildStructure(
     guildId: string
 ): Promise<Result<FluxerGuildStructure, DashboardBotGuildStructureReadError>> {
     const config = loadWebConfig();
-    const clientConfig = readClientConfig(config);
-    if (!clientConfig) return err('not-configured');
+    const client = readClient(config);
+    if (!client) return err('not-configured');
 
     let token: string;
 
     try {
-        token = await signNeonFluxServiceJwt(
-            {
-                audience: botReadJwtAudience,
-                issuer: clientConfig.jwtIssuer,
-                privateKeyPem: clientConfig.jwtPrivateKey,
-            },
-            { expiresInSeconds: botReadTokenLifetimeSeconds, serviceName: 'web' }
-        );
+        token = await client.providerReadToken();
     } catch {
         return err('auth-failed');
     }
@@ -56,13 +68,13 @@ export async function readDashboardBotGuildStructure(
     let response: Response;
 
     try {
-        response = await fetch(new URL(createBotReadGuildStructurePath(guildId), `${clientConfig.url}/`), {
+        response = await fetch(new URL(createBotProviderReadGuildStructurePath(guildId), `${client.url}/`), {
             headers: {
                 Accept: 'application/json',
                 Authorization: `Bearer ${token}`,
             },
             method: 'GET',
-            signal: AbortSignal.timeout(botReadTimeoutMs),
+            signal: AbortSignal.timeout(providerReadTimeoutMs),
         });
     } catch {
         return err('transport-failed');
@@ -73,14 +85,14 @@ export async function readDashboardBotGuildStructure(
     let body: unknown;
 
     try {
-        const text = await readBoundedResponseText(response, maxBotReadResponseBytes);
+        const text = await readBoundedResponseText(response, maxProviderReadResponseBytes);
         if (text === undefined) return err('invalid-response');
         body = JSON.parse(text);
     } catch {
         return err('invalid-response');
     }
 
-    const parsed = parseBotReadGuildStructureResponse(body);
+    const parsed = parseBotProviderReadGuildStructureResponse(body);
     if (parsed.isErr()) return err('invalid-response');
 
     switch (parsed.value.type) {
@@ -104,19 +116,19 @@ export async function wakeDashboardBotPostingWorker(): Promise<Result<void, Dash
     } catch {
         return err('not-configured');
     }
-    const clientConfig = readClientConfig(config);
-    if (!clientConfig) return err('not-configured');
+    const client = readClient(config);
+    if (!client) return err('not-configured');
 
     let token: string;
     try {
-        token = await createBotReadToken(clientConfig);
+        token = await client.postingControlToken();
     } catch {
         return err('auth-failed');
     }
 
     let response: Response;
     try {
-        response = await fetch(new URL(botReadPostingWakePath, `${clientConfig.url}/`), {
+        response = await fetch(new URL(postingWorkerWakePath, `${client.url}/`), {
             headers: {
                 Accept: 'application/json',
                 Authorization: `Bearer ${token}`,
@@ -133,7 +145,7 @@ export async function wakeDashboardBotPostingWorker(): Promise<Result<void, Dash
     try {
         const text = await readBoundedResponseText(response, maxBotWakeResponseBytes);
         if (text === undefined) return err('invalid-response');
-        const parsed = parseBotReadPostingWakeResponse(JSON.parse(text));
+        const parsed = parsePostingWorkerWakeResponse(JSON.parse(text));
         return parsed.isOk() && response.status === 202 ? ok(undefined) : err('invalid-response');
     } catch {
         return err('invalid-response');
@@ -165,22 +177,46 @@ async function readBoundedResponseText(response: Response, maxBytes: number): Pr
     return Buffer.concat(chunks, totalBytes).toString('utf8');
 }
 
-function readClientConfig(config: WebConfig): { jwtIssuer: string; jwtPrivateKey: string; url: string } | undefined {
+function readClient(config: WebConfig): BotInternalApiClient | undefined {
     const jwtIssuer = config.convex?.webAuthJwtIssuer;
     const jwtPrivateKey = config.convex?.webAuthJwtPrivateKey;
 
-    return config.botReadUrl && jwtIssuer && jwtPrivateKey
-        ? { jwtIssuer, jwtPrivateKey, url: config.botReadUrl }
-        : undefined;
+    if (!config.botInternalApiUrl || !jwtIssuer || !jwtPrivateKey) return undefined;
+
+    const clientConfig = { jwtIssuer, jwtPrivateKey, url: config.botInternalApiUrl };
+
+    if (cachedClient && sameClientConfig(cachedClient, clientConfig)) {
+        return cachedClient;
+    }
+
+    cachedClient = {
+        ...clientConfig,
+        postingControlToken: createTokenProvider(clientConfig, postingWorkerControlJwtAudience),
+        providerReadToken: createTokenProvider(clientConfig, botProviderReadJwtAudience),
+    };
+
+    return cachedClient;
 }
 
-function createBotReadToken(clientConfig: { jwtIssuer: string; jwtPrivateKey: string }): Promise<string> {
-    return signNeonFluxServiceJwt(
-        {
-            audience: botReadJwtAudience,
-            issuer: clientConfig.jwtIssuer,
-            privateKeyPem: clientConfig.jwtPrivateKey,
-        },
-        { expiresInSeconds: botReadTokenLifetimeSeconds, serviceName: 'web' }
+function createTokenProvider(
+    clientConfig: BotInternalApiClientConfig,
+    audience: string
+): NeonFluxServiceAuthTokenProvider {
+    return createNeonFluxServiceAuthTokenProvider({
+        audience,
+        expiresInSeconds: botInternalApiTokenLifetimeSeconds,
+        issuer: clientConfig.jwtIssuer,
+        privateKey: clientConfig.jwtPrivateKey,
+        refreshSkewSeconds: botInternalApiTokenRefreshSkewSeconds,
+        serviceName: 'web',
+        signingRetryDelayMs: botInternalApiTokenSigningRetryDelayMs,
+    });
+}
+
+function sameClientConfig(existing: BotInternalApiClient, candidate: BotInternalApiClientConfig): boolean {
+    return (
+        existing.jwtIssuer === candidate.jwtIssuer &&
+        existing.jwtPrivateKey === candidate.jwtPrivateKey &&
+        existing.url === candidate.url
     );
 }

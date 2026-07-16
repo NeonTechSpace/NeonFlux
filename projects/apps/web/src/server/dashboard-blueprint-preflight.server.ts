@@ -12,7 +12,7 @@ import {
     deriveBlueprintPlanExecutionAuthorityBody,
 } from '@neonflux/blueprint';
 
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure } from './bot-internal-api-client.server.js';
 import { getWebDb } from './db.server.js';
 import { createBlueprintAuditInput, loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';

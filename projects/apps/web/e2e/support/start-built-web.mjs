@@ -158,7 +158,7 @@ function createAuthenticatedWebEnvironment(environment, webPort) {
         HOST: '127.0.0.1',
         INSTANCE_MODE: 'multi',
         LOG_LEVEL: 'warn',
-        NEONFLUX_BOT_READ_URL: 'http://neonflux-e2e-provider.invalid',
+        NEONFLUX_BOT_INTERNAL_API_URL: 'http://neonflux-e2e-provider.invalid',
         NODE_ENV: 'production',
         OWNER_IDS: '',
         PORT: String(webPort),

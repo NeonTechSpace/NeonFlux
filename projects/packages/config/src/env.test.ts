@@ -51,16 +51,18 @@ describe('loadBotConfig', () => {
         expect('singleGuildId' in config).toBe(false);
     });
 
-    it('uses a loopback read service in development and an explicit private bind in production', () => {
-        expect(loadBotConfig({})).toMatchObject({ botReadHost: '127.0.0.1', botReadPort: 3001 });
+    it('uses a loopback internal API in development and an explicit private bind in production', () => {
+        expect(loadBotConfig({})).toMatchObject({ botInternalApiHost: '127.0.0.1', botInternalApiPort: 3001 });
         expect(
             loadBotConfig({
                 APP_ENV: 'production',
-                NEONFLUX_BOT_READ_HOST: '10.0.0.2',
-                NEONFLUX_BOT_READ_PORT: '4100',
+                NEONFLUX_BOT_INTERNAL_API_HOST: '10.0.0.2',
+                NEONFLUX_BOT_INTERNAL_API_PORT: '4100',
             })
-        ).toMatchObject({ botReadHost: '10.0.0.2', botReadPort: 4100 });
-        expect(() => loadBotConfig({ NEONFLUX_BOT_READ_PORT: '70000' })).toThrow(/NEONFLUX_BOT_READ_PORT/u);
+        ).toMatchObject({ botInternalApiHost: '10.0.0.2', botInternalApiPort: 4100 });
+        expect(() => loadBotConfig({ NEONFLUX_BOT_INTERNAL_API_PORT: '70000' })).toThrow(
+            /NEONFLUX_BOT_INTERNAL_API_PORT/u
+        );
     });
 
     it('loads and normalizes the optional public web origin', () => {
@@ -114,7 +116,7 @@ describe('loadWebConfig', () => {
             FLUXER_OAUTH_REDIRECT_URL: ' redirect-url ',
             FLUXER_TOKEN_ENCRYPTION_KEY: ' encryption-key ',
             SESSION_SECRET: ' session-secret ',
-            NEONFLUX_BOT_READ_URL: ' http://bot:3001 ',
+            NEONFLUX_BOT_INTERNAL_API_URL: ' http://bot:3001 ',
         });
 
         expect(config).toMatchObject({
@@ -125,7 +127,7 @@ describe('loadWebConfig', () => {
             fluxerOauthRedirectUrl: 'redirect-url',
             fluxerTokenEncryptionKey: 'encryption-key',
             sessionSecret: 'session-secret',
-            botReadUrl: 'http://bot:3001',
+            botInternalApiUrl: 'http://bot:3001',
         });
         expect('instanceMode' in config).toBe(false);
         expect('singleGuildId' in config).toBe(false);
@@ -144,11 +146,11 @@ describe('loadWebConfig', () => {
         expect(loadWebConfig({ FLUXER_BOT_INVITE_URL: '   ' }).fluxerBotInviteUrl).toBeUndefined();
     });
 
-    it('defaults the web read service only in development and validates configured origins', () => {
-        expect(loadWebConfig({}).botReadUrl).toBe('http://127.0.0.1:3001');
-        expect(loadWebConfig({ APP_ENV: 'production' }).botReadUrl).toBeUndefined();
-        expect(() => loadWebConfig({ NEONFLUX_BOT_READ_URL: 'http://bot:3001/path' })).toThrow(
-            /NEONFLUX_BOT_READ_URL/u
+    it('defaults the web internal API only in development and validates configured origins', () => {
+        expect(loadWebConfig({}).botInternalApiUrl).toBe('http://127.0.0.1:3001');
+        expect(loadWebConfig({ APP_ENV: 'production' }).botInternalApiUrl).toBeUndefined();
+        expect(() => loadWebConfig({ NEONFLUX_BOT_INTERNAL_API_URL: 'http://bot:3001/path' })).toThrow(
+            /NEONFLUX_BOT_INTERNAL_API_URL/u
         );
     });
 

@@ -18,7 +18,7 @@ import {
 import type { RuntimeDbClient } from '@neonflux/db';
 
 import { runNextDashboardPostingOperation } from '../../../bot/src/bot-posting-worker.js';
-import { runNextBlueprintRun } from '../../../bot/src/bot-blueprint-run-worker.js';
+import { runNextBlueprintRun } from '../../../bot/src/bot-blueprint-run-executor.js';
 import { closeWebDb } from '../../src/server/db.server.js';
 import { applyDashboardBlueprintPlan } from '../../src/server/dashboard-blueprint-apply.server.js';
 import {
@@ -66,7 +66,7 @@ vi.mock('@neonflux/fluxer', async (importActual) => ({
     readFluxerBotGuildStructure: fakeProvider.readBlueprint,
 }));
 
-vi.mock('../../src/server/bot-read-client.server.js', async (importActual) => ({
+vi.mock('../../src/server/bot-internal-api-client.server.js', async (importActual) => ({
     ...(await importActual<Record<string, unknown>>()),
     readDashboardBotGuildStructure: fakeProvider.readWebStructure,
 }));

@@ -2,7 +2,7 @@ import '@tanstack/react-start/server-only';
 
 import { BLUEPRINT_SNAPSHOT_LIMITS, isBlueprintSnapshotJsonWithinByteLimit } from '@neonflux/blueprint';
 
-import type { DashboardBotGuildStructureReadError } from './bot-read-client.server.js';
+import type { DashboardBotGuildStructureReadError } from './bot-internal-api-client.server.js';
 import {
     DashboardBlueprintAmbiguousIdentityError,
     diffDashboardBlueprintSnapshot,

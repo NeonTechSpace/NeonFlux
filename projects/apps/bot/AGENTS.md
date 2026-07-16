@@ -9,7 +9,7 @@ Parent workspace instructions apply.
 - Keep Fluxer SDK and HTTP behavior plus provider translation in `packages/fluxer` unless it is truly bot-only lifecycle orchestration. Do not copy web authorization logic.
 - Every guild event passes deployment-mode, guild-scope, installation, and DEFCON gates before feature logic or effects.
 - Bootstrap durable deployment configuration before mode-dependent work. Single mode authorizes only the DB-effective configured guild; multi mode is one token serving multiple authorized guilds.
-- The bot owns the Fluxer token, gateway lifecycle, provider mutation workers, and private provider-read service. Never send credentials, raw message bodies, or private provider responses to logs, Convex, web, or browser code.
+- The bot owns the Fluxer token, gateway lifecycle, provider mutation workers, and private Bot Internal API. Never send credentials, raw message bodies, or private provider responses to logs, Convex, web, or browser code.
 
 ## Workers and provider effects
 
@@ -29,11 +29,12 @@ Parent workspace instructions apply.
 - One provider observation uses one internally consistent representation of each collection. Do not combine independently fetched roles, channels, overwrites, or capabilities into one snapshot.
 - Blueprint logs are structured and redacted. Never log snapshots, provider bodies, typed confirmations, credentials, cookies, tokens, or private environment data.
 
-## Internal provider-read service
+## Bot Internal API
 
 - Start it after bot readiness and stop intake before provider-client teardown.
 - Bind privately where practical. Bound bodies, response bytes, concurrency, and deadlines.
-- Require a short-lived JWT with configured issuer, endpoint-specific audience, and explicit web-service subject and claims. Validate versioned request and response contracts strictly.
+- Keep provider reads and posting-worker control in separate capability contracts with endpoint-specific JWT audiences; one capability token never authenticates the other.
+- Require a short-lived JWT with configured issuer and explicit web-service subject and claims. Validate versioned request and response contracts strictly.
 - The web caller authorizes user and guild before invoking it. Service authentication never grants resource access.
 - Retry only when the read contract proves retry safe and capacity-bounded.
 

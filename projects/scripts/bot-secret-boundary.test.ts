@@ -6,16 +6,16 @@ import { describe, expect, it } from 'vitest';
 const composePath = fileURLToPath(new URL('../docker-compose.yml', import.meta.url));
 
 describe('bot credential deployment boundary', () => {
-    it('keeps the bot token and read listener private to the bot service', () => {
+    it('keeps the bot token and internal API listener private to the bot service', () => {
         const compose = readFileSync(composePath, 'utf8');
         const botService = readService(compose, 'bot');
         const webService = readService(compose, 'web');
 
         expect(botService).toContain('FLUXER_BOT_TOKEN:');
-        expect(botService).toContain("NEONFLUX_BOT_READ_HOST: '0.0.0.0'");
+        expect(botService).toContain("NEONFLUX_BOT_INTERNAL_API_HOST: '0.0.0.0'");
         expect(botService).not.toMatch(/^ {8}ports:/mu);
         expect(webService).not.toContain('FLUXER_BOT_TOKEN');
-        expect(webService).toContain('NEONFLUX_BOT_READ_URL:');
+        expect(webService).toContain('NEONFLUX_BOT_INTERNAL_API_URL:');
     });
 });
 

@@ -61,7 +61,7 @@ export function toErrorStatus(type: string): PanelStatus {
             'The Convex backend does not match this NeonFlux build. Deploy the matching backend before using Server Blueprint.',
         'run-protocol-incompatible':
             'This deployment was created by a different Blueprint protocol and cannot be controlled by this build. Use the matching build or reset development data.',
-        'bot-token-missing': 'The bot read service is not configured for this deployment.',
+        'bot-token-missing': 'The bot internal API is not configured for this deployment.',
         'restore-point-failed': 'Apply was not started because NeonFlux could not save a restore point.',
         'structure-read-failed': 'NeonFlux could not read this server layout.',
         'database-error': 'The dashboard database could not save the server blueprint data.',

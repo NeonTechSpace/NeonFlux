@@ -8,40 +8,28 @@ import type {
     FluxerPermissionOverwrite,
 } from './guild-structure.js';
 
-export const botReadProtocolVersion = 1 as const;
-export const botReadJwtAudience = 'neonflux-bot-read-v1';
-export const botReadGuildStructurePathPrefix = '/v1/guilds/';
-export const botReadPostingWakePath = '/v1/posting/wake';
+export const botProviderReadProtocolVersion = 1 as const;
+export const botProviderReadJwtAudience = 'neonflux-bot-provider-read-v1';
+export const botProviderReadGuildStructurePathPrefix = '/v1/provider/guilds/';
 
-export type BotReadPostingWakeResponse = {
-    protocolVersion: typeof botReadProtocolVersion;
-    type: 'accepted';
-};
+export type BotProviderReadGuildStructureResponse =
+    | { protocolVersion: typeof botProviderReadProtocolVersion; type: 'structure'; structure: FluxerGuildStructure }
+    | { protocolVersion: typeof botProviderReadProtocolVersion; type: 'unavailable-or-not-found' }
+    | { protocolVersion: typeof botProviderReadProtocolVersion; type: 'read-failed' }
+    | { protocolVersion: typeof botProviderReadProtocolVersion; type: 'overloaded' };
 
-export type BotReadGuildStructureResponse =
-    | { protocolVersion: typeof botReadProtocolVersion; type: 'structure'; structure: FluxerGuildStructure }
-    | { protocolVersion: typeof botReadProtocolVersion; type: 'unavailable-or-not-found' }
-    | { protocolVersion: typeof botReadProtocolVersion; type: 'read-failed' }
-    | { protocolVersion: typeof botReadProtocolVersion; type: 'overloaded' };
-
-export function createBotReadGuildStructurePath(guildId: string): string {
-    return `${botReadGuildStructurePathPrefix}${encodeURIComponent(guildId)}/structure`;
+export function createBotProviderReadGuildStructurePath(guildId: string): string {
+    return `${botProviderReadGuildStructurePathPrefix}${encodeURIComponent(guildId)}/structure`;
 }
 
-export function parseBotReadPostingWakeResponse(
+export function parseBotProviderReadGuildStructureResponse(
     value: unknown
-): Result<BotReadPostingWakeResponse, 'invalid-response'> {
-    return isExactRecord(value, ['protocolVersion', 'type']) &&
-        value.protocolVersion === botReadProtocolVersion &&
-        value.type === 'accepted'
-        ? ok({ protocolVersion: botReadProtocolVersion, type: 'accepted' })
-        : err('invalid-response');
-}
-
-export function parseBotReadGuildStructureResponse(
-    value: unknown
-): Result<BotReadGuildStructureResponse, 'invalid-response'> {
-    if (!isRecord(value) || value.protocolVersion !== botReadProtocolVersion || typeof value.type !== 'string') {
+): Result<BotProviderReadGuildStructureResponse, 'invalid-response'> {
+    if (
+        !isRecord(value) ||
+        value.protocolVersion !== botProviderReadProtocolVersion ||
+        typeof value.type !== 'string'
+    ) {
         return err('invalid-response');
     }
 
@@ -50,14 +38,14 @@ export function parseBotReadGuildStructureResponse(
             if (!isExactRecord(value, ['protocolVersion', 'structure', 'type'])) return err('invalid-response');
             const structure = parseGuildStructure(value.structure);
             return structure
-                ? ok({ protocolVersion: botReadProtocolVersion, type: 'structure', structure })
+                ? ok({ protocolVersion: botProviderReadProtocolVersion, type: 'structure', structure })
                 : err('invalid-response');
         }
         case 'overloaded':
         case 'read-failed':
         case 'unavailable-or-not-found':
             return isExactRecord(value, ['protocolVersion', 'type'])
-                ? ok({ protocolVersion: botReadProtocolVersion, type: value.type })
+                ? ok({ protocolVersion: botProviderReadProtocolVersion, type: value.type })
                 : err('invalid-response');
         default:
             return err('invalid-response');

@@ -31,9 +31,9 @@ const rawEnv = type({
     'NEONFLUX_BOT_AUTH_JWT_ISSUER?': 'string',
     'NEONFLUX_BOT_AUTH_JWT_JWKS?': 'string',
     'NEONFLUX_BOT_AUTH_JWT_PRIVATE_KEY?': 'string',
-    'NEONFLUX_BOT_READ_HOST?': 'string',
-    'NEONFLUX_BOT_READ_PORT?': 'string',
-    'NEONFLUX_BOT_READ_URL?': 'string',
+    'NEONFLUX_BOT_INTERNAL_API_HOST?': 'string',
+    'NEONFLUX_BOT_INTERNAL_API_PORT?': 'string',
+    'NEONFLUX_BOT_INTERNAL_API_URL?': 'string',
     'NEONFLUX_USER_AUTH_JWT_AUDIENCE?': 'string',
     'NEONFLUX_USER_AUTH_JWT_ISSUER?': 'string',
     'NEONFLUX_USER_AUTH_JWT_JWKS?': 'string',
@@ -105,8 +105,8 @@ export type RuntimeConfig = {
 
 export type BotConfig = RuntimeConfig &
     AppMode & {
-        botReadHost: string;
-        botReadPort: number;
+        botInternalApiHost: string;
+        botInternalApiPort: number;
         fluxerBotCustomStatusText?: string;
         fluxerBotToken?: string;
         publicWebUrl?: string;
@@ -114,7 +114,7 @@ export type BotConfig = RuntimeConfig &
     };
 
 export type WebConfig = RuntimeConfig & {
-    botReadUrl?: string;
+    botInternalApiUrl?: string;
     fluxerAppId?: string;
     fluxerBotInviteUrl?: string;
     fluxerClientSecret?: string;
@@ -208,15 +208,15 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     const fluxerBotCustomStatusText = optionalValue(parsed.FLUXER_BOT_CUSTOM_STATUS);
     const fluxerBotToken = optionalValue(parsed.FLUXER_BOT_TOKEN);
     const publicWebUrl = optionalPublicWebUrl(parsed.PUBLIC_WEB_URL);
-    const botReadHost =
-        optionalValue(parsed.NEONFLUX_BOT_READ_HOST) ??
+    const botInternalApiHost =
+        optionalValue(parsed.NEONFLUX_BOT_INTERNAL_API_HOST) ??
         (runtimeConfig.appEnv === 'production' ? '0.0.0.0' : '127.0.0.1');
-    const botReadPort = parsePort(parsed.NEONFLUX_BOT_READ_PORT, 'NEONFLUX_BOT_READ_PORT', 3001);
+    const botInternalApiPort = parsePort(parsed.NEONFLUX_BOT_INTERNAL_API_PORT, 'NEONFLUX_BOT_INTERNAL_API_PORT', 3001);
 
     const botBaseConfig = {
         ...runtimeConfig,
-        botReadHost,
-        botReadPort,
+        botInternalApiHost,
+        botInternalApiPort,
         ...(fluxerBotCustomStatusText ? { fluxerBotCustomStatusText } : {}),
         ...(fluxerBotToken ? { fluxerBotToken } : {}),
         ...(publicWebUrl ? { publicWebUrl } : {}),
@@ -246,9 +246,12 @@ export function loadBotConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
     const parsed = parseWebEnv(env);
     const runtimeConfig = createRuntimeConfig(parsed);
-    const configuredBotReadUrl = optionalHttpOrigin(parsed.NEONFLUX_BOT_READ_URL, 'NEONFLUX_BOT_READ_URL');
-    const botReadUrl =
-        configuredBotReadUrl ?? (runtimeConfig.appEnv === 'development' ? 'http://127.0.0.1:3001' : undefined);
+    const configuredBotInternalApiUrl = optionalHttpOrigin(
+        parsed.NEONFLUX_BOT_INTERNAL_API_URL,
+        'NEONFLUX_BOT_INTERNAL_API_URL'
+    );
+    const botInternalApiUrl =
+        configuredBotInternalApiUrl ?? (runtimeConfig.appEnv === 'development' ? 'http://127.0.0.1:3001' : undefined);
     const fluxerAppId = optionalValue(parsed.FLUXER_APP_ID);
     const fluxerBotInviteUrl = optionalHttpUrl(parsed.FLUXER_BOT_INVITE_URL, 'FLUXER_BOT_INVITE_URL');
     const fluxerClientSecret = optionalValue(parsed.FLUXER_CLIENT_SECRET);
@@ -258,7 +261,7 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
 
     return {
         ...runtimeConfig,
-        ...(botReadUrl ? { botReadUrl } : {}),
+        ...(botInternalApiUrl ? { botInternalApiUrl } : {}),
         ...(fluxerAppId ? { fluxerAppId } : {}),
         ...(fluxerBotInviteUrl ? { fluxerBotInviteUrl } : {}),
         ...(fluxerClientSecret ? { fluxerClientSecret } : {}),

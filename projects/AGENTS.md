@@ -16,7 +16,7 @@
 - `packages/fluxer` owns Fluxer authentication, SDK and REST calls, provider DTO projection, rate-limit interpretation, and domain/provider translation.
 - `packages/db` owns typed Convex transport and repository mapping, not domain truth.
 - `packages/core` owns genuinely cross-feature policy such as deployment mode and DEFCON.
-- `apps/bot` owns gateway lifecycle, the private provider-read service, mutation workers, and provider I/O orchestration.
+- `apps/bot` owns gateway lifecycle, the private Bot Internal API, mutation workers, and provider I/O orchestration.
 - `apps/web` owns OAuth and sessions, server-side dashboard authorization, UI orchestration, public pages, and documentation routes.
 - Keep one-consumer orchestration local. Share only a cohesive invariant or proven cross-feature lifecycle. Do not build a generic workflow engine or catch-all domain package.
 

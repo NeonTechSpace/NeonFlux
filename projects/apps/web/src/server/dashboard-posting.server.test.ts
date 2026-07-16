@@ -10,11 +10,9 @@ import type * as FluxerUsers from '@neonflux/fluxer/users';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    loadDashboardGuildPageData,
-    loadDashboardGuildPageDataForAuthenticatedContext,
-} from './dashboard-guild-page.server.js';
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
+import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
+import { authorizeDashboardPostingTarget } from './dashboard-posting-authorization.server.js';
 import {
     loadDashboardGuildAuditEventsPage,
     loadDashboardGuildPostingCatalog,
@@ -23,6 +21,13 @@ import {
     resolveDashboardGuildPostingUnknown,
 } from './dashboard-posting.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
+
+const webLogger = vi.hoisted(() => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+}));
 
 const request = new Request('http://localhost:3000/dashboard/guild-1');
 const authContext = {
@@ -47,7 +52,10 @@ vi.mock('./db.server.js', () => ({
 
 vi.mock('./dashboard-guild-page.server.js', () => ({
     loadDashboardGuildPageData: vi.fn(),
-    loadDashboardGuildPageDataForAuthenticatedContext: vi.fn(),
+}));
+
+vi.mock('./dashboard-posting-authorization.server.js', () => ({
+    authorizeDashboardPostingTarget: vi.fn(),
 }));
 
 vi.mock('./fluxer-auth-context.server.js', () => ({
@@ -66,9 +74,13 @@ vi.mock('@neonflux/db', async (importActual) => {
     };
 });
 
-vi.mock('./bot-read-client.server.js', () => ({
+vi.mock('./bot-internal-api-client.server.js', () => ({
     readDashboardBotGuildStructure: vi.fn(),
     wakeDashboardBotPostingWorker: vi.fn(),
+}));
+
+vi.mock('./web-logger.server.js', () => ({
+    getWebLogger: () => webLogger,
 }));
 
 vi.mock('@neonflux/fluxer/users', async (importActual) => {
@@ -90,14 +102,16 @@ describe('dashboard posting', () => {
                 name: 'Guild One',
             },
         });
-        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValue({
-            type: 'guild',
-            mode: 'multi',
-            guild: {
-                id: 'guild-1',
-                name: 'Guild One',
-            },
-        });
+        vi.mocked(authorizeDashboardPostingTarget).mockResolvedValue(
+            ok({
+                mode: { instanceMode: 'multi' },
+                guild: {
+                    canManage: true,
+                    id: 'guild-1',
+                    name: 'Guild One',
+                },
+            })
+        );
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
         vi.mocked(wakeDashboardBotPostingWorker).mockResolvedValue(ok(undefined));
         vi.mocked(enqueueDashboardPostingOperation).mockResolvedValue(
@@ -239,12 +253,16 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({ type: 'auth-required' });
-        expect(loadDashboardGuildPageDataForAuthenticatedContext).not.toHaveBeenCalled();
+        expect(authorizeDashboardPostingTarget).not.toHaveBeenCalled();
         expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
+        expect(webLogger.info).toHaveBeenCalledWith(
+            'posting.request_timing',
+            expect.objectContaining({ result: 'auth_required' })
+        );
     });
 
     it('denies unavailable or unauthorized guilds before queueing', async () => {
-        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValueOnce({ type: 'not-found' });
+        vi.mocked(authorizeDashboardPostingTarget).mockResolvedValueOnce(err('not-found'));
 
         await expect(
             postDashboardGuildMessage(request, {
@@ -255,11 +273,7 @@ describe('dashboard posting', () => {
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
 
-        vi.mocked(loadDashboardGuildPageDataForAuthenticatedContext).mockResolvedValueOnce({
-            type: 'single-unauthorized',
-            configuredGuildId: 'guild-1',
-            configuredGuildName: 'Guild One',
-        });
+        vi.mocked(authorizeDashboardPostingTarget).mockResolvedValueOnce(err('not-found'));
 
         await expect(
             postDashboardGuildMessage(request, {
@@ -316,6 +330,28 @@ describe('dashboard posting', () => {
         expect(readAuthenticatedFluxerContext).toHaveBeenCalledTimes(1);
         expect(getFluxerCurrentUser).not.toHaveBeenCalled();
         expect(wakeDashboardBotPostingWorker).toHaveBeenCalledTimes(1);
+        expect(webLogger.info).toHaveBeenCalledWith(
+            'posting.request_timing',
+            expect.objectContaining({
+                authContextMs: expect.any(Number),
+                enqueueMs: expect.any(Number),
+                operationId: 'operation-1',
+                requestStartedAtMs: expect.any(Number),
+                requestTotalMs: expect.any(Number),
+                result: 'operation',
+                targetAuthorizationMs: expect.any(Number),
+                validationMs: expect.any(Number),
+                wakeMs: expect.any(Number),
+            })
+        );
+        expect(webLogger.info).not.toHaveBeenCalledWith(
+            'posting.request_timing',
+            expect.objectContaining({ actorUserId: expect.anything() })
+        );
+        expect(webLogger.info).not.toHaveBeenCalledWith(
+            'posting.request_timing',
+            expect.objectContaining({ guildId: expect.anything() })
+        );
     });
 
     it('returns the existing operation for an idempotent replay', async () => {
@@ -350,6 +386,11 @@ describe('dashboard posting', () => {
 
         expect(result).toStrictEqual({ type: 'operation', operation: createPostingOperationView() });
         expect(wakeDashboardBotPostingWorker).toHaveBeenCalledTimes(1);
+        expect(webLogger.warn).toHaveBeenCalledWith('posting.wake_failed', {
+            errorClass: 'transport-failed',
+            requestDurationMs: expect.any(Number),
+            suppressedCount: 0,
+        });
     });
 
     it('keeps the queued operation successful if the wake client unexpectedly rejects', async () => {
@@ -363,6 +404,11 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({ type: 'operation', operation: createPostingOperationView() });
+        expect(webLogger.warn).toHaveBeenCalledWith('posting.wake_failed', {
+            errorClass: 'unexpected-failure',
+            requestDurationMs: expect.any(Number),
+            suppressedCount: 0,
+        });
     });
 
     it('maps an idempotency conflict without exposing database details', async () => {
@@ -378,6 +424,10 @@ describe('dashboard posting', () => {
         });
 
         expect(result).toStrictEqual({ type: 'request-conflict' });
+        expect(webLogger.info).toHaveBeenCalledWith(
+            'posting.request_timing',
+            expect.objectContaining({ result: 'request_conflict' })
+        );
     });
 
     it('loads durable posting status only through the authorized guild scope', async () => {
@@ -534,7 +584,7 @@ describe('dashboard posting', () => {
         expect(readDashboardBotGuildStructure).toHaveBeenCalledWith('authorized-guild');
     });
 
-    it('reports an unavailable bot read service before loading posting channels', async () => {
+    it('reports an unavailable bot internal API before loading posting channels', async () => {
         vi.mocked(readDashboardBotGuildStructure).mockResolvedValueOnce(err('not-configured'));
 
         const result = await loadDashboardGuildPostingCatalog(request, 'guild-1');

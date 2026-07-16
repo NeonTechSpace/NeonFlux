@@ -14,6 +14,12 @@
             "development": "./src/index.ts",
             "production": "./dist/index.js",
             "import": "./dist/index.js"
+        },
+        "./posting-worker-control-contract": {
+            "types": "./src/posting-worker-control-contract.ts",
+            "development": "./src/posting-worker-control-contract.ts",
+            "production": "./dist/posting-worker-control-contract.js",
+            "import": "./dist/posting-worker-control-contract.js"
         }
     },
     "scripts": {

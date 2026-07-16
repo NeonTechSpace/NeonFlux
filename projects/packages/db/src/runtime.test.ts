@@ -7,6 +7,7 @@ import {
     listBotActionEventPageByGuildId,
     listBotInstallationGuildIds,
     listGuildSecurityPoliciesByGuildIds,
+    readDashboardGuildAuthorizationFacts,
     recordBotActionEvent,
     upsertBotInstallation,
     upsertDeploymentConfig,
@@ -37,6 +38,37 @@ describe('Convex database runtime wrappers', () => {
         await expect(findDeploymentConfig(db)).resolves.toMatchObject({
             error: 'not-found',
         });
+    });
+
+    it('reads minimal dashboard guild authorization facts through one target query', async () => {
+        const db = createConvexDb({
+            queryResults: [
+                {
+                    botInstalled: true,
+                    deployment: { instanceMode: 'single', singleGuildId: 'guild-1' },
+                    storedDefconLevel: 2,
+                },
+                {
+                    botInstalled: 'yes',
+                    deployment: { instanceMode: 'multi' },
+                    storedDefconLevel: null,
+                },
+            ],
+        });
+
+        const result = await readDashboardGuildAuthorizationFacts(db, { guildId: ' guild-1 ' });
+        const malformed = await readDashboardGuildAuthorizationFacts(db, { guildId: 'guild-1' });
+        const missingGuildId = await readDashboardGuildAuthorizationFacts(db, { guildId: '   ' });
+
+        expect(result._unsafeUnwrap()).toStrictEqual({
+            botInstalled: true,
+            deployment: { instanceMode: 'single', singleGuildId: 'guild-1' },
+            storedDefconLevel: 2,
+        });
+        expect(db.client.queryCalls[0]?.args).toStrictEqual({ guildId: 'guild-1' });
+        expect(malformed._unsafeUnwrapErr()).toBe('database-error');
+        expect(missingGuildId._unsafeUnwrapErr()).toBe('missing-guild-id');
+        expect(db.client.queryCalls).toHaveLength(2);
     });
 
     it('upserts deployment config through Convex with app-facing validation', async () => {

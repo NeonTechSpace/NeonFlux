@@ -2,18 +2,7 @@ import type { BlueprintSnapshot } from '@neonflux/blueprint/snapshot';
 import { describe, expect, it } from 'vitest';
 
 import {
-    buildBackupSortCursor,
-    buildObservedEventStateDocument,
-    buildStructureBackupDocument,
-    buildStructureBackupLeaseClaimPatch,
-    buildStructureBackupLeaseClearPatch,
-    buildStructureBackupSettingsPatch,
-    buildStructureDriftLeaseClaimPatch,
-    buildStructureDriftLeaseClearPatch,
-    buildStructureScheduledDriftResultPatch,
-    chooseLatestStructureDriftBaselineBackup,
     classifyBlueprintRunReclaim,
-    isStructureBackupRetentionEligible,
     isBlueprintRunMutationAuthorizedForLease,
     isBlueprintRunRetryPreflightFresh,
     resolveExpiredBlueprintRunControl,
@@ -29,8 +18,21 @@ import {
     validateBlueprintRunIdMapTransition,
     validateBlueprintRunProgressTransition,
     validateBlueprintRunStepAttemptCompletionTransition,
+} from './blueprint_run_model.js';
+import {
+    buildBackupSortCursor,
+    buildObservedEventStateDocument,
+    buildStructureBackupDocument,
+    buildStructureBackupLeaseClaimPatch,
+    buildStructureBackupLeaseClearPatch,
+    buildStructureBackupSettingsPatch,
+    buildStructureDriftLeaseClaimPatch,
+    buildStructureDriftLeaseClearPatch,
+    buildStructureScheduledDriftResultPatch,
+    chooseLatestStructureDriftBaselineBackup,
+    isStructureBackupRetentionEligible,
     toStructureObservedEventStateRecord,
-} from './blueprint_model.js';
+} from './structure_backup_model.js';
 
 const now = '2026-06-28T12:00:00.000Z';
 const emptySnapshot: BlueprintSnapshot = { version: 1, roles: [], categories: [], channels: [] };

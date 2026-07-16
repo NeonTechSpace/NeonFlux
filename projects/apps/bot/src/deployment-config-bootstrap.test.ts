@@ -120,8 +120,8 @@ function createMultiConfig(): AppConfig {
 function createBaseConfig(): Omit<AppConfig, 'instanceMode' | 'singleGuildId'> {
     return {
         appEnv: 'development',
-        botReadHost: '127.0.0.1',
-        botReadPort: 3001,
+        botInternalApiHost: '127.0.0.1',
+        botInternalApiPort: 3001,
         convex: {},
         guildDefconOverride: 'auto',
         logLevel: 'info',

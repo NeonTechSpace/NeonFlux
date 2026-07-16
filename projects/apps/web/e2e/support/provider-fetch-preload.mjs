@@ -7,7 +7,7 @@ const webDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const expectedStatePath = resolve(webDirectory, '.e2e-runtime', 'provider-state.json');
 const configuredStatePath = process.env.NEONFLUX_E2E_PROVIDER_STATE_PATH;
 const fluxerGuildsUrl = 'https://api.fluxer.app/v1/users/@me/guilds';
-const botReadOrigin = 'http://neonflux-e2e-provider.invalid';
+const botInternalApiOrigin = 'http://neonflux-e2e-provider.invalid';
 
 if (process.env.NEONFLUX_E2E_AUTHENTICATED !== sentinel || process.env.NEONFLUX_E2E_EPHEMERAL_SENTINEL !== sentinel) {
     throw new Error('Refusing to install the provider fixture outside authenticated ephemeral E2E.');
@@ -24,10 +24,17 @@ globalThis.fetch = async (input, init) => {
         const state = await readState();
         return Response.json([state.guild]);
     }
-    if (url.origin === botReadOrigin && /^\/v1\/guilds\/[^/]+\/structure$/u.test(url.pathname)) {
-        requireBearerAuthorization(input, init, 'bot-read fixture');
+    if (url.origin === botInternalApiOrigin && /^\/v1\/provider\/guilds\/[^/]+\/structure$/u.test(url.pathname)) {
+        requireBearerAuthorization(input, init, 'bot internal API fixture');
         const state = await readState();
         return Response.json({ protocolVersion: 1, type: 'structure', structure: state.structure });
+    }
+    if (url.origin === botInternalApiOrigin && url.pathname === '/v1/posting/worker/wake') {
+        requireBearerAuthorization(input, init, 'bot internal API posting-control fixture');
+        if ((init?.method ?? (input instanceof Request ? input.method : 'GET')) !== 'POST' || init?.body) {
+            throw new Error('Bot internal API posting-control fixture received an invalid request.');
+        }
+        return Response.json({ protocolVersion: 1, type: 'accepted' }, { status: 202 });
     }
     return networkFetch(input, init);
 };

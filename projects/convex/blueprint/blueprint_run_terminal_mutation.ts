@@ -8,7 +8,7 @@ import {
 } from '@neonflux/blueprint/integrity';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
-import { recordBlueprintAuditInMutation } from './blueprint.js';
+import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import { blueprintRunTerminalNotification, type BlueprintRunTerminalStatus } from './blueprint_run_terminal.js';
 import { patchBlueprintRunChecked } from './blueprint_run_persistence.js';
 import { assertCurrentBlueprintRunProtocol } from './blueprint_run_protocol.js';

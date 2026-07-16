@@ -17,7 +17,8 @@ import { deriveBlueprintCursorAuthority, normalizeBlueprintSnapshot, toBlueprint
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
 
 import { validateClaimedBlueprintRunAuthority } from './bot-blueprint-run-authority.js';
-import { runNextBlueprintRun, startBlueprintRunWorker } from './bot-blueprint-run-worker.js';
+import { runNextBlueprintRun } from './bot-blueprint-run-executor.js';
+import { startBlueprintRunWorker } from './bot-blueprint-run-worker.js';
 
 vi.mock('@neonflux/db', () => ({
     BLUEPRINT_RUN_PROTOCOL_VERSION: 7,

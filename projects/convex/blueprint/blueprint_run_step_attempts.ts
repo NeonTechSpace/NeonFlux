@@ -11,8 +11,8 @@ import type { Doc } from '../_generated/dataModel.js';
 import { mutation, type MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { recordBlueprintAuditInMutation } from './blueprint.js';
-import { requireRunLease } from './blueprint_run.js';
+import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
+import { requireRunLease } from './blueprint_run_lease.js';
 import { applyBlueprintRunPatch, patchBlueprintRunChecked } from './blueprint_run_persistence.js';
 import {
     createBlueprintRunControlCancellationRequestDigest,
@@ -25,7 +25,7 @@ import {
     validateBlueprintRunProgressTransition,
     validateBlueprintRunStepAttemptCompletionTransition,
     resolveBlueprintRunStepAttemptCompletionRetry,
-} from './blueprint_model.js';
+} from './blueprint_run_model.js';
 
 const MAX_BLUEPRINT_RUN_STEP_ATTEMPTS = 10;
 const MAX_BLUEPRINT_RUN_STEP_ATTEMPT_BYTES = 8 * 1024;

@@ -8,7 +8,7 @@ import {
     blueprintPlanStatuses,
 } from '@neonflux/db';
 
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure } from './bot-internal-api-client.server.js';
 import { getWebDb } from './db.server.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import { toDashboardBlueprintSnapshot } from './dashboard-blueprint-diff.js';

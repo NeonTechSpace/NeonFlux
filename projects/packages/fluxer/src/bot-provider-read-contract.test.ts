@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    botReadPostingWakePath,
-    botReadProtocolVersion,
-    createBotReadGuildStructurePath,
-    parseBotReadGuildStructureResponse,
-    parseBotReadPostingWakeResponse,
-} from './bot-read-contract.js';
+    botProviderReadProtocolVersion,
+    createBotProviderReadGuildStructurePath,
+    parseBotProviderReadGuildStructureResponse,
+} from './bot-provider-read-contract.js';
 
-describe('bot read wire contract', () => {
+describe('bot provider-read wire contract', () => {
     it('round-trips the normalized guild structure payload', () => {
-        const result = parseBotReadGuildStructureResponse({
-            protocolVersion: botReadProtocolVersion,
+        const result = parseBotProviderReadGuildStructureResponse({
+            protocolVersion: botProviderReadProtocolVersion,
             type: 'structure',
             structure: {
                 guildId: 'guild-1',
@@ -47,17 +45,19 @@ describe('bot read wire contract', () => {
     });
 
     it('rejects version drift, extra fields, and malformed nested structures', () => {
-        expect(parseBotReadGuildStructureResponse({ protocolVersion: 2, type: 'read-failed' }).isErr()).toBe(true);
+        expect(parseBotProviderReadGuildStructureResponse({ protocolVersion: 2, type: 'read-failed' }).isErr()).toBe(
+            true
+        );
         expect(
-            parseBotReadGuildStructureResponse({
-                protocolVersion: botReadProtocolVersion,
+            parseBotProviderReadGuildStructureResponse({
+                protocolVersion: botProviderReadProtocolVersion,
                 type: 'read-failed',
                 providerBody: 'secret',
             }).isErr()
         ).toBe(true);
         expect(
-            parseBotReadGuildStructureResponse({
-                protocolVersion: botReadProtocolVersion,
+            parseBotProviderReadGuildStructureResponse({
+                protocolVersion: botProviderReadProtocolVersion,
                 type: 'structure',
                 structure: { guildId: 'guild-1', guildName: 'Guild', roles: [], channels: [{}], categories: [] },
             }).isErr()
@@ -65,21 +65,6 @@ describe('bot read wire contract', () => {
     });
 
     it('encodes guild ids as one path segment', () => {
-        expect(createBotReadGuildStructurePath('guild/one')).toBe('/v1/guilds/guild%2Fone/structure');
-    });
-
-    it('validates the exact posting wake acknowledgement', () => {
-        expect(
-            parseBotReadPostingWakeResponse({ protocolVersion: botReadProtocolVersion, type: 'accepted' }).isOk()
-        ).toBe(true);
-        expect(parseBotReadPostingWakeResponse({ protocolVersion: 2, type: 'accepted' }).isErr()).toBe(true);
-        expect(
-            parseBotReadPostingWakeResponse({
-                protocolVersion: botReadProtocolVersion,
-                type: 'accepted',
-                detail: 'unexpected',
-            }).isErr()
-        ).toBe(true);
-        expect(botReadPostingWakePath).toBe('/v1/posting/wake');
+        expect(createBotProviderReadGuildStructurePath('guild/one')).toBe('/v1/provider/guilds/guild%2Fone/structure');
     });
 });

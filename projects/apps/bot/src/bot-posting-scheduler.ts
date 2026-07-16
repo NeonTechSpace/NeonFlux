@@ -1,14 +1,33 @@
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
 import type { AppLogger } from '@neonflux/core/logging';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
-import { runNextDashboardPostingOperation } from './bot-posting-worker.js';
+import { runNextDashboardPostingOperation, type DashboardPostingWorkerResult } from './bot-posting-worker.js';
 
 const schedulerIntervalMs = 2_000;
-const maxWorkItemsPerRun = 20;
+const maxWorkItemsPerSlice = 20;
 const defaultItemDeadlineMs = 20_000;
 const defaultShutdownGraceMs = 5_000;
+
+type DrainTrigger = 'poll' | 'startup' | 'wake';
+type DrainStopReason = 'claim_failure' | 'deadline' | 'exception' | 'idle' | 'shutdown';
+
+type DrainStats = {
+    claimed: number;
+    deferred: number;
+    permanentFailure: number;
+    sent: number;
+    slices: number;
+    unknown: number;
+};
+
+type SliceResult =
+    | { type: 'batch-exhausted' }
+    | { reason: 'claim_failure' | 'deadline'; type: 'halted' }
+    | { type: 'idle' }
+    | { type: 'shutdown' };
 
 export function startDashboardPostingScheduler(input: {
     context: BotFeatureHandlerContext;
@@ -22,29 +41,43 @@ export function startDashboardPostingScheduler(input: {
     let wakePending = false;
     let running: Promise<void> | undefined;
     let activeController: AbortController | undefined;
+    let continuation: ReturnType<typeof setImmediate> | undefined;
+    let resolveContinuation: ((shouldContinue: boolean) => void) | undefined;
 
-    const runOnce = async () => {
-        for (let index = 0; index < maxWorkItemsPerRun && !stopped; index += 1) {
+    const runSlice = async (stats: DrainStats): Promise<SliceResult> => {
+        for (let index = 0; index < maxWorkItemsPerSlice; index += 1) {
+            if (stopped) return { type: 'shutdown' };
             const controller = new AbortController();
             activeController = controller;
-            const result = await runWithAbortDeadline(
-                runNextDashboardPostingOperation(input.context, { leaseOwner, signal: controller.signal }),
-                controller,
-                input.itemDeadlineMs ?? defaultItemDeadlineMs
-            );
-            if (activeController === controller) activeController = undefined;
-            if (result === 'deadline' || result === 'shutdown') {
-                if (result === 'deadline') input.logger.error('posting.worker_deadline_exceeded', {});
-                return;
+            let result: DashboardPostingWorkerResult | 'deadline' | 'shutdown';
+            try {
+                result = await runWithAbortDeadline(
+                    runNextDashboardPostingOperation(input.context, { leaseOwner, signal: controller.signal }),
+                    controller,
+                    input.itemDeadlineMs ?? defaultItemDeadlineMs
+                );
+            } finally {
+                if (activeController === controller) activeController = undefined;
             }
-            if (result.status === 'idle') return;
-            if (result.status === 'sent' && result.timings) {
-                input.logger.info('posting.operation_timing', {
-                    operationId: result.operationId,
-                    ...result.timings,
-                });
+            if (result === 'shutdown') return { type: 'shutdown' };
+            if (result === 'deadline') {
+                input.logger.error('posting.worker_deadline_exceeded', { stage: 'operation' });
+                return { reason: 'deadline', type: 'halted' };
             }
-            if (result.status === 'deferred' && result.operationId === 'unknown') return;
+            if (result.status === 'idle') return { type: 'idle' };
+            if (result.status === 'deferred' && result.operationId === 'unknown') {
+                input.logger.error('posting.worker_claim_failed', { errorCode: result.errorCode });
+                return { reason: 'claim_failure', type: 'halted' };
+            }
+
+            recordOperationResult(stats, result);
+            input.logger.info('posting.operation_timing', {
+                ...(result.errorCode === undefined ? {} : { errorCode: result.errorCode }),
+                ...(result.timings ?? {}),
+                attemptCount: result.attemptCount,
+                operationId: result.operationId,
+                outcome: result.status,
+            });
             if (result.status === 'unknown' || result.status === 'permanent_failure') {
                 input.logger.error('posting.operation_requires_attention', {
                     errorCode: result.errorCode,
@@ -53,25 +86,79 @@ export function startDashboardPostingScheduler(input: {
                 });
             }
         }
+        return { type: 'batch-exhausted' };
     };
-    const startRun = () => {
-        if (running || stopped) return;
-        running = runOnce()
-            .catch((error: unknown) => {
-                input.logger.error('posting.worker_failed', {
-                    errorType: error instanceof Error ? error.name : typeof error,
-                });
-            })
-            .finally(() => {
-                running = undefined;
-                if (wakePending && !stopped) {
-                    wakePending = false;
-                    queueMicrotask(startRun);
-                }
+
+    const yieldToEventLoop = () =>
+        new Promise<boolean>((resolve) => {
+            resolveContinuation = resolve;
+            continuation = setImmediate(() => {
+                continuation = undefined;
+                resolveContinuation = undefined;
+                resolve(true);
             });
+        });
+
+    const runDrain = async (trigger: DrainTrigger) => {
+        const startedAt = performance.now();
+        const stats: DrainStats = {
+            claimed: 0,
+            deferred: 0,
+            permanentFailure: 0,
+            sent: 0,
+            slices: 0,
+            unknown: 0,
+        };
+        let stopReason: DrainStopReason = 'idle';
+        try {
+            while (!stopped) {
+                stats.slices += 1;
+                const slice = await runSlice(stats);
+                if (slice.type === 'batch-exhausted') {
+                    if (!(await yieldToEventLoop())) {
+                        stopReason = 'shutdown';
+                        break;
+                    }
+                    continue;
+                }
+                stopReason = slice.type === 'halted' ? slice.reason : slice.type;
+                break;
+            }
+            if (stopped) stopReason = 'shutdown';
+        } catch (error: unknown) {
+            stopReason = 'exception';
+            input.logger.error('posting.worker_failed', {
+                errorType: error instanceof Error ? error.name : typeof error,
+            });
+        } finally {
+            if (stats.claimed > 0 || stopReason !== 'idle') {
+                input.logger.info('posting.drain_cycle', {
+                    claimed: stats.claimed,
+                    deferred: stats.deferred,
+                    durationMs: elapsedMilliseconds(startedAt),
+                    permanentFailure: stats.permanentFailure,
+                    sent: stats.sent,
+                    slices: stats.slices,
+                    stopReason,
+                    trigger,
+                    unknown: stats.unknown,
+                });
+            }
+        }
     };
-    const interval = setInterval(startRun, input.intervalMs ?? schedulerIntervalMs);
-    startRun();
+
+    const startRun = (trigger: DrainTrigger) => {
+        if (running || stopped) return;
+        running = runDrain(trigger).finally(() => {
+            running = undefined;
+            if (wakePending && !stopped) {
+                wakePending = false;
+                queueMicrotask(() => startRun('wake'));
+            }
+        });
+    };
+    const interval = setInterval(() => startRun('poll'), input.intervalMs ?? schedulerIntervalMs);
+    startRun('startup');
 
     return {
         wake(): void {
@@ -80,17 +167,38 @@ export function startDashboardPostingScheduler(input: {
                 wakePending = true;
                 return;
             }
-            startRun();
+            startRun('wake');
         },
         async stop(): Promise<void> {
             stopped = true;
             wakePending = false;
             clearInterval(interval);
+            if (continuation) clearImmediate(continuation);
+            continuation = undefined;
+            const continuationResolver = resolveContinuation;
+            resolveContinuation = undefined;
+            continuationResolver?.(false);
             activeController?.abort('shutdown');
             if (!running) return;
             await waitForShutdown(running, input.shutdownGraceMs ?? defaultShutdownGraceMs);
         },
     };
+}
+
+function recordOperationResult(
+    stats: DrainStats,
+    result: Exclude<DashboardPostingWorkerResult, { status: 'idle' }>
+): void {
+    stats.claimed += 1;
+    if (result.status === 'sent') stats.sent += 1;
+    else if (result.status === 'deferred') stats.deferred += 1;
+    else if (result.status === 'permanent_failure') stats.permanentFailure += 1;
+    else stats.unknown += 1;
+}
+
+function elapsedMilliseconds(startedAt: number): number {
+    const elapsed = performance.now() - startedAt;
+    return Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0;
 }
 
 async function runWithAbortDeadline<T>(

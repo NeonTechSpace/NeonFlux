@@ -1,5 +1,9 @@
 import { createNeonFluxConvexHttpClient } from '@neonflux/convex/client';
 import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
+import {
+    createNeonFluxServiceAuthTokenProvider,
+    NeonFluxServiceAuthTokenRefreshError,
+} from '@neonflux/convex/service-auth-token';
 
 export const CONVEX_SERVICE_AUTH_TOKEN_LIFETIME_SECONDS = 10 * 60;
 export const CONVEX_SERVICE_AUTH_REFRESH_SKEW_SECONDS = 60;
@@ -38,22 +42,7 @@ export type ConvexDatabase = {
     serviceName: ConvexDbServiceName;
 };
 
-type CachedConvexServiceAuthToken = {
-    refreshAtMs: number;
-    value: string;
-};
-
-type ConvexServiceAuthSigningFailure = {
-    error: ConvexServiceAuthTokenRefreshError;
-    retryAtMs: number;
-};
-
-export class ConvexServiceAuthTokenRefreshError extends Error {
-    constructor(serviceName: ConvexDbServiceName) {
-        super(`Convex ${serviceName} service authentication token refresh failed.`);
-        this.name = 'ConvexServiceAuthTokenRefreshError';
-    }
-}
+export { NeonFluxServiceAuthTokenRefreshError as ConvexServiceAuthTokenRefreshError };
 
 export function createConvexServiceAuthToken(
     config: ConvexServiceRuntimeConfig,
@@ -69,70 +58,25 @@ export function createConvexServiceAuthTokenProvider(
     options: ConvexServiceDbOptions
 ): ConvexServiceAuthTokenProvider {
     const expiresInSeconds = readServiceAuthTokenLifetimeSeconds(options.expiresInSeconds);
-    const serviceName = options.serviceName;
     const refreshSkewSeconds = Math.min(CONVEX_SERVICE_AUTH_REFRESH_SKEW_SECONDS, Math.floor(expiresInSeconds / 2));
-    let cachedToken: CachedConvexServiceAuthToken | undefined;
-    let refreshPromise: Promise<string> | undefined;
-    let signingFailure: ConvexServiceAuthSigningFailure | undefined;
 
-    return function provideConvexServiceAuthToken(): Promise<string> {
-        const requestTimeMs = Date.now();
-
-        if (cachedToken && requestTimeMs < cachedToken.refreshAtMs) {
-            return Promise.resolve(cachedToken.value);
-        }
-
-        cachedToken = undefined;
-
-        if (refreshPromise) {
-            return refreshPromise;
-        }
-
-        if (signingFailure && requestTimeMs < signingFailure.retryAtMs) {
-            return Promise.reject(signingFailure.error);
-        }
-
-        signingFailure = undefined;
-
-        const issuedAtMs = Math.floor(requestTimeMs / 1_000) * 1_000;
-        const refreshAtMs = issuedAtMs + (expiresInSeconds - refreshSkewSeconds) * 1_000;
-        const refresh = signConvexServiceAuthToken(config, serviceName, expiresInSeconds, new Date(issuedAtMs))
-            .then((token) => {
-                if (Date.now() >= refreshAtMs) {
-                    throw new Error('The signed Convex service authentication token is already stale.');
-                }
-
-                cachedToken = {
-                    refreshAtMs,
-                    value: token,
-                };
-
-                return token;
-            })
-            .catch(() => {
-                // Keep signer/parser details out of surfaced errors because they may contain key material.
-                const error = new ConvexServiceAuthTokenRefreshError(serviceName);
-
-                signingFailure = {
-                    error,
-                    retryAtMs: Date.now() + CONVEX_SERVICE_AUTH_SIGNING_RETRY_DELAY_MS,
-                };
-
-                throw error;
-            });
-
-        refreshPromise = refresh;
-
-        const clearRefreshPromise = () => {
-            if (refreshPromise === refresh) {
-                refreshPromise = undefined;
-            }
-        };
-
-        void refresh.then(clearRefreshPromise, clearRefreshPromise);
-
-        return refresh;
+    const providerConfig = {
+        get audience() {
+            return config.authJwtAudience;
+        },
+        expiresInSeconds,
+        get issuer() {
+            return config.authJwtIssuer;
+        },
+        get privateKey() {
+            return config.authJwtPrivateKey;
+        },
+        refreshSkewSeconds,
+        serviceName: options.serviceName,
+        signingRetryDelayMs: CONVEX_SERVICE_AUTH_SIGNING_RETRY_DELAY_MS,
     };
+
+    return createNeonFluxServiceAuthTokenProvider(providerConfig);
 }
 
 function signConvexServiceAuthToken(

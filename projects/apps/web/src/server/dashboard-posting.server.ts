@@ -16,14 +16,17 @@ import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer/guild
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
 import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
+import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { authorizeDashboardPostingTarget } from './dashboard-posting-authorization.server.js';
+import { createDashboardPostingRequestTiming } from './dashboard-posting-observability.server.js';
 import {
-    loadDashboardGuildPageData,
-    loadDashboardGuildPageDataForAuthenticatedContext,
-} from './dashboard-guild-page.server.js';
+    recordDashboardPostingWakeFailure,
+    recordDashboardPostingWakeSuccess,
+} from './dashboard-posting-wake-observability.server.js';
 
 export type DashboardPostMessageInput = {
     guildId: string;
@@ -177,21 +180,91 @@ export async function postDashboardGuildMessage(
     request: Request,
     input: DashboardPostMessageInput
 ): Promise<DashboardPostMessageResult> {
-    const authContextResult = await readAuthenticatedFluxerContext(request);
+    const timing = createDashboardPostingRequestTiming();
+    const authContextResult = await timing.measureAsync('authContextMs', () => readAuthenticatedFluxerContext(request));
 
     if (authContextResult.isErr()) {
-        return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
+        if (authContextResult.error === 'database-error') {
+            timing.finish('database_error');
+            return { type: 'database-error' };
+        }
+
+        timing.finish('auth_required');
+        return { type: 'auth-required' };
     }
 
-    const guildPageData = await loadDashboardGuildPageDataForAuthenticatedContext(
-        authContextResult.value,
-        input.guildId
+    const targetAuthorizationResult = await timing.measureAsync('targetAuthorizationMs', () =>
+        authorizeDashboardPostingTarget(authContextResult.value, input.guildId)
     );
 
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
+    if (targetAuthorizationResult.isErr()) {
+        timing.finish(toPostingRequestResultClass(targetAuthorizationResult.error));
+        return { type: targetAuthorizationResult.error };
     }
 
+    const validationResult = timing.measure('validationMs', () => normalizeDashboardPostingRequest(input));
+
+    if (validationResult.type === 'invalid-message') {
+        timing.finish('invalid_message');
+        return validationResult;
+    }
+
+    const enqueueResult = await timing.measureAsync('enqueueMs', async () => {
+        const database = await getWebDb();
+        return enqueueDashboardPostingOperation(database.db, {
+            actorUserId: authContextResult.value.fluxerUserId,
+            ...(validationResult.payload.message.content ? { content: validationResult.payload.message.content } : {}),
+            embeds: validationResult.payload.message.embeds,
+            guildId: targetAuthorizationResult.value.guild.id,
+            payloadHash: validationResult.payloadHash,
+            requestKey: validationResult.requestKey,
+            requestedChannelId: validationResult.payload.channelId,
+            ...(input.retryOfOperationId ? { retryOfOperationId: input.retryOfOperationId } : {}),
+        });
+    });
+
+    if (enqueueResult.isErr()) {
+        if (enqueueResult.error.type === 'conflict') {
+            timing.finish('request_conflict');
+            return { type: 'request-conflict' };
+        }
+
+        timing.finish('database_error');
+        return { type: 'database-error' };
+    }
+
+    if (enqueueResult.value.operation.status === 'queued') {
+        let wakeFailure: Parameters<typeof recordDashboardPostingWakeFailure>[0] | undefined;
+
+        await timing.measureAsync('wakeMs', async () => {
+            try {
+                const wakeResult = await wakeDashboardBotPostingWorker();
+                wakeResult.match(
+                    () => recordDashboardPostingWakeSuccess(),
+                    (error) => {
+                        wakeFailure = error;
+                    }
+                );
+            } catch {
+                wakeFailure = 'unexpected-failure';
+            }
+        });
+
+        if (wakeFailure) {
+            recordDashboardPostingWakeFailure(wakeFailure, timing.getDuration('wakeMs') ?? 0);
+        }
+    }
+
+    const operation = toDashboardPostingOperation(enqueueResult.value.operation);
+    timing.finish('operation', operation.id);
+    return { type: 'operation', operation };
+}
+
+function normalizeDashboardPostingRequest(
+    input: DashboardPostMessageInput
+):
+    | { type: 'valid'; payload: NormalizedPostMessagePayload; payloadHash: string; requestKey: string }
+    | { type: 'invalid-message'; message: string } {
     const payloadResult = normalizePostMessagePayload(input);
 
     if (payloadResult.type === 'invalid-message') {
@@ -205,45 +278,38 @@ export async function postDashboardGuildMessage(
             message: 'Message content or embed fields are invalid or exceed the supported limits.',
         };
     }
-    const payload: NormalizedPostMessagePayload = {
-        channelId: payloadResult.payload.channelId,
-        message: queuePayload.value,
-    };
-    const requestKey = input.requestKey.trim();
 
+    const requestKey = input.requestKey.trim();
     if (!requestKey || requestKey.length > 128) {
         return { type: 'invalid-message', message: 'Start a new posting attempt and try again.' };
     }
 
-    const database = await getWebDb();
-    const payloadHash = hashDashboardPostingPayload(payload);
-    const enqueueResult = await enqueueDashboardPostingOperation(database.db, {
-        actorUserId: authContextResult.value.fluxerUserId,
-        ...(payload.message.content ? { content: payload.message.content } : {}),
-        embeds: payload.message.embeds,
-        guildId: guildPageData.guild.id,
-        payloadHash,
+    const payload: NormalizedPostMessagePayload = {
+        channelId: payloadResult.payload.channelId,
+        message: queuePayload.value,
+    };
+
+    return {
+        type: 'valid',
+        payload,
+        payloadHash: hashDashboardPostingPayload(payload),
         requestKey,
-        requestedChannelId: payload.channelId,
-        ...(input.retryOfOperationId ? { retryOfOperationId: input.retryOfOperationId } : {}),
-    });
+    };
+}
 
-    if (enqueueResult.isErr()) {
-        return enqueueResult.error.type === 'conflict' ? { type: 'request-conflict' } : { type: 'database-error' };
+function toPostingRequestResultClass(
+    error: 'not-found' | 'deployment-config-not-found' | 'database-error' | 'guild-lookup-failed'
+) {
+    switch (error) {
+        case 'not-found':
+            return 'not_found' as const;
+        case 'deployment-config-not-found':
+            return 'deployment_config_not_found' as const;
+        case 'database-error':
+            return 'database_error' as const;
+        case 'guild-lookup-failed':
+            return 'guild_lookup_failed' as const;
     }
-
-    if (enqueueResult.value.operation.status === 'queued') {
-        await wakeDashboardBotPostingWorker().then(
-            (wakeResult) =>
-                wakeResult.match(
-                    () => undefined,
-                    () => undefined
-                ),
-            () => undefined
-        );
-    }
-
-    return { type: 'operation', operation: toDashboardPostingOperation(enqueueResult.value.operation) };
 }
 
 function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): string {

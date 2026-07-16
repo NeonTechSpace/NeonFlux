@@ -18,7 +18,7 @@ import {
 } from './bot-feature-router.js';
 import { createBotGrowthTelemetryIngestor } from './bot-growth-telemetry-ingestor.js';
 import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
-import { startBotReadServer, type BotReadServer } from './bot-read-server.js';
+import { startBotInternalApiServer, type BotInternalApiServer } from './bot-internal-api-server.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
@@ -40,7 +40,7 @@ const INSTALLATION_REPAIR_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createBotApp({ config, logger, database }: CreateBotAppInput): BotApp {
     let bot: FluxerBot | undefined;
-    let botReadServer: BotReadServer | undefined;
+    let botInternalApiServer: BotInternalApiServer | undefined;
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void>; wake(): void } | undefined;
@@ -71,7 +71,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
 
             logger.info('deployment.config', { instanceMode: deploymentMode.instanceMode });
             const customStatusText = resolveBotCustomStatusText(config);
-            const botReadAuth = config.fluxerBotToken ? requireBotReadAuthConfig(config) : undefined;
+            const botInternalApiAuth = config.fluxerBotToken ? requireBotInternalApiAuthConfig(config) : undefined;
 
             const createFeatureHandlerContext = (): BotFeatureRoutingContext => {
                 if (!bot) {
@@ -283,20 +283,20 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 return false;
             }
 
-            if (config.fluxerBotToken && botReadAuth) {
+            if (config.fluxerBotToken && botInternalApiAuth) {
                 postingScheduler = startDashboardPostingScheduler({
                     context: createFeatureHandlerContext(),
                     logger,
                 });
                 try {
-                    botReadServer = await startBotReadServer({
+                    botInternalApiServer = await startBotInternalApiServer({
                         bot,
-                        host: config.botReadHost,
+                        host: config.botInternalApiHost,
                         logger,
-                        port: config.botReadPort,
+                        port: config.botInternalApiPort,
                         wakePostingWorker: () => postingScheduler?.wake(),
-                        webAuthJwtIssuer: botReadAuth.issuer,
-                        webAuthJwtJwks: botReadAuth.jwks,
+                        webAuthJwtIssuer: botInternalApiAuth.issuer,
+                        webAuthJwtJwks: botInternalApiAuth.jwks,
                     });
                 } catch (error) {
                     await postingScheduler.stop();
@@ -325,7 +325,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
         },
         async stop() {
             bot?.stopIntake();
-            await botReadServer?.stop();
+            await botInternalApiServer?.stop();
             await installationRepairScheduler?.stop();
             await postingScheduler?.stop();
             await structureBackupScheduler?.stop();
@@ -337,12 +337,12 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     };
 }
 
-function requireBotReadAuthConfig(config: AppConfig): { issuer: string; jwks: string } {
+function requireBotInternalApiAuthConfig(config: AppConfig): { issuer: string; jwks: string } {
     const issuer = config.convex?.webAuthJwtIssuer;
     const jwks = config.convex?.webAuthJwtJwks;
 
-    if (!issuer) throw new Error('NEONFLUX_WEB_AUTH_JWT_ISSUER is required for the bot read server.');
-    if (!jwks) throw new Error('NEONFLUX_WEB_AUTH_JWT_JWKS is required for the bot read server.');
+    if (!issuer) throw new Error('NEONFLUX_WEB_AUTH_JWT_ISSUER is required for the bot internal API server.');
+    if (!jwks) throw new Error('NEONFLUX_WEB_AUTH_JWT_JWKS is required for the bot internal API server.');
 
     return { issuer, jwks };
 }

@@ -18,7 +18,7 @@ describe('dashboard posting scheduler', () => {
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
         });
 
         await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
@@ -27,16 +27,21 @@ describe('dashboard posting scheduler', () => {
 
     it('logs only the error class when an unexpected worker failure escapes', async () => {
         const error = vi.fn();
-        vi.mocked(runNextDashboardPostingOperation).mockRejectedValue(new Error('secret provider response'));
+        let observedSignal: AbortSignal | undefined;
+        vi.mocked(runNextDashboardPostingOperation).mockImplementation((_context, options) => {
+            observedSignal = options.signal;
+            return Promise.reject(new Error('secret provider response'));
+        });
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error } as never,
+            logger: createLogger({ error }),
         });
 
         await vi.waitFor(() => expect(error).toHaveBeenCalled());
         expect(error).toHaveBeenCalledWith('posting.worker_failed', { errorType: 'Error' });
         await scheduler.stop();
+        expect(observedSignal?.aborted).toBe(false);
     });
 
     it('wakes an idle scheduler immediately without waiting for the fallback interval', async () => {
@@ -44,7 +49,7 @@ describe('dashboard posting scheduler', () => {
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
         });
         await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
 
@@ -58,25 +63,52 @@ describe('dashboard posting scheduler', () => {
         const info = vi.fn();
         vi.mocked(runNextDashboardPostingOperation)
             .mockResolvedValueOnce({
+                attemptCount: 1,
                 operationId: 'operation-1',
                 status: 'sent',
-                timings: { preflightMs: 4, providerSendMs: 25, queueWaitMs: 7, totalMs: 41 },
+                timings: {
+                    claimMs: 2,
+                    completionPersistenceMs: 3,
+                    deliveryTotalMs: 38,
+                    operationAgeMs: 41,
+                    preflightMs: 4,
+                    providerAcceptedAtMs: 1_752_400_000_038,
+                    providerSendMs: 25,
+                    queueWaitMs: 7,
+                    receiptPersistenceMs: 1,
+                    sendStartPersistenceMs: 2,
+                    workerTotalMs: 41,
+                },
             })
             .mockResolvedValue({ status: 'idle' });
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error: vi.fn(), info } as never,
+            logger: createLogger({ info }),
         });
 
-        await vi.waitFor(() => expect(info).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+            expect(info).toHaveBeenCalledWith(
+                'posting.operation_timing',
+                expect.objectContaining({ operationId: 'operation-1' })
+            )
+        );
 
         expect(info).toHaveBeenCalledWith('posting.operation_timing', {
+            attemptCount: 1,
+            claimMs: 2,
+            completionPersistenceMs: 3,
+            deliveryTotalMs: 38,
+            operationAgeMs: 41,
             operationId: 'operation-1',
+            outcome: 'sent',
             preflightMs: 4,
+            providerAcceptedAtMs: 1_752_400_000_038,
             providerSendMs: 25,
             queueWaitMs: 7,
-            totalMs: 41,
+            receiptPersistenceMs: 1,
+            sendStartPersistenceMs: 2,
+            workerTotalMs: 41,
         });
         expect(JSON.stringify(info.mock.calls)).not.toContain('content');
         await scheduler.stop();
@@ -90,7 +122,7 @@ describe('dashboard posting scheduler', () => {
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
         });
         await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
 
@@ -106,7 +138,7 @@ describe('dashboard posting scheduler', () => {
         const scheduler = startDashboardPostingScheduler({
             context: createContext(),
             intervalMs: 60_000,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
         });
         await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
         await scheduler.stop();
@@ -134,10 +166,12 @@ describe('dashboard posting scheduler', () => {
             context: createContext(),
             intervalMs: 60_000,
             itemDeadlineMs: 5,
-            logger: { error } as never,
+            logger: createLogger({ error }),
         });
 
-        await vi.waitFor(() => expect(error).toHaveBeenCalledWith('posting.worker_deadline_exceeded', {}));
+        await vi.waitFor(() =>
+            expect(error).toHaveBeenCalledWith('posting.worker_deadline_exceeded', { stage: 'operation' })
+        );
         expect(observedSignal?.aborted).toBe(true);
         expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1);
         await scheduler.stop();
@@ -157,7 +191,7 @@ describe('dashboard posting scheduler', () => {
             context: createContext(),
             intervalMs: 60_000,
             itemDeadlineMs: 5,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
         });
 
         await vi.waitFor(() => expect(rejectLate).toBeTypeOf('function'));
@@ -180,7 +214,7 @@ describe('dashboard posting scheduler', () => {
             context: createContext(),
             intervalMs: 60_000,
             itemDeadlineMs: 60_000,
-            logger: { error: vi.fn() } as never,
+            logger: createLogger(),
             shutdownGraceMs: 5,
         });
         await vi.waitFor(() => expect(observedSignal).toBeDefined());
@@ -193,7 +227,80 @@ describe('dashboard posting scheduler', () => {
         ).resolves.toBe('stopped');
         expect(observedSignal?.aborted).toBe(true);
     });
+
+    it('continuously drains more than one slice while yielding to the event loop', async () => {
+        const info = vi.fn();
+        let completed = 0;
+        vi.mocked(runNextDashboardPostingOperation).mockImplementation(() => {
+            if (completed >= 45) return Promise.resolve({ status: 'idle' });
+            completed += 1;
+            return Promise.resolve(successfulResult(`operation-${String(completed)}`));
+        });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: createLogger({ info }),
+        });
+        const callsAtFirstYield = await new Promise<number>((resolve) => {
+            setImmediate(() => resolve(vi.mocked(runNextDashboardPostingOperation).mock.calls.length));
+        });
+
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(46));
+
+        expect(callsAtFirstYield).toBe(20);
+        expect(info).toHaveBeenCalledWith(
+            'posting.drain_cycle',
+            expect.objectContaining({ claimed: 45, sent: 45, slices: 3, stopReason: 'idle', trigger: 'startup' })
+        );
+        await scheduler.stop();
+    });
+
+    it('coalesces repeated wakes during one active drain into one race-closing replay', async () => {
+        const firstRun = Promise.withResolvers<ReturnType<typeof successfulResult>>();
+        vi.mocked(runNextDashboardPostingOperation)
+            .mockReturnValueOnce(firstRun.promise)
+            .mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            intervalMs: 60_000,
+            logger: createLogger(),
+        });
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(1));
+
+        scheduler.wake();
+        scheduler.wake();
+        scheduler.wake();
+        firstRun.resolve(successfulResult('operation-1'));
+
+        await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(3));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(3);
+        await scheduler.stop();
+    });
 });
+
+function successfulResult(operationId: string) {
+    return {
+        attemptCount: 1,
+        operationId,
+        status: 'sent' as const,
+        timings: {
+            claimMs: 1,
+            operationAgeMs: 3,
+            queueWaitMs: 1,
+            workerTotalMs: 2,
+        },
+    };
+}
+
+function createLogger(overrides: { error?: ReturnType<typeof vi.fn>; info?: ReturnType<typeof vi.fn> } = {}) {
+    return {
+        debug: vi.fn(),
+        error: overrides.error ?? vi.fn(),
+        info: overrides.info ?? vi.fn(),
+        warn: vi.fn(),
+    } as never;
+}
 
 function createContext(): BotFeatureHandlerContext {
     return {

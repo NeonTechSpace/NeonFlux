@@ -25,6 +25,14 @@ export type DeploymentConfigRepositoryError =
     | 'not-found'
     | 'database-error';
 
+export type DashboardGuildAuthorizationFacts = {
+    deployment: { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' } | null;
+    botInstalled: boolean;
+    storedDefconLevel: 1 | 2 | 3 | null;
+};
+
+export type DashboardGuildAuthorizationFactsRepositoryError = 'missing-guild-id' | 'database-error';
+
 export type BotInstallationRecord = {
     guildId: string;
     installedAt: Date;

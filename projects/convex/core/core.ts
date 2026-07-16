@@ -48,6 +48,7 @@ type DeploymentConfigPatch = {
 };
 
 const allowedRuntimeServices = ['bot', 'web'] as const;
+const allowedDashboardAuthorizationFactsServices = ['web'] as const;
 const allowedMutationServices = ['bot'] as const;
 
 const timestampValidator = v.string();
@@ -87,6 +88,17 @@ const deploymentConfigRecordValidator = v.union(
         publicWebUrl: v.union(v.string(), v.null()),
     })
 );
+const dashboardAuthorizationDeploymentValidator = v.union(
+    v.object({
+        instanceMode: v.literal('single'),
+        singleGuildId: v.string(),
+    }),
+    v.object({
+        instanceMode: v.literal('multi'),
+    }),
+    v.null()
+);
+const storedDefconLevelValidator = v.union(v.literal(1), v.literal(2), v.literal(3), v.null());
 
 export const readDeploymentConfig = query({
     args: {},
@@ -98,6 +110,35 @@ export const readDeploymentConfig = query({
         return config ? toDeploymentConfigRecord(config) : null;
     },
 });
+
+export const readDashboardGuildAuthorizationFacts = query({
+    args: guildIdArgs,
+    returns: v.object({
+        botInstalled: v.boolean(),
+        deployment: dashboardAuthorizationDeploymentValidator,
+        storedDefconLevel: storedDefconLevelValidator,
+    }),
+    handler: readDashboardGuildAuthorizationFactsHandler,
+});
+
+export async function readDashboardGuildAuthorizationFactsHandler(ctx: CoreQueryCtx, args: { guildId: string }) {
+    await requireNeonFluxService(ctx, allowedDashboardAuthorizationFactsServices);
+    const guildId = normalizeRequiredGuildId(args.guildId);
+    const [deployment, installation, securityPolicy] = await Promise.all([
+        findDeploymentConfigDocument(ctx),
+        findBotInstallationDocument(ctx, guildId),
+        ctx.db
+            .query('guildSecurityPolicies')
+            .withIndex('by_guild_id', (query) => query.eq('guildId', guildId))
+            .unique(),
+    ]);
+
+    return {
+        botInstalled: installation !== null,
+        deployment: toDashboardAuthorizationDeployment(deployment),
+        storedDefconLevel: securityPolicy?.defconLevel ?? null,
+    };
+}
 
 export const upsertDeploymentConfig = mutation({
     args: deploymentConfigInputArgs,
@@ -399,6 +440,25 @@ function toDeploymentConfigRecord(
         ownerIds: document.ownerIds,
         publicWebUrl: document.publicWebUrl ?? null,
     };
+}
+
+function toDashboardAuthorizationDeployment(
+    document: StoredDeploymentConfigDocument | null
+): { instanceMode: 'single'; singleGuildId: string } | { instanceMode: 'multi' } | null {
+    if (!document) return null;
+
+    if (document.instanceMode === 'single') {
+        if (!document.singleGuildId) {
+            throw new Error('deployment-config-missing-single-guild-id');
+        }
+
+        return {
+            instanceMode: 'single',
+            singleGuildId: document.singleGuildId,
+        };
+    }
+
+    return { instanceMode: 'multi' };
 }
 
 function toGuildRecord(document: StoredGuildDocument): { firstSeenAt: string; guildId: string; updatedAt: string } {

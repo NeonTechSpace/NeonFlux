@@ -15,7 +15,7 @@ import {
     upsertStructureBackupSettings,
 } from '@neonflux/db';
 
-import { readDashboardBotGuildStructure } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure } from './bot-internal-api-client.server.js';
 import { getWebDb } from './db.server.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
 import type { AuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
@@ -278,7 +278,7 @@ async function createDashboardBlueprintBackup(
     if (structureResult.isErr()) {
         const message =
             structureResult.error === 'not-configured'
-                ? 'The bot read service is not configured.'
+                ? 'The bot internal API is not configured.'
                 : `Could not read server layout: ${structureResult.error}.`;
         const failedBackup = await recordFailedDashboardBlueprintBackup(context, source, message);
         if (failedBackup === 'database-error') return { type: 'database-error' };

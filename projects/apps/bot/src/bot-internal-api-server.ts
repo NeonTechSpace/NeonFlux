@@ -7,25 +7,29 @@ import {
 } from '@neonflux/convex/jwt';
 import type { AppLogger } from '@neonflux/core/logging';
 import {
-    botReadGuildStructurePathPrefix,
-    botReadJwtAudience,
-    botReadPostingWakePath,
-    botReadProtocolVersion,
-    type BotReadGuildStructureResponse,
-} from '@neonflux/fluxer/bot-read-contract';
+    botProviderReadGuildStructurePathPrefix,
+    botProviderReadJwtAudience,
+    botProviderReadProtocolVersion,
+    type BotProviderReadGuildStructureResponse,
+} from '@neonflux/fluxer/bot-provider-read-contract';
 import { readFluxerGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type { FluxerBot } from '@neonflux/fluxer';
+import {
+    postingWorkerControlJwtAudience,
+    postingWorkerControlProtocolVersion,
+    postingWorkerWakePath,
+} from '@neonflux/messaging/posting-worker-control-contract';
 
 const maxConcurrentGuildReads = 8;
 const providerReadDeadlineMs = 12_000;
 
-export type BotReadServer = {
+export type BotInternalApiServer = {
     host: string;
     port: number;
     stop(): Promise<void>;
 };
 
-export type StartBotReadServerInput = {
+export type StartBotInternalApiServerInput = {
     bot: FluxerBot;
     host: string;
     logger: AppLogger;
@@ -35,17 +39,22 @@ export type StartBotReadServerInput = {
     webAuthJwtJwks: string;
 };
 
-export async function startBotReadServer(input: StartBotReadServerInput): Promise<BotReadServer> {
-    const jwtConfig: NeonFluxJwtVerifierConfig = {
-        audience: botReadJwtAudience,
+export async function startBotInternalApiServer(input: StartBotInternalApiServerInput): Promise<BotInternalApiServer> {
+    const providerReadJwtConfig: NeonFluxJwtVerifierConfig = {
+        audience: botProviderReadJwtAudience,
+        issuer: input.webAuthJwtIssuer,
+    };
+    const postingControlJwtConfig: NeonFluxJwtVerifierConfig = {
+        audience: postingWorkerControlJwtAudience,
         issuer: input.webAuthJwtIssuer,
     };
     const jwks = createNeonFluxJwkSetFromJwksConfig(input.webAuthJwtJwks);
     const reads = createGuildStructureReads(input);
     const server = createServer((request, response) => {
         void handleRequest({
-            jwtConfig,
             jwks,
+            postingControlJwtConfig,
+            providerReadJwtConfig,
             reads,
             request,
             response,
@@ -57,7 +66,7 @@ export async function startBotReadServer(input: StartBotReadServerInput): Promis
     });
     const port = await listen(server, input.host, input.port);
 
-    input.logger.info('bot.read_server_started', { host: input.host, port });
+    input.logger.info('bot.internal_api_started', { host: input.host, port });
 
     let stopPromise: Promise<void> | undefined;
 
@@ -68,7 +77,7 @@ export async function startBotReadServer(input: StartBotReadServerInput): Promis
             if (stopPromise) return stopPromise;
 
             stopPromise = closeServer(server).finally(() => {
-                input.logger.info('bot.read_server_stopped');
+                input.logger.info('bot.internal_api_stopped');
             });
             return stopPromise;
         },
@@ -76,11 +85,11 @@ export async function startBotReadServer(input: StartBotReadServerInput): Promis
 }
 
 type GuildStructureReads = {
-    read(guildId: string): Promise<BotReadGuildStructureResponse> | undefined;
+    read(guildId: string): Promise<BotProviderReadGuildStructureResponse> | undefined;
 };
 
-function createGuildStructureReads(input: StartBotReadServerInput): GuildStructureReads {
-    const inFlight = new Map<string, Promise<BotReadGuildStructureResponse>>();
+function createGuildStructureReads(input: StartBotInternalApiServerInput): GuildStructureReads {
+    const inFlight = new Map<string, Promise<BotProviderReadGuildStructureResponse>>();
 
     return {
         read(guildId) {
@@ -98,9 +107,9 @@ function createGuildStructureReads(input: StartBotReadServerInput): GuildStructu
 }
 
 async function readGuildStructure(
-    input: StartBotReadServerInput,
+    input: StartBotInternalApiServerInput,
     guildId: string
-): Promise<BotReadGuildStructureResponse> {
+): Promise<BotProviderReadGuildStructureResponse> {
     try {
         const result = await readFluxerGuildStructure({
             client: input.bot.client,
@@ -109,20 +118,21 @@ async function readGuildStructure(
         });
 
         if (result.isOk()) {
-            return { protocolVersion: botReadProtocolVersion, type: 'structure', structure: result.value };
+            return { protocolVersion: botProviderReadProtocolVersion, type: 'structure', structure: result.value };
         }
 
         return result.error.type === 'unavailable-or-not-found'
-            ? { protocolVersion: botReadProtocolVersion, type: 'unavailable-or-not-found' }
-            : { protocolVersion: botReadProtocolVersion, type: 'read-failed' };
+            ? { protocolVersion: botProviderReadProtocolVersion, type: 'unavailable-or-not-found' }
+            : { protocolVersion: botProviderReadProtocolVersion, type: 'read-failed' };
     } catch {
-        return { protocolVersion: botReadProtocolVersion, type: 'read-failed' };
+        return { protocolVersion: botProviderReadProtocolVersion, type: 'read-failed' };
     }
 }
 
 type RequestContext = {
-    jwtConfig: NeonFluxJwtVerifierConfig;
     jwks: ReturnType<typeof createNeonFluxJwkSetFromJwksConfig>;
+    postingControlJwtConfig: NeonFluxJwtVerifierConfig;
+    providerReadJwtConfig: NeonFluxJwtVerifierConfig;
     reads: GuildStructureReads;
     request: IncomingMessage;
     response: ServerResponse;
@@ -132,7 +142,7 @@ type RequestContext = {
 async function handleRequest(context: RequestContext): Promise<void> {
     const pathname = readPathname(context.request.url);
 
-    if (pathname === botReadPostingWakePath) {
+    if (pathname === postingWorkerWakePath) {
         await handlePostingWake(context);
         return;
     }
@@ -150,20 +160,20 @@ async function handleRequest(context: RequestContext): Promise<void> {
         return;
     }
 
-    if (!(await isAuthorized(context))) {
+    if (!(await isAuthorized(context, context.providerReadJwtConfig))) {
         writeJson(context.response, 401, { type: 'unauthorized' });
         return;
     }
 
     const read = context.reads.read(guildId);
     if (!read) {
-        writeJson(context.response, 503, { protocolVersion: botReadProtocolVersion, type: 'overloaded' });
+        writeJson(context.response, 503, { protocolVersion: botProviderReadProtocolVersion, type: 'overloaded' });
         return;
     }
 
     const result = await withDeadline(read, providerReadDeadlineMs);
     if (!result) {
-        writeJson(context.response, 502, { protocolVersion: botReadProtocolVersion, type: 'read-failed' });
+        writeJson(context.response, 502, { protocolVersion: botProviderReadProtocolVersion, type: 'read-failed' });
         return;
     }
 
@@ -184,16 +194,16 @@ async function handlePostingWake(context: RequestContext): Promise<void> {
         return;
     }
 
-    if (!(await isAuthorized(context))) {
+    if (!(await isAuthorized(context, context.postingControlJwtConfig))) {
         writeJson(context.response, 401, { type: 'unauthorized' });
         return;
     }
 
     context.wakePostingWorker();
-    writeJson(context.response, 202, { protocolVersion: botReadProtocolVersion, type: 'accepted' });
+    writeJson(context.response, 202, { protocolVersion: postingWorkerControlProtocolVersion, type: 'accepted' });
 }
 
-async function isAuthorized(context: RequestContext): Promise<boolean> {
+async function isAuthorized(context: RequestContext, jwtConfig: NeonFluxJwtVerifierConfig): Promise<boolean> {
     const authorization = context.request.headers.authorization;
     if (!authorization?.startsWith('Bearer ')) return false;
 
@@ -201,7 +211,7 @@ async function isAuthorized(context: RequestContext): Promise<boolean> {
     if (!token) return false;
 
     try {
-        const payload = await verifyNeonFluxJwtWithJwkSet(context.jwtConfig, token, context.jwks);
+        const payload = await verifyNeonFluxJwtWithJwkSet(jwtConfig, token, context.jwks);
         return (
             payload.sub === 'service:web' &&
             payload.neonflux.kind === 'service' &&
@@ -216,9 +226,9 @@ function readGuildId(requestUrl: string | undefined): string | undefined {
     const pathname = readPathname(requestUrl);
     if (!pathname) return undefined;
     const suffix = '/structure';
-    if (!pathname.startsWith(botReadGuildStructurePathPrefix) || !pathname.endsWith(suffix)) return undefined;
+    if (!pathname.startsWith(botProviderReadGuildStructurePathPrefix) || !pathname.endsWith(suffix)) return undefined;
 
-    const encodedGuildId = pathname.slice(botReadGuildStructurePathPrefix.length, -suffix.length);
+    const encodedGuildId = pathname.slice(botProviderReadGuildStructurePathPrefix.length, -suffix.length);
     if (!encodedGuildId || encodedGuildId.includes('/')) return undefined;
 
     try {
@@ -280,7 +290,7 @@ function listen(server: Server, host: string, port: number): Promise<number> {
             server.off('error', onError);
             const address = server.address();
             if (!address || typeof address === 'string') {
-                reject(new Error('Bot read server did not expose a TCP address.'));
+                reject(new Error('Bot internal API server did not expose a TCP address.'));
                 return;
             }
             resolve(address.port);

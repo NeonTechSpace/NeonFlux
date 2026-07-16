@@ -1,6 +1,6 @@
 import type { MutationCtx } from '../_generated/server.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { classifyBlueprintRunReclaim } from './blueprint_model.js';
+import { classifyBlueprintRunReclaim } from './blueprint_run_model.js';
 
 type BlueprintRunProtocolRecord = {
     _id: unknown;

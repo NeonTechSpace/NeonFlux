@@ -2,14 +2,18 @@ import { generateKeyPairSync } from 'node:crypto';
 
 import { createNeonFluxJwks, signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 import type { AppLogger } from '@neonflux/core/logging';
-import { botReadJwtAudience, botReadPostingWakePath } from '@neonflux/fluxer/bot-read-contract';
+import { botProviderReadJwtAudience } from '@neonflux/fluxer/bot-provider-read-contract';
 import { readFluxerGuildStructure } from '@neonflux/fluxer/guild-structure';
 import type * as FluxerGuildStructure from '@neonflux/fluxer/guild-structure';
 import type { FluxerBot } from '@neonflux/fluxer';
+import {
+    postingWorkerControlJwtAudience,
+    postingWorkerWakePath,
+} from '@neonflux/messaging/posting-worker-control-contract';
 import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { startBotReadServer, type BotReadServer } from './bot-read-server.js';
+import { startBotInternalApiServer, type BotInternalApiServer } from './bot-internal-api-server.js';
 
 vi.mock('@neonflux/fluxer/guild-structure', async (importActual) => {
     const actual = await importActual<typeof FluxerGuildStructure>();
@@ -22,10 +26,10 @@ const otherSigner = createSigner();
 const jwks = `data:application/json,${encodeURIComponent(JSON.stringify(createNeonFluxJwks(signer)))}`;
 const logger = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } as unknown as AppLogger;
 const bot = { client: { user: { id: 'bot-user' } } } as unknown as FluxerBot;
-let servers: BotReadServer[] = [];
+let servers: BotInternalApiServer[] = [];
 const wakePostingWorker = vi.fn();
 
-describe('bot read server', () => {
+describe('bot internal API server', () => {
     beforeEach(() => {
         vi.mocked(readFluxerGuildStructure).mockReset();
         vi.mocked(readFluxerGuildStructure).mockResolvedValue(ok(createStructure('guild-1')));
@@ -82,7 +86,7 @@ describe('bot read server', () => {
 
     it('authenticates and accepts posting worker wake requests without a payload', async () => {
         const server = await startServer();
-        const response = await wakeRequest(server, await createToken());
+        const response = await wakeRequest(server, await createPostingControlToken());
 
         expect(response.status).toBe(202);
         await expect(response.json()).resolves.toEqual({ protocolVersion: 1, type: 'accepted' });
@@ -93,8 +97,21 @@ describe('bot read server', () => {
         const server = await startServer();
 
         expect((await wakeRequest(server)).status).toBe(401);
-        expect((await wakeRequest(server, await createToken(), { method: 'GET' })).status).toBe(405);
-        expect((await wakeRequest(server, await createToken(), { body: '{}' })).status).toBe(413);
+        expect((await wakeRequest(server, await createPostingControlToken(), { method: 'GET' })).status).toBe(405);
+        expect((await wakeRequest(server, await createPostingControlToken(), { body: '{}' })).status).toBe(413);
+        expect(wakePostingWorker).not.toHaveBeenCalled();
+    });
+
+    it('rejects tokens issued for the other internal API capability', async () => {
+        const server = await startServer();
+        const [readWithControlToken, wakeWithReadToken] = await Promise.all([
+            request(server, 'guild-1', await createPostingControlToken()),
+            wakeRequest(server, await createToken()),
+        ]);
+
+        expect(readWithControlToken.status).toBe(401);
+        expect(wakeWithReadToken.status).toBe(401);
+        expect(readFluxerGuildStructure).not.toHaveBeenCalled();
         expect(wakePostingWorker).not.toHaveBeenCalled();
     });
 
@@ -135,8 +152,8 @@ describe('bot read server', () => {
     });
 });
 
-async function startServer(): Promise<BotReadServer> {
-    const server = await startBotReadServer({
+async function startServer(): Promise<BotInternalApiServer> {
+    const server = await startBotInternalApiServer({
         bot,
         host: '127.0.0.1',
         logger,
@@ -150,21 +167,24 @@ async function startServer(): Promise<BotReadServer> {
 }
 
 async function wakeRequest(
-    server: BotReadServer,
+    server: BotInternalApiServer,
     token?: string,
     init: { body?: string; method?: string } = {}
 ): Promise<Response> {
-    return fetch(`http://127.0.0.1:${String(server.port)}${botReadPostingWakePath}`, {
+    return fetch(`http://127.0.0.1:${String(server.port)}${postingWorkerWakePath}`, {
         ...(init.body ? { body: init.body } : {}),
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         method: init.method ?? 'POST',
     });
 }
 
-async function request(server: BotReadServer, guildId: string, token?: string): Promise<Response> {
-    return fetch(`http://127.0.0.1:${String(server.port)}/v1/guilds/${encodeURIComponent(guildId)}/structure`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+async function request(server: BotInternalApiServer, guildId: string, token?: string): Promise<Response> {
+    return fetch(
+        `http://127.0.0.1:${String(server.port)}/v1/provider/guilds/${encodeURIComponent(guildId)}/structure`,
+        {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+    );
 }
 
 function createToken(
@@ -176,15 +196,19 @@ function createToken(
 ): Promise<string> {
     const tokenSigner = overrides.signer ?? signer;
     return signNeonFluxServiceJwt(
-        { ...tokenSigner, audience: overrides.audience ?? botReadJwtAudience, issuer },
+        { ...tokenSigner, audience: overrides.audience ?? botProviderReadJwtAudience, issuer },
         { serviceName: overrides.serviceName ?? 'web' }
     );
+}
+
+function createPostingControlToken(): Promise<string> {
+    return createToken({ audience: postingWorkerControlJwtAudience });
 }
 
 function createSigner() {
     const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     return {
-        audience: botReadJwtAudience,
+        audience: botProviderReadJwtAudience,
         issuer,
         privateKeyPem: privateKey.export({ format: 'pem', type: 'pkcs8' }),
     };

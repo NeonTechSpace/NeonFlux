@@ -66,7 +66,7 @@ describe('dashboard posting worker', () => {
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
         expect(result).toMatchObject({ operationId: 'operation-1', status: 'sent' });
-        if (result.status !== 'sent' || !result.timings) throw new Error('Expected successful-send timings.');
+        if (result.status !== 'sent') throw new Error('Expected successful-send timings.');
         expect(Object.values(result.timings).every(Number.isFinite)).toBe(true);
         const markedOrder = vi.mocked(markDashboardPostingOperationSendStarted).mock.invocationCallOrder[0];
         const sentOrder = sendMessage.mock.invocationCallOrder[0];
@@ -89,6 +89,16 @@ describe('dashboard posting worker', () => {
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
         expect(result).toMatchObject({ operationId: 'operation-1', status: 'unknown' });
+        if (result.status !== 'unknown') throw new Error('Expected an unknown result.');
+        expect(result.attemptCount).toBe(1);
+        expectFiniteTiming(result.timings.claimMs);
+        expectFiniteTiming(result.timings.completionPersistenceMs);
+        expectFiniteTiming(result.timings.operationAgeMs);
+        expectFiniteTiming(result.timings.preflightMs);
+        expectFiniteTiming(result.timings.providerSendMs);
+        expectFiniteTiming(result.timings.queueWaitMs);
+        expectFiniteTiming(result.timings.sendStartPersistenceMs);
+        expectFiniteTiming(result.timings.workerTotalMs);
         expect(markDashboardPostingOperationUnknown).toHaveBeenCalledWith(
             {},
             expect.objectContaining({ errorCode: 'send_outcome_unknown', operationId: 'operation-1' })
@@ -104,6 +114,16 @@ describe('dashboard posting worker', () => {
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
         expect(result).toMatchObject({ errorCode: 'guild_preflight_failed', status: 'deferred' });
+        if (result.status !== 'deferred' || result.operationId === 'unknown' || result.timings === undefined) {
+            throw new Error('Expected a claimed deferred result.');
+        }
+        expectFiniteTiming(result.timings.claimMs);
+        expectFiniteTiming(result.timings.completionPersistenceMs);
+        expectFiniteTiming(result.timings.operationAgeMs);
+        expectFiniteTiming(result.timings.preflightMs);
+        expectFiniteTiming(result.timings.queueWaitMs);
+        expectFiniteTiming(result.timings.workerTotalMs);
+        expect(result.timings).not.toHaveProperty('providerSendMs');
         expect(deferDashboardPostingOperationBeforeSend).toHaveBeenCalled();
         expect(markDashboardPostingOperationSendStarted).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalled();
@@ -118,6 +138,9 @@ describe('dashboard posting worker', () => {
         const result = await runNextDashboardPostingOperation(createContext(), { leaseOwner: 'worker-1' });
 
         expect(result).toMatchObject({ errorCode: 'channel_not_postable', status: 'permanent_failure' });
+        if (result.status !== 'permanent_failure') throw new Error('Expected a permanent failure.');
+        expectFiniteTiming(result.timings.completionPersistenceMs);
+        expectFiniteTiming(result.timings.preflightMs);
         expect(markDashboardPostingOperationSendStarted).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalled();
     });
@@ -195,4 +218,9 @@ function createContext(): BotFeatureHandlerContext {
         logger: { warn: vi.fn() },
         mode: { instanceMode: 'multi' },
     };
+}
+
+function expectFiniteTiming(value: number | undefined): void {
+    expect(value).toBeTypeOf('number');
+    expect(Number.isFinite(value)).toBe(true);
 }

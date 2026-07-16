@@ -26,7 +26,7 @@ import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
-import { auditInputValidator, recordBlueprintAuditInMutation } from './blueprint.js';
+import { auditInputValidator, recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import {
     hotRunRecordValidator,
     planMetadataRecordValidator,
@@ -37,7 +37,7 @@ import {
 } from './blueprint_hot_records.js';
 import { loadAndValidateBlueprintPlanAuthority } from './blueprint_plan_persistence.js';
 import { assertCurrentBlueprintRunProtocol } from './blueprint_run_protocol.js';
-import { isBlueprintRunRetryPreflightFresh } from './blueprint_model.js';
+import { isBlueprintRunRetryPreflightFresh } from './blueprint_run_model.js';
 import { assertBlueprintRunMetadataBounded } from './blueprint_run_persistence.js';
 
 const planStatuses = ['draft', 'needs_input', 'review_ready', 'approved', 'obsolete'] as const;

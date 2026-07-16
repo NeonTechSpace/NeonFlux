@@ -1,17 +1,31 @@
 import { loadWebConfig } from '@neonflux/config';
 import type { WebConfig } from '@neonflux/config';
-import { signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
+import { createNeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-read-client.server.js';
+import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
 
 vi.mock('@neonflux/config', () => ({ loadWebConfig: vi.fn() }));
-vi.mock('@neonflux/convex/jwt', () => ({ signNeonFluxServiceJwt: vi.fn() }));
+vi.mock('@neonflux/convex/service-auth-token', () => ({ createNeonFluxServiceAuthTokenProvider: vi.fn() }));
 
-describe('dashboard bot read client', () => {
+let configVersion = 0;
+
+describe('dashboard bot internal API client', () => {
     beforeEach(() => {
-        vi.mocked(loadWebConfig).mockReturnValue(createConfig());
-        vi.mocked(signNeonFluxServiceJwt).mockResolvedValue('short-lived-service-token');
+        configVersion += 1;
+        vi.mocked(loadWebConfig).mockReset();
+        vi.mocked(createNeonFluxServiceAuthTokenProvider).mockReset();
+        vi.mocked(loadWebConfig).mockReturnValue(
+            createConfig({
+                convex: {
+                    webAuthJwtIssuer: 'https://neonflux.example/web',
+                    webAuthJwtPrivateKey: `private-key-${String(configVersion)}`,
+                },
+            })
+        );
+        vi.mocked(createNeonFluxServiceAuthTokenProvider).mockImplementation((config) =>
+            vi.fn().mockResolvedValue(`${config.audience}-token`)
+        );
         vi.stubGlobal('fetch', vi.fn());
     });
 
@@ -28,14 +42,20 @@ describe('dashboard bot read client', () => {
 
         expect(result.isOk()).toBe(true);
         expect(result._unsafeUnwrap()).toMatchObject({ guildId: 'guild-1' });
-        expect(signNeonFluxServiceJwt).toHaveBeenCalledWith(
-            expect.objectContaining({ audience: 'neonflux-bot-read-v1', issuer: 'https://neonflux.example/web' }),
-            { expiresInSeconds: 60, serviceName: 'web' }
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledWith(
+            expect.objectContaining({
+                audience: 'neonflux-bot-provider-read-v1',
+                expiresInSeconds: 60,
+                issuer: 'https://neonflux.example/web',
+                refreshSkewSeconds: 10,
+                serviceName: 'web',
+                signingRetryDelayMs: 5_000,
+            })
         );
         expect(fetch).toHaveBeenCalledWith(
-            new URL('http://bot:3001/v1/guilds/guild-1/structure'),
+            new URL('http://bot:3001/v1/provider/guilds/guild-1/structure'),
             expect.objectContaining({
-                headers: expect.objectContaining({ Authorization: 'Bearer short-lived-service-token' }),
+                headers: expect.objectContaining({ Authorization: 'Bearer neonflux-bot-provider-read-v1-token' }),
                 method: 'GET',
             })
         );
@@ -43,7 +63,7 @@ describe('dashboard bot read client', () => {
 
     it('does not call the network without the internal URL or web signer config', async () => {
         const config = createConfig();
-        delete config.botReadUrl;
+        delete config.botInternalApiUrl;
         vi.mocked(loadWebConfig).mockReturnValueOnce(config);
 
         const result = await readDashboardBotGuildStructure('guild-1');
@@ -58,14 +78,45 @@ describe('dashboard bot read client', () => {
         const result = await wakeDashboardBotPostingWorker();
 
         expect(result.isOk()).toBe(true);
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledWith(
+            expect.objectContaining({ audience: 'neonflux-bot-posting-control-v1' })
+        );
         expect(fetch).toHaveBeenCalledWith(
-            new URL('http://bot:3001/v1/posting/wake'),
+            new URL('http://bot:3001/v1/posting/worker/wake'),
             expect.objectContaining({
-                headers: expect.objectContaining({ Authorization: 'Bearer short-lived-service-token' }),
+                headers: expect.objectContaining({ Authorization: 'Bearer neonflux-bot-posting-control-v1-token' }),
                 method: 'POST',
             })
         );
         expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty('body');
+    });
+
+    it('reuses exactly one token provider per capability while configuration is unchanged', async () => {
+        vi.mocked(fetch)
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    protocolVersion: 1,
+                    type: 'structure',
+                    structure: { guildId: 'guild-1', guildName: 'Guild', roles: [], channels: [], categories: [] },
+                })
+            )
+            .mockResolvedValueOnce(jsonResponse(202, { protocolVersion: 1, type: 'accepted' }))
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    protocolVersion: 1,
+                    type: 'structure',
+                    structure: { guildId: 'guild-1', guildName: 'Guild', roles: [], channels: [], categories: [] },
+                })
+            );
+
+        expect((await readDashboardBotGuildStructure('guild-1')).isOk()).toBe(true);
+        expect((await wakeDashboardBotPostingWorker()).isOk()).toBe(true);
+        expect((await readDashboardBotGuildStructure('guild-1')).isOk()).toBe(true);
+
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(createNeonFluxServiceAuthTokenProvider).mock.calls.map(([config]) => config.audience)).toEqual(
+            ['neonflux-bot-posting-control-v1', 'neonflux-bot-provider-read-v1']
+        );
     });
 
     it('maps posting wake transport, authorization, and response failures without retrying', async () => {
@@ -157,7 +208,7 @@ describe('dashboard bot read client', () => {
 function createConfig(overrides: Partial<WebConfig> = {}): WebConfig {
     return {
         appEnv: 'production',
-        botReadUrl: 'http://bot:3001',
+        botInternalApiUrl: 'http://bot:3001',
         convex: {
             webAuthJwtIssuer: 'https://neonflux.example/web',
             webAuthJwtPrivateKey: 'private-key',

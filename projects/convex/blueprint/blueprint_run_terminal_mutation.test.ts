@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createBlueprintRunVerificationEvidenceDigest } from '@neonflux/blueprint/integrity';
 
-import { classifyBlueprintRunReclaim } from './blueprint_model.js';
+import { classifyBlueprintRunReclaim } from './blueprint_run_model.js';
 import {
     buildBlueprintRunPausedPatch,
     buildBlueprintRunTerminalPatch,

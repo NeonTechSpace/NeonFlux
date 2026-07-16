@@ -15,11 +15,11 @@
             "production": "./dist/index.js",
             "import": "./dist/index.js"
         },
-        "./bot-read-contract": {
-            "types": "./src/bot-read-contract.ts",
-            "development": "./src/bot-read-contract.ts",
-            "production": "./dist/bot-read-contract.js",
-            "import": "./dist/bot-read-contract.js"
+        "./bot-provider-read-contract": {
+            "types": "./src/bot-provider-read-contract.ts",
+            "development": "./src/bot-provider-read-contract.ts",
+            "production": "./dist/bot-provider-read-contract.js",
+            "import": "./dist/bot-provider-read-contract.js"
         },
         "./guild-structure": {
             "types": "./src/guild-structure.ts",

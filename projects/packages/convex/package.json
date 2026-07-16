@@ -26,6 +26,12 @@
             "development": "./src/jwt.ts",
             "production": "./dist/jwt.js",
             "import": "./dist/jwt.js"
+        },
+        "./service-auth-token": {
+            "types": "./src/service-auth-token.ts",
+            "development": "./src/service-auth-token.ts",
+            "production": "./dist/service-auth-token.js",
+            "import": "./dist/service-auth-token.js"
         }
     },
     "scripts": {
