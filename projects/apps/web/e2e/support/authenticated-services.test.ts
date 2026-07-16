@@ -16,6 +16,7 @@ import {
     upsertFluxerOAuthTokenSet,
 } from '@neonflux/db';
 import type { RuntimeDbClient } from '@neonflux/db';
+import type { FluxerPlatform } from '@neonflux/fluxer/platform';
 
 import { runNextDashboardPostingOperation } from '../../../bot/src/bot-posting-worker.js';
 import { runNextBlueprintRun } from '../../../bot/src/bot-blueprint-run-executor.js';
@@ -36,9 +37,13 @@ import {
 import { encryptFluxerToken } from '../../src/server/fluxer-token-crypto.js';
 import { createSessionCookie } from '../../src/server/session-cookie.js';
 
+type PostingPlatform = {
+    messages: Pick<FluxerPlatform['messages'], 'resolveDashboardTarget' | 'sendDashboard'>;
+};
+
 const fakeProvider = vi.hoisted(() => ({
     applyBlueprint: vi.fn(),
-    createPlatform: vi.fn(),
+    createPlatform: vi.fn<() => PostingPlatform>(),
     listGuilds: vi.fn(),
     readBlueprint: vi.fn(),
     readWebStructure: vi.fn(),
@@ -146,20 +151,19 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
     });
 
     it('composes authorized enqueue, durable worker success/retry/rejection, and ambiguous settlement', async () => {
-        const readPostingStructure = vi.fn();
-        const sendMessage = vi.fn();
+        const resolvePostingTarget = vi.fn<FluxerPlatform['messages']['resolveDashboardTarget']>();
+        const sendMessage = vi.fn<FluxerPlatform['messages']['sendDashboard']>();
         fakeProvider.createPlatform.mockReturnValue({
-            guildStructure: { read: readPostingStructure },
-            messages: { sendDashboard: sendMessage },
+            messages: { resolveDashboardTarget: resolvePostingTarget, sendDashboard: sendMessage },
         });
 
-        readPostingStructure.mockResolvedValue(ok(postingStructure(0)));
-        sendMessage.mockResolvedValue(ok({ channelId: 'channel-1', id: 'message-success' }));
+        resolvePostingTarget.mockResolvedValue(ok(postingTarget(0)));
+        sendMessage.mockResolvedValue(ok({ channelId: 'channel-1', guildId, id: 'message-success' }));
         const success = await enqueueMessage('message-success', 'Success');
         expect(success.type).toBe('operation');
         await expect(runPostingWorker()).resolves.toMatchObject({ status: 'sent' });
 
-        readPostingStructure.mockResolvedValueOnce(ok(postingStructure(5)));
+        resolvePostingTarget.mockResolvedValueOnce(ok(postingTarget(5)));
         const rejected = await enqueueMessage('message-rejected', 'Reject');
         expect(rejected.type).toBe('operation');
         await expect(runPostingWorker()).resolves.toMatchObject({
@@ -168,17 +172,17 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
         });
 
         const retryStart = new Date();
-        readPostingStructure.mockResolvedValueOnce(err({ type: 'operation-failed', error: new Error('pre-call') }));
+        resolvePostingTarget.mockResolvedValueOnce(err({ type: 'operation-failed', error: new Error('pre-call') }));
         const retry = await enqueueMessage('message-retry', 'Retry');
         expect(retry.type).toBe('operation');
         await expect(runPostingWorker(retryStart)).resolves.toMatchObject({ status: 'deferred' });
-        readPostingStructure.mockResolvedValue(ok(postingStructure(0)));
-        sendMessage.mockResolvedValue(ok({ channelId: 'channel-1', id: 'message-retry-success' }));
+        resolvePostingTarget.mockResolvedValue(ok(postingTarget(0)));
+        sendMessage.mockResolvedValue(ok({ channelId: 'channel-1', guildId, id: 'message-retry-success' }));
         await expect(runPostingWorker(new Date(retryStart.getTime() + 3_000))).resolves.toMatchObject({
             status: 'sent',
         });
 
-        sendMessage.mockResolvedValueOnce(err({ type: 'operation-failed', error: new Error('ambiguous') }));
+        sendMessage.mockResolvedValueOnce(err({ type: 'send-failed', error: new Error('ambiguous') }));
         const ambiguous = await enqueueMessage('message-unknown', 'Unknown');
         if (ambiguous.type !== 'operation') throw new Error('Expected an ambiguous operation.');
         await expect(runPostingWorker()).resolves.toMatchObject({ status: 'unknown' });
@@ -192,7 +196,7 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             operation: { resolution: 'reported_seen', resolvedByUserId: userId, status: 'unknown' },
         });
 
-        sendMessage.mockResolvedValueOnce(err({ type: 'operation-failed', error: new Error('ambiguous') }));
+        sendMessage.mockResolvedValueOnce(err({ type: 'send-failed', error: new Error('ambiguous') }));
         const missing = await enqueueMessage('message-not-seen', 'Not seen');
         if (missing.type !== 'operation') throw new Error('Expected a second ambiguous operation.');
         await expect(runPostingWorker()).resolves.toMatchObject({ status: 'unknown' });
@@ -206,7 +210,7 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             operation: { resolution: 'reported_not_seen', resolvedByUserId: userId, status: 'unknown' },
         });
 
-        sendMessage.mockResolvedValueOnce(err({ type: 'operation-failed', error: new Error('ambiguous') }));
+        sendMessage.mockResolvedValueOnce(err({ type: 'send-failed', error: new Error('ambiguous') }));
         const duplicateRisk = await enqueueMessage('message-duplicate-risk', 'Duplicate risk');
         if (duplicateRisk.type !== 'operation') throw new Error('Expected a third ambiguous operation.');
         await expect(runPostingWorker()).resolves.toMatchObject({ status: 'unknown' });
@@ -567,13 +571,12 @@ function runPostingWorker(now = new Date()) {
     );
 }
 
-function postingStructure(channelType: number) {
+function postingTarget(channelType: number) {
     return {
-        categories: [],
-        channels: [{ id: 'channel-1', name: 'general', parentId: null, position: 0, type: channelType }],
         guildId,
-        guildName: 'E2E Guild',
-        roles: [],
+        id: 'channel-1',
+        name: 'general',
+        type: channelType,
     };
 }
 
