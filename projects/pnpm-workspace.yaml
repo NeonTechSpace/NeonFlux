@@ -10,5 +10,5 @@ allowBuilds:
     unrs-resolver: true
 
 minimumReleaseAgeExclude:
-    - '@fluxerjs/core@2.0.2'
+    - '@fluxerjs/core@2.0.3'
     - '@fluxerjs/rest@2.0.2'
