@@ -38,6 +38,7 @@ export type HistoricalRetentionPhase =
     | 'blueprint-plan-preflights'
     | 'blueprint-plan-execution-authority-buckets'
     | 'blueprint-plan-execution-authorities'
+    | 'blueprint-plan-authority-chunks'
     | 'blueprint-plan-authorities'
     | 'blueprint-plan';
 
@@ -102,6 +103,7 @@ const historicalRetentionPhaseValidator = v.union(
     v.literal('blueprint-plan-preflights'),
     v.literal('blueprint-plan-execution-authority-buckets'),
     v.literal('blueprint-plan-execution-authorities'),
+    v.literal('blueprint-plan-authority-chunks'),
     v.literal('blueprint-plan-authorities'),
     v.literal('blueprint-plan')
 );
@@ -350,6 +352,8 @@ function nextBlueprintPhase(phase: BlueprintChildPhase): HistoricalRetentionPhas
         case 'blueprint-plan-execution-authority-buckets':
             return 'blueprint-plan-execution-authorities';
         case 'blueprint-plan-execution-authorities':
+            return 'blueprint-plan-authority-chunks';
+        case 'blueprint-plan-authority-chunks':
             return 'blueprint-plan-authorities';
         case 'blueprint-plan-authorities':
             return 'blueprint-plan';
@@ -595,6 +599,13 @@ async function loadBlueprintPlanChildIds(
                     .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
                     .take(limit)
             ).map((row) => String(row._id));
+        case 'blueprint-plan-authority-chunks':
+            return (
+                await ctx.db
+                    .query('blueprintPlanAuthorityChunks')
+                    .withIndex('by_plan', (index) => index.eq('planId', typedPlanId))
+                    .take(limit)
+            ).map((row) => String(row._id));
         case 'blueprint-plan-authorities':
             return (
                 await ctx.db
@@ -653,6 +664,9 @@ async function deleteBlueprintChild(
                 id as GenericId<'blueprintPlanExecutionAuthorities'>
             );
             return;
+        case 'blueprint-plan-authority-chunks':
+            await ctx.db.delete('blueprintPlanAuthorityChunks', id as GenericId<'blueprintPlanAuthorityChunks'>);
+            return;
         case 'blueprint-plan-authorities':
             await ctx.db.delete('blueprintPlanAuthorities', id as GenericId<'blueprintPlanAuthorities'>);
             return;
@@ -680,6 +694,7 @@ async function findRemainingPlanPhase(ctx: MutationCtx, planId: string): Promise
         'blueprint-plan-preflights',
         'blueprint-plan-execution-authority-buckets',
         'blueprint-plan-execution-authorities',
+        'blueprint-plan-authority-chunks',
         'blueprint-plan-authorities',
     ] as const) {
         if ((await loadBlueprintPlanChildIds(ctx, phase, planId, 1)).length > 0) return phase;

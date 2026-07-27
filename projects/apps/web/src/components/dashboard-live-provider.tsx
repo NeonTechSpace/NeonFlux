@@ -6,6 +6,7 @@ import { createDashboardRequestDeadline } from '../dashboard-request-deadline.js
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
 
 const dashboardConvexTokenTimeoutMs = 8_000;
+export const dashboardLiveFallbackRefreshIntervalMs = 60_000;
 
 export type DashboardLiveStatus = {
     authentication: 'unknown' | 'refreshing' | 'authenticated' | 'unauthenticated';
@@ -180,6 +181,21 @@ export function DashboardLiveProvider({ children }: { children: ReactNode }) {
 
 export function useDashboardLive(): DashboardLiveContextValue {
     return use(DashboardLiveContext);
+}
+
+export function isDashboardLiveHealthy(status: DashboardLiveStatus): boolean {
+    return status.authentication === 'authenticated' && status.phase === 'connected';
+}
+
+export function dashboardCatalogRefetchInterval(status: DashboardLiveStatus): number | false {
+    return isDashboardLiveHealthy(status) ? false : dashboardLiveFallbackRefreshIntervalMs;
+}
+
+export function dashboardPostingOperationRefetchInterval(
+    status: DashboardLiveStatus,
+    hasActiveOperation: boolean
+): number | false {
+    return !isDashboardLiveHealthy(status) && hasActiveOperation ? 2_000 : false;
 }
 
 export async function fetchDashboardConvexToken(signal?: AbortSignal): Promise<string | null> {

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DASHBOARD_MESSAGE_MENTION_POLICY, OUTGOING_MESSAGE_LIMITS } from '@neonflux/messaging';
 import type { OutgoingEmbed } from '@neonflux/messaging';
 import { AnimatePresence, motion } from 'motion/react';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { getDashboardPostingCatalogQueryKey, getDashboardPostingOperationsQueryKey } from '../dashboard-query-keys.js';
@@ -34,6 +34,11 @@ import {
 import { DashboardPostingTemplateControls } from './dashboard-posting-template-controls.js';
 import { DashboardPostingPreview } from './dashboard-posting-preview.js';
 import {
+    dashboardPostingOperationRefetchInterval,
+    isDashboardLiveHealthy,
+    useDashboardLive,
+} from './dashboard-live-provider.js';
+import {
     DashboardPostingOperationHistory,
     getDashboardPostingOperationConfirmationMessage,
 } from './dashboard-posting-operation-status.js';
@@ -52,6 +57,9 @@ type PostingFormMessage = {
 
 export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const queryClient = useQueryClient();
+    const { status: liveStatus } = useDashboardLive();
+    const liveInvalidationHealthy = isDashboardLiveHealthy(liveStatus);
+    const previousLiveInvalidationHealthyRef = useRef(liveInvalidationHealthy);
     const messageContentId = useId();
     const previewRef = useRef<HTMLElement>(null);
     const [selectedChannelId, setSelectedChannelId] = useState('');
@@ -95,11 +103,23 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
             return result.operations;
         },
         refetchInterval: (query) =>
-            query.state.data?.some((operation) => operation.status === 'queued' || operation.status === 'running')
-                ? 2_000
-                : false,
+            dashboardPostingOperationRefetchInterval(
+                liveStatus,
+                Boolean(
+                    query.state.data?.some(
+                        (operation) => operation.status === 'queued' || operation.status === 'running'
+                    )
+                )
+            ),
         retry: false,
     });
+    useEffect(() => {
+        const reconnected = liveInvalidationHealthy && previousLiveInvalidationHealthyRef.current === false;
+        previousLiveInvalidationHealthyRef.current = liveInvalidationHealthy;
+        if (reconnected) {
+            void queryClient.invalidateQueries({ queryKey: getDashboardPostingOperationsQueryKey(guildId) });
+        }
+    }, [guildId, liveInvalidationHealthy, queryClient]);
     const channelsFailureType = postingCatalogQuery.isError
         ? readDashboardGuildReadFailureType(postingCatalogQuery.error)
         : undefined;

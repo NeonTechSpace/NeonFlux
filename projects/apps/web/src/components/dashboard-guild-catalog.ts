@@ -6,9 +6,12 @@ import { getDashboardGuildCatalogQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildCatalogRouteData } from '../server/dashboard-guild-catalog-route-data.js';
 import type { DashboardGuildCatalog } from '../server/dashboard-guild-catalog-route-data.js';
 import { useDashboardLiveTransportActive } from './dashboard-live-activity.js';
-import { useDashboardLive } from './dashboard-live-provider.js';
-
-const dashboardGuildCatalogRefreshIntervalMs = 15_000;
+import {
+    dashboardCatalogRefetchInterval,
+    dashboardLiveFallbackRefreshIntervalMs,
+    isDashboardLiveHealthy,
+    useDashboardLive,
+} from './dashboard-live-provider.js';
 
 type DashboardCatalogLiveState = {
     updatedAt: string;
@@ -17,7 +20,9 @@ type DashboardCatalogLiveState = {
 
 export function useDashboardGuildCatalog(initialCatalog: DashboardGuildCatalog | undefined) {
     const queryClient = useQueryClient();
-    const { confirmManageableGuildScope } = useDashboardLive();
+    const { confirmManageableGuildScope, status: liveStatus } = useDashboardLive();
+    const liveInvalidationHealthy = isDashboardLiveHealthy(liveStatus);
+    const previousLiveInvalidationHealthyRef = useRef(liveInvalidationHealthy);
     const [loaderCatalog] = useState(initialCatalog);
     const [initialSeedApplied, setInitialSeedApplied] = useState(initialCatalog === undefined);
 
@@ -28,13 +33,19 @@ export function useDashboardGuildCatalog(initialCatalog: DashboardGuildCatalog |
         queryFn: readDashboardGuildCatalog,
         enabled: Boolean(loaderCatalog),
         ...(loaderCatalog ? { initialData: loaderCatalog } : {}),
-        refetchInterval: dashboardGuildCatalogRefreshIntervalMs,
+        refetchInterval: dashboardCatalogRefetchInterval(liveStatus),
         refetchIntervalInBackground: false,
         refetchOnReconnect: 'always',
         refetchOnWindowFocus: 'always',
         retry: false,
-        staleTime: dashboardGuildCatalogRefreshIntervalMs,
+        staleTime: liveInvalidationHealthy ? Infinity : dashboardLiveFallbackRefreshIntervalMs,
     });
+
+    useEffect(() => {
+        const reconnected = liveInvalidationHealthy && previousLiveInvalidationHealthyRef.current === false;
+        previousLiveInvalidationHealthyRef.current = liveInvalidationHealthy;
+        if (reconnected) void queryClient.invalidateQueries({ queryKey: getDashboardGuildCatalogQueryKey() });
+    }, [liveInvalidationHealthy, queryClient]);
 
     useEffect(() => {
         if (!loaderCatalog || initialSeedApplied) {

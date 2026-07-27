@@ -150,7 +150,7 @@ describe('Blueprint v4 integrity contracts', () => {
         expect(deriveBlueprintPlanExecutionAuthorityBody(body)).not.toHaveProperty('sourceGuildId');
     });
 
-    it('persists execution authority as 64 deterministic integrity-bound buckets', async () => {
+    it('persists only populated execution-authority buckets while binding all 64 digests', async () => {
         const body = deriveBlueprintPlanExecutionAuthorityBody(authorityBody());
         const persisted = await createBlueprintPlanExecutionAuthorityPersistence({
             planId: 'plan-1',
@@ -158,8 +158,9 @@ describe('Blueprint v4 integrity contracts', () => {
             authority: body,
             createdAt: timestamp,
         });
-        expect(persisted.buckets).toHaveLength(64);
-        expect(persisted.buckets.map(({ bucket }) => bucket)).toEqual(Array.from({ length: 64 }, (_, index) => index));
+        expect(persisted.manifest.bucketDigests).toHaveLength(64);
+        expect(persisted.buckets.length).toBeGreaterThan(0);
+        expect(persisted.buckets.map(({ bucket }) => bucket)).toEqual(persisted.manifest.populatedBuckets);
         await expect(
             validateBlueprintPlanExecutionAuthorityPersistence({
                 manifest: persisted.manifest,
@@ -183,18 +184,41 @@ describe('Blueprint v4 integrity contracts', () => {
                 ),
             })
         ).resolves.toMatchObject({ type: 'invalid' });
-        const sourceBucket = await getBlueprintPlanExecutionAuthorityBucket('new-channel');
-        const wrongBucket = (sourceBucket + 1) % 64;
+        const firstBucket = persisted.buckets[0];
+        if (!firstBucket) throw new Error('Expected a populated execution-authority bucket.');
+        const unexpectedBucket = Array.from({ length: 64 }, (_, bucket) => bucket).find(
+            (bucket) => !persisted.manifest.populatedBuckets.includes(bucket)
+        );
+        if (unexpectedBucket === undefined) throw new Error('Expected an unpopulated execution-authority bucket.');
         await expect(
             validateBlueprintPlanExecutionAuthorityPersistence({
                 manifest: persisted.manifest,
-                buckets: persisted.buckets.map((bucket) =>
-                    bucket.bucket === wrongBucket
-                        ? { ...bucket, sourceTargetMap: { ...bucket.sourceTargetMap, 'new-channel': null } }
-                        : bucket
-                ),
+                buckets: [...persisted.buckets, { ...firstBucket, bucket: unexpectedBucket }],
             })
         ).resolves.toMatchObject({ type: 'invalid' });
+    });
+
+    it('represents an empty execution authority without bucket documents', async () => {
+        const persisted = await createBlueprintPlanExecutionAuthorityPersistence({
+            authority: {
+                initialIdMap: {},
+                knownTargetKinds: {},
+                sourceTargetMap: {},
+            },
+            createdAt: timestamp,
+            guildId: 'target-guild',
+            planId: 'plan-empty',
+        });
+
+        expect(persisted.buckets).toStrictEqual([]);
+        expect(persisted.manifest.populatedBuckets).toStrictEqual([]);
+        expect(persisted.manifest.bucketDigests).toHaveLength(64);
+        await expect(
+            validateBlueprintPlanExecutionAuthorityPersistence({
+                buckets: [],
+                manifest: persisted.manifest,
+            })
+        ).resolves.toMatchObject({ type: 'valid' });
     });
 
     it('binds ordered step and decision ledgers and rejects sequence/content tampering', async () => {

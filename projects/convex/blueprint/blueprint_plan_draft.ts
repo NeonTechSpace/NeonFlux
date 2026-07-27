@@ -12,16 +12,18 @@ import {
     normalizeBlueprintPlanAuthorityBody,
     normalizeBlueprintPlanExecutionAuthorityBody,
 } from '@neonflux/blueprint/persisted-authority';
-import { v, type GenericId, type Infer } from 'convex/values';
+import { getDocumentSize, v, type GenericId, type Infer } from 'convex/values';
 
 import type { MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { toPlanMetadataRecord } from './blueprint_hot_records.js';
+import { buildBlueprintArtifact, persistPlanAuthorityArtifact } from './blueprint_artifact_persistence.js';
 import {
     assertDocumentSize,
     isRecord,
     isSha256,
     MAX_PLAN_AUTHORITY_BYTES,
+    MAX_PLAN_COLD_PAYLOAD_BYTES,
     MAX_PLAN_EXECUTION_AUTHORITY_BUCKET_BYTES,
     MAX_PLAN_EXECUTION_AUTHORITY_MANIFEST_BYTES,
     MAX_PLAN_METADATA_BYTES,
@@ -176,6 +178,7 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
 
     const planDocument = {
         authorityDigest: args.metadata.authorityDigest,
+        authorityArtifactBytes: 0,
         authorityVersion: 1 as const,
         blockerCount: args.metadata.blockerCount,
         creationRequestKey,
@@ -189,6 +192,7 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
         deleteStepCount: args.metadata.deleteStepCount,
         ...(args.metadata.deleteSetDigest ? { deleteSetDigest: args.metadata.deleteSetDigest } : {}),
         executionAuthorityDigest: args.metadata.executionAuthorityDigest,
+        executionAuthorityBytes: 0,
         executionAuthorityVersion: 1 as const,
         planDigest: args.metadata.planDigest,
         planVersion: 4 as const,
@@ -258,7 +262,10 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
     if (expectedPlanDigest !== args.metadata.planDigest) {
         throw new Error('blueprint-plan-digest-mismatch');
     }
-    assertDocumentSize(authority, MAX_PLAN_AUTHORITY_BYTES, 'blueprint-plan-authority-too-large');
+    const authorityArtifact = await buildBlueprintArtifact(authority);
+    if (authorityArtifact.manifest.artifactBytes > MAX_PLAN_AUTHORITY_BYTES) {
+        throw new Error('blueprint-plan-authority-too-large');
+    }
     assertDocumentSize(
         executionAuthorityPersistence.manifest,
         MAX_PLAN_EXECUTION_AUTHORITY_MANIFEST_BYTES,
@@ -271,8 +278,29 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
             'blueprint-plan-execution-authority-bucket-too-large'
         );
     }
-    await ctx.db.insert('blueprintPlanAuthorities', {
-        ...authority,
+    const executionAuthorityBytes =
+        getDocumentSize({ ...executionAuthorityPersistence.manifest, planId }) +
+        executionAuthorityPersistence.buckets.reduce(
+            (total, bucket) => total + getDocumentSize({ ...bucket, planId }),
+            0
+        );
+    const coldPayloadBytes = authorityArtifact.manifest.artifactBytes + executionAuthorityBytes;
+    if (coldPayloadBytes > MAX_PLAN_COLD_PAYLOAD_BYTES) throw new Error('blueprint-plan-cold-payload-too-large');
+    const persistedPlan = {
+        ...planDocument,
+        authorityArtifactBytes: authorityArtifact.manifest.artifactBytes,
+        executionAuthorityBytes,
+    };
+    assertDocumentSize(persistedPlan, MAX_PLAN_METADATA_BYTES, 'blueprint-plan-metadata-too-large');
+    await ctx.db.patch('blueprintPlans', planId, {
+        authorityArtifactBytes: persistedPlan.authorityArtifactBytes,
+        executionAuthorityBytes: persistedPlan.executionAuthorityBytes,
+    });
+    await persistPlanAuthorityArtifact(ctx, {
+        artifact: authorityArtifact,
+        authorityDigest: authority.authorityDigest,
+        createdAt,
+        guildId,
         planId,
     });
     await ctx.db.insert('blueprintPlanExecutionAuthorities', {
@@ -282,7 +310,7 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
     for (const bucket of executionAuthorityPersistence.buckets) {
         await ctx.db.insert('blueprintPlanExecutionAuthorityBuckets', { ...bucket, planId });
     }
-    return toPlanMetadataRecord({ ...planDocument, _id: planId });
+    return toPlanMetadataRecord({ ...persistedPlan, _id: planId });
 }
 
 function assertPlanMetadataInput(metadata: BlueprintPlanDraftArgs['metadata']): void {

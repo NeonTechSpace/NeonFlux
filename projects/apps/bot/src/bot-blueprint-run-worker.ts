@@ -18,14 +18,18 @@ export function startBlueprintRunWorker(input: {
     let running: Promise<void> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let disabled = false;
+    let wakePending = false;
     let failureCount = 0;
     let idleCount = 0;
     const baseIntervalMs = input.intervalMs ?? 2_000;
-    const idleDelays = input.intervalMs === undefined ? [2_000, 5_000, 10_000, 20_000, 30_000] : [baseIntervalMs];
+    const idleDelays = input.intervalMs === undefined ? [2_000, 5_000, 15_000, 30_000, 60_000] : [baseIntervalMs];
     const schedule = (delayMs: number) => {
         if (disabled) return;
         const jitteredDelay = input.intervalMs === undefined ? jitterWorkerDelay(delayMs) : delayMs;
-        timer = setTimeout(tick, jitteredDelay);
+        timer = setTimeout(() => {
+            timer = undefined;
+            tick();
+        }, jitteredDelay);
     };
     const tick = () => {
         if (disabled || running) return;
@@ -69,20 +73,41 @@ export function startBlueprintRunWorker(input: {
                 );
                 nextDelayMs = retryAfterMs;
                 input.logger.error('blueprint_run.worker_failed', {
-                    error: error instanceof Error ? error.message : String(error),
+                    errorType: error instanceof Error ? error.name : typeof error,
                     retryAfterMs,
                 });
             })
             .finally(() => {
                 running = undefined;
+                if (wakePending && !disabled) {
+                    wakePending = false;
+                    idleCount = 0;
+                    queueMicrotask(tick);
+                    return;
+                }
                 if (nextDelayMs !== undefined) schedule(nextDelayMs);
             });
     };
     tick();
     return {
+        wake() {
+            if (disabled) return;
+            if (running) {
+                wakePending = true;
+                return;
+            }
+            if (timer) {
+                clearTimeout(timer);
+                timer = undefined;
+            }
+            idleCount = 0;
+            tick();
+        },
         async stop() {
             disabled = true;
+            wakePending = false;
             if (timer) clearTimeout(timer);
+            timer = undefined;
             await running;
         },
     };

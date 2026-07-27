@@ -1,5 +1,9 @@
 import { generateKeyPairSync } from 'node:crypto';
 
+import {
+    blueprintWorkerControlJwtAudience,
+    blueprintWorkerWakePath,
+} from '@neonflux/blueprint/worker-control-contract';
 import { createNeonFluxJwks, signNeonFluxServiceJwt } from '@neonflux/convex/jwt';
 import type { AppLogger } from '@neonflux/core/logging';
 import { botProviderReadJwtAudience } from '@neonflux/fluxer/bot-provider-read-contract';
@@ -27,12 +31,14 @@ const jwks = `data:application/json,${encodeURIComponent(JSON.stringify(createNe
 const logger = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } as unknown as AppLogger;
 const bot = { client: { user: { id: 'bot-user' } } } as unknown as FluxerBot;
 let servers: BotInternalApiServer[] = [];
+const wakeBlueprintWorker = vi.fn();
 const wakePostingWorker = vi.fn();
 
 describe('bot internal API server', () => {
     beforeEach(() => {
         vi.mocked(readFluxerGuildStructure).mockReset();
         vi.mocked(readFluxerGuildStructure).mockResolvedValue(ok(createStructure('guild-1')));
+        wakeBlueprintWorker.mockReset();
         wakePostingWorker.mockReset();
     });
 
@@ -91,6 +97,29 @@ describe('bot internal API server', () => {
         expect(response.status).toBe(202);
         await expect(response.json()).resolves.toEqual({ protocolVersion: 1, type: 'accepted' });
         expect(wakePostingWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('authenticates Blueprint wakes with a dedicated audience and exact response', async () => {
+        const server = await startServer();
+        const response = await blueprintWakeRequest(server, await createBlueprintControlToken());
+
+        expect(response.status).toBe(202);
+        await expect(response.json()).resolves.toEqual({ protocolVersion: 1, type: 'accepted' });
+        expect(wakeBlueprintWorker).toHaveBeenCalledTimes(1);
+        expect(wakePostingWorker).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid Blueprint wake methods, bodies, and capability tokens', async () => {
+        const server = await startServer();
+
+        expect(
+            (await blueprintWakeRequest(server, await createBlueprintControlToken(), { method: 'GET' })).status
+        ).toBe(405);
+        expect((await blueprintWakeRequest(server, await createBlueprintControlToken(), { body: '{}' })).status).toBe(
+            413
+        );
+        expect((await blueprintWakeRequest(server, await createPostingControlToken())).status).toBe(401);
+        expect(wakeBlueprintWorker).not.toHaveBeenCalled();
     });
 
     it('rejects unauthorized, incorrectly shaped, and payload-bearing wake requests', async () => {
@@ -158,6 +187,7 @@ async function startServer(): Promise<BotInternalApiServer> {
         host: '127.0.0.1',
         logger,
         port: 0,
+        wakeBlueprintWorker,
         wakePostingWorker,
         webAuthJwtIssuer: issuer,
         webAuthJwtJwks: jwks,
@@ -172,6 +202,18 @@ async function wakeRequest(
     init: { body?: string; method?: string } = {}
 ): Promise<Response> {
     return fetch(`http://127.0.0.1:${String(server.port)}${postingWorkerWakePath}`, {
+        ...(init.body ? { body: init.body } : {}),
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        method: init.method ?? 'POST',
+    });
+}
+
+async function blueprintWakeRequest(
+    server: BotInternalApiServer,
+    token?: string,
+    init: { body?: string; method?: string } = {}
+): Promise<Response> {
+    return fetch(`http://127.0.0.1:${String(server.port)}${blueprintWorkerWakePath}`, {
         ...(init.body ? { body: init.body } : {}),
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         method: init.method ?? 'POST',
@@ -203,6 +245,10 @@ function createToken(
 
 function createPostingControlToken(): Promise<string> {
     return createToken({ audience: postingWorkerControlJwtAudience });
+}
+
+function createBlueprintControlToken(): Promise<string> {
+    return createToken({ audience: blueprintWorkerControlJwtAudience });
 }
 
 function createSigner() {

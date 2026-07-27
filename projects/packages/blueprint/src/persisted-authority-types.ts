@@ -74,6 +74,7 @@ export type BlueprintPlanExecutionAuthorityManifestV1 = {
     bucketCount: typeof BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT;
     contentDigest: string;
     bucketDigests: string[];
+    populatedBuckets: number[];
     executionAuthorityDigest: string;
     createdAt: string;
 };

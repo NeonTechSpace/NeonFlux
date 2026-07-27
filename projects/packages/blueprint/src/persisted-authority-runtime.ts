@@ -198,6 +198,7 @@ export function normalizeBlueprintPlanExecutionAuthorityManifest(
             'bucketCount',
             'contentDigest',
             'bucketDigests',
+            'populatedBuckets',
             'executionAuthorityDigest',
             'createdAt',
         ]) ||
@@ -210,6 +211,7 @@ export function normalizeBlueprintPlanExecutionAuthorityManifest(
         !Array.isArray(value.bucketDigests) ||
         value.bucketDigests.length !== BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT ||
         !value.bucketDigests.every(isSha256) ||
+        !isSortedUniqueBucketArray(value.populatedBuckets) ||
         !isSha256(value.executionAuthorityDigest) ||
         !isTimestamp(value.createdAt)
     ) {
@@ -225,6 +227,7 @@ export function normalizeBlueprintPlanExecutionAuthorityManifest(
             bucketCount: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT,
             contentDigest: value.contentDigest,
             bucketDigests: [...value.bucketDigests],
+            populatedBuckets: value.populatedBuckets,
             executionAuthorityDigest: value.executionAuthorityDigest,
             createdAt: value.createdAt,
         },
@@ -578,6 +581,18 @@ function isUniqueTextArray(value: unknown): value is string[] {
         value.length <= maximumLedgerEntries &&
         value.every(isCanonicalText) &&
         new Set(value).size === value.length
+    );
+}
+
+function isSortedUniqueBucketArray(value: unknown): value is number[] {
+    return (
+        Array.isArray(value) &&
+        value.every(
+            (bucket, index) =>
+                isSequence(bucket) &&
+                bucket < BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT &&
+                bucket > (value[index - 1] ?? -1)
+        )
     );
 }
 

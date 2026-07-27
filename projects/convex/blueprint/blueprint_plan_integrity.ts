@@ -11,6 +11,7 @@ import type { GenericId } from 'convex/values';
 import type { Doc } from '../_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
+import { loadPlanAuthorityArtifact } from './blueprint_artifact_persistence.js';
 import { stripConvexMetadata } from './blueprint_plan_persistence_values.js';
 
 export async function getBlueprintPlanAuthorityHandler(
@@ -25,9 +26,11 @@ export async function getBlueprintPlanAuthorityHandler(
         .withIndex('by_plan', (q) => q.eq('planId', args.planId))
         .unique();
     if (!authority) return null;
-    const integrity = await validateBlueprintPlanAuthorityIntegrity(stripConvexMetadata(authority));
+    const authorityValue = await loadPlanAuthorityArtifact(ctx, authority);
+    const integrity = await validateBlueprintPlanAuthorityIntegrity(authorityValue);
     if (
         integrity.type === 'invalid' ||
+        authority.authorityDigest !== plan.authorityDigest ||
         integrity.value.planId !== String(plan._id) ||
         integrity.value.guildId !== plan.guildId ||
         integrity.value.authorityDigest !== plan.authorityDigest
@@ -92,7 +95,7 @@ export async function loadAndValidateBlueprintPlanAuthority(ctx: MutationCtx, pl
     const authority = authorities[0];
     const executionAuthority = executionAuthorities[0];
     if (!authority || !executionAuthority) throw new Error('blueprint-plan-authority-missing');
-    const authorityValue = stripConvexMetadata(authority);
+    const authorityValue = await loadPlanAuthorityArtifact(ctx, authority);
     const [authorityResult, persistedExecutionResult] = await Promise.all([
         validateBlueprintPlanAuthorityIntegrity(authorityValue),
         validateBlueprintPlanExecutionAuthorityPersistence({
@@ -100,7 +103,11 @@ export async function loadAndValidateBlueprintPlanAuthority(ctx: MutationCtx, pl
             buckets: executionAuthorityBuckets.map(stripConvexMetadata),
         }),
     ]);
-    if (authorityResult.type === 'invalid' || persistedExecutionResult.type === 'invalid') {
+    if (
+        authorityResult.type === 'invalid' ||
+        persistedExecutionResult.type === 'invalid' ||
+        authority.authorityDigest !== plan.authorityDigest
+    ) {
         throw new Error('blueprint-plan-authority-integrity-invalid');
     }
     const executionResult = await validateBlueprintPlanExecutionAuthorityIntegrity({
@@ -130,7 +137,7 @@ export async function loadAndValidateBlueprintPlanAuthority(ctx: MutationCtx, pl
     assertPlanIntegrityMatches(plan, integrity);
     return {
         authority: authorityResult.value,
-        authorityDocument: authority,
+        authorityDocument: { ...authorityResult.value, _id: authority._id },
         decisions: normalizedDecisions,
         executionAuthority: executionResult.value,
         executionAuthorityDocument: { ...persistedExecutionResult.value, _id: executionAuthority._id },

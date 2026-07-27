@@ -8,7 +8,12 @@ import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../dashboard-blueprint-run-protocol.js';
-import { DashboardLiveProvider, useDashboardLive } from './dashboard-live-provider.js';
+import {
+    dashboardCatalogRefetchInterval,
+    dashboardPostingOperationRefetchInterval,
+    DashboardLiveProvider,
+    useDashboardLive,
+} from './dashboard-live-provider.js';
 
 type MockConnectionState = {
     connectionCount: number;
@@ -43,6 +48,17 @@ vi.mock('convex/react', () => ({
 }));
 
 describe('DashboardLiveProvider', () => {
+    it('suppresses fallback polling only while authenticated live invalidation is connected', () => {
+        const connected = { authentication: 'authenticated', generation: 1, phase: 'connected' } as const;
+        const reconnecting = { authentication: 'authenticated', generation: 1, phase: 'reconnecting' } as const;
+
+        expect(dashboardCatalogRefetchInterval(connected)).toBe(false);
+        expect(dashboardCatalogRefetchInterval(reconnecting)).toBe(60_000);
+        expect(dashboardPostingOperationRefetchInterval(connected, true)).toBe(false);
+        expect(dashboardPostingOperationRefetchInterval(reconnecting, false)).toBe(false);
+        expect(dashboardPostingOperationRefetchInterval(reconnecting, true)).toBe(2_000);
+    });
+
     beforeEach(() => {
         setDocumentVisibility('visible');
         setNavigatorOnline(true);

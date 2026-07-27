@@ -3,7 +3,11 @@ import type { WebConfig } from '@neonflux/config';
 import { createNeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
+import {
+    readDashboardBotGuildStructure,
+    wakeDashboardBotBlueprintWorker,
+    wakeDashboardBotPostingWorker,
+} from './bot-internal-api-client.server.js';
 
 vi.mock('@neonflux/config', () => ({ loadWebConfig: vi.fn() }));
 vi.mock('@neonflux/convex/service-auth-token', () => ({ createNeonFluxServiceAuthTokenProvider: vi.fn() }));
@@ -91,6 +95,25 @@ describe('dashboard bot internal API client', () => {
         expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty('body');
     });
 
+    it('posts an authenticated bodyless Blueprint wake and validates the exact acknowledgement', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(202, { protocolVersion: 1, type: 'accepted' }));
+
+        const result = await wakeDashboardBotBlueprintWorker();
+
+        expect(result.isOk()).toBe(true);
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledWith(
+            expect.objectContaining({ audience: 'neonflux-bot-blueprint-control-v1' })
+        );
+        expect(fetch).toHaveBeenCalledWith(
+            new URL('http://bot:3001/v1/blueprint/worker/wake'),
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer neonflux-bot-blueprint-control-v1-token' }),
+                method: 'POST',
+            })
+        );
+        expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty('body');
+    });
+
     it('reuses exactly one token provider per capability while configuration is unchanged', async () => {
         vi.mocked(fetch)
             .mockResolvedValueOnce(
@@ -113,9 +136,9 @@ describe('dashboard bot internal API client', () => {
         expect((await wakeDashboardBotPostingWorker()).isOk()).toBe(true);
         expect((await readDashboardBotGuildStructure('guild-1')).isOk()).toBe(true);
 
-        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledTimes(2);
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledTimes(3);
         expect(vi.mocked(createNeonFluxServiceAuthTokenProvider).mock.calls.map(([config]) => config.audience)).toEqual(
-            ['neonflux-bot-posting-control-v1', 'neonflux-bot-provider-read-v1']
+            ['neonflux-bot-blueprint-control-v1', 'neonflux-bot-posting-control-v1', 'neonflux-bot-provider-read-v1']
         );
     });
 

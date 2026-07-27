@@ -13,6 +13,7 @@ import {
 
 import { getWebDb } from './db.server.js';
 import { createBlueprintAuditInput, loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
+import { wakeDashboardBlueprintWorkerBestEffort } from './dashboard-blueprint-worker-wake.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';
 
 export type DashboardBlueprintApplyInput = {
@@ -158,6 +159,7 @@ export async function applyDashboardBlueprintPlan(
         }),
     });
     if (runResult.isErr()) return mapEnqueueRepositoryError(runResult.error);
+    await wakeDashboardBlueprintWorkerBestEffort();
 
     return {
         type: 'queued',
@@ -220,6 +222,7 @@ export async function controlDashboardBlueprintRun(
         now: new Date(),
     });
     if (result.isErr()) return mapRepositoryError(result.error);
+    if (input.request === 'resume') await wakeDashboardBlueprintWorkerBestEffort();
     return {
         type: 'run-updated',
         runId: result.value.id,

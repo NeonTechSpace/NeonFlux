@@ -124,6 +124,14 @@ Invalid values fail before a delete. Daily jobs use bounded transactions and con
 
 Authentication-state and dashboard-posting cleanup use their own lifecycle-specific retention policies.
 
+## Capacity and deployment choice
+
+Hosted Convex provides managed operation with selectable capacity. Self-hosting removes hosted monthly quotas, but it remains bounded by the operator's hardware, Convex engine limits, backup and upgrade practices, and operational expertise. Choose between them from measured workload rather than an assumed quota tier.
+
+Blueprint snapshots and plan authority are stored as cold, integrity-bound chunks and loaded only by operations that require the full artifact. Summary and History reads use metadata-only records. Hosted and self-hosted deployments execute the same authorization, validation, canonical parsing, and digest-verification path. NeonFlux does not provide a security-reducing low-resource mode.
+
+Review the current [Convex limits](https://docs.convex.dev/production/state/limits) and [self-hosting guidance](https://docs.convex.dev/self-hosting) when sizing an installation.
+
 ## Code generation and deploy
 
 The wrapper validates public auth configuration before `dev`, `codegen`, or `deploy`, and strips every private JWT key before spawning the Convex CLI.
@@ -159,6 +167,8 @@ pnpm convex:reset-data -- --prod --confirm-production-reset --yes
 ```
 
 The wrapper rejects `--deployment local` and does not infer a destructive target from ambient Convex state. Upload current functions and schema before a development reset so the deployment and generated snapshot agree.
+
+This unreleased schema uses the current cold-artifact format directly and has no compatibility reader. An existing non-ephemeral deployment therefore requires an explicit, operator-approved data reset before a coordinated Convex, bot, and web rollout.
 
 ## Optional self-hosting
 

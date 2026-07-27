@@ -11,6 +11,7 @@ export const blueprintPlanExecutionAuthoritiesTable = defineTable({
     executionAuthorityDigest: v.string(),
     guildId: v.string(),
     planId: v.id('blueprintPlans'),
+    populatedBuckets: v.array(v.number()),
     sourceGuildId: v.optional(v.string()),
     version: v.literal(1),
 }).index('by_plan', ['planId']);

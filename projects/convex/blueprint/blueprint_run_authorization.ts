@@ -20,6 +20,11 @@ import {
     finalizeBlueprintRunInMutation,
 } from './blueprint_run_terminal_mutation.js';
 import { patchBlueprintRunChecked } from './blueprint_run_persistence.js';
+import {
+    buildBlueprintArtifact,
+    loadStructureBackupArtifact,
+    persistStructureBackupArtifactChunks,
+} from './blueprint_artifact_persistence.js';
 import { assertBlueprintRunRestoreObservationManifest } from './blueprint_run_restore.js';
 import { assertCurrentBlueprintRunProtocol } from './blueprint_run_protocol.js';
 import {
@@ -252,7 +257,16 @@ export const ensureBlueprintRunRestorePoint = mutation({
             args.now
         );
         if (!built.ok) throw new Error('structure-restore-point-invalid');
-        const backupId = await ctx.db.insert('structureBackups', built.value);
+        const { structure, ...metadata } = built.value;
+        if (!structure) throw new Error('structure-restore-point-invalid');
+        const artifact = await buildBlueprintArtifact(structure);
+        const backupId = await ctx.db.insert('structureBackups', { ...metadata, ...artifact.manifest });
+        await persistStructureBackupArtifactChunks(ctx, {
+            artifact,
+            backupId,
+            createdAt: args.now,
+            guildId: run.guildId,
+        });
         await ctx.db.insert('blueprintRunObservations', {
             capabilityFingerprint: manifest.capabilityDigest,
             fingerprintVersion: BLUEPRINT_MUTATION_FENCE_VERSION,
@@ -294,13 +308,11 @@ async function validateBlueprintRunRestorePoint(
             .withIndex('by_run_phase', (q) => q.eq('runId', run._id).eq('phase', 'restore'))
             .unique(),
     ]);
-    const backupStructure: unknown = backup?.structure;
     const observationManifestJson = observation?.manifestJson;
     if (
         backup?.guildId !== run.guildId ||
         backup.source !== 'restore_point' ||
         backup.status !== 'succeeded' ||
-        !backupStructure ||
         observation?.guildId !== run.guildId ||
         observation.restorePointBackupId !== backupId ||
         observation.restorePointSnapshotDigest !== run.restorePointSnapshotDigest ||
@@ -308,6 +320,7 @@ async function validateBlueprintRunRestorePoint(
     ) {
         throw new Error('blueprint-run-restore-point-invalid');
     }
+    const backupStructure = await loadStructureBackupArtifact(ctx, backup);
     const normalized = normalizeBlueprintSnapshot(backupStructure);
     if (normalized.type === 'invalid' || normalized.snapshot.guildId !== run.guildId) {
         throw new Error('blueprint-run-restore-point-invalid');

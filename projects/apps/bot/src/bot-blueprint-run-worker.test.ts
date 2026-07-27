@@ -190,13 +190,14 @@ describe('Blueprint run worker', () => {
         expect(logger.error).toHaveBeenNthCalledWith(
             1,
             'blueprint_run.worker_failed',
-            expect.objectContaining({ retryAfterMs: 2_000 })
+            expect.objectContaining({ errorType: 'Error', retryAfterMs: 2_000 })
         );
         expect(logger.error).toHaveBeenNthCalledWith(
             2,
             'blueprint_run.worker_failed',
-            expect.objectContaining({ retryAfterMs: 4_000 })
+            expect.objectContaining({ errorType: 'Error', retryAfterMs: 4_000 })
         );
+        expect(JSON.stringify(logger.error.mock.calls)).not.toContain('blueprint-run-claim-failed');
     });
 
     it('backs off repeated idle polls and returns to the base delay after progress', async () => {
@@ -232,6 +233,47 @@ describe('Blueprint run worker', () => {
         expect(claimNextBlueprintRun).toHaveBeenCalledTimes(3);
         await vi.advanceTimersByTimeAsync(2_000);
         expect(claimNextBlueprintRun).toHaveBeenCalledTimes(4);
+        await worker.stop();
+    });
+
+    it('cancels an idle timer when woken', async () => {
+        vi.useFakeTimers();
+        vi.mocked(claimNextBlueprintRun).mockResolvedValue(ok(null));
+        const worker = startBlueprintRunWorker({
+            botToken: 'token',
+            database: { db: {} } as never,
+            intervalMs: 60_000,
+            logger: { error: vi.fn() } as never,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(claimNextBlueprintRun).toHaveBeenCalledOnce();
+
+        worker.wake();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(2);
+        await worker.stop();
+    });
+
+    it('coalesces repeated wakes during active work into one replay', async () => {
+        vi.useFakeTimers();
+        const firstClaim = Promise.withResolvers<Awaited<ReturnType<typeof claimNextBlueprintRun>>>();
+        vi.mocked(claimNextBlueprintRun).mockReturnValueOnce(firstClaim.promise).mockResolvedValue(ok(null));
+        const worker = startBlueprintRunWorker({
+            botToken: 'token',
+            database: { db: {} } as never,
+            intervalMs: 60_000,
+            logger: { error: vi.fn() } as never,
+        });
+        expect(claimNextBlueprintRun).toHaveBeenCalledOnce();
+
+        worker.wake();
+        worker.wake();
+        worker.wake();
+        firstClaim.resolve(ok(null));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(claimNextBlueprintRun).toHaveBeenCalledTimes(2);
         await worker.stop();
     });
 

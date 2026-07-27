@@ -21,6 +21,12 @@
             "production": "./dist/action-authority.js",
             "import": "./dist/action-authority.js"
         },
+        "./artifact-chunks": {
+            "types": "./src/artifact-chunks.ts",
+            "development": "./src/artifact-chunks.ts",
+            "production": "./dist/artifact-chunks.js",
+            "import": "./dist/artifact-chunks.js"
+        },
         "./canonical-json": {
             "types": "./src/canonical-json.ts",
             "development": "./src/canonical-json.ts",
@@ -128,6 +134,12 @@
             "development": "./src/snapshot.ts",
             "production": "./dist/snapshot.js",
             "import": "./dist/snapshot.js"
+        },
+        "./worker-control-contract": {
+            "types": "./src/worker-control-contract.ts",
+            "development": "./src/worker-control-contract.ts",
+            "production": "./dist/worker-control-contract.js",
+            "import": "./dist/worker-control-contract.js"
         }
     },
     "scripts": {

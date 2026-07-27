@@ -62,6 +62,7 @@ export type {
 export type {
     StructureBackupRecord,
     StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsPageRecord,
     StructureBackupSettingsRecord,
     StructureBackupSummaryPageRecord,
     StructureBackupSummaryRecord,
@@ -187,8 +188,6 @@ export {
     listDueStructureDriftSettings,
     listDueStructureBackupRetentionSettings,
     listStructureBackupSummaryPageByGuildId,
-    listStructureBackupSummariesByGuildId,
-    listStructureBackupsByGuildId,
     listBlueprintPlanStepsByPlanIdPage,
     listBlueprintPlanSummariesByGuildId,
     writeBlueprintPlanStepBatch,

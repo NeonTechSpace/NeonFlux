@@ -1,6 +1,7 @@
 import type {
     StructureBackupRecord,
     StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsPageRecord,
     StructureBackupSettingsRecord,
     StructureBackupSummaryPageRecord,
     StructureBackupSummaryRecord,
@@ -46,6 +47,10 @@ export type ConvexStructureBackupSettingsRecord = Omit<
     nextDriftCheckAt: string | null;
     nextRetentionPruneAt: string | null;
     updatedAt?: string;
+};
+export type ConvexStructureBackupSettingsPageRecord = {
+    nextCursor: string | null;
+    settings: ConvexStructureBackupSettingsRecord[];
 };
 export type ConvexStructureBackupRetentionPruneRecord = {
     deletedCount: number;
@@ -121,6 +126,15 @@ export function toBackupSettingsRecord(record: ConvexStructureBackupSettingsReco
         nextRetentionPruneAt: record.nextRetentionPruneAt ? new Date(record.nextRetentionPruneAt) : null,
         retentionDays: record.retentionDays,
         ...(record.updatedAt ? { updatedAt: new Date(record.updatedAt) } : {}),
+    };
+}
+
+export function toBackupSettingsPageRecord(
+    record: ConvexStructureBackupSettingsPageRecord
+): StructureBackupSettingsPageRecord {
+    return {
+        nextCursor: record.nextCursor,
+        settings: record.settings.map(toBackupSettingsRecord),
     };
 }
 

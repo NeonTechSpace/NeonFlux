@@ -45,6 +45,10 @@ export type StructureBackupInput = {
 };
 
 export type StructureBackupDocument = {
+    artifactBytes?: number;
+    artifactChunkCount?: number;
+    artifactContentDigest?: string;
+    artifactVersion?: 1;
     categoryCount: number;
     channelCount: number;
     completedAt: string;
@@ -96,6 +100,8 @@ export type StructureBackupSettingsDocument = {
     nextBackupAt?: string;
     nextDriftCheckAt?: string;
     nextRetentionPruneAt?: string;
+    retentionCutoff?: string;
+    retentionCursor?: string;
     retentionDays: number;
     updatedAt: string;
 };
@@ -207,6 +213,8 @@ export type StructureBackupSettingsPatch = {
     nextBackupAt?: string | undefined;
     nextDriftCheckAt?: string | undefined;
     nextRetentionPruneAt?: string | undefined;
+    retentionCutoff?: string | undefined;
+    retentionCursor?: string | undefined;
     retentionDays?: number;
     updatedAt: string;
 };
@@ -227,6 +235,9 @@ export function buildStructureBackupDocument(
     if (!source) return { error: { field: 'source', type: 'invalid-value' }, ok: false };
     if (!status) return { error: { field: 'status', type: 'invalid-value' }, ok: false };
     if (status === STRUCTURE_BACKUP_STATUS.succeeded && !structure) {
+        return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
+    }
+    if (status === STRUCTURE_BACKUP_STATUS.failed && structure) {
         return { error: { field: 'structure', type: 'invalid-value' }, ok: false };
     }
     const normalizedStructure = structure ? normalizeBlueprintSnapshot(structure) : undefined;
@@ -567,7 +578,10 @@ export function buildObservedEventStateDocument(
     };
 }
 
-export function toStructureBackupRecord(document: StructureBackupDocument & { _id: string }): StructureBackupRecord {
+export function toStructureBackupRecord(
+    document: StructureBackupDocument & { _id: string },
+    structure: Record<string, unknown> | null = document.structure ?? null
+): StructureBackupRecord {
     const name = normalizeBackupName(
         (document as StructureBackupDocument & { name?: string }).name,
         buildDefaultBackupName({
@@ -590,7 +604,7 @@ export function toStructureBackupRecord(document: StructureBackupDocument & { _i
         roleCount: document.roleCount,
         source: document.source,
         status: document.status,
-        structure: document.structure ?? null,
+        structure,
     };
 }
 
@@ -739,7 +753,7 @@ export function chooseLatestStructureDriftBaselineBackup<TBackup extends Structu
     return [...backups]
         .filter(
             (backup) =>
-                Boolean(backup.structure) &&
+                Boolean(backup.artifactContentDigest && backup.artifactChunkCount && backup.artifactChunkCount > 0) &&
                 backup.status === STRUCTURE_BACKUP_STATUS.succeeded &&
                 (backup.source === STRUCTURE_BACKUP_SOURCE.manual ||
                     backup.source === STRUCTURE_BACKUP_SOURCE.scheduled)

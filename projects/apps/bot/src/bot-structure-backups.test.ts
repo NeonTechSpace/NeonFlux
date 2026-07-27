@@ -63,10 +63,10 @@ describe('runDueStructureBackups', () => {
             Promise.resolve(ok(createBackupSettings(input.guildId)))
         );
         vi.mocked(clearStructureDriftSettingLease).mockResolvedValue(ok(true));
-        vi.mocked(listDueStructureDriftSettings).mockResolvedValue(ok([]));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValue(okDueSettings());
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValue(ok(createBaselineBackup()));
         vi.mocked(recordStructureScheduledDriftResult).mockResolvedValue(ok(createBackupSettings('guild-1')));
-        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValue(ok([]));
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValue(okDueSettings());
         vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValue(
             ok({ deletedCount: 0, hasMore: false, nextRetentionPruneAt: new Date('2026-07-07T00:00:00.000Z') })
         );
@@ -79,7 +79,7 @@ describe('runDueStructureBackups', () => {
 
     it('records scheduled backup successes and read failures', async () => {
         vi.mocked(listDueStructureBackupSettings).mockResolvedValue(
-            ok([createBackupSettings('guild-success'), createBackupSettings('guild-failed')])
+            okDueSettings([createBackupSettings('guild-success'), createBackupSettings('guild-failed')])
         );
         vi.mocked(readFluxerGuildStructure)
             .mockResolvedValueOnce(ok(createFluxerStructure('guild-success', { includeBotRole: true })))
@@ -127,7 +127,9 @@ describe('runDueStructureBackups', () => {
     });
 
     it('samples fresh time for backup discovery, claim, snapshot, and lease clear', async () => {
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-fresh')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-fresh')])
+        );
         vi.mocked(readFluxerGuildStructure).mockResolvedValueOnce(ok(createFluxerStructure('guild-fresh')));
         vi.mocked(createStructureBackup).mockResolvedValueOnce(ok(createBackupRecord()));
         const clock = createAdvancingClock(
@@ -169,9 +171,12 @@ describe('runDueStructureBackups', () => {
     it('drains due backup settings in batches during one run', async () => {
         vi.mocked(listDueStructureBackupSettings)
             .mockResolvedValueOnce(
-                ok(Array.from({ length: 25 }, (_, index) => createBackupSettings(`guild-${String(index)}`)))
+                okDueSettings(
+                    Array.from({ length: 25 }, (_, index) => createBackupSettings(`guild-${String(index)}`)),
+                    'cursor-1'
+                )
             )
-            .mockResolvedValueOnce(ok([createBackupSettings('guild-25')]));
+            .mockResolvedValueOnce(okDueSettings([createBackupSettings('guild-25')]));
         vi.mocked(readFluxerGuildStructure).mockImplementation(({ guildId }) =>
             Promise.resolve(ok(createFluxerStructure(guildId)))
         );
@@ -191,7 +196,9 @@ describe('runDueStructureBackups', () => {
     });
 
     it('skips due settings that another process already claimed', async () => {
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValue(ok([createBackupSettings('guild-claimed')]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValue(
+            okDueSettings([createBackupSettings('guild-claimed')])
+        );
         vi.mocked(claimDueStructureBackupSetting).mockResolvedValueOnce(ok(null));
 
         await runDueStructureBackups({
@@ -221,12 +228,16 @@ describe('runDueStructureBackups', () => {
             '2026-07-06T00:00:00.000Z',
             '2026-07-06T00:01:00.000Z',
             '2026-07-06T00:02:00.000Z',
-            '2026-07-06T00:03:00.000Z'
+            '2026-07-06T00:03:00.000Z',
+            '2026-07-06T00:04:00.000Z',
+            '2026-07-06T00:05:00.000Z'
         );
-        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-1')])
+        );
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
         vi.mocked(pruneExpiredStructureBackupsForGuild).mockResolvedValueOnce(
-            ok({ deletedCount: 100, hasMore: true, nextRetentionPruneAt: new Date('2026-07-06T00:00:00.000Z') })
+            ok({ deletedCount: 25, hasMore: true, nextRetentionPruneAt: new Date('2026-07-06T00:00:00.000Z') })
         );
 
         await runDueStructureBackups({
@@ -251,12 +262,12 @@ describe('runDueStructureBackups', () => {
                     targetId: 'guild-1',
                 },
                 guildId: 'guild-1',
-                limit: 100,
+                limit: 25,
                 now: new Date('2026-07-06T00:01:00.000Z'),
             }
         );
         expect(logger.info).toHaveBeenCalledWith('structure.backup_retention_pruned', {
-            deletedCount: 100,
+            deletedCount: 25,
             guildId: 'guild-1',
             hasMore: true,
         });
@@ -264,9 +275,11 @@ describe('runDueStructureBackups', () => {
     });
 
     it('runs scheduled drift after retention and before scheduled backup reads', async () => {
-        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-1')]));
-        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureBackupRetentionSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-1')])
+        );
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(okDueSettings());
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
 
         await runDueStructureBackups({
             client,
@@ -285,8 +298,10 @@ describe('runDueStructureBackups', () => {
 
     it('records changed scheduled drift with audit metadata and clears the drift lease', async () => {
         const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
-        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-drift')]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-drift')])
+        );
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
             ok(createBaselineBackup({ guildId: 'guild-drift', roleName: 'Old Member' }))
         );
@@ -330,8 +345,10 @@ describe('runDueStructureBackups', () => {
     });
 
     it('samples fresh time for drift discovery, claim, snapshot result, and lease clear', async () => {
-        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-drift')]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-drift')])
+        );
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
             ok(createBaselineBackup({ guildId: 'guild-drift' }))
         );
@@ -379,8 +396,10 @@ describe('runDueStructureBackups', () => {
     });
 
     it('records clean scheduled drift without audit noise', async () => {
-        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(ok([createBackupSettings('guild-clean')]));
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(
+            okDueSettings([createBackupSettings('guild-clean')])
+        );
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId).mockResolvedValueOnce(
             ok(createBaselineBackup({ guildId: 'guild-clean' }))
         );
@@ -405,9 +424,9 @@ describe('runDueStructureBackups', () => {
 
     it('records scheduled drift no-baseline and live-read failures without stopping later guilds', async () => {
         vi.mocked(listDueStructureDriftSettings).mockResolvedValueOnce(
-            ok([createBackupSettings('guild-missing'), createBackupSettings('guild-failed')])
+            okDueSettings([createBackupSettings('guild-missing'), createBackupSettings('guild-failed')])
         );
-        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(ok([]));
+        vi.mocked(listDueStructureBackupSettings).mockResolvedValueOnce(okDueSettings());
         vi.mocked(findLatestStructureDriftBaselineBackupByGuildId)
             .mockResolvedValueOnce(err({ type: 'not-found' }))
             .mockResolvedValueOnce(ok(createBaselineBackup({ guildId: 'guild-failed' })));
@@ -451,7 +470,7 @@ describe('runDueStructureBackups', () => {
         vi.mocked(listDueStructureBackupSettings).mockImplementation(
             () =>
                 new Promise((resolve) => {
-                    finishLookup = () => resolve(ok([]));
+                    finishLookup = () => resolve(okDueSettings());
                 })
         );
 
@@ -494,6 +513,13 @@ function createBackupSettings(guildId: string) {
         lastDriftHasMorePreview: false,
         retentionDays: 180,
     };
+}
+
+function okDueSettings(
+    settings = [] as Array<ReturnType<typeof createBackupSettings>>,
+    nextCursor: string | null = null
+) {
+    return ok({ nextCursor, settings });
 }
 
 function createFixedClock(): () => Date {

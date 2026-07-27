@@ -4,6 +4,7 @@ import { normalizeBlueprintPlanStep } from '@neonflux/blueprint/runtime-contract
 import type {
     StructureBackupRecord,
     StructureBackupRetentionPruneRecord,
+    StructureBackupSettingsPageRecord,
     StructureBackupSettingsRecord,
     StructureBackupSummaryPageRecord,
     StructureBackupSummaryRecord,
@@ -29,6 +30,7 @@ import {
     normalizeRequiredText,
     toBackupRetentionPruneRecord,
     toBackupRecord,
+    toBackupSettingsPageRecord,
     toBackupSettingsRecord,
     toBackupSummaryPageRecord,
     toBackupSummaryRecord,
@@ -37,6 +39,7 @@ import {
     toObservedEventStateRecord,
 } from './runtime-blueprint-records.js';
 import { toBlueprintPlanAuthority, toBlueprintPlanMetadata } from './runtime-blueprint-run-records.js';
+import { mapBlueprintPlanPersistenceError } from './runtime-blueprint-persistence-errors.js';
 
 type BlueprintDb = ConvexDatabase;
 type BlueprintAuditInput = {
@@ -87,6 +90,7 @@ export async function createStructureBackup(
     input: {
         categoryCount?: number;
         channelCount?: number;
+        createdAt?: Date;
         createdByUserId?: string;
         errorMessage?: string;
         guildId: string;
@@ -108,6 +112,7 @@ export async function createStructureBackup(
             compactConvexArgs({
                 categoryCount: input.categoryCount,
                 channelCount: input.channelCount,
+                createdAt: input.createdAt?.toISOString(),
                 createdByUserId: normalizeOptionalText(input.createdByUserId),
                 errorMessage: normalizeOptionalText(input.errorMessage),
                 guildId: guildId.value,
@@ -122,50 +127,6 @@ export async function createStructureBackup(
         );
 
         return ok(toBackupRecord(backup));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function listStructureBackupsByGuildId(
-    db: BlueprintDb,
-    input: { guildId: string; limit?: number }
-): Promise<Result<StructureBackupRecord[], BlueprintRepositoryError>> {
-    const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const limit = normalizeLimit(input.limit);
-
-    if (guildId.isErr()) return err(guildId.error);
-    if (limit.isErr()) return err(limit.error);
-
-    try {
-        const backups = await db.client.query(api.blueprint.listStructureBackupsByGuildId, {
-            guildId: guildId.value,
-            limit: limit.value,
-        });
-
-        return ok(backups.map(toBackupRecord));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function listStructureBackupSummariesByGuildId(
-    db: BlueprintDb,
-    input: { guildId: string; limit?: number }
-): Promise<Result<StructureBackupSummaryRecord[], BlueprintRepositoryError>> {
-    const guildId = normalizeRequiredText(input.guildId, 'guildId');
-    const limit = normalizeLimit(input.limit);
-
-    if (guildId.isErr()) return err(guildId.error);
-    if (limit.isErr()) return err(limit.error);
-
-    try {
-        const backups = await db.client.query(api.blueprint.listStructureBackupSummariesByGuildId, {
-            guildId: guildId.value,
-            limit: limit.value,
-        });
-
-        return ok(backups.map(toBackupSummaryRecord));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -360,18 +321,22 @@ export async function upsertStructureBackupSettings(
 
 export async function listDueStructureBackupRetentionSettings(
     db: BlueprintDb,
-    input: { limit?: number; now: Date }
-): Promise<Result<StructureBackupSettingsRecord[], BlueprintRepositoryError>> {
+    input: { cursor?: string; limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsPageRecord, BlueprintRepositoryError>> {
     const limit = normalizeLimit(input.limit);
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const settings = await db.client.query(api.blueprint.listDueStructureBackupRetentionSettings, {
-            limit: limit.value,
-            now: input.now.toISOString(),
-        });
+        const settings = await db.client.query(
+            api.blueprint.listDueStructureBackupRetentionSettings,
+            compactConvexArgs({
+                cursor: normalizeOptionalText(input.cursor),
+                limit: limit.value,
+                now: input.now.toISOString(),
+            })
+        );
 
-        return ok(settings.map(toBackupSettingsRecord));
+        return ok(toBackupSettingsPageRecord(settings));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -406,18 +371,22 @@ export async function pruneExpiredStructureBackupsForGuild(
 
 export async function listDueStructureBackupSettings(
     db: BlueprintDb,
-    input: { limit?: number; now: Date }
-): Promise<Result<StructureBackupSettingsRecord[], BlueprintRepositoryError>> {
+    input: { cursor?: string; limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsPageRecord, BlueprintRepositoryError>> {
     const limit = normalizeLimit(input.limit);
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const settings = await db.client.query(api.blueprint.listDueStructureBackupSettings, {
-            limit: limit.value,
-            now: input.now.toISOString(),
-        });
+        const settings = await db.client.query(
+            api.blueprint.listDueStructureBackupSettings,
+            compactConvexArgs({
+                cursor: normalizeOptionalText(input.cursor),
+                limit: limit.value,
+                now: input.now.toISOString(),
+            })
+        );
 
-        return ok(settings.map(toBackupSettingsRecord));
+        return ok(toBackupSettingsPageRecord(settings));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -425,18 +394,22 @@ export async function listDueStructureBackupSettings(
 
 export async function listDueStructureDriftSettings(
     db: BlueprintDb,
-    input: { limit?: number; now: Date }
-): Promise<Result<StructureBackupSettingsRecord[], BlueprintRepositoryError>> {
+    input: { cursor?: string; limit?: number; now: Date }
+): Promise<Result<StructureBackupSettingsPageRecord, BlueprintRepositoryError>> {
     const limit = normalizeLimit(input.limit);
     if (limit.isErr()) return err(limit.error);
 
     try {
-        const settings = await db.client.query(api.blueprint.listDueStructureDriftSettings, {
-            limit: limit.value,
-            now: input.now.toISOString(),
-        });
+        const settings = await db.client.query(
+            api.blueprint.listDueStructureDriftSettings,
+            compactConvexArgs({
+                cursor: normalizeOptionalText(input.cursor),
+                limit: limit.value,
+                now: input.now.toISOString(),
+            })
+        );
 
-        return ok(settings.map(toBackupSettingsRecord));
+        return ok(toBackupSettingsPageRecord(settings));
     } catch {
         return err({ type: 'database-error' });
     }
@@ -676,8 +649,8 @@ export async function createBlueprintPlanDraft(
         );
 
         return ok(toBlueprintPlanMetadata(plan));
-    } catch {
-        return err({ type: 'database-error' });
+    } catch (error) {
+        return err(mapBlueprintPlanPersistenceError(error));
     }
 }
 
@@ -835,8 +808,8 @@ export async function writeBlueprintPlanStepBatch(
         });
 
         return ok(records.map(toBlueprintPlanStepRecord));
-    } catch {
-        return err({ type: 'database-error' });
+    } catch (error) {
+        return err(mapBlueprintPlanPersistenceError(error));
     }
 }
 

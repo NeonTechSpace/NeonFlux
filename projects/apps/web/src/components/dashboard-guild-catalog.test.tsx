@@ -40,6 +40,10 @@ const convexMock = vi.hoisted(() => {
 });
 
 vi.mock('./dashboard-live-provider.js', () => ({
+    dashboardCatalogRefetchInterval: () => false,
+    dashboardLiveFallbackRefreshIntervalMs: 60_000,
+    isDashboardLiveHealthy: (status: { authentication: string; phase: string }) =>
+        status.authentication === 'authenticated' && status.phase === 'connected',
     useDashboardLive: () => ({
         client: convexMock.client,
         confirmManageableGuildScope: convexMock.confirmManageableGuildScope,

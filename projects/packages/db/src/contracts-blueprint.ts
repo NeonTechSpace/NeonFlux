@@ -138,6 +138,11 @@ export type StructureBackupSettingsRecord = {
     updatedAt?: Date;
 };
 
+export type StructureBackupSettingsPageRecord = {
+    nextCursor: string | null;
+    settings: StructureBackupSettingsRecord[];
+};
+
 export type StructureBackupRetentionPruneRecord = {
     deletedCount: number;
     hasMore: boolean;
@@ -467,7 +472,8 @@ export type BlueprintRepositoryError =
     | { type: 'blueprint-restore-point-run-active' }
     | { type: 'blueprint-run-review-stale' }
     | { type: 'blueprint-guild-run-active' }
-    | { type: 'blueprint-run-empty' };
+    | { type: 'blueprint-run-empty' }
+    | { type: 'blueprint-plan-too-large' };
 
 export type BlueprintPlanDetailRecord = {
     plan: BlueprintPlanMetadataRecord;

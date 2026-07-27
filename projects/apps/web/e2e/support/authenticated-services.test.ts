@@ -7,10 +7,15 @@ import { createBlueprintMutationFenceManifest, createBlueprintPreflightEvidenceD
 import type { BlueprintSnapshot } from '@neonflux/blueprint';
 import {
     createRuntimeDb,
+    createStructureBackup,
     createWebSession,
+    findLatestStructureDriftBaselineBackupByGuildId,
+    findStructureBackupByGuildId,
     getBlueprintPlanAuthority,
-    listLatestBlueprintRunSummaries,
     listDashboardPostingOperationsByGuild,
+    listLatestBlueprintRunSummaries,
+    listStructureBackupSummaryPageByGuildId,
+    pruneExpiredStructureBackupsForGuild,
     upsertBotInstallation,
     upsertDeploymentConfig,
     upsertFluxerOAuthTokenSet,
@@ -315,7 +320,7 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
     }, 60_000);
 
     it.runIf(process.env.NEONFLUX_BLUEPRINT_IO_ACCEPTANCE === 'neonflux-blueprint-io-v1')(
-        'passes Blueprint I/O acceptance with twenty plans and a 474-step worker run',
+        'passes representative Blueprint database I/O acceptance',
         async () => {
             const { baseline, desired } = blueprintIoAcceptanceSnapshots();
             let live: BlueprintSnapshot = baseline;
@@ -378,6 +383,40 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                 planIds.add(summaryPlan.plan.id);
             }
 
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_SETUP_START_MARKER');
+            const backupIds: string[] = [];
+            const backupStructure = JSON.parse(JSON.stringify(desired)) as Record<string, unknown>;
+            for (let index = 0; index < 50; index += 1) {
+                const backup = await createStructureBackup(webDatabase.db, {
+                    createdAt: new Date(Date.UTC(2020, 0, 1, 0, 0, index)),
+                    guildId,
+                    name: `I/O backup ${String(index)}`,
+                    serverName: 'E2E Guild',
+                    source: 'manual',
+                    status: 'succeeded',
+                    structure: backupStructure,
+                });
+                if (backup.isErr()) throw new Error('Expected the representative I/O backup to be created.');
+                backupIds.push(backup.value.id);
+            }
+            const backupPage = await listStructureBackupSummaryPageByGuildId(webDatabase.db, {
+                guildId,
+                limit: 50,
+            });
+            if (backupPage.isErr()) throw new Error('Expected the representative backup summary page.');
+            expect(backupPage.value.backups).toHaveLength(50);
+            expect(backupPage.value.nextCursor).toBeNull();
+            const representativeBackupId = backupIds[0];
+            if (!representativeBackupId) throw new Error('Expected a representative backup ID.');
+            const fullBackup = await findStructureBackupByGuildId(webDatabase.db, {
+                backupId: representativeBackupId,
+                guildId,
+            });
+            if (fullBackup.isErr()) throw new Error('Expected the representative full backup read.');
+            expect(fullBackup.value.structure).toMatchObject({ channels: expect.any(Array) });
+            const driftBaseline = await findLatestStructureDriftBaselineBackupByGuildId(botDatabase.db, { guildId });
+            if (driftBaseline.isErr()) throw new Error('Expected the representative drift baseline read.');
+
             const largePlan = await createPlan(desired);
             if (largePlan.type !== 'plan-created') throw new Error('Expected the large I/O acceptance plan.');
             expect(planIds.has(largePlan.plan.id)).toBe(false);
@@ -394,8 +433,8 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                 ...authorityDocument,
                 createdAt: authorityCreatedAt.toISOString(),
             });
-            expect(authorityBytes).toBeGreaterThanOrEqual(600 * 1024);
-            expect(authorityBytes).toBeLessThanOrEqual(690 * 1024);
+            expect(authorityBytes).toBeGreaterThanOrEqual(700 * 1024);
+            expect(authorityBytes).toBeLessThanOrEqual(900 * 1024);
             expect((await approvePlan(largePlan.plan)).type).toBe('approved');
             const preflight = await preflightDashboardBlueprintPlan(authenticatedRequest, {
                 guildId,
@@ -405,6 +444,20 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                 throw new Error('Expected the large I/O acceptance preflight.');
             }
             expect(isDashboardBlueprintPreflightReady(preflight.report)).toBe(true);
+            let retained = true;
+            let retentionDeletedCount = 0;
+            while (retained) {
+                const prune = await pruneExpiredStructureBackupsForGuild(botDatabase.db, {
+                    guildId,
+                    limit: 25,
+                    now: new Date('2026-07-27T00:00:00.000Z'),
+                });
+                if (prune.isErr()) throw new Error('Expected representative backup retention to complete.');
+                retentionDeletedCount += prune.value.deletedCount;
+                retained = prune.value.hasMore;
+            }
+            expect(retentionDeletedCount).toBe(50);
+            await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_SETUP_END_MARKER');
             expect(
                 (
                     await applyDashboardBlueprintPlan(authenticatedRequest, {
@@ -617,7 +670,7 @@ function blueprintIoAcceptanceSnapshots(): { baseline: BlueprintSnapshot; desire
             channels: [
                 ...baseline.channels,
                 ...Array.from({ length: 473 }, (_, index) =>
-                    blueprintIoChannel(`channel-${String(index)}`, index + baseline.channels.length, 340, true)
+                    blueprintIoChannel(`channel-${String(index)}`, index + baseline.channels.length, 500, true)
                 ),
             ],
         },
@@ -644,6 +697,8 @@ function blueprintIoChannel(
 
 async function markBlueprintIoAcceptancePhase(
     markerEnvironmentKey:
+        | 'NEONFLUX_BLUEPRINT_IO_SETUP_START_MARKER'
+        | 'NEONFLUX_BLUEPRINT_IO_SETUP_END_MARKER'
         | 'NEONFLUX_BLUEPRINT_IO_WORKER_START_MARKER'
         | 'NEONFLUX_BLUEPRINT_IO_WORKER_END_MARKER'
         | 'NEONFLUX_BLUEPRINT_IO_HISTORY_START_MARKER'

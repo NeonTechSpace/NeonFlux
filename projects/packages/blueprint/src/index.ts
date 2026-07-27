@@ -1,4 +1,5 @@
 export * from './action-authority.js';
+export * from './artifact-chunks.js';
 export * from './canonical-json.js';
 export * from './channel-projection.js';
 export * from './contracts.js';
@@ -17,3 +18,4 @@ export * from './protocol.js';
 export * from './role-projection.js';
 export * from './runtime-contracts.js';
 export * from './snapshot.js';
+export * from './worker-control-contract.js';

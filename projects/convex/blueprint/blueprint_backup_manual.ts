@@ -14,6 +14,11 @@ import {
 import type { CreateBackupArgs, DeleteBackupArgs, RenameBackupArgs } from './blueprint_backup_contract.js';
 import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import {
+    buildBlueprintArtifact,
+    deleteStructureBackupArtifactChunks,
+    persistStructureBackupArtifactChunks,
+} from './blueprint_artifact_persistence.js';
+import {
     addDays,
     buildBackupSortCursor,
     buildStructureBackupAttemptPatch,
@@ -36,7 +41,7 @@ export async function createStructureBackupHandler(ctx: StructureMutationCtx, ar
 
     const now = new Date().toISOString();
     const createdAt = normalizeTimestamp(args.createdAt) ?? now;
-    const document = unwrap(
+    const builtDocument = unwrap(
         buildStructureBackupDocument(
             {
                 ...args,
@@ -47,13 +52,19 @@ export async function createStructureBackupHandler(ctx: StructureMutationCtx, ar
             now
         )
     );
+    const { structure, ...metadata } = builtDocument;
+    const artifact = structure ? await buildBlueprintArtifact(structure) : undefined;
+    const document = artifact ? { ...metadata, ...artifact.manifest } : metadata;
     const id = await ctx.db.insert('structureBackups', document);
+    if (artifact) {
+        await persistStructureBackupArtifactChunks(ctx, { artifact, backupId: id, createdAt, guildId });
+    }
     if (document.source !== STRUCTURE_BACKUP_SOURCE.restorePoint) {
         await recordBackupAttempt(ctx, guildId, document.status, document.errorMessage, now);
     }
     await recordBlueprintAuditInMutation(ctx, guildId, args.audit, now, id);
 
-    return toStructureBackupRecord({ ...document, _id: id });
+    return toStructureBackupRecord({ ...document, _id: id }, structure ?? null);
 }
 
 export async function renameStructureBackupHandler(ctx: StructureMutationCtx, args: RenameBackupArgs) {
@@ -89,6 +100,7 @@ export async function deleteStructureBackupHandler(ctx: StructureMutationCtx, ar
         }
     }
 
+    await deleteStructureBackupArtifactChunks(ctx, backup._id);
     await ctx.db.delete('structureBackups', backup._id);
     await recordBlueprintAuditInMutation(ctx, guildId, args.audit, now, backup._id);
 

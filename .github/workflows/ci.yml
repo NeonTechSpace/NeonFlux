@@ -46,6 +46,10 @@ jobs:
                       task: signed-in-features
                       runtime: node
                       timeout: 30
+                    - name: Blueprint database I/O acceptance
+                      task: blueprint-io
+                      runtime: node
+                      timeout: 30
                     - name: Build and inspect the bot image
                       task: production-image
                       runtime: docker
@@ -234,6 +238,28 @@ jobs:
               run: |
                   echo "::error title=Signed-in feature tests failed::Review the summary and safe screenshot artifacts."
                   exit 1
+
+            - name: Build runtime packages for Blueprint I/O acceptance
+              if: matrix.task == 'blueprint-io'
+              working-directory: projects
+              run: pnpm build:runtime-packages
+
+            - name: Run Blueprint database I/O acceptance
+              if: matrix.task == 'blueprint-io'
+              working-directory: projects
+              run: pnpm blueprint:io-acceptance
+
+            - name: Upload Blueprint database I/O results
+              if: matrix.task == 'blueprint-io' && always() && !cancelled()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: blueprint-io-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: |
+                      projects/apps/web/.e2e-runtime/blueprint-io-acceptance-report.json
+                      projects/apps/web/.e2e-runtime/blueprint-io-acceptance.jsonl
+                  if-no-files-found: error
+                  include-hidden-files: true
+                  retention-days: 14
 
             - name: Set up Docker Buildx
               if: matrix.task == 'production-image'

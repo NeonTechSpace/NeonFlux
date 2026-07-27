@@ -45,7 +45,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void>; wake(): void } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
-    let blueprintRunWorker: { stop(): Promise<void> } | undefined;
+    let blueprintRunWorker: { stop(): Promise<void>; wake(): void } | undefined;
     let growthTelemetry: ReturnType<typeof createBotGrowthTelemetryIngestor> | undefined;
 
     async function closeDatabaseOnce(): Promise<void> {
@@ -288,12 +288,18 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     context: createFeatureHandlerContext(),
                     logger,
                 });
+                blueprintRunWorker = startBlueprintRunWorker({
+                    botToken: config.fluxerBotToken,
+                    database,
+                    logger,
+                });
                 try {
                     botInternalApiServer = await startBotInternalApiServer({
                         bot,
                         host: config.botInternalApiHost,
                         logger,
                         port: config.botInternalApiPort,
+                        wakeBlueprintWorker: () => blueprintRunWorker?.wake(),
                         wakePostingWorker: () => postingScheduler?.wake(),
                         webAuthJwtIssuer: botInternalApiAuth.issuer,
                         webAuthJwtJwks: botInternalApiAuth.jwks,
@@ -301,6 +307,8 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 } catch (error) {
                     await postingScheduler.stop();
                     postingScheduler = undefined;
+                    await blueprintRunWorker.stop();
+                    blueprintRunWorker = undefined;
                     throw error;
                 }
                 installationRepairScheduler = startInstallationRepairScheduler({
@@ -311,11 +319,6 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                 });
                 structureBackupScheduler = startStructureBackupScheduler({
                     client: bot.client,
-                    database,
-                    logger,
-                });
-                blueprintRunWorker = startBlueprintRunWorker({
-                    botToken: config.fluxerBotToken,
                     database,
                     logger,
                 });

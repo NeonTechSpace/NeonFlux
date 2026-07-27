@@ -499,6 +499,32 @@ describe('structure model', () => {
         expect(invalid).toStrictEqual({ error: { field: 'structure', type: 'invalid-value' }, ok: false });
     });
 
+    it('keeps failed backup metadata free of snapshot artifacts', () => {
+        expect(
+            buildStructureBackupDocument(
+                {
+                    errorMessage: 'read failed',
+                    guildId: 'guild-1',
+                    status: 'failed',
+                    structure: emptySnapshot,
+                },
+                now
+            )
+        ).toStrictEqual({ error: { field: 'structure', type: 'invalid-value' }, ok: false });
+        expect(
+            unwrap(
+                buildStructureBackupDocument(
+                    {
+                        errorMessage: 'read failed',
+                        guildId: 'guild-1',
+                        status: 'failed',
+                    },
+                    now
+                )
+            )
+        ).not.toHaveProperty('structure');
+    });
+
     it('builds restore-point backups with source-specific default names', () => {
         const backup = unwrap(
             buildStructureBackupDocument(
@@ -557,7 +583,7 @@ describe('structure model', () => {
         ]);
     });
 
-    it('chooses the latest regular successful backup with JSON as the drift baseline', () => {
+    it('chooses the latest regular successful cold artifact as the drift baseline', () => {
         const olderManual = unwrap(
             buildStructureBackupDocument(
                 {
@@ -602,11 +628,37 @@ describe('structure model', () => {
                 '2026-06-30T12:00:00.000Z'
             )
         );
+        const storedOlderManual = {
+            ...olderManual,
+            artifactBytes: 128,
+            artifactChunkCount: 1,
+            artifactContentDigest: 'a'.repeat(64),
+            artifactVersion: 1 as const,
+        };
+        const storedLatestScheduled = {
+            ...latestScheduled,
+            artifactBytes: 128,
+            artifactChunkCount: 1,
+            artifactContentDigest: 'b'.repeat(64),
+            artifactVersion: 1 as const,
+        };
+        const storedRestorePoint = {
+            ...restorePoint,
+            artifactBytes: 128,
+            artifactChunkCount: 1,
+            artifactContentDigest: 'c'.repeat(64),
+            artifactVersion: 1 as const,
+        };
 
         expect(
-            chooseLatestStructureDriftBaselineBackup([olderManual, latestScheduled, restorePoint, failed])
-        ).toStrictEqual(latestScheduled);
-        expect(chooseLatestStructureDriftBaselineBackup([restorePoint, failed])).toBeUndefined();
+            chooseLatestStructureDriftBaselineBackup([
+                storedOlderManual,
+                storedLatestScheduled,
+                storedRestorePoint,
+                failed,
+            ])
+        ).toStrictEqual(storedLatestScheduled);
+        expect(chooseLatestStructureDriftBaselineBackup([storedRestorePoint, failed])).toBeUndefined();
     });
 
     it('keeps restore points for the recovery window and while linked to unresolved runs', () => {

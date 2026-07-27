@@ -16,12 +16,13 @@ const webDirectory = resolve(workspaceDirectory, 'apps/web');
 const statePath = resolve(webDirectory, '.e2e-runtime/convex/state.json');
 const logPath = resolve(webDirectory, '.e2e-runtime/blueprint-io-acceptance.jsonl');
 const reportPath = resolve(webDirectory, '.e2e-runtime/blueprint-io-acceptance-report.json');
-const acceptanceTestName = 'passes Blueprint I/O acceptance with twenty plans and a 474-step worker run';
+const acceptanceTestName = 'passes representative Blueprint database I/O acceptance';
 const acceptanceSentinel = 'neonflux-blueprint-io-v1';
 const markerFunctionName = 'runtime:blueprintIoAcceptanceMarker';
 const markerLogPrefix = 'NEONFLUX_BLUEPRINT_IO_MARKER';
 const historyColdTables = [
     'blueprintPlanAuthorities',
+    'blueprintPlanAuthorityChunks',
     'blueprintPlanExecutionAuthorities',
     'blueprintPlanExecutionAuthorityBuckets',
     'blueprintPlanPreflightEvidence',
@@ -49,8 +50,23 @@ const workerFunctions = [
 ] as const;
 const allowedHistoryFunctions = new Set<string>(historyFunctions);
 const allowedWorkerFunctions = new Set<string>([...workerFunctions, 'blueprint:renewBlueprintRunLease']);
+const planPersistenceFunctions = new Set([
+    'blueprint:createBlueprintPlanDraft',
+    'blueprint:finalizeBlueprintPlan',
+    'blueprint:writeBlueprintPlanDecisionBatch',
+    'blueprint:writeBlueprintPlanStepBatch',
+]);
+const preflightFunctions = new Set([
+    'blueprint:getBlueprintPlanAuthority',
+    'blueprint:getBlueprintPlanMetadata',
+    'blueprint:listBlueprintPlanDecisionsPage',
+    'blueprint:listBlueprintPlanStepsByPlanIdPage',
+    'blueprint:recordBlueprintPlanPreflight',
+]);
 
 export type BlueprintIoWorkloadMarkers = {
+    setupStart: string;
+    setupEnd: string;
     workerStart: string;
     workerEnd: string;
     historyStart: string;
@@ -70,11 +86,13 @@ export type BlueprintIoAggregate = BlueprintIoMetric & {
 };
 
 export type BlueprintIoWorkloadMetrics = {
+    setup: BlueprintIoMetric[];
     worker: BlueprintIoMetric[];
     history: BlueprintIoMetric[];
 };
 
 export type BlueprintIoWorkloadAggregates = {
+    setup: Map<string, BlueprintIoAggregate>;
     worker: Map<string, BlueprintIoAggregate>;
     history: Map<string, BlueprintIoAggregate>;
 };
@@ -185,6 +203,8 @@ async function main(): Promise<void> {
                     NEONFLUX_BLUEPRINT_IO_ACCEPTANCE: acceptanceSentinel,
                     NEONFLUX_BLUEPRINT_IO_HISTORY_END_MARKER: markers.historyEnd,
                     NEONFLUX_BLUEPRINT_IO_HISTORY_START_MARKER: markers.historyStart,
+                    NEONFLUX_BLUEPRINT_IO_SETUP_END_MARKER: markers.setupEnd,
+                    NEONFLUX_BLUEPRINT_IO_SETUP_START_MARKER: markers.setupStart,
                     NEONFLUX_BLUEPRINT_IO_WORKER_END_MARKER: markers.workerEnd,
                     NEONFLUX_BLUEPRINT_IO_WORKER_START_MARKER: markers.workerStart,
                     NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,
@@ -208,17 +228,24 @@ async function main(): Promise<void> {
         const aggregates = aggregateBlueprintIoWorkloadMetrics(metrics);
         assertBlueprintIoAcceptance(aggregates);
         await assertSummaryFunctionsHaveNoColdDependencies();
+        await assertBackupSummaryHasNoArtifactDependency();
         await assertStepExecutionDependencies();
         const workerReadBytes = sumAllReadBytes(aggregates.worker);
         const workerWriteBytes = sumAllWriteBytes(aggregates.worker);
         const report = {
             completedAt: new Date().toISOString(),
+            setupReadBytes: sumAllReadBytes(aggregates.setup),
+            setupWriteBytes: sumAllWriteBytes(aggregates.setup),
             historyReadBytes: sumAllReadBytes(aggregates.history),
             historyWriteBytes: sumAllWriteBytes(aggregates.history),
             workerReadBytes,
             workerWriteBytes,
             workerCombinedIoBytes: workerReadBytes + workerWriteBytes,
             functions: [
+                ...[...aggregates.setup.values()].map((metric) => ({
+                    phase: classifySetupFunction(metric.functionName),
+                    ...metric,
+                })),
                 ...[...aggregates.worker.values()].map((metric) => ({ phase: 'worker' as const, ...metric })),
                 ...[...aggregates.history.values()].map((metric) => ({ phase: 'history' as const, ...metric })),
             ].sort((left, right) => left.functionName.localeCompare(right.functionName)),
@@ -313,11 +340,25 @@ export function extractBlueprintIoWorkloadMetrics(
     const indices = Object.fromEntries(
         Object.entries(markers).map(([name, marker]) => [name, findAcceptanceMarkerIndex(records, marker)])
     ) as Record<keyof BlueprintIoWorkloadMarkers, number>;
-    const orderedIndices = [indices.workerStart, indices.workerEnd, indices.historyStart, indices.historyEnd];
+    const orderedIndices = [
+        indices.setupStart,
+        indices.setupEnd,
+        indices.workerStart,
+        indices.workerEnd,
+        indices.historyStart,
+        indices.historyEnd,
+    ];
     if (orderedIndices.some((index) => index < 0)) {
         throw new Error('Convex JSONL did not contain all Blueprint I/O workload phase markers.');
     }
-    if (!(indices.workerStart < indices.workerEnd && indices.workerEnd < indices.historyStart)) {
+    if (
+        !(
+            indices.setupStart < indices.setupEnd &&
+            indices.setupEnd < indices.workerStart &&
+            indices.workerStart < indices.workerEnd &&
+            indices.workerEnd < indices.historyStart
+        )
+    ) {
         throw new Error('Blueprint I/O workload phase markers were out of order.');
     }
     if (!(indices.historyStart < indices.historyEnd)) {
@@ -325,6 +366,7 @@ export function extractBlueprintIoWorkloadMetrics(
     }
 
     return {
+        setup: extractBlueprintPhaseMetrics(records.slice(indices.setupStart + 1, indices.setupEnd), 'setup'),
         worker: extractBlueprintPhaseMetrics(
             records.slice(indices.workerStart + 1, indices.workerEnd),
             'worker',
@@ -358,6 +400,7 @@ export function aggregateBlueprintIoWorkloadMetrics(
     metrics: BlueprintIoWorkloadMetrics
 ): BlueprintIoWorkloadAggregates {
     return {
+        setup: aggregateBlueprintIoMetrics(metrics.setup),
         worker: aggregateBlueprintIoMetrics(metrics.worker),
         history: aggregateBlueprintIoMetrics(metrics.history),
     };
@@ -368,6 +411,36 @@ export function assertBlueprintIoAcceptance(aggregates: BlueprintIoWorkloadAggre
     assertAllowedAggregates(aggregates.history, allowedHistoryFunctions, 'History');
     assertExpectedRequestCounts(aggregates.worker, expectedWorkerRequestCounts);
     assertExpectedRequestCounts(aggregates.history, expectedHistoryRequestCounts);
+    assertMaximumIndividualFunctionIo(aggregates);
+
+    const backupSummary = requireAggregate(aggregates.setup, 'blueprint:listStructureBackupSummaryPageByGuildId');
+    assertRequestCount(aggregates.setup, 'blueprint:createStructureBackup', 50);
+    assertRequestCount(aggregates.setup, 'blueprint:listStructureBackupSummaryPageByGuildId', 1);
+    assertRequestCount(aggregates.setup, 'blueprint:findStructureBackupByGuildId', 1);
+    assertRequestCount(aggregates.setup, 'blueprint:getBlueprintPlanAuthority', 2);
+    if (backupSummary.maximumReadBytes > 256 * 1024 || backupSummary.maximumWriteBytes !== 0) {
+        throw new Error(
+            `Blueprint backup summary used ${String(backupSummary.maximumReadBytes)} read bytes and ${String(
+                backupSummary.maximumWriteBytes
+            )} write bytes; maximum is 256 KiB read and zero writes.`
+        );
+    }
+    for (const functionName of ['blueprint:createStructureBackup', 'blueprint:findStructureBackupByGuildId']) {
+        const operation = requireAggregate(aggregates.setup, functionName);
+        if (operation.maximumReadBytes + operation.maximumWriteBytes > 1024 * 1024) {
+            throw new Error(`${functionName} exceeded the 1 MiB representative-operation I/O ceiling.`);
+        }
+    }
+    const planPersistenceIo = sumSelectedCombinedIo(aggregates.setup, planPersistenceFunctions);
+    if (planPersistenceIo > 8 * 1024 * 1024) {
+        throw new Error(`Blueprint plan persistence used ${String(planPersistenceIo)} bytes; maximum is 8 MiB.`);
+    }
+    const preflightIo = sumSelectedCombinedIo(aggregates.setup, preflightFunctions);
+    if (preflightIo > 4 * 1024 * 1024) {
+        throw new Error(`Blueprint preflight used ${String(preflightIo)} bytes; maximum is 4 MiB.`);
+    }
+    requireAggregate(aggregates.setup, 'blueprint:findLatestStructureDriftBaselineBackupByGuildId');
+    requireAggregate(aggregates.setup, 'blueprint:pruneExpiredStructureBackupsForGuild');
 
     const completion = requireAggregate(aggregates.worker, 'blueprint:completeAndCheckpointBlueprintRunStepAttempt');
     if (completion.maximumReadBytes > 64 * 1024) {
@@ -398,16 +471,10 @@ export function assertBlueprintIoAcceptance(aggregates: BlueprintIoWorkloadAggre
         throw new Error(`Blueprint reclaim claim read ${String(claim.maximumReadBytes)} bytes; maximum is 4 MiB.`);
     }
     const workerReadBytes = sumAllReadBytes(aggregates.worker);
-    if (workerReadBytes > 32 * 1024 * 1024) {
-        throw new Error(`Blueprint worker read ${String(workerReadBytes)} bytes; maximum is 32 MiB.`);
-    }
     const workerWriteBytes = sumAllWriteBytes(aggregates.worker);
-    if (workerWriteBytes > 32 * 1024 * 1024) {
-        throw new Error(`Blueprint worker wrote ${String(workerWriteBytes)} bytes; maximum is 32 MiB.`);
-    }
-    if (workerReadBytes + workerWriteBytes > 64 * 1024 * 1024) {
+    if (workerReadBytes + workerWriteBytes > 32 * 1024 * 1024) {
         throw new Error(
-            `Blueprint worker combined I/O was ${String(workerReadBytes + workerWriteBytes)} bytes; maximum is 64 MiB.`
+            `Blueprint worker combined I/O was ${String(workerReadBytes + workerWriteBytes)} bytes; maximum is 32 MiB.`
         );
     }
 }
@@ -422,6 +489,27 @@ function assertAllowedAggregates(
             throw new Error(`Unexpected Convex function ${functionName} completed during the ${phase} phase.`);
         }
     }
+}
+
+function assertMaximumIndividualFunctionIo(aggregates: BlueprintIoWorkloadAggregates): void {
+    for (const metric of [
+        ...aggregates.setup.values(),
+        ...aggregates.worker.values(),
+        ...aggregates.history.values(),
+    ]) {
+        if (metric.maximumReadBytes > 8 * 1024 * 1024 || metric.maximumWriteBytes > 8 * 1024 * 1024) {
+            throw new Error(`${metric.functionName} exceeded the 8 MiB per-function read or write ceiling.`);
+        }
+    }
+}
+
+function sumSelectedCombinedIo(
+    aggregates: ReadonlyMap<string, BlueprintIoAggregate>,
+    functions: ReadonlySet<string>
+): number {
+    return [...aggregates.values()]
+        .filter((metric) => functions.has(metric.functionName))
+        .reduce((total, metric) => total + metric.readBytes + metric.writeBytes, 0);
 }
 
 function assertExpectedRequestCounts(
@@ -457,6 +545,17 @@ function sumAllReadBytes(aggregates: ReadonlyMap<string, BlueprintIoAggregate>):
 
 function sumAllWriteBytes(aggregates: ReadonlyMap<string, BlueprintIoAggregate>): number {
     return [...aggregates.values()].reduce((total, metric) => total + metric.writeBytes, 0);
+}
+
+function classifySetupFunction(functionName: string): string {
+    if (functionName === 'blueprint:createStructureBackup') return 'backup-create';
+    if (functionName === 'blueprint:listStructureBackupSummaryPageByGuildId') return 'backup-summary';
+    if (functionName === 'blueprint:findStructureBackupByGuildId') return 'backup-full-read';
+    if (functionName === 'blueprint:findLatestStructureDriftBaselineBackupByGuildId') return 'drift';
+    if (functionName === 'blueprint:pruneExpiredStructureBackupsForGuild') return 'retention';
+    if (planPersistenceFunctions.has(functionName)) return 'plan-persistence';
+    if (preflightFunctions.has(functionName)) return 'preflight';
+    return 'setup';
 }
 
 async function failIfLogStreamExits(operation: Promise<void>, logExit: Promise<number>): Promise<void> {
@@ -498,7 +597,7 @@ async function waitForExpectedMetricsAndQuiescence(input: {
             ...requestCountDeficits(aggregates.worker, expectedWorkerRequestCounts),
             ...requestCountDeficits(aggregates.history, expectedHistoryRequestCounts),
         ];
-        const completionCount = metrics.worker.length + metrics.history.length;
+        const completionCount = metrics.setup.length + metrics.worker.length + metrics.history.length;
         if (lastDeficits.length === 0) {
             if (completionCount !== lastCompletionCount) {
                 lastCompletionCount = completionCount;
@@ -559,6 +658,8 @@ async function waitForAcceptanceMarker(input: {
 function createWorkloadMarkers(): BlueprintIoWorkloadMarkers {
     const runId = randomUUID();
     return {
+        setupStart: `setup-start-${runId}`,
+        setupEnd: `setup-end-${runId}`,
         workerStart: `worker-start-${runId}`,
         workerEnd: `worker-end-${runId}`,
         historyStart: `history-start-${runId}`,
@@ -613,14 +714,14 @@ function findAcceptanceMarkerIndex(records: ReadonlyArray<Record<string, unknown
 
 function extractBlueprintPhaseMetrics(
     records: ReadonlyArray<Record<string, unknown>>,
-    phase: 'worker' | 'History',
-    allowedFunctions: ReadonlySet<string>
+    phase: 'setup' | 'worker' | 'History',
+    allowedFunctions?: ReadonlySet<string>
 ): BlueprintIoMetric[] {
     return records.flatMap((record) => {
         if (record.kind !== 'Completion') return [];
         const metric = completionMetric(record);
         if (!metric) throw new Error('Convex completion could not be measured.');
-        if (!allowedFunctions.has(metric.functionName)) {
+        if (allowedFunctions && !allowedFunctions.has(metric.functionName)) {
             throw new Error(`Unexpected Convex function ${metric.functionName} completed during the ${phase} phase.`);
         }
         return [metric];
@@ -695,6 +796,18 @@ async function assertSummaryFunctionsHaveNoColdDependencies(): Promise<void> {
         throw new Error('Blueprint hot-record serializer may not register or invoke Convex functions.');
     }
     await assertNoTransitiveColdDependencies(summaryPath, convexSourceRoot, historyColdTables);
+}
+
+async function assertBackupSummaryHasNoArtifactDependency(): Promise<void> {
+    const readsPath = resolve(workspaceDirectory, 'convex/blueprint/blueprint_backup_reads.ts');
+    const source = await readFile(readsPath, 'utf8');
+    const start = source.indexOf('export async function listStructureBackupSummaryPageByGuildIdHandler');
+    const end = source.indexOf('export async function findStructureBackupByGuildIdHandler', start);
+    if (start < 0 || end < 0) throw new Error('Could not locate the structure-backup summary handler.');
+    const handler = source.slice(start, end);
+    if (/loadStructureBackupArtifact|structureBackupArtifactChunks/u.test(handler)) {
+        throw new Error('Structure-backup summary pagination may not load artifact chunks.');
+    }
 }
 
 export async function assertNoTransitiveColdDependencies(

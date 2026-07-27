@@ -6,7 +6,7 @@ import type { AppLogger } from '@neonflux/core/logging';
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 import { runNextDashboardPostingOperation, type DashboardPostingWorkerResult } from './bot-posting-worker.js';
 
-const schedulerIntervalMs = 2_000;
+const schedulerIdleDelaysMs = [2_000, 5_000, 15_000, 30_000, 60_000] as const;
 const maxWorkItemsPerSlice = 20;
 const defaultItemDeadlineMs = 20_000;
 const defaultShutdownGraceMs = 5_000;
@@ -40,6 +40,8 @@ export function startDashboardPostingScheduler(input: {
     let stopped = false;
     let wakePending = false;
     let running: Promise<void> | undefined;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    let idleCount = 0;
     let activeController: AbortController | undefined;
     let continuation: ReturnType<typeof setImmediate> | undefined;
     let resolveContinuation: ((shouldContinue: boolean) => void) | undefined;
@@ -99,7 +101,7 @@ export function startDashboardPostingScheduler(input: {
             });
         });
 
-    const runDrain = async (trigger: DrainTrigger) => {
+    const runDrain = async (trigger: DrainTrigger): Promise<{ claimed: number; stopReason: DrainStopReason }> => {
         const startedAt = performance.now();
         const stats: DrainStats = {
             claimed: 0,
@@ -145,19 +147,45 @@ export function startDashboardPostingScheduler(input: {
                 });
             }
         }
+        return { claimed: stats.claimed, stopReason };
     };
 
+    const configuredIntervalMs = input.intervalMs;
+    const schedulePoll = (delayMs: number) => {
+        if (stopped) return;
+        const jitteredDelay = configuredIntervalMs === undefined ? jitterWorkerDelay(delayMs) : delayMs;
+        pollTimer = setTimeout(() => {
+            pollTimer = undefined;
+            startRun('poll');
+        }, jitteredDelay);
+    };
     const startRun = (trigger: DrainTrigger) => {
         if (running || stopped) return;
-        running = runDrain(trigger).finally(() => {
-            running = undefined;
-            if (wakePending && !stopped) {
-                wakePending = false;
-                queueMicrotask(() => startRun('wake'));
-            }
-        });
+        let nextDelayMs = configuredIntervalMs ?? schedulerIdleDelaysMs[0];
+        running = runDrain(trigger)
+            .then((result) => {
+                if (configuredIntervalMs !== undefined) return;
+                if (result.claimed === 0 && result.stopReason === 'idle') {
+                    idleCount += 1;
+                    nextDelayMs =
+                        schedulerIdleDelaysMs[Math.min(idleCount - 1, schedulerIdleDelaysMs.length - 1)] ??
+                        schedulerIdleDelaysMs[0];
+                    return;
+                }
+                idleCount = 0;
+                nextDelayMs = schedulerIdleDelaysMs[0];
+            })
+            .finally(() => {
+                running = undefined;
+                if (wakePending && !stopped) {
+                    wakePending = false;
+                    idleCount = 0;
+                    queueMicrotask(() => startRun('wake'));
+                    return;
+                }
+                schedulePoll(nextDelayMs);
+            });
     };
-    const interval = setInterval(() => startRun('poll'), input.intervalMs ?? schedulerIntervalMs);
     startRun('startup');
 
     return {
@@ -167,12 +195,18 @@ export function startDashboardPostingScheduler(input: {
                 wakePending = true;
                 return;
             }
+            if (pollTimer) {
+                clearTimeout(pollTimer);
+                pollTimer = undefined;
+            }
+            idleCount = 0;
             startRun('wake');
         },
         async stop(): Promise<void> {
             stopped = true;
             wakePending = false;
-            clearInterval(interval);
+            if (pollTimer) clearTimeout(pollTimer);
+            pollTimer = undefined;
             if (continuation) clearImmediate(continuation);
             continuation = undefined;
             const continuationResolver = resolveContinuation;
@@ -183,6 +217,10 @@ export function startDashboardPostingScheduler(input: {
             await waitForShutdown(running, input.shutdownGraceMs ?? defaultShutdownGraceMs);
         },
     };
+}
+
+function jitterWorkerDelay(delayMs: number): number {
+    return Math.max(1, Math.round(delayMs * (0.9 + Math.random() * 0.2)));
 }
 
 function recordOperationResult(

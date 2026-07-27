@@ -1,5 +1,6 @@
 import { structureBackupSettingsTable } from './tables/structure_backup_settings.js';
 import { structureBackupsTable } from './tables/structure_backups.js';
+import { structureBackupArtifactChunksTable } from './tables/structure_backup_artifact_chunks.js';
 import { blueprintPlansTable } from './tables/blueprint_plans.js';
 import { blueprintPlanStepsTable } from './tables/blueprint_plan_steps.js';
 import { blueprintRunStepAttemptsTable } from './tables/blueprint_run_step_attempts.js';
@@ -9,6 +10,7 @@ import { blueprintPlanDecisionsTable } from './tables/blueprint_plan_decisions.j
 import { blueprintPlanPreflightsTable } from './tables/blueprint_plan_preflights.js';
 import { blueprintRunObservationsTable } from './tables/blueprint_run_observations.js';
 import { blueprintPlanAuthoritiesTable } from './tables/blueprint_plan_authorities.js';
+import { blueprintPlanAuthorityChunksTable } from './tables/blueprint_plan_authority_chunks.js';
 import { blueprintPlanExecutionAuthoritiesTable } from './tables/blueprint_plan_execution_authorities.js';
 import { blueprintPlanExecutionAuthorityBucketsTable } from './tables/blueprint_plan_execution_authority_buckets.js';
 import { blueprintPlanPreflightEvidenceTable } from './tables/blueprint_plan_preflight_evidence.js';
@@ -18,9 +20,11 @@ import { blueprintRunIdMappingsTable } from './tables/blueprint_run_id_mappings.
 
 export const blueprintTables = {
     structureBackups: structureBackupsTable,
+    structureBackupArtifactChunks: structureBackupArtifactChunksTable,
     structureBackupSettings: structureBackupSettingsTable,
     blueprintPlans: blueprintPlansTable,
     blueprintPlanAuthorities: blueprintPlanAuthoritiesTable,
+    blueprintPlanAuthorityChunks: blueprintPlanAuthorityChunksTable,
     blueprintPlanExecutionAuthorities: blueprintPlanExecutionAuthoritiesTable,
     blueprintPlanExecutionAuthorityBuckets: blueprintPlanExecutionAuthorityBucketsTable,
     blueprintPlanSteps: blueprintPlanStepsTable,

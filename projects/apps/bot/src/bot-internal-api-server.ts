@@ -7,6 +7,11 @@ import {
 } from '@neonflux/convex/jwt';
 import type { AppLogger } from '@neonflux/core/logging';
 import {
+    blueprintWorkerControlJwtAudience,
+    blueprintWorkerControlProtocolVersion,
+    blueprintWorkerWakePath,
+} from '@neonflux/blueprint/worker-control-contract';
+import {
     botProviderReadGuildStructurePathPrefix,
     botProviderReadJwtAudience,
     botProviderReadProtocolVersion,
@@ -34,6 +39,7 @@ export type StartBotInternalApiServerInput = {
     host: string;
     logger: AppLogger;
     port: number;
+    wakeBlueprintWorker(): void;
     wakePostingWorker(): void;
     webAuthJwtIssuer: string;
     webAuthJwtJwks: string;
@@ -48,16 +54,22 @@ export async function startBotInternalApiServer(input: StartBotInternalApiServer
         audience: postingWorkerControlJwtAudience,
         issuer: input.webAuthJwtIssuer,
     };
+    const blueprintControlJwtConfig: NeonFluxJwtVerifierConfig = {
+        audience: blueprintWorkerControlJwtAudience,
+        issuer: input.webAuthJwtIssuer,
+    };
     const jwks = createNeonFluxJwkSetFromJwksConfig(input.webAuthJwtJwks);
     const reads = createGuildStructureReads(input);
     const server = createServer((request, response) => {
         void handleRequest({
+            blueprintControlJwtConfig,
             jwks,
             postingControlJwtConfig,
             providerReadJwtConfig,
             reads,
             request,
             response,
+            wakeBlueprintWorker: () => input.wakeBlueprintWorker(),
             wakePostingWorker: () => input.wakePostingWorker(),
         }).catch(() => {
             if (!response.headersSent) writeJson(response, 500, { type: 'internal-error' });
@@ -130,12 +142,14 @@ async function readGuildStructure(
 }
 
 type RequestContext = {
+    blueprintControlJwtConfig: NeonFluxJwtVerifierConfig;
     jwks: ReturnType<typeof createNeonFluxJwkSetFromJwksConfig>;
     postingControlJwtConfig: NeonFluxJwtVerifierConfig;
     providerReadJwtConfig: NeonFluxJwtVerifierConfig;
     reads: GuildStructureReads;
     request: IncomingMessage;
     response: ServerResponse;
+    wakeBlueprintWorker(): void;
     wakePostingWorker(): void;
 };
 
@@ -143,7 +157,18 @@ async function handleRequest(context: RequestContext): Promise<void> {
     const pathname = readPathname(context.request.url);
 
     if (pathname === postingWorkerWakePath) {
-        await handlePostingWake(context);
+        await handleWorkerWake(context, context.postingControlJwtConfig, () => context.wakePostingWorker(), {
+            protocolVersion: postingWorkerControlProtocolVersion,
+            type: 'accepted',
+        });
+        return;
+    }
+
+    if (pathname === blueprintWorkerWakePath) {
+        await handleWorkerWake(context, context.blueprintControlJwtConfig, () => context.wakeBlueprintWorker(), {
+            protocolVersion: blueprintWorkerControlProtocolVersion,
+            type: 'accepted',
+        });
         return;
     }
 
@@ -181,7 +206,12 @@ async function handleRequest(context: RequestContext): Promise<void> {
     writeJson(context.response, status, result);
 }
 
-async function handlePostingWake(context: RequestContext): Promise<void> {
+async function handleWorkerWake(
+    context: RequestContext,
+    jwtConfig: NeonFluxJwtVerifierConfig,
+    wake: () => void,
+    responseBody: { protocolVersion: 1; type: 'accepted' }
+): Promise<void> {
     if (context.request.method !== 'POST') {
         context.response.setHeader('Allow', 'POST');
         writeJson(context.response, 405, { type: 'method-not-allowed' });
@@ -194,13 +224,13 @@ async function handlePostingWake(context: RequestContext): Promise<void> {
         return;
     }
 
-    if (!(await isAuthorized(context, context.postingControlJwtConfig))) {
+    if (!(await isAuthorized(context, jwtConfig))) {
         writeJson(context.response, 401, { type: 'unauthorized' });
         return;
     }
 
-    context.wakePostingWorker();
-    writeJson(context.response, 202, { protocolVersion: postingWorkerControlProtocolVersion, type: 'accepted' });
+    wake();
+    writeJson(context.response, 202, responseBody);
 }
 
 async function isAuthorized(context: RequestContext, jwtConfig: NeonFluxJwtVerifierConfig): Promise<boolean> {

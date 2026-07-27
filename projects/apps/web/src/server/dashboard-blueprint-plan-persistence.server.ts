@@ -10,16 +10,21 @@ import {
     writeBlueprintPlanDecisionBatch,
     writeBlueprintPlanStepBatch,
 } from '@neonflux/db';
-import type { BlueprintPlanDecisionRecord, BlueprintPlanStepRecord } from '@neonflux/db';
+import type { BlueprintPlanAuthorityRecord, BlueprintPlanStepRecord } from '@neonflux/db';
 import {
+    BLUEPRINT_ARTIFACT_MAX_BYTES,
     BLUEPRINT_PLAN_AUTHORITY_VERSION,
+    BLUEPRINT_PLAN_COLD_MAX_BYTES,
     BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
     BLUEPRINT_PLAN_VERSION,
+    canonicalJsonStringify,
+    createBlueprintPlanAuthority,
     createBlueprintPlanIntegrityDigests,
     createBlueprintPlanCreationRequestKey,
     createBlueprintPlanExecutionAuthorityContentDigest,
     deriveBlueprintPlanExecutionAuthorityBody,
     normalizeBlueprintPlan,
+    utf8ByteLength,
 } from '@neonflux/blueprint';
 import type {
     BlueprintPlanAuthorityBodyV1,
@@ -143,6 +148,36 @@ export async function persistDashboardBlueprintPlan(
     } catch {
         return { type: 'invalid-input', message: 'The generated Blueprint authority could not be sealed.' };
     }
+    try {
+        const sizingAuthority = await createBlueprintPlanAuthority({
+            body: authority,
+            createdAt,
+            guildId: context.guild.id,
+            planId: 'x'.repeat(64),
+        });
+        if (utf8ByteLength(canonicalJsonStringify(sizingAuthority)) > BLUEPRINT_ARTIFACT_MAX_BYTES) {
+            return {
+                type: 'invalid-input',
+                message: 'The generated Blueprint authority exceeds the 4 MiB safety limit.',
+            };
+        }
+        const coldEnvelopeBytes = utf8ByteLength(
+            canonicalJsonStringify({
+                authority: sizingAuthority,
+                decisions,
+                executionAuthority,
+                steps,
+            })
+        );
+        if (coldEnvelopeBytes > BLUEPRINT_PLAN_COLD_MAX_BYTES) {
+            return {
+                type: 'invalid-input',
+                message: 'The generated Blueprint plan exceeds the 12 MiB persisted-data safety limit.',
+            };
+        }
+    } catch {
+        return { type: 'invalid-input', message: 'The generated Blueprint authority could not be validated.' };
+    }
 
     const draftResult = await createBlueprintPlanDraft(database.db, {
         guildId: context.guild.id,
@@ -193,15 +228,31 @@ export async function persistDashboardBlueprintPlan(
         now,
         ...(options.sourceBackupId ? { sourceBackupId: options.sourceBackupId } : {}),
     });
-    if (draftResult.isErr()) return { type: 'database-error' };
+    if (draftResult.isErr()) {
+        return draftResult.error.type === 'blueprint-plan-too-large'
+            ? { type: 'invalid-input', message: 'The generated Blueprint plan exceeds its persistence safety limit.' }
+            : { type: 'database-error' };
+    }
 
     const planId = draftResult.value.id;
     let finalizedPlan = draftResult.value;
     let stepRecords: BlueprintPlanStepRecord[] = [];
     if (draftResult.value.status === 'draft') {
-        const decisionRecords = await writeDecisionBatches(planId, decisions, now);
-        if (decisionRecords === 'database-error') return { type: 'database-error' };
+        const decisionWrite = await writeDecisionBatches(planId, decisions, now);
+        if (decisionWrite === 'too-large') {
+            return {
+                type: 'invalid-input',
+                message: 'The generated Blueprint plan exceeds its persistence safety limit.',
+            };
+        }
+        if (decisionWrite === 'database-error') return { type: 'database-error' };
         const writtenSteps = await writeStepBatches(planId, steps, now);
+        if (writtenSteps === 'too-large') {
+            return {
+                type: 'invalid-input',
+                message: 'The generated Blueprint plan exceeds its persistence safety limit.',
+            };
+        }
         if (writtenSteps === 'database-error') return { type: 'database-error' };
         stepRecords = writtenSteps;
         const finalized = await finalizeBlueprintPlan(database.db, {
@@ -217,15 +268,37 @@ export async function persistDashboardBlueprintPlan(
         if (finalized.isErr()) return { type: 'database-error' };
         finalizedPlan = finalized.value;
     }
-    const persistedAuthority = await getBlueprintPlanAuthority(database.db, {
-        guildId: context.guild.id,
-        planId,
-    });
-    if (persistedAuthority.isErr()) return { type: 'database-error' };
+    let persistedAuthority: BlueprintPlanAuthorityRecord;
+    try {
+        const localAuthority = await createBlueprintPlanAuthority({
+            body: authority,
+            createdAt: finalizedPlan.createdAt.toISOString(),
+            guildId: context.guild.id,
+            planId,
+        });
+        if (localAuthority.authorityDigest === finalizedPlan.authorityDigest) {
+            persistedAuthority = {
+                ...localAuthority,
+                createdAt: new Date(localAuthority.createdAt),
+                id: planId,
+            };
+        } else {
+            const storedAuthority = await getBlueprintPlanAuthority(database.db, {
+                guildId: context.guild.id,
+                planId,
+            });
+            if (storedAuthority.isErr() || storedAuthority.value.authorityDigest !== finalizedPlan.authorityDigest) {
+                return { type: 'database-error' };
+            }
+            persistedAuthority = storedAuthority.value;
+        }
+    } catch {
+        return { type: 'database-error' };
+    }
     return {
         type: 'plan-created',
         plan: toDashboardBlueprintPlan(finalizedPlan, {
-            authority: persistedAuthority.value,
+            authority: persistedAuthority,
             steps: stepRecords,
         }),
     };
@@ -235,7 +308,7 @@ async function writeStepBatches(
     planId: string,
     steps: Array<{ sequence: number; step: BlueprintPlanStep }>,
     now: Date
-): Promise<BlueprintPlanStepRecord[] | 'database-error'> {
+): Promise<BlueprintPlanStepRecord[] | 'database-error' | 'too-large'> {
     if (steps.length === 0) return [];
     const database = await getWebDb();
     const records: BlueprintPlanStepRecord[] = [];
@@ -245,7 +318,7 @@ async function writeStepBatches(
             now,
             steps: steps.slice(offset, offset + 100),
         });
-        if (result.isErr()) return 'database-error';
+        if (result.isErr()) return result.error.type === 'blueprint-plan-too-large' ? 'too-large' : 'database-error';
         if (records.length < dashboardPlanStepInlineLimit) {
             records.push(...result.value.slice(0, dashboardPlanStepInlineLimit - records.length));
         }
@@ -257,20 +330,18 @@ async function writeDecisionBatches(
     planId: string,
     decisions: Array<{ sequence: number; decision: BlueprintPlanDecision }>,
     now: Date
-): Promise<BlueprintPlanDecisionRecord[] | 'database-error'> {
-    if (decisions.length === 0) return [];
+): Promise<'ok' | 'database-error' | 'too-large'> {
+    if (decisions.length === 0) return 'ok';
     const database = await getWebDb();
-    const records: BlueprintPlanDecisionRecord[] = [];
     for (let offset = 0; offset < decisions.length; offset += 100) {
         const result = await writeBlueprintPlanDecisionBatch(database.db, {
             planId,
             now,
             decisions: decisions.slice(offset, offset + 100),
         });
-        if (result.isErr()) return 'database-error';
-        records.push(...result.value);
+        if (result.isErr()) return result.error.type === 'blueprint-plan-too-large' ? 'too-large' : 'database-error';
     }
-    return records;
+    return 'ok';
 }
 
 export async function readDashboardBlueprintPlanDecisionPage(

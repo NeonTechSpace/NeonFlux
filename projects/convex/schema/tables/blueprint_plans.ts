@@ -26,6 +26,7 @@ export const blueprintPlanDecisionSummaryValidator = v.object({
 
 export const blueprintPlansTable = defineTable({
     authorityDigest: v.string(),
+    authorityArtifactBytes: v.number(),
     authorityVersion: v.literal(1),
     blockerCount: v.number(),
     creationRequestKey: v.string(),
@@ -39,6 +40,7 @@ export const blueprintPlansTable = defineTable({
     deleteStepCount: v.number(),
     deleteSetDigest: optionalString,
     executionAuthorityDigest: v.string(),
+    executionAuthorityBytes: v.number(),
     executionAuthorityVersion: v.literal(1),
     planDigest: v.string(),
     planVersion: v.literal(4),

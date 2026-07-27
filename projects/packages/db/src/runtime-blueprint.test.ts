@@ -20,8 +20,6 @@ import {
     findStructureBackupByGuildId,
     getBlueprintPlanMetadata,
     findStructureObservedEventStateByGuildId,
-    listStructureBackupSummariesByGuildId,
-    listStructureBackupsByGuildId,
     listBlueprintPlanSummariesByGuildId,
     pruneExpiredStructureBackupsForGuild,
     listDueStructureDriftSettings,
@@ -173,7 +171,7 @@ describe('Convex structure database functions', () => {
         const restorePointBackup = { ...backup, source: 'restore_point' };
         const db = createConvexDb({
             mutationResults: [restorePointBackup, planRecord, [step]],
-            queryResults: [[backup], [backup], backup, [planRecord], planRecord],
+            queryResults: [backup, [planRecord], planRecord],
         });
 
         const createdBackup = await createStructureBackup(db, {
@@ -182,8 +180,6 @@ describe('Convex structure database functions', () => {
             structure: backup.structure,
             source: ' restore_point ',
         });
-        const backups = await listStructureBackupsByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
-        const backupSummaries = await listStructureBackupSummariesByGuildId(db, { guildId: ' guild-1 ', limit: 5 });
         const foundBackup = await findStructureBackupByGuildId(db, {
             guildId: ' guild-1 ',
             backupId: ' backup-1 ',
@@ -202,8 +198,6 @@ describe('Convex structure database functions', () => {
             guildId: 'guild-1',
             source: 'restore_point',
         });
-        expect(backups._unsafeUnwrap()).toStrictEqual([toBackupRecord(backup)]);
-        expect(backupSummaries._unsafeUnwrap()).toStrictEqual([toBackupSummaryRecord(backup)]);
         expect(foundBackup._unsafeUnwrap()).toStrictEqual(toBackupRecord(backup));
         expect(createdPlan._unsafeUnwrap()).toStrictEqual(toRunRecord(planRecord));
         expect(runs._unsafeUnwrap()).toStrictEqual([toRunRecord(planRecord)]);
@@ -229,6 +223,16 @@ describe('Convex structure database functions', () => {
         expect(missing._unsafeUnwrapErr()).toStrictEqual({ type: 'not-found' });
         expect(db.client.queryCalls).toHaveLength(2);
         expect(db.client.queryCalls[0]?.args).toStrictEqual({ guildId: 'guild-1' });
+    });
+
+    it('maps predictable plan persistence limits to a specific repository error', async () => {
+        const db = createConvexDb({
+            mutationErrors: [new Error('[CONVEX M(createBlueprintPlanDraft)] blueprint-plan-cold-payload-too-large')],
+        });
+
+        const result = await createBlueprintPlanDraft(db, createPlanDraftInput());
+
+        expect(result._unsafeUnwrapErr()).toStrictEqual({ type: 'blueprint-plan-too-large' });
     });
 
     it.each(['blueprint-restore-point-recovery-window-active', 'blueprint-restore-point-run-active'] as const)(
@@ -316,7 +320,7 @@ describe('Convex structure database functions', () => {
         });
         const db = createConvexDb({
             mutationResults: [settings, true, settings],
-            queryResults: [[settings]],
+            queryResults: [{ nextCursor: null, settings: [settings] }],
         });
 
         const due = await listDueStructureDriftSettings(db, {
@@ -353,7 +357,10 @@ describe('Convex structure database functions', () => {
             summary: { creates: 1, updates: 1, deletes: 0, roles: 1, categories: 0, channels: 1 },
         });
 
-        expect(due._unsafeUnwrap()).toStrictEqual([toSettingsRecord(settings)]);
+        expect(due._unsafeUnwrap()).toStrictEqual({
+            nextCursor: null,
+            settings: [toSettingsRecord(settings)],
+        });
         expect(claimed._unsafeUnwrap()).toStrictEqual(toSettingsRecord(settings));
         expect(cleared._unsafeUnwrap()).toBe(true);
         expect(recorded._unsafeUnwrap()).toStrictEqual(toSettingsRecord(settings));
@@ -582,12 +589,6 @@ function toObservedStateRecord(record: typeof observedState) {
 
 function toBackupRecord(record: typeof backup) {
     return { ...record, completedAt: new Date(record.completedAt), createdAt: new Date(record.createdAt) };
-}
-
-function toBackupSummaryRecord(record: typeof backup) {
-    const { structure, ...summary } = toBackupRecord(record);
-    void structure;
-    return summary;
 }
 
 function toRunRecord(record: TestBlueprintPlanRecord) {

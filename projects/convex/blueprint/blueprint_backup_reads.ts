@@ -1,4 +1,5 @@
 import { requireNeonFluxService } from '../auth.js';
+import { loadStructureBackupArtifact } from './blueprint_artifact_persistence.js';
 import {
     allowedStructureServices,
     findBackupById,
@@ -15,7 +16,6 @@ import {
 import type {
     FindBackupArgs,
     GuildIdArgs,
-    ListBackupsArgs,
     ListBackupSummaryPageArgs,
     RecordObservedEventArgs,
 } from './blueprint_backup_contract.js';
@@ -68,30 +68,6 @@ export async function recordStructureObservedEventHandler(ctx: StructureMutation
     return toStructureObservedEventStateRecord(document);
 }
 
-export async function listStructureBackupsByGuildIdHandler(ctx: StructureQueryCtx, args: ListBackupsArgs) {
-    await requireNeonFluxService(ctx, allowedStructureServices);
-    const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-    const backups = await ctx.db
-        .query('structureBackups')
-        .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
-        .order('desc')
-        .take(normalizeLimit(args.limit));
-
-    return backups.map(toStructureBackupRecord);
-}
-
-export async function listStructureBackupSummariesByGuildIdHandler(ctx: StructureQueryCtx, args: ListBackupsArgs) {
-    await requireNeonFluxService(ctx, allowedStructureServices);
-    const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-    const backups = await ctx.db
-        .query('structureBackups')
-        .withIndex('by_guild_created', (index) => index.eq('guildId', guildId))
-        .order('desc')
-        .take(normalizeLimit(args.limit));
-
-    return backups.map(toStructureBackupSummaryRecord);
-}
-
 export async function listStructureBackupSummaryPageByGuildIdHandler(
     ctx: StructureQueryCtx,
     args: ListBackupSummaryPageArgs
@@ -119,7 +95,10 @@ export async function findStructureBackupByGuildIdHandler(ctx: StructureQueryCtx
     await requireNeonFluxService(ctx, allowedStructureServices);
     const backup = await findBackupById(ctx, parseBackupId(args.backupId));
 
-    return backup?.guildId === args.guildId ? toStructureBackupRecord(backup) : null;
+    if (backup?.guildId !== args.guildId) return null;
+    const structure =
+        backup.status === STRUCTURE_BACKUP_STATUS.succeeded ? await loadStructureBackupArtifact(ctx, backup) : null;
+    return toStructureBackupRecord(backup, structure);
 }
 
 export async function findLatestStructureDriftBaselineBackupByGuildIdHandler(
@@ -146,5 +125,6 @@ export async function findLatestStructureDriftBaselineBackupByGuildIdHandler(
         candidates.filter((backup): backup is StoredBackupDocument => Boolean(backup))
     );
 
-    return latest ? toStructureBackupRecord(latest) : null;
+    if (!latest) return null;
+    return toStructureBackupRecord(latest, await loadStructureBackupArtifact(ctx, latest));
 }

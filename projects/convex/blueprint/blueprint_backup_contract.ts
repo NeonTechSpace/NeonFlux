@@ -62,6 +62,11 @@ export const backupSettingsValidator = v.object({
     updatedAt: v.optional(v.string()),
 });
 
+export const backupSettingsPageValidator = v.object({
+    nextCursor: nullableString,
+    settings: v.array(backupSettingsValidator),
+});
+
 export const backupSummaryPageValidator = v.object({
     backups: v.array(backupSummaryRecordValidator),
     nextCursor: nullableString,
@@ -107,7 +112,6 @@ export const createBackupArgs = {
     status: v.optional(v.string()),
     structure: v.optional(v.any()),
 };
-export const listBackupsArgs = { guildId: v.string(), limit: v.optional(v.number()) };
 export const listBackupSummaryPageArgs = {
     cursor: v.optional(v.union(v.string(), v.null())),
     guildId: v.string(),
@@ -132,7 +136,11 @@ export const upsertBackupSettingsArgs = {
     guildId: v.string(),
     retentionDays: v.optional(v.number()),
 };
-export const dueSettingsArgs = { limit: v.optional(v.number()), now: v.string() };
+export const dueSettingsArgs = {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+    now: v.string(),
+};
 export const pruneBackupsArgs = {
     audit: v.optional(auditInputValidator),
     guildId: v.string(),
@@ -169,7 +177,6 @@ export const recordScheduledDriftResultArgs = {
 export type GuildIdArgs = Infer<ReturnType<typeof v.object<typeof guildIdArgs>>>;
 export type RecordObservedEventArgs = Infer<ReturnType<typeof v.object<typeof recordObservedEventArgs>>>;
 export type CreateBackupArgs = Infer<ReturnType<typeof v.object<typeof createBackupArgs>>>;
-export type ListBackupsArgs = Infer<ReturnType<typeof v.object<typeof listBackupsArgs>>>;
 export type ListBackupSummaryPageArgs = Infer<ReturnType<typeof v.object<typeof listBackupSummaryPageArgs>>>;
 export type RenameBackupArgs = Infer<ReturnType<typeof v.object<typeof renameBackupArgs>>>;
 export type DeleteBackupArgs = Infer<ReturnType<typeof v.object<typeof deleteBackupArgs>>>;

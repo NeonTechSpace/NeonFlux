@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BotFeatureHandlerContext } from './bot-feature-types.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
@@ -8,6 +8,10 @@ vi.mock('./bot-posting-worker.js', () => ({ runNextDashboardPostingOperation: vi
 
 describe('dashboard posting scheduler', () => {
     beforeEach(() => vi.clearAllMocks());
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
 
     it('stops the current drain after a claim/database failure', async () => {
         vi.mocked(runNextDashboardPostingOperation).mockResolvedValue({
@@ -56,6 +60,33 @@ describe('dashboard posting scheduler', () => {
         scheduler.wake();
 
         await vi.waitFor(() => expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(2));
+        await scheduler.stop();
+    });
+
+    it('backs idle polling off through the 60-second recovery ceiling', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        vi.mocked(runNextDashboardPostingOperation).mockResolvedValue({ status: 'idle' });
+        const scheduler = startDashboardPostingScheduler({
+            context: createContext(),
+            logger: createLogger(),
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(runNextDashboardPostingOperation).toHaveBeenCalledOnce();
+
+        for (const [delay, expectedCalls] of [
+            [2_000, 2],
+            [5_000, 3],
+            [15_000, 4],
+            [30_000, 5],
+            [60_000, 6],
+            [60_000, 7],
+        ] as const) {
+            await vi.advanceTimersByTimeAsync(delay - 1);
+            expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(expectedCalls - 1);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(runNextDashboardPostingOperation).toHaveBeenCalledTimes(expectedCalls);
+        }
         await scheduler.stop();
     });
 

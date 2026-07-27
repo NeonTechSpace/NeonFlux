@@ -8,6 +8,7 @@ import {
     type BlueprintVerificationResult,
 } from '@neonflux/blueprint/persisted-authority';
 import { err, ok, type Result } from 'neverthrow';
+import { mapBlueprintPlanPersistenceError } from './runtime-blueprint-persistence-errors.js';
 
 import type {
     BlueprintRunStepAttemptRecord,
@@ -344,8 +345,8 @@ export async function writeBlueprintPlanDecisionBatch(
             planId: input.planId as Id<'blueprintPlans'>,
         });
         return ok(records.map(toDecision));
-    } catch {
-        return err({ type: 'database-error' });
+    } catch (error) {
+        return err(mapBlueprintPlanPersistenceError(error));
     }
 }
 

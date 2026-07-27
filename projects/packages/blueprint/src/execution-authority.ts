@@ -85,7 +85,13 @@ export async function createBlueprintPlanExecutionAuthorityPersistence(input: {
     );
     const layout = await createBlueprintPlanExecutionAuthorityLayout(input.guildId, body);
     const { bucketValues, bucketDigests, contentDigest, executionAuthorityDigest } = layout;
-    const buckets = bucketValues.map((value, bucket) =>
+    const populatedBuckets = bucketValues
+        .map((value, bucket) => ({ bucket, value }))
+        .filter(
+            ({ value }) =>
+                Object.keys(value.sourceTargetMap).length > 0 || Object.keys(value.knownTargetKinds).length > 0
+        );
+    const buckets = populatedBuckets.map(({ value, bucket }) =>
         validOrThrow(
             normalizeBlueprintPlanExecutionAuthorityBucket({
                 version: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
@@ -108,6 +114,7 @@ export async function createBlueprintPlanExecutionAuthorityPersistence(input: {
             bucketCount: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT,
             contentDigest,
             bucketDigests,
+            populatedBuckets: populatedBuckets.map(({ bucket }) => bucket),
             executionAuthorityDigest,
             createdAt: input.createdAt,
         }),
@@ -182,7 +189,7 @@ export async function validateBlueprintPlanExecutionAuthorityPersistence(input: 
 }): Promise<BlueprintContractResult<BlueprintPlanExecutionAuthorityV1>> {
     const manifest = normalizeBlueprintPlanExecutionAuthorityManifest(input.manifest);
     if (manifest.type === 'invalid') return manifest;
-    if (input.buckets.length !== BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT) {
+    if (input.buckets.length !== manifest.value.populatedBuckets.length) {
         return invalid('Blueprint plan execution authority bucket count is invalid.');
     }
     const normalizedBuckets: BlueprintPlanExecutionAuthorityBucketV1[] = [];
@@ -194,10 +201,24 @@ export async function validateBlueprintPlanExecutionAuthorityPersistence(input: 
     normalizedBuckets.sort((left, right) => left.bucket - right.bucket);
     const sourceTargetMap: Record<string, string | null> = {};
     const knownTargetKinds: BlueprintPlanExecutionAuthorityBucketV1['knownTargetKinds'] = {};
+    const populatedBuckets = new Set(manifest.value.populatedBuckets);
+    let storedBucketIndex = 0;
     for (let index = 0; index < BLUEPRINT_PLAN_EXECUTION_AUTHORITY_BUCKET_COUNT; index += 1) {
-        const bucket = normalizedBuckets[index];
+        const persistedBucket = populatedBuckets.has(index) ? normalizedBuckets[storedBucketIndex++] : undefined;
+        const bucket =
+            persistedBucket ??
+            ({
+                version: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
+                planId: manifest.value.planId,
+                guildId: manifest.value.guildId,
+                bucket: index,
+                sourceTargetMap: {},
+                knownTargetKinds: {},
+                bucketDigest: manifest.value.bucketDigests[index] ?? '',
+                createdAt: manifest.value.createdAt,
+            } satisfies BlueprintPlanExecutionAuthorityBucketV1);
         if (
-            bucket?.bucket !== index ||
+            bucket.bucket !== index ||
             bucket.planId !== manifest.value.planId ||
             bucket.guildId !== manifest.value.guildId ||
             bucket.createdAt !== manifest.value.createdAt ||
@@ -281,7 +302,26 @@ export async function validateBlueprintPlanExecutionAuthorityBucketIntegrity(inp
     manifest: BlueprintPlanExecutionAuthorityManifestV1;
     expectedBucket: number;
 }): Promise<BlueprintContractResult<BlueprintPlanExecutionAuthorityBucketV1>> {
-    const bucket = normalizeBlueprintPlanExecutionAuthorityBucket(input.bucket);
+    const expectedPopulated = input.manifest.populatedBuckets.includes(input.expectedBucket);
+    if (input.bucket === null && expectedPopulated) {
+        return invalid('Blueprint plan execution authority populated bucket is missing.');
+    }
+    if (input.bucket !== null && !expectedPopulated) {
+        return invalid('Blueprint plan execution authority unexpected bucket exists.');
+    }
+    const candidate =
+        input.bucket ??
+        ({
+            version: BLUEPRINT_PLAN_EXECUTION_AUTHORITY_VERSION,
+            planId: input.manifest.planId,
+            guildId: input.manifest.guildId,
+            bucket: input.expectedBucket,
+            sourceTargetMap: {},
+            knownTargetKinds: {},
+            bucketDigest: input.manifest.bucketDigests[input.expectedBucket] ?? '',
+            createdAt: input.manifest.createdAt,
+        } satisfies BlueprintPlanExecutionAuthorityBucketV1);
+    const bucket = normalizeBlueprintPlanExecutionAuthorityBucket(candidate);
     if (bucket.type === 'invalid') return bucket;
     if (
         bucket.value.bucket !== input.expectedBucket ||

@@ -32,6 +32,8 @@ export const structureBackupSettingsTable = defineTable({
     nextBackupAt: optionalTimestamp,
     nextDriftCheckAt: optionalTimestamp,
     nextRetentionPruneAt: optionalTimestamp,
+    retentionCutoff: optionalTimestamp,
+    retentionCursor: optionalString,
     retentionDays: v.number(),
     updatedAt: timestamp,
 })

@@ -459,11 +459,11 @@ async function loadBlueprintRunAttemptIndexedAuthority(
     for (let index = 0; index < bucketNumbers.length; index += 1) {
         const expectedBucket = bucketNumbers[index];
         const document = bucketDocuments[index];
-        if (expectedBucket === undefined || !document) {
+        if (expectedBucket === undefined) {
             throw new Error('blueprint-plan-execution-authority-bucket-missing');
         }
         const result = await validateBlueprintPlanExecutionAuthorityBucketIntegrity({
-            bucket: stripConvexMetadata(document),
+            bucket: document ? stripConvexMetadata(document) : null,
             manifest: manifestResult.value,
             expectedBucket,
         });

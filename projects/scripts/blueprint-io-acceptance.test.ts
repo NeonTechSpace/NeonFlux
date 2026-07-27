@@ -29,6 +29,8 @@ describe('Blueprint I/O acceptance metrics', () => {
 
     it('measures only explicit workload phases and rejects every unknown call inside them', () => {
         const markers = {
+            setupStart: 'setup-start-test',
+            setupEnd: 'setup-end-test',
             workerStart: 'worker-start-test',
             workerEnd: 'worker-end-test',
             historyStart: 'history-start-test',
@@ -36,6 +38,9 @@ describe('Blueprint I/O acceptance metrics', () => {
         };
         const records: Array<Record<string, unknown>> = [
             log('blueprint:createBlueprintPlanDraft', 900_000, 1),
+            markerLog(markers.setupStart),
+            log('blueprint:createStructureBackup', 12, 5),
+            markerLog(markers.setupEnd),
             markerLog(markers.workerStart),
             log('blueprint:claimNextBlueprintRun', 12, 5),
             markerLog(markers.workerEnd),
@@ -47,21 +52,22 @@ describe('Blueprint I/O acceptance metrics', () => {
         expect(
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
         ).toStrictEqual({
+            setup: [{ functionName: 'blueprint:createStructureBackup', readBytes: 12, writeBytes: 5 }],
             worker: [{ functionName: 'blueprint:claimNextBlueprintRun', readBytes: 12, writeBytes: 5 }],
             history: [{ functionName: 'blueprint:listBlueprintPlanSummariesByGuildId', readBytes: 6, writeBytes: 0 }],
         });
 
-        records.splice(3, 0, log('blueprint:getBlueprintPlanAuthority', 700 * 1024, 0));
+        records.splice(6, 0, log('blueprint:getBlueprintPlanAuthority', 700 * 1024, 0));
         expect(() =>
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
         ).toThrow(/Unexpected Convex function blueprint:getBlueprintPlanAuthority.*worker phase/u);
 
-        records.splice(3, 1, log('runtime:getRuntimeContract', 1, 0));
+        records.splice(6, 1, log('runtime:getRuntimeContract', 1, 0));
         expect(() =>
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
         ).toThrow(/Unexpected Convex function runtime:getRuntimeContract.*worker phase/u);
 
-        records.splice(3, 1);
+        records.splice(6, 1);
         records.splice(-1, 0, log('runtime:getRuntimeContract', 1, 0));
         expect(() =>
             extractBlueprintIoWorkloadMetrics(records.map((record) => JSON.stringify(record)).join('\n'), markers)
@@ -160,7 +166,9 @@ describe('Blueprint I/O acceptance metrics', () => {
                 ? { ...metric, writeBytes: 32 * 1024 * 1024 + 1 }
                 : metric
         );
-        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(workerWrite))).toThrow(/worker wrote/u);
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(workerWrite))).toThrow(
+            /8 MiB per-function/u
+        );
     });
 
     it('rejects standalone renewals, an oversized reclaim, and excessive total reads', () => {
@@ -194,7 +202,9 @@ describe('Blueprint I/O acceptance metrics', () => {
             throw new Error('Expected at least one Blueprint I/O metric.');
         }
         excessiveReads[0] = { ...firstExcessiveRead, readBytes: 4 * 1024 * 1024 };
-        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(excessiveReads))).toThrow(/worker read/u);
+        expect(() => assertBlueprintIoAcceptance(aggregateAcceptanceMetrics(excessiveReads))).toThrow(
+            /worker combined/u
+        );
     });
 
     it('rejects an unlisted measured Blueprint function', () => {
@@ -202,6 +212,7 @@ describe('Blueprint I/O acceptance metrics', () => {
             assertBlueprintIoAcceptance(
                 aggregateBlueprintIoWorkloadMetrics({
                     history: historyMetrics(),
+                    setup: defaultSetupMetrics(),
                     worker: [
                         ...validMetrics(),
                         { functionName: 'blueprint:getBlueprintPlanAuthority', readBytes: 700 * 1024, writeBytes: 0 },
@@ -242,8 +253,49 @@ describe('Blueprint I/O acceptance metrics', () => {
 function aggregateAcceptanceMetrics(metrics: ReadonlyArray<ReturnType<typeof repeat>[number]>) {
     return aggregateBlueprintIoWorkloadMetrics({
         history: metrics.filter(isHistoryMetric),
-        worker: metrics.filter((metric) => !isHistoryMetric(metric)),
+        setup: [...defaultSetupMetrics(), ...metrics.filter(isSetupMetric)],
+        worker: metrics.filter((metric) => !isHistoryMetric(metric) && !isSetupMetric(metric)),
     });
+}
+
+const setupFunctionNames = new Set([
+    'blueprint:createBlueprintPlanDraft',
+    'blueprint:createStructureBackup',
+    'blueprint:finalizeBlueprintPlan',
+    'blueprint:findLatestStructureDriftBaselineBackupByGuildId',
+    'blueprint:findStructureBackupByGuildId',
+    'blueprint:getBlueprintPlanAuthority',
+    'blueprint:getBlueprintPlanMetadata',
+    'blueprint:listBlueprintPlanDecisionsPage',
+    'blueprint:listBlueprintPlanStepsByPlanIdPage',
+    'blueprint:listStructureBackupSummaryPageByGuildId',
+    'blueprint:pruneExpiredStructureBackupsForGuild',
+    'blueprint:recordBlueprintPlanPreflight',
+    'blueprint:writeBlueprintPlanDecisionBatch',
+    'blueprint:writeBlueprintPlanStepBatch',
+]);
+
+function isSetupMetric(metric: { functionName: string }): boolean {
+    return setupFunctionNames.has(metric.functionName);
+}
+
+function defaultSetupMetrics() {
+    return [
+        ...repeat('blueprint:createStructureBackup', 50, 1),
+        ...repeat('blueprint:listStructureBackupSummaryPageByGuildId', 1, 1),
+        ...repeat('blueprint:findStructureBackupByGuildId', 1, 1),
+        ...repeat('blueprint:findLatestStructureDriftBaselineBackupByGuildId', 1, 1),
+        ...repeat('blueprint:pruneExpiredStructureBackupsForGuild', 2, 1),
+        ...repeat('blueprint:createBlueprintPlanDraft', 1, 1),
+        ...repeat('blueprint:writeBlueprintPlanDecisionBatch', 5, 1),
+        ...repeat('blueprint:writeBlueprintPlanStepBatch', 5, 1),
+        ...repeat('blueprint:finalizeBlueprintPlan', 1, 1),
+        ...repeat('blueprint:getBlueprintPlanMetadata', 1, 1),
+        ...repeat('blueprint:getBlueprintPlanAuthority', 2, 1),
+        ...repeat('blueprint:listBlueprintPlanStepsByPlanIdPage', 5, 1),
+        ...repeat('blueprint:listBlueprintPlanDecisionsPage', 5, 1),
+        ...repeat('blueprint:recordBlueprintPlanPreflight', 1, 1),
+    ];
 }
 
 function isHistoryMetric(metric: { functionName: string }): boolean {

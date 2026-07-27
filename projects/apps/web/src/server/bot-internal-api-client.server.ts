@@ -7,6 +7,11 @@ import type { WebConfig } from '@neonflux/config';
 import { createNeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
 import type { NeonFluxServiceAuthTokenProvider } from '@neonflux/convex/service-auth-token';
 import {
+    blueprintWorkerControlJwtAudience,
+    blueprintWorkerWakePath,
+    parseBlueprintWorkerWakeResponse,
+} from '@neonflux/blueprint/worker-control-contract';
+import {
     botProviderReadJwtAudience,
     createBotProviderReadGuildStructurePath,
     parseBotProviderReadGuildStructureResponse,
@@ -35,6 +40,7 @@ type BotInternalApiClientConfig = {
 };
 
 type BotInternalApiClient = BotInternalApiClientConfig & {
+    blueprintControlToken: NeonFluxServiceAuthTokenProvider;
     postingControlToken: NeonFluxServiceAuthTokenProvider;
     providerReadToken: NeonFluxServiceAuthTokenProvider;
 };
@@ -107,9 +113,31 @@ export async function readDashboardBotGuildStructure(
     }
 }
 
-export type DashboardBotPostingWakeError = 'not-configured' | 'auth-failed' | 'transport-failed' | 'invalid-response';
+type DashboardBotWorkerWakeError = 'not-configured' | 'auth-failed' | 'transport-failed' | 'invalid-response';
+export type DashboardBotPostingWakeError = DashboardBotWorkerWakeError;
+export type DashboardBotBlueprintWakeError = DashboardBotWorkerWakeError;
 
 export async function wakeDashboardBotPostingWorker(): Promise<Result<void, DashboardBotPostingWakeError>> {
+    return wakeDashboardBotWorker({
+        parseResponse: (value) => parsePostingWorkerWakeResponse(value).isOk(),
+        path: postingWorkerWakePath,
+        token: (client) => client.postingControlToken,
+    });
+}
+
+export async function wakeDashboardBotBlueprintWorker(): Promise<Result<void, DashboardBotBlueprintWakeError>> {
+    return wakeDashboardBotWorker({
+        parseResponse: (value) => parseBlueprintWorkerWakeResponse(value).type === 'valid',
+        path: blueprintWorkerWakePath,
+        token: (client) => client.blueprintControlToken,
+    });
+}
+
+async function wakeDashboardBotWorker(input: {
+    parseResponse: (value: unknown) => boolean;
+    path: string;
+    token: (client: BotInternalApiClient) => NeonFluxServiceAuthTokenProvider;
+}): Promise<Result<void, DashboardBotWorkerWakeError>> {
     let config: WebConfig;
     try {
         config = loadWebConfig();
@@ -121,14 +149,14 @@ export async function wakeDashboardBotPostingWorker(): Promise<Result<void, Dash
 
     let token: string;
     try {
-        token = await client.postingControlToken();
+        token = await input.token(client)();
     } catch {
         return err('auth-failed');
     }
 
     let response: Response;
     try {
-        response = await fetch(new URL(postingWorkerWakePath, `${client.url}/`), {
+        response = await fetch(new URL(input.path, `${client.url}/`), {
             headers: {
                 Accept: 'application/json',
                 Authorization: `Bearer ${token}`,
@@ -145,8 +173,9 @@ export async function wakeDashboardBotPostingWorker(): Promise<Result<void, Dash
     try {
         const text = await readBoundedResponseText(response, maxBotWakeResponseBytes);
         if (text === undefined) return err('invalid-response');
-        const parsed = parsePostingWorkerWakeResponse(JSON.parse(text));
-        return parsed.isOk() && response.status === 202 ? ok(undefined) : err('invalid-response');
+        return input.parseResponse(JSON.parse(text)) && response.status === 202
+            ? ok(undefined)
+            : err('invalid-response');
     } catch {
         return err('invalid-response');
     }
@@ -191,6 +220,7 @@ function readClient(config: WebConfig): BotInternalApiClient | undefined {
 
     cachedClient = {
         ...clientConfig,
+        blueprintControlToken: createTokenProvider(clientConfig, blueprintWorkerControlJwtAudience),
         postingControlToken: createTokenProvider(clientConfig, postingWorkerControlJwtAudience),
         providerReadToken: createTokenProvider(clientConfig, botProviderReadJwtAudience),
     };

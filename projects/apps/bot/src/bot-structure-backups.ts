@@ -48,7 +48,7 @@ const structureBackupBatchLimit = 25;
 const structureBackupLeaseTtlMs = 30 * 60 * 1000;
 const structureBackupMaxBatchesPerRun = 20;
 const structureBackupRetentionBatchLimit = 25;
-const structureBackupRetentionDeleteLimit = 100;
+const structureBackupRetentionDeleteLimit = 25;
 const structureDriftBatchLimit = 25;
 const structureDriftPreviewLimit = 100;
 
@@ -87,9 +87,11 @@ export async function runDueStructureBackups({
     await runDueStructureDriftMonitoring({ client, clock, database, leaseOwner, logger });
 
     const processedGuildIds = new Set<string>();
+    let cursor: string | undefined;
 
     for (let batchIndex = 0; batchIndex < structureBackupMaxBatchesPerRun; batchIndex += 1) {
         const settingsResult = await listDueStructureBackupSettings(database.db, {
+            ...(cursor ? { cursor } : {}),
             limit: structureBackupBatchLimit,
             now: clock(),
         });
@@ -99,8 +101,9 @@ export async function runDueStructureBackups({
             return;
         }
 
-        const dueSettings = settingsResult.value.filter((settings) => !processedGuildIds.has(settings.guildId));
-        if (dueSettings.length === 0) return;
+        const dueSettings = settingsResult.value.settings.filter(
+            (settings) => !processedGuildIds.has(settings.guildId)
+        );
 
         for (const settings of dueSettings) {
             processedGuildIds.add(settings.guildId);
@@ -178,7 +181,8 @@ export async function runDueStructureBackups({
             }
         }
 
-        if (settingsResult.value.length < structureBackupBatchLimit) return;
+        if (!settingsResult.value.nextCursor) return;
+        cursor = settingsResult.value.nextCursor;
     }
 
     logger.warn('structure.backup_due_batch_limit_reached', {
@@ -198,9 +202,11 @@ async function runDueStructureDriftMonitoring({
     Pick<RunDueStructureBackupsInput, 'client' | 'clock' | 'database' | 'leaseOwner' | 'logger'>
 >): Promise<void> {
     const processedGuildIds = new Set<string>();
+    let cursor: string | undefined;
 
     for (let batchIndex = 0; batchIndex < structureBackupMaxBatchesPerRun; batchIndex += 1) {
         const settingsResult = await listDueStructureDriftSettings(database.db, {
+            ...(cursor ? { cursor } : {}),
             limit: structureDriftBatchLimit,
             now: clock(),
         });
@@ -210,8 +216,9 @@ async function runDueStructureDriftMonitoring({
             return;
         }
 
-        const dueSettings = settingsResult.value.filter((settings) => !processedGuildIds.has(settings.guildId));
-        if (dueSettings.length === 0) return;
+        const dueSettings = settingsResult.value.settings.filter(
+            (settings) => !processedGuildIds.has(settings.guildId)
+        );
 
         for (const settings of dueSettings) {
             processedGuildIds.add(settings.guildId);
@@ -252,7 +259,8 @@ async function runDueStructureDriftMonitoring({
             }
         }
 
-        if (settingsResult.value.length < structureDriftBatchLimit) return;
+        if (!settingsResult.value.nextCursor) return;
+        cursor = settingsResult.value.nextCursor;
     }
 
     logger.warn('structure.scheduled_drift_due_batch_limit_reached', {
@@ -419,46 +427,62 @@ async function runDueStructureBackupRetention(input: {
     database: RuntimeDbClient;
     logger: AppLogger;
 }): Promise<void> {
-    const settingsResult = await listDueStructureBackupRetentionSettings(input.database.db, {
-        limit: structureBackupRetentionBatchLimit,
-        now: input.clock(),
-    });
-
-    if (settingsResult.isErr()) {
-        input.logger.error('structure.backup_retention_due_lookup_failed', { error: settingsResult.error });
-        return;
-    }
-
-    for (const settings of settingsResult.value) {
-        const pruneResult = await pruneExpiredStructureBackupsForGuild(input.database.db, {
-            audit: {
-                action: blueprintAuditActions.backupRetentionPruned,
-                metadata: {
-                    source: 'scheduled_retention',
-                },
-                targetId: settings.guildId,
-            },
-            guildId: settings.guildId,
-            limit: structureBackupRetentionDeleteLimit,
+    let cursor: string | undefined;
+    for (let pageIndex = 0; pageIndex < structureBackupMaxBatchesPerRun; pageIndex += 1) {
+        const settingsResult = await listDueStructureBackupRetentionSettings(input.database.db, {
+            ...(cursor ? { cursor } : {}),
+            limit: structureBackupRetentionBatchLimit,
             now: input.clock(),
         });
 
-        if (pruneResult.isErr()) {
-            input.logger.error('structure.backup_retention_prune_failed', {
-                error: pruneResult.error,
-                guildId: settings.guildId,
-            });
-            continue;
+        if (settingsResult.isErr()) {
+            input.logger.error('structure.backup_retention_due_lookup_failed', { error: settingsResult.error });
+            return;
         }
 
-        if (pruneResult.value.deletedCount > 0) {
-            input.logger.info('structure.backup_retention_pruned', {
-                deletedCount: pruneResult.value.deletedCount,
-                guildId: settings.guildId,
-                hasMore: pruneResult.value.hasMore,
-            });
+        for (const settings of settingsResult.value.settings) {
+            let hasMore = true;
+            while (hasMore) {
+                const pruneResult = await pruneExpiredStructureBackupsForGuild(input.database.db, {
+                    audit: {
+                        action: blueprintAuditActions.backupRetentionPruned,
+                        metadata: {
+                            source: 'scheduled_retention',
+                        },
+                        targetId: settings.guildId,
+                    },
+                    guildId: settings.guildId,
+                    limit: structureBackupRetentionDeleteLimit,
+                    now: input.clock(),
+                });
+
+                if (pruneResult.isErr()) {
+                    input.logger.error('structure.backup_retention_prune_failed', {
+                        error: pruneResult.error,
+                        guildId: settings.guildId,
+                    });
+                    break;
+                }
+
+                hasMore = pruneResult.value.hasMore;
+                if (pruneResult.value.deletedCount > 0) {
+                    input.logger.info('structure.backup_retention_pruned', {
+                        deletedCount: pruneResult.value.deletedCount,
+                        guildId: settings.guildId,
+                        hasMore,
+                    });
+                }
+            }
         }
+
+        if (!settingsResult.value.nextCursor) return;
+        cursor = settingsResult.value.nextCursor;
     }
+
+    input.logger.warn('structure.backup_retention_due_batch_limit_reached', {
+        batchLimit: structureBackupRetentionBatchLimit,
+        maxBatches: structureBackupMaxBatchesPerRun,
+    });
 }
 
 function toStructureBackupPayload(

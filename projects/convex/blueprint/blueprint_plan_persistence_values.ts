@@ -1,10 +1,12 @@
+import { BLUEPRINT_ARTIFACT_MAX_BYTES, BLUEPRINT_PLAN_COLD_MAX_BYTES } from '@neonflux/blueprint/artifact-chunks';
 import { getDocumentSize, type Value } from 'convex/values';
 
 export const MAX_PLAN_METADATA_BYTES = 16 * 1024;
-export const MAX_PLAN_AUTHORITY_BYTES = 700 * 1024;
+export const MAX_PLAN_AUTHORITY_BYTES = BLUEPRINT_ARTIFACT_MAX_BYTES;
 export const MAX_PLAN_EXECUTION_AUTHORITY_MANIFEST_BYTES = 8 * 1024;
 export const MAX_PLAN_EXECUTION_AUTHORITY_BUCKET_BYTES = 8 * 1024;
 export const MAX_PLAN_LEDGER_BYTES = 8 * 1024 * 1024;
+export const MAX_PLAN_COLD_PAYLOAD_BYTES = BLUEPRINT_PLAN_COLD_MAX_BYTES;
 export const MAX_PLAN_STEP_BYTES = 256 * 1024;
 
 export function assertDocumentSize(value: unknown, maximum: number, errorType: string): void {

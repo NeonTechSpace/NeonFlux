@@ -449,7 +449,8 @@ describe('historical retention', () => {
         ['blueprint-plan-preflight-evidence', 'blueprint-plan-preflights'],
         ['blueprint-plan-preflights', 'blueprint-plan-execution-authority-buckets'],
         ['blueprint-plan-execution-authority-buckets', 'blueprint-plan-execution-authorities'],
-        ['blueprint-plan-execution-authorities', 'blueprint-plan-authorities'],
+        ['blueprint-plan-execution-authorities', 'blueprint-plan-authority-chunks'],
+        ['blueprint-plan-authority-chunks', 'blueprint-plan-authorities'],
         ['blueprint-plan-authorities', 'blueprint-plan'],
     ] as const)('advances drained %s into %s', async (phase, nextPhase) => {
         const operations = createOperations();

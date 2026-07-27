@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import {
     assertDocumentSize,
+    MAX_PLAN_COLD_PAYLOAD_BYTES,
     MAX_PLAN_LEDGER_BYTES,
     MAX_PLAN_STEP_BYTES,
     requireTimestamp,
@@ -83,7 +84,11 @@ export async function writeBlueprintPlanStepBatchHandler(ctx: MutationCtx, args:
         (total, entry) => total + getDocumentSize({ ...entry, planId: args.planId, createdAt: now }),
         0
     );
-    if (plan.stepLedgerBytes + plan.decisionLedgerBytes + batchBytes > MAX_PLAN_LEDGER_BYTES) {
+    const nextLedgerBytes = plan.stepLedgerBytes + plan.decisionLedgerBytes + batchBytes;
+    if (
+        nextLedgerBytes > MAX_PLAN_LEDGER_BYTES ||
+        plan.authorityArtifactBytes + plan.executionAuthorityBytes + nextLedgerBytes > MAX_PLAN_COLD_PAYLOAD_BYTES
+    ) {
         throw new Error('blueprint-plan-ledger-too-large');
     }
     const records = [];
@@ -139,7 +144,11 @@ export async function writeBlueprintPlanDecisionBatchHandler(ctx: MutationCtx, a
             }),
         0
     );
-    if (plan.stepLedgerBytes + plan.decisionLedgerBytes + batchBytes > MAX_PLAN_LEDGER_BYTES) {
+    const nextLedgerBytes = plan.stepLedgerBytes + plan.decisionLedgerBytes + batchBytes;
+    if (
+        nextLedgerBytes > MAX_PLAN_LEDGER_BYTES ||
+        plan.authorityArtifactBytes + plan.executionAuthorityBytes + nextLedgerBytes > MAX_PLAN_COLD_PAYLOAD_BYTES
+    ) {
         throw new Error('blueprint-plan-ledger-too-large');
     }
     const records = [];

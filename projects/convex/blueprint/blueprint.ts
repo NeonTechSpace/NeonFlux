@@ -5,6 +5,7 @@ import {
     backupRecordValidator,
     backupRetentionPruneResultValidator,
     backupSettingsValidator,
+    backupSettingsPageValidator,
     backupSummaryPageValidator,
     backupSummaryRecordValidator,
     createBackupArgs,
@@ -14,7 +15,6 @@ import {
     guildIdArgs,
     leaseClaimArgs,
     leaseClearArgs,
-    listBackupsArgs,
     listBackupSummaryPageArgs,
     observedStateValidator,
     pruneBackupsArgs,
@@ -32,8 +32,6 @@ import {
     findLatestStructureDriftBaselineBackupByGuildIdHandler,
     findStructureBackupByGuildIdHandler,
     findStructureObservedEventStateByGuildIdHandler,
-    listStructureBackupsByGuildIdHandler,
-    listStructureBackupSummariesByGuildIdHandler,
     listStructureBackupSummaryPageByGuildIdHandler,
     recordStructureObservedEventHandler,
 } from './blueprint_backup_reads.js';
@@ -69,18 +67,6 @@ export const createStructureBackup = mutation({
     args: createBackupArgs,
     returns: backupRecordValidator,
     handler: createStructureBackupHandler,
-});
-
-export const listStructureBackupsByGuildId = query({
-    args: listBackupsArgs,
-    returns: v.array(backupRecordValidator),
-    handler: listStructureBackupsByGuildIdHandler,
-});
-
-export const listStructureBackupSummariesByGuildId = query({
-    args: listBackupsArgs,
-    returns: v.array(backupSummaryRecordValidator),
-    handler: listStructureBackupSummariesByGuildIdHandler,
 });
 
 export const listStructureBackupSummaryPageByGuildId = query({
@@ -127,19 +113,19 @@ export const upsertStructureBackupSettings = mutation({
 
 export const listDueStructureBackupSettings = query({
     args: dueSettingsArgs,
-    returns: v.array(backupSettingsValidator),
+    returns: backupSettingsPageValidator,
     handler: listDueStructureBackupSettingsHandler,
 });
 
 export const listDueStructureDriftSettings = query({
     args: dueSettingsArgs,
-    returns: v.array(backupSettingsValidator),
+    returns: backupSettingsPageValidator,
     handler: listDueStructureDriftSettingsHandler,
 });
 
 export const listDueStructureBackupRetentionSettings = query({
     args: dueSettingsArgs,
-    returns: v.array(backupSettingsValidator),
+    returns: backupSettingsPageValidator,
     handler: listDueStructureBackupRetentionSettingsHandler,
 });
 

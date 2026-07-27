@@ -17,6 +17,7 @@ import type * as auth_auth_store_model from "../auth/auth_store_model.js";
 import type * as auth_store from "../auth_store.js";
 import type * as blueprint from "../blueprint.js";
 import type * as blueprint_blueprint from "../blueprint/blueprint.js";
+import type * as blueprint_blueprint_artifact_persistence from "../blueprint/blueprint_artifact_persistence.js";
 import type * as blueprint_blueprint_audit from "../blueprint/blueprint_audit.js";
 import type * as blueprint_blueprint_backup_access from "../blueprint/blueprint_backup_access.js";
 import type * as blueprint_blueprint_backup_contract from "../blueprint/blueprint_backup_contract.js";
@@ -91,6 +92,7 @@ import type * as schema_posting from "../schema/posting.js";
 import type * as schema_shared from "../schema/shared.js";
 import type * as schema_tables_blueprint_plan_approvals from "../schema/tables/blueprint_plan_approvals.js";
 import type * as schema_tables_blueprint_plan_authorities from "../schema/tables/blueprint_plan_authorities.js";
+import type * as schema_tables_blueprint_plan_authority_chunks from "../schema/tables/blueprint_plan_authority_chunks.js";
 import type * as schema_tables_blueprint_plan_decisions from "../schema/tables/blueprint_plan_decisions.js";
 import type * as schema_tables_blueprint_plan_execution_authorities from "../schema/tables/blueprint_plan_execution_authorities.js";
 import type * as schema_tables_blueprint_plan_execution_authority_buckets from "../schema/tables/blueprint_plan_execution_authority_buckets.js";
@@ -124,6 +126,7 @@ import type * as schema_tables_guild_security_policies from "../schema/tables/gu
 import type * as schema_tables_guilds from "../schema/tables/guilds.js";
 import type * as schema_tables_message_templates from "../schema/tables/message_templates.js";
 import type * as schema_tables_posted_messages from "../schema/tables/posted_messages.js";
+import type * as schema_tables_structure_backup_artifact_chunks from "../schema/tables/structure_backup_artifact_chunks.js";
 import type * as schema_tables_structure_backup_settings from "../schema/tables/structure_backup_settings.js";
 import type * as schema_tables_structure_backups from "../schema/tables/structure_backups.js";
 import type * as schema_tables_web_sessions from "../schema/tables/web_sessions.js";
@@ -145,6 +148,7 @@ declare const fullApi: ApiFromModules<{
   auth_store: typeof auth_store;
   blueprint: typeof blueprint;
   "blueprint/blueprint": typeof blueprint_blueprint;
+  "blueprint/blueprint_artifact_persistence": typeof blueprint_blueprint_artifact_persistence;
   "blueprint/blueprint_audit": typeof blueprint_blueprint_audit;
   "blueprint/blueprint_backup_access": typeof blueprint_blueprint_backup_access;
   "blueprint/blueprint_backup_contract": typeof blueprint_blueprint_backup_contract;
@@ -219,6 +223,7 @@ declare const fullApi: ApiFromModules<{
   "schema/shared": typeof schema_shared;
   "schema/tables/blueprint_plan_approvals": typeof schema_tables_blueprint_plan_approvals;
   "schema/tables/blueprint_plan_authorities": typeof schema_tables_blueprint_plan_authorities;
+  "schema/tables/blueprint_plan_authority_chunks": typeof schema_tables_blueprint_plan_authority_chunks;
   "schema/tables/blueprint_plan_decisions": typeof schema_tables_blueprint_plan_decisions;
   "schema/tables/blueprint_plan_execution_authorities": typeof schema_tables_blueprint_plan_execution_authorities;
   "schema/tables/blueprint_plan_execution_authority_buckets": typeof schema_tables_blueprint_plan_execution_authority_buckets;
@@ -252,6 +257,7 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/guilds": typeof schema_tables_guilds;
   "schema/tables/message_templates": typeof schema_tables_message_templates;
   "schema/tables/posted_messages": typeof schema_tables_posted_messages;
+  "schema/tables/structure_backup_artifact_chunks": typeof schema_tables_structure_backup_artifact_chunks;
   "schema/tables/structure_backup_settings": typeof schema_tables_structure_backup_settings;
   "schema/tables/structure_backups": typeof schema_tables_structure_backups;
   "schema/tables/web_sessions": typeof schema_tables_web_sessions;

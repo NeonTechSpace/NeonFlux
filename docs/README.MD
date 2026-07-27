@@ -18,6 +18,8 @@
 > [!IMPORTANT]
 > NeonFlux is an unreleased work in progress. Breaking changes and development database resets are expected.
 
+NeonFlux uses the same validated Convex data path on hosted and self-hosted deployments. Choose hosted capacity or self-hosted resources from measured workload. The project does not promise that a particular hosted quota tier will be sufficient.
+
 ## What NeonFlux does
 
 | Feature              | In plain language                                                                                                             |

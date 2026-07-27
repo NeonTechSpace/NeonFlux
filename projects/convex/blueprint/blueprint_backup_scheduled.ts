@@ -23,6 +23,7 @@ import type {
     UpsertBackupSettingsArgs,
 } from './blueprint_backup_contract.js';
 import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
+import { deleteStructureBackupArtifactChunks } from './blueprint_artifact_persistence.js';
 import {
     addDays,
     buildStructureBackupLeaseClaimPatch,
@@ -59,9 +60,8 @@ export async function upsertStructureBackupSettingsHandler(ctx: StructureMutatio
 
     if (existing) {
         await ctx.db.patch('structureBackupSettings', existing._id, patch);
-        const updated = await findBackupSettingsDocument(ctx, guildId);
         await recordBlueprintAuditInMutation(ctx, guildId, args.audit, now, guildId);
-        return toStructureBackupSettingsRecord(updated ?? undefined, guildId);
+        return toStructureBackupSettingsRecord(applyKnownPatch(existing, patch), guildId);
     }
 
     const document = unwrap(buildStructureBackupSettingsDocument({ ...args, guildId }, now));
@@ -73,68 +73,17 @@ export async function upsertStructureBackupSettingsHandler(ctx: StructureMutatio
 
 export async function listDueStructureBackupSettingsHandler(ctx: StructureQueryCtx, args: DueSettingsArgs) {
     await requireNeonFluxService(ctx, allowedStructureServices);
-    const now = normalizeTimestamp(args.now);
-    if (!now) return [];
-    const limit = normalizeLimit(args.limit);
-
-    const settings = await ctx.db
-        .query('structureBackupSettings')
-        .withIndex('by_enabled_next_backup', (index) => index.eq('enabled', true).lte('nextBackupAt', now))
-        .take(Math.min(limit * 4, 100));
-
-    const dueSettings = [];
-
-    for (const setting of settings) {
-        if (!hasActiveBackupLease(setting, now) && (await isGuildInEffectiveBotScope(ctx, setting.guildId))) {
-            dueSettings.push(toStructureBackupSettingsRecord(setting, setting.guildId));
-        }
-
-        if (dueSettings.length >= limit) break;
-    }
-
-    return dueSettings;
+    return await listDueSettingsPage(ctx, args, 'backup');
 }
 
 export async function listDueStructureDriftSettingsHandler(ctx: StructureQueryCtx, args: DueSettingsArgs) {
     await requireNeonFluxService(ctx, ['bot']);
-    const now = normalizeTimestamp(args.now);
-    if (!now) return [];
-    const limit = normalizeLimit(args.limit);
-
-    const settings = await ctx.db
-        .query('structureBackupSettings')
-        .withIndex('by_enabled_next_drift_check', (index) => index.eq('enabled', true))
-        .take(Math.min(limit * 4, 100));
-
-    const dueSettings = [];
-
-    for (const setting of settings) {
-        if (
-            isDriftDue(setting, now) &&
-            !hasActiveDriftLease(setting, now) &&
-            (await isGuildInEffectiveBotScope(ctx, setting.guildId))
-        ) {
-            dueSettings.push(toStructureBackupSettingsRecord(setting, setting.guildId));
-        }
-
-        if (dueSettings.length >= limit) break;
-    }
-
-    return dueSettings;
+    return await listDueSettingsPage(ctx, args, 'drift');
 }
 
 export async function listDueStructureBackupRetentionSettingsHandler(ctx: StructureQueryCtx, args: DueSettingsArgs) {
     await requireNeonFluxService(ctx, ['bot']);
-    const now = normalizeTimestamp(args.now);
-    if (!now) return [];
-    const limit = normalizeLimit(args.limit);
-
-    const settings = await ctx.db
-        .query('structureBackupSettings')
-        .withIndex('by_next_retention_prune', (index) => index.lte('nextRetentionPruneAt', now))
-        .take(limit);
-
-    return settings.map((setting) => toStructureBackupSettingsRecord(setting, setting.guildId));
+    return await listDueSettingsPage(ctx, args, 'retention');
 }
 
 export async function pruneExpiredStructureBackupsForGuildHandler(ctx: StructureMutationCtx, args: PruneBackupsArgs) {
@@ -148,9 +97,12 @@ export async function pruneExpiredStructureBackupsForGuildHandler(ctx: Structure
         return { deletedCount: 0, hasMore: false, nextRetentionPruneAt: null };
     }
 
-    const limit = normalizeLimit(args.limit, 100);
+    const limit = Math.min(normalizeLimit(args.limit, 25), 25);
     const retentionDays = normalizeBackupRetentionDays(settings.retentionDays);
-    const cutoff = new Date(Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff =
+        normalizeTimestamp(settings.retentionCutoff) ??
+        new Date(Date.parse(now) - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const cursor = settings.retentionCursor;
     const restorePointCutoff = new Date(
         Date.parse(now) - restorePointMinimumRecoveryDays * 24 * 60 * 60 * 1000
     ).toISOString();
@@ -164,33 +116,55 @@ export async function pruneExpiredStructureBackupsForGuildHandler(ctx: Structure
             if (run.restorePointBackupId) protectedRestorePointIds.add(run.restorePointBackupId);
         }
     }
-    const expiredBackups = await ctx.db
-        .query('structureBackups')
-        .withIndex('by_guild_sort_key', (index) =>
-            index.eq('guildId', guildId).lt('sortKey', maxBackupSortKeyForTimestamp(cutoff))
-        )
-        .order('asc')
-        .take(limit * 10 + 1);
-    const eligibleBackups = expiredBackups.filter((backup) =>
-        isStructureBackupRetentionEligible(
+    const cutoffCursor = maxBackupSortKeyForTimestamp(cutoff);
+    const expiredQuery = cursor
+        ? ctx.db
+              .query('structureBackups')
+              .withIndex('by_guild_sort_key', (index) =>
+                  index.eq('guildId', guildId).gt('sortKey', cursor).lt('sortKey', cutoffCursor)
+              )
+        : ctx.db
+              .query('structureBackups')
+              .withIndex('by_guild_sort_key', (index) => index.eq('guildId', guildId).lt('sortKey', cutoffCursor));
+    const expiredBackups = await expiredQuery.order('asc').take(26);
+    const candidates = expiredBackups.slice(0, 25);
+    const maximumArtifactBytes = 4 * 1024 * 1024;
+    let deletedArtifactBytes = 0;
+    let deletedCount = 0;
+    let retentionCursor = cursor;
+    let stoppedForByteLimit = false;
+    for (const backup of candidates) {
+        const eligible = isStructureBackupRetentionEligible(
             { createdAt: backup.createdAt, id: String(backup._id), source: backup.source },
             { protectedRestorePointIds, restorePointCutoff }
-        )
-    );
-    const page = eligibleBackups.slice(0, limit);
-    const hasMore = eligibleBackups.length > limit;
-
-    for (const backup of page) {
+        );
+        const artifactBytes = backup.artifactBytes ?? 0;
+        if (
+            eligible &&
+            deletedCount > 0 &&
+            (deletedCount >= limit || deletedArtifactBytes + artifactBytes > maximumArtifactBytes)
+        ) {
+            stoppedForByteLimit = true;
+            break;
+        }
+        retentionCursor = backup.sortKey;
+        if (!eligible) continue;
+        await deleteStructureBackupArtifactChunks(ctx, backup._id);
         await ctx.db.delete('structureBackups', backup._id);
+        deletedCount += 1;
+        deletedArtifactBytes += artifactBytes;
     }
 
+    const hasMore = stoppedForByteLimit || expiredBackups.length > candidates.length;
     const nextRetentionPruneAt = hasMore ? now : addDays(now, 1);
     await ctx.db.patch('structureBackupSettings', settings._id, {
         nextRetentionPruneAt,
+        retentionCutoff: hasMore ? cutoff : undefined,
+        retentionCursor: hasMore ? retentionCursor : undefined,
         retentionDays,
         updatedAt: now,
     });
-    if (page.length > 0) {
+    if (deletedCount > 0) {
         await recordBlueprintAuditInMutation(
             ctx,
             guildId,
@@ -199,7 +173,8 @@ export async function pruneExpiredStructureBackupsForGuildHandler(ctx: Structure
                       ...args.audit,
                       metadata: {
                           ...(isObjectRecord(args.audit.metadata) ? args.audit.metadata : {}),
-                          deletedCount: page.length,
+                          deletedArtifactBytes,
+                          deletedCount,
                           hasMore,
                           nextRetentionPruneAt,
                           retentionDays,
@@ -211,7 +186,7 @@ export async function pruneExpiredStructureBackupsForGuildHandler(ctx: Structure
         );
     }
 
-    return { deletedCount: page.length, hasMore, nextRetentionPruneAt };
+    return { deletedCount, hasMore, nextRetentionPruneAt };
 }
 
 export async function claimDueStructureBackupSettingHandler(ctx: StructureMutationCtx, args: LeaseClaimArgs) {
@@ -238,9 +213,7 @@ export async function claimDueStructureBackupSettingHandler(ctx: StructureMutati
     if (!existing || !patch) return null;
 
     await ctx.db.patch('structureBackupSettings', existing._id, patch);
-    const updated = await findBackupSettingsDocument(ctx, guildId);
-
-    return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
+    return toStructureBackupSettingsRecord(applyKnownPatch(existing, patch), guildId);
 }
 
 export async function clearStructureBackupSettingLeaseHandler(ctx: StructureMutationCtx, args: LeaseClearArgs) {
@@ -283,9 +256,7 @@ export async function claimDueStructureDriftSettingHandler(ctx: StructureMutatio
     if (!existing || !patch) return null;
 
     await ctx.db.patch('structureBackupSettings', existing._id, patch);
-    const updated = await findBackupSettingsDocument(ctx, guildId);
-
-    return updated ? toStructureBackupSettingsRecord(updated, guildId) : null;
+    return toStructureBackupSettingsRecord(applyKnownPatch(existing, patch), guildId);
 }
 
 export async function clearStructureDriftSettingLeaseHandler(ctx: StructureMutationCtx, args: LeaseClearArgs) {
@@ -319,10 +290,93 @@ export async function recordStructureScheduledDriftResultHandler(
     const patch = unwrap(buildStructureScheduledDriftResultPatch(existing, args, now));
     await ctx.db.patch('structureBackupSettings', existing._id, patch);
     await recordBlueprintAuditInMutation(ctx, guildId, args.audit, now, guildId);
-    const updated = await findBackupSettingsDocument(ctx, guildId);
-    if (!updated) throw new Error('settings-not-found');
+    return toStructureBackupSettingsRecord(applyKnownPatch(existing, patch), guildId);
+}
 
-    return toStructureBackupSettingsRecord(updated, guildId);
+type DueSettingsKind = 'backup' | 'drift' | 'retention';
+
+async function listDueSettingsPage(ctx: StructureQueryCtx, args: DueSettingsArgs, kind: DueSettingsKind) {
+    const now = normalizeTimestamp(args.now);
+    if (!now) return { nextCursor: null, settings: [] };
+    const pageSize = Math.min(normalizeLimit(args.limit, 25), 25);
+    const deploymentConfig = await ctx.db.query('deploymentConfig').withIndex('by_config_id').unique();
+    if (!deploymentConfig) return { nextCursor: null, settings: [] };
+
+    if (deploymentConfig.instanceMode === 'single') {
+        const guildId = deploymentConfig.singleGuildId;
+        if (!guildId || args.cursor) return { nextCursor: null, settings: [] };
+        const setting = await findBackupSettingsDocument(ctx, guildId);
+        if (!setting || !isDueSetting(setting, kind, now) || !(await hasActiveInstallation(ctx, guildId))) {
+            return { nextCursor: null, settings: [] };
+        }
+        return { nextCursor: null, settings: [toStructureBackupSettingsRecord(setting, guildId)] };
+    }
+
+    const pagination = { cursor: args.cursor ?? null, numItems: pageSize };
+    const page =
+        kind === 'backup'
+            ? await ctx.db
+                  .query('structureBackupSettings')
+                  .withIndex('by_enabled_next_backup', (index) => index.eq('enabled', true).lte('nextBackupAt', now))
+                  .paginate(pagination)
+            : kind === 'drift'
+              ? await ctx.db
+                    .query('structureBackupSettings')
+                    .withIndex('by_enabled_next_drift_check', (index) =>
+                        index.eq('enabled', true).lte('nextDriftCheckAt', now)
+                    )
+                    .paginate(pagination)
+              : await ctx.db
+                    .query('structureBackupSettings')
+                    .withIndex('by_next_retention_prune', (index) => index.lte('nextRetentionPruneAt', now))
+                    .paginate(pagination);
+    const eligible = await Promise.all(
+        page.page.map(async (setting) => ({
+            eligible: isDueSetting(setting, kind, now) && (await hasActiveInstallation(ctx, setting.guildId)),
+            setting,
+        }))
+    );
+    return {
+        nextCursor: page.isDone ? null : page.continueCursor,
+        settings: eligible
+            .filter(({ eligible: isEligible }) => isEligible)
+            .map(({ setting }) => toStructureBackupSettingsRecord(setting, setting.guildId)),
+    };
+}
+
+async function hasActiveInstallation(ctx: StructureQueryCtx, guildId: string): Promise<boolean> {
+    return Boolean(
+        await ctx.db
+            .query('botInstallations')
+            .withIndex('by_guild_id', (index) => index.eq('guildId', guildId))
+            .unique()
+    );
+}
+
+function isDueSetting(setting: StructureBackupSettingsDocument, kind: DueSettingsKind, now: string): boolean {
+    switch (kind) {
+        case 'backup':
+            return setting.enabled && isTimestampDue(setting.nextBackupAt, now) && !hasActiveBackupLease(setting, now);
+        case 'drift':
+            return isDriftDue(setting, now) && !hasActiveDriftLease(setting, now);
+        case 'retention':
+            return isTimestampDue(setting.nextRetentionPruneAt, now);
+    }
+}
+
+function applyKnownPatch<T extends object>(document: T, patch: Partial<Record<keyof T, unknown>>): T {
+    const updated = new Map(Object.entries(document));
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) updated.delete(key);
+        else updated.set(key, value);
+    }
+    return Object.fromEntries(updated) as T;
+}
+
+function isTimestampDue(value: string | undefined, now: string): boolean {
+    const timestamp = Date.parse(value ?? '');
+    const parsedNow = Date.parse(now);
+    return Number.isFinite(timestamp) && Number.isFinite(parsedNow) && timestamp <= parsedNow;
 }
 
 function hasActiveBackupLease(setting: StructureBackupSettingsDocument, now: string): boolean {
