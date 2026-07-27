@@ -197,6 +197,8 @@ async function main(): Promise<void> {
                     'exec',
                     'vitest',
                     'run',
+                    '--config',
+                    'vitest.integration.config.ts',
                     'apps/web/e2e/support/authenticated-services.test.ts',
                     '--maxWorkers=1',
                     '--testNamePattern',
