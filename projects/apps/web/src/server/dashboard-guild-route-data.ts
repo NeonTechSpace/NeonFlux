@@ -9,15 +9,14 @@ import type {
     DashboardCommandSettingsPageDataResult,
 } from './dashboard-command-settings.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
+import type { DashboardAuditEventsResult, DashboardAuditSearchScope } from './dashboard-audit-events-model.js';
 import type {
-    DashboardAuditEventsResult,
-    DashboardAuditSearchScope,
     DashboardPostMessageResult,
     DashboardPostingCatalogResult,
     DashboardPostingOperationsResult,
     DashboardPostingUnknownResolutionResult,
 } from './dashboard-posting.server.js';
-import type { DashboardGuildOverviewResult } from './dashboard-overview.server.js';
+import type { DashboardGuildOverviewResult } from './dashboard-overview-model.js';
 
 const fluxerLoginPath = '/auth/fluxer/login';
 const dashboardUnavailableMessage = 'NeonFlux dashboard unavailable.';
@@ -262,7 +261,7 @@ export const readDashboardAuditEventsRouteData = createServerFn({ method: 'GET' 
     .validator(validateDashboardAuditEventsRouteInput)
     .handler(async ({ data }): Promise<DashboardAuditEventsResult> => {
         const { getRequest, setResponseHeader } = await import('@tanstack/react-start/server');
-        const { loadDashboardGuildAuditEventsPage } = await import('./dashboard-posting.server.js');
+        const { loadDashboardGuildAuditEventsPage } = await import('./dashboard-audit-events.server.js');
 
         setResponseHeader('Cache-Control', 'no-store');
 

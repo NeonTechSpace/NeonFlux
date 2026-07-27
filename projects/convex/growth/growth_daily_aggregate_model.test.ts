@@ -37,7 +37,7 @@ describe('growth daily aggregate model', () => {
         expect(shards.size).toBe(growthDailyAggregateShardCount);
     });
 
-    it('compacts 5,100 unique inviters into fixed scalar shards without cardinality growth', () => {
+    it('compacts 5,100 member events into fixed scalar shards without cardinality growth', () => {
         const aggregates = new Map<number, GuildGrowthDailyAggregateDocument>();
 
         for (let index = 0; index < 5_100; index += 1) {
@@ -49,10 +49,8 @@ describe('growth daily aggregate model', () => {
             aggregates.set(
                 shard,
                 addMemberEventToGuildGrowthDailyAggregate(current, {
-                    attributionStatus: 'attributed',
                     eventType: 'join',
                     guildId: 'guild-1',
-                    inviterUserId: `inviter-${String(index)}`,
                     occurredAt: `2026-07-10T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
                     userId,
                 })
@@ -74,16 +72,13 @@ describe('growth daily aggregate model', () => {
         const overview = toGuildOverviewAggregateFromDaily({
             dailyAggregates: [...aggregates.values()],
             days: 30,
-            inviteBaselineObservedAt: '2026-07-01T00:00:00.000Z',
-            inviteSnapshots: [],
             now: '2026-07-10T23:59:59.999Z',
         });
 
         expect(aggregates.size).toBeLessThanOrEqual(growthDailyAggregateShardCount);
-        expect(Object.keys(aggregates.values().next().value ?? {})).not.toContain('inviterJoins');
         expect(overview.memberFlow).toMatchObject({ totalJoins: 5_100, totalLeaves: 0, netGrowth: 5_100 });
-        expect(overview.invites.attribution.attributed).toBe(5_100);
-        expect(overview.dataHealth.hasInviteSnapshots).toBe(true);
+        expect(overview.activityPresence).toStrictEqual({ hasMemberFlow: true, hasMessageActivity: true });
+        expect(overview.windowDays).toBe(30);
         expect(overview.messages.totalMessages).toBe(6_000);
         expect(overview.messages.graph.at(-1)).toStrictEqual({ date: '2026-07-10', messageCount: 6_000 });
     });

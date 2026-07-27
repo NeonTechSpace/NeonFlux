@@ -74,39 +74,13 @@ export type LoggingRepositoryError = GuildFeatureRepositoryError;
 
 export type GuildMemberFlowEventType = 'join' | 'leave';
 
-export type GuildInviteAttributionStatus =
-    | 'ambiguous'
-    | 'attributed'
-    | 'baseline-missing'
-    | 'not-applicable'
-    | 'unavailable';
-
 export type GuildMemberFlowEventRecord = {
-    attributionStatus: GuildInviteAttributionStatus;
     eventType: GuildMemberFlowEventType;
     guildId: string;
     id: string;
-    inviteCode: string | null;
-    inviterUserId: string | null;
     membershipStartedAt: Date | null;
     occurredAt: Date;
     userId: string;
-};
-
-export type GuildInviteSnapshotRecord = {
-    active: boolean;
-    channelId: string | null;
-    code: string;
-    expiresAt: Date | null;
-    firstSeenAt: Date;
-    guildId: string;
-    id: string;
-    inviterUserId: string | null;
-    lastSeenAt: Date;
-    maxUses: number | null;
-    revokedAt: Date | null;
-    temporary: boolean;
-    uses: number;
 };
 
 export type GuildMessageActivityRecord = {
@@ -116,28 +90,9 @@ export type GuildMessageActivityRecord = {
     status: 'duplicate' | 'recorded';
 };
 
-export type GuildInviteSnapshotState = {
-    baselineObserved: boolean;
-    snapshots: GuildInviteSnapshotRecord[];
-};
-
-export type GuildInviteSnapshotSyncResult = {
-    baselineObserved: true;
-    snapshotCount: number;
-};
-
-export type GuildInviteSnapshotInput = {
-    channelId?: string | null;
-    code: string;
-    expiresAt?: Date | null;
-    inviterUserId?: string | null;
-    maxUses?: number | null;
-    temporary?: boolean | null;
-    uses?: number | null;
-};
-
 export type GuildOverviewAggregate = {
-    trackingStartedAt?: Date;
+    oldestRetainedActivityAt?: Date;
+    windowDays: number;
     memberFlow: {
         totalJoins: number;
         totalLeaves: number;
@@ -149,11 +104,6 @@ export type GuildOverviewAggregate = {
             netGrowth: number;
         }>;
     };
-    invites: {
-        activeInviteCount: number;
-        totalInviteUses: number;
-        attribution: Record<GuildInviteAttributionStatus, number>;
-    };
     messages: {
         totalMessages: number;
         graph: Array<{
@@ -161,8 +111,7 @@ export type GuildOverviewAggregate = {
             messageCount: number;
         }>;
     };
-    dataHealth: {
-        hasInviteSnapshots: boolean;
+    activityPresence: {
         hasMemberFlow: boolean;
         hasMessageActivity: boolean;
     };

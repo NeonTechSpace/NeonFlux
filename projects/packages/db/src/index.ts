@@ -37,11 +37,6 @@ export type {
     GuildDashboardPermissionRuleRecord,
     GuildDashboardPermissionRuleRepositoryError,
     GuildFeatureRepositoryError,
-    GuildInviteAttributionStatus,
-    GuildInviteSnapshotInput,
-    GuildInviteSnapshotRecord,
-    GuildInviteSnapshotState,
-    GuildInviteSnapshotSyncResult,
     GuildMemberFlowEventRecord,
     GuildMemberFlowEventType,
     GuildMessageActivityRecord,
@@ -102,11 +97,9 @@ export {
     deleteBotInstallation,
     findDeploymentConfig,
     listBotActionEventPageByGuildId,
-    listBotActionEventsByGuildId,
     listBotInstallationGuildIds,
     listGuildSecurityPoliciesByGuildIds,
     readDashboardGuildAuthorizationFacts,
-    recordBotActionEvent,
     upsertBotInstallation,
     upsertDeploymentConfig,
 } from './runtime.js';
@@ -140,12 +133,9 @@ export {
     upsertGuildSecurityPolicy,
 } from './runtime-settings.js';
 export {
-    listGuildInviteSnapshots,
     loadGuildOverviewAggregate,
     recordGuildMemberFlowEvent,
-    recordGuildMemberJoinWithInviteSnapshots,
     recordGuildMessageActivity,
-    syncGuildInviteSnapshots,
 } from './runtime-growth-overview.js';
 export {
     deleteMessageTemplate,

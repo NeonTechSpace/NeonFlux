@@ -246,7 +246,7 @@ function AreaWatch({ guildId }: { guildId: string }) {
     useEffect(() => {
         if (!client) return undefined;
         const watch = client.watchQuery(api.dashboard_live.listDashboardLiveStates, {
-            areas: ['overview'],
+            areas: ['audit'],
             guildId,
         });
         return watch.onUpdate(() => undefined);

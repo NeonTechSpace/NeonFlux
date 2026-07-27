@@ -1,23 +1,22 @@
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
-import type { DashboardAuditEvent } from '../server/dashboard-posting.server.js';
+import type { DashboardAuditEvent } from '../server/dashboard-audit-events-model.js';
 import { dashboardTactile } from './dashboard-motion.js';
 import { dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
-export function DashboardAuditEventRow({
-    event,
-    channelNameById,
-}: {
-    event: DashboardAuditEvent;
-    channelNameById: ReadonlyMap<string, string>;
-}) {
-    const eventTone = getAuditEventTone(event);
-    const details = getAuditEventDetails(event, channelNameById);
-    const actorName = formatAuditActorName(event) ?? (event.actorUserId ? 'Dashboard user' : 'System');
+type AuditEventDetail = {
+    key: string;
+    label: string;
+    value: ReactNode;
+};
+
+export function DashboardAuditEventRow({ event }: { event: DashboardAuditEvent }) {
+    const details = getAuditEventDetails(event);
+    const actorName = event.actorUserId ? (formatAuditActorName(event) ?? 'Dashboard user') : 'System';
 
     return (
-        <details className={`group border-l-2 ${eventTone.leftBorderClassName}`} role='listitem'>
+        <details className={`group border-l-2 ${getAuditEventBorderClassName(event)}`} role='listitem'>
             <motion.summary
                 data-dashboard-disclosure
                 className='grid min-h-[4.5rem] cursor-pointer list-none gap-2 px-3 py-2 transition outline-none hover:bg-[var(--dash-surface-raised)] focus-visible:bg-[var(--dash-surface-raised)] focus-visible:shadow-[inset_0_0_0_2px_var(--dash-primary)] md:grid-cols-[minmax(18rem,1fr)_minmax(10rem,0.55fr)_minmax(10rem,0.45fr)_1.5rem] md:items-center md:gap-3 [&::-webkit-details-marker]:hidden'
@@ -25,11 +24,11 @@ export function DashboardAuditEventRow({
                 <div className='min-w-0'>
                     <div className='flex min-w-0 flex-wrap items-center gap-2'>
                         <span
-                            className={`shrink-0 rounded-[var(--dash-radius-control)] border px-2 py-0.5 text-xs font-semibold ${eventTone.badgeClassName}`}>
+                            className={`shrink-0 rounded-[var(--dash-radius-control)] border px-2 py-0.5 text-xs font-semibold ${getAuditFeatureBadgeClassName(event.feature)}`}>
                             {formatAuditFeature(event.feature)}
                         </span>
-                        <span className='min-w-0 truncate font-mono text-sm font-semibold text-[var(--dash-text)]'>
-                            {event.action}
+                        <span className='min-w-0 truncate text-sm font-semibold text-[var(--dash-text)]'>
+                            {formatAuditAction(event)}
                         </span>
                     </div>
                 </div>
@@ -45,18 +44,26 @@ export function DashboardAuditEventRow({
             </motion.summary>
 
             <div className='border-t border-[var(--dash-border)] bg-[var(--dash-surface)] px-3 py-3'>
-                <p className='text-xs text-[var(--dash-text-subtle)]'>
-                    Event ID <span className='font-mono text-[var(--dash-text-muted)]'>{event.id}</span>
+                <p className='text-xs break-words text-[var(--dash-text-subtle)]'>
+                    Event ID <span className='font-mono break-all text-[var(--dash-text-muted)]'>{event.id}</span>
                 </p>
                 <dl className='mt-2 grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3'>
+                    <div className='min-w-0 border-b border-[var(--dash-border)] py-2'>
+                        <dt className='text-xs font-medium tracking-wide text-[var(--dash-text-subtle)] uppercase'>
+                            Event type
+                        </dt>
+                        <dd className='mt-1 min-w-0 text-sm text-[var(--dash-text)]'>
+                            <MonoValue value={event.action} />
+                        </dd>
+                    </div>
                     {details.map((detail) => (
                         <div
-                            key={detail.label}
+                            key={detail.key}
                             className='min-w-0 border-b border-[var(--dash-border)] py-2 last:border-b-0'>
                             <dt className='text-xs font-medium tracking-wide text-[var(--dash-text-subtle)] uppercase'>
                                 {detail.label}
                             </dt>
-                            <dd className='mt-1 min-w-0 text-sm text-[var(--dash-text)]'>{detail.value}</dd>
+                            <dd className='mt-1 min-w-0 text-sm break-words text-[var(--dash-text)]'>{detail.value}</dd>
                         </div>
                     ))}
                 </dl>
@@ -86,18 +93,15 @@ export function DashboardAuditEventsLoadMoreRow({
     );
 }
 
-function getAuditEventDetails(
-    event: DashboardAuditEvent,
-    channelNameById: ReadonlyMap<string, string>
-): Array<{ label: string; value: ReactNode }> {
+function getAuditEventDetails(event: DashboardAuditEvent): AuditEventDetail[] {
     const channelId = getMetadataString(event.metadata.channelId);
-    const channelName =
-        getMetadataString(event.metadata.channelName) ?? (channelId ? channelNameById.get(channelId) : undefined);
+    const channelName = getMetadataString(event.metadata.channelName);
     const messageId =
         getMetadataString(event.metadata.messageId) ?? (event.feature === 'posting' ? event.targetId : undefined);
     const targetDetail = getAuditTargetDetail(event);
     const details = [
         {
+            key: 'field:actor',
             label: 'Actor',
             value: event.actorUserId ? (
                 <NamedId name={formatAuditActorName(event)} id={event.actorUserId} />
@@ -108,6 +112,7 @@ function getAuditEventDetails(
         ...(channelId
             ? [
                   {
+                      key: 'field:channel',
                       label: 'Channel',
                       value: <NamedId name={channelName ? `#${channelName}` : undefined} id={channelId} />,
                   },
@@ -117,6 +122,7 @@ function getAuditEventDetails(
         ...(messageId
             ? [
                   {
+                      key: 'field:message',
                       label: 'Message',
                       value: <MonoValue value={messageId} />,
                   },
@@ -128,11 +134,12 @@ function getAuditEventDetails(
     return details;
 }
 
-function getAuditTargetDetail(event: DashboardAuditEvent): { label: string; value: ReactNode } | undefined {
+function getAuditTargetDetail(event: DashboardAuditEvent): AuditEventDetail | undefined {
     if (!event.targetId) return undefined;
 
     if (event.feature === 'blueprint') {
         return {
+            key: 'field:target',
             label: getBlueprintAuditTargetLabel(event.action),
             value: <MonoValue value={event.targetId} />,
         };
@@ -140,6 +147,7 @@ function getAuditTargetDetail(event: DashboardAuditEvent): { label: string; valu
 
     if (event.feature !== 'posting') {
         return {
+            key: 'field:target',
             label: 'Target',
             value: <MonoValue value={event.targetId} />,
         };
@@ -173,41 +181,81 @@ function getBlueprintAuditTargetLabel(action: string): string {
 function getAuditMetadataDetails(event: DashboardAuditEvent) {
     const metadata = event.metadata;
     const baseDetails = [
-        formatMetadataDetail('Content length', metadata.contentLength),
-        formatMetadataDetail('Embeds', metadata.embedCount),
-        formatMetadataDetail('Source', metadata.source),
-    ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
+        formatMetadataDetail('contentLength', 'Content length', metadata.contentLength),
+        formatMetadataDetail('embedCount', 'Embeds', metadata.embedCount),
+        formatMetadataDetail('source', 'Source', metadata.source),
+    ].filter((detail): detail is AuditEventDetail => Boolean(detail));
+    const featureDetails =
+        event.feature === 'blueprint'
+            ? [
+                  formatMetadataDetail(
+                      'changeCount',
+                      event.action.startsWith('blueprint.scheduled_drift_') ? 'Drift changes' : 'Changes',
+                      metadata.changeCount
+                  ),
+                  formatMetadataDetail('createCount', 'Creates', metadata.createCount),
+                  formatMetadataDetail('updateCount', 'Updates', metadata.updateCount),
+                  formatMetadataDetail('deleteCount', 'Deletes', metadata.deleteCount),
+                  formatMetadataDetail('appliedCount', 'Applied', metadata.appliedCount),
+                  formatMetadataDetail('failedCount', 'Failed', metadata.failedCount),
+                  formatMetadataDetail(
+                      metadata.backupName === undefined || metadata.backupName === null ? 'backupId' : 'backupName',
+                      'Backup',
+                      metadata.backupName ?? metadata.backupId
+                  ),
+                  formatMetadataDetail('backupSource', 'Backup source', metadata.backupSource),
+                  formatMetadataDetail('restorePointBackupId', 'Restore point', metadata.restorePointBackupId),
+                  formatMetadataDetail('deletedCount', 'Retention deleted', metadata.deletedCount),
+                  formatMetadataDetail(
+                      'status',
+                      'Drift status',
+                      event.action.startsWith('blueprint.scheduled_drift_') ? metadata.status : undefined
+                  ),
+              ].filter((detail): detail is AuditEventDetail => Boolean(detail))
+            : [];
+    const presentedMetadataKeys = new Set([
+        'actorDisplayName',
+        'actorGlobalName',
+        'actorUsername',
+        'channelId',
+        'channelName',
+        'messageId',
+        ...baseDetails.map((detail) => detail.key.slice('metadata:'.length)),
+        ...featureDetails.map((detail) => detail.key.slice('metadata:'.length)),
+    ]);
+    const genericDetails = Object.entries(metadata)
+        .filter(([key]) => !presentedMetadataKeys.has(key))
+        .map(([key, value]) => formatMetadataDetail(key, formatAuditMetadataLabel(key), value))
+        .filter((detail): detail is AuditEventDetail => Boolean(detail));
 
-    if (event.feature !== 'blueprint') return baseDetails;
-
-    const isDriftEvent = event.action.startsWith('blueprint.scheduled_drift_');
-
-    return [
-        ...baseDetails,
-        formatMetadataDetail(isDriftEvent ? 'Drift changes' : 'Plan steps', metadata.changeCount),
-        formatMetadataDetail('Creates', metadata.createCount),
-        formatMetadataDetail('Updates', metadata.updateCount),
-        formatMetadataDetail('Deletes', metadata.deleteCount),
-        formatMetadataDetail('Applied', metadata.appliedCount),
-        formatMetadataDetail('Failed', metadata.failedCount),
-        formatMetadataDetail('Backup', metadata.backupName ?? metadata.backupId),
-        formatMetadataDetail('Backup source', metadata.backupSource),
-        formatMetadataDetail('Restore point', metadata.restorePointBackupId),
-        formatMetadataDetail('Retention deleted', metadata.deletedCount),
-        formatMetadataDetail('Drift status', isDriftEvent ? metadata.status : undefined),
-    ].filter((detail): detail is { label: string; value: string } => Boolean(detail));
+    return [...baseDetails, ...featureDetails, ...genericDetails];
 }
 
-function formatMetadataDetail(label: string, value: unknown): { label: string; value: string } | undefined {
+function formatMetadataDetail(key: string, label: string, value: unknown): AuditEventDetail | undefined {
     if (typeof value === 'string' && value.trim()) {
-        return { label, value };
+        return { key: `metadata:${key}`, label, value };
     }
 
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return { label, value: String(value) };
+        return { key: `metadata:${key}`, label, value: String(value) };
     }
 
-    return undefined;
+    if (typeof value === 'boolean') {
+        return { key: `metadata:${key}`, label, value: value ? 'True' : 'False' };
+    }
+
+    return value === null ? { key: `metadata:${key}`, label, value: 'None' } : undefined;
+}
+
+function formatAuditMetadataLabel(key: string): string {
+    const words = key
+        .replace(/([a-z\d])([A-Z])/gu, '$1 $2')
+        .split(/[._\s-]+/u)
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase();
+
+    return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : key;
 }
 
 function NamedId({ name, id }: { name?: string; id: string }) {
@@ -239,37 +287,56 @@ function getMetadataString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function getAuditEventTone(event: DashboardAuditEvent) {
-    if (event.feature === 'posting') {
-        return {
-            leftBorderClassName: 'border-l-4 border-l-[var(--dash-live)]',
-            badgeClassName: 'border-[var(--dash-live)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)]',
-        };
+function getAuditEventBorderClassName(event: DashboardAuditEvent): string {
+    if (isFailureAuditAction(event.action)) {
+        return 'border-l-4 border-l-[var(--dash-danger)]';
     }
 
-    if (event.feature === 'settings') {
-        return {
-            leftBorderClassName: 'border-l-4 border-l-[var(--dash-creative)]',
-            badgeClassName: 'border-[var(--dash-creative)] bg-[var(--dash-accent-soft)] text-[var(--dash-text)]',
-        };
+    if (isWarningAuditAction(event.action)) {
+        return 'border-l-4 border-l-[var(--dash-warning)]';
     }
 
-    if (event.feature === 'security' || event.feature === 'access') {
-        return {
-            leftBorderClassName: 'border-l-4 border-l-[var(--dash-warning)]',
-            badgeClassName: 'border-[var(--dash-warning)] bg-[var(--dash-warning-soft)] text-[var(--dash-text)]',
-        };
+    return 'border-l-4 border-l-[var(--dash-border-strong)]';
+}
+
+function getAuditFeatureBadgeClassName(feature: string): string {
+    if (feature === 'posting') {
+        return 'border-[var(--dash-live)] bg-[var(--dash-primary-soft)] text-[var(--dash-text)]';
     }
 
-    return {
-        leftBorderClassName: 'border-l-4 border-l-[var(--dash-border-strong)]',
-        badgeClassName: 'border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-[var(--dash-text-muted)]',
-    };
+    if (feature === 'settings') {
+        return 'border-[var(--dash-creative)] bg-[var(--dash-accent-soft)] text-[var(--dash-text)]';
+    }
+
+    if (feature === 'security' || feature === 'access') {
+        return 'border-[var(--dash-warning)] bg-[var(--dash-warning-soft)] text-[var(--dash-text)]';
+    }
+
+    return 'border-[var(--dash-border)] bg-[var(--dash-surface-raised)] text-[var(--dash-text-muted)]';
+}
+
+function formatAuditAction(event: DashboardAuditEvent): string {
+    const featurePrefix = `${event.feature}.`;
+    const action = event.action.startsWith(featurePrefix) ? event.action.slice(featurePrefix.length) : event.action;
+    const words = action
+        .split(/[._-]+/u)
+        .filter(Boolean)
+        .join(' ');
+
+    return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : event.action;
+}
+
+function isFailureAuditAction(action: string): boolean {
+    return /(?:^|[._-])(?:failed|failure|error)(?:$|[._-])/u.test(action);
+}
+
+function isWarningAuditAction(action: string): boolean {
+    return /(?:^|[._-])(?:unknown|needs_reconciliation|drift_detected)(?:$|[._-])/u.test(action);
 }
 
 function formatAuditFeature(feature: string): string {
     return feature
-        .split('_')
+        .split(/[._-]+/u)
         .filter(Boolean)
         .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
         .join(' ');

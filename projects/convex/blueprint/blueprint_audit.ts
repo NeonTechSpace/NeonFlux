@@ -1,9 +1,7 @@
 import { v } from 'convex/values';
 
 import type { MutationCtx } from '../_generated/server.js';
-import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
-import { dashboardLiveAreasForBotActionFeature } from '../core/dashboard_live_model.js';
-import { buildBotActionEventDocument, buildBotActionEventSortKey } from '../core/events_model.js';
+import { recordBotActionEventInMutation } from '../core/events.js';
 
 const blueprintFeature = 'blueprint';
 
@@ -23,36 +21,13 @@ export async function recordBlueprintAuditInMutation(
 ): Promise<void> {
     if (!audit) return;
 
-    const document = unwrap(
-        buildBotActionEventDocument(
-            {
-                action: audit.action,
-                feature: blueprintFeature,
-                guildId,
-                metadata: audit.metadata,
-                targetId: audit.targetId ?? defaultTargetId,
-                ...(audit.actorUserId ? { actorUserId: audit.actorUserId } : {}),
-            },
-            now
-        )
-    );
-
-    const auditEventId = await ctx.db.insert('botActionEvents', document);
-    await ctx.db.patch('botActionEvents', auditEventId, {
-        sortKey: buildBotActionEventSortKey({ createdAt: document.createdAt, id: auditEventId }),
-    });
-    await markDashboardLiveAreasChangedInMutation(ctx, {
-        areas: dashboardLiveAreasForBotActionFeature(document.feature),
+    await recordBotActionEventInMutation(ctx, {
+        action: audit.action,
+        createdAt: now,
+        feature: blueprintFeature,
         guildId,
-        now: document.createdAt,
+        metadata: audit.metadata,
+        targetId: audit.targetId ?? defaultTargetId,
+        ...(audit.actorUserId ? { actorUserId: audit.actorUserId } : {}),
     });
-}
-
-function unwrap<Value>(result: { ok: true; value: Value } | { error: unknown; ok: false }): Value {
-    if (!result.ok) {
-        const error = result.error;
-        if (typeof error === 'object' && error !== null && 'type' in error) throw new Error(String(error.type));
-        throw new Error(String(error));
-    }
-    return result.value;
 }

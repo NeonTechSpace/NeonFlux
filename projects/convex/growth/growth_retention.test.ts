@@ -16,7 +16,6 @@ describe('growth retention', () => {
         expect(growthRetentionCutoff('member-events', now, 90)).toBe('2026-04-11T12:00:00.000Z');
         expect(growthRetentionCutoff('message-receipts', now, 90)).toBe('2026-04-11T12:00:00.000Z');
         expect(growthRetentionCutoff('daily-aggregates', now, 90)).toBe('2026-04-11');
-        expect(growthRetentionCutoff('inactive-invites', now, 90)).toBe('');
     });
 
     it('deletes one bounded page and self-schedules the same kind while more rows remain', async () => {
@@ -46,15 +45,14 @@ describe('growth retention', () => {
         });
     });
 
-    it('advances through every retention source and stops after inactive invites drain', async () => {
+    it('advances through every retention source and stops after aggregates drain', async () => {
         expect(nextGrowthRetentionKind('member-events')).toBe('message-receipts');
         expect(nextGrowthRetentionKind('message-receipts')).toBe('daily-aggregates');
-        expect(nextGrowthRetentionKind('daily-aggregates')).toBe('inactive-invites');
-        expect(nextGrowthRetentionKind('inactive-invites')).toBeNull();
+        expect(nextGrowthRetentionKind('daily-aggregates')).toBeNull();
 
         const operations = createOperations(0);
         const result = await executeGrowthRetentionBatch(operations, {
-            kind: 'inactive-invites',
+            kind: 'daily-aggregates',
             now: '2026-07-10T12:00:00.000Z',
             retentionDays: 90,
         });
@@ -63,7 +61,7 @@ describe('growth retention', () => {
         expect(result).toStrictEqual({
             deletedCount: 0,
             hasMore: false,
-            kind: 'inactive-invites',
+            kind: 'daily-aggregates',
             scheduledKind: null,
         });
     });

@@ -35,12 +35,10 @@ export async function recordMemberFlowEventOnce<Record>(input: {
     event: GuildMemberFlowEventDocument;
     findExistingJoin: () => Promise<Record | null>;
     insertEvent: () => Promise<Record>;
-    prepareJoin?: () => Promise<void>;
 }): Promise<Record> {
     if (input.event.eventType === 'join') {
         const existing = await input.findExistingJoin();
         if (existing) return existing;
-        await input.prepareJoin?.();
     }
 
     return await input.insertEvent();

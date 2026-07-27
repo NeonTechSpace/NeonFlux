@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { DashboardAuditSearchScope } from '../server/dashboard-posting.server.js';
+import type { DashboardAuditSearchScope } from '../server/dashboard-audit-events-model.js';
 
 export const dashboardAuditSearchScopes = [
     { value: 'all', label: 'All fields', placeholder: 'Feature, action, actor, channel, message...' },

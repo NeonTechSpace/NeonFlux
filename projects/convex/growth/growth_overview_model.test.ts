@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    buildGuildInviteSnapshotDocument,
     buildGuildMemberFlowEventDocument,
     normalizeObservedAt,
     normalizeOverviewDays,
@@ -10,7 +9,7 @@ import {
 const now = '2026-07-03T08:00:00.000Z';
 
 describe('growth overview model', () => {
-    it('normalizes member flow events and defaults attribution status', () => {
+    it('normalizes member flow events and enforces join identity', () => {
         const join = buildGuildMemberFlowEventDocument(
             {
                 eventType: 'join',
@@ -27,40 +26,24 @@ describe('growth overview model', () => {
 
         expect(join).toMatchObject({
             ok: true,
-            value: { attributionStatus: 'unavailable', eventType: 'join', membershipStartedAt: now },
+            value: { eventType: 'join', membershipStartedAt: now },
         });
         expect(leave).toMatchObject({
             ok: true,
-            value: { attributionStatus: 'not-applicable', eventType: 'leave' },
+            value: { eventType: 'leave' },
         });
-    });
-
-    it('normalizes current invite snapshots', () => {
-        const snapshot = buildGuildInviteSnapshotDocument(
-            'guild-1',
-            {
-                channelId: ' channel-1 ',
-                code: ' invite-a ',
-                inviterUserId: ' inviter-1 ',
-                maxUses: 10,
-                temporary: true,
-                uses: 4,
-            },
-            now,
-            { firstSeenAt: '2026-07-01T00:00:00.000Z' }
-        );
-
-        expect(snapshot).toMatchObject({
-            ok: true,
-            value: {
-                active: true,
-                channelId: 'channel-1',
-                code: 'invite-a',
-                firstSeenAt: '2026-07-01T00:00:00.000Z',
-                maxUses: 10,
-                temporary: true,
-                uses: 4,
-            },
+        expect(
+            buildGuildMemberFlowEventDocument(
+                {
+                    eventType: 'join',
+                    guildId: 'guild-1',
+                    userId: 'user-1',
+                },
+                now
+            )
+        ).toEqual({
+            error: { field: 'membershipStartedAt', type: 'missing-input' },
+            ok: false,
         });
     });
 

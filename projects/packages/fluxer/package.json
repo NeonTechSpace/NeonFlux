@@ -33,12 +33,6 @@
             "production": "./dist/guilds.js",
             "import": "./dist/guilds.js"
         },
-        "./invites": {
-            "types": "./src/invites.ts",
-            "development": "./src/invites.ts",
-            "production": "./dist/invites.js",
-            "import": "./dist/invites.js"
-        },
         "./messages": {
             "types": "./src/messages.ts",
             "development": "./src/messages.ts",

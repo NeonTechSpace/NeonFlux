@@ -4,12 +4,11 @@ import { createHash } from 'node:crypto';
 
 import {
     enqueueDashboardPostingOperation,
-    listBotActionEventPageByGuildId,
     listDashboardPostingOperationsByGuild,
     normalizeDashboardPostingPayload as normalizeDashboardPostingPayloadForQueue,
     resolveDashboardPostingOperationUnknown,
 } from '@neonflux/db';
-import type { BotActionEventSearchScope, DashboardPostingOperationRecord } from '@neonflux/db';
+import type { DashboardPostingOperationRecord } from '@neonflux/db';
 import { parseOutgoingMessage, serializeDashboardPostingPayload } from '@neonflux/messaging';
 import type { DashboardPostingOperationResolution, OutgoingEmbed, OutgoingMessage } from '@neonflux/messaging';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer/guild-structure';
@@ -57,9 +56,6 @@ type DashboardPostingCatalog = {
     roles: DashboardPostingRole[];
 };
 
-type DashboardAuditMetadata = Record<string, string | number | boolean | null>;
-export type DashboardAuditSearchScope = BotActionEventSearchScope;
-
 export type DashboardPostMessageResult =
     | {
           type: 'operation';
@@ -105,30 +101,6 @@ export type DashboardPostingOperationsResult =
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' };
 
-export type DashboardAuditEvent = {
-    id: string;
-    feature: string;
-    action: string;
-    actorUserId?: string;
-    actorUsername?: string;
-    actorDisplayName?: string;
-    targetId?: string;
-    metadata: DashboardAuditMetadata;
-    createdAt: string;
-};
-
-export type DashboardAuditEventsResult =
-    | {
-          type: 'events';
-          auditEvents: DashboardAuditEvent[];
-          nextCursor?: string;
-      }
-    | { type: 'auth-required' }
-    | { type: 'not-found' }
-    | { type: 'deployment-config-not-found' }
-    | { type: 'database-error' }
-    | { type: 'guild-lookup-failed' };
-
 export type DashboardPostingCatalogResult =
     | {
           type: 'catalog';
@@ -164,17 +136,7 @@ export type DashboardPostingUnknownResolutionResult =
     | { type: 'database-error' }
     | { type: 'guild-lookup-failed' };
 
-type DashboardAuditEventsInput = {
-    guildId: string;
-    cursor?: string;
-    limit?: number;
-    search?: string;
-    searchScope?: DashboardAuditSearchScope;
-    searchOffsetMinutes?: number;
-};
-
 const postableChannelTypes = new Set([0]);
-const dashboardAuditPageSize = 40;
 
 export async function postDashboardGuildMessage(
     request: Request,
@@ -348,44 +310,6 @@ export async function resolveDashboardGuildPostingUnknown(
     return { type: 'resolved', operation: toDashboardPostingOperation(result.value) };
 }
 
-export async function loadDashboardGuildAuditEventsPage(
-    request: Request,
-    input: DashboardAuditEventsInput
-): Promise<DashboardAuditEventsResult> {
-    const guildPageData = await loadDashboardGuildPageData(request, input.guildId);
-
-    if (guildPageData.type !== 'guild') {
-        return mapDashboardGuildPageError(guildPageData);
-    }
-
-    const cursor = normalizeDashboardAuditCursor(input.cursor);
-
-    if (cursor === 'invalid') {
-        return { type: 'database-error' };
-    }
-
-    const database = await getWebDb();
-    const currentActorProfile = await resolveCurrentRequestActorProfile(request);
-    const eventsResult = await listBotActionEventPageByGuildId(database.db, {
-        guildId: guildPageData.guild.id,
-        ...(cursor ? { cursor } : {}),
-        limit: input.limit ?? dashboardAuditPageSize,
-        ...(input.search ? { search: input.search } : {}),
-        ...(input.searchScope ? { searchScope: input.searchScope } : {}),
-        ...(typeof input.searchOffsetMinutes === 'number' ? { searchOffsetMinutes: input.searchOffsetMinutes } : {}),
-    });
-
-    if (eventsResult.isErr()) {
-        return { type: 'database-error' };
-    }
-
-    return {
-        type: 'events',
-        auditEvents: eventsResult.value.records.map((record) => toDashboardAuditEvent(record, currentActorProfile)),
-        ...(eventsResult.value.nextCursor ? { nextCursor: eventsResult.value.nextCursor } : {}),
-    };
-}
-
 export async function loadDashboardGuildPostingCatalog(
     request: Request,
     guildId: string
@@ -473,83 +397,16 @@ function mapDashboardGuildPageError(
     }
 }
 
-type DashboardAuditActorProfile = {
+type DashboardPostingActorProfile = {
     id: string;
     username: string;
     displayName?: string;
 };
 
-function toDashboardAuditEvent(
-    record: {
-        id: string;
-        feature: string;
-        action: string;
-        actorUserId: string | null;
-        targetId: string | null;
-        metadata: Record<string, unknown>;
-        createdAt: Date;
-    },
-    currentActorProfile?: DashboardAuditActorProfile
-): DashboardAuditEvent {
-    const metadata = toDashboardAuditMetadata(record.metadata);
-    const actorUsername = resolveDashboardAuditActorUsername(record, currentActorProfile);
-    const actorDisplayName = resolveDashboardAuditActorDisplayName(record, currentActorProfile);
-
-    return {
-        id: record.id,
-        feature: record.feature,
-        action: record.action,
-        ...(record.actorUserId ? { actorUserId: record.actorUserId } : {}),
-        ...(actorUsername ? { actorUsername } : {}),
-        ...(actorDisplayName ? { actorDisplayName } : {}),
-        ...(record.targetId ? { targetId: record.targetId } : {}),
-        metadata,
-        createdAt: record.createdAt.toISOString(),
-    };
-}
-
-function resolveDashboardAuditActorUsername(
-    record: {
-        actorUserId: string | null;
-        metadata: Record<string, unknown>;
-    },
-    currentActorProfile?: DashboardAuditActorProfile
-): string | undefined {
-    if (record.actorUserId && currentActorProfile?.id === record.actorUserId) {
-        return currentActorProfile.username;
-    }
-
-    return getMetadataString(record.metadata.actorUsername);
-}
-
-function resolveDashboardAuditActorDisplayName(
-    record: {
-        actorUserId: string | null;
-        metadata: Record<string, unknown>;
-    },
-    currentActorProfile?: DashboardAuditActorProfile
-): string | undefined {
-    if (record.actorUserId && currentActorProfile?.id === record.actorUserId) {
-        return currentActorProfile.displayName;
-    }
-
-    return getMetadataString(record.metadata.actorDisplayName) ?? getMetadataString(record.metadata.actorGlobalName);
-}
-
-async function resolveCurrentRequestActorProfile(request: Request): Promise<DashboardAuditActorProfile | undefined> {
-    const authContextResult = await readAuthenticatedFluxerContext(request);
-
-    if (authContextResult.isErr()) {
-        return undefined;
-    }
-
-    return resolveAuthenticatedActorProfile(authContextResult.value);
-}
-
 async function resolveAuthenticatedActorProfile(input: {
     fluxerUserId: string;
     accessToken: string;
-}): Promise<DashboardAuditActorProfile | undefined> {
+}): Promise<DashboardPostingActorProfile | undefined> {
     const currentUserResult = await getFluxerCurrentUser({
         accessToken: input.accessToken,
     });
@@ -558,10 +415,10 @@ async function resolveAuthenticatedActorProfile(input: {
         return undefined;
     }
 
-    return toDashboardAuditActorProfile(currentUserResult.value);
+    return toDashboardPostingActorProfile(currentUserResult.value);
 }
 
-function toDashboardAuditActorProfile(user: FluxerCurrentUser): DashboardAuditActorProfile {
+function toDashboardPostingActorProfile(user: FluxerCurrentUser): DashboardPostingActorProfile {
     return {
         id: user.id,
         username: user.username,
@@ -643,35 +500,4 @@ function describeOutgoingMessageError(code: string): string {
         default:
             return 'The message contains an unsupported or invalid embed value.';
     }
-}
-
-function toDashboardAuditMetadata(metadata: Record<string, unknown>): DashboardAuditMetadata {
-    const serializableMetadata: DashboardAuditMetadata = {};
-
-    for (const [key, value] of Object.entries(metadata)) {
-        if (typeof value === 'string' || typeof value === 'boolean' || value === null) {
-            serializableMetadata[key] = value;
-            continue;
-        }
-
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            serializableMetadata[key] = value;
-        }
-    }
-
-    return serializableMetadata;
-}
-
-function getMetadataString(value: unknown): string | undefined {
-    return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function normalizeDashboardAuditCursor(cursor: string | undefined): string | undefined | 'invalid' {
-    if (!cursor) {
-        return undefined;
-    }
-
-    const normalizedCursor = cursor.trim();
-
-    return normalizedCursor ? normalizedCursor : 'invalid';
 }

@@ -6,13 +6,12 @@ import { dataRetentionCutoff, readDataRetentionDays } from '../retention/retenti
 
 export const growthRetentionBatchSize = 200;
 
-export type GrowthRetentionKind = 'member-events' | 'message-receipts' | 'daily-aggregates' | 'inactive-invites';
+export type GrowthRetentionKind = 'member-events' | 'message-receipts' | 'daily-aggregates';
 
 type GrowthRetentionId =
     | GenericId<'guildMemberFlowEvents'>
     | GenericId<'guildMessageActivityReceipts'>
-    | GenericId<'guildGrowthDailyAggregates'>
-    | GenericId<'guildInviteSnapshots'>;
+    | GenericId<'guildGrowthDailyAggregates'>;
 
 export type GrowthRetentionOperations = {
     deleteIds: (kind: GrowthRetentionKind, ids: GrowthRetentionId[]) => Promise<void>;
@@ -23,8 +22,7 @@ export type GrowthRetentionOperations = {
 const growthRetentionKindValidator = v.union(
     v.literal('member-events'),
     v.literal('message-receipts'),
-    v.literal('daily-aggregates'),
-    v.literal('inactive-invites')
+    v.literal('daily-aggregates')
 );
 
 export const pruneGrowthRetentionBatch = internalMutation({
@@ -71,8 +69,6 @@ export async function executeGrowthRetentionBatch(
 }
 
 export function growthRetentionCutoff(kind: GrowthRetentionKind, now: string, retentionDays: number): string {
-    if (kind === 'inactive-invites') return '';
-
     const cutoff = dataRetentionCutoff(now, retentionDays);
     return kind === 'daily-aggregates' ? cutoff.slice(0, 10) : cutoff;
 }
@@ -84,8 +80,6 @@ export function nextGrowthRetentionKind(kind: GrowthRetentionKind): GrowthRetent
         case 'message-receipts':
             return 'daily-aggregates';
         case 'daily-aggregates':
-            return 'inactive-invites';
-        case 'inactive-invites':
             return null;
     }
 }
@@ -109,9 +103,6 @@ function createGrowthRetentionOperations(ctx: MutationCtx): GrowthRetentionOpera
                             'guildGrowthDailyAggregates',
                             id as GenericId<'guildGrowthDailyAggregates'>
                         );
-                        break;
-                    case 'inactive-invites':
-                        await ctx.db.delete('guildInviteSnapshots', id as GenericId<'guildInviteSnapshots'>);
                         break;
                 }
             }
@@ -149,13 +140,6 @@ async function loadExpiredGrowthIds(
                 await ctx.db
                     .query('guildGrowthDailyAggregates')
                     .withIndex('by_date', (index) => index.lt('activityDate', cutoff))
-                    .take(limit)
-            ).map((row) => row._id);
-        case 'inactive-invites':
-            return (
-                await ctx.db
-                    .query('guildInviteSnapshots')
-                    .withIndex('by_active', (index) => index.eq('active', false))
                     .take(limit)
             ).map((row) => row._id);
     }

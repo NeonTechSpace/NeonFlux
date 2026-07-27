@@ -51,19 +51,16 @@ describe('growth event integrity', () => {
         expect(order).toStrictEqual(['receipt', 'aggregate']);
     });
 
-    it('checks join identity before invite preparation and insertion', async () => {
+    it('checks join identity before insertion', async () => {
         const existing = { id: 'member-event-1' };
-        const prepareJoin = vi.fn(() => Promise.resolve());
         const insertEvent = vi.fn(() => Promise.resolve({ id: 'new-event' }));
         const result = await recordMemberFlowEventOnce({
             event: createJoin(),
             findExistingJoin: () => Promise.resolve(existing),
             insertEvent,
-            prepareJoin,
         });
 
         expect(result).toBe(existing);
-        expect(prepareJoin).not.toHaveBeenCalled();
         expect(insertEvent).not.toHaveBeenCalled();
     });
 
@@ -84,7 +81,6 @@ describe('growth event integrity', () => {
 
 function createJoin(): GuildMemberFlowEventDocument {
     return {
-        attributionStatus: 'unavailable',
         eventType: 'join',
         guildId: 'guild-1',
         membershipStartedAt: '2026-07-14T01:00:00.000Z',
@@ -95,7 +91,6 @@ function createJoin(): GuildMemberFlowEventDocument {
 
 function createLeave(): GuildMemberFlowEventDocument {
     return {
-        attributionStatus: 'not-applicable',
         eventType: 'leave',
         guildId: 'guild-1',
         occurredAt: '2026-07-14T02:00:00.000Z',

@@ -1,7 +1,6 @@
 import { v, type GenericId } from 'convex/values';
 
 import { requireNeonFluxService } from '../auth.js';
-import { clearGuildGrowthCurrentState } from '../growth/growth_current_state_lifecycle.js';
 import { markDashboardCatalogChangedInMutation } from './dashboard_catalog.js';
 import {
     buildDeploymentConfigDocument,
@@ -271,7 +270,6 @@ export const deleteBotInstallation = mutation({
         const installation = await findBotInstallationDocument(ctx, guildId);
         const now = new Date().toISOString();
 
-        await clearGuildGrowthCurrentState(ctx, guildId);
         await disableGuildStructureScheduling(ctx, guildId, now);
 
         if (!installation) {

@@ -1,4 +1,4 @@
-export const dashboardLiveAreas = ['overview', 'commands', 'posting', 'blueprint', 'blueprint_run', 'audit'] as const;
+export const dashboardLiveAreas = ['commands', 'posting', 'blueprint', 'blueprint_run', 'audit'] as const;
 
 export type DashboardLiveArea = (typeof dashboardLiveAreas)[number];
 export const blueprintRunLiveAreas = ['blueprint_run'] as const satisfies readonly DashboardLiveArea[];

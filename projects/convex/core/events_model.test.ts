@@ -90,6 +90,48 @@ describe('bot action event model', () => {
             error: 'invalid-metadata',
             ok: false,
         });
+        expect(
+            buildBotActionEventDocument(
+                { action: 'created', feature: 'posting', metadata: { nested: { token: 'not-allowed' } } },
+                '2026-07-03T07:00:00.000Z'
+            )
+        ).toEqual({
+            error: 'invalid-metadata',
+            ok: false,
+        });
+        expect(
+            buildBotActionEventDocument(
+                { action: 'created', feature: 'posting', metadata: new Date('2026-07-03T07:00:00.000Z') },
+                '2026-07-03T07:00:00.000Z'
+            )
+        ).toEqual({
+            error: 'invalid-metadata',
+            ok: false,
+        });
+        expect(
+            buildBotActionEventDocument(
+                { action: 'created', feature: 'posting', metadata: { ' ': 'not-allowed' } },
+                '2026-07-03T07:00:00.000Z'
+            )
+        ).toEqual({
+            error: 'invalid-metadata',
+            ok: false,
+        });
+        expect(
+            buildBotActionEventDocument(
+                { action: 'created', feature: 'posting', metadata: { failureReason: 'x'.repeat(1_001) } },
+                '2026-07-03T07:00:00.000Z'
+            )
+        ).toEqual({
+            error: 'invalid-metadata',
+            ok: false,
+        });
+        expect(
+            buildBotActionEventDocument({ action: 'x'.repeat(129), feature: 'posting' }, '2026-07-03T07:00:00.000Z')
+        ).toEqual({
+            error: 'invalid-action',
+            ok: false,
+        });
     });
 
     it('normalizes bounded cursor and search input', () => {
@@ -98,6 +140,10 @@ describe('bot action event model', () => {
             value: 'opaque-cursor',
         });
         expect(normalizeBotActionEventCursor(' ')).toEqual({
+            error: 'invalid-cursor',
+            ok: false,
+        });
+        expect(normalizeBotActionEventCursor('x'.repeat(1_025))).toEqual({
             error: 'invalid-cursor',
             ok: false,
         });

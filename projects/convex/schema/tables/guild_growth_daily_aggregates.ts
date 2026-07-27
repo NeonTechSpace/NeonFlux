@@ -5,17 +5,12 @@ import { optionalTimestamp, timestamp } from '../shared.js';
 
 export const guildGrowthDailyAggregatesTable = defineTable({
     activityDate: v.string(),
-    ambiguousCount: v.number(),
-    attributedCount: v.number(),
-    baselineMissingCount: v.number(),
     firstEventAt: optionalTimestamp,
     guildId: v.string(),
     joins: v.number(),
     leaves: v.number(),
     messageCount: v.number(),
-    notApplicableCount: v.number(),
     shard: v.number(),
-    unavailableCount: v.number(),
     updatedAt: timestamp,
 })
     .index('by_guild_date', ['guildId', 'activityDate'])

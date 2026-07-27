@@ -41,8 +41,11 @@ export type BotActionEventRecord = {
 };
 
 export type BotActionEventInputError =
+    | 'invalid-action'
     | 'invalid-created-at'
     | 'invalid-cursor'
+    | 'invalid-feature'
+    | 'invalid-identifier'
     | 'invalid-metadata'
     | 'missing-action'
     | 'missing-feature'
@@ -57,6 +60,14 @@ type BotActionEventOpaqueCursorPayload = {
     k: string;
     v: 1;
 };
+
+const botActionEventIdentifierMaxLength = 256;
+const botActionEventTypeMaxLength = 128;
+const botActionEventMetadataKeyMaxLength = 64;
+const botActionEventMetadataStringMaxLength = 1_000;
+const botActionEventMetadataMaxKeys = 32;
+const botActionEventMetadataMaxBytes = 8_192;
+const botActionEventCursorMaxLength = 1_024;
 
 export type EventInputResult<Value, ErrorValue extends string> =
     | { ok: true; value: Value }
@@ -79,6 +90,14 @@ export function buildBotActionEventDocument(
         return { error: 'missing-action', ok: false };
     }
 
+    if (feature.length > botActionEventTypeMaxLength) {
+        return { error: 'invalid-feature', ok: false };
+    }
+
+    if (action.length > botActionEventTypeMaxLength) {
+        return { error: 'invalid-action', ok: false };
+    }
+
     if (!createdAt) {
         return { error: 'invalid-created-at', ok: false };
     }
@@ -90,6 +109,10 @@ export function buildBotActionEventDocument(
     const guildId = normalizeOptionalString(input.guildId);
     const actorUserId = normalizeOptionalString(input.actorUserId);
     const targetId = normalizeOptionalString(input.targetId);
+
+    if ([guildId, actorUserId, targetId].some((value) => value && value.length > botActionEventIdentifierMaxLength)) {
+        return { error: 'invalid-identifier', ok: false };
+    }
 
     return {
         ok: true,
@@ -122,7 +145,7 @@ export function normalizeBotActionEventCursor(
 
     const normalizedCursor = normalizeOptionalString(cursor);
 
-    if (!normalizedCursor) {
+    if (!normalizedCursor || normalizedCursor.length > botActionEventCursorMaxLength) {
         return { error: 'invalid-cursor', ok: false };
     }
 
@@ -203,7 +226,7 @@ export function decodeBotActionEventCursor(
 > {
     const normalizedCursor = normalizeOptionalString(cursor);
 
-    if (!normalizedCursor) {
+    if (!normalizedCursor || normalizedCursor.length > botActionEventCursorMaxLength) {
         return { error: 'invalid-cursor', ok: false };
     }
 
@@ -313,15 +336,57 @@ function normalizeMetadata(
         return { ok: true, value: {} };
     }
 
-    if (isPlainRecord(value)) {
-        return { ok: true, value };
+    if (!isPlainRecord(value)) {
+        return { error: 'invalid-metadata', ok: false };
     }
 
-    return { error: 'invalid-metadata', ok: false };
+    const entries = Object.entries(value).filter((entry): entry is [string, Exclude<unknown, undefined>] => {
+        return entry[1] !== undefined;
+    });
+
+    if (entries.length > botActionEventMetadataMaxKeys) {
+        return { error: 'invalid-metadata', ok: false };
+    }
+
+    const metadata: Record<string, boolean | number | string | null> = {};
+
+    for (const [key, entry] of entries) {
+        if (
+            key.length === 0 ||
+            key !== key.trim() ||
+            key.length > botActionEventMetadataKeyMaxLength ||
+            !isBotActionEventMetadataScalar(entry) ||
+            (typeof entry === 'string' && entry.length > botActionEventMetadataStringMaxLength)
+        ) {
+            return { error: 'invalid-metadata', ok: false };
+        }
+
+        metadata[key] = entry;
+    }
+
+    if (new TextEncoder().encode(JSON.stringify(metadata)).byteLength > botActionEventMetadataMaxBytes) {
+        return { error: 'invalid-metadata', ok: false };
+    }
+
+    return { ok: true, value: metadata };
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const prototype = Reflect.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+}
+
+function isBotActionEventMetadataScalar(value: unknown): value is boolean | number | string | null {
+    return (
+        value === null ||
+        typeof value === 'boolean' ||
+        typeof value === 'string' ||
+        (typeof value === 'number' && Number.isFinite(value))
+    );
 }
 
 function normalizeSearchScope(scope: string | undefined): BotActionEventSearchScope {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
-import type { DashboardGuildOverview } from '../server/dashboard-overview.server.js';
+import type { DashboardGuildOverview } from '../server/dashboard-overview-model.js';
 import { DashboardEmptyState, DashboardSurface } from './dashboard-ui.js';
 
 type MemberFlowChartDay = DashboardGuildOverview['memberFlow']['graph'][number] & { leaveLoss: number };
@@ -16,7 +16,7 @@ export function DashboardServerOverviewCharts({ overview }: { overview: Dashboar
 }
 
 function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
-    if (!overview.dataHealth.hasMemberFlow) {
+    if (!overview.activityPresence.hasMemberFlow) {
         return (
             <ChartPanel title='Member flow' legendItems={[]}>
                 <DashboardEmptyState
@@ -33,6 +33,7 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
     return (
         <ChartPanel
             title='Member flow'
+            summary={formatMemberFlowChartSummary(overview.memberFlow.graph)}
             legendItems={[
                 { label: 'Joins', className: 'bg-[var(--dash-live)]' },
                 { label: 'Leaves', className: 'bg-[var(--dash-creative)]' },
@@ -40,13 +41,18 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
             ]}>
             <ResponsiveContainer width='100%' height='100%'>
                 <LineChart data={chartData} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
-                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
+                    <CartesianGrid
+                        stroke='var(--dash-border)'
+                        strokeOpacity={0.7}
+                        strokeDasharray='4 4'
+                        vertical={false}
+                    />
                     <XAxis
                         dataKey='date'
                         minTickGap={24}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
+                        tick={{ fill: 'var(--dash-text-muted)', fontSize: 12 }}
                         tickFormatter={formatChartDate}
                     />
                     <YAxis
@@ -54,11 +60,11 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
                         allowDecimals={false}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
+                        tick={{ fill: 'var(--dash-text-muted)', fontSize: 12 }}
                         tickFormatter={(value) => String(Math.abs(Number(value)))}
                     />
                     <Tooltip
-                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
+                        cursor={{ stroke: 'var(--dash-primary)', strokeOpacity: 0.35 }}
                         contentStyle={chartTooltipStyle}
                         labelStyle={chartTooltipLabelStyle}
                         itemStyle={chartTooltipItemStyle}
@@ -99,12 +105,12 @@ function MemberFlowChart({ overview }: { overview: DashboardGuildOverview }) {
 }
 
 function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }) {
-    if (!overview.dataHealth.hasMessageActivity) {
+    if (!overview.activityPresence.hasMessageActivity) {
         return (
-            <ChartPanel title='Message activity' legendItems={[]}>
+            <ChartPanel title='Member messages' legendItems={[]}>
                 <DashboardEmptyState
-                    title='No message activity yet'
-                    description='Daily message counts will appear after activity is observed.'
+                    title='No member message activity yet'
+                    description='Daily member-authored message counts will appear after activity is observed.'
                 />
             </ChartPanel>
         );
@@ -112,7 +118,10 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
 
     const domain = getMessageActivityDomain(overview.messages.graph);
     return (
-        <ChartPanel title='Message activity' legendItems={[{ label: 'Messages', className: 'bg-[var(--dash-live)]' }]}>
+        <ChartPanel
+            title='Member messages'
+            summary={formatMessageChartSummary(overview.messages.graph)}
+            legendItems={[{ label: 'Member messages', className: 'bg-[var(--dash-live)]' }]}>
             <ResponsiveContainer width='100%' height='100%'>
                 <AreaChart data={overview.messages.graph} margin={{ top: 12, right: 10, bottom: 0, left: -16 }}>
                     <defs>
@@ -121,13 +130,18 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
                             <stop offset='95%' stopColor='var(--dash-live)' stopOpacity={0.02} />
                         </linearGradient>
                     </defs>
-                    <CartesianGrid stroke='rgba(135,146,165,0.16)' strokeDasharray='4 4' vertical={false} />
+                    <CartesianGrid
+                        stroke='var(--dash-border)'
+                        strokeOpacity={0.7}
+                        strokeDasharray='4 4'
+                        vertical={false}
+                    />
                     <XAxis
                         dataKey='date'
                         minTickGap={24}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
+                        tick={{ fill: 'var(--dash-text-muted)', fontSize: 12 }}
                         tickFormatter={formatChartDate}
                     />
                     <YAxis
@@ -135,10 +149,10 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
                         allowDecimals={false}
                         tickLine={false}
                         axisLine={false}
-                        tick={{ fill: 'rgb(177 186 200)', fontSize: 12 }}
+                        tick={{ fill: 'var(--dash-text-muted)', fontSize: 12 }}
                     />
                     <Tooltip
-                        cursor={{ stroke: 'rgb(14 165 233)', strokeOpacity: 0.35 }}
+                        cursor={{ stroke: 'var(--dash-primary)', strokeOpacity: 0.35 }}
                         contentStyle={chartTooltipStyle}
                         labelStyle={chartTooltipLabelStyle}
                         itemStyle={chartTooltipItemStyle}
@@ -148,7 +162,7 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
                     <Area
                         type='monotone'
                         dataKey='messageCount'
-                        name='Messages'
+                        name='Member messages'
                         stroke='var(--dash-live)'
                         strokeWidth={2}
                         fill='url(#messageActivityFill)'
@@ -163,10 +177,12 @@ function MessageActivityChart({ overview }: { overview: DashboardGuildOverview }
 
 function ChartPanel({
     title,
+    summary,
     legendItems,
     children,
 }: {
     title: string;
+    summary?: string;
     legendItems: Array<{ label: string; className: string }>;
     children: ReactNode;
 }) {
@@ -176,6 +192,7 @@ function ChartPanel({
                 <h3 className='text-lg font-semibold text-[var(--dash-text)]'>{title}</h3>
                 {legendItems.length > 0 ? <ChartLegend items={legendItems} /> : null}
             </div>
+            {summary ? <p className='sr-only'>{summary}</p> : null}
             <div className='mt-4 h-64'>{children}</div>
         </DashboardSurface>
     );
@@ -183,7 +200,7 @@ function ChartPanel({
 
 function ChartLegend({ items }: { items: Array<{ label: string; className: string }> }) {
     return (
-        <div className='flex flex-wrap gap-3 text-xs font-semibold text-[var(--dash-text-muted)]' aria-hidden='true'>
+        <div className='flex flex-wrap gap-3 text-xs font-semibold text-[var(--dash-text-muted)]'>
             {items.map((item) => (
                 <span key={item.label} className='inline-flex items-center gap-1'>
                     <span className={`size-2 rounded-full ${item.className}`} />
@@ -195,13 +212,13 @@ function ChartLegend({ items }: { items: Array<{ label: string; className: strin
 }
 
 const chartTooltipStyle = {
-    backgroundColor: 'rgb(7 8 11)',
-    border: '1px solid rgb(34 41 56)',
+    backgroundColor: 'var(--dash-surface-raised)',
+    border: '1px solid var(--dash-border)',
     borderRadius: '8px',
-    color: 'rgb(244 247 251)',
+    color: 'var(--dash-text)',
 };
-const chartTooltipLabelStyle = { color: 'rgb(244 247 251)', fontWeight: 600 };
-const chartTooltipItemStyle = { color: 'rgb(177 186 200)' };
+const chartTooltipLabelStyle = { color: 'var(--dash-text)', fontWeight: 600 };
+const chartTooltipItemStyle = { color: 'var(--dash-text-muted)' };
 
 function getMemberFlowDomain(data: MemberFlowChartDay[]): [number, number] {
     const maxMagnitude = Math.max(
@@ -227,7 +244,26 @@ function formatMemberFlowTooltipValue(value: unknown, name: unknown): [string, s
 
 function formatMessageTooltipValue(value: unknown): [string, string] {
     const numericValue = typeof value === 'number' ? value : Number(value);
-    return [Number.isFinite(numericValue) ? String(numericValue) : String(value), 'Messages'];
+    return [Number.isFinite(numericValue) ? String(numericValue) : String(value), 'Member messages'];
+}
+
+function formatMemberFlowChartSummary(data: DashboardGuildOverview['memberFlow']['graph']): string {
+    return `Daily member movement. ${data
+        .map(
+            (day) =>
+                `${formatLongChartDate(day.date)}: ${String(day.joins)} joins, ${String(day.leaves)} leaves, net ${formatSignedChartValue(day.netGrowth)}`
+        )
+        .join('; ')}.`;
+}
+
+function formatMessageChartSummary(data: DashboardGuildOverview['messages']['graph']): string {
+    return `Daily observed member messages. ${data
+        .map((day) => `${formatLongChartDate(day.date)}: ${String(day.messageCount)}`)
+        .join('; ')}.`;
+}
+
+function formatSignedChartValue(value: number): string {
+    return value > 0 ? `+${String(value)}` : String(value);
 }
 
 function formatChartDate(value: unknown): string {

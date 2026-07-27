@@ -1,25 +1,15 @@
-import type {
-    GuildInviteAttributionStatus,
-    GuildInviteSnapshotDocument,
-    GuildMemberFlowEventDocument,
-    GuildOverviewAggregate,
-} from './growth_overview_model.js';
+import type { GuildMemberFlowEventDocument, GuildOverviewAggregate } from './growth_overview_model.js';
 
 export const growthDailyAggregateShardCount = 64;
 
 export type GuildGrowthDailyAggregateDocument = {
     activityDate: string;
-    ambiguousCount: number;
-    attributedCount: number;
-    baselineMissingCount: number;
     firstEventAt?: string;
     guildId: string;
     joins: number;
     leaves: number;
     messageCount: number;
-    notApplicableCount: number;
     shard: number;
-    unavailableCount: number;
     updatedAt: string;
 };
 
@@ -42,16 +32,11 @@ export function createEmptyGuildGrowthDailyAggregate(
 ): GuildGrowthDailyAggregateDocument {
     return {
         activityDate,
-        ambiguousCount: 0,
-        attributedCount: 0,
-        baselineMissingCount: 0,
         guildId,
         joins: 0,
         leaves: 0,
         messageCount: 0,
-        notApplicableCount: 0,
         shard,
-        unavailableCount: 0,
         updatedAt: now,
     };
 }
@@ -60,11 +45,8 @@ export function addMemberEventToGuildGrowthDailyAggregate(
     aggregate: GuildGrowthDailyAggregateDocument,
     event: GuildMemberFlowEventDocument
 ): GuildGrowthDailyAggregateDocument {
-    const attributionField = attributionCountField(event.attributionStatus);
-
     return {
         ...aggregate,
-        [attributionField]: aggregate[attributionField] + 1,
         firstEventAt: earlierTimestamp(aggregate.firstEventAt, event.occurredAt),
         joins: aggregate.joins + (event.eventType === 'join' ? 1 : 0),
         leaves: aggregate.leaves + (event.eventType === 'leave' ? 1 : 0),
@@ -87,44 +69,25 @@ export function addMessagesToGuildGrowthDailyAggregate(
 export function toGuildOverviewAggregateFromDaily(input: {
     dailyAggregates: GuildGrowthDailyAggregateDocument[];
     days: number;
-    inviteBaselineObservedAt?: string;
-    inviteSnapshots: GuildInviteSnapshotDocument[];
     now: string;
-    trackingStartedAt?: string;
+    oldestRetainedActivityAt?: string;
 }): GuildOverviewAggregate {
     const aggregatesByDate = aggregateGrowthShardsByDate(input.dailyAggregates);
     const graphDates = createGraphDates(input.days, input.now);
-    const attribution = emptyAttributionCounts();
-
-    for (const aggregate of input.dailyAggregates) {
-        attribution.ambiguous += aggregate.ambiguousCount;
-        attribution.attributed += aggregate.attributedCount;
-        attribution['baseline-missing'] += aggregate.baselineMissingCount;
-        attribution['not-applicable'] += aggregate.notApplicableCount;
-        attribution.unavailable += aggregate.unavailableCount;
-    }
-
     const totalJoins = input.dailyAggregates.reduce((total, aggregate) => total + aggregate.joins, 0);
     const totalLeaves = input.dailyAggregates.reduce((total, aggregate) => total + aggregate.leaves, 0);
     const totalMessages = input.dailyAggregates.reduce((total, aggregate) => total + aggregate.messageCount, 0);
-    const trackingStartedAt = [
-        ...(input.trackingStartedAt ? [input.trackingStartedAt] : []),
-        ...(input.inviteBaselineObservedAt ? [input.inviteBaselineObservedAt] : []),
+    const oldestRetainedActivityAt = [
+        ...(input.oldestRetainedActivityAt ? [input.oldestRetainedActivityAt] : []),
         ...input.dailyAggregates.flatMap((aggregate) => (aggregate.firstEventAt ? [aggregate.firstEventAt] : [])),
-        ...input.inviteSnapshots.map((invite) => invite.firstSeenAt),
     ].sort()[0];
 
     return {
-        ...(trackingStartedAt ? { trackingStartedAt } : {}),
-        dataHealth: {
-            hasInviteSnapshots: Boolean(input.inviteBaselineObservedAt),
+        ...(oldestRetainedActivityAt ? { oldestRetainedActivityAt } : {}),
+        windowDays: input.days,
+        activityPresence: {
             hasMemberFlow: totalJoins + totalLeaves > 0,
             hasMessageActivity: totalMessages > 0,
-        },
-        invites: {
-            activeInviteCount: input.inviteSnapshots.length,
-            attribution,
-            totalInviteUses: input.inviteSnapshots.reduce((total, invite) => total + invite.uses, 0),
         },
         memberFlow: {
             graph: graphDates.map((date) => {
@@ -180,33 +143,6 @@ function createGraphDates(days: number, now: string): string[] {
             .toISOString()
             .slice(0, 10);
     });
-}
-
-function emptyAttributionCounts(): Record<GuildInviteAttributionStatus, number> {
-    return {
-        ambiguous: 0,
-        attributed: 0,
-        'baseline-missing': 0,
-        'not-applicable': 0,
-        unavailable: 0,
-    };
-}
-
-function attributionCountField(
-    status: GuildInviteAttributionStatus
-): 'ambiguousCount' | 'attributedCount' | 'baselineMissingCount' | 'notApplicableCount' | 'unavailableCount' {
-    switch (status) {
-        case 'ambiguous':
-            return 'ambiguousCount';
-        case 'attributed':
-            return 'attributedCount';
-        case 'baseline-missing':
-            return 'baselineMissingCount';
-        case 'not-applicable':
-            return 'notApplicableCount';
-        case 'unavailable':
-            return 'unavailableCount';
-    }
 }
 
 function earlierTimestamp(current: string | undefined, candidate: string): string {

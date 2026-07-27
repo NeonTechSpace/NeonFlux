@@ -8,7 +8,6 @@ import {
     listBotInstallationGuildIds,
     listGuildSecurityPoliciesByGuildIds,
     readDashboardGuildAuthorizationFacts,
-    recordBotActionEvent,
     upsertBotInstallation,
     upsertDeploymentConfig,
 } from './runtime.js';
@@ -168,20 +167,8 @@ describe('Convex database runtime wrappers', () => {
         ]);
     });
 
-    it('records and pages bot action events through Convex with Date records', async () => {
+    it('pages bot action events through Convex with Date records', async () => {
         const db = createConvexDb({
-            mutationResults: [
-                {
-                    action: 'message.sent',
-                    actorUserId: 'user-1',
-                    createdAt: '2026-07-03T08:00:00.000Z',
-                    feature: 'posting',
-                    guildId: 'guild-1',
-                    id: 'event-1',
-                    metadata: { channelId: 'channel-1' },
-                    targetId: 'message-1',
-                },
-            ],
             queryResults: [
                 {
                     nextCursor: 'opaque-next-cursor',
@@ -201,14 +188,6 @@ describe('Convex database runtime wrappers', () => {
             ],
         });
 
-        const recorded = await recordBotActionEvent(db, {
-            action: 'message.sent',
-            actorUserId: 'user-1',
-            feature: 'posting',
-            guildId: 'guild-1',
-            metadata: { channelId: 'channel-1' },
-            targetId: 'message-1',
-        });
         const page = await listBotActionEventPageByGuildId(db, {
             cursor: 'opaque-cursor',
             guildId: 'guild-1',
@@ -216,16 +195,6 @@ describe('Convex database runtime wrappers', () => {
             searchScope: 'channel',
         });
 
-        expect(recorded._unsafeUnwrap()).toStrictEqual({
-            action: 'message.sent',
-            actorUserId: 'user-1',
-            createdAt: new Date('2026-07-03T08:00:00.000Z'),
-            feature: 'posting',
-            guildId: 'guild-1',
-            id: 'event-1',
-            metadata: { channelId: 'channel-1' },
-            targetId: 'message-1',
-        });
         expect(page._unsafeUnwrap()).toStrictEqual({
             nextCursor: 'opaque-next-cursor',
             records: [

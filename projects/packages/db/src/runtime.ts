@@ -162,39 +162,6 @@ export async function listGuildSecurityPoliciesByGuildIds(
     }
 }
 
-export async function recordBotActionEvent(
-    db: BotActionEventDb,
-    input: {
-        action: string;
-        actorUserId?: string;
-        feature: string;
-        guildId?: string | null;
-        metadata?: Record<string, unknown>;
-        targetId?: string;
-    }
-): Promise<Result<BotActionEventRecord, LoggingRepositoryError>> {
-    try {
-        const event = await db.client.mutation(api.events.recordBotActionEvent, input);
-
-        return ok(toBotActionEventRecord(event));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
-export async function listBotActionEventsByGuildId(
-    db: BotActionEventDb,
-    input: { feature?: string; guildId: string; limit?: number }
-): Promise<Result<BotActionEventRecord[], LoggingRepositoryError>> {
-    try {
-        const events = await db.client.query(api.events.listBotActionEventsByGuildId, input);
-
-        return ok(events.map(toBotActionEventRecord));
-    } catch {
-        return err({ type: 'database-error' });
-    }
-}
-
 export async function listBotActionEventPageByGuildId(
     db: BotActionEventDb,
     input: {

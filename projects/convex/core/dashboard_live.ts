@@ -13,7 +13,6 @@ type DashboardLiveMutationCtx = MutationCtx;
 type DashboardLiveQueryCtx = QueryCtx;
 
 const allowedLiveMutationServices = ['bot', 'web'] as const;
-const dashboardOverviewAggregateWatchLimit = 30 * 64;
 const dashboardLiveAreaValidator = v.union(...dashboardLiveAreas.map((area) => v.literal(area)));
 const dashboardLiveStateValidator = v.object({
     area: dashboardLiveAreaValidator,
@@ -40,16 +39,16 @@ export const listDashboardLiveStates = query({
                 .withIndex('by_guild_area', (query) => query.eq('guildId', guildId).eq('area', area))
                 .unique();
 
-            const baseState = state
-                ? toDashboardLiveStateRecord(state)
-                : {
-                      area,
-                      guildId,
-                      updatedAt: '',
-                      version: 0,
-                  };
-
-            states.push(area === 'overview' ? await addOverviewGrowthSignal(ctx, baseState) : baseState);
+            states.push(
+                state
+                    ? toDashboardLiveStateRecord(state)
+                    : {
+                          area,
+                          guildId,
+                          updatedAt: '',
+                          version: 0,
+                      }
+            );
         }
 
         return states;
@@ -134,46 +133,4 @@ function toDashboardLiveStateRecord(record: {
         updatedAt: record.updatedAt,
         version: record.version,
     };
-}
-
-async function addOverviewGrowthSignal(
-    ctx: DashboardLiveQueryCtx,
-    state: DashboardLiveStateRecord
-): Promise<DashboardLiveStateRecord> {
-    const [dailyAggregates, growthState] = await Promise.all([
-        ctx.db
-            .query('guildGrowthDailyAggregates')
-            .withIndex('by_guild_date', (query) => query.eq('guildId', state.guildId))
-            .order('desc')
-            .take(dashboardOverviewAggregateWatchLimit),
-        ctx.db
-            .query('guildGrowthStates')
-            .withIndex('by_guild', (query) => query.eq('guildId', state.guildId))
-            .unique(),
-    ]);
-    let version = state.version;
-    let updatedAt = state.updatedAt;
-
-    for (const aggregate of dailyAggregates) {
-        version +=
-            aggregate.joins +
-            aggregate.leaves +
-            aggregate.messageCount +
-            aggregate.ambiguousCount +
-            aggregate.attributedCount +
-            aggregate.baselineMissingCount +
-            aggregate.notApplicableCount +
-            aggregate.unavailableCount;
-        updatedAt = laterTimestamp(updatedAt, aggregate.updatedAt);
-    }
-
-    if (growthState) {
-        updatedAt = laterTimestamp(updatedAt, growthState.updatedAt);
-    }
-
-    return { ...state, updatedAt, version };
-}
-
-function laterTimestamp(left: string, right: string): string {
-    return left >= right ? left : right;
 }

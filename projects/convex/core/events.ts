@@ -71,23 +71,6 @@ const listByGuildArgs = {
     limit: v.optional(v.number()),
 };
 
-export const recordBotActionEvent = mutation({
-    args: {
-        action: v.string(),
-        actorUserId: v.optional(v.string()),
-        createdAt: v.optional(v.string()),
-        feature: v.string(),
-        guildId: v.optional(v.union(v.string(), v.null())),
-        metadata: v.optional(v.any()),
-        targetId: v.optional(v.string()),
-    },
-    returns: botActionEventRecordValidator,
-    handler: async (ctx: EventsMutationCtx, args) => {
-        await requireNeonFluxService(ctx, allowedEventServices);
-        return recordBotActionEventInMutation(ctx, args);
-    },
-});
-
 export async function recordBotActionEventInMutation(ctx: EventsMutationCtx, input: BotActionEventMutationInput) {
     const document = unwrap(buildBotActionEventDocument(input, new Date().toISOString()));
     const id = await ctx.db.insert('botActionEvents', document);
@@ -104,24 +87,6 @@ export async function recordBotActionEventInMutation(ctx: EventsMutationCtx, inp
 
     return toBotActionEventRecord({ ...document, _id: id, sortKey });
 }
-
-export const listBotActionEventsByGuildId = query({
-    args: listByGuildArgs,
-    returns: v.array(botActionEventRecordValidator),
-    handler: async (ctx: EventsQueryCtx, args) => {
-        await requireNeonFluxService(ctx, allowedEventServices);
-        const guildId = unwrap(normalizeRequiredGuildId(args.guildId));
-        const feature = normalizeOptionalString(args.feature);
-        const limit = normalizeBotActionEventLimit(args.limit);
-        const documents = await takeBotActionEventDocumentsByGuild(ctx, {
-            ...(feature ? { feature } : {}),
-            guildId,
-            limit,
-        });
-
-        return documents.map(toBotActionEventRecord);
-    },
-});
 
 export const listBotActionEventPageByGuildId = query({
     args: {
@@ -220,40 +185,6 @@ async function takeSearchedBotActionEventDocumentsByGuild(
     };
 }
 
-export const listBotActionEventsByFeaturePage = query({
-    args: {
-        cursor: v.optional(botActionEventCursorValidator),
-        feature: v.string(),
-        limit: v.optional(v.number()),
-    },
-    returns: botActionEventPageValidator,
-    handler: async (ctx: EventsQueryCtx, args) => {
-        await requireNeonFluxService(ctx, allowedEventServices);
-        const feature = normalizeOptionalString(args.feature);
-
-        if (!feature) {
-            throw new Error('missing-feature');
-        }
-
-        const cursor = unwrap(normalizeBotActionEventCursor(args.cursor));
-        const limit = normalizeBotActionEventLimit(args.limit);
-        const documents = await takeBotActionEventDocumentsByFeature(ctx, {
-            ...(cursor ? { cursor } : {}),
-            feature,
-            limit: limit + 1,
-        });
-        const records = documents.slice(0, limit).map(toBotActionEventRecord);
-        const extraDocument = documents.at(limit);
-
-        return {
-            ...(extraDocument
-                ? { nextCursor: toBotActionEventDocumentCursor(documents[limit - 1] ?? extraDocument) }
-                : {}),
-            records,
-        };
-    },
-});
-
 export const backfillBotActionEventSortKeys = mutation({
     args: {
         limit: v.optional(v.number()),
@@ -313,26 +244,6 @@ async function takeBotActionEventDocumentsByGuild(
               })
               .order('desc')
               .take(input.limit);
-}
-
-async function takeBotActionEventDocumentsByFeature(
-    ctx: EventsQueryCtx,
-    input: {
-        cursor?: BotActionEventCursor;
-        feature: string;
-        limit: number;
-    }
-): Promise<StoredBotActionEventDocument[]> {
-    const cursor = input.cursor ? await resolveBotActionEventCursor(ctx, input.cursor) : undefined;
-
-    return await ctx.db
-        .query('botActionEvents')
-        .withIndex('by_feature_sort_key', (query) => {
-            const scopedQuery = query.eq('feature', input.feature);
-            return cursor ? scopedQuery.gt('sortKey', '').lt('sortKey', cursor.sortKey) : scopedQuery.gt('sortKey', '');
-        })
-        .order('desc')
-        .take(input.limit);
 }
 
 function toBotActionEventDocumentCursor(document: StoredBotActionEventDocument): BotActionEventCursor {

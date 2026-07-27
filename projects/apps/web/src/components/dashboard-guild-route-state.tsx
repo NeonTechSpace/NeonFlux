@@ -169,6 +169,8 @@ function getDashboardPendingIdentity(
         id: category.id,
         title: category.id === 'overview' ? 'Server pulse' : category.label,
         description:
-            category.id === 'overview' ? 'Growth and message activity across this server.' : category.description,
+            category.id === 'overview'
+                ? 'Observed member movement and member-authored message activity across this server.'
+                : category.description,
     };
 }

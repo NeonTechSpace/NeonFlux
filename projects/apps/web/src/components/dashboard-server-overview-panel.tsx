@@ -5,7 +5,7 @@ import { lazy, Suspense, useState } from 'react';
 
 import { getDashboardOverviewQueryKey } from '../dashboard-query-keys.js';
 import { readDashboardGuildOverviewRouteData } from '../server/dashboard-guild-route-data.js';
-import type { DashboardGuildOverview } from '../server/dashboard-overview.server.js';
+import type { DashboardGuildOverview } from '../server/dashboard-overview-model.js';
 import {
     dashboardContentTransition,
     dashboardContentVariants,
@@ -49,7 +49,11 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
 
             return result.overview;
         },
+        refetchInterval: 60_000,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: 'always',
         retry: false,
+        staleTime: 30_000,
     });
     const overview = overviewQuery.data;
 
@@ -97,7 +101,7 @@ export function DashboardServerOverviewPanel({ guildId }: { guildId: string }) {
         );
     }
 
-    const hasActivity = overview.dataHealth.hasMemberFlow || overview.dataHealth.hasMessageActivity;
+    const hasActivity = overview.activityPresence.hasMemberFlow || overview.activityPresence.hasMessageActivity;
 
     return (
         <motion.div
@@ -139,7 +143,7 @@ function getOverviewFailureDescription(type: ReturnType<typeof readDashboardGuil
 function OverviewChartsLoading() {
     return (
         <div className='grid gap-4 xl:grid-cols-2' role='status' aria-label='Loading activity charts'>
-            {['Member flow', 'Message activity'].map((title) => (
+            {['Member flow', 'Member messages'].map((title) => (
                 <DashboardSurface key={title}>
                     <h3 className='text-lg font-semibold text-[var(--dash-text)]'>{title}</h3>
                     <div className='mt-4 flex h-64 items-center text-sm text-[var(--dash-text-muted)]'>
@@ -177,7 +181,7 @@ function OverviewFirstUse() {
                 <DashboardEmptyState
                     size='compact'
                     title='Listening for activity'
-                    description='Member movement and messages will appear after NeonFlux observes them.'
+                    description='Member movement and member-authored messages will appear after NeonFlux observes them.'
                 />
             </DashboardSurface>
         </motion.div>
@@ -186,33 +190,43 @@ function OverviewFirstUse() {
 
 function OverviewSummary({ overview, refreshedAt }: { overview: DashboardGuildOverview; refreshedAt: number }) {
     return (
-        <DashboardSurface tone='glass' padding='none' className='overflow-hidden' aria-label='30-day activity summary'>
+        <DashboardSurface
+            tone='glass'
+            padding='none'
+            className='overflow-hidden'
+            aria-label={`${String(overview.windowDays)}-day activity summary`}>
             <DashboardToolbar
                 className='px-4 py-3'
                 summary={
                     <span>
-                        Refreshed {formatRefreshTime(refreshedAt)}
-                        {overview.trackingStartedAt
-                            ? ` · Tracking since ${formatDateTime(overview.trackingStartedAt)}`
+                        Loaded {formatRefreshTime(refreshedAt)}
+                        {overview.oldestRetainedActivityAt
+                            ? ` · Oldest retained activity ${formatDateTime(overview.oldestRetainedActivityAt)}`
                             : ''}
                     </span>
                 }>
-                <p className='text-sm font-semibold text-[var(--dash-text)]'>Last 30 days</p>
+                <p className='text-sm font-semibold text-[var(--dash-text)]'>
+                    Last {String(overview.windowDays)} day{overview.windowDays === 1 ? '' : 's'}
+                </p>
             </DashboardToolbar>
             <dl className='grid md:grid-cols-2 md:divide-x md:divide-[var(--dash-border)]'>
                 <SummaryMetric
                     label='Member movement'
-                    value={overview.dataHealth.hasMemberFlow ? formatSignedNumber(overview.memberFlow.netGrowth) : '—'}
+                    value={
+                        overview.activityPresence.hasMemberFlow
+                            ? formatSignedNumber(overview.memberFlow.netGrowth)
+                            : '—'
+                    }
                     detail={
-                        overview.dataHealth.hasMemberFlow
+                        overview.activityPresence.hasMemberFlow
                             ? `${overview.memberFlow.totalJoins} joins / ${overview.memberFlow.totalLeaves} leaves`
                             : undefined
                     }
                 />
                 <SummaryMetric
-                    label='Messages'
-                    value={overview.dataHealth.hasMessageActivity ? String(overview.messages.totalMessages) : '—'}
-                    detail={overview.dataHealth.hasMessageActivity ? formatMessageSummary(overview) : undefined}
+                    label='Observed member messages'
+                    value={overview.activityPresence.hasMessageActivity ? String(overview.messages.totalMessages) : '—'}
+                    detail={overview.activityPresence.hasMessageActivity ? formatMessageSummary(overview) : undefined}
                 />
             </dl>
         </DashboardSurface>

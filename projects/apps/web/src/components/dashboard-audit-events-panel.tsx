@@ -1,15 +1,12 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { AnimatePresence, motion } from 'motion/react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getDashboardAuditEventsQueryKey, getDashboardPostingCatalogQueryKey } from '../dashboard-query-keys.js';
-import {
-    readDashboardAuditEventsRouteData,
-    readDashboardPostingCatalogRouteData,
-} from '../server/dashboard-guild-route-data.js';
-import type { DashboardAuditEvent, DashboardAuditSearchScope } from '../server/dashboard-posting.server.js';
+import { getDashboardAuditEventsQueryKey } from '../dashboard-query-keys.js';
+import type { DashboardAuditEvent, DashboardAuditSearchScope } from '../server/dashboard-audit-events-model.js';
+import { readDashboardAuditEventsRouteData } from '../server/dashboard-guild-route-data.js';
 import { DashboardAuditEventRow, DashboardAuditEventsLoadMoreRow } from './dashboard-audit-event-row.js';
 import type { DashboardGuildReadFailureType } from './dashboard-guild-read-error.js';
 import {
@@ -74,30 +71,9 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         retry: false,
     });
-    const postingCatalogQuery = useQuery({
-        queryKey: getDashboardPostingCatalogQueryKey(guildId),
-        queryFn: async () => {
-            const result = await readDashboardPostingCatalogRouteData({
-                data: {
-                    guildId,
-                },
-            });
-
-            if (result.type !== 'catalog') {
-                throw new DashboardGuildReadError(result.type);
-            }
-
-            return result.catalog;
-        },
-        retry: false,
-    });
     const auditEvents = useMemo(
         () => auditEventsQuery.data?.pages.flatMap((page) => page.auditEvents) ?? [],
         [auditEventsQuery.data]
-    );
-    const channelNameById = useMemo(
-        () => new Map((postingCatalogQuery.data?.channels ?? []).map((channel) => [channel.id, channel.name])),
-        [postingCatalogQuery.data]
     );
     const activeSearchScope =
         dashboardAuditSearchScopes.find((scope) => scope.value === searchScope) ?? dashboardAuditSearchScopes[0];
@@ -161,7 +137,6 @@ export function DashboardAuditEventsPanel({ guildId }: { guildId: string }) {
                 events={auditEvents}
                 search={deferredSearch}
                 searchScope={searchScope}
-                channelNameById={channelNameById}
                 hasNextPage={auditEventsQuery.hasNextPage}
                 isLoading={auditEventsQuery.isPending}
                 isFetchingNextPage={auditEventsQuery.isFetchingNextPage}
@@ -185,7 +160,6 @@ function AuditEventsBody({
     events,
     search,
     searchScope,
-    channelNameById,
     hasNextPage,
     isLoading,
     isFetchingNextPage,
@@ -198,7 +172,6 @@ function AuditEventsBody({
     events: DashboardAuditEvent[];
     search: string;
     searchScope: DashboardAuditSearchScope;
-    channelNameById: ReadonlyMap<string, string>;
     hasNextPage: boolean;
     isLoading: boolean;
     isFetchingNextPage: boolean;
@@ -238,13 +211,14 @@ function AuditEventsBody({
             lastVirtualIndex === undefined ||
             !hasNextPage ||
             isFetchingNextPage ||
+            search.length > 0 ||
             lastVirtualIndex < Math.max(events.length - 4, 0)
         ) {
             return;
         }
 
         void fetchNextPage();
-    }, [events.length, fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex]);
+    }, [events.length, fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex, search]);
 
     if (isLoading && !isRetrying) {
         return (
@@ -318,8 +292,24 @@ function AuditEventsBody({
                 transition={dashboardContentTransition}>
                 {search ? (
                     <DashboardEmptyState
-                        title='No matching events'
-                        description={`No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`}
+                        title={hasNextPage ? 'No matches in the newest events' : 'No matching events'}
+                        description={
+                            hasNextPage
+                                ? `The newest retained events do not match in ${formatDashboardAuditSearchScope(searchScope)}. Search an older segment to continue.`
+                                : `No persisted events match this search in ${formatDashboardAuditSearchScope(searchScope)}.`
+                        }
+                        action={
+                            hasNextPage ? (
+                                <button
+                                    type='button'
+                                    onClick={() => void fetchNextPage()}
+                                    disabled={isFetchingNextPage}
+                                    aria-busy={isFetchingNextPage || undefined}
+                                    className={dashboardSecondaryActionClassName}>
+                                    {isFetchingNextPage ? 'Searching older events…' : 'Search older events'}
+                                </button>
+                            ) : undefined
+                        }
                     />
                 ) : (
                     <DashboardAuditEmptyTimeline />
@@ -360,7 +350,7 @@ function AuditEventsBody({
                                 className='absolute top-0 left-0 w-full border-b border-[var(--dash-border)] last:border-b-0'
                                 style={{ transform: `translateY(${String(virtualItem.start)}px)` }}>
                                 {event ? (
-                                    <DashboardAuditEventRow event={event} channelNameById={channelNameById} />
+                                    <DashboardAuditEventRow event={event} />
                                 ) : (
                                     <DashboardAuditEventsLoadMoreRow
                                         isFetchingNextPage={isFetchingNextPage}

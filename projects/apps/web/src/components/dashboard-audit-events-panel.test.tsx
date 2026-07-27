@@ -5,11 +5,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    readDashboardAuditEventsRouteData,
-    readDashboardPostingCatalogRouteData,
-} from '../server/dashboard-guild-route-data.js';
+import { readDashboardAuditEventsRouteData } from '../server/dashboard-guild-route-data.js';
 import type * as DashboardGuildRouteDataModule from '../server/dashboard-guild-route-data.js';
+import type { DashboardAuditEventsInput } from '../server/dashboard-audit-events-model.js';
 import { DashboardAuditEventsPanel } from './dashboard-audit-events-panel.js';
 
 vi.mock('../server/dashboard-guild-route-data.js', async (importActual) => {
@@ -18,7 +16,6 @@ vi.mock('../server/dashboard-guild-route-data.js', async (importActual) => {
     return {
         ...actual,
         readDashboardAuditEventsRouteData: vi.fn(),
-        readDashboardPostingCatalogRouteData: vi.fn(),
     };
 });
 
@@ -54,22 +51,17 @@ describe('DashboardAuditEventsPanel', () => {
                 },
             ],
         });
-        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
-            type: 'catalog',
-            catalog: { channels: [], roles: [] },
-        });
-
         renderAuditPanel();
 
-        const action = await screen.findByText('blueprint.run_partially_applied');
+        const action = await screen.findByText('Run partially applied');
         const eventDetails = screen.getByRole<HTMLDetailsElement>('listitem');
 
         expect(eventDetails.open).toBe(false);
         fireEvent.click(action);
         expect(eventDetails.open).toBe(true);
+        expect(screen.getByText('blueprint.run_partially_applied')).toBeTruthy();
         expect(screen.getByText('Blueprint run')).toBeTruthy();
         expect(screen.getByText('run-1')).toBeTruthy();
-        expect(screen.getByText('Plan steps')).toBeTruthy();
         expect(screen.getByText('4')).toBeTruthy();
         expect(screen.getByText('Applied')).toBeTruthy();
         expect(screen.getByText('3')).toBeTruthy();
@@ -102,14 +94,9 @@ describe('DashboardAuditEventsPanel', () => {
                 },
             ],
         });
-        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
-            type: 'catalog',
-            catalog: { channels: [], roles: [] },
-        });
-
         renderAuditPanel();
 
-        expect(await screen.findByText('blueprint.backup_renamed')).toBeTruthy();
+        expect(await screen.findByText('Backup renamed')).toBeTruthy();
         expect(screen.getByText('Backup target')).toBeTruthy();
         expect(screen.getByText('backup-1')).toBeTruthy();
         expect(screen.getByText('Guild/settings target')).toBeTruthy();
@@ -129,11 +116,6 @@ describe('DashboardAuditEventsPanel', () => {
             type: 'events',
             auditEvents: [],
         });
-        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
-            type: 'catalog',
-            catalog: { channels: [], roles: [] },
-        });
-
         renderAuditPanel();
 
         const searchInput = await screen.findByLabelText('Search events');
@@ -179,11 +161,6 @@ describe('DashboardAuditEventsPanel', () => {
         vi.mocked(readDashboardAuditEventsRouteData)
             .mockResolvedValueOnce({ type: 'database-error' })
             .mockImplementationOnce(() => new Promise(() => undefined));
-        vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
-            type: 'catalog',
-            catalog: { channels: [], roles: [] },
-        });
-
         renderAuditPanel();
 
         fireEvent.click(await screen.findByRole('button', { name: 'Retry audit events' }));
@@ -192,6 +169,69 @@ describe('DashboardAuditEventsPanel', () => {
         expect(retrying.disabled).toBe(true);
         expect(retrying.getAttribute('aria-busy')).toBe('true');
         expect(screen.getByRole('alert')).toBeTruthy();
+    });
+
+    it('continues an empty search segment only after an explicit request', async () => {
+        vi.mocked(readDashboardAuditEventsRouteData).mockImplementation((input) => {
+            const data = input?.data as DashboardAuditEventsInput | undefined;
+
+            if (!data?.search) {
+                return Promise.resolve({
+                    type: 'events',
+                    auditEvents: [],
+                });
+            }
+
+            if (!data.cursor) {
+                return Promise.resolve({
+                    type: 'events',
+                    auditEvents: [],
+                    nextCursor: 'older-segment',
+                });
+            }
+
+            return Promise.resolve({
+                type: 'events',
+                auditEvents: [
+                    {
+                        id: 'event-older',
+                        feature: 'future_feature',
+                        action: 'future_feature.resource_reconciled',
+                        createdAt: '2026-07-01T09:00:00.000Z',
+                        metadata: {
+                            attemptCount: 2,
+                            failureReason: 'stale lease',
+                            reconciled: false,
+                        },
+                    },
+                ],
+            });
+        });
+
+        window.history.replaceState({}, '', '/dashboard/guild-1/events/audit-events?q=reconciled&scope=event');
+        renderAuditPanel();
+
+        expect(await screen.findByText('No matches in the newest events')).toBeTruthy();
+        expect(readDashboardAuditEventsRouteData).not.toHaveBeenCalledWith({
+            data: expect.objectContaining({ cursor: 'older-segment' }),
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search older events' }));
+
+        const action = await screen.findByText('Resource reconciled');
+        expect(readDashboardAuditEventsRouteData).toHaveBeenLastCalledWith({
+            data: expect.objectContaining({
+                cursor: 'older-segment',
+                guildId: 'guild-1',
+                search: 'reconciled',
+            }),
+        });
+
+        fireEvent.click(action);
+        const eventDetails = screen.getByRole<HTMLDetailsElement>('listitem');
+        expect(within(eventDetails).getByText('2')).toBeTruthy();
+        expect(within(eventDetails).getByText('stale lease')).toBeTruthy();
+        expect(within(eventDetails).getByText('False')).toBeTruthy();
     });
 });
 

@@ -1,13 +1,4 @@
-import {
-    listGuildInviteSnapshots,
-    recordGuildMemberFlowEvent,
-    recordGuildMemberJoinWithInviteSnapshots,
-    recordGuildMessageActivity,
-    type GuildInviteAttributionStatus,
-    type GuildInviteSnapshotInput,
-    type GuildInviteSnapshotState,
-} from '@neonflux/db';
-import { readFluxerGuildInvites, type FluxerGuildInvite } from '@neonflux/fluxer';
+import { recordGuildMemberFlowEvent, recordGuildMessageActivity } from '@neonflux/db';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { BotFeatureHandlerContext, BotGrowthTelemetryEvent } from './bot-feature-types.js';
@@ -71,43 +62,18 @@ async function trackMemberJoin(
     event: Extract<BotGrowthTelemetryEvent, { type: 'member.joined' }>,
     options: BotGrowthTrackingOptions
 ): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
-    const previousSnapshotsResult = options.signal
-        ? await listGuildInviteSnapshots(context.db, { guildId: event.guildId }, { signal: options.signal })
-        : await listGuildInviteSnapshots(context.db, { guildId: event.guildId });
-
-    if (previousSnapshotsResult.isErr()) {
-        return err('database-error');
-    }
-
-    const inviteReadResult = await readFluxerGuildInvites({
-        client: context.client,
-        guildId: event.guildId,
-    });
-    options.signal?.throwIfAborted();
-
-    if (inviteReadResult.isErr()) {
-        return recordJoin(context, event, { attributionStatus: 'unavailable' }, options);
-    }
-
-    const currentInvites = inviteReadResult.value;
-    const attribution = attributeInviteUsage(previousSnapshotsResult.value, currentInvites);
     const input = {
-        ...attribution,
+        eventType: 'join',
         guildId: event.guildId,
-        invites: currentInvites.map(toInviteSnapshotInput),
         membershipStartedAt: event.membershipStartedAt,
+        occurredAt: event.membershipStartedAt,
         userId: event.userId,
-    };
+    } as const;
     const recordResult = options.signal
-        ? await recordGuildMemberJoinWithInviteSnapshots(context.db, input, { signal: options.signal })
-        : await recordGuildMemberJoinWithInviteSnapshots(context.db, input);
+        ? await recordGuildMemberFlowEvent(context.db, input, { signal: options.signal })
+        : await recordGuildMemberFlowEvent(context.db, input);
 
-    if (recordResult.isErr()) {
-        if (recordResult.error.type === 'database-error') return err('database-error');
-        return recordJoin(context, event, { attributionStatus: 'unavailable' }, options);
-    }
-
-    return ok({ status: 'tracked' });
+    return recordResult.isOk() ? ok({ status: 'tracked' }) : err('database-error');
 }
 
 async function trackMemberLeave(
@@ -119,88 +85,10 @@ async function trackMemberLeave(
         guildId: event.guildId,
         userId: event.userId,
         eventType: 'leave',
-        attributionStatus: 'not-applicable',
     } as const;
     const result = options.signal
         ? await recordGuildMemberFlowEvent(context.db, input, { signal: options.signal })
         : await recordGuildMemberFlowEvent(context.db, input);
 
     return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
-}
-
-function attributeInviteUsage(
-    previousState: GuildInviteSnapshotState,
-    currentInvites: FluxerGuildInvite[]
-):
-    | {
-          attributionStatus: Extract<GuildInviteAttributionStatus, 'attributed'>;
-          inviteCode: string;
-          inviterUserId?: string;
-      }
-    | { attributionStatus: Exclude<GuildInviteAttributionStatus, 'not-applicable' | 'attributed'> } {
-    if (!previousState.baselineObserved) {
-        return { attributionStatus: 'baseline-missing' };
-    }
-
-    const previousUsesByCode = new Map(previousState.snapshots.map((invite) => [invite.code, invite.uses]));
-    const candidates = currentInvites.filter((invite) => invite.uses > (previousUsesByCode.get(invite.code) ?? 0));
-
-    if (candidates.length === 1) {
-        const candidate = candidates[0];
-
-        if (!candidate) {
-            return { attributionStatus: 'unavailable' };
-        }
-
-        return {
-            attributionStatus: 'attributed',
-            inviteCode: candidate.code,
-            ...(candidate.inviterUserId ? { inviterUserId: candidate.inviterUserId } : {}),
-        };
-    }
-
-    if (candidates.length > 1) {
-        return { attributionStatus: 'ambiguous' };
-    }
-
-    return { attributionStatus: 'unavailable' };
-}
-
-async function recordJoin(
-    context: BotFeatureHandlerContext,
-    event: Extract<BotGrowthTelemetryEvent, { type: 'member.joined' }>,
-    attribution: {
-        attributionStatus: GuildInviteAttributionStatus;
-        inviteCode?: string;
-        inviterUserId?: string;
-    },
-    options: BotGrowthTrackingOptions
-): Promise<Result<BotGrowthTrackingResult, 'database-error'>> {
-    const input = {
-        guildId: event.guildId,
-        userId: event.userId,
-        eventType: 'join',
-        attributionStatus: attribution.attributionStatus,
-        membershipStartedAt: event.membershipStartedAt,
-        occurredAt: event.membershipStartedAt,
-        ...(attribution.inviteCode ? { inviteCode: attribution.inviteCode } : {}),
-        ...(attribution.inviterUserId ? { inviterUserId: attribution.inviterUserId } : {}),
-    } as const;
-    const result = options.signal
-        ? await recordGuildMemberFlowEvent(context.db, input, { signal: options.signal })
-        : await recordGuildMemberFlowEvent(context.db, input);
-
-    return result.isOk() ? ok({ status: 'tracked' }) : err('database-error');
-}
-
-function toInviteSnapshotInput(invite: FluxerGuildInvite): GuildInviteSnapshotInput {
-    return {
-        code: invite.code,
-        ...(invite.inviterUserId ? { inviterUserId: invite.inviterUserId } : {}),
-        ...(invite.channelId ? { channelId: invite.channelId } : {}),
-        uses: invite.uses,
-        ...(invite.maxUses !== null ? { maxUses: invite.maxUses } : {}),
-        ...(invite.expiresAt ? { expiresAt: invite.expiresAt } : {}),
-        temporary: invite.temporary,
-    };
 }

@@ -69,7 +69,6 @@ import type * as dashboard_catalog from "../dashboard_catalog.js";
 import type * as dashboard_live from "../dashboard_live.js";
 import type * as events from "../events.js";
 import type * as feature_settings from "../feature_settings.js";
-import type * as growth_growth_current_state_lifecycle from "../growth/growth_current_state_lifecycle.js";
 import type * as growth_growth_daily_aggregate_model from "../growth/growth_daily_aggregate_model.js";
 import type * as growth_growth_event_integrity from "../growth/growth_event_integrity.js";
 import type * as growth_growth_overview from "../growth/growth_overview.js";
@@ -120,8 +119,6 @@ import type * as schema_tables_guild_dashboard_permission_rules from "../schema/
 import type * as schema_tables_guild_defcon_exemptions from "../schema/tables/guild_defcon_exemptions.js";
 import type * as schema_tables_guild_feature_settings from "../schema/tables/guild_feature_settings.js";
 import type * as schema_tables_guild_growth_daily_aggregates from "../schema/tables/guild_growth_daily_aggregates.js";
-import type * as schema_tables_guild_growth_states from "../schema/tables/guild_growth_states.js";
-import type * as schema_tables_guild_invite_snapshots from "../schema/tables/guild_invite_snapshots.js";
 import type * as schema_tables_guild_member_flow_events from "../schema/tables/guild_member_flow_events.js";
 import type * as schema_tables_guild_message_activity_receipts from "../schema/tables/guild_message_activity_receipts.js";
 import type * as schema_tables_guild_security_policies from "../schema/tables/guild_security_policies.js";
@@ -202,7 +199,6 @@ declare const fullApi: ApiFromModules<{
   dashboard_live: typeof dashboard_live;
   events: typeof events;
   feature_settings: typeof feature_settings;
-  "growth/growth_current_state_lifecycle": typeof growth_growth_current_state_lifecycle;
   "growth/growth_daily_aggregate_model": typeof growth_growth_daily_aggregate_model;
   "growth/growth_event_integrity": typeof growth_growth_event_integrity;
   "growth/growth_overview": typeof growth_growth_overview;
@@ -253,8 +249,6 @@ declare const fullApi: ApiFromModules<{
   "schema/tables/guild_defcon_exemptions": typeof schema_tables_guild_defcon_exemptions;
   "schema/tables/guild_feature_settings": typeof schema_tables_guild_feature_settings;
   "schema/tables/guild_growth_daily_aggregates": typeof schema_tables_guild_growth_daily_aggregates;
-  "schema/tables/guild_growth_states": typeof schema_tables_guild_growth_states;
-  "schema/tables/guild_invite_snapshots": typeof schema_tables_guild_invite_snapshots;
   "schema/tables/guild_member_flow_events": typeof schema_tables_guild_member_flow_events;
   "schema/tables/guild_message_activity_receipts": typeof schema_tables_guild_message_activity_receipts;
   "schema/tables/guild_security_policies": typeof schema_tables_guild_security_policies;

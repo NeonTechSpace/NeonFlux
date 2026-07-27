@@ -27,31 +27,20 @@ describe('DashboardServerOverviewPanel', () => {
         vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValue({
             type: 'overview',
             overview: {
+                windowDays: 30,
+                activityPresence: {
+                    hasMemberFlow: false,
+                    hasMessageActivity: false,
+                },
                 memberFlow: {
                     totalJoins: 0,
                     totalLeaves: 0,
                     netGrowth: 0,
                     graph: [],
                 },
-                invites: {
-                    activeInviteCount: 0,
-                    totalInviteUses: 0,
-                    attribution: {
-                        attributed: 0,
-                        baselineMissing: 0,
-                        ambiguous: 0,
-                        unavailable: 0,
-                        notApplicable: 0,
-                    },
-                },
                 messages: {
                     totalMessages: 0,
                     graph: [],
-                },
-                dataHealth: {
-                    hasMemberFlow: false,
-                    hasInviteSnapshots: false,
-                    hasMessageActivity: false,
                 },
             },
         });
@@ -60,9 +49,40 @@ describe('DashboardServerOverviewPanel', () => {
 
         expect(await screen.findByRole('heading', { name: 'Listening for activity' })).toBeTruthy();
         expect(screen.queryByRole('heading', { name: 'No member movement yet' })).toBeNull();
-        expect(screen.queryByRole('heading', { name: 'No message activity yet' })).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'No member message activity yet' })).toBeNull();
         expect(screen.queryByRole('heading', { name: 'Common tasks' })).toBeNull();
         expect(screen.queryByRole('region', { name: '30-day activity summary' })).toBeNull();
+    });
+
+    it('labels observed messages precisely and exposes chart values as text', async () => {
+        vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValue({
+            type: 'overview',
+            overview: {
+                oldestRetainedActivityAt: '2026-07-01T00:00:00.000Z',
+                windowDays: 30,
+                activityPresence: {
+                    hasMemberFlow: true,
+                    hasMessageActivity: true,
+                },
+                memberFlow: {
+                    totalJoins: 2,
+                    totalLeaves: 1,
+                    netGrowth: 1,
+                    graph: [{ date: '2026-07-01', joins: 2, leaves: 1, netGrowth: 1 }],
+                },
+                messages: {
+                    totalMessages: 4,
+                    graph: [{ date: '2026-07-01', messageCount: 4 }],
+                },
+            },
+        });
+
+        renderOverview();
+
+        expect(await screen.findByRole('region', { name: '30-day activity summary' })).toBeTruthy();
+        expect(await screen.findByRole('heading', { name: 'Member messages' })).toBeTruthy();
+        expect(await screen.findByText(/Daily member movement\./u)).toBeTruthy();
+        expect(await screen.findByText(/Daily observed member messages\./u)).toBeTruthy();
     });
 
     it('shows a busy, single-attempt retry without hiding the scoped error', async () => {

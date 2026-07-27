@@ -5,55 +5,7 @@ import { loadGuildOverviewAggregate } from '@neonflux/db';
 import { getWebDb } from './db.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
-
-export type DashboardGuildOverview = {
-    trackingStartedAt?: string;
-    memberFlow: {
-        totalJoins: number;
-        totalLeaves: number;
-        netGrowth: number;
-        graph: Array<{
-            date: string;
-            joins: number;
-            leaves: number;
-            netGrowth: number;
-        }>;
-    };
-    invites: {
-        activeInviteCount: number;
-        totalInviteUses: number;
-        attribution: {
-            attributed: number;
-            baselineMissing: number;
-            ambiguous: number;
-            unavailable: number;
-            notApplicable: number;
-        };
-    };
-    messages: {
-        totalMessages: number;
-        graph: Array<{
-            date: string;
-            messageCount: number;
-        }>;
-    };
-    dataHealth: {
-        hasMemberFlow: boolean;
-        hasInviteSnapshots: boolean;
-        hasMessageActivity: boolean;
-    };
-};
-
-export type DashboardGuildOverviewResult =
-    | {
-          type: 'overview';
-          overview: DashboardGuildOverview;
-      }
-    | { type: 'auth-required' }
-    | { type: 'not-found' }
-    | { type: 'deployment-config-not-found' }
-    | { type: 'database-error' }
-    | { type: 'guild-lookup-failed' };
+import type { DashboardGuildOverviewResult } from './dashboard-overview-model.js';
 
 type AuthorizedGuildPageData = Extract<DashboardGuildPageDataResult, { type: 'guild' }>;
 
@@ -81,23 +33,13 @@ export async function loadDashboardGuildOverview(
     return {
         type: 'overview',
         overview: {
-            ...(aggregateResult.value.trackingStartedAt
-                ? { trackingStartedAt: aggregateResult.value.trackingStartedAt.toISOString() }
+            ...(aggregateResult.value.oldestRetainedActivityAt
+                ? { oldestRetainedActivityAt: aggregateResult.value.oldestRetainedActivityAt.toISOString() }
                 : {}),
+            activityPresence: aggregateResult.value.activityPresence,
             memberFlow: aggregateResult.value.memberFlow,
-            invites: {
-                activeInviteCount: aggregateResult.value.invites.activeInviteCount,
-                totalInviteUses: aggregateResult.value.invites.totalInviteUses,
-                attribution: {
-                    attributed: aggregateResult.value.invites.attribution.attributed,
-                    baselineMissing: aggregateResult.value.invites.attribution['baseline-missing'],
-                    ambiguous: aggregateResult.value.invites.attribution.ambiguous,
-                    unavailable: aggregateResult.value.invites.attribution.unavailable,
-                    notApplicable: aggregateResult.value.invites.attribution['not-applicable'],
-                },
-            },
             messages: aggregateResult.value.messages,
-            dataHealth: aggregateResult.value.dataHealth,
+            windowDays: aggregateResult.value.windowDays,
         },
     };
 }

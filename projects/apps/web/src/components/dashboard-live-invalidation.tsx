@@ -6,7 +6,6 @@ import type { DashboardLiveArea } from '../dashboard-live.js';
 import {
     getDashboardAuditEventsBaseQueryKey,
     getDashboardCommandSettingsQueryKey,
-    getDashboardOverviewQueryKey,
     getDashboardPostingOperationsQueryKey,
     getDashboardPostingTemplatesQueryKey,
     getDashboardBlueprintRunProgressBaseQueryKey,
@@ -138,10 +137,6 @@ function invalidateDashboardLiveArea(
     const destination = dashboardLiveInvalidationDestination(area);
 
     switch (area) {
-        case 'overview':
-            invalidateOnce(destination, getDashboardOverviewQueryKey(guildId));
-            return;
-
         case 'commands':
             invalidateOnce(destination, getDashboardCommandSettingsQueryKey(guildId));
             return;

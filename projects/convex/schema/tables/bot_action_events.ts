@@ -14,10 +14,6 @@ export const botActionEventsTable = defineTable({
     targetId: optionalString,
 })
     .index('by_created', ['createdAt'])
-    .index('by_feature_created', ['feature', 'createdAt'])
-    .index('by_feature_sort_key', ['feature', 'sortKey'])
-    .index('by_guild_created', ['guildId', 'createdAt'])
-    .index('by_guild_feature_created', ['guildId', 'feature', 'createdAt'])
     .index('by_guild_feature_sort_key', ['guildId', 'feature', 'sortKey'])
     .index('by_guild_sort_key', ['guildId', 'sortKey'])
     .index('by_sort_key', ['sortKey']);

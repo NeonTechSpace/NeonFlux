@@ -70,11 +70,11 @@ describe('loadDashboardGuildOverview', () => {
         );
     });
 
-    it('serializes populated graph, invite, and message overview data', async () => {
+    it('serializes only observable member and message activity', async () => {
         vi.mocked(loadGuildOverviewAggregate).mockResolvedValueOnce(
             ok(
                 createAggregate({
-                    trackingStartedAt: new Date('2026-06-25T00:00:00.000Z'),
+                    oldestRetainedActivityAt: new Date('2026-06-25T00:00:00.000Z'),
                     memberFlow: {
                         totalJoins: 3,
                         totalLeaves: 1,
@@ -84,17 +84,6 @@ describe('loadDashboardGuildOverview', () => {
                             { date: '2026-06-26', joins: 1, leaves: 1, netGrowth: 0 },
                         ],
                     },
-                    invites: {
-                        activeInviteCount: 2,
-                        totalInviteUses: 8,
-                        attribution: {
-                            attributed: 2,
-                            'baseline-missing': 1,
-                            ambiguous: 0,
-                            unavailable: 0,
-                            'not-applicable': 1,
-                        },
-                    },
                     messages: {
                         totalMessages: 12,
                         graph: [
@@ -102,9 +91,8 @@ describe('loadDashboardGuildOverview', () => {
                             { date: '2026-06-26', messageCount: 8 },
                         ],
                     },
-                    dataHealth: {
+                    activityPresence: {
                         hasMemberFlow: true,
-                        hasInviteSnapshots: true,
                         hasMessageActivity: true,
                     },
                 })
@@ -116,7 +104,12 @@ describe('loadDashboardGuildOverview', () => {
         expect(result).toStrictEqual({
             type: 'overview',
             overview: {
-                trackingStartedAt: '2026-06-25T00:00:00.000Z',
+                oldestRetainedActivityAt: '2026-06-25T00:00:00.000Z',
+                windowDays: 30,
+                activityPresence: {
+                    hasMemberFlow: true,
+                    hasMessageActivity: true,
+                },
                 memberFlow: {
                     totalJoins: 3,
                     totalLeaves: 1,
@@ -126,28 +119,12 @@ describe('loadDashboardGuildOverview', () => {
                         { date: '2026-06-26', joins: 1, leaves: 1, netGrowth: 0 },
                     ],
                 },
-                invites: {
-                    activeInviteCount: 2,
-                    totalInviteUses: 8,
-                    attribution: {
-                        attributed: 2,
-                        baselineMissing: 1,
-                        ambiguous: 0,
-                        unavailable: 0,
-                        notApplicable: 1,
-                    },
-                },
                 messages: {
                     totalMessages: 12,
                     graph: [
                         { date: '2026-06-25', messageCount: 4 },
                         { date: '2026-06-26', messageCount: 8 },
                     ],
-                },
-                dataHealth: {
-                    hasMemberFlow: true,
-                    hasInviteSnapshots: true,
-                    hasMessageActivity: true,
                 },
             },
         });
@@ -169,62 +146,40 @@ function createAggregate(overrides: Partial<GuildOverviewAggregate> = {}): Guild
 
 function createOverviewAggregateShape(): GuildOverviewAggregate {
     return {
+        activityPresence: {
+            hasMemberFlow: false,
+            hasMessageActivity: false,
+        },
+        windowDays: 30,
         memberFlow: {
             totalJoins: 0,
             totalLeaves: 0,
             netGrowth: 0,
             graph: [{ date: '2026-06-26', joins: 0, leaves: 0, netGrowth: 0 }],
         },
-        invites: {
-            activeInviteCount: 0,
-            totalInviteUses: 0,
-            attribution: {
-                attributed: 0,
-                'baseline-missing': 0,
-                ambiguous: 0,
-                unavailable: 0,
-                'not-applicable': 0,
-            },
-        },
         messages: {
             totalMessages: 0,
             graph: [{ date: '2026-06-26', messageCount: 0 }],
-        },
-        dataHealth: {
-            hasMemberFlow: false,
-            hasInviteSnapshots: false,
-            hasMessageActivity: false,
         },
     };
 }
 
 function createOverview() {
     return {
+        activityPresence: {
+            hasMemberFlow: false,
+            hasMessageActivity: false,
+        },
+        windowDays: 30,
         memberFlow: {
             totalJoins: 0,
             totalLeaves: 0,
             netGrowth: 0,
             graph: [{ date: '2026-06-26', joins: 0, leaves: 0, netGrowth: 0 }],
         },
-        invites: {
-            activeInviteCount: 0,
-            totalInviteUses: 0,
-            attribution: {
-                attributed: 0,
-                baselineMissing: 0,
-                ambiguous: 0,
-                unavailable: 0,
-                notApplicable: 0,
-            },
-        },
         messages: {
             totalMessages: 0,
             graph: [{ date: '2026-06-26', messageCount: 0 }],
-        },
-        dataHealth: {
-            hasMemberFlow: false,
-            hasInviteSnapshots: false,
-            hasMessageActivity: false,
         },
     };
 }
