@@ -46,6 +46,7 @@ describe('Blueprint I/O acceptance metrics', () => {
             markerLog(markers.workerEnd),
             log('blueprint:createBlueprintPlanDraft', 900_000, 1),
             markerLog(markers.historyStart),
+            log('auth_store:findActiveWebSessionById', 2, 0),
             log('blueprint:listBlueprintPlanSummariesByGuildId', 6, 0),
             markerLog(markers.historyEnd),
         ];
@@ -54,7 +55,10 @@ describe('Blueprint I/O acceptance metrics', () => {
         ).toStrictEqual({
             setup: [{ functionName: 'blueprint:createStructureBackup', readBytes: 12, writeBytes: 5 }],
             worker: [{ functionName: 'blueprint:claimNextBlueprintRun', readBytes: 12, writeBytes: 5 }],
-            history: [{ functionName: 'blueprint:listBlueprintPlanSummariesByGuildId', readBytes: 6, writeBytes: 0 }],
+            history: [
+                { functionName: 'auth_store:findActiveWebSessionById', readBytes: 2, writeBytes: 0 },
+                { functionName: 'blueprint:listBlueprintPlanSummariesByGuildId', readBytes: 6, writeBytes: 0 },
+            ],
         });
 
         records.splice(6, 0, log('blueprint:getBlueprintPlanAuthority', 700 * 1024, 0));

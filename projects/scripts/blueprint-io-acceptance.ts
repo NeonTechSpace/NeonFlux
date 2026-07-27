@@ -38,6 +38,13 @@ const historyFunctions = [
     'blueprint:listLatestBlueprintPlanPreflightSummaries',
     'blueprint:listLatestBlueprintRunSummaries',
 ] as const;
+const historyAuthorizationFunctions = [
+    'auth_store:findActiveWebSessionById',
+    'auth_store:findUsableFluxerOAuthTokenSetByUserId',
+    'core:listBotInstallationGuildIdsPage',
+    'core:readDeploymentConfig',
+    'security_policies:listGuildSecurityPoliciesByGuildIds',
+] as const;
 const workerFunctions = [
     'blueprint:claimNextBlueprintRun',
     'blueprint:authorizeBlueprintRunMutation',
@@ -48,7 +55,7 @@ const workerFunctions = [
     'blueprint:checkpointBlueprintRun',
     'blueprint:finalizeBlueprintRun',
 ] as const;
-const allowedHistoryFunctions = new Set<string>(historyFunctions);
+const allowedHistoryFunctions = new Set<string>([...historyFunctions, ...historyAuthorizationFunctions]);
 const allowedWorkerFunctions = new Set<string>([...workerFunctions, 'blueprint:renewBlueprintRunLease']);
 const planPersistenceFunctions = new Set([
     'blueprint:createBlueprintPlanDraft',
