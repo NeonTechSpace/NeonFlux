@@ -385,7 +385,11 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
 
             await markBlueprintIoAcceptancePhase('NEONFLUX_BLUEPRINT_IO_SETUP_START_MARKER');
             const backupIds: string[] = [];
-            const backupStructure = JSON.parse(JSON.stringify(desired)) as Record<string, unknown>;
+            const representativeBackupIndex = 49;
+            const representativeBackupStructure = JSON.parse(JSON.stringify(desired)) as Record<string, unknown>;
+            const summaryBackupStructure = JSON.parse(
+                JSON.stringify(blueprintSnapshot('I/O backup summary'))
+            ) as Record<string, unknown>;
             for (let index = 0; index < 50; index += 1) {
                 const backup = await createStructureBackup(webDatabase.db, {
                     createdAt: new Date(Date.UTC(2020, 0, 1, 0, 0, index)),
@@ -394,9 +398,10 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
                     serverName: 'E2E Guild',
                     source: 'manual',
                     status: 'succeeded',
-                    structure: backupStructure,
+                    structure:
+                        index === representativeBackupIndex ? representativeBackupStructure : summaryBackupStructure,
                 });
-                if (backup.isErr()) throw new Error('Expected the representative I/O backup to be created.');
+                if (backup.isErr()) throw new Error(`Expected I/O backup ${String(index)} to be created.`);
                 backupIds.push(backup.value.id);
             }
             const backupPage = await listStructureBackupSummaryPageByGuildId(webDatabase.db, {
@@ -406,7 +411,7 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             if (backupPage.isErr()) throw new Error('Expected the representative backup summary page.');
             expect(backupPage.value.backups).toHaveLength(50);
             expect(backupPage.value.nextCursor).toBeNull();
-            const representativeBackupId = backupIds[0];
+            const representativeBackupId = backupIds[representativeBackupIndex];
             if (!representativeBackupId) throw new Error('Expected a representative backup ID.');
             const fullBackup = await findStructureBackupByGuildId(webDatabase.db, {
                 backupId: representativeBackupId,
