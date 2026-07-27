@@ -5,6 +5,7 @@ import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.
 import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { auditInputValidator, recordBlueprintAuditInMutation } from './blueprint_audit.js';
+import { hotRunRecordValidator, toHotRunRecord } from './blueprint_contract_validators.js';
 import {
     assertBlueprintRunTerminalRecordInvariant,
     createBlueprintRunControlCancellationRequestDigest,
@@ -30,7 +31,7 @@ export const requestBlueprintRunControl = mutation({
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         request: v.union(v.literal('pause'), v.literal('resume'), v.literal('cancel')),
     },
-    returns: v.any(),
+    returns: v.union(hotRunRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['web']);
         const run = await ctx.db.get('blueprintRuns', args.runId);
@@ -55,7 +56,7 @@ export const requestBlueprintRunControl = mutation({
                 run,
                 status: 'cancelled',
             });
-            return { ...run, id: run._id };
+            return toHotRunRecord(run);
         }
         let status: 'queued' | 'pause_requested' | 'paused' | 'cancelled';
         let controlRequest: 'pause' | 'cancel' | undefined;
@@ -83,7 +84,7 @@ export const requestBlueprintRunControl = mutation({
                 status,
                 terminalRequestDigest: cancellationRequestDigest,
             });
-            return { ...run, ...patch, id: run._id };
+            return toHotRunRecord({ ...run, ...patch });
         }
         const patch = {
             ...(controlRequest ? { controlRequest } : { controlRequest: undefined }),
@@ -112,6 +113,6 @@ export const requestBlueprintRunControl = mutation({
                 args.now,
                 String(run._id)
             );
-        return { ...run, ...patch, id: run._id };
+        return toHotRunRecord({ ...run, ...patch });
     },
 });

@@ -17,6 +17,10 @@ import { getDocumentSize, v, type GenericId, type Infer } from 'convex/values';
 import type { MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { toPlanMetadataRecord } from './blueprint_hot_records.js';
+import {
+    blueprintPlanAuthorityDraftValidator,
+    blueprintPlanExecutionAuthorityDraftValidator,
+} from './blueprint_contract_validators.js';
 import { buildBlueprintArtifact, persistPlanAuthorityArtifact } from './blueprint_artifact_persistence.js';
 import {
     assertDocumentSize,
@@ -77,9 +81,9 @@ const metadataInputValidator = v.object({
 });
 
 export const blueprintPlanDraftArgs = {
-    authority: v.any(),
+    authority: blueprintPlanAuthorityDraftValidator,
     creationRequestKey: v.string(),
-    executionAuthority: v.any(),
+    executionAuthority: blueprintPlanExecutionAuthorityDraftValidator,
     metadata: metadataInputValidator,
     now: v.string(),
 };
@@ -102,15 +106,10 @@ export async function createBlueprintPlanDraftHandler(ctx: MutationCtx, args: Bl
     if (!isRecord(args.authority) || !isRecord(args.executionAuthority)) {
         throw new Error('blueprint-plan-authority-invalid');
     }
-    if (
-        args.authority.version !== 1 ||
-        args.authority.guildId !== guildId ||
-        args.authority.authorityDigest !== args.metadata.authorityDigest
-    ) {
+    if (args.authority.guildId !== guildId || args.authority.authorityDigest !== args.metadata.authorityDigest) {
         throw new Error('blueprint-plan-authority-metadata-mismatch');
     }
     if (
-        args.executionAuthority.version !== 1 ||
         args.executionAuthority.guildId !== guildId ||
         args.executionAuthority.executionAuthorityDigest !== args.metadata.executionAuthorityDigest
     ) {

@@ -2,6 +2,7 @@ import { v, type GenericId } from 'convex/values';
 import { mutation, type MutationCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
+import { hotRunRecordValidator, toHotRunRecord } from './blueprint_contract_validators.js';
 import { patchBlueprintRunChecked } from './blueprint_run_persistence.js';
 import { assertCurrentBlueprintRunProtocol } from './blueprint_run_protocol.js';
 
@@ -14,7 +15,7 @@ export const renewBlueprintRunLease = mutation({
         now: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
     },
-    returns: v.any(),
+    returns: v.union(hotRunRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const run = await ctx.db.get('blueprintRuns', args.runId);
@@ -33,7 +34,12 @@ export const renewBlueprintRunLease = mutation({
             leaseExpiresAt: args.leaseExpiresAt,
             updatedAt: args.now,
         });
-        return { ...run, heartbeatAt: args.now, leaseExpiresAt: args.leaseExpiresAt, updatedAt: args.now };
+        return toHotRunRecord({
+            ...run,
+            heartbeatAt: args.now,
+            leaseExpiresAt: args.leaseExpiresAt,
+            updatedAt: args.now,
+        });
     },
 });
 

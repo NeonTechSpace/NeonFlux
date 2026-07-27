@@ -6,12 +6,11 @@ import {
     getDashboardBlueprintRunsQueryKey,
     getDashboardBlueprintStatusQueryKey,
 } from '../dashboard-query-keys.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import {
     useDashboardBlueprintPreflightEvidenceQuery,
     useDashboardBlueprintVerificationEvidenceQuery,
 } from './dashboard-blueprint-cold-detail-queries.js';
-import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { readDashboardBlueprintDiagnosticCode } from './dashboard-blueprint-progress.js';
 import { useDashboardBlueprintPlanInspectionState } from './dashboard-blueprint-plan-inspection-state.js';
 import { useDashboardBlueprintRunOperations } from './dashboard-blueprint-run-operations.js';

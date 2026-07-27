@@ -41,6 +41,7 @@ vi.mock('@tanstack/react-router', async () => {
             state: _state,
             preload: _preload,
             activeOptions: _activeOptions,
+            activeProps: _activeProps,
             children,
             ...props
         }: {
@@ -49,8 +50,14 @@ vi.mock('@tanstack/react-router', async () => {
             state?: unknown;
             preload?: unknown;
             activeOptions?: unknown;
-            children: ReactNode;
-        }) => createElement('a', { ...props, href: params ? to.replace('$guildId', params.guildId) : to }, children),
+            activeProps?: unknown;
+            children: ReactNode | ((state: { isActive: boolean }) => ReactNode);
+        }) =>
+            createElement(
+                'a',
+                { ...props, href: params ? to.replace('$guildId', params.guildId) : to },
+                typeof children === 'function' ? children({ isActive: false }) : children
+            ),
         Outlet: () => null,
         useRouter: () => ({ invalidate: invalidateRouter }),
         useNavigate: () => navigate,

@@ -215,7 +215,9 @@ describe('DashboardCategoryNavigation mobile dialog', () => {
         renderedNavigations.push(view);
 
         const trigger = screen.getByRole('button', { name: 'Appearance controls' });
-        expect(screen.getByRole('link', { name: 'Switch account' })).toBeDefined();
+        const signOutForm = screen.getByRole('form', { name: 'Sign out' });
+
+        expect(signOutForm.getAttribute('action')).toBe('/auth/logout');
         fireEvent.click(trigger);
 
         const dialog = await screen.findByRole('dialog', { name: 'Appearance controls' });

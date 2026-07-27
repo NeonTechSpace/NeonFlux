@@ -16,9 +16,12 @@ import {
 } from './dashboard-blueprint-deploy-stage.js';
 import { formatDashboardBlueprintDeployStatus } from './dashboard-blueprint-deploy-run-status.js';
 import type { DashboardBlueprintSourceState } from './dashboard-blueprint-deploy-source-state.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type {
+    BlueprintBusyAction,
+    DashboardBlueprintPreflightView,
+    PanelStatus,
+} from './dashboard-blueprint-panel-types.js';
 import { DashboardBlueprintRunIssue, formatDashboardBlueprintRunIssue } from './dashboard-blueprint-run-issue.js';
-import type { DashboardBlueprintPreflightView, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { StatusMessage } from './dashboard-blueprint-panel-shared.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
 import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName, DashboardStatus } from './dashboard-ui.js';

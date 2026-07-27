@@ -163,6 +163,10 @@ export const revokeWebSession = mutation({
             return null;
         }
 
+        if (session.revokedAt) {
+            return toWebSessionRecord(session);
+        }
+
         const revokedAt = args.revokedAt ? unwrap(normalizeTimestamp(args.revokedAt)) : new Date().toISOString();
         await ctx.db.patch('webSessions', session._id, { revokedAt });
 

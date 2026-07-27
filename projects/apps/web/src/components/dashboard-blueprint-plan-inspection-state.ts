@@ -6,9 +6,8 @@ import {
     readDashboardBlueprintPlanDecisionPageRouteData,
 } from '../server/dashboard-blueprint-route-data.js';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, PlanStepPageState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-blueprint-panel-status.js';
-import type { PlanStepPageState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 
 export function useDashboardBlueprintPlanInspectionState({
     guildId,

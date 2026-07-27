@@ -11,6 +11,31 @@ export type PanelStatus = {
     message: string;
 };
 
+export type BlueprintBusyAction =
+    | 'export'
+    | 'backup'
+    | 'backup-settings'
+    | 'drift'
+    | 'explorer-live'
+    | 'explorer-compare-live'
+    | 'explorer-compare-baseline'
+    | `backup-json:${string}`
+    | 'backup-page'
+    | `backup-drift:${string}`
+    | `backup-rename:${string}`
+    | `backup-delete:${string}`
+    | `backup-import:${string}`
+    | 'plan'
+    | `plan-authority:${string}`
+    | `plan-evidence:${string}`
+    | `plan-steps:${string}`
+    | `decisions:${string}`
+    | `approval:${string}`
+    | `preflight:${string}`
+    | `apply:${string}`
+    | `control:${string}`
+    | `recovery:${string}`;
+
 export type DashboardBlueprintPreflightView = DashboardBlueprintPreflightReport & {
     checkedAt?: string;
     expiresAt?: string;

@@ -19,13 +19,23 @@ import {
     finalizeBlueprintRunInMutation,
 } from './blueprint_run_terminal_mutation.js';
 import {
-    resolveBlueprintRunStepAttemptCompletionStatus,
     isBlueprintRunMutationAuthorizedForLease,
     validateBlueprintRunAttemptIndexedMappingDelta,
     validateBlueprintRunProgressTransition,
     validateBlueprintRunStepAttemptCompletionTransition,
     resolveBlueprintRunStepAttemptCompletionRetry,
 } from './blueprint_run_model.js';
+import {
+    buildBlueprintRunStepCompletionPatches,
+    decideBlueprintRunStepCompletion,
+} from './blueprint_run_step_completion.js';
+import {
+    blueprintRunStepCompletionRecordValidator,
+    blueprintRunStepPreparationRecordValidator,
+    blueprintRunStepStartRecordValidator,
+    toBlueprintRunStepAttemptRecord,
+    toHotRunRecord,
+} from './blueprint_contract_validators.js';
 
 const MAX_BLUEPRINT_RUN_STEP_ATTEMPTS = 10;
 const MAX_BLUEPRINT_RUN_STEP_ATTEMPT_BYTES = 8 * 1024;
@@ -45,7 +55,7 @@ export const prepareBlueprintRunStepAttempt = mutation({
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         requestKey: v.string(),
     },
-    returns: v.any(),
+    returns: blueprintRunStepPreparationRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         assertBoundedText(args.requestKey, 512, 'blueprint-run-step-attempt-request-key-too-large');
@@ -74,8 +84,8 @@ export const prepareBlueprintRunStepAttempt = mutation({
             await patchBlueprintRunChecked(ctx, run, runPatch);
             return {
                 kind: run.status === 'pause_requested' ? ('control_requested' as const) : ('prepared' as const),
-                attempt: { ...existing, id: existing._id },
-                run: { ...run, ...runPatch, id: run._id },
+                attempt: toBlueprintRunStepAttemptRecord(existing),
+                run: toHotRunRecord({ ...run, ...runPatch }),
             };
         }
         const planStep = await ctx.db.get('blueprintPlanSteps', args.planStepId);
@@ -99,8 +109,8 @@ export const prepareBlueprintRunStepAttempt = mutation({
         await patchBlueprintRunChecked(ctx, run, runPatch);
         return {
             kind: run.status === 'pause_requested' ? ('control_requested' as const) : ('prepared' as const),
-            attempt: { id, ...document },
-            run: { ...run, ...runPatch, id: run._id },
+            attempt: toBlueprintRunStepAttemptRecord({ _id: id, ...document }),
+            run: toHotRunRecord({ ...run, ...runPatch }),
         };
     },
 });
@@ -114,7 +124,7 @@ export const startBlueprintRunStepAttempt = mutation({
         now: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
     },
-    returns: v.any(),
+    returns: blueprintRunStepStartRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const attempt = await ctx.db.get('blueprintRunStepAttempts', args.attemptId);
@@ -131,8 +141,8 @@ export const startBlueprintRunStepAttempt = mutation({
         if (run.status === 'pause_requested') {
             return {
                 kind: 'control_requested' as const,
-                attempt: { ...attempt, id: attempt._id },
-                run: { ...run, id: run._id },
+                attempt: toBlueprintRunStepAttemptRecord(attempt),
+                run: toHotRunRecord(run),
             };
         }
         if (
@@ -160,8 +170,8 @@ export const startBlueprintRunStepAttempt = mutation({
         if (Object.keys(runPatch).length > 0) await patchBlueprintRunChecked(ctx, run, runPatch);
         return {
             kind: 'started' as const,
-            attempt: { ...attempt, ...patch, id: attempt._id },
-            run: { ...run, ...runPatch, id: run._id },
+            attempt: toBlueprintRunStepAttemptRecord({ ...attempt, ...patch }),
+            run: toHotRunRecord({ ...run, ...runPatch }),
         };
     },
 });
@@ -206,7 +216,7 @@ export const completeAndCheckpointBlueprintRunStepAttempt = mutation({
         ),
         totalMutationSteps: v.number(),
     },
-    returns: v.any(),
+    returns: blueprintRunStepCompletionRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const attempt = await ctx.db.get('blueprintRunStepAttempts', args.attemptId);
@@ -223,8 +233,8 @@ export const completeAndCheckpointBlueprintRunStepAttempt = mutation({
             const committedRun = await ctx.db.get('blueprintRuns', attempt.runId);
             if (!committedRun) throw new Error('blueprint-run-not-found');
             return {
-                attempt: { ...attempt, id: attempt._id },
-                run: { ...committedRun, id: committedRun._id },
+                attempt: toBlueprintRunStepAttemptRecord(attempt),
+                run: toHotRunRecord(committedRun),
             };
         }
         const run = await requireRunLease(ctx, attempt.runId, args.leaseId, args.leaseOwner, args.now, [
@@ -289,77 +299,19 @@ export const completeAndCheckpointBlueprintRunStepAttempt = mutation({
             previous: run,
         });
         validateBlueprintRunStepAttemptCompletionTransition({ attempt, args, run });
-        const requestedTerminal =
-            args.status === 'partially_applied' ||
-            args.status === 'failed_before_mutation' ||
-            args.status === 'outcome_unknown';
-        if (
-            (args.status === 'waiting_rate_limit' &&
-                (args.state !== 'failed' || !args.retryAt || args.phase !== 'waiting_rate_limit')) ||
-            (args.status === 'outcome_unknown' && (args.state !== 'unknown' || args.phase !== 'complete')) ||
-            ((args.status === 'partially_applied' || args.status === 'failed_before_mutation') &&
-                (args.state !== 'failed' || args.phase !== 'complete' || !args.errorType)) ||
-            (args.status === 'failed_before_mutation' &&
-                (args.appliedSteps !== 0 || args.completedMutationSteps !== 0)) ||
-            (args.status === 'partially_applied' && args.appliedSteps === 0) ||
-            (!requestedTerminal && args.phase === 'complete')
-        ) {
-            throw new Error('blueprint-run-attempt-outcome-invalid');
-        }
-        const resolvedStatus = resolveBlueprintRunStepAttemptCompletionStatus({
-            controlRequest: run.controlRequest,
-            runStatus: run.status,
-            requestedStatus: args.status,
-        });
-        const controlStatus =
-            resolvedStatus === 'paused' || resolvedStatus === 'cancelled' ? resolvedStatus : undefined;
-        const resolvedPhase =
-            controlStatus === 'paused' ? ('paused' as const) : controlStatus ? ('complete' as const) : args.phase;
-        const terminal =
-            resolvedStatus === 'partially_applied' ||
-            resolvedStatus === 'failed_before_mutation' ||
-            resolvedStatus === 'outcome_unknown' ||
-            resolvedStatus === 'cancelled';
-        const attemptPatch = {
-            completedAt: args.now,
-            completionDigest,
-            ...(args.createdId ? { createdId: args.createdId } : {}),
-            ...(args.errorType ? { errorType: args.errorType } : {}),
-            ...(args.retryAt ? { retryAt: args.retryAt } : {}),
-            state: args.state,
-            updatedAt: args.now,
-        };
         if (args.createdId) assertBoundedText(args.createdId, 256, 'blueprint-run-step-attempt-created-id-too-large');
         if (args.errorType) assertBoundedText(args.errorType, 256, 'blueprint-run-step-attempt-error-type-too-large');
-        const runPatch = {
-            appliedSteps: args.appliedSteps,
-            completedMutationSteps: args.completedMutationSteps,
-            currentStepDomain: args.currentStepDomain,
-            currentStepId: args.currentStepId,
-            currentStepLabel: args.currentStepLabel,
-            failedSteps: args.failedSteps,
-            errorType: controlStatus ? undefined : args.errorType,
-            nextStepSequence: args.nextStepSequence,
-            notStartedSteps: args.notStartedSteps,
-            phase: resolvedPhase,
-            retryAt: controlStatus || terminal ? undefined : args.retryAt,
-            skippedSteps: args.skippedSteps,
-            status: resolvedStatus,
-            updatedAt: args.now,
-            ...(resolvedStatus === 'waiting_rate_limit' || resolvedStatus === 'paused'
-                ? {
-                      controlRequest: undefined,
-                      heartbeatAt: undefined,
-                      leaseExpiresAt: undefined,
-                      leaseId: undefined,
-                      leaseOwner: undefined,
-                  }
-                : {}),
-        };
-        const cursorPatch = {
-            mappingCount: cursor.mappingCount + (mappingDelta ? 1 : 0),
-            updatedAt: args.now,
-        };
+        const completionDecision = decideBlueprintRunStepCompletion({
+            completion: args,
+            run,
+        });
+        const { attemptPatch, cursorPatch, runPatch } = buildBlueprintRunStepCompletionPatches({
+            completion: args,
+            completionDigest,
+            currentMappingCount: cursor.mappingCount,
+            decision: completionDecision,
+            mappingCreated: mappingDelta !== null,
+        });
         assertDocumentSize(
             { ...cursor, ...cursorPatch },
             MAX_BLUEPRINT_RUN_CURSOR_BYTES,
@@ -384,16 +336,16 @@ export const completeAndCheckpointBlueprintRunStepAttempt = mutation({
         }
         await ctx.db.patch('blueprintRunCursors', cursor._id, cursorPatch);
         let persistedRunPatch: Record<string, unknown> = runPatch;
-        if (terminal) {
+        if (completionDecision.terminal) {
             await patchBlueprintRunChecked(ctx, run, runPatch);
             const cancellationRequestDigest =
-                resolvedStatus === 'cancelled' && run.controlRequest === 'cancel'
+                completionDecision.resolvedStatus === 'cancelled' && run.controlRequest === 'cancel'
                     ? await createBlueprintRunControlCancellationRequestDigest(String(run._id))
                     : undefined;
             const terminalPatch = await finalizeBlueprintRunInMutation(ctx, {
                 run: applyBlueprintRunPatch(run, runPatch),
                 now: args.now,
-                status: resolvedStatus,
+                status: completionDecision.resolvedStatus,
                 ...(cancellationRequestDigest
                     ? { terminalRequestDigest: cancellationRequestDigest }
                     : { terminalRequestSourceDigest: completionDigest }),
@@ -402,19 +354,19 @@ export const completeAndCheckpointBlueprintRunStepAttempt = mutation({
             persistedRunPatch = { ...runPatch, ...terminalPatch };
         } else {
             await patchBlueprintRunChecked(ctx, run, runPatch);
-            if (resolvedStatus === 'paused') {
+            if (completionDecision.auditAction) {
                 await recordBlueprintAuditInMutation(
                     ctx,
                     run.guildId,
-                    { action: 'blueprint.run_paused' },
+                    { action: completionDecision.auditAction },
                     args.now,
                     String(run._id)
                 );
             }
         }
         return {
-            attempt: { ...attempt, ...attemptPatch, id: attempt._id },
-            run: { ...run, ...persistedRunPatch, id: run._id },
+            attempt: toBlueprintRunStepAttemptRecord({ ...attempt, ...attemptPatch }),
+            run: toHotRunRecord({ ...run, ...persistedRunPatch }),
         };
     },
 });

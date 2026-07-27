@@ -14,6 +14,11 @@ import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import {
+    blueprintVerificationResultValidator,
+    hotRunRecordValidator,
+    toHotRunRecord,
+} from './blueprint_contract_validators.js';
+import {
     assertBlueprintRunTerminalRecordInvariant,
     buildBlueprintRunPausedPatch,
     createBlueprintRunControlCancellationRequestDigest,
@@ -52,10 +57,10 @@ export const finalizeBlueprintRun = mutation({
             v.literal('cancelled')
         ),
         verificationEvidenceDigest: v.optional(v.string()),
-        verificationResult: v.optional(v.any()),
+        verificationResult: v.optional(blueprintVerificationResultValidator),
         verificationStatus: v.optional(v.union(v.literal('matched'), v.literal('mismatch'), v.literal('read_failed'))),
     },
-    returns: v.any(),
+    returns: hotRunRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const existingRun = await ctx.db.get('blueprintRuns', args.runId);
@@ -94,7 +99,7 @@ export const finalizeBlueprintRun = mutation({
                 run: existingRun,
                 status: existingRun.status as (typeof terminalStatuses)[number],
             });
-            return { ...existingRun, id: existingRun._id };
+            return toHotRunRecord(existingRun);
         }
         const verificationResolution = preservesVerificationEvidence
             ? await resolveBlueprintRunVerificationEvidence(existingRun, args)
@@ -133,7 +138,7 @@ export const finalizeBlueprintRun = mutation({
                 args.now,
                 String(run._id)
             );
-            return { ...run, ...patch, id: run._id };
+            return toHotRunRecord({ ...run, ...patch });
         }
         const verificationEvidence = outcome.preservesVerificationEvidence
             ? verificationResolution?.evidence
@@ -165,7 +170,7 @@ export const finalizeBlueprintRun = mutation({
                   }
                 : {}),
         });
-        return { ...run, ...patch, id: run._id };
+        return toHotRunRecord({ ...run, ...patch });
     },
 });
 

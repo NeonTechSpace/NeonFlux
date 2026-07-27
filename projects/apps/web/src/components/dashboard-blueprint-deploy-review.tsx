@@ -19,10 +19,9 @@ import type {
     DashboardBlueprintExplorerEntityKey,
     DashboardBlueprintExplorerSection,
 } from './dashboard-blueprint-explorer-snapshot.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-blueprint-panel-requested-snapshot.js';
-import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import { dashboardFieldClassName } from './dashboard-ui.js';
 
 export function DashboardBlueprintDeployReview({

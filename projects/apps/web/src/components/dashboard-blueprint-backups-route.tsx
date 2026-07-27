@@ -22,12 +22,11 @@ import { DashboardBlueprintBackupsSurface } from './dashboard-blueprint-backups-
 import { createDashboardBlueprintDriftActions } from './dashboard-blueprint-drift-actions.js';
 import { formatDashboardBlueprintExplorerSnapshotJson } from './dashboard-blueprint-explorer-json.js';
 import { parseDashboardBlueprintExplorerSnapshot } from './dashboard-blueprint-explorer-snapshot.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, BackupPageState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { isBackupPageStateFresh } from './dashboard-blueprint-panel-backup-state.js';
 import { downloadJsonFile } from './dashboard-blueprint-panel-download.js';
 import { formatBackupSource, formatDate } from './dashboard-blueprint-panel-format.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-blueprint-panel-status.js';
-import type { BackupPageState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { readDashboardBlueprintDiagnosticCode } from './dashboard-blueprint-progress.js';
 import { createDashboardBlueprintRestorePlan } from './dashboard-blueprint-restore-plan.js';
 import { useDashboardBlueprintRuntime } from './dashboard-blueprint-runtime-context.js';

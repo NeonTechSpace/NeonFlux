@@ -3,14 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadWebConfig } from '@neonflux/config';
 import type * as NeonFluxConfig from '@neonflux/config';
-import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
+import {
+    loadDashboardGuildAccess,
+    loadDashboardGuildAccessForAuthenticatedContext,
+} from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccess } from './dashboard-guild-access.server.js';
-import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import {
+    loadDashboardGuildPageData,
+    loadDashboardGuildPageDataForAuthenticatedContext,
+} from './dashboard-guild-page.server.js';
+import type { AuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 const request = new Request('http://localhost:3000/dashboard/guild-1');
 
 vi.mock('./dashboard-guild-access.server.js', () => ({
     loadDashboardGuildAccess: vi.fn(),
+    loadDashboardGuildAccessForAuthenticatedContext: vi.fn(),
 }));
 
 vi.mock('@neonflux/config', async (importActual) => {
@@ -26,6 +34,7 @@ describe('loadDashboardGuildPageData', () => {
     beforeEach(() => {
         vi.mocked(loadWebConfig).mockReturnValue(createWebConfig());
         vi.mocked(loadDashboardGuildAccess).mockResolvedValue(ok(createAuthorizedGuildAccess()));
+        vi.mocked(loadDashboardGuildAccessForAuthenticatedContext).mockResolvedValue(ok(createAuthorizedGuildAccess()));
     });
 
     afterEach(() => {
@@ -53,6 +62,17 @@ describe('loadDashboardGuildPageData', () => {
                 },
             ],
         });
+    });
+
+    it('reuses an already authenticated context without reading the request again', async () => {
+        const authContext = createAuthenticatedFluxerContext();
+
+        await expect(loadDashboardGuildPageDataForAuthenticatedContext(authContext, 'guild-1')).resolves.toMatchObject({
+            type: 'guild',
+            guild: { id: 'guild-1' },
+        });
+        expect(loadDashboardGuildAccessForAuthenticatedContext).toHaveBeenCalledExactlyOnceWith(authContext);
+        expect(loadDashboardGuildAccess).not.toHaveBeenCalled();
     });
 
     it('includes the configured bot invite URL for authorized guild routes', async () => {
@@ -214,5 +234,21 @@ function createWebConfig(overrides: Partial<ReturnType<typeof loadWebConfig>> = 
         logLevel: 'info',
         nodeEnv: 'test',
         ...overrides,
+    };
+}
+
+function createAuthenticatedFluxerContext(): AuthenticatedFluxerContext {
+    return {
+        accessToken: 'access-token',
+        accessTokenExpiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        fluxerUserId: 'user-1',
+        scopes: ['identify'],
+        session: {
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+            fluxerUserId: 'user-1',
+            id: 'session-1',
+            revokedAt: null,
+        },
     };
 }

@@ -7,7 +7,7 @@ import {
     formatDashboardBlueprintRunPhase,
     formatDashboardBlueprintRunState,
 } from '../server/dashboard-blueprint-contracts.js';
-import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
+import type { BlueprintBusyAction, DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import {
@@ -22,31 +22,6 @@ import {
     dashboardDangerActionClassName,
     dashboardSecondaryActionClassName,
 } from './dashboard-ui.js';
-
-export type BlueprintBusyAction =
-    | 'export'
-    | 'backup'
-    | 'backup-settings'
-    | 'drift'
-    | 'explorer-live'
-    | 'explorer-compare-live'
-    | 'explorer-compare-baseline'
-    | `backup-json:${string}`
-    | 'backup-page'
-    | `backup-drift:${string}`
-    | `backup-rename:${string}`
-    | `backup-delete:${string}`
-    | `backup-import:${string}`
-    | 'plan'
-    | `plan-authority:${string}`
-    | `plan-evidence:${string}`
-    | `plan-steps:${string}`
-    | `decisions:${string}`
-    | `approval:${string}`
-    | `preflight:${string}`
-    | `apply:${string}`
-    | `control:${string}`
-    | `recovery:${string}`;
 
 const DashboardBlueprintDeployReview = lazy(() =>
     import('./dashboard-blueprint-deploy-review.js').then((module) => ({

@@ -24,6 +24,7 @@ import type * as blueprint_blueprint_backup_contract from "../blueprint/blueprin
 import type * as blueprint_blueprint_backup_manual from "../blueprint/blueprint_backup_manual.js";
 import type * as blueprint_blueprint_backup_reads from "../blueprint/blueprint_backup_reads.js";
 import type * as blueprint_blueprint_backup_scheduled from "../blueprint/blueprint_backup_scheduled.js";
+import type * as blueprint_blueprint_contract_validators from "../blueprint/blueprint_contract_validators.js";
 import type * as blueprint_blueprint_history_summaries from "../blueprint/blueprint_history_summaries.js";
 import type * as blueprint_blueprint_hot_records from "../blueprint/blueprint_hot_records.js";
 import type * as blueprint_blueprint_plan_draft from "../blueprint/blueprint_plan_draft.js";
@@ -46,6 +47,7 @@ import type * as blueprint_blueprint_run_progress from "../blueprint/blueprint_r
 import type * as blueprint_blueprint_run_protocol from "../blueprint/blueprint_run_protocol.js";
 import type * as blueprint_blueprint_run_restore from "../blueprint/blueprint_run_restore.js";
 import type * as blueprint_blueprint_run_step_attempts from "../blueprint/blueprint_run_step_attempts.js";
+import type * as blueprint_blueprint_run_step_completion from "../blueprint/blueprint_run_step_completion.js";
 import type * as blueprint_blueprint_run_terminal from "../blueprint/blueprint_run_terminal.js";
 import type * as blueprint_blueprint_run_terminal_mutation from "../blueprint/blueprint_run_terminal_mutation.js";
 import type * as blueprint_blueprint_workflow from "../blueprint/blueprint_workflow.js";
@@ -155,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   "blueprint/blueprint_backup_manual": typeof blueprint_blueprint_backup_manual;
   "blueprint/blueprint_backup_reads": typeof blueprint_blueprint_backup_reads;
   "blueprint/blueprint_backup_scheduled": typeof blueprint_blueprint_backup_scheduled;
+  "blueprint/blueprint_contract_validators": typeof blueprint_blueprint_contract_validators;
   "blueprint/blueprint_history_summaries": typeof blueprint_blueprint_history_summaries;
   "blueprint/blueprint_hot_records": typeof blueprint_blueprint_hot_records;
   "blueprint/blueprint_plan_draft": typeof blueprint_blueprint_plan_draft;
@@ -177,6 +180,7 @@ declare const fullApi: ApiFromModules<{
   "blueprint/blueprint_run_protocol": typeof blueprint_blueprint_run_protocol;
   "blueprint/blueprint_run_restore": typeof blueprint_blueprint_run_restore;
   "blueprint/blueprint_run_step_attempts": typeof blueprint_blueprint_run_step_attempts;
+  "blueprint/blueprint_run_step_completion": typeof blueprint_blueprint_run_step_completion;
   "blueprint/blueprint_run_terminal": typeof blueprint_blueprint_run_terminal;
   "blueprint/blueprint_run_terminal_mutation": typeof blueprint_blueprint_run_terminal_mutation;
   "blueprint/blueprint_workflow": typeof blueprint_blueprint_workflow;

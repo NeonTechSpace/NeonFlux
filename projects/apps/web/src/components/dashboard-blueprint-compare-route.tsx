@@ -15,9 +15,8 @@ import {
 import { useDashboardBlueprintBackupsQuery } from './dashboard-blueprint-backups-query.js';
 import { DashboardBlueprintCompareSurface } from './dashboard-blueprint-compare-surface.js';
 import { createDashboardBlueprintDriftActions } from './dashboard-blueprint-drift-actions.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, DriftState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { useDashboardBlueprintExplorerState } from './dashboard-blueprint-panel-explorer-state.js';
-import type { DriftState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { readDashboardBlueprintDiagnosticCode } from './dashboard-blueprint-progress.js';
 import { createDashboardBlueprintRestorePlan } from './dashboard-blueprint-restore-plan.js';
 import { useDashboardBlueprintPlanInspectionState } from './dashboard-blueprint-plan-inspection-state.js';

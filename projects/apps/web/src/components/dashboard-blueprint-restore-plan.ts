@@ -2,9 +2,8 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import { importDashboardBlueprintBackupRouteData } from '../server/dashboard-blueprint-route-data.js';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-blueprint-panel-status.js';
-import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
 
 export function createDashboardBlueprintRestorePlan({
     guildId,

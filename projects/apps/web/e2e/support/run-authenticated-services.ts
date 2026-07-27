@@ -27,7 +27,7 @@ if (resolve(state.fixtureEnvPath) !== expectedFixtureEnvPath) {
     throw new Error('Ephemeral Convex state references an unowned fixture env file.');
 }
 const runtimeEnvironment = parseOwnedRuntimeEnvironment(await readFile(state.fixtureEnvPath, 'utf8'));
-await runPnpm(['exec', 'vitest', 'run', 'apps/web/e2e/support/authenticated-services.test.ts', '--maxWorkers=1'], {
+await runPnpm(['test:integration:services'], {
     ...testEnvironment,
     ...runtimeEnvironment,
     NEONFLUX_E2E_AUTHENTICATED: e2eEphemeralSentinel,

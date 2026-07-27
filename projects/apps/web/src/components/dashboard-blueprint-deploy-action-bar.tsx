@@ -6,8 +6,7 @@ import {
     readDashboardBlueprintDeployReadiness,
 } from './dashboard-blueprint-deploy-readiness.js';
 import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
-import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
+import type { BlueprintBusyAction, DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import {
     dashboardDangerActionClassName,
     dashboardPrimaryActionClassName,

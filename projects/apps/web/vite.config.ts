@@ -9,7 +9,22 @@ import viteReact, { reactCompilerPreset } from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { nitro } from 'nitro/vite';
 
-const config = defineConfig({
+import { enforceBuildLogPolicy } from './vite-build-log-policy.js';
+
+const config = defineConfig(({ mode }) => ({
+    build: {
+        // Lazy syntax grammars are intentionally isolated; the post-build guard enforces this byte ceiling exactly.
+        chunkSizeWarningLimit: 900,
+        rolldownOptions: {
+            checks: {
+                // This wall-clock heuristic is machine-load dependent and is not a correctness or size regression signal.
+                pluginTimings: false,
+            },
+            onLog(level, log, defaultHandler) {
+                enforceBuildLogPolicy(level, log, defaultHandler);
+            },
+        },
+    },
     envDir: '../..',
     resolve: { tsconfigPaths: true },
     ssr: {
@@ -17,7 +32,7 @@ const config = defineConfig({
     },
     plugins: [
         mdx(),
-        devtools(),
+        mode === 'development' ? devtools() : undefined,
         nitro(),
         tailwindcss(),
         tanstackStart(),
@@ -26,6 +41,6 @@ const config = defineConfig({
             presets: [reactCompilerPreset()],
         }),
     ],
-});
+}));
 
 export default config;

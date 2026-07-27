@@ -5,11 +5,24 @@ import { join } from 'node:path';
 
 import {
     aggregateBlueprintIoWorkloadMetrics,
-    assertNoTransitiveColdDependencies,
     assertBlueprintIoAcceptance,
     extractBlueprintIoWorkloadMetrics,
     parseBlueprintIoMetrics,
 } from './blueprint-io-acceptance.js';
+import { assertTypeScriptDependencyBoundary, isGeneratedConvexImport } from './typescript-dependency-boundary.js';
+
+const historyColdTables = [
+    'blueprintPlanAuthorities',
+    'blueprintPlanAuthorityChunks',
+    'blueprintPlanExecutionAuthorities',
+    'blueprintPlanExecutionAuthorityBuckets',
+    'blueprintPlanPreflightEvidence',
+    'blueprintPlanSteps',
+    'blueprintPlanDecisions',
+    'blueprintRunCursors',
+    'blueprintRunVerificationEvidence',
+    'blueprintRunIdMappings',
+] as const;
 
 describe('Blueprint I/O acceptance metrics', () => {
     it('parses successful completions, ignores progress, and rejects malformed, failed, or retried logs', () => {
@@ -226,10 +239,11 @@ describe('Blueprint I/O acceptance metrics', () => {
         ).toThrow(/Unexpected Convex function blueprint:getBlueprintPlanAuthority.*worker phase/u);
     });
 
-    it('rejects cold tables reached through an indirect History import', async () => {
+    it('rejects cold tables reached directly or through an indirect History import', async () => {
         const root = await mkdtemp(join(tmpdir(), 'neonflux-history-boundary-'));
         try {
             const entry = join(root, 'history.ts');
+            const direct = join(root, 'direct.ts');
             await writeFile(entry, "export { load } from './helper.js';\n", 'utf8');
             await writeFile(join(root, 'helper.ts'), "export { load } from './cold.js';\n", 'utf8');
             await writeFile(
@@ -237,10 +251,21 @@ describe('Blueprint I/O acceptance metrics', () => {
                 "export const load = (ctx: any) => ctx.db.query('blueprintPlanAuthorities');\n",
                 'utf8'
             );
+            await writeFile(direct, "export const table = 'blueprintPlanSteps';\n", 'utf8');
 
-            await expect(assertNoTransitiveColdDependencies(entry, root)).rejects.toThrow(
-                /history\.ts -> helper\.ts -> cold\.ts/u
-            );
+            for (const [entryPath, expectedPath] of [
+                [entry, /history\.ts -> helper\.ts -> cold\.ts/u],
+                [direct, /direct\.ts/u],
+            ] as const) {
+                await expect(
+                    assertTypeScriptDependencyBoundary({
+                        entryPath,
+                        forbiddenStringLiterals: historyColdTables,
+                        label: 'Fixture History boundary',
+                        sourceRoot: root,
+                    })
+                ).rejects.toThrow(expectedPath);
+            }
         } finally {
             await rm(root, { force: true, recursive: true });
         }
@@ -249,7 +274,13 @@ describe('Blueprint I/O acceptance metrics', () => {
     it('accepts the current transitive History dependency graph', async () => {
         const root = join(process.cwd(), 'convex');
         await expect(
-            assertNoTransitiveColdDependencies(join(root, 'blueprint/blueprint_history_summaries.ts'), root)
+            assertTypeScriptDependencyBoundary({
+                entryPath: join(root, 'blueprint/blueprint_history_summaries.ts'),
+                forbiddenStringLiterals: historyColdTables,
+                ignoreRelativeImport: isGeneratedConvexImport,
+                label: 'Blueprint History summary',
+                sourceRoot: root,
+            })
         ).resolves.toBeUndefined();
     });
 });

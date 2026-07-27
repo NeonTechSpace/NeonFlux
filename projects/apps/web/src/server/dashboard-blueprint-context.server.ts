@@ -3,8 +3,9 @@ import '@tanstack/react-start/server-only';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
-import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
+import { loadDashboardGuildPageDataForAuthenticatedContext } from './dashboard-guild-page.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
+import type { AuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardBlueprintErrorResult } from './dashboard-blueprint-model.js';
 
 export type AuthorizedBlueprintContext = {
@@ -16,22 +17,23 @@ export type AuthorizedBlueprintContext = {
     };
 };
 
-type StructureActor =
-    | { type: 'actor'; actorUserId: string; metadata: Record<string, string> }
-    | { type: 'auth-required' }
-    | { type: 'database-error' };
+type StructureActor = { type: 'actor'; actorUserId: string; metadata: Record<string, string> };
 
 export async function loadAuthorizedBlueprintContext(
     request: Request,
     guildId: string
 ): Promise<AuthorizedBlueprintContext | DashboardBlueprintErrorResult> {
-    const guildPageData = await loadDashboardGuildPageData(request, guildId);
+    const authContextResult = await readAuthenticatedFluxerContext(request);
+
+    if (authContextResult.isErr()) {
+        return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
+    }
+
+    const guildPageData = await loadDashboardGuildPageDataForAuthenticatedContext(authContextResult.value, guildId);
 
     if (guildPageData.type !== 'guild') return mapDashboardGuildPageError(guildPageData);
 
-    const actor = await resolveStructureActor(request);
-
-    if (actor.type !== 'actor') return actor;
+    const actor = await resolveStructureActor(authContextResult.value);
 
     return {
         type: 'authorized',
@@ -58,22 +60,16 @@ export function createBlueprintAuditInput(
     };
 }
 
-async function resolveStructureActor(request: Request): Promise<StructureActor> {
-    const authContextResult = await readAuthenticatedFluxerContext(request);
+async function resolveStructureActor(authContext: AuthenticatedFluxerContext): Promise<StructureActor> {
+    const currentUserResult = await getFluxerCurrentUser({ accessToken: authContext.accessToken });
 
-    if (authContextResult.isErr()) {
-        return authContextResult.error === 'database-error' ? { type: 'database-error' } : { type: 'auth-required' };
-    }
-
-    const currentUserResult = await getFluxerCurrentUser({ accessToken: authContextResult.value.accessToken });
-
-    if (currentUserResult.isErr() || currentUserResult.value.id !== authContextResult.value.fluxerUserId) {
-        return { type: 'actor', actorUserId: authContextResult.value.fluxerUserId, metadata: {} };
+    if (currentUserResult.isErr() || currentUserResult.value.id !== authContext.fluxerUserId) {
+        return { type: 'actor', actorUserId: authContext.fluxerUserId, metadata: {} };
     }
 
     return {
         type: 'actor',
-        actorUserId: authContextResult.value.fluxerUserId,
+        actorUserId: authContext.fluxerUserId,
         metadata: {
             actorUsername: currentUserResult.value.username,
             ...(currentUserResult.value.globalName ? { actorDisplayName: currentUserResult.value.globalName } : {}),

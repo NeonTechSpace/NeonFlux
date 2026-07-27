@@ -1,15 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
 
 import {
     e2eEphemeralSentinel,
     requireEphemeralSentinel,
     validateEphemeralConvexState,
 } from '../apps/web/e2e/support/ephemeral-state.js';
+import { assertTypeScriptDependencyBoundary, isGeneratedConvexImport } from './typescript-dependency-boundary.js';
 
 const workspaceDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const webDirectory = resolve(workspaceDirectory, 'apps/web');
@@ -773,36 +773,18 @@ async function assertSummaryFunctionsHaveNoColdDependencies(): Promise<void> {
     const convexSourceRoot = resolve(workspaceDirectory, 'convex');
     const summaryPath = resolve(convexSourceRoot, 'blueprint/blueprint_history_summaries.ts');
     const hotRecordsPath = resolve(convexSourceRoot, 'blueprint/blueprint_hot_records.ts');
-    const summarySource = await readFile(summaryPath, 'utf8');
-    const hotRecordsSource = await readFile(hotRecordsPath, 'utf8');
-    const allowedSummaryImports = new Set([
-        'convex/values',
-        '../_generated/server.js',
-        '../auth.js',
-        './blueprint_hot_records.js',
-    ]);
-    const forbiddenSummaryImport = moduleSpecifiers(summarySource, summaryPath).find(
-        (specifier) => !allowedSummaryImports.has(specifier)
-    );
-    if (forbiddenSummaryImport) {
-        throw new Error(`Blueprint History summary module imports forbidden dependency ${forbiddenSummaryImport}.`);
+    for (const [entryPath, label] of [
+        [summaryPath, 'Blueprint History summary'],
+        [hotRecordsPath, 'Blueprint History hot-record serializer'],
+    ] as const) {
+        await assertTypeScriptDependencyBoundary({
+            entryPath,
+            forbiddenStringLiterals: historyColdTables,
+            ignoreRelativeImport: isGeneratedConvexImport,
+            label,
+            sourceRoot: convexSourceRoot,
+        });
     }
-    const allowedHotRecordImports = new Set(['convex/values', '../_generated/dataModel.js']);
-    const forbiddenHotRecordImport = moduleSpecifiers(hotRecordsSource, hotRecordsPath).find(
-        (specifier) => !allowedHotRecordImports.has(specifier)
-    );
-    if (forbiddenHotRecordImport) {
-        throw new Error(`Blueprint hot-record serializer imports forbidden dependency ${forbiddenHotRecordImport}.`);
-    }
-    if (/\b(?:ctx|db)\b/u.test(hotRecordsSource)) {
-        throw new Error('Blueprint hot-record serializer may not access a Convex context or database.');
-    }
-    if (
-        /\b(?:query|internalQuery|mutation|internalMutation|action|internalAction|require)\s*\(/u.test(hotRecordsSource)
-    ) {
-        throw new Error('Blueprint hot-record serializer may not register or invoke Convex functions.');
-    }
-    await assertNoTransitiveColdDependencies(summaryPath, convexSourceRoot, historyColdTables);
 }
 
 async function assertBackupSummaryHasNoArtifactDependency(): Promise<void> {
@@ -814,110 +796,6 @@ async function assertBackupSummaryHasNoArtifactDependency(): Promise<void> {
     const handler = source.slice(start, end);
     if (/loadStructureBackupArtifact|structureBackupArtifactChunks/u.test(handler)) {
         throw new Error('Structure-backup summary pagination may not load artifact chunks.');
-    }
-}
-
-export async function assertNoTransitiveColdDependencies(
-    entryPath: string,
-    sourceRoot: string,
-    forbiddenTables: readonly string[] = historyColdTables
-): Promise<void> {
-    const normalizedRoot = resolve(sourceRoot);
-    const visited = new Set<string>();
-    const forbidden = new Set(forbiddenTables);
-
-    async function visit(modulePath: string, chain: string[]): Promise<void> {
-        const normalizedPath = resolve(modulePath);
-        assertPathInsideSourceRoot(normalizedPath, normalizedRoot);
-        if (visited.has(normalizedPath)) return;
-        visited.add(normalizedPath);
-
-        const source = await readFile(normalizedPath, 'utf8');
-        const sourceFile = ts.createSourceFile(normalizedPath, source, ts.ScriptTarget.Latest, true);
-        const coldTable = findStringLiteral(sourceFile, forbidden);
-        if (coldTable) {
-            const pathChain = [...chain, normalizedPath]
-                .map((path) => relative(normalizedRoot, path).replaceAll('\\', '/'))
-                .join(' -> ');
-            throw new Error(`Blueprint History reaches forbidden cold table ${coldTable} through ${pathChain}.`);
-        }
-
-        for (const specifier of moduleSpecifiersFromSourceFile(sourceFile)) {
-            if (!specifier.startsWith('.')) continue;
-            if (isGeneratedConvexImport(normalizedPath, specifier, normalizedRoot)) continue;
-            const dependency = await resolveTypeScriptModule(normalizedPath, specifier, normalizedRoot);
-            await visit(dependency, [...chain, normalizedPath]);
-        }
-    }
-
-    await visit(entryPath, []);
-}
-
-function moduleSpecifiers(source: string, fileName: string): string[] {
-    return moduleSpecifiersFromSourceFile(ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true));
-}
-
-function moduleSpecifiersFromSourceFile(sourceFile: ts.SourceFile): string[] {
-    const specifiers: string[] = [];
-    const visit = (node: ts.Node): void => {
-        if (
-            (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-            node.moduleSpecifier &&
-            ts.isStringLiteralLike(node.moduleSpecifier)
-        ) {
-            specifiers.push(node.moduleSpecifier.text);
-        } else if (
-            ts.isCallExpression(node) &&
-            node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-            node.arguments.length === 1 &&
-            node.arguments[0] &&
-            ts.isStringLiteralLike(node.arguments[0])
-        ) {
-            specifiers.push(node.arguments[0].text);
-        }
-        ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-    return specifiers;
-}
-
-function findStringLiteral(sourceFile: ts.SourceFile, forbidden: ReadonlySet<string>): string | undefined {
-    let match: string | undefined;
-    const visit = (node: ts.Node): void => {
-        if (!match && ts.isStringLiteralLike(node) && forbidden.has(node.text)) match = node.text;
-        if (!match) ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-    return match;
-}
-
-async function resolveTypeScriptModule(importer: string, specifier: string, sourceRoot: string): Promise<string> {
-    const unresolved = resolve(dirname(importer), specifier);
-    assertPathInsideSourceRoot(unresolved, sourceRoot);
-    const candidates = /\.[cm]?js$/u.test(unresolved)
-        ? [unresolved.replace(/\.[cm]?js$/u, '.ts'), unresolved.replace(/\.[cm]?js$/u, '.tsx')]
-        : [unresolved, `${unresolved}.ts`, `${unresolved}.tsx`, resolve(unresolved, 'index.ts')];
-    for (const candidate of candidates) {
-        try {
-            await readFile(candidate, 'utf8');
-            return candidate;
-        } catch {
-            // Try the next TypeScript source candidate.
-        }
-    }
-    throw new Error(`Could not resolve relative History dependency ${specifier} imported by ${importer}.`);
-}
-
-function isGeneratedConvexImport(importer: string, specifier: string, sourceRoot: string): boolean {
-    const unresolved = resolve(dirname(importer), specifier);
-    const pathFromRoot = relative(sourceRoot, unresolved).replaceAll('\\', '/');
-    return pathFromRoot === '_generated' || pathFromRoot.startsWith('_generated/');
-}
-
-function assertPathInsideSourceRoot(path: string, sourceRoot: string): void {
-    const pathFromRoot = relative(sourceRoot, path);
-    if (pathFromRoot.startsWith('..') || isAbsolute(pathFromRoot)) {
-        throw new Error(`Blueprint History dependency escapes the Convex source root: ${path}.`);
     }
 }
 

@@ -1,0 +1,69 @@
+name: Production dependency audit
+
+on:
+    pull_request:
+        paths:
+            - "projects/**/package.json"
+            - "projects/dependency-audit-exceptions.json"
+            - "projects/pnpm-lock.yaml"
+            - "projects/pnpm-workspace.yaml"
+            - "projects/scripts/check-production-dependency-audit.ts"
+            - ".github/workflows/dependency-audit.yml"
+    push:
+        branches:
+            - "main"
+        paths:
+            - "projects/**/package.json"
+            - "projects/dependency-audit-exceptions.json"
+            - "projects/pnpm-lock.yaml"
+            - "projects/pnpm-workspace.yaml"
+            - "projects/scripts/check-production-dependency-audit.ts"
+            - ".github/workflows/dependency-audit.yml"
+    schedule:
+        - cron: "17 4 * * 1"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: dependency-audit-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    audit:
+        name: Audit production dependency paths
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version-file: "projects/package.json"
+
+            - name: Read pnpm version
+              id: pnpm
+              working-directory: projects
+              shell: bash
+              run: |
+                  package_manager="$(node -p "require('./package.json').packageManager")"
+                  echo "version=${package_manager#pnpm@}" >> "$GITHUB_OUTPUT"
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  version: ${{ steps.pnpm.outputs.version }}
+                  run_install: false
+                  cache: true
+                  cache_dependency_path: projects/pnpm-lock.yaml
+
+            - name: Install locked dependencies
+              working-directory: projects
+              run: pnpm install --frozen-lockfile
+
+            - name: Audit production dependencies
+              working-directory: projects
+              run: pnpm audit:prod

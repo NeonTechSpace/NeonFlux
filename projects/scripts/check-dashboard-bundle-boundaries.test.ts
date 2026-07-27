@@ -87,6 +87,7 @@ describe('dashboard bundle boundary guard', () => {
             'absolute workspace source paths',
             new Map([['route.js', 'const fileName = "M:/workspace/apps/web/src/routes/dashboard.tsx"']]),
         ],
+        ['a chunk above the explicit 900 kB budget', new Map([['oversized.js', 'x'.repeat(900_001)]])],
     ])('rejects production output containing %s', (_case, chunks) => {
         expect(() => assertProductionClientArtifacts(chunks)).toThrow(/Production client artifact/u);
     });

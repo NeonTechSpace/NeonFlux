@@ -3,6 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const staticImportPattern = /(?:from|import)["']\.\/([^"']+\.js)["']/gu;
+const maximumProductionClientChunkBytes = 900_000;
 
 /** @typedef {Map<string, string>} ChunkMap */
 
@@ -66,7 +67,20 @@ export function assertBundleBoundary({ chunks, entry, label, forbidden, forbidde
 
 /** @param {ChunkMap} chunks */
 export function assertProductionClientArtifacts(chunks) {
+    const developmentToolMarkers = [
+        'Devtools is already mounted',
+        'Open TanStack Devtools',
+        'tanstack_devtools_settings',
+    ];
+
     for (const [chunkName, code] of chunks) {
+        const chunkBytes = Buffer.byteLength(code);
+        if (chunkBytes > maximumProductionClientChunkBytes) {
+            throw new Error(
+                `Production client artifact ${chunkName} grew to ${chunkBytes} bytes (accepted ceiling: ${maximumProductionClientChunkBytes}).`
+            );
+        }
+
         if (
             /^jsx-dev-runtime-[\w-]+\.js$/u.test(chunkName) ||
             code.includes('react/jsx-dev-runtime') ||
@@ -79,6 +93,14 @@ export function assertProductionClientArtifacts(chunks) {
             throw new Error(
                 `Production client artifact ${chunkName} contains an absolute apps/web/src workspace path.`
             );
+        }
+
+        for (const marker of developmentToolMarkers) {
+            if (code.includes(marker)) {
+                throw new Error(
+                    `Production client artifact ${chunkName} contains development-tool marker ${JSON.stringify(marker)}.`
+                );
+            }
         }
     }
 }

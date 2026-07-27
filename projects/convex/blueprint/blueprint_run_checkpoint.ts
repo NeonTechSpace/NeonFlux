@@ -4,6 +4,7 @@ import { requireNeonFluxService } from '../auth.js';
 import { markDashboardLiveAreasChangedInMutation } from '../core/dashboard_live.js';
 import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
+import { hotRunRecordValidator, toHotRunRecord } from './blueprint_contract_validators.js';
 import { recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import { patchBlueprintRunChecked } from './blueprint_run_persistence.js';
 import { validateBlueprintRunProgressTransition } from './blueprint_run_model.js';
@@ -49,7 +50,7 @@ export const checkpointBlueprintRun = mutation({
         skippedSteps: v.number(),
         totalMutationSteps: v.number(),
     },
-    returns: v.any(),
+    returns: hotRunRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const run = await requireRunLease(ctx, args.runId, args.leaseId, args.leaseOwner, args.now, [
@@ -97,6 +98,6 @@ export const checkpointBlueprintRun = mutation({
                 String(run._id)
             );
         }
-        return { ...run, ...patch, updatedAt: args.now };
+        return toHotRunRecord({ ...run, ...patch, updatedAt: args.now });
     },
 });

@@ -26,9 +26,8 @@ import {
 import type { DashboardBlueprintDeployJourneyStep } from './dashboard-blueprint-deploy-stage.js';
 import { formatDashboardBlueprintExplorerSnapshotJson } from './dashboard-blueprint-explorer-json.js';
 import { parseDashboardBlueprintExplorerSnapshot } from './dashboard-blueprint-explorer-snapshot.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { formatDate } from './dashboard-blueprint-panel-format.js';
-import type { PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { readDashboardBlueprintDiagnosticCode } from './dashboard-blueprint-progress.js';
 import { createDashboardBlueprintRestorePlan } from './dashboard-blueprint-restore-plan.js';
 import { useDashboardBlueprintPlanInspectionState } from './dashboard-blueprint-plan-inspection-state.js';

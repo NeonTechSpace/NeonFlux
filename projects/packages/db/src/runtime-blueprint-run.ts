@@ -203,7 +203,7 @@ export async function findLatestBlueprintPlanApproval(db: BlueprintDb, input: { 
             guildId: input.guildId,
             planId: input.planId as Id<'blueprintPlans'>,
         });
-        return record ? ok(toApproval({ ...record, id: record._id })) : ok(null);
+        return record ? ok(toApproval(record)) : ok(null);
     } catch {
         return err({ type: 'database-error' } as const);
     }

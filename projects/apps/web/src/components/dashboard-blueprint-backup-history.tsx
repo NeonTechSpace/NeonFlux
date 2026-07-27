@@ -16,9 +16,8 @@ import { useMemo, useRef } from 'react';
 
 import type { DashboardBlueprintBackupSummary } from '../server/dashboard-blueprint-model.js';
 import { buildDashboardBlueprintBackupRowId } from './dashboard-blueprint-backup-health.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, BackupPageState } from './dashboard-blueprint-panel-types.js';
 import { formatBackupSource, formatDate } from './dashboard-blueprint-panel-format.js';
-import type { BackupPageState } from './dashboard-blueprint-panel-types.js';
 import {
     dashboardCompactFieldClassName,
     dashboardDangerActionClassName,

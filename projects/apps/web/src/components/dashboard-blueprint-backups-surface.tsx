@@ -7,9 +7,8 @@ import type {
 import type { DashboardBlueprintBackupSettingsValue } from './dashboard-blueprint-backup-settings.js';
 import { DashboardBlueprintBackupHistory as BackupHistory } from './dashboard-blueprint-backup-history.js';
 import { DashboardBlueprintBackupSettings as BackupSettings } from './dashboard-blueprint-backup-settings.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, BackupPageState } from './dashboard-blueprint-panel-types.js';
 import { formatDate } from './dashboard-blueprint-panel-format.js';
-import type { BackupPageState } from './dashboard-blueprint-panel-types.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
 import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 

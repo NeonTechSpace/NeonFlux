@@ -9,6 +9,10 @@ allowBuilds:
     lightningcss: true
     unrs-resolver: true
 
+overrides:
+    js-yaml: 4.3.0
+    postcss: 8.5.23
+
 minimumReleaseAgeExclude:
     - '@fluxerjs/core@2.0.3'
     - '@fluxerjs/rest@2.0.2'

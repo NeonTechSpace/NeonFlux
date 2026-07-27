@@ -2,8 +2,12 @@ import '@tanstack/react-start/server-only';
 
 import { loadWebConfig } from '@neonflux/config';
 
-import { loadDashboardGuildAccess } from './dashboard-guild-access.server.js';
+import {
+    loadDashboardGuildAccess,
+    loadDashboardGuildAccessForAuthenticatedContext,
+} from './dashboard-guild-access.server.js';
 import type { DashboardGuildAccessError } from './dashboard-guild-access.server.js';
+import type { AuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 
 export type DashboardGuildShellGuild = {
     id: string;
@@ -34,13 +38,29 @@ export async function loadDashboardGuildPageData(
     request: Request,
     guildId: string
 ): Promise<DashboardGuildPageDataResult> {
+    return loadDashboardGuildPageDataFromGuildAccess(guildId, () => loadDashboardGuildAccess(request));
+}
+
+export async function loadDashboardGuildPageDataForAuthenticatedContext(
+    authContext: AuthenticatedFluxerContext,
+    guildId: string
+): Promise<DashboardGuildPageDataResult> {
+    return loadDashboardGuildPageDataFromGuildAccess(guildId, () =>
+        loadDashboardGuildAccessForAuthenticatedContext(authContext)
+    );
+}
+
+async function loadDashboardGuildPageDataFromGuildAccess(
+    guildId: string,
+    loadGuildAccess: () => ReturnType<typeof loadDashboardGuildAccess>
+): Promise<DashboardGuildPageDataResult> {
     const normalizedGuildId = guildId.trim();
 
     if (!normalizedGuildId) {
         return { type: 'not-found' };
     }
 
-    return loadDashboardGuildPageDataFromAccess(normalizedGuildId, await loadDashboardGuildAccess(request));
+    return loadDashboardGuildPageDataFromAccess(normalizedGuildId, await loadGuildAccess());
 }
 
 function loadDashboardGuildPageDataFromAccess(

@@ -1,10 +1,10 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
-import { TanStackDevtools } from '@tanstack/react-devtools';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 
 import appCss from '../styles.css?url';
+
+const DevelopmentTools = import.meta.env.DEV ? lazy(() => import('../components/development-tools.js')) : undefined;
 
 export const Route = createRootRoute({
     head: () => ({
@@ -40,17 +40,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             </head>
             <body className='min-h-screen'>
                 <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-                <TanStackDevtools
-                    config={{
-                        position: 'bottom-right',
-                    }}
-                    plugins={[
-                        {
-                            name: 'Tanstack Router',
-                            render: <TanStackRouterDevtoolsPanel />,
-                        },
-                    ]}
-                />
+                {DevelopmentTools ? (
+                    <Suspense fallback={null}>
+                        <DevelopmentTools />
+                    </Suspense>
+                ) : null}
                 <Scripts />
             </body>
         </html>

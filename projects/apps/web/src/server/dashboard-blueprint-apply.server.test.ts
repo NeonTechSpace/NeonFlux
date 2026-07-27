@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getWebDb } from './db.server.js';
 import { applyDashboardBlueprintPlan, controlDashboardBlueprintRun } from './dashboard-blueprint-apply.server.js';
 import { loadAuthorizedBlueprintContext } from './dashboard-blueprint-context.server.js';
+import { wakeDashboardBlueprintWorkerBestEffort } from './dashboard-blueprint-worker-wake.server.js';
 
 vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
@@ -32,6 +33,9 @@ vi.mock('./dashboard-blueprint-context.server.js', () => ({
         metadata,
     })),
     loadAuthorizedBlueprintContext: vi.fn(),
+}));
+vi.mock('./dashboard-blueprint-worker-wake.server.js', () => ({
+    wakeDashboardBlueprintWorkerBestEffort: vi.fn(),
 }));
 
 const request = new Request('http://localhost/dashboard/guild-1/blueprint');
@@ -80,6 +84,7 @@ describe('Server Blueprint enqueue boundary', () => {
                 destructivePreflightDigest: 'preflight-digest',
             })
         );
+        expect(wakeDashboardBlueprintWorkerBestEffort).toHaveBeenCalledOnce();
     });
 
     it.each([

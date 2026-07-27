@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DashboardBlueprintPreflightReport } from '../server/dashboard-blueprint-preflight.js';
 import type { DashboardBlueprintDriftResult, DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction } from './dashboard-blueprint-panel-types.js';
 import { buildDashboardBlueprintExplorerJsonDiff } from './dashboard-blueprint-explorer-diff.js';
 import { DashboardBlueprintExplorerJsonDiffView } from './dashboard-blueprint-explorer-json-diff.js';
 import {

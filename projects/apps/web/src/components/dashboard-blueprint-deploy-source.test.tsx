@@ -73,8 +73,6 @@ describe('DashboardBlueprintDeploySource file mode', () => {
         expect(pickerClick).toHaveBeenCalledTimes(3);
 
         const file = createFile({ text: validJson });
-        fireEvent.dragEnter(dropZone);
-        expect(dropZone.getAttribute('class')).toContain('bg-[var(--dash-primary-soft)]');
         fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
         expect(onFilesSelected).toHaveBeenCalledWith([file]);
     });

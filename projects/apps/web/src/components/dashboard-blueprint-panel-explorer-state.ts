@@ -24,8 +24,7 @@ import { formatBackupSource, formatDate } from './dashboard-blueprint-panel-form
 import { readRequestedFinalStateExplorerSnapshot } from './dashboard-blueprint-panel-requested-snapshot.js';
 import { toErrorStatus, toUnexpectedErrorStatus } from './dashboard-blueprint-panel-status.js';
 import { emptyExplorerComparisonTarget } from './dashboard-blueprint-panel-types.js';
-import type { DriftState, PanelStatus } from './dashboard-blueprint-panel-types.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { DriftState, PanelStatus, BlueprintBusyAction } from './dashboard-blueprint-panel-types.js';
 
 export function useDashboardBlueprintExplorerState({
     driftState,

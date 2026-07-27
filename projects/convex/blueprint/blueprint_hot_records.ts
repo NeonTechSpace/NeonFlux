@@ -110,7 +110,19 @@ export const hotRunRecordValidator = v.object({
     mutationAuthorizedAt: v.optional(v.string()),
     nextStepSequence: v.number(),
     notStartedSteps: v.number(),
-    phase: v.string(),
+    phase: v.union(
+        v.literal('queued'),
+        v.literal('preparing'),
+        v.literal('create'),
+        v.literal('update'),
+        v.literal('delete'),
+        v.literal('channel_order'),
+        v.literal('role_order'),
+        v.literal('waiting_rate_limit'),
+        v.literal('paused'),
+        v.literal('verifying'),
+        v.literal('complete')
+    ),
     planId: v.string(),
     preflightId: v.string(),
     preflightDigest: v.string(),
@@ -121,7 +133,20 @@ export const hotRunRecordValidator = v.object({
     retryAt: v.optional(v.string()),
     skippedSteps: v.number(),
     startedAt: v.optional(v.string()),
-    status: v.string(),
+    status: v.union(
+        v.literal('queued'),
+        v.literal('running'),
+        v.literal('waiting_rate_limit'),
+        v.literal('pause_requested'),
+        v.literal('paused'),
+        v.literal('verifying'),
+        v.literal('succeeded'),
+        v.literal('partially_applied'),
+        v.literal('failed_before_mutation'),
+        v.literal('needs_reconciliation'),
+        v.literal('outcome_unknown'),
+        v.literal('cancelled')
+    ),
     totalMutationSteps: v.number(),
     totalSteps: v.number(),
     updatedAt: v.string(),
@@ -184,7 +209,15 @@ export function toPreflightMetadataRecord(preflight: Omit<Doc<'blueprintPlanPref
     };
 }
 
-export function toHotRunRecord(run: Omit<Doc<'blueprintRuns'>, '_creationTime'>) {
+type BlueprintRunDocument = Omit<Doc<'blueprintRuns'>, '_creationTime'>;
+type OptionalKeys<Value> = {
+    [Key in keyof Value]-?: object extends Pick<Value, Key> ? Key : never;
+}[keyof Value];
+type BlueprintRunOutputInput = Omit<BlueprintRunDocument, OptionalKeys<BlueprintRunDocument>> & {
+    [Key in OptionalKeys<BlueprintRunDocument>]?: BlueprintRunDocument[Key] | undefined;
+};
+
+export function toHotRunRecord(run: BlueprintRunOutputInput) {
     return {
         appliedSteps: run.appliedSteps,
         ...(run.authorizationDecision === undefined ? {} : { authorizationDecision: run.authorizationDecision }),

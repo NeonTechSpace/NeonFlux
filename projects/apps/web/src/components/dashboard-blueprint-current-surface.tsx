@@ -2,10 +2,9 @@ import { motion } from 'motion/react';
 
 import type { DashboardBlueprintBackupSettings } from '../server/dashboard-blueprint-model.js';
 import { DashboardBlueprintBackupStatus as BackupStatus } from './dashboard-blueprint-backup-status.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, BackupPageState, DriftState } from './dashboard-blueprint-panel-types.js';
 import { dashboardConfirmationTransition, dashboardConfirmationVariants } from './dashboard-motion.js';
 import { formatDate, formatObservedState } from './dashboard-blueprint-panel-format.js';
-import type { BackupPageState, DriftState } from './dashboard-blueprint-panel-types.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
 import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 

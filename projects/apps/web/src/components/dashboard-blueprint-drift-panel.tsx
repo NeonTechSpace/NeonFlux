@@ -2,11 +2,10 @@ import type {
     DashboardBlueprintBackupSettings,
     DashboardBlueprintBackupSummary,
 } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, DriftState } from './dashboard-blueprint-panel-types.js';
 import { formatBackupSource, formatDate, formatStatus } from './dashboard-blueprint-panel-format.js';
 import { countPlanChanges } from './dashboard-blueprint-panel-status.js';
 import { emptyPlanSummary } from './dashboard-blueprint-panel-types.js';
-import type { DriftState } from './dashboard-blueprint-panel-types.js';
 import { MiniCount } from './dashboard-blueprint-panel-shared.js';
 import { dashboardPrimaryActionClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 

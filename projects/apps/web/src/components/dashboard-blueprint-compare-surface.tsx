@@ -3,9 +3,12 @@ import { lazy, Suspense } from 'react';
 import type { DashboardBlueprintBackupSettings, DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
 import { DashboardBlueprintDriftPanel as DriftPanel } from './dashboard-blueprint-drift-panel.js';
 import type { DashboardBlueprintExplorerPanelState } from './dashboard-blueprint-panel-explorer-state.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type {
+    BlueprintBusyAction,
+    DashboardBlueprintPreflightView,
+    DriftState,
+} from './dashboard-blueprint-panel-types.js';
 import { DashboardBlueprintLoading } from './dashboard-blueprint-panel-shared.js';
-import type { DashboardBlueprintPreflightView, DriftState } from './dashboard-blueprint-panel-types.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
 
 const DashboardBlueprintExplorer = lazy(() =>

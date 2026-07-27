@@ -2,6 +2,10 @@ import { v } from 'convex/values';
 
 import { mutation, query } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
+import {
+    blueprintPlanAuthorityRecordValidator,
+    blueprintPlanStepPageValidator,
+} from './blueprint_contract_validators.js';
 import { planMetadataRecordValidator, toPlanMetadataRecord } from './blueprint_hot_records.js';
 import { blueprintPlanDraftArgs, createBlueprintPlanDraftHandler } from './blueprint_plan_draft.js';
 import { blueprintPlanFinalizationArgs, finalizeBlueprintPlanHandler } from './blueprint_plan_finalization.js';
@@ -59,12 +63,12 @@ export const getBlueprintPlanMetadata = query({
 
 export const getBlueprintPlanAuthority = query({
     args: { guildId: v.string(), planId: v.id('blueprintPlans') },
-    returns: v.any(),
+    returns: v.union(blueprintPlanAuthorityRecordValidator, v.null()),
     handler: getBlueprintPlanAuthorityHandler,
 });
 
 export const listBlueprintPlanStepsByPlanIdPage = query({
     args: blueprintPlanStepPageArgs,
-    returns: v.any(),
+    returns: blueprintPlanStepPageValidator,
     handler: listBlueprintPlanStepsByPlanIdPageHandler,
 });

@@ -4,10 +4,9 @@ import { lazy, Suspense } from 'react';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
 import { formatDashboardBlueprintRunState } from '../server/dashboard-blueprint-contracts.js';
 import { DashboardBlueprintRunIssue, formatDashboardBlueprintRunIssue } from './dashboard-blueprint-run-issue.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import { dashboardTactile } from './dashboard-motion.js';
 import { formatDate } from './dashboard-blueprint-panel-format.js';
-import type { DashboardBlueprintPreflightView } from './dashboard-blueprint-panel-types.js';
 import { dashboardBlueprintSurfaceIdentity as surfaceIdentity } from './dashboard-blueprint-surface.js';
 
 const DashboardBlueprintHistory = lazy(() =>

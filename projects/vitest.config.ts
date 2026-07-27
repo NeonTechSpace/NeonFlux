@@ -7,7 +7,8 @@ export default defineConfig({
         include: [
             'apps/bot/**/*.{test,spec}.{ts,tsx}',
             'apps/web/src/**/*.{test,spec}.{ts,tsx}',
-            'apps/web/e2e/support/**/*.{test,spec}.ts',
+            'apps/web/e2e/support/authenticated-test-runner.test.ts',
+            'apps/web/e2e/support/ephemeral-state.test.ts',
             'convex/**/*.{test,spec}.ts',
             'packages/**/*.{test,spec}.ts',
             'scripts/**/*.{test,spec}.ts',

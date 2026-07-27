@@ -5,6 +5,12 @@ import { getDocumentSize, v, type GenericId, type Infer, type Value } from 'conv
 import type { MutationCtx, QueryCtx } from '../_generated/server.js';
 import { requireNeonFluxService } from '../auth.js';
 import {
+    blueprintPlanDecisionRecordValidator,
+    blueprintPlanDecisionValidator,
+    blueprintPlanStepRecordValidator,
+    blueprintPlanStepValidator,
+} from './blueprint_contract_validators.js';
+import {
     assertDocumentSize,
     MAX_PLAN_COLD_PAYLOAD_BYTES,
     MAX_PLAN_LEDGER_BYTES,
@@ -12,24 +18,11 @@ import {
     requireTimestamp,
 } from './blueprint_plan_persistence_values.js';
 
-const stepEntryValidator = v.object({ sequence: v.number(), step: v.any() });
-const decisionEntryValidator = v.object({ sequence: v.number(), decision: v.any() });
+const stepEntryValidator = v.object({ sequence: v.number(), step: blueprintPlanStepValidator });
+const decisionEntryValidator = v.object({ sequence: v.number(), decision: blueprintPlanDecisionValidator });
 
-export const planStepRecordValidator = v.object({
-    createdAt: v.string(),
-    id: v.string(),
-    planId: v.string(),
-    sequence: v.number(),
-    step: v.any(),
-});
-
-export const planDecisionRecordValidator = v.object({
-    createdAt: v.string(),
-    decision: v.any(),
-    id: v.string(),
-    planId: v.string(),
-    sequence: v.number(),
-});
+export const planStepRecordValidator = blueprintPlanStepRecordValidator;
+export const planDecisionRecordValidator = blueprintPlanDecisionRecordValidator;
 
 export const blueprintPlanStepBatchArgs = {
     now: v.string(),
@@ -262,12 +255,15 @@ async function requireDraftPlan(ctx: MutationCtx, planId: GenericId<'blueprintPl
 }
 
 function toPlanStepRecord(record: { _id: string; createdAt: string; planId: string; sequence: number; step: unknown }) {
+    const normalized = normalizeBlueprintPlanStep(record.step);
+    if (normalized.type === 'invalid') throw new Error('blueprint-plan-step-invalid');
+
     return {
         id: record._id,
         planId: record.planId,
         createdAt: record.createdAt,
         sequence: record.sequence,
-        step: record.step,
+        step: normalized.value,
     };
 }
 
@@ -278,12 +274,15 @@ function toPlanDecisionRecord(record: {
     planId: string;
     sequence: number;
 }) {
+    const normalized = normalizeBlueprintPlanDecision(record.decision);
+    if (normalized.type === 'invalid') throw new Error('blueprint-plan-decision-invalid');
+
     return {
         id: record._id,
         planId: record.planId,
         createdAt: record.createdAt,
         sequence: record.sequence,
-        decision: record.decision,
+        decision: normalized.value,
     };
 }
 

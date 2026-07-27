@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-    BLUEPRINT_RUN_PROTOCOL_VERSION,
     createBlueprintMutationFenceManifest,
     createBlueprintRunVerificationEvidenceDigest,
     deriveBlueprintCursorAuthority,
@@ -18,7 +17,6 @@ import {
     startBlueprintRunStepAttempt,
     type RuntimeDbClient,
     type BlueprintRunStepAttemptRecord,
-    type BlueprintRunPhase,
     type BlueprintRunProtocolMismatchRecord,
 } from '@neonflux/db';
 import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from '@neonflux/fluxer';
@@ -26,6 +24,15 @@ import { applyFluxerBotGuildStructureActions, readFluxerBotGuildStructure } from
 import { verifyProjectedStructureSnapshot } from './bot-blueprint-run-verification.js';
 import { toBlueprintApplyAction } from './bot-blueprint-provider-steps.js';
 import { validateClaimedBlueprintRunAuthority } from './bot-blueprint-run-authority.js';
+import {
+    decideBlueprintClaim,
+    decideBlueprintPostApply,
+    decideProviderAction,
+    finalStatusForVerification,
+    mutationFenceConstructionError,
+    phaseForProviderStep,
+    terminalStatusForAppliedSteps,
+} from './bot-blueprint-run-decisions.js';
 
 const leaseTtlMs = 3 * 60_000;
 
@@ -49,26 +56,31 @@ export async function runNextBlueprintRun(input: {
         leaseOwner: input.leaseOwner,
         now,
     });
-    if (claim.isErr()) {
-        if (claim.error.type === 'backend-incompatible') return { kind: 'backend_incompatible' };
-        throw new Error('blueprint-run-claim-failed');
+    const claimDecision = decideBlueprintClaim({
+        claim: claim.isOk() ? claim.value : null,
+        ...(claim.isErr() ? { errorType: claim.error.type } : {}),
+    });
+    switch (claimDecision.kind) {
+        case 'idle':
+            return 'idle';
+        case 'progressed':
+            return 'progressed';
+        case 'backend_incompatible':
+            return { kind: 'backend_incompatible' };
+        case 'protocol_mismatch':
+            return claimDecision.mismatch;
+        case 'claim_failed':
+            throw new Error('blueprint-run-claim-failed');
+        case 'execute':
+            break;
     }
-    if (!claim.value) return 'idle';
-    if (claim.value.kind === 'protocol_mismatch') return claim.value;
-    if (claim.value.kind === 'authority_invalid') return 'progressed';
-    if (claim.value.run.protocolVersion !== BLUEPRINT_RUN_PROTOCOL_VERSION) {
-        return {
-            kind: 'protocol_mismatch',
-            runId: claim.value.run.id,
-            runProtocolVersion: claim.value.run.protocolVersion,
-            guildId: claim.value.run.guildId,
-            mayHaveExternalEffects: claim.value.run.appliedSteps > 0,
-            requiredProtocolVersion: BLUEPRINT_RUN_PROTOCOL_VERSION,
-            status: claim.value.run.status,
-        };
+
+    if (claim.isErr() || claim.value?.kind !== 'claimed') {
+        throw new Error('blueprint-run-claim-decision-invalid');
     }
-    const validated = await validateClaimedBlueprintRunAuthority(claim.value);
-    const { run } = claim.value;
+    const claimed = claim.value;
+    const validated = await validateClaimedBlueprintRunAuthority(claimed);
+    const { run } = claimed;
     if (validated.type === 'invalid') {
         await persistBlueprintRunTerminalOrThrow(input.database.db, {
             errorType: validated.errorType,
@@ -76,14 +88,14 @@ export async function runNextBlueprintRun(input: {
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            status: run.appliedSteps > 0 ? 'partially_applied' : 'failed_before_mutation',
+            status: terminalStatusForAppliedSteps(run.appliedSteps),
         });
         return 'progressed';
     }
     const { authority, executionAuthority, cursor, steps } = validated.value;
     const attemptCounts = new Map<string, number>();
     const pendingAttempts = new Map<string, BlueprintRunStepAttemptRecord>();
-    for (const attempt of claim.value.attempts) {
+    for (const attempt of claimed.attempts) {
         attemptCounts.set(attempt.planStepId, Math.max(attemptCounts.get(attempt.planStepId) ?? 0, attempt.attempt));
         const latestPending = pendingAttempts.get(attempt.planStepId);
         if (attempt.state === 'pending' && (!latestPending || attempt.attempt > latestPending.attempt)) {
@@ -138,7 +150,7 @@ export async function runNextBlueprintRun(input: {
             leaseId,
             leaseOwner: input.leaseOwner,
             now: new Date(),
-            status: run.appliedSteps > 0 ? 'partially_applied' : 'failed_before_mutation',
+            status: terminalStatusForAppliedSteps(run.appliedSteps),
         });
         return 'progressed';
     }
@@ -206,7 +218,7 @@ export async function runNextBlueprintRun(input: {
             authorizationManifest = await createBlueprintMutationFenceManifest(authorizationStructure);
         } catch (error) {
             await persistBlueprintRunTerminalOrThrow(input.database.db, {
-                errorType: readMutationFenceConstructionError(error),
+                errorType: mutationFenceConstructionError(error),
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
@@ -317,36 +329,33 @@ export async function runNextBlueprintRun(input: {
                 const action = steps.find((candidate) => candidate.id === actionResult.id);
                 const attempt = activeAttempt;
                 const attemptStarted = activeAttemptStarted;
-                const isRateLimited = actionResult.errorType === 'rate-limited';
-                const isLeaseLost = actionResult.errorType === 'apply-lease-lost';
-                const isOutcomeUnknown = actionResult.status === 'failed' && actionResult.mutationOutcome === 'unknown';
-                const isHardFailure =
-                    actionResult.status === 'failed' && !isRateLimited && !isLeaseLost && !isOutcomeUnknown;
 
                 if (action?.sequence !== nextStepSequence) {
                     if (attemptStarted) state.outcomeUnknown = true;
                     else state.persistenceFailure = 'step-result-sequence-invalid';
                     return false;
                 }
-                if (actionResult.status === 'applied') {
+                const actionDecision = decideProviderAction({
+                    actionResult,
+                    appliedSteps,
+                    controlStatus: state.controlStatus,
+                    targetType: action.targetType,
+                });
+                if (actionDecision.type === 'applied') {
                     if (!attemptStarted) {
                         state.persistenceFailure = 'step-applied-without-started-attempt';
                         return false;
                     }
-                    appliedSteps += 1;
-                    completedMutationSteps += 1;
-                    nextStepSequence = action.sequence + 1;
-                } else if (isHardFailure) {
-                    failedSteps += 1;
-                    nextStepSequence = action.sequence + 1;
                 }
-                if (actionResult.status === 'applied') state.knownPartialMutation = true;
-                if (isRateLimited) {
-                    state.rateLimited = {
-                        retryAfterMs: actionResult.retryAfterMs ?? fallbackRetryAfterMs(action.targetType),
-                    };
+                appliedSteps += actionDecision.appliedStepsDelta;
+                completedMutationSteps += actionDecision.completedMutationStepsDelta;
+                failedSteps += actionDecision.failedStepsDelta;
+                nextStepSequence += actionDecision.nextStepSequenceDelta;
+                if (actionDecision.knownPartialMutation) state.knownPartialMutation = true;
+                if (actionDecision.retryAfterMs !== undefined) {
+                    state.rateLimited = { retryAfterMs: actionDecision.retryAfterMs };
                 }
-                if (isLeaseLost) state.leaseActive = false;
+                if (actionDecision.type === 'lease_lost') state.leaseActive = false;
                 latestIdMap = { ...idMap };
 
                 if (!attempt) {
@@ -355,20 +364,6 @@ export async function runNextBlueprintRun(input: {
                     activeAttemptStarted = false;
                     return false;
                 }
-                const errorType = isOutcomeUnknown
-                    ? `mutation-outcome-unknown:${actionResult.errorType ?? 'operation-failed'}`
-                    : actionResult.errorType;
-                const requestedStatus = isOutcomeUnknown
-                    ? ('outcome_unknown' as const)
-                    : isHardFailure
-                      ? appliedSteps > 0
-                          ? ('partially_applied' as const)
-                          : ('failed_before_mutation' as const)
-                      : isRateLimited
-                        ? ('waiting_rate_limit' as const)
-                        : state.controlStatus === 'pause_requested'
-                          ? ('pause_requested' as const)
-                          : ('running' as const);
                 const progress = {
                     appliedSteps,
                     completedMutationSteps,
@@ -382,26 +377,26 @@ export async function runNextBlueprintRun(input: {
                     notStartedSteps: Math.max(0, steps.length - nextStepSequence),
                     now: new Date(),
                     phase:
-                        requestedStatus === 'waiting_rate_limit'
+                        actionDecision.requestedStatus === 'waiting_rate_limit'
                             ? ('waiting_rate_limit' as const)
-                            : requestedStatus === 'partially_applied' ||
-                                requestedStatus === 'failed_before_mutation' ||
-                                requestedStatus === 'outcome_unknown'
+                            : actionDecision.requestedStatus === 'partially_applied' ||
+                                actionDecision.requestedStatus === 'failed_before_mutation' ||
+                                actionDecision.requestedStatus === 'outcome_unknown'
                               ? ('complete' as const)
-                              : runPhaseForStep(action.actionType, action.targetType),
+                              : phaseForProviderStep(action.actionType, action.targetType),
                     skippedSteps: 0,
-                    status: requestedStatus,
+                    status: actionDecision.requestedStatus,
                     totalMutationSteps: run.totalMutationSteps,
                 };
                 const persisted = await completeBlueprintRunStepAttemptWithRetry(input.database.db, {
                     ...progress,
                     attemptId: attempt.id,
                     ...(actionResult.createdId ? { createdId: actionResult.createdId } : {}),
-                    ...(errorType ? { errorType } : {}),
-                    ...(isRateLimited && state.rateLimited
+                    ...(actionDecision.errorType ? { errorType: actionDecision.errorType } : {}),
+                    ...(actionDecision.type === 'rate_limited' && state.rateLimited
                         ? { retryAt: new Date(Date.now() + state.rateLimited.retryAfterMs) }
                         : {}),
-                    state: actionResult.status === 'applied' ? 'applied' : isOutcomeUnknown ? 'unknown' : 'failed',
+                    state: actionDecision.state,
                 });
                 if (persisted.isErr()) {
                     if (attemptStarted) state.outcomeUnknown = true;
@@ -424,7 +419,7 @@ export async function runNextBlueprintRun(input: {
                 activeAttemptStepId = undefined;
                 activeAttemptStarted = false;
                 return (
-                    persisted.isOk() && actionResult.status === 'applied' && persisted.value.run.status === 'running'
+                    persisted.isOk() && actionDecision.type === 'applied' && persisted.value.run.status === 'running'
                 );
             },
         });
@@ -473,86 +468,56 @@ export async function runNextBlueprintRun(input: {
         }
         return 'progressed';
     }
-    if (state.terminalPersisted || state.controlStatus === 'cancelled' || state.controlStatus === 'paused') {
-        return 'progressed';
-    }
-    if (state.atomicCompletionFailed) return 'progressed';
-    if (state.outcomeUnknown) {
-        await persistBlueprintRunTerminalOrThrow(input.database.db, {
-            errorType: 'mutation-result-persistence-failed',
-            runId: run.id,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            now: new Date(),
-            status: 'outcome_unknown',
-        });
-        return 'progressed';
-    }
-    const terminalErrorType = state.persistenceFailure;
-    if (terminalErrorType) {
-        await persistBlueprintRunTerminalOrThrow(input.database.db, {
-            errorType: terminalErrorType,
-            runId: run.id,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            now: new Date(),
-            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-        });
-        return 'progressed';
-    }
-    if (state.controlStatus === 'pause_requested') {
-        if (state.controlRequest === 'cancel') {
+    const unhandledFailure = result.isOk()
+        ? result.value.actions.find((action) => action.status === 'failed')
+        : undefined;
+    const postApplyDecision = decideBlueprintPostApply({
+        failedSteps,
+        nextStepSequence,
+        ...(result.isErr() ? { providerErrorType: result.error.type } : {}),
+        ...(unhandledFailure?.errorType ? { providerFailedActionErrorType: unhandledFailure.errorType } : {}),
+        providerSucceeded: result.isOk(),
+        state: {
+            ...state,
+            rateLimited: state.rateLimited !== undefined,
+        },
+        totalSteps: steps.length,
+    });
+    switch (postApplyDecision.kind) {
+        case 'progressed':
+            return 'progressed';
+        case 'terminal':
             await persistBlueprintRunTerminalOrThrow(input.database.db, {
+                ...(postApplyDecision.errorType ? { errorType: postApplyDecision.errorType } : {}),
                 runId: run.id,
                 leaseId,
                 leaseOwner: input.leaseOwner,
                 now: new Date(),
-                status: 'cancelled',
+                status: postApplyDecision.status,
             });
             return 'progressed';
-        }
-        await persistBlueprintRunCheckpointOrThrow(input.database.db, {
-            appliedSteps,
-            completedMutationSteps,
-            runId: run.id,
-            failedSteps,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            nextStepSequence,
-            notStartedSteps: Math.max(0, steps.length - nextStepSequence),
-            now: new Date(),
-            phase: 'paused',
-            skippedSteps: 0,
-            status: 'paused',
-            totalMutationSteps: run.totalMutationSteps,
-        });
-        return 'progressed';
+        case 'checkpoint_paused':
+            await persistBlueprintRunCheckpointOrThrow(input.database.db, {
+                appliedSteps,
+                completedMutationSteps,
+                runId: run.id,
+                failedSteps,
+                leaseId,
+                leaseOwner: input.leaseOwner,
+                nextStepSequence,
+                notStartedSteps: Math.max(0, steps.length - nextStepSequence),
+                now: new Date(),
+                phase: 'paused',
+                skippedSteps: 0,
+                status: 'paused',
+                totalMutationSteps: run.totalMutationSteps,
+            });
+            return 'progressed';
+        case 'verify':
+            break;
     }
-    if (state.rateLimited) return 'progressed';
-    if (result.isErr() || !state.leaseActive) {
-        await persistBlueprintRunTerminalOrThrow(input.database.db, {
-            errorType: result.isErr() ? result.error.type : 'run-control-requested',
-            runId: run.id,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            now: new Date(),
-            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-        });
-        return 'progressed';
-    }
+    if (result.isErr()) throw new Error('blueprint-run-post-apply-decision-invalid');
     latestIdMap = result.value.idMap;
-    const unhandledFailure = result.value.actions.find((action) => action.status === 'failed');
-    if (unhandledFailure || nextStepSequence !== steps.length || failedSteps > 0) {
-        await persistBlueprintRunTerminalOrThrow(input.database.db, {
-            errorType: unhandledFailure?.errorType ?? 'blueprint-run-incomplete',
-            runId: run.id,
-            leaseId,
-            leaseOwner: input.leaseOwner,
-            now: new Date(),
-            status: state.knownPartialMutation ? 'partially_applied' : 'failed_before_mutation',
-        });
-        return 'progressed';
-    }
     const verificationCheckpoint = await checkpointBlueprintRun(input.database.db, {
         appliedSteps,
         completedMutationSteps,
@@ -585,7 +550,7 @@ export async function runNextBlueprintRun(input: {
         leaseId,
         leaseOwner: input.leaseOwner,
         now: new Date(),
-        status: verification.status === 'matched' ? 'succeeded' : 'needs_reconciliation',
+        status: finalStatusForVerification(verification.status),
         verificationEvidenceDigest,
         verificationResult: verification,
         verificationStatus: verification.status,
@@ -622,23 +587,4 @@ async function completeBlueprintRunStepAttemptWithRetry(
 
 function toJsonRecord(value: unknown): Record<string, unknown> {
     return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-}
-
-function fallbackRetryAfterMs(targetType: string | undefined): number {
-    return targetType === 'role' || targetType === 'role-order' ? 60_000 : 10_000;
-}
-
-function readMutationFenceConstructionError(error: unknown): string {
-    return error instanceof Error && error.message === 'blueprint-mutation-fence-manifest-too-large'
-        ? 'mutation-fence-manifest-too-large'
-        : 'pre-mutation-observation-invalid';
-}
-
-function runPhaseForStep(
-    actionType: string | undefined,
-    targetType: string | undefined
-): Extract<BlueprintRunPhase, 'preparing' | 'create' | 'update' | 'delete' | 'channel_order' | 'role_order'> {
-    if (targetType === 'channel-order') return 'channel_order';
-    if (targetType === 'role-order') return 'role_order';
-    return actionType === 'create' || actionType === 'update' || actionType === 'delete' ? actionType : 'preparing';
 }

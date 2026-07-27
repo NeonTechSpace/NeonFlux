@@ -9,7 +9,11 @@ import {
     preflightDashboardBlueprintPlanRouteData,
 } from '../server/dashboard-blueprint-route-data.js';
 import type { DashboardBlueprintPlan } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type {
+    BlueprintBusyAction,
+    DashboardBlueprintPreflightView,
+    PanelStatus,
+} from './dashboard-blueprint-panel-types.js';
 import { formatStatus } from './dashboard-blueprint-panel-format.js';
 import {
     toApplyErrorStatus,
@@ -17,7 +21,6 @@ import {
     toRunActionStatus,
     toUnexpectedErrorStatus,
 } from './dashboard-blueprint-panel-status.js';
-import type { DashboardBlueprintPreflightView, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { emptyDashboardBlueprintConfirmation } from './dashboard-blueprint-deploy-readiness.js';
 import type { DashboardBlueprintConfirmationDraft } from './dashboard-blueprint-deploy-readiness.js';
 

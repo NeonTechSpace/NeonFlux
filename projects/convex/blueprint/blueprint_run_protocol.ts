@@ -22,7 +22,7 @@ export type BlueprintRunProtocolMismatch = {
     guildId: string;
     kind: 'protocol_mismatch';
     mayHaveExternalEffects: boolean;
-    requiredProtocolVersion: number;
+    requiredProtocolVersion: typeof BLUEPRINT_RUN_PROTOCOL_VERSION;
     status: string;
 };
 

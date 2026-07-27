@@ -2,9 +2,8 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import { readDashboardBlueprintDriftRouteData } from '../server/dashboard-blueprint-route-data.js';
 import type { DashboardBlueprintBackupSummary } from '../server/dashboard-blueprint-model.js';
-import type { BlueprintBusyAction } from './dashboard-blueprint-history.js';
+import type { BlueprintBusyAction, DriftState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 import { countPlanChanges, toDriftErrorStatus, toUnexpectedErrorStatus } from './dashboard-blueprint-panel-status.js';
-import type { DriftState, PanelStatus } from './dashboard-blueprint-panel-types.js';
 
 export function createDashboardBlueprintDriftActions({
     guildId,

@@ -33,6 +33,7 @@ import {
 } from './blueprint_run_model.js';
 import { buildBackupSortCursor, buildStructureBackupDocument } from './structure_backup_model.js';
 import { requireRunLease } from './blueprint_run_lease.js';
+import { blueprintRunMutationAuthorizationRecordValidator, toHotRunRecord } from './blueprint_contract_validators.js';
 
 export const authorizeBlueprintRunMutation = mutation({
     args: {
@@ -46,7 +47,7 @@ export const authorizeBlueprintRunMutation = mutation({
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
         structureJson: v.string(),
     },
-    returns: v.any(),
+    returns: blueprintRunMutationAuthorizationRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         const run = await ctx.db.get('blueprintRuns', args.runId);
@@ -78,7 +79,7 @@ export const authorizeBlueprintRunMutation = mutation({
                 now: args.now,
             })
         ) {
-            return { kind: 'not_required' as const, run: { ...run, id: run._id } };
+            return { kind: 'not_required' as const, run: toHotRunRecord(run) };
         }
         const snapshotValue = parseJsonRecord(args.structureJson, 'blueprint-run-authorization-snapshot-invalid');
         const normalizedSnapshot = normalizeBlueprintSnapshot(snapshotValue);
@@ -198,7 +199,7 @@ export const authorizeBlueprintRunMutation = mutation({
             return {
                 kind: 'rejected' as const,
                 reason: rejectionReason,
-                run: { ...run, ...observationPatch, ...patch, id: run._id },
+                run: toHotRunRecord({ ...run, ...observationPatch, ...patch }),
             };
         }
         const authorizationPatch = {
@@ -211,7 +212,7 @@ export const authorizeBlueprintRunMutation = mutation({
         await patchBlueprintRunChecked(ctx, run, authorizationPatch);
         return {
             kind: 'authorized' as const,
-            run: { ...run, ...authorizationPatch, id: run._id },
+            run: toHotRunRecord({ ...run, ...authorizationPatch }),
         };
     },
 });

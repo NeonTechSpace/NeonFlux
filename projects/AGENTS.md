@@ -7,6 +7,8 @@
 - Keep work within the requested outcome. Ask before a material choice changes an interface, durable data, a security boundary, ownership, dependency, or deployment.
 - NeonFlux is unreleased and may accept coordinated schema or API breaks. This does not authorize data deletion or a destructive reset. Prefer a clean authorized cutover over migrations, compatibility shims, dual reads, deprecated fields, or legacy branches unless compatibility is requested.
 - Before material work, inspect the relevant production path, contracts, tests, schemas, generated contracts, applicable instructions, Git/JJ state, and working-copy changes. Existing changes belong to the user.
+- When an in-scope objective requirement recurs, enforce it at the nearest useful automated boundary. Do not add a guard for a low-value signal or widen scope merely to automate it.
+- Keep exceptions, suppressions, generic escape hatches, and allowlists narrow, evidence-backed, and explained beside their enforcement.
 
 ## Source-of-truth map
 

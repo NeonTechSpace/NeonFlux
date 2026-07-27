@@ -1,4 +1,4 @@
-import { SlidersHorizontal, UserRound } from 'lucide-react';
+import { LogOut, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -20,13 +20,15 @@ export function DashboardNavigationFooter({ compact }: { compact: boolean }) {
                     <DashboardDisplayControls variant='inline' />
                 </div>
             )}
-            <a
-                href='/auth/fluxer/login'
-                aria-label='Switch account'
-                className='flex min-h-10 items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium text-[var(--dash-text-muted)] transition outline-none hover:bg-white/[0.04] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
-                <UserRound className='size-4 shrink-0' aria-hidden='true' />
-                <span className={compact ? 'hidden lg:inline' : ''}>Switch account</span>
-            </a>
+            <form method='post' action='/auth/logout' aria-label='Sign out'>
+                <button
+                    type='submit'
+                    aria-label='Sign out'
+                    className='flex min-h-10 w-full items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium text-[var(--dash-text-muted)] transition outline-none hover:bg-white/[0.04] hover:text-[var(--dash-text)] focus-visible:shadow-[var(--dash-shadow-focus)]'>
+                    <LogOut className='size-4 shrink-0' aria-hidden='true' />
+                    <span className={compact ? 'hidden lg:inline' : ''}>Sign out</span>
+                </button>
+            </form>
         </div>
     );
 }

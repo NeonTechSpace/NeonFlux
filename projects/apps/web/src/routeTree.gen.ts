@@ -16,6 +16,8 @@ import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DocsTopicRouteImport } from './routes/docs/topic'
 import { Route as DashboardGuildIdRouteImport } from './routes/dashboard.$guildId'
+import { Route as AuthSignedOutRouteImport } from './routes/auth/signed-out'
+import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
 import { Route as DotwellKnownJwksDotjsonRouteImport } from './routes/[.]well-known.jwks[.]json'
 import { Route as DocsTopicIndexRouteImport } from './routes/docs/topic/index'
 import { Route as DashboardGuildIdIndexRouteImport } from './routes/dashboard/$guildId/index'
@@ -76,6 +78,16 @@ const DashboardGuildIdRoute = DashboardGuildIdRouteImport.update({
   id: '/$guildId',
   path: '/$guildId',
   getParentRoute: () => DashboardRoute,
+} as any)
+const AuthSignedOutRoute = AuthSignedOutRouteImport.update({
+  id: '/auth/signed-out',
+  path: '/auth/signed-out',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthLogoutRoute = AuthLogoutRouteImport.update({
+  id: '/auth/logout',
+  path: '/auth/logout',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DotwellKnownJwksDotjsonRoute = DotwellKnownJwksDotjsonRouteImport.update({
   id: '/.well-known/jwks.json',
@@ -222,6 +234,8 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
+  '/auth/logout': typeof AuthLogoutRoute
+  '/auth/signed-out': typeof AuthSignedOutRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
@@ -254,6 +268,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
+  '/auth/logout': typeof AuthLogoutRoute
+  '/auth/signed-out': typeof AuthSignedOutRoute
   '/dashboard': typeof DashboardIndexRoute
   '/docs': typeof DocsIndexRoute
   '/auth/convex/token': typeof AuthConvexTokenRoute
@@ -283,6 +299,8 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/.well-known/jwks.json': typeof DotwellKnownJwksDotjsonRoute
+  '/auth/logout': typeof AuthLogoutRoute
+  '/auth/signed-out': typeof AuthSignedOutRoute
   '/dashboard/$guildId': typeof DashboardGuildIdRouteWithChildren
   '/docs/topic': typeof DocsTopicRouteWithChildren
   '/dashboard/': typeof DashboardIndexRoute
@@ -319,6 +337,8 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/.well-known/jwks.json'
+    | '/auth/logout'
+    | '/auth/signed-out'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
@@ -351,6 +371,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/.well-known/jwks.json'
+    | '/auth/logout'
+    | '/auth/signed-out'
     | '/dashboard'
     | '/docs'
     | '/auth/convex/token'
@@ -379,6 +401,8 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/docs'
     | '/.well-known/jwks.json'
+    | '/auth/logout'
+    | '/auth/signed-out'
     | '/dashboard/$guildId'
     | '/docs/topic'
     | '/dashboard/'
@@ -414,6 +438,8 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
   DocsRoute: typeof DocsRouteWithChildren
   DotwellKnownJwksDotjsonRoute: typeof DotwellKnownJwksDotjsonRoute
+  AuthLogoutRoute: typeof AuthLogoutRoute
+  AuthSignedOutRoute: typeof AuthSignedOutRoute
   AuthConvexTokenRoute: typeof AuthConvexTokenRoute
   AuthFluxerCallbackRoute: typeof AuthFluxerCallbackRoute
   AuthFluxerLoginRoute: typeof AuthFluxerLoginRoute
@@ -469,6 +495,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/$guildId'
       preLoaderRoute: typeof DashboardGuildIdRouteImport
       parentRoute: typeof DashboardRoute
+    }
+    '/auth/signed-out': {
+      id: '/auth/signed-out'
+      path: '/auth/signed-out'
+      fullPath: '/auth/signed-out'
+      preLoaderRoute: typeof AuthSignedOutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/logout': {
+      id: '/auth/logout'
+      path: '/auth/logout'
+      fullPath: '/auth/logout'
+      preLoaderRoute: typeof AuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.well-known/jwks.json': {
       id: '/.well-known/jwks.json'
@@ -794,6 +834,8 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
   DocsRoute: DocsRouteWithChildren,
   DotwellKnownJwksDotjsonRoute: DotwellKnownJwksDotjsonRoute,
+  AuthLogoutRoute: AuthLogoutRoute,
+  AuthSignedOutRoute: AuthSignedOutRoute,
   AuthConvexTokenRoute: AuthConvexTokenRoute,
   AuthFluxerCallbackRoute: AuthFluxerCallbackRoute,
   AuthFluxerLoginRoute: AuthFluxerLoginRoute,

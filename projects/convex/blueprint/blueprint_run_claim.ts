@@ -24,6 +24,17 @@ import {
     resolveExpiredBlueprintRunControl,
     selectBlueprintRunClaimAttempt,
 } from './blueprint_run_model.js';
+import {
+    blueprintRunClaimRecordValidator,
+    toBlueprintPlanAuthorityRecord,
+    toBlueprintPlanDecisionRecord,
+    toBlueprintPlanExecutionAuthorityRecord,
+    toBlueprintPlanStepRecord,
+    toBlueprintRunCursorRecord,
+    toBlueprintRunStepAttemptRecord,
+    toHotRunRecord,
+} from './blueprint_contract_validators.js';
+import { toPlanMetadataRecord } from './blueprint_hot_records.js';
 
 export const claimNextBlueprintRun = mutation({
     args: {
@@ -33,7 +44,7 @@ export const claimNextBlueprintRun = mutation({
         now: v.string(),
         protocolVersion: v.literal(BLUEPRINT_RUN_PROTOCOL_VERSION),
     },
-    returns: v.any(),
+    returns: v.union(blueprintRunClaimRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['bot']);
         let run = await findCurrentQueuedOrWaitingBlueprintRun(ctx, args.now);
@@ -193,17 +204,14 @@ export const claimNextBlueprintRun = mutation({
         }
         return {
             kind: 'claimed' as const,
-            run: { ...run, ...patch, id: run._id },
-            cursor: { ...cursor, id: cursor._id, idMap: cursorIdMap },
-            plan: { ...plan, id: plan._id },
-            authority: { ...validatedAuthority.authorityDocument, id: validatedAuthority.authorityDocument._id },
-            executionAuthority: {
-                ...validatedAuthority.executionAuthorityDocument,
-                id: validatedAuthority.executionAuthorityDocument._id,
-            },
-            steps: validatedAuthority.steps.map((step) => ({ ...step, id: step._id })),
-            decisions: validatedAuthority.decisions.map((decision) => ({ ...decision, id: decision._id })),
-            attempts: latestAttempt ? [latestAttempt] : [],
+            run: toHotRunRecord({ ...run, ...patch }),
+            cursor: toBlueprintRunCursorRecord(cursor, cursorIdMap),
+            plan: toPlanMetadataRecord(plan),
+            authority: toBlueprintPlanAuthorityRecord(validatedAuthority.authorityDocument),
+            executionAuthority: toBlueprintPlanExecutionAuthorityRecord(validatedAuthority.executionAuthorityDocument),
+            steps: validatedAuthority.steps.map(toBlueprintPlanStepRecord),
+            decisions: validatedAuthority.decisions.map(toBlueprintPlanDecisionRecord),
+            attempts: latestAttempt ? [toBlueprintRunStepAttemptRecord(latestAttempt)] : [],
         };
     },
 });

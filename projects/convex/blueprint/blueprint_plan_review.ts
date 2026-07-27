@@ -28,6 +28,17 @@ import { blueprintRunLiveAreas } from '../core/dashboard_live_model.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 import { auditInputValidator, recordBlueprintAuditInMutation } from './blueprint_audit.js';
 import {
+    blueprintPlanApprovalRecordValidator,
+    blueprintPlanAuthorityValidator,
+    blueprintPlanDecisionValidator,
+    blueprintPlanStepValidator,
+    blueprintPreflightEvidenceInputValidator,
+    blueprintPlanDecisionRecordValidator,
+    blueprintPreflightEvidenceRecordValidator,
+    blueprintRunVerificationEvidenceRecordValidator,
+    toBlueprintPlanApprovalRecord,
+} from './blueprint_contract_validators.js';
+import {
     hotRunRecordValidator,
     planMetadataRecordValidator,
     preflightMetadataRecordValidator,
@@ -57,27 +68,8 @@ const preflightSummaryValidator = v.object({
     total: v.number(),
     unsupported: v.number(),
 });
-const preflightEvidenceValidator = v.object({
-    createdAt: v.string(),
-    evidenceDigest: v.string(),
-    id: v.string(),
-    manifestDigest: v.string(),
-    mutationFenceManifest: v.any(),
-    planId: v.string(),
-    preflightId: v.string(),
-    report: v.any(),
-    reportDigest: v.string(),
-    version: v.literal(1),
-});
-const decisionRecordValidator = v.object({
-    createdAt: v.string(),
-    decision: v.any(),
-    id: v.string(),
-    planId: v.string(),
-    sequence: v.number(),
-});
 const decisionPageValidator = v.object({
-    decisions: v.array(decisionRecordValidator),
+    decisions: v.array(blueprintPlanDecisionRecordValidator),
     nextCursor: v.union(v.number(), v.null()),
 });
 const MAX_PREFLIGHT_METADATA_BYTES = 16 * 1024;
@@ -134,7 +126,7 @@ export const listBlueprintPlanDecisionsPage = query({
 
 export const getBlueprintPlanPreflightEvidence = query({
     args: { guildId: v.string(), preflightId: v.id('blueprintPlanPreflights') },
-    returns: v.union(preflightEvidenceValidator, v.null()),
+    returns: v.union(blueprintPreflightEvidenceRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['web', 'bot']);
         const preflight = await ctx.db.get('blueprintPlanPreflights', args.preflightId);
@@ -159,7 +151,7 @@ export const getBlueprintPlanPreflightEvidence = query({
 
 export const getBlueprintRunVerificationEvidence = query({
     args: { guildId: v.string(), runId: v.id('blueprintRuns') },
-    returns: v.any(),
+    returns: v.union(blueprintRunVerificationEvidenceRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['web', 'bot']);
         const run = await ctx.db.get('blueprintRuns', args.runId);
@@ -186,16 +178,17 @@ export const getBlueprintRunVerificationEvidence = query({
 
 export const findLatestBlueprintPlanApproval = query({
     args: { guildId: v.string(), planId: v.id('blueprintPlans') },
-    returns: v.any(),
+    returns: v.union(blueprintPlanApprovalRecordValidator, v.null()),
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['web', 'bot']);
         const plan = await ctx.db.get('blueprintPlans', args.planId);
         if (plan?.guildId !== args.guildId) return null;
-        return ctx.db
+        const approval = await ctx.db
             .query('blueprintPlanApprovals')
             .withIndex('by_plan_approved', (q) => q.eq('planId', args.planId))
             .order('desc')
             .first();
+        return approval ? toBlueprintPlanApprovalRecord(approval) : null;
     },
 });
 
@@ -223,14 +216,7 @@ export const findActiveBlueprintRun = query({
 export const recordBlueprintPlanPreflight = mutation({
     args: {
         audit: v.optional(auditInputValidator),
-        evidence: v.object({
-            evidenceDigest: v.string(),
-            manifestDigest: v.string(),
-            mutationFenceManifest: v.any(),
-            report: v.any(),
-            reportDigest: v.string(),
-            version: v.literal(1),
-        }),
+        evidence: blueprintPreflightEvidenceInputValidator,
         metadata: v.object({
             capabilityFingerprint: v.string(),
             checkedAt: v.string(),
@@ -249,9 +235,9 @@ export const recordBlueprintPlanPreflight = mutation({
             summary: preflightSummaryValidator,
         }),
         sealedPlan: v.object({
-            authority: v.any(),
-            decisions: v.array(v.object({ decision: v.any(), sequence: v.number() })),
-            steps: v.array(v.object({ sequence: v.number(), step: v.any() })),
+            authority: blueprintPlanAuthorityValidator,
+            decisions: v.array(v.object({ decision: blueprintPlanDecisionValidator, sequence: v.number() })),
+            steps: v.array(v.object({ sequence: v.number(), step: blueprintPlanStepValidator })),
         }),
     },
     returns: preflightMetadataRecordValidator,
@@ -375,7 +361,7 @@ export const approveBlueprintPlan = mutation({
         planDigest: v.string(),
         planId: v.id('blueprintPlans'),
     },
-    returns: v.any(),
+    returns: blueprintPlanApprovalRecordValidator,
     handler: async (ctx, args) => {
         await requireNeonFluxService(ctx, ['web']);
         const plan = await ctx.db.get('blueprintPlans', args.planId);
@@ -463,7 +449,7 @@ export const approveBlueprintPlan = mutation({
             approvedAt,
             String(plan._id)
         );
-        return { id, ...approvalDocument };
+        return toBlueprintPlanApprovalRecord({ _id: id, ...approvalDocument });
     },
 });
 
