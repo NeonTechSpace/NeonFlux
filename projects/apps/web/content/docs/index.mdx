@@ -7,8 +7,8 @@ NeonFlux is a Fluxer bot with a protected, Convex-backed dashboard. It is an unr
 
 <Accordions type='single' collapsible>
     <Accordion title='Bot' value='bot'>
-        Start with [Bot presence](/docs/topic/bot-presence) for current prefix, help, ping, mention, and DEFCON
-        behavior.
+        Start with [Bot presence](/docs/topic/bot-presence) for commands and DEFCON behavior, then see [Reaction
+        roles](/docs/topic/reaction-roles) for managed role menus.
     </Accordion>
     <Accordion title='Deployment' value='deployment'>
         Start with [Instance modes](/docs/topic/instance-modes), then continue to [Docker](/docs/topic/docker) for
@@ -26,6 +26,7 @@ The bot currently owns:
 - explicitly at-least-once member-leave tracking because Fluxer supplies no reliable leave event identity;
 - a bounded, best-effort growth telemetry queue;
 - durable dashboard posting delivery;
+- durable reaction-role panels with independent and exclusive selection modes;
 - server-structure observation, backups, drift checks, and reviewed Blueprint runs.
 
 ## Dashboard routes
@@ -35,7 +36,7 @@ Open `/dashboard` to choose an installed community you can manage. A selected co
 | Surface             | Implemented tools                        |
 | ------------------- | ---------------------------------------- |
 | Overview            | Growth and message-activity summaries    |
-| Create & Deliver    | Message Builder                          |
+| Create & Deliver    | Message Builder, Reaction Roles          |
 | Insights & Activity | Audit Events                             |
 | Server Blueprint    | Overview, Backups, Compare, Deploy, Runs |
 | Settings            | Command Prefix                           |

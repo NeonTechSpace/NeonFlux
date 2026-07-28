@@ -28,7 +28,7 @@ const config = defineConfig(({ mode }) => ({
     envDir: '../..',
     resolve: { tsconfigPaths: true },
     ssr: {
-        noExternal: ['tslib'],
+        external: ['tslib'],
     },
     plugins: [
         mdx(),

@@ -74,4 +74,4 @@ This file contains durable constraints for `apps/web`. Parent workspace instruct
 
 ## Documentation boundary
 
-- Public Docs are frozen unless the task explicitly authorizes them. Preserve their visual system when documentation design is out of scope.
+- Keep Public Docs aligned with shipped behavior. Material feature, workflow, permission, configuration, or operational changes update affected pages. Do not present planned behavior as available, and preserve the Docs visual system when design is out of scope.

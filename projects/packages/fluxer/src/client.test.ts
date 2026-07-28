@@ -26,6 +26,7 @@ import {
     type FluxerBotMessageEvent,
     type FluxerBotMessageDeletedEvent,
     type FluxerBotMessageUpdatedEvent,
+    type FluxerBotReactionEvent,
     type FluxerBotRoleEvent,
     type FluxerBotVoiceStateEvent,
 } from './client.js';
@@ -418,6 +419,40 @@ describe('createFluxerBot lifecycle handlers', () => {
         });
     });
 
+    it('resolves an uncached reaction actor before classifying bot activity', async () => {
+        const reactionAdded = vi.fn<(event: FluxerBotReactionEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), { reactionAdded });
+        const fetchMember = vi.fn().mockResolvedValue({ user: createUser('actor-1', { bot: true }) });
+        const guild = createGuild('guild-1', {
+            fetchMember,
+            members: { get: vi.fn(() => undefined) },
+        });
+        bot.client.guilds.set(guild.id, guild);
+
+        emitReaction(bot.client, Events.MessageReactionAdd, false);
+        await settleAsyncHandler();
+
+        expect(fetchMember).toHaveBeenCalledWith('actor-1');
+        expect(reactionAdded).toHaveBeenCalledWith(
+            expect.objectContaining({ guildId: 'guild-1', userId: 'actor-1', userIsBot: true })
+        );
+    });
+
+    it('fails closed when an uncached reaction actor cannot be resolved', async () => {
+        const reactionAdded = vi.fn<(event: FluxerBotReactionEvent) => void>();
+        const bot = createFluxerBot(createConfig(), createLogger(), { reactionAdded });
+        const guild = createGuild('guild-1', {
+            fetchMember: vi.fn().mockRejectedValue(new Error('gateway cache miss')),
+            members: { get: vi.fn(() => undefined) },
+        });
+        bot.client.guilds.set(guild.id, guild);
+
+        emitReaction(bot.client, Events.MessageReactionAdd, false);
+        await settleAsyncHandler();
+
+        expect(reactionAdded).toHaveBeenCalledWith(expect.objectContaining({ userIsBot: true }));
+    });
+
     it('calls member handlers with normalized member data', () => {
         const memberJoined = vi.fn<(event: FluxerBotMemberJoinedEvent) => void>();
         const memberUpdated = vi.fn<(event: FluxerBotMemberEvent) => void>();
@@ -765,4 +800,15 @@ function settleAsyncHandler(): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, 0);
     });
+}
+
+function emitReaction(client: Client, event: typeof Events.MessageReactionAdd, userIsBot: boolean): void {
+    client.emit(event, {
+        channelId: 'channel-1',
+        emoji: { name: '✨' },
+        messageId: 'message-1',
+        reaction: { guildId: 'guild-1' },
+        user: { bot: userIsBot },
+        userId: 'actor-1',
+    } as never);
 }

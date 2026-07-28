@@ -40,6 +40,7 @@ describe('DashboardPostingPanel', () => {
         vi.mocked(readDashboardPostingCatalogRouteData).mockResolvedValue({
             catalog: {
                 channels: [{ id: 'channel-1', name: 'general', type: 0 }],
+                emojis: [],
                 roles: [],
             },
             type: 'catalog',

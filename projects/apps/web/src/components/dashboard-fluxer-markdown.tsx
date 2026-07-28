@@ -1,7 +1,11 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 
-import type { DashboardPostingChannel, DashboardPostingRole } from '../server/dashboard-posting.server.js';
+import type {
+    DashboardPostingChannel,
+    DashboardPostingEmoji,
+    DashboardPostingRole,
+} from '../server/dashboard-posting.server.js';
 import { parseDashboardMarkdown } from './dashboard-fluxer-markdown-parser.js';
 import type { DashboardMarkdownContext, DashboardMarkdownNode } from './dashboard-fluxer-markdown-parser.js';
 
@@ -9,6 +13,7 @@ export type DashboardFluxerMarkdownProps = {
     channels: DashboardPostingChannel[];
     context: DashboardMarkdownContext;
     disableLinks?: boolean;
+    emojis: DashboardPostingEmoji[];
     roles: DashboardPostingRole[];
     source: string;
 };
@@ -17,6 +22,7 @@ type RenderOptions = {
     channelById: ReadonlyMap<string, DashboardPostingChannel>;
     context: DashboardMarkdownContext;
     disableLinks: boolean;
+    emojiById: ReadonlyMap<string, DashboardPostingEmoji>;
     hiddenBySpoiler?: boolean;
     roleById: ReadonlyMap<string, DashboardPostingRole>;
 };
@@ -30,13 +36,15 @@ export function DashboardFluxerMarkdown({
     channels,
     context,
     disableLinks = false,
+    emojis,
     roles,
     source,
 }: DashboardFluxerMarkdownProps) {
     const parseResult = useMemo(() => parseDashboardMarkdown(source, context), [context, source]);
     const channelById = useMemo(() => new Map(channels.map((channel) => [channel.id, channel])), [channels]);
+    const emojiById = useMemo(() => new Map(emojis.map((emoji) => [emoji.id, emoji])), [emojis]);
     const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
-    const options: RenderOptions = { channelById, context, disableLinks, roleById };
+    const options: RenderOptions = { channelById, context, disableLinks, emojiById, roleById };
 
     if (parseResult.type === 'plain') {
         return (
@@ -150,7 +158,7 @@ function renderNode(node: DashboardMarkdownNode, options: RenderOptions, key: st
         case 'twemoji':
             return node.name ?? '';
         case 'emoji':
-            return `:${node.name ?? 'emoji'}:`;
+            return renderCustomEmoji(node, options, key);
         case 'slashCommand':
             return <Mention key={key} label={`/${node.fullName ?? node.name ?? 'command'}`} />;
         case 'guildNavigation':
@@ -158,6 +166,22 @@ function renderNode(node: DashboardMarkdownNode, options: RenderOptions, key: st
         default:
             return plainText(content) || (typeof node.content === 'string' ? node.content : '');
     }
+}
+
+function renderCustomEmoji(node: DashboardMarkdownNode, options: RenderOptions, key: string): ReactNode {
+    const emoji = node.id ? options.emojiById.get(node.id) : undefined;
+    if (!emoji) return `<${node.animated ? 'a' : ''}:${node.name ?? 'emoji'}:${node.id ?? 'unknown'}>`;
+    return (
+        <img
+            key={key}
+            src={emoji.url}
+            alt={`:${emoji.name}:`}
+            title={`:${emoji.name}:`}
+            loading='lazy'
+            referrerPolicy='no-referrer'
+            className='mx-0.5 inline-block size-[1.35em] object-contain align-[-0.28em]'
+        />
+    );
 }
 
 function CodeBlock({ node }: { node: DashboardMarkdownNode }) {

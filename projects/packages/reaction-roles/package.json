@@ -1,0 +1,34 @@
+{
+    "name": "@neonflux/reaction-roles",
+    "version": "0.1.0",
+    "private": true,
+    "files": [
+        "dist"
+    ],
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "production": "./dist/index.js",
+            "import": "./dist/index.js"
+        },
+        "./worker-control-contract": {
+            "types": "./src/worker-control-contract.ts",
+            "development": "./src/worker-control-contract.ts",
+            "production": "./dist/worker-control-contract.js",
+            "import": "./dist/worker-control-contract.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@neonflux/messaging": "workspace:*",
+        "neverthrow": "^8.2.0"
+    }
+}

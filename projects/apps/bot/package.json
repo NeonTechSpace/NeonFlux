@@ -22,6 +22,7 @@
         "@neonflux/db": "workspace:*",
         "@neonflux/fluxer": "workspace:*",
         "@neonflux/messaging": "workspace:*",
+        "@neonflux/reaction-roles": "workspace:*",
         "neverthrow": "^8.2.0"
     },
     "devDependencies": {

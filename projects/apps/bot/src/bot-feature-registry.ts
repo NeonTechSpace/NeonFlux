@@ -17,6 +17,12 @@ const BOT_FEATURE_MODULES = [
         commands: commandsByCategory('settings'),
         eventTypes: ['message.created'],
     },
+    {
+        id: 'reaction_roles',
+        order: 160,
+        commands: commandsByCategory('reaction_roles'),
+        eventTypes: ['message.created'],
+    },
     plannedModule('posting', 170, [], []),
     {
         id: 'blueprint',

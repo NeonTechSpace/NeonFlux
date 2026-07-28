@@ -35,6 +35,7 @@ import { Route as DashboardGuildIdMessagingIndexRouteImport } from './routes/das
 import { Route as DashboardGuildIdGeneralIndexRouteImport } from './routes/dashboard/$guildId/general/index'
 import { Route as DashboardGuildIdEventsIndexRouteImport } from './routes/dashboard/$guildId/events/index'
 import { Route as DashboardGuildIdBlueprintIndexRouteImport } from './routes/dashboard/$guildId/blueprint/index'
+import { Route as DashboardGuildIdMessagingReactionRolesRouteImport } from './routes/dashboard/$guildId/messaging/reaction-roles'
 import { Route as DashboardGuildIdMessagingMessageBuilderRouteImport } from './routes/dashboard/$guildId/messaging/message-builder'
 import { Route as DashboardGuildIdGeneralCommandPrefixRouteImport } from './routes/dashboard/$guildId/general/command-prefix'
 import { Route as DashboardGuildIdEventsAuditEventsRouteImport } from './routes/dashboard/$guildId/events/audit-events'
@@ -180,6 +181,12 @@ const DashboardGuildIdBlueprintIndexRoute =
     path: '/',
     getParentRoute: () => DashboardGuildIdBlueprintRoute,
   } as any)
+const DashboardGuildIdMessagingReactionRolesRoute =
+  DashboardGuildIdMessagingReactionRolesRouteImport.update({
+    id: '/reaction-roles',
+    path: '/reaction-roles',
+    getParentRoute: () => DashboardGuildIdMessagingRoute,
+  } as any)
 const DashboardGuildIdMessagingMessageBuilderRoute =
   DashboardGuildIdMessagingMessageBuilderRouteImport.update({
     id: '/message-builder',
@@ -260,6 +267,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/messaging/reaction-roles': typeof DashboardGuildIdMessagingReactionRolesRoute
   '/dashboard/$guildId/blueprint/': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
@@ -288,6 +296,7 @@ export interface FileRoutesByTo {
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/messaging/reaction-roles': typeof DashboardGuildIdMessagingReactionRolesRoute
   '/dashboard/$guildId/blueprint': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general': typeof DashboardGuildIdGeneralIndexRoute
@@ -325,6 +334,7 @@ export interface FileRoutesById {
   '/dashboard/$guildId/events/audit-events': typeof DashboardGuildIdEventsAuditEventsRoute
   '/dashboard/$guildId/general/command-prefix': typeof DashboardGuildIdGeneralCommandPrefixRoute
   '/dashboard/$guildId/messaging/message-builder': typeof DashboardGuildIdMessagingMessageBuilderRoute
+  '/dashboard/$guildId/messaging/reaction-roles': typeof DashboardGuildIdMessagingReactionRolesRoute
   '/dashboard/$guildId/blueprint/': typeof DashboardGuildIdBlueprintIndexRoute
   '/dashboard/$guildId/events/': typeof DashboardGuildIdEventsIndexRoute
   '/dashboard/$guildId/general/': typeof DashboardGuildIdGeneralIndexRoute
@@ -363,6 +373,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/messaging/reaction-roles'
     | '/dashboard/$guildId/blueprint/'
     | '/dashboard/$guildId/events/'
     | '/dashboard/$guildId/general/'
@@ -391,6 +402,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/messaging/reaction-roles'
     | '/dashboard/$guildId/blueprint'
     | '/dashboard/$guildId/events'
     | '/dashboard/$guildId/general'
@@ -427,6 +439,7 @@ export interface FileRouteTypes {
     | '/dashboard/$guildId/events/audit-events'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/messaging/reaction-roles'
     | '/dashboard/$guildId/blueprint/'
     | '/dashboard/$guildId/events/'
     | '/dashboard/$guildId/general/'
@@ -629,6 +642,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardGuildIdBlueprintIndexRouteImport
       parentRoute: typeof DashboardGuildIdBlueprintRoute
     }
+    '/dashboard/$guildId/messaging/reaction-roles': {
+      id: '/dashboard/$guildId/messaging/reaction-roles'
+      path: '/reaction-roles'
+      fullPath: '/dashboard/$guildId/messaging/reaction-roles'
+      preLoaderRoute: typeof DashboardGuildIdMessagingReactionRolesRouteImport
+      parentRoute: typeof DashboardGuildIdMessagingRoute
+    }
     '/dashboard/$guildId/messaging/message-builder': {
       id: '/dashboard/$guildId/messaging/message-builder'
       path: '/message-builder'
@@ -751,6 +771,7 @@ const DashboardGuildIdGeneralRouteWithChildren =
 
 interface DashboardGuildIdMessagingRouteChildren {
   DashboardGuildIdMessagingMessageBuilderRoute: typeof DashboardGuildIdMessagingMessageBuilderRoute
+  DashboardGuildIdMessagingReactionRolesRoute: typeof DashboardGuildIdMessagingReactionRolesRoute
   DashboardGuildIdMessagingIndexRoute: typeof DashboardGuildIdMessagingIndexRoute
 }
 
@@ -758,6 +779,8 @@ const DashboardGuildIdMessagingRouteChildren: DashboardGuildIdMessagingRouteChil
   {
     DashboardGuildIdMessagingMessageBuilderRoute:
       DashboardGuildIdMessagingMessageBuilderRoute,
+    DashboardGuildIdMessagingReactionRolesRoute:
+      DashboardGuildIdMessagingReactionRolesRoute,
     DashboardGuildIdMessagingIndexRoute: DashboardGuildIdMessagingIndexRoute,
   }
 

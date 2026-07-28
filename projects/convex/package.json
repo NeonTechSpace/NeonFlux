@@ -18,6 +18,7 @@
     "dependencies": {
         "@neonflux/blueprint": "workspace:*",
         "@neonflux/messaging": "workspace:*",
+        "@neonflux/reaction-roles": "workspace:*",
         "convex": "^1.30.0"
     }
 }

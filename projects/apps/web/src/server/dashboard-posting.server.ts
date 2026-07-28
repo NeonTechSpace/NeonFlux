@@ -12,10 +12,15 @@ import type { DashboardPostingOperationRecord } from '@neonflux/db';
 import { parseOutgoingMessage, serializeDashboardPostingPayload } from '@neonflux/messaging';
 import type { DashboardPostingOperationResolution, OutgoingEmbed, OutgoingMessage } from '@neonflux/messaging';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer/guild-structure';
+import type { FluxerReactionRoleCatalog } from '@neonflux/fluxer/reaction-roles';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type { FluxerCurrentUser } from '@neonflux/fluxer/users';
 
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
+import {
+    readDashboardBotGuildStructure,
+    readDashboardBotReactionRoleCatalog,
+    wakeDashboardBotPostingWorker,
+} from './bot-internal-api-client.server.js';
 import { getWebDb } from './db.server.js';
 import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js';
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
@@ -51,8 +56,11 @@ export type DashboardPostingRole = {
     color: number;
 };
 
+export type DashboardPostingEmoji = FluxerReactionRoleCatalog['emojis'][number];
+
 type DashboardPostingCatalog = {
     channels: DashboardPostingChannel[];
+    emojis: DashboardPostingEmoji[];
     roles: DashboardPostingRole[];
 };
 
@@ -320,10 +328,13 @@ export async function loadDashboardGuildPostingCatalog(
         return mapDashboardGuildPageError(guildPageData);
     }
 
-    const structureResult = await readDashboardBotGuildStructure(guildPageData.guild.id);
+    const [structureResult, reactionRoleCatalogResult] = await Promise.all([
+        readDashboardBotGuildStructure(guildPageData.guild.id),
+        readDashboardBotReactionRoleCatalog(guildPageData.guild.id),
+    ]);
 
-    if (structureResult.isErr()) {
-        return structureResult.error === 'not-configured'
+    if (structureResult.isErr() || reactionRoleCatalogResult.isErr()) {
+        return structureResult.isErr() && structureResult.error === 'not-configured'
             ? { type: 'bot-token-missing' }
             : { type: 'guild-lookup-failed' };
     }
@@ -332,6 +343,7 @@ export async function loadDashboardGuildPostingCatalog(
         type: 'catalog',
         catalog: {
             channels: toDashboardPostingChannels(structureResult.value.channels, structureResult.value.categories),
+            emojis: reactionRoleCatalogResult.value.emojis,
             roles: toDashboardPostingRoles(structureResult.value.roles),
         },
     };

@@ -21,6 +21,8 @@ import { trackGrowthOverviewEvent } from './bot-growth-tracking.js';
 import { startBotInternalApiServer, type BotInternalApiServer } from './bot-internal-api-server.js';
 import { reconcileBotInstallationsWithRetry } from './bot-installation-sync.js';
 import { startDashboardPostingScheduler } from './bot-posting-scheduler.js';
+import { handleBotReactionRoleEvent } from './bot-reaction-role-events.js';
+import { startReactionRoleScheduler } from './bot-reaction-role-scheduler.js';
 import { startStructureBackupScheduler } from './bot-structure-backups.js';
 import { startBlueprintRunWorker } from './bot-blueprint-run-worker.js';
 import { bootstrapDeploymentConfig } from './deployment-config-bootstrap.js';
@@ -44,6 +46,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
     let databaseClosed = false;
     let installationRepairScheduler: { stop(): Promise<void> } | undefined;
     let postingScheduler: { stop(): Promise<void>; wake(): void } | undefined;
+    let reactionRoleScheduler: { stop(): Promise<void>; wake(): void } | undefined;
     let structureBackupScheduler: { stop(): Promise<void> } | undefined;
     let blueprintRunWorker: { stop(): Promise<void>; wake(): void } | undefined;
     let growthTelemetry: ReturnType<typeof createBotGrowthTelemetryIngestor> | undefined;
@@ -180,6 +183,54 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             oldContent: event.oldContent,
                         });
                     },
+                    async messageDeleted(event) {
+                        await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            guildId: event.guildId,
+                            messageId: event.messageId,
+                            type: 'message-deleted',
+                        });
+                    },
+                    async reactionAdded(event) {
+                        const handled = await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            ...event,
+                            selected: true,
+                            type: 'reaction',
+                        });
+                        if (handled === 'handled') reactionRoleScheduler?.wake();
+                    },
+                    async reactionsAddedMany(events) {
+                        for (const event of events) {
+                            await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                                ...event,
+                                selected: true,
+                                type: 'reaction',
+                            });
+                        }
+                        if (events.length > 0) reactionRoleScheduler?.wake();
+                    },
+                    async reactionRemoved(event) {
+                        const handled = await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            ...event,
+                            selected: false,
+                            type: 'reaction',
+                        });
+                        if (handled === 'handled') reactionRoleScheduler?.wake();
+                    },
+                    async reactionsRemovedAll(event) {
+                        await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            guildId: event.guildId,
+                            messageId: event.messageId,
+                            type: 'all-reactions-removed',
+                        });
+                    },
+                    async reactionRemovedEmoji(event) {
+                        await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            emoji: event.emoji,
+                            guildId: event.guildId,
+                            messageId: event.messageId,
+                            type: 'emoji-removed',
+                        });
+                    },
                     async memberJoined(event) {
                         await routeAndLogFeatureEvent({
                             type: 'member.joined',
@@ -196,6 +247,13 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             userId: event.userId,
                             roleIds: event.roleIds,
                         });
+                        const handled = await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            guildId: event.guildId,
+                            roleIds: event.roleIds,
+                            type: 'member-roles-changed',
+                            userId: event.userId,
+                        });
+                        if (handled === 'handled') reactionRoleScheduler?.wake();
                     },
                     async memberLeft(event) {
                         await routeAndLogFeatureEvent({
@@ -203,6 +261,11 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                             guildId: event.guildId,
                             userId: event.userId,
                             roleIds: event.roleIds,
+                        });
+                        await handleBotReactionRoleEvent(createFeatureHandlerContext(), {
+                            guildId: event.guildId,
+                            type: 'member-left',
+                            userId: event.userId,
                         });
                     },
                     async banAdded(event) {
@@ -288,6 +351,10 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                     context: createFeatureHandlerContext(),
                     logger,
                 });
+                reactionRoleScheduler = startReactionRoleScheduler({
+                    context: createFeatureHandlerContext(),
+                    logger,
+                });
                 blueprintRunWorker = startBlueprintRunWorker({
                     botToken: config.fluxerBotToken,
                     database,
@@ -301,12 +368,15 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
                         port: config.botInternalApiPort,
                         wakeBlueprintWorker: () => blueprintRunWorker?.wake(),
                         wakePostingWorker: () => postingScheduler?.wake(),
+                        wakeReactionRoleWorker: () => reactionRoleScheduler?.wake(),
                         webAuthJwtIssuer: botInternalApiAuth.issuer,
                         webAuthJwtJwks: botInternalApiAuth.jwks,
                     });
                 } catch (error) {
                     await postingScheduler.stop();
                     postingScheduler = undefined;
+                    await reactionRoleScheduler.stop();
+                    reactionRoleScheduler = undefined;
                     await blueprintRunWorker.stop();
                     blueprintRunWorker = undefined;
                     throw error;
@@ -331,6 +401,7 @@ export function createBotApp({ config, logger, database }: CreateBotAppInput): B
             await botInternalApiServer?.stop();
             await installationRepairScheduler?.stop();
             await postingScheduler?.stop();
+            await reactionRoleScheduler?.stop();
             await structureBackupScheduler?.stop();
             await blueprintRunWorker?.stop();
             await growthTelemetry?.stop();

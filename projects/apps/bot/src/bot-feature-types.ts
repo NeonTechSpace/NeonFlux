@@ -149,6 +149,7 @@ export type BotFeatureRouteHandledAction =
     | 'command.help'
     | 'command.ping'
     | 'commands.prefix_change'
+    | 'command.reaction_roles.status'
     | 'event.blueprint.structure_observed';
 
 export type BotFeatureRouteResult =

@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     readDashboardBotGuildStructure,
+    readDashboardBotReactionRoleCatalog,
     wakeDashboardBotBlueprintWorker,
     wakeDashboardBotPostingWorker,
+    wakeDashboardBotReactionRoleWorker,
 } from './bot-internal-api-client.server.js';
 
 vi.mock('@neonflux/config', () => ({ loadWebConfig: vi.fn() }));
@@ -114,6 +116,47 @@ describe('dashboard bot internal API client', () => {
         expect(vi.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty('body');
     });
 
+    it('reads the live reaction-role catalog and wakes its worker through dedicated capabilities', async () => {
+        vi.mocked(fetch)
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    catalog: {
+                        channels: [],
+                        emojis: [],
+                        guildId: 'guild-1',
+                        guildName: 'Guild',
+                        roles: [],
+                    },
+                    protocolVersion: 1,
+                    type: 'catalog',
+                })
+            )
+            .mockResolvedValueOnce(jsonResponse(202, { protocolVersion: 1, type: 'accepted' }));
+
+        expect((await readDashboardBotReactionRoleCatalog('guild-1')).isOk()).toBe(true);
+        expect((await wakeDashboardBotReactionRoleWorker()).isOk()).toBe(true);
+        expect(fetch).toHaveBeenNthCalledWith(
+            1,
+            new URL('http://bot:3001/v1/provider/guilds/guild-1/reaction-roles/catalog'),
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer neonflux-bot-reaction-role-catalog-v1-token',
+                }),
+                method: 'GET',
+            })
+        );
+        expect(fetch).toHaveBeenNthCalledWith(
+            2,
+            new URL('http://bot:3001/internal/v1/reaction-roles/worker/wake'),
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer neonflux:bot-internal:reaction-role-worker-control-token',
+                }),
+                method: 'POST',
+            })
+        );
+    });
+
     it('reuses exactly one token provider per capability while configuration is unchanged', async () => {
         vi.mocked(fetch)
             .mockResolvedValueOnce(
@@ -136,9 +179,15 @@ describe('dashboard bot internal API client', () => {
         expect((await wakeDashboardBotPostingWorker()).isOk()).toBe(true);
         expect((await readDashboardBotGuildStructure('guild-1')).isOk()).toBe(true);
 
-        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledTimes(3);
+        expect(createNeonFluxServiceAuthTokenProvider).toHaveBeenCalledTimes(5);
         expect(vi.mocked(createNeonFluxServiceAuthTokenProvider).mock.calls.map(([config]) => config.audience)).toEqual(
-            ['neonflux-bot-blueprint-control-v1', 'neonflux-bot-posting-control-v1', 'neonflux-bot-provider-read-v1']
+            [
+                'neonflux-bot-blueprint-control-v1',
+                'neonflux-bot-posting-control-v1',
+                'neonflux-bot-provider-read-v1',
+                'neonflux-bot-reaction-role-catalog-v1',
+                'neonflux:bot-internal:reaction-role-worker-control',
+            ]
         );
     });
 

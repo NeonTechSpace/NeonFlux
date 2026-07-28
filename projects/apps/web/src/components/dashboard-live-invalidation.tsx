@@ -8,6 +8,7 @@ import {
     getDashboardCommandSettingsQueryKey,
     getDashboardPostingOperationsQueryKey,
     getDashboardPostingTemplatesQueryKey,
+    getDashboardReactionRolesQueryKey,
     getDashboardBlueprintRunProgressBaseQueryKey,
     getDashboardBlueprintQueryKey,
 } from '../dashboard-query-keys.js';
@@ -144,6 +145,10 @@ function invalidateDashboardLiveArea(
         case 'posting':
             invalidateOnce(`${destination}-templates`, getDashboardPostingTemplatesQueryKey(guildId));
             invalidateOnce(`${destination}-operations`, getDashboardPostingOperationsQueryKey(guildId));
+            return;
+
+        case 'reaction_roles':
+            invalidateOnce(destination, getDashboardReactionRolesQueryKey(guildId));
             return;
 
         case 'blueprint':

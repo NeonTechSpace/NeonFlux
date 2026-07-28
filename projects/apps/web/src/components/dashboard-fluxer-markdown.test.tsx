@@ -13,7 +13,17 @@ const unknownRoleId = '123456789012345679';
 const channelId = '223456789012345678';
 const unknownChannelId = '223456789012345679';
 const userId = '323456789012345678';
+const emojiId = '423456789012345678';
 const channels = [{ id: channelId, name: 'general', type: 0 }];
+const emojis = [
+    {
+        animated: false,
+        id: emojiId,
+        markup: `<:neon:${emojiId}>`,
+        name: 'neon',
+        url: `https://fluxerusercontent.com/emojis/${emojiId}.png`,
+    },
+];
 const roles = [
     { id: roleId, name: 'Operators', color: 0x5ad7ff },
     { id: colorlessRoleId, name: 'Members', color: 0 },
@@ -25,6 +35,13 @@ afterEach(() => {
 });
 
 describe('DashboardFluxerMarkdown', () => {
+    it('resolves custom emoji only from the live server catalog', () => {
+        renderMarkdown(`<:neon:${emojiId}> <:other:523456789012345678>`);
+        const image = screen.getByRole('img', { name: ':neon:' });
+        expect(image.getAttribute('src')).toBe(emojis[0]?.url);
+        expect(screen.getByText(/<:other:523456789012345678>/u)).toBeTruthy();
+    });
+
     it('renders Fluxer text formatting, blocks, tables, alerts, timestamps, and accessible spoilers', () => {
         const source = [
             '# Heading',
@@ -112,7 +129,7 @@ describe('DashboardFluxerMarkdown', () => {
         expect(screen.getAllByText(`@${userId}`)).toHaveLength(2);
         expect(screen.getByText('@everyone')).toBeTruthy();
         expect(screen.getByText('@here')).toBeTruthy();
-        expect(screen.getByText(':wave:')).toBeTruthy();
+        expect(screen.getByRole('img', { name: ':neon:' })).toBeTruthy();
     });
 
     it('supports nested formatting while preserving escaped syntax as text', () => {
@@ -178,7 +195,7 @@ describe('DashboardFluxerMarkdown', () => {
 
 function renderMarkdown(source: string, context: 'embed' | 'inline' | 'standard' = 'standard') {
     const view = render(
-        <DashboardFluxerMarkdown source={source} context={context} channels={channels} roles={roles} />
+        <DashboardFluxerMarkdown source={source} context={context} channels={channels} emojis={emojis} roles={roles} />
     );
     renderedViews.push(view);
     return view;

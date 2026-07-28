@@ -9,6 +9,8 @@ import {
     createRuntimeDb,
     createStructureBackup,
     createWebSession,
+    claimNextReactionRolePanelOperation,
+    failReactionRolePanelOperation,
     findLatestStructureDriftBaselineBackupByGuildId,
     findStructureBackupByGuildId,
     getBlueprintPlanAuthority,
@@ -16,6 +18,7 @@ import {
     listLatestBlueprintRunSummaries,
     listStructureBackupSummaryPageByGuildId,
     pruneExpiredStructureBackupsForGuild,
+    publishReactionRolePanel,
     upsertBotInstallation,
     upsertDeploymentConfig,
     upsertFluxerOAuthTokenSet,
@@ -245,6 +248,54 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             channelId: 'channel-1',
             message: { content: 'Success', embeds: [] },
         });
+    }, 60_000);
+
+    it('claims reaction-role work through the real Convex boundary with serialized lease timestamps', async () => {
+        const published = await publishReactionRolePanel(webDatabase.db, {
+            actorUserId: userId,
+            channelId: 'channel-1',
+            guildId,
+            name: 'E2E reaction roles',
+            payload: {
+                content: '{roles}',
+                embeds: [],
+                mode: 'independent',
+                options: [
+                    {
+                        emoji: { kind: 'unicode', value: '✨' },
+                        id: 'e2e-option-1',
+                        roleId: 'e2e-role-1',
+                        roleName: 'E2E role',
+                    },
+                ],
+            },
+            requestKey: `e2e-reaction-role-${crypto.randomUUID()}`,
+        });
+        if (published.isErr()) throw new Error('Could not publish the E2E reaction-role fixture.');
+        const now = new Date();
+        const leaseId = crypto.randomUUID();
+        const claimed = await claimNextReactionRolePanelOperation(botDatabase.db, {
+            leaseExpiresAt: new Date(now.getTime() + 60_000),
+            leaseId,
+            leaseOwner: 'e2e-reaction-role-worker',
+            now,
+        });
+
+        expect(claimed.isOk()).toBe(true);
+        expect(claimed._unsafeUnwrap()).toMatchObject({
+            generation: 1,
+            panelId: published.value.panel.id,
+            status: 'running',
+            type: 'publish',
+        });
+        const failed = await failReactionRolePanelOperation(botDatabase.db, {
+            errorCode: 'e2e_fixture_complete',
+            leaseId,
+            now: new Date(),
+            operationId: published.value.operation.id,
+            unknown: false,
+        });
+        expect(failed._unsafeUnwrap()).toBe(true);
     }, 60_000);
 
     it('rejects a stale Blueprint target, then restores, applies, and verifies a fresh approved plan', async () => {

@@ -5,6 +5,7 @@ import {
     GitBranch,
     MessageSquarePlus,
     MessageSquareText,
+    SmilePlus,
     ScrollText,
     Settings2,
     Terminal,
@@ -24,6 +25,7 @@ type DashboardCategoryTo =
 
 export type DashboardSubNavigationTo =
     | '/dashboard/$guildId/messaging/message-builder'
+    | '/dashboard/$guildId/messaging/reaction-roles'
     | '/dashboard/$guildId/general/command-prefix'
     | '/dashboard/$guildId/events/audit-events';
 
@@ -101,6 +103,14 @@ const dashboardNavigationSettings = [
                 'Compose, preview, and post Fluxer messages.',
                 '/dashboard/$guildId/messaging/message-builder',
                 MessageSquarePlus,
+                'full'
+            ),
+            subNavigation(
+                'reaction-roles',
+                'Reaction Roles',
+                'Publish live role menus with safe, durable role assignment.',
+                '/dashboard/$guildId/messaging/reaction-roles',
+                SmilePlus,
                 'full'
             ),
         ],

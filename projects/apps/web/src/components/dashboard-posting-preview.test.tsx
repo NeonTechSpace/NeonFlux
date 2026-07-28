@@ -20,6 +20,7 @@ describe('DashboardPostingPreview', () => {
                 <DashboardPostingPreview
                     channelLabel='#general'
                     channels={[{ id: '223456789012345678', name: 'general', type: 0 }]}
+                    emojis={[]}
                     roles={[{ id: '123456789012345678', name: 'Operators', color: 0x5ad7ff }]}
                     content='Hello **team** <@&123456789012345678>'
                     embeds={[
@@ -69,6 +70,7 @@ describe('DashboardPostingPreview', () => {
             render(
                 <DashboardPostingPreview
                     channels={[]}
+                    emojis={[]}
                     roles={[]}
                     content=''
                     embeds={[

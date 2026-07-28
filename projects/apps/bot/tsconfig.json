@@ -29,6 +29,9 @@
         },
         {
             "path": "../../packages/messaging"
+        },
+        {
+            "path": "../../packages/reaction-roles"
         }
     ]
 }

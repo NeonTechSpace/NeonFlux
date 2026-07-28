@@ -49,6 +49,25 @@ const safeConvexErrorCodes = new Set([
     'missing-session-id',
     'missing-target-id',
     'missing-token-type',
+    'reaction-role-channel-immutable',
+    'reaction-role-external-message-conflict',
+    'reaction-role-lease-window-invalid',
+    'reaction-role-member-lease-window-invalid',
+    'reaction-role-operation-not-found',
+    'reaction-role-panel-capacity-reached',
+    'reaction-role-panel-invalid',
+    'reaction-role-panel-message-conflict',
+    'reaction-role-panel-not-deactivatable',
+    'reaction-role-panel-not-editable',
+    'reaction-role-panel-not-found',
+    'reaction-role-request-key-conflict',
+    'reaction-role-reconciliation-batch-too-large',
+    'reaction-role-role-already-managed',
+    'reaction-role-retry-window-invalid',
+    'reaction-role-selection-version-mismatch',
+    'reaction-role-version-conflict',
+    'reaction-role-version-not-found',
+    'reaction-role-worker-record-invalid',
 ]);
 
 export function createNeonFluxConvexHttpClient(config: NeonFluxConvexClientConfig): NeonFluxConvexHttpClient {
@@ -181,7 +200,11 @@ function readJsonValue(value: unknown, operation: 'mutation' | 'query', path: st
 }
 
 function readSafeConvexErrorCode(value: unknown): string {
-    return typeof value === 'string' && safeConvexErrorCodes.has(value) ? value : 'unknown-error';
+    if (typeof value !== 'string') return 'unknown-error';
+    for (const code of safeConvexErrorCodes) {
+        if (value === code || value.includes(code)) return code;
+    }
+    return 'unknown-error';
 }
 
 function isJsonValue(value: unknown): value is JSONValue {

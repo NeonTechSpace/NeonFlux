@@ -26,8 +26,9 @@
     "scripts": {
         "dev:clear": "node -e \"console.clear()\"",
         "dev": "pnpm dev:clear && pnpm convex:dev:once && concurrently --kill-others-on-fail --names convex,bot,web \"pnpm convex:dev\" \"pnpm --filter @neonflux/bot dev\" \"pnpm --filter neonflux-web dev\"",
-        "dev:clean": "pnpm convex:reset-data -- --deployment dev --yes && pnpm dev",
-        "build:runtime-packages": "pnpm -r --filter @neonflux/config --filter @neonflux/convex --filter @neonflux/core --filter @neonflux/blueprint --filter @neonflux/messaging --filter @neonflux/fluxer --filter @neonflux/db build",
+        "dev:clean": "pnpm refresh:workspace && pnpm convex:reset-data -- --deployment dev --yes && pnpm dev",
+        "build:runtime-packages": "pnpm -r --filter @neonflux/config --filter @neonflux/convex --filter @neonflux/core --filter @neonflux/blueprint --filter @neonflux/messaging --filter @neonflux/reaction-roles --filter @neonflux/fluxer --filter @neonflux/db build",
+        "refresh:workspace": "pnpm convex:codegen && pnpm --filter neonflux-web generate-routes && pnpm --filter neonflux-web generate:docs && pnpm build:runtime-packages",
         "dev:bot": "pnpm dev:clear && pnpm --filter @neonflux/bot dev",
         "dev:bot:smoke": "tsx scripts/dev-bot-smoke.ts",
         "dev:web": "pnpm dev:clear && pnpm --filter neonflux-web dev",

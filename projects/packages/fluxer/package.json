@@ -21,6 +21,18 @@
             "production": "./dist/bot-provider-read-contract.js",
             "import": "./dist/bot-provider-read-contract.js"
         },
+        "./reaction-role-catalog-contract": {
+            "types": "./src/reaction-role-catalog-contract.ts",
+            "development": "./src/reaction-role-catalog-contract.ts",
+            "production": "./dist/reaction-role-catalog-contract.js",
+            "import": "./dist/reaction-role-catalog-contract.js"
+        },
+        "./reaction-roles": {
+            "types": "./src/reaction-roles.ts",
+            "development": "./src/reaction-roles.ts",
+            "production": "./dist/reaction-roles.js",
+            "import": "./dist/reaction-roles.js"
+        },
         "./guild-structure": {
             "types": "./src/guild-structure.ts",
             "development": "./src/guild-structure.ts",
@@ -74,6 +86,7 @@
         "@neonflux/blueprint": "workspace:*",
         "@neonflux/core": "workspace:*",
         "@neonflux/messaging": "workspace:*",
+        "@neonflux/reaction-roles": "workspace:*",
         "neverthrow": "^8.2.0"
     },
     "devDependencies": {

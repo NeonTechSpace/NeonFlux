@@ -93,6 +93,9 @@ importers:
       '@neonflux/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
+      '@neonflux/reaction-roles':
+        specifier: workspace:*
+        version: link:../../packages/reaction-roles
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -133,6 +136,9 @@ importers:
       '@neonflux/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
+      '@neonflux/reaction-roles':
+        specifier: workspace:*
+        version: link:../../packages/reaction-roles
       '@pierre/diffs':
         specifier: ^1.2.12
         version: 1.2.12(@shikijs/themes@4.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -329,6 +335,9 @@ importers:
       '@neonflux/messaging':
         specifier: workspace:*
         version: link:../packages/messaging
+      '@neonflux/reaction-roles':
+        specifier: workspace:*
+        version: link:../packages/reaction-roles
       convex:
         specifier: ^1.30.0
         version: 1.42.1(react@19.2.7)
@@ -394,6 +403,9 @@ importers:
       '@neonflux/messaging':
         specifier: workspace:*
         version: link:../messaging
+      '@neonflux/reaction-roles':
+        specifier: workspace:*
+        version: link:../reaction-roles
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -412,6 +424,9 @@ importers:
       '@neonflux/messaging':
         specifier: workspace:*
         version: link:../messaging
+      '@neonflux/reaction-roles':
+        specifier: workspace:*
+        version: link:../reaction-roles
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -422,6 +437,15 @@ importers:
 
   packages/messaging:
     dependencies:
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+
+  packages/reaction-roles:
+    dependencies:
+      '@neonflux/messaging':
+        specifier: workspace:*
+        version: link:../messaging
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0

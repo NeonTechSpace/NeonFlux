@@ -10,7 +10,11 @@ import { err, ok } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
-import { readDashboardBotGuildStructure, wakeDashboardBotPostingWorker } from './bot-internal-api-client.server.js';
+import {
+    readDashboardBotGuildStructure,
+    readDashboardBotReactionRoleCatalog,
+    wakeDashboardBotPostingWorker,
+} from './bot-internal-api-client.server.js';
 import { authorizeDashboardPostingTarget } from './dashboard-posting-authorization.server.js';
 import {
     loadDashboardGuildPostingCatalog,
@@ -73,6 +77,7 @@ vi.mock('@neonflux/db', async (importActual) => {
 
 vi.mock('./bot-internal-api-client.server.js', () => ({
     readDashboardBotGuildStructure: vi.fn(),
+    readDashboardBotReactionRoleCatalog: vi.fn(),
     wakeDashboardBotPostingWorker: vi.fn(),
 }));
 
@@ -99,6 +104,9 @@ describe('dashboard posting', () => {
                 name: 'Guild One',
             },
         });
+        vi.mocked(readDashboardBotReactionRoleCatalog).mockResolvedValue(
+            ok({ channels: [], emojis: [], guildId: 'guild-1', guildName: 'Guild One', roles: [] })
+        );
         vi.mocked(authorizeDashboardPostingTarget).mockResolvedValue(
             ok({
                 mode: { instanceMode: 'multi' },
@@ -473,11 +481,13 @@ describe('dashboard posting', () => {
                         position: 2,
                     },
                 ],
+                emojis: [],
                 roles: [{ id: 'role-1', name: 'Operators', color: 0x5ad7ff }],
             },
         });
         expect(readDashboardBotGuildStructure).toHaveBeenCalledTimes(1);
         expect(readDashboardBotGuildStructure).toHaveBeenCalledWith('authorized-guild');
+        expect(readDashboardBotReactionRoleCatalog).toHaveBeenCalledWith('authorized-guild');
     });
 
     it('reports an unavailable bot internal API before loading posting channels', async () => {

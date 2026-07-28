@@ -439,6 +439,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 <DashboardPostingPreview
                     content={content}
                     embeds={previewEmbeds}
+                    emojis={postingCatalogQuery.data?.emojis ?? []}
                     channelLabel={selectedChannelLabel}
                     channels={postingCatalogQuery.data?.channels ?? []}
                     roles={postingCatalogQuery.data?.roles ?? []}

@@ -74,7 +74,7 @@ When instructions, implementation, schemas, generated contracts, and tests disag
 
 ## Documentation and releases
 
-- Public documentation is frozen unless the task explicitly authorizes it. Do not infer authorization from implementation, UI, or release work.
+- Keep public documentation aligned with shipped behavior. Material feature, workflow, configuration, permission, operational, or deployment changes update the relevant documentation in the same work. Do not present planned behavior as implemented.
 - Releases are tag-driven from `main`: `web-vX.Y.Z` for both web outputs and `bot-vX.Y.Z` for bot. Images receive version, `latest`, and commit-SHA tags.
 - Never create or move release tags without explicit permission. Suggested versions only move forward.
 - Shared-package changes do not automatically release every image, but persistence or protocol changes require coordinated deployment of every affected consumer.

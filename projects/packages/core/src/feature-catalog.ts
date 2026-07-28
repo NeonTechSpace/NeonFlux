@@ -50,6 +50,7 @@ export type FeatureSurfaceDefinition = {
 
 export const BOT_COMMAND_CATEGORY_TITLES = {
     general: 'General',
+    reactionRoles: 'Reaction Roles',
     settings: 'Settings',
 } as const satisfies Record<string, string>;
 
@@ -75,6 +76,19 @@ const liveCommands = [
         usage: (prefix: string) => `${prefix}ping`,
         description: 'Check whether NeonFlux can reply in this channel.',
         defconCategory: DEFCON_FEATURE_CATEGORY.botMention,
+        audience: 'public',
+        visibleInHelp: true,
+        implemented: true,
+        grantable: false,
+    },
+    {
+        id: 'reaction_roles.status',
+        categoryId: 'reaction_roles',
+        categoryTitle: BOT_COMMAND_CATEGORY_TITLES.reactionRoles,
+        commandName: 'rr',
+        usage: (prefix: string) => `${prefix}rr status [message-link]`,
+        description: 'Show reaction-role panel status for this server or a managed message.',
+        defconCategory: DEFCON_FEATURE_CATEGORY.reactionRoles,
         audience: 'public',
         visibleInHelp: true,
         implemented: true,
@@ -115,6 +129,38 @@ export const FEATURE_SURFACES: readonly FeatureSurfaceDefinition[] = [
         kinds: ['dashboard-config', 'bot-command'],
         dashboardConfigs: [dashboardConfig('general.command_prefix', 'general', 'Command prefix', true)],
         botCommands: liveCommands.filter((command) => command.categoryId === 'settings'),
+    },
+    {
+        id: 'reaction_roles',
+        label: 'Reaction roles',
+        kinds: ['dashboard-config', 'bot-command', 'bot-managed-panel', 'event-handler'],
+        dashboardConfigs: [dashboardConfig('reaction_roles.panels', 'messaging', 'Reaction-role panels', true)],
+        botCommands: liveCommands.filter((command) => command.categoryId === 'reaction_roles'),
+        botManagedPanels: [
+            {
+                id: 'reaction_roles.message',
+                dashboardCategoryId: 'messaging',
+                label: 'Reaction-role message',
+                implemented: true,
+                controlMode: 'reaction',
+                controlNames: ['configured emoji'],
+            },
+        ],
+        eventHandlers: [
+            eventHandler(
+                'reaction_roles.events',
+                [
+                    'message.reaction.added',
+                    'message.reaction.removed',
+                    'message.reaction.removed_all',
+                    'message.reaction.removed_emoji',
+                    'message.deleted',
+                    'member.updated',
+                    'member.left',
+                ],
+                true
+            ),
+        ],
     },
     {
         id: 'posting',

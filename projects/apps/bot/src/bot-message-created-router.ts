@@ -16,6 +16,7 @@ import {
     type BotPresenceIntent,
 } from './bot-presence.js';
 import { getMentionedPrefixCommand, routePrefixChangeCommand } from './bot-prefix-command.js';
+import { getReactionRoleStatusIntent, routeReactionRoleStatusCommand } from './bot-reaction-role-command.js';
 import { shouldProcessBotGuildEvent } from './mode-gate.js';
 
 export async function routeMessageCreatedEvent(
@@ -54,6 +55,12 @@ export async function routeMessageCreatedEvent(
 
     if (prefixChangeCommand) {
         return await routePrefixChangeCommand(context, event, prefixChangeCommand.rawPrefix);
+    }
+
+    const reactionRoleStatusIntent = await getReactionRoleStatusIntent(context, event);
+    if (reactionRoleStatusIntent.isErr()) return err(reactionRoleStatusIntent.error);
+    if (reactionRoleStatusIntent.value) {
+        return routeReactionRoleStatusCommand(context, event, reactionRoleStatusIntent.value);
     }
 
     const helpIntentResult = await getHelpCommandIntent(context, event);

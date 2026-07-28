@@ -35,6 +35,10 @@ export function getDashboardPostingTemplatesQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'posting-templates'] as const;
 }
 
+export function getDashboardReactionRolesQueryKey(guildId: string) {
+    return ['dashboard', 'guild', guildId, 'reaction-roles'] as const;
+}
+
 export function getDashboardBlueprintQueryKey(guildId: string) {
     return ['dashboard', 'guild', guildId, 'blueprint'] as const;
 }

@@ -7,6 +7,7 @@ import {
     createRolePlatform,
 } from './platform-guild-operations.js';
 import { createMessagePlatform } from './platform-messages.js';
+import { createFluxerReactionRolePlatform } from './reaction-roles.js';
 
 export type { FluxerPlatformError } from './platform-shared.js';
 
@@ -20,6 +21,7 @@ export function createFluxerPlatform(client: FluxerBot['client']) {
         moderation: createModerationPlatform(client),
         channels: createChannelPlatform(client),
         roles: createRolePlatform(client),
+        reactionRoles: createFluxerReactionRolePlatform(client),
         guildStructure: {
             read: (input: { guildId: string }) => readFluxerGuildStructure({ client, guildId: input.guildId }),
         },

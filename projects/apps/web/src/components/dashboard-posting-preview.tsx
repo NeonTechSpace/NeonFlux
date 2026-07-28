@@ -3,7 +3,11 @@ import type { OutgoingEmbed } from '@neonflux/messaging';
 import { Component, lazy, Suspense, useState } from 'react';
 import type { ComponentType, CSSProperties, ReactNode } from 'react';
 
-import type { DashboardPostingChannel, DashboardPostingRole } from '../server/dashboard-posting.server.js';
+import type {
+    DashboardPostingChannel,
+    DashboardPostingEmoji,
+    DashboardPostingRole,
+} from '../server/dashboard-posting.server.js';
 import type { DashboardFluxerMarkdownProps } from './dashboard-fluxer-markdown.js';
 import { dashboardInlineVariants, dashboardViewTransition } from './dashboard-motion.js';
 import { DashboardSurface } from './dashboard-ui.js';
@@ -13,6 +17,7 @@ type DashboardPostingPreviewProps = {
     channels: DashboardPostingChannel[];
     content: string;
     embeds: OutgoingEmbed[];
+    emojis: DashboardPostingEmoji[];
     roles: DashboardPostingRole[];
 };
 
@@ -23,6 +28,7 @@ export function DashboardPostingPreview({
     channels,
     content,
     embeds,
+    emojis,
     roles,
 }: DashboardPostingPreviewProps) {
     const trimmedContent = content.trim();
@@ -72,6 +78,7 @@ export function DashboardPostingPreview({
                             channels={channels}
                             content={trimmedContent}
                             embeds={previewEmbedItems}
+                            emojis={emojis}
                             roles={roles}
                         />
                     </motion.div>
@@ -85,11 +92,13 @@ function FormattedPayloadPreview({
     channels,
     content,
     embeds,
+    emojis,
     roles,
 }: {
     channels: DashboardPostingChannel[];
     content: string;
     embeds: Array<{ key: string; embed: OutgoingEmbed }>;
+    emojis: DashboardPostingEmoji[];
     roles: DashboardPostingRole[];
 }) {
     const [loadAttempt, setLoadAttempt] = useState(0);
@@ -105,7 +114,13 @@ function FormattedPayloadPreview({
             <Suspense fallback={<MarkdownLoadingState />}>
                 {content ? (
                     <div className='text-sm leading-6 text-[#f5f7fb]'>
-                        <Markdown source={content} context='standard' channels={channels} roles={roles} />
+                        <Markdown
+                            source={content}
+                            context='standard'
+                            channels={channels}
+                            emojis={emojis}
+                            roles={roles}
+                        />
                     </div>
                 ) : null}
                 {embeds.map((item) => (
@@ -114,6 +129,7 @@ function FormattedPayloadPreview({
                         embed={item.embed}
                         Markdown={Markdown}
                         channels={channels}
+                        emojis={emojis}
                         roles={roles}
                     />
                 ))}
@@ -167,11 +183,13 @@ export class MarkdownCodeLoadBoundary extends Component<
 function DashboardEmbedPreview({
     channels,
     embed,
+    emojis,
     Markdown,
     roles,
 }: {
     channels: DashboardPostingChannel[];
     embed: OutgoingEmbed;
+    emojis: DashboardPostingEmoji[];
     Markdown: MarkdownRenderer;
     roles: DashboardPostingRole[];
 }) {
@@ -232,18 +250,31 @@ function DashboardEmbedPreview({
                                     context='inline'
                                     disableLinks
                                     channels={channels}
+                                    emojis={emojis}
                                     roles={roles}
                                 />
                             </a>
                         ) : (
                             <h4 className='text-sm font-semibold break-words text-[#f6f8fb]'>
-                                <Markdown source={title} context='inline' channels={channels} roles={roles} />
+                                <Markdown
+                                    source={title}
+                                    context='inline'
+                                    channels={channels}
+                                    emojis={emojis}
+                                    roles={roles}
+                                />
                             </h4>
                         )
                     ) : null}
                     {description ? (
                         <div className='text-sm leading-6 text-[#d8dee9]'>
-                            <Markdown source={description} context='embed' channels={channels} roles={roles} />
+                            <Markdown
+                                source={description}
+                                context='embed'
+                                channels={channels}
+                                emojis={emojis}
+                                roles={roles}
+                            />
                         </div>
                     ) : null}
                     {embed.fields && embed.fields.length > 0 ? (
@@ -261,6 +292,7 @@ function DashboardEmbedPreview({
                                             source={field.name}
                                             context='inline'
                                             channels={channels}
+                                            emojis={emojis}
                                             roles={roles}
                                         />
                                     </div>
@@ -269,6 +301,7 @@ function DashboardEmbedPreview({
                                             source={field.value}
                                             context='embed'
                                             channels={channels}
+                                            emojis={emojis}
                                             roles={roles}
                                         />
                                     </div>
@@ -309,7 +342,13 @@ function DashboardEmbedPreview({
                     ) : null}
                     {footerText ? (
                         <span className='min-w-0 break-words'>
-                            <Markdown source={footerText} context='inline' channels={channels} roles={roles} />
+                            <Markdown
+                                source={footerText}
+                                context='inline'
+                                channels={channels}
+                                emojis={emojis}
+                                roles={roles}
+                            />
                         </span>
                     ) : null}
                     {footerText && timestamp ? <span aria-hidden='true'>|</span> : null}

@@ -32,4 +32,11 @@ crons.daily(
     {}
 );
 
+crons.daily(
+    'drain reaction role retention',
+    { hourUTC: 4, minuteUTC: 15 },
+    internal.reaction_roles.reaction_role_retention.pruneReactionRoleHistoryBatch,
+    {}
+);
+
 export default crons;

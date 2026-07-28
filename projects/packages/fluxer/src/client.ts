@@ -13,6 +13,7 @@ import {
 
 import type { InstanceMode } from '@neonflux/config';
 import type { AppLogger } from '@neonflux/core/logging';
+import type { ReactionRoleEmoji } from '@neonflux/reaction-roles';
 
 import {
     normalizeVoiceStateEvent,
@@ -20,6 +21,7 @@ import {
     type FluxerBotVoiceStateEvent,
     type VoiceStateCache,
 } from './voice-state-cache.js';
+import { isFluxerGuildUnavailable } from './guild-availability.js';
 import { fluxerSafeRestOptions } from './rest-retry-policy.js';
 
 export type FluxerBot = ReturnType<typeof createFluxerBot>;
@@ -90,6 +92,22 @@ export type FluxerBotChannelEvent = {
     channelType: number;
 };
 
+export type FluxerBotReactionEvent = {
+    channelId: string;
+    emoji: ReactionRoleEmoji;
+    guildId: string | null;
+    messageId: string;
+    userId: string;
+    userIsBot: boolean;
+};
+
+export type FluxerBotReactionAggregateEvent = {
+    channelId: string;
+    emoji?: ReactionRoleEmoji;
+    guildId: string | null;
+    messageId: string;
+};
+
 export type { FluxerBotVoiceStateEvent } from './voice-state-cache.js';
 
 export type FluxerBotLifecycleHandlers = {
@@ -102,6 +120,13 @@ export type FluxerBotLifecycleHandlers = {
     messageDeleted?: (event: FluxerBotMessageDeletedEvent) => void | Promise<void>;
     messageCreated?: (event: FluxerBotMessageEvent) => void | Promise<void>;
     messageUpdated?: (event: FluxerBotMessageUpdatedEvent) => void | Promise<void>;
+    reactionAdded?: (event: FluxerBotReactionEvent) => void | Promise<void>;
+    reactionsAddedMany?: (events: FluxerBotReactionEvent[]) => void | Promise<void>;
+    reactionRemoved?: (event: FluxerBotReactionEvent) => void | Promise<void>;
+    reactionsRemovedAll?: (event: FluxerBotReactionAggregateEvent) => void | Promise<void>;
+    reactionRemovedEmoji?: (
+        event: FluxerBotReactionAggregateEvent & { emoji: ReactionRoleEmoji }
+    ) => void | Promise<void>;
     memberJoined?: (event: FluxerBotMemberJoinedEvent) => void | Promise<void>;
     memberUpdated?: (event: FluxerBotMemberEvent) => void | Promise<void>;
     memberLeft?: (event: FluxerBotMemberEvent) => void | Promise<void>;
@@ -172,6 +197,25 @@ export function createFluxerBot(
         if (!acceptingHandlers) return;
 
         const pending = executeLifecycleHandler(handlerLogger, errorEvent, handler, event, createLogContext);
+        inFlightHandlers.add(pending);
+        void pending.finally(() => {
+            inFlightHandlers.delete(pending);
+        });
+    }
+
+    function runResolvedLifecycleHandler<TEvent>(
+        errorEvent: string,
+        handler: FluxerBotEventHandler<TEvent> | undefined,
+        resolveEvent: () => Promise<TEvent>
+    ): void {
+        if (!acceptingHandlers) return;
+        const pending = resolveEvent()
+            .then((event) => executeLifecycleHandler(logger, errorEvent, handler, event))
+            .catch((error: unknown) => {
+                logger.error(errorEvent, {
+                    errorType: error instanceof Error ? error.name : typeof error,
+                });
+            });
         inFlightHandlers.add(pending);
         void pending.finally(() => {
             inFlightHandlers.delete(pending);
@@ -261,6 +305,79 @@ export function createFluxerBot(
             lifecycleHandlers.messageDeleted,
             normalizeMessageDeletedEvent(message),
             createDeletedMessageLogContext
+        );
+    });
+
+    client.on(Events.MessageReactionAdd, (payload) => {
+        runResolvedLifecycleHandler(
+            'fluxer.reaction_added_handler_failed',
+            lifecycleHandlers.reactionAdded,
+            async () => {
+                const event = normalizeReactionEvent(payload);
+                return {
+                    ...event,
+                    userIsBot: await resolveReactionActorIsBot(client, event, payload.user.bot),
+                };
+            }
+        );
+    });
+
+    client.on(Events.MessageReactionAddMany, (payload) => {
+        runResolvedLifecycleHandler(
+            'fluxer.reactions_added_many_handler_failed',
+            lifecycleHandlers.reactionsAddedMany,
+            () =>
+                Promise.all(
+                    payload.reactions.map(async (reaction) => {
+                        const event = {
+                            channelId: payload.channelId,
+                            emoji: normalizeReactionEmoji(reaction.emoji),
+                            guildId: payload.guildId,
+                            messageId: payload.messageId,
+                            userId: reaction.userId,
+                        };
+                        return {
+                            ...event,
+                            userIsBot: await resolveReactionActorIsBot(
+                                client,
+                                event,
+                                reaction.member?.user.bot ?? reaction.userId === client.user?.id
+                            ),
+                        };
+                    })
+                )
+        );
+    });
+
+    client.on(Events.MessageReactionRemove, (payload) => {
+        runResolvedLifecycleHandler(
+            'fluxer.reaction_removed_handler_failed',
+            lifecycleHandlers.reactionRemoved,
+            async () => {
+                const event = normalizeReactionEvent(payload);
+                return {
+                    ...event,
+                    userIsBot: await resolveReactionActorIsBot(client, event, payload.user.bot),
+                };
+            }
+        );
+    });
+
+    client.on(Events.MessageReactionRemoveAll, (payload) => {
+        runLifecycleHandler(
+            logger,
+            'fluxer.reactions_removed_all_handler_failed',
+            lifecycleHandlers.reactionsRemovedAll,
+            payload
+        );
+    });
+
+    client.on(Events.MessageReactionRemoveEmoji, (payload) => {
+        runLifecycleHandler(
+            logger,
+            'fluxer.reaction_removed_emoji_handler_failed',
+            lifecycleHandlers.reactionRemovedEmoji,
+            { ...payload, emoji: normalizeReactionEmoji(payload.emoji) }
         );
     });
 
@@ -469,10 +586,14 @@ function normalizeMessageUpdatedEvent(oldMessage: Message | null, newMessage: Me
 }
 
 function normalizeMessageDeletedEvent(message: PartialMessage): FluxerBotMessageDeletedEvent {
+    const guildId =
+        message.channel && 'guildId' in message.channel && typeof message.channel.guildId === 'string'
+            ? message.channel.guildId
+            : null;
     return {
         messageId: message.id,
         channelId: message.channelId,
-        guildId: null,
+        guildId,
         authorId: message.authorId ?? null,
         content: message.content ?? null,
     };
@@ -515,6 +636,48 @@ function normalizeChannelEvent(channel: Channel): FluxerBotChannelEvent {
         channelId: channel.id,
         channelType: channel.type,
     };
+}
+
+function normalizeReactionEvent(payload: {
+    channelId: string;
+    emoji: { animated?: boolean; id?: string; name: string };
+    messageId: string;
+    reaction: { guildId: string | null };
+    user: { bot: boolean };
+    userId: string;
+}): FluxerBotReactionEvent {
+    return {
+        channelId: payload.channelId,
+        emoji: normalizeReactionEmoji(payload.emoji),
+        guildId: payload.reaction.guildId,
+        messageId: payload.messageId,
+        userId: payload.userId,
+        userIsBot: payload.user.bot,
+    };
+}
+
+function normalizeReactionEmoji(emoji: { animated?: boolean; id?: string; name: string }): ReactionRoleEmoji {
+    return emoji.id
+        ? { animated: emoji.animated ?? false, id: emoji.id, kind: 'custom', name: emoji.name }
+        : { kind: 'unicode', value: emoji.name.normalize('NFC') };
+}
+
+async function resolveReactionActorIsBot(
+    client: Client,
+    event: { guildId: string | null; userId: string },
+    reportedBot: boolean
+): Promise<boolean> {
+    if (reportedBot || event.userId === client.user?.id) return true;
+    if (!event.guildId) return true;
+    try {
+        const guild = client.guilds.get(event.guildId) ?? (await client.guilds.fetch(event.guildId));
+        if (isFluxerGuildUnavailable(guild)) return true;
+        const cached = guild.members.get(event.userId);
+        if (cached) return cached.user.bot;
+        return (await guild.fetchMember(event.userId)).user.bot;
+    } catch {
+        return true;
+    }
 }
 
 async function executeLifecycleHandler<TEvent>(

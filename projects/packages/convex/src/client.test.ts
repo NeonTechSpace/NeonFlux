@@ -236,6 +236,26 @@ describe('createNeonFluxConvexHttpClient', () => {
             `Convex query ${getFunctionName(api.core.readDeploymentConfig)} failed: unknown-error.`
         );
     });
+
+    it('extracts an explicitly safe code from Convex runtime error decoration', async () => {
+        stubFetch(
+            new Response(
+                JSON.stringify({
+                    errorMessage: 'Uncaught Error: reaction-role-role-already-managed at handler',
+                    status: 'error',
+                }),
+                { status: 560 }
+            )
+        );
+        const client = createNeonFluxConvexHttpClient({
+            authTokenProvider: () => Promise.resolve('service-jwt'),
+            url: 'https://neonflux-test.convex.cloud',
+        });
+
+        await expect(client.query(api.core.readDeploymentConfig, {})).rejects.toThrow(
+            `Convex query ${getFunctionName(api.core.readDeploymentConfig)} failed: reaction-role-role-already-managed.`
+        );
+    });
 });
 
 function stubFetch(response: Response) {

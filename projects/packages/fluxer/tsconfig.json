@@ -19,6 +19,9 @@
         },
         {
             "path": "../messaging"
+        },
+        {
+            "path": "../reaction-roles"
         }
     ]
 }

@@ -33,6 +33,7 @@ const bot = { client: { user: { id: 'bot-user' } } } as unknown as FluxerBot;
 let servers: BotInternalApiServer[] = [];
 const wakeBlueprintWorker = vi.fn();
 const wakePostingWorker = vi.fn();
+const wakeReactionRoleWorker = vi.fn();
 
 describe('bot internal API server', () => {
     beforeEach(() => {
@@ -40,6 +41,7 @@ describe('bot internal API server', () => {
         vi.mocked(readFluxerGuildStructure).mockResolvedValue(ok(createStructure('guild-1')));
         wakeBlueprintWorker.mockReset();
         wakePostingWorker.mockReset();
+        wakeReactionRoleWorker.mockReset();
     });
 
     afterEach(async () => {
@@ -189,6 +191,7 @@ async function startServer(): Promise<BotInternalApiServer> {
         port: 0,
         wakeBlueprintWorker,
         wakePostingWorker,
+        wakeReactionRoleWorker,
         webAuthJwtIssuer: issuer,
         webAuthJwtJwks: jwks,
     });

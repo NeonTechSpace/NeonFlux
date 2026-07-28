@@ -18,12 +18,24 @@ import {
     type BotProviderReadGuildStructureResponse,
 } from '@neonflux/fluxer/bot-provider-read-contract';
 import { readFluxerGuildStructure } from '@neonflux/fluxer/guild-structure';
+import {
+    reactionRoleCatalogJwtAudience,
+    reactionRoleCatalogPathPrefix,
+    reactionRoleCatalogProtocolVersion,
+    type ReactionRoleCatalogResponse,
+} from '@neonflux/fluxer/reaction-role-catalog-contract';
+import { readFluxerReactionRoleCatalog } from '@neonflux/fluxer/reaction-roles';
 import type { FluxerBot } from '@neonflux/fluxer';
 import {
     postingWorkerControlJwtAudience,
     postingWorkerControlProtocolVersion,
     postingWorkerWakePath,
 } from '@neonflux/messaging/posting-worker-control-contract';
+import {
+    reactionRoleWorkerControlJwtAudience,
+    reactionRoleWorkerControlProtocolVersion,
+    reactionRoleWorkerWakePath,
+} from '@neonflux/reaction-roles/worker-control-contract';
 
 const maxConcurrentGuildReads = 8;
 const providerReadDeadlineMs = 12_000;
@@ -41,6 +53,7 @@ export type StartBotInternalApiServerInput = {
     port: number;
     wakeBlueprintWorker(): void;
     wakePostingWorker(): void;
+    wakeReactionRoleWorker(): void;
     webAuthJwtIssuer: string;
     webAuthJwtJwks: string;
 };
@@ -54,23 +67,36 @@ export async function startBotInternalApiServer(input: StartBotInternalApiServer
         audience: postingWorkerControlJwtAudience,
         issuer: input.webAuthJwtIssuer,
     };
+    const reactionRoleCatalogJwtConfig: NeonFluxJwtVerifierConfig = {
+        audience: reactionRoleCatalogJwtAudience,
+        issuer: input.webAuthJwtIssuer,
+    };
+    const reactionRoleControlJwtConfig: NeonFluxJwtVerifierConfig = {
+        audience: reactionRoleWorkerControlJwtAudience,
+        issuer: input.webAuthJwtIssuer,
+    };
     const blueprintControlJwtConfig: NeonFluxJwtVerifierConfig = {
         audience: blueprintWorkerControlJwtAudience,
         issuer: input.webAuthJwtIssuer,
     };
     const jwks = createNeonFluxJwkSetFromJwksConfig(input.webAuthJwtJwks);
     const reads = createGuildStructureReads(input);
+    const catalogReads = createReactionRoleCatalogReads(input);
     const server = createServer((request, response) => {
         void handleRequest({
             blueprintControlJwtConfig,
+            catalogReads,
             jwks,
             postingControlJwtConfig,
             providerReadJwtConfig,
+            reactionRoleCatalogJwtConfig,
+            reactionRoleControlJwtConfig,
             reads,
             request,
             response,
             wakeBlueprintWorker: () => input.wakeBlueprintWorker(),
             wakePostingWorker: () => input.wakePostingWorker(),
+            wakeReactionRoleWorker: () => input.wakeReactionRoleWorker(),
         }).catch(() => {
             if (!response.headersSent) writeJson(response, 500, { type: 'internal-error' });
             else response.destroy();
@@ -99,6 +125,48 @@ export async function startBotInternalApiServer(input: StartBotInternalApiServer
 type GuildStructureReads = {
     read(guildId: string): Promise<BotProviderReadGuildStructureResponse> | undefined;
 };
+
+type ReactionRoleCatalogReads = {
+    read(guildId: string): Promise<ReactionRoleCatalogResponse> | undefined;
+};
+
+function createReactionRoleCatalogReads(input: StartBotInternalApiServerInput): ReactionRoleCatalogReads {
+    const inFlight = new Map<string, Promise<ReactionRoleCatalogResponse>>();
+
+    return {
+        read(guildId) {
+            const existing = inFlight.get(guildId);
+            if (existing) return existing;
+            if (inFlight.size >= maxConcurrentGuildReads) return undefined;
+            const read = readReactionRoleCatalog(input, guildId).finally(() => {
+                if (inFlight.get(guildId) === read) inFlight.delete(guildId);
+            });
+            inFlight.set(guildId, read);
+            return read;
+        },
+    };
+}
+
+async function readReactionRoleCatalog(
+    input: StartBotInternalApiServerInput,
+    guildId: string
+): Promise<ReactionRoleCatalogResponse> {
+    try {
+        const result = await readFluxerReactionRoleCatalog({
+            client: input.bot.client,
+            guildId,
+            ...(input.bot.client.user?.id ? { botUserId: input.bot.client.user.id } : {}),
+        });
+        if (result.isOk()) {
+            return { catalog: result.value, protocolVersion: reactionRoleCatalogProtocolVersion, type: 'catalog' };
+        }
+        return result.error.type === 'unavailable-or-not-found'
+            ? { protocolVersion: reactionRoleCatalogProtocolVersion, type: 'unavailable-or-not-found' }
+            : { protocolVersion: reactionRoleCatalogProtocolVersion, type: 'read-failed' };
+    } catch {
+        return { protocolVersion: reactionRoleCatalogProtocolVersion, type: 'read-failed' };
+    }
+}
 
 function createGuildStructureReads(input: StartBotInternalApiServerInput): GuildStructureReads {
     const inFlight = new Map<string, Promise<BotProviderReadGuildStructureResponse>>();
@@ -143,14 +211,18 @@ async function readGuildStructure(
 
 type RequestContext = {
     blueprintControlJwtConfig: NeonFluxJwtVerifierConfig;
+    catalogReads: ReactionRoleCatalogReads;
     jwks: ReturnType<typeof createNeonFluxJwkSetFromJwksConfig>;
     postingControlJwtConfig: NeonFluxJwtVerifierConfig;
     providerReadJwtConfig: NeonFluxJwtVerifierConfig;
+    reactionRoleCatalogJwtConfig: NeonFluxJwtVerifierConfig;
+    reactionRoleControlJwtConfig: NeonFluxJwtVerifierConfig;
     reads: GuildStructureReads;
     request: IncomingMessage;
     response: ServerResponse;
     wakeBlueprintWorker(): void;
     wakePostingWorker(): void;
+    wakeReactionRoleWorker(): void;
 };
 
 async function handleRequest(context: RequestContext): Promise<void> {
@@ -169,6 +241,24 @@ async function handleRequest(context: RequestContext): Promise<void> {
             protocolVersion: blueprintWorkerControlProtocolVersion,
             type: 'accepted',
         });
+        return;
+    }
+
+    if (pathname === reactionRoleWorkerWakePath) {
+        await handleWorkerWake(context, context.reactionRoleControlJwtConfig, () => context.wakeReactionRoleWorker(), {
+            protocolVersion: reactionRoleWorkerControlProtocolVersion,
+            type: 'accepted',
+        });
+        return;
+    }
+
+    const reactionRoleCatalogGuildId = readGuildIdForSuffix(
+        context.request.url,
+        reactionRoleCatalogPathPrefix,
+        '/reaction-roles/catalog'
+    );
+    if (reactionRoleCatalogGuildId) {
+        await handleReactionRoleCatalogRead(context, reactionRoleCatalogGuildId);
         return;
     }
 
@@ -204,6 +294,36 @@ async function handleRequest(context: RequestContext): Promise<void> {
 
     const status = result.type === 'structure' ? 200 : result.type === 'unavailable-or-not-found' ? 404 : 502;
     writeJson(context.response, status, result);
+}
+
+async function handleReactionRoleCatalogRead(context: RequestContext, guildId: string): Promise<void> {
+    if (context.request.method !== 'GET') {
+        context.response.setHeader('Allow', 'GET');
+        writeJson(context.response, 405, { type: 'method-not-allowed' });
+        return;
+    }
+    if (!(await isAuthorized(context, context.reactionRoleCatalogJwtConfig))) {
+        writeJson(context.response, 401, { type: 'unauthorized' });
+        return;
+    }
+    const read = context.catalogReads.read(guildId);
+    if (!read) {
+        writeJson(context.response, 503, { protocolVersion: reactionRoleCatalogProtocolVersion, type: 'overloaded' });
+        return;
+    }
+    const result = await withDeadline(read, providerReadDeadlineMs);
+    if (!result) {
+        writeJson(context.response, 502, {
+            protocolVersion: reactionRoleCatalogProtocolVersion,
+            type: 'read-failed',
+        });
+        return;
+    }
+    writeJson(
+        context.response,
+        result.type === 'catalog' ? 200 : result.type === 'unavailable-or-not-found' ? 404 : 502,
+        result
+    );
 }
 
 async function handleWorkerWake(
@@ -253,12 +373,15 @@ async function isAuthorized(context: RequestContext, jwtConfig: NeonFluxJwtVerif
 }
 
 function readGuildId(requestUrl: string | undefined): string | undefined {
+    return readGuildIdForSuffix(requestUrl, botProviderReadGuildStructurePathPrefix, '/structure');
+}
+
+function readGuildIdForSuffix(requestUrl: string | undefined, pathPrefix: string, suffix: string): string | undefined {
     const pathname = readPathname(requestUrl);
     if (!pathname) return undefined;
-    const suffix = '/structure';
-    if (!pathname.startsWith(botProviderReadGuildStructurePathPrefix) || !pathname.endsWith(suffix)) return undefined;
+    if (!pathname.startsWith(pathPrefix) || !pathname.endsWith(suffix)) return undefined;
 
-    const encodedGuildId = pathname.slice(botProviderReadGuildStructurePathPrefix.length, -suffix.length);
+    const encodedGuildId = pathname.slice(pathPrefix.length, -suffix.length);
     if (!encodedGuildId || encodedGuildId.includes('/')) return undefined;
 
     try {
