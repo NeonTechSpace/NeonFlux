@@ -1,4 +1,5 @@
 import type { UserIdentity } from 'convex/server';
+import type { QueryCtx } from './_generated/server.js';
 
 export type NeonFluxConvexUserIdentity = {
     fluxerUserId: string;
@@ -16,7 +17,22 @@ export type NeonFluxConvexServiceIdentity = {
     tokenIdentifier: string;
 };
 
-export type NeonFluxConvexIdentity = NeonFluxConvexUserIdentity | NeonFluxConvexServiceIdentity;
+export type NeonFluxConvexPostingDelegationIdentity = {
+    actorUserId: string;
+    guildId: string;
+    kind: 'posting-delegation';
+    payloadHash: string;
+    requestKey: string;
+    requestedChannelId: string;
+    retryOfOperationId?: string;
+    subject: string;
+    tokenIdentifier: string;
+};
+
+export type NeonFluxConvexIdentity =
+    | NeonFluxConvexUserIdentity
+    | NeonFluxConvexServiceIdentity
+    | NeonFluxConvexPostingDelegationIdentity;
 
 export type NeonFluxAuthContext = {
     auth: {
@@ -47,11 +63,53 @@ export async function requireNeonFluxService(
     return identity;
 }
 
+export async function requireNeonFluxPostingDelegation(
+    ctx: NeonFluxAuthContext
+): Promise<NeonFluxConvexPostingDelegationIdentity> {
+    const identity = await readNeonFluxIdentity(ctx);
+
+    if (identity?.kind !== 'posting-delegation') {
+        throw new Error('NeonFlux posting delegation required');
+    }
+
+    return identity;
+}
+
 export async function requireGuildAccess(
     ctx: NeonFluxAuthContext,
     guildId: string
 ): Promise<NeonFluxConvexUserIdentity> {
     const identity = await requireNeonFluxUser(ctx);
+
+    if (!identity.manageableGuildIds.includes(guildId)) {
+        throw new Error('NeonFlux guild access required');
+    }
+
+    return identity;
+}
+
+export async function requireActiveNeonFluxUser(ctx: QueryCtx): Promise<NeonFluxConvexUserIdentity> {
+    const identity = await requireNeonFluxUser(ctx);
+    const session = await ctx.db
+        .query('webSessions')
+        .withIndex('by_session_id', (query) => query.eq('id', identity.sessionId))
+        .unique();
+    const expiresAtMs = Date.parse(session?.expiresAt ?? '');
+
+    if (
+        session?.fluxerUserId !== identity.fluxerUserId ||
+        session.revokedAt !== undefined ||
+        !Number.isFinite(expiresAtMs) ||
+        expiresAtMs <= Date.now()
+    ) {
+        throw new Error('Active NeonFlux session required');
+    }
+
+    return identity;
+}
+
+export async function requireActiveGuildAccess(ctx: QueryCtx, guildId: string): Promise<NeonFluxConvexUserIdentity> {
+    const identity = await requireActiveNeonFluxUser(ctx);
 
     if (!identity.manageableGuildIds.includes(guildId)) {
         throw new Error('NeonFlux guild access required');
@@ -76,12 +134,42 @@ export async function readNeonFluxIdentity(ctx: NeonFluxAuthContext): Promise<Ne
         case 'service':
             return readServiceIdentity(identity);
 
+        case 'posting-delegation':
+            return readPostingDelegationIdentity(identity);
+
         case undefined:
             return null;
 
         default:
             return null;
     }
+}
+
+function readPostingDelegationIdentity(identity: UserIdentity): NeonFluxConvexPostingDelegationIdentity | null {
+    if (!matchesIdentityIssuer(identity, process.env.NEONFLUX_USER_AUTH_JWT_ISSUER)) return null;
+
+    const actorUserId = readStringClaim(identity, 'actorUserId');
+    const guildId = readStringClaim(identity, 'guildId');
+    const payloadHash = readStringClaim(identity, 'payloadHash');
+    const requestKey = readStringClaim(identity, 'requestKey');
+    const requestedChannelId = readStringClaim(identity, 'requestedChannelId');
+    const retryOfOperationId = readStringClaim(identity, 'retryOfOperationId');
+
+    if (!actorUserId || !guildId || !payloadHash || !requestKey || !requestedChannelId) {
+        return null;
+    }
+
+    return {
+        actorUserId,
+        guildId,
+        kind: 'posting-delegation',
+        payloadHash,
+        requestKey,
+        requestedChannelId,
+        ...(retryOfOperationId ? { retryOfOperationId } : {}),
+        subject: identity.subject,
+        tokenIdentifier: identity.tokenIdentifier,
+    };
 }
 
 function readUserIdentity(identity: UserIdentity): NeonFluxConvexUserIdentity | null {

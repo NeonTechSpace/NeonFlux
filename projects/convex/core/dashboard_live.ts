@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 
-import { requireGuildAccess, requireNeonFluxService } from '../auth.js';
+import { requireActiveGuildAccess, requireNeonFluxService } from '../auth.js';
 import {
     dashboardLiveAreas,
     normalizeDashboardLiveAreas,
@@ -29,7 +29,7 @@ export const listDashboardLiveStates = query({
     returns: v.array(dashboardLiveStateValidator),
     handler: async (ctx: DashboardLiveQueryCtx, args) => {
         const guildId = normalizeDashboardLiveGuildId(args.guildId);
-        await requireGuildAccess(ctx, guildId);
+        await requireActiveGuildAccess(ctx, guildId);
 
         const states: DashboardLiveStateRecord[] = [];
 

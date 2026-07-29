@@ -29,7 +29,6 @@ describe('dashboard posting operation runtime', () => {
             type: 'invalid-value',
         });
         const oversized = await enqueueDashboardPostingOperation(db, {
-            actorUserId: 'actor-1',
             content: 'x'.repeat(128 * 1024),
             guildId: 'guild-1',
             payloadHash: 'hash-1',
@@ -47,7 +46,6 @@ describe('dashboard posting operation runtime', () => {
         ]);
 
         const enqueued = await enqueueDashboardPostingOperation(db, {
-            actorUserId: 'actor-1',
             content: ' Hello ',
             embeds: [],
             guildId: 'guild-1',
@@ -76,7 +74,6 @@ describe('dashboard posting operation runtime', () => {
     it('maps request-key conflicts without exposing database details', async () => {
         const db = createConvexDb([], [new Error('posting-request-key-conflict: secret')]);
         const result = await enqueueDashboardPostingOperation(db, {
-            actorUserId: 'actor-1',
             content: 'Hello',
             guildId: 'guild-1',
             payloadHash: 'hash-1',
@@ -100,7 +97,6 @@ describe('dashboard posting operation runtime', () => {
         ]);
 
         await enqueueDashboardPostingOperation(db, {
-            actorUserId: 'actor-2',
             content: 'Hello again',
             guildId: 'guild-1',
             payloadHash: 'hash-2',

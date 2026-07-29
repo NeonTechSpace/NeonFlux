@@ -109,6 +109,7 @@ export type ReactionRoleMemberWorkerRecord = {
     leaseOwner: string | null;
     messageId: string | null;
     nextAttemptAt: Date | null;
+    panelGeneration: number;
     panelId: string;
     previousSelections: ReactionRoleSelectionSnapshot[];
     rerunRequested: boolean;

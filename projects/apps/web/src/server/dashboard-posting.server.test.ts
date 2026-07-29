@@ -1,8 +1,4 @@
-import {
-    enqueueDashboardPostingOperation,
-    listDashboardPostingOperationsByGuild,
-    resolveDashboardPostingOperationUnknown,
-} from '@neonflux/db';
+import { listDashboardPostingOperationsByGuild, resolveDashboardPostingOperationUnknown } from '@neonflux/db';
 import type * as NeonFluxDb from '@neonflux/db';
 import { getFluxerCurrentUser } from '@neonflux/fluxer/users';
 import type * as FluxerUsers from '@neonflux/fluxer/users';
@@ -16,6 +12,7 @@ import {
     wakeDashboardBotPostingWorker,
 } from './bot-internal-api-client.server.js';
 import { authorizeDashboardPostingTarget } from './dashboard-posting-authorization.server.js';
+import { enqueueAuthorizedDashboardPostingOperation } from './dashboard-posting-delegation.server.js';
 import {
     loadDashboardGuildPostingCatalog,
     loadDashboardGuildPostingOperations,
@@ -69,7 +66,6 @@ vi.mock('@neonflux/db', async (importActual) => {
 
     return {
         ...actual,
-        enqueueDashboardPostingOperation: vi.fn(),
         listDashboardPostingOperationsByGuild: vi.fn(),
         resolveDashboardPostingOperationUnknown: vi.fn(),
     };
@@ -79,6 +75,10 @@ vi.mock('./bot-internal-api-client.server.js', () => ({
     readDashboardBotGuildStructure: vi.fn(),
     readDashboardBotReactionRoleCatalog: vi.fn(),
     wakeDashboardBotPostingWorker: vi.fn(),
+}));
+
+vi.mock('./dashboard-posting-delegation.server.js', () => ({
+    enqueueAuthorizedDashboardPostingOperation: vi.fn(),
 }));
 
 vi.mock('./web-logger.server.js', () => ({
@@ -119,7 +119,7 @@ describe('dashboard posting', () => {
         );
         vi.mocked(readAuthenticatedFluxerContext).mockResolvedValue(ok(authContext));
         vi.mocked(wakeDashboardBotPostingWorker).mockResolvedValue(ok(undefined));
-        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValue(
+        vi.mocked(enqueueAuthorizedDashboardPostingOperation).mockResolvedValue(
             ok({ created: true, operation: createPostingOperationRecord() })
         );
         vi.mocked(listDashboardPostingOperationsByGuild).mockResolvedValue(ok([createPostingOperationRecord()]));
@@ -254,7 +254,7 @@ describe('dashboard posting', () => {
 
         expect(result).toStrictEqual({ type: 'auth-required' });
         expect(authorizeDashboardPostingTarget).not.toHaveBeenCalled();
-        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
+        expect(enqueueAuthorizedDashboardPostingOperation).not.toHaveBeenCalled();
         expect(webLogger.info).toHaveBeenCalledWith(
             'posting.request_timing',
             expect.objectContaining({ result: 'auth_required' })
@@ -283,7 +283,7 @@ describe('dashboard posting', () => {
                 requestKey: 'request-1',
             })
         ).resolves.toStrictEqual({ type: 'not-found' });
-        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
+        expect(enqueueAuthorizedDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
     it('rejects blank payloads before queueing', async () => {
@@ -299,7 +299,7 @@ describe('dashboard posting', () => {
             type: 'invalid-message',
             message: 'Add message content or at least one embed.',
         });
-        expect(enqueueDashboardPostingOperation).not.toHaveBeenCalled();
+        expect(enqueueAuthorizedDashboardPostingOperation).not.toHaveBeenCalled();
     });
 
     it('queues authorized dashboard messages with actor and idempotency data', async () => {
@@ -315,8 +315,7 @@ describe('dashboard posting', () => {
             type: 'operation',
             operation: createPostingOperationView(),
         });
-        expect(enqueueDashboardPostingOperation).toHaveBeenCalledWith(
-            {},
+        expect(enqueueAuthorizedDashboardPostingOperation).toHaveBeenCalledWith(
             expect.objectContaining({
                 actorUserId: 'actor-1',
                 content: 'hello',
@@ -355,7 +354,7 @@ describe('dashboard posting', () => {
     });
 
     it('returns the existing operation for an idempotent replay', async () => {
-        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValueOnce(
+        vi.mocked(enqueueAuthorizedDashboardPostingOperation).mockResolvedValueOnce(
             ok({ created: false, operation: createPostingOperationRecord({ status: 'sent' }) })
         );
 
@@ -370,7 +369,7 @@ describe('dashboard posting', () => {
             operation: createPostingOperationView({ status: 'sent' }),
             type: 'operation',
         });
-        expect(enqueueDashboardPostingOperation).toHaveBeenCalledTimes(1);
+        expect(enqueueAuthorizedDashboardPostingOperation).toHaveBeenCalledTimes(1);
         expect(wakeDashboardBotPostingWorker).not.toHaveBeenCalled();
     });
 
@@ -412,7 +411,7 @@ describe('dashboard posting', () => {
     });
 
     it('maps an idempotency conflict without exposing database details', async () => {
-        vi.mocked(enqueueDashboardPostingOperation).mockResolvedValueOnce(
+        vi.mocked(enqueueAuthorizedDashboardPostingOperation).mockResolvedValueOnce(
             err({ field: 'requestKey', type: 'conflict' })
         );
 

@@ -14,6 +14,7 @@ import {
 const defaultKeyId = 'neonflux-convex-auth';
 const defaultUserTokenLifetimeSeconds = 5 * 60;
 const defaultServiceTokenLifetimeSeconds = 10 * 60;
+const defaultPostingDelegationTokenLifetimeSeconds = 45;
 const privateJwkParameters = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth'] as const;
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/u;
 
@@ -41,6 +42,17 @@ export type NeonFluxServiceJwtInput = {
     serviceName: 'bot' | 'web';
 };
 
+export type NeonFluxPostingDelegationJwtInput = {
+    actorUserId: string;
+    expiresInSeconds?: number;
+    guildId: string;
+    now?: Date;
+    payloadHash: string;
+    requestKey: string;
+    requestedChannelId: string;
+    retryOfOperationId?: string;
+};
+
 export type NeonFluxJwtClaims =
     | {
           fluxerUserId: string;
@@ -51,6 +63,15 @@ export type NeonFluxJwtClaims =
     | {
           kind: 'service';
           serviceName: 'bot' | 'web';
+      }
+    | {
+          actorUserId: string;
+          guildId: string;
+          kind: 'posting-delegation';
+          payloadHash: string;
+          requestKey: string;
+          requestedChannelId: string;
+          retryOfOperationId?: string;
       };
 
 export type NeonFluxJwtPayload = JWTPayload & {
@@ -104,6 +125,26 @@ export async function signNeonFluxServiceJwt(
         expiresInSeconds: input.expiresInSeconds ?? defaultServiceTokenLifetimeSeconds,
         ...(input.now ? { now: input.now } : {}),
         subject: `service:${input.serviceName}`,
+    });
+}
+
+export async function signNeonFluxPostingDelegationJwt(
+    config: NeonFluxJwtSignerConfig,
+    input: NeonFluxPostingDelegationJwtInput
+): Promise<string> {
+    return signNeonFluxJwt(config, {
+        claims: {
+            actorUserId: input.actorUserId,
+            guildId: input.guildId,
+            kind: 'posting-delegation',
+            payloadHash: input.payloadHash,
+            requestKey: input.requestKey,
+            requestedChannelId: input.requestedChannelId,
+            ...(input.retryOfOperationId ? { retryOfOperationId: input.retryOfOperationId } : {}),
+        },
+        expiresInSeconds: input.expiresInSeconds ?? defaultPostingDelegationTokenLifetimeSeconds,
+        ...(input.now ? { now: input.now } : {}),
+        subject: `posting-delegation:${input.actorUserId}:${input.requestKey}`,
     });
 }
 

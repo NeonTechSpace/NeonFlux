@@ -1,6 +1,7 @@
 import { v, type GenericId } from 'convex/values';
+import { hashDashboardPostingPayload } from '@neonflux/messaging';
 
-import { requireNeonFluxService } from '../auth.js';
+import { requireNeonFluxPostingDelegation, requireNeonFluxService } from '../auth.js';
 import { internal } from '../_generated/api.js';
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 import { recordBotActionEventInMutation } from '../core/events.js';
@@ -24,9 +25,6 @@ const terminalStatuses = ['unknown', 'sent', 'permanent_failure'] as const;
 
 export const enqueueDashboardPostingOperation = mutation({
     args: {
-        actorDisplayName: v.optional(v.string()),
-        actorUsername: v.optional(v.string()),
-        actorUserId: v.string(),
         content: v.optional(v.string()),
         embeds: v.optional(v.array(outgoingEmbedValidator)),
         guildId: v.string(),
@@ -37,16 +35,26 @@ export const enqueueDashboardPostingOperation = mutation({
     },
     returns: dashboardPostingOperationEnqueueValidator,
     handler: async (ctx, args) => {
-        await requireNeonFluxService(ctx, webService);
+        const delegation = await requireNeonFluxPostingDelegation(ctx);
         const guildId = normalizeBoundedOperationText(args.guildId, 'guild-id');
         const requestKey = normalizeBoundedOperationText(args.requestKey, 'request-key');
-        const actorUserId = normalizeBoundedOperationText(args.actorUserId, 'actor-user-id');
         const payloadHash = normalizeBoundedOperationText(args.payloadHash, 'payload-hash');
         const requestedChannelId = normalizeBoundedOperationText(args.requestedChannelId, 'channel-id');
-        const actorUsername = normalizeOptionalOperationText(args.actorUsername, 'actor-username');
-        const actorDisplayName = normalizeOptionalOperationText(args.actorDisplayName, 'actor-display-name');
         const retryOfOperationId = normalizeOptionalOperationText(args.retryOfOperationId, 'retry-of-operation-id');
         const payload = normalizeDashboardPostingPayload(args);
+        const computedPayloadHash = await hashDashboardPostingPayload(requestedChannelId, payload);
+
+        if (
+            computedPayloadHash !== payloadHash ||
+            delegation.guildId !== guildId ||
+            delegation.payloadHash !== payloadHash ||
+            delegation.requestKey !== requestKey ||
+            delegation.requestedChannelId !== requestedChannelId ||
+            delegation.retryOfOperationId !== retryOfOperationId
+        ) {
+            throw new Error('posting-delegation-mismatch');
+        }
+        const actorUserId = delegation.actorUserId;
 
         await requireGuildDocument(ctx, guildId);
         const existing = await findByGuildRequest(ctx, guildId, requestKey);
@@ -68,8 +76,6 @@ export const enqueueDashboardPostingOperation = mutation({
 
         const now = new Date().toISOString();
         const id = await ctx.db.insert('dashboardPostingOperations', {
-            ...(actorDisplayName ? { actorDisplayName } : {}),
-            ...(actorUsername ? { actorUsername } : {}),
             actorUserId,
             attemptCount: 0,
             ...(payload.content ? { content: payload.content } : {}),
@@ -96,9 +102,7 @@ export const enqueueDashboardPostingOperation = mutation({
                 updatedAt: now,
             });
             await recordResolutionEvent(ctx, retryOf, {
-                ...(actorDisplayName ? { actorDisplayName } : {}),
                 actorUserId,
-                ...(actorUsername ? { actorUsername } : {}),
                 followupOperationId: id,
                 now,
                 resolution: 'duplicate_risk_accepted',

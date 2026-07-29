@@ -128,6 +128,7 @@ export const recordReactionRoleReactionIntent = mutation({
             desired,
             guildId: panel.guildId,
             now,
+            panelGeneration: panel.generation,
             panelId: panel._id,
             previous,
             userId: args.userId.trim(),
@@ -284,6 +285,7 @@ export const reconcileReactionRoleMemberRoles = mutation({
                 desired: snapshots,
                 guildId,
                 now,
+                panelGeneration: panel.generation,
                 panelId,
                 previous: snapshots,
                 userId,
@@ -558,6 +560,7 @@ async function enqueueMemberOperation(
         desired: StoredReactionRoleSelectionSnapshot[];
         guildId: string;
         now: string;
+        panelGeneration: number;
         panelId: GenericId<'reactionRolePanels'>;
         previous: StoredReactionRoleSelectionSnapshot[];
         userId: string;
@@ -574,6 +577,7 @@ async function enqueueMemberOperation(
         await ctx.db.patch('reactionRoleMemberOperations', existing._id, {
             addedOptionIds: input.addedOptionIds,
             desiredSelections: input.desired,
+            panelGeneration: input.panelGeneration,
             previousSelections: input.previous,
             rerunRequested: existing.status === 'running',
             revision,
@@ -593,6 +597,7 @@ async function enqueueMemberOperation(
             leaseId: undefined,
             leaseOwner: undefined,
             nextAttemptAt: undefined,
+            panelGeneration: input.panelGeneration,
             previousSelections: input.previous,
             rerunRequested: false,
             revision,
@@ -607,6 +612,7 @@ async function enqueueMemberOperation(
         createdAt: input.now,
         desiredSelections: input.desired,
         guildId: input.guildId,
+        panelGeneration: input.panelGeneration,
         panelId: input.panelId,
         previousSelections: input.previous,
         rerunRequested: false,
@@ -713,6 +719,7 @@ async function reconcileSnapshotUser(
         desired,
         guildId: panel.guildId,
         now,
+        panelGeneration: panel.generation,
         panelId: panel._id,
         previous,
         userId,

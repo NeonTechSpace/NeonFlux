@@ -8,6 +8,7 @@ import {
     createNeonFluxJwksDataUri,
     normalizePrivateKeyPem,
     parseNeonFluxJwksDataUri,
+    signNeonFluxPostingDelegationJwt,
     signNeonFluxServiceJwt,
     signNeonFluxUserJwt,
     verifyNeonFluxJwt,
@@ -61,6 +62,32 @@ describe('NeonFlux Convex JWTs', () => {
                 serviceName: 'bot',
             },
             sub: 'service:bot',
+        });
+    });
+
+    it('signs short-lived, resource-bound posting delegations', async () => {
+        const config = createJwtConfig();
+        const now = new Date();
+        const token = await signNeonFluxPostingDelegationJwt(config, {
+            actorUserId: 'user-1',
+            guildId: 'guild-1',
+            now,
+            payloadHash: 'payload-hash',
+            requestKey: 'request-1',
+            requestedChannelId: 'channel-1',
+        });
+
+        await expect(verifyNeonFluxJwt(config, token)).resolves.toMatchObject({
+            exp: Math.floor(now.getTime() / 1000) + 45,
+            neonflux: {
+                actorUserId: 'user-1',
+                guildId: 'guild-1',
+                kind: 'posting-delegation',
+                payloadHash: 'payload-hash',
+                requestKey: 'request-1',
+                requestedChannelId: 'channel-1',
+            },
+            sub: 'posting-delegation:user-1:request-1',
         });
     });
 

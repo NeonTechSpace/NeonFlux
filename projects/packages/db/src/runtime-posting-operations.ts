@@ -58,11 +58,8 @@ export function normalizeDashboardPostingPayload(input: {
 }
 
 export async function enqueueDashboardPostingOperation(
-    db: ConvexDatabase,
+    db: Pick<ConvexDatabase, 'client'>,
     input: {
-        actorDisplayName?: string;
-        actorUsername?: string;
-        actorUserId: string;
         content?: string;
         embeds?: OutgoingEmbed[];
         guildId: string;

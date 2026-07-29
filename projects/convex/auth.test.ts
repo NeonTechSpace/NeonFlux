@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     readNeonFluxIdentity,
+    requireActiveGuildAccess,
+    requireActiveNeonFluxUser,
     requireGuildAccess,
     requireNeonFluxService,
+    requireNeonFluxPostingDelegation,
     requireNeonFluxUser,
     type NeonFluxAuthContext,
 } from './auth.js';
+import type { QueryCtx } from './_generated/server.js';
 
 describe('Convex NeonFlux auth helpers', () => {
     beforeEach(() => {
@@ -125,6 +129,46 @@ describe('Convex NeonFlux auth helpers', () => {
         ).rejects.toThrow('NeonFlux guild access required');
     });
 
+    it('rejects revoked sessions even while their bearer is unexpired', async () => {
+        const claims = {
+            'neonflux.fluxerUserId': 'user-1',
+            'neonflux.kind': 'user',
+            'neonflux.manageableGuildIds': ['guild-1'],
+            'neonflux.sessionId': 'session-1',
+        };
+        const session = {
+            expiresAt: '2099-01-01T00:00:00.000Z',
+            fluxerUserId: 'user-1',
+            id: 'session-1',
+            revokedAt: '2026-07-29T12:00:00.000Z',
+        };
+
+        await expect(requireActiveNeonFluxUser(createQueryContext(claims, session))).rejects.toThrow(
+            'Active NeonFlux session required'
+        );
+    });
+
+    it('requires both an active matching session and the bearer guild grant', async () => {
+        const claims = {
+            'neonflux.fluxerUserId': 'user-1',
+            'neonflux.kind': 'user',
+            'neonflux.manageableGuildIds': ['guild-1'],
+            'neonflux.sessionId': 'session-1',
+        };
+        const session = {
+            expiresAt: '2099-01-01T00:00:00.000Z',
+            fluxerUserId: 'user-1',
+            id: 'session-1',
+        };
+
+        await expect(requireActiveGuildAccess(createQueryContext(claims, session), 'guild-1')).resolves.toMatchObject({
+            fluxerUserId: 'user-1',
+        });
+        await expect(requireActiveGuildAccess(createQueryContext(claims, session), 'guild-2')).rejects.toThrow(
+            'NeonFlux guild access required'
+        );
+    });
+
     it('rejects a bot service claim signed by the web provider', async () => {
         await expect(
             requireNeonFluxService(
@@ -132,6 +176,41 @@ describe('Convex NeonFlux auth helpers', () => {
                 ['bot']
             )
         ).rejects.toThrow('NeonFlux service authentication required');
+    });
+
+    it('accepts posting delegations only from the user auth issuer', async () => {
+        const claims = {
+            'neonflux.actorUserId': 'user-1',
+            'neonflux.guildId': 'guild-1',
+            'neonflux.kind': 'posting-delegation',
+            'neonflux.payloadHash': 'payload-hash',
+            'neonflux.requestKey': 'request-1',
+            'neonflux.requestedChannelId': 'channel-1',
+        };
+
+        await expect(requireNeonFluxPostingDelegation(createContext(claims))).resolves.toMatchObject({
+            actorUserId: 'user-1',
+            guildId: 'guild-1',
+            kind: 'posting-delegation',
+            payloadHash: 'payload-hash',
+        });
+        await expect(
+            requireNeonFluxPostingDelegation(createContext(claims, 'https://neonflux.example/web'))
+        ).rejects.toThrow('NeonFlux posting delegation required');
+    });
+
+    it('rejects broad service tokens as posting delegations', async () => {
+        await expect(
+            requireNeonFluxPostingDelegation(
+                createContext(
+                    {
+                        'neonflux.kind': 'service',
+                        'neonflux.serviceName': 'web',
+                    },
+                    'https://neonflux.example/web'
+                )
+            )
+        ).rejects.toThrow('NeonFlux posting delegation required');
     });
 });
 
@@ -155,4 +234,25 @@ function createContext(
             },
         },
     };
+}
+
+function createQueryContext(
+    claims: Record<string, unknown>,
+    session: {
+        expiresAt: string;
+        fluxerUserId: string;
+        id: string;
+        revokedAt?: string;
+    }
+): QueryCtx {
+    return {
+        ...createContext(claims),
+        db: {
+            query: () => ({
+                withIndex: () => ({
+                    unique: () => Promise.resolve(session),
+                }),
+            }),
+        },
+    } as unknown as QueryCtx;
 }

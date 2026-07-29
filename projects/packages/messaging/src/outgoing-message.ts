@@ -122,6 +122,12 @@ export function serializeDashboardPostingPayload(channelId: string, message: Out
     return JSON.stringify({ channelId: channelId.trim(), content: message.content ?? null, embeds: message.embeds });
 }
 
+export async function hashDashboardPostingPayload(channelId: string, message: OutgoingMessage): Promise<string> {
+    const bytes = new TextEncoder().encode(serializeDashboardPostingPayload(channelId, message));
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
 function parseEmbeds(value: unknown, path: string): Result<OutgoingEmbed[], OutgoingMessageValidationError> {
     if (!Array.isArray(value)) return err(validationError('invalid-array', path));
     if (value.length > OUTGOING_MESSAGE_LIMITS.embeds) return err(validationError('too-many', path));

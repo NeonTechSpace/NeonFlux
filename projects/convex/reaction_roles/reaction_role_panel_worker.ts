@@ -443,6 +443,7 @@ async function reconcileNextSelectionUserForVersionChange(
         await upsertMemberOperation(ctx, {
             desired,
             guildId: panel.guildId,
+            panelGeneration: panel.generation,
             panelId: panel._id,
             previous,
             userId: stale.userId,
@@ -478,6 +479,7 @@ async function retireNextPanelSelectionUser(
         await upsertMemberOperation(ctx, {
             desired: [],
             guildId: panel.guildId,
+            panelGeneration: panel.generation,
             panelId: panel._id,
             previous,
             userId: first.userId,
@@ -493,6 +495,7 @@ async function upsertMemberOperation(
         desired: StoredReactionRoleSelectionSnapshot[];
         guildId: string;
         now: string;
+        panelGeneration: number;
         panelId: GenericId<'reactionRolePanels'>;
         previous: StoredReactionRoleSelectionSnapshot[];
         userId: string;
@@ -511,6 +514,7 @@ async function upsertMemberOperation(
         await ctx.db.patch('reactionRoleMemberOperations', existing._id, {
             addedOptionIds,
             desiredSelections: input.desired,
+            panelGeneration: input.panelGeneration,
             previousSelections: existing.previousSelections,
             rerunRequested: existing.status === 'running',
             revision: existing.revision + 1,
@@ -529,6 +533,7 @@ async function upsertMemberOperation(
             leaseId: undefined,
             leaseOwner: undefined,
             nextAttemptAt: undefined,
+            panelGeneration: input.panelGeneration,
             previousSelections: input.previous,
             rerunRequested: false,
             revision: existing.revision + 1,
@@ -543,6 +548,7 @@ async function upsertMemberOperation(
         createdAt: input.now,
         desiredSelections: input.desired,
         guildId: input.guildId,
+        panelGeneration: input.panelGeneration,
         panelId: input.panelId,
         previousSelections: input.previous,
         rerunRequested: false,

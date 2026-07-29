@@ -370,6 +370,24 @@ export async function renewReactionRoleMemberOperationLease(
     return booleanMutation(db, api.reaction_roles.renewReactionRoleMemberOperationLease, dates(input));
 }
 
+export async function authorizeReactionRoleMemberEffect(
+    db: ConvexDatabase,
+    input: {
+        leaseExpiresAt: Date;
+        leaseId: string;
+        now: Date;
+        operationId: string;
+        panelGeneration: number;
+        revision: number;
+    }
+): RepositoryResult<'authorized' | 'missing' | 'stale' | 'superseded'> {
+    try {
+        return ok(await db.client.mutation(api.reaction_roles.authorizeReactionRoleMemberEffect, dates(input)));
+    } catch {
+        return err({ type: 'database-error' });
+    }
+}
+
 export async function completeReactionRoleMemberOperation(
     db: ConvexDatabase,
     input: {

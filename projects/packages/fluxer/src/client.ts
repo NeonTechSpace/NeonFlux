@@ -22,6 +22,7 @@ import {
     type VoiceStateCache,
 } from './voice-state-cache.js';
 import { isFluxerGuildUnavailable } from './guild-availability.js';
+import { LifecycleAdmission } from './lifecycle-admission.js';
 import { fluxerSafeRestOptions } from './rest-retry-policy.js';
 
 export type FluxerBot = ReturnType<typeof createFluxerBot>;
@@ -147,6 +148,11 @@ type FluxerBotEventHandler<TEvent> = (event: TEvent) => void | Promise<void>;
 const BOT_PRESENCE_STATUS = 'online';
 const BOT_HANDLER_DRAIN_TIMEOUT_MS = 10_000;
 const BOT_READY_TIMEOUT_MS = 30_000;
+const LIFECYCLE_HANDLER_DEADLINE_MS = 30_000;
+const LIFECYCLE_MAX_ACTIVE = 16;
+const LIFECYCLE_MAX_QUEUED = 256;
+const LIFECYCLE_MAX_QUEUED_PER_GUILD = 32;
+const LIFECYCLE_QUEUE_DEADLINE_MS = 15_000;
 const CHANNEL_CACHE_LIMIT = 5_000;
 const MEMBER_CACHE_LIMIT = 5_000;
 const USER_CACHE_LIMIT = 10_000;
@@ -179,6 +185,25 @@ export function createFluxerBot(
     const configuredCustomStatusText = normalizeConfiguredCustomStatusText(config.customStatusText);
     const voiceStateCache: VoiceStateCache = new Map();
     const inFlightHandlers = new Set<Promise<void>>();
+    const lifecycleAdmission = new LifecycleAdmission({
+        handlerDeadlineMs: LIFECYCLE_HANDLER_DEADLINE_MS,
+        maxActive: LIFECYCLE_MAX_ACTIVE,
+        maxQueued: LIFECYCLE_MAX_QUEUED,
+        maxQueuedPerKey: LIFECYCLE_MAX_QUEUED_PER_GUILD,
+        onHandlerDeadline: (guildId) => {
+            logger.warn('fluxer.lifecycle_handler_deadline_exceeded', {
+                guildId,
+                timeoutMs: LIFECYCLE_HANDLER_DEADLINE_MS,
+            });
+        },
+        onQueueDeadline: (guildId) => {
+            logger.warn('fluxer.lifecycle_queue_deadline_exceeded', {
+                guildId,
+                timeoutMs: LIFECYCLE_QUEUE_DEADLINE_MS,
+            });
+        },
+        queueDeadlineMs: LIFECYCLE_QUEUE_DEADLINE_MS,
+    });
     let acceptingHandlers = true;
     let resolveReady: (() => void) | undefined;
     let rejectReady: ((error: unknown) => void) | undefined;
@@ -219,6 +244,55 @@ export function createFluxerBot(
         inFlightHandlers.add(pending);
         void pending.finally(() => {
             inFlightHandlers.delete(pending);
+        });
+    }
+
+    function runAdmittedLifecycleHandler<TEvent>(
+        guildId: string | null,
+        handlerLogger: AppLogger,
+        errorEvent: string,
+        handler: FluxerBotEventHandler<TEvent> | undefined,
+        event: TEvent,
+        createLogContext: (event: TEvent) => Record<string, unknown> = createGenericLogContext
+    ): void {
+        if (!acceptingHandlers) return;
+        trackAdmittedHandler(guildId, errorEvent, () =>
+            executeLifecycleHandler(handlerLogger, errorEvent, handler, event, createLogContext)
+        );
+    }
+
+    function runAdmittedResolvedLifecycleHandler<TEvent>(
+        guildId: string | null,
+        errorEvent: string,
+        handler: FluxerBotEventHandler<TEvent> | undefined,
+        resolveEvent: () => Promise<TEvent>
+    ): void {
+        if (!acceptingHandlers) return;
+        trackAdmittedHandler(guildId, errorEvent, async () => {
+            try {
+                const event = await resolveEvent();
+                await executeLifecycleHandler(logger, errorEvent, handler, event);
+            } catch (error) {
+                logger.error(errorEvent, {
+                    errorType: error instanceof Error ? error.name : typeof error,
+                });
+            }
+        });
+    }
+
+    function trackAdmittedHandler(guildId: string | null, errorEvent: string, run: () => Promise<void>): void {
+        const admission = lifecycleAdmission.admit(guildId ?? 'direct-message', run);
+        if (!admission.accepted) {
+            logger.warn('fluxer.lifecycle_admission_rejected', {
+                errorEvent,
+                guildId,
+                reason: admission.reason,
+            });
+            return;
+        }
+        inFlightHandlers.add(admission.completion);
+        void admission.completion.finally(() => {
+            inFlightHandlers.delete(admission.completion);
         });
     }
 
@@ -279,11 +353,13 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageCreate, (message) => {
-        runLifecycleHandler(
+        const event = normalizeMessageEvent(message);
+        runAdmittedLifecycleHandler(
+            event.guildId,
             logger,
             'fluxer.message_created_handler_failed',
             lifecycleHandlers.messageCreated,
-            normalizeMessageEvent(message),
+            event,
             createMessageLogContext
         );
     });
@@ -299,17 +375,20 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageDelete, (message) => {
-        runLifecycleHandler(
+        const event = normalizeMessageDeletedEvent(message);
+        runAdmittedLifecycleHandler(
+            event.guildId,
             logger,
             'fluxer.message_deleted_handler_failed',
             lifecycleHandlers.messageDeleted,
-            normalizeMessageDeletedEvent(message),
+            event,
             createDeletedMessageLogContext
         );
     });
 
     client.on(Events.MessageReactionAdd, (payload) => {
-        runResolvedLifecycleHandler(
+        runAdmittedResolvedLifecycleHandler(
+            payload.reaction.guildId,
             'fluxer.reaction_added_handler_failed',
             lifecycleHandlers.reactionAdded,
             async () => {
@@ -350,7 +429,8 @@ export function createFluxerBot(
     });
 
     client.on(Events.MessageReactionRemove, (payload) => {
-        runResolvedLifecycleHandler(
+        runAdmittedResolvedLifecycleHandler(
+            payload.reaction.guildId,
             'fluxer.reaction_removed_handler_failed',
             lifecycleHandlers.reactionRemoved,
             async () => {
@@ -505,11 +585,14 @@ export function createFluxerBot(
         },
         stopIntake(): void {
             acceptingHandlers = false;
+            lifecycleAdmission.stopIntake();
         },
         async stop(): Promise<void> {
             acceptingHandlers = false;
+            lifecycleAdmission.stopIntake();
             const drained = await drainInFlightHandlers(inFlightHandlers, BOT_HANDLER_DRAIN_TIMEOUT_MS);
             if (!drained) {
+                lifecycleAdmission.cancelQueued();
                 logger.warn('fluxer.handler_drain_timeout', {
                     inFlightHandlerCount: inFlightHandlers.size,
                     timeoutMs: BOT_HANDLER_DRAIN_TIMEOUT_MS,
@@ -586,10 +669,13 @@ function normalizeMessageUpdatedEvent(oldMessage: Message | null, newMessage: Me
 }
 
 function normalizeMessageDeletedEvent(message: PartialMessage): FluxerBotMessageDeletedEvent {
+    const guildIdFromMessage =
+        'guildId' in message && typeof message.guildId === 'string' ? message.guildId : undefined;
     const guildId =
-        message.channel && 'guildId' in message.channel && typeof message.channel.guildId === 'string'
+        guildIdFromMessage ??
+        (message.channel && 'guildId' in message.channel && typeof message.channel.guildId === 'string'
             ? message.channel.guildId
-            : null;
+            : null);
     return {
         messageId: message.id,
         channelId: message.channelId,

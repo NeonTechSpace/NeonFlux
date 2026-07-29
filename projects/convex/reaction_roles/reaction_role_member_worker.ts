@@ -22,6 +22,7 @@ type MemberOperation = {
     leaseId?: string;
     leaseOwner?: string;
     nextAttemptAt?: string;
+    panelGeneration: number;
     panelId: GenericId<'reactionRolePanels'>;
     previousSelections: StoredReactionRoleSelectionSnapshot[];
     rerunRequested: boolean;
@@ -85,6 +86,55 @@ export const renewReactionRoleMemberOperationLease = mutation({
             updatedAt: args.now,
         });
         return true;
+    },
+});
+
+export const authorizeReactionRoleMemberEffect = mutation({
+    args: {
+        leaseExpiresAt: v.string(),
+        leaseId: v.string(),
+        now: v.string(),
+        operationId: v.string(),
+        panelGeneration: v.number(),
+        revision: v.number(),
+    },
+    returns: v.union(v.literal('authorized'), v.literal('missing'), v.literal('stale'), v.literal('superseded')),
+    handler: async (ctx, args) => {
+        await requireNeonFluxService(ctx, botService);
+        const leaseExpiryMs = Date.parse(args.leaseExpiresAt);
+        const nowMs = Date.parse(args.now);
+        if (!Number.isFinite(leaseExpiryMs) || !Number.isFinite(nowMs) || leaseExpiryMs <= nowMs) {
+            throw new Error('reaction-role-member-lease-window-invalid');
+        }
+        const operation = await requireLeasedMemberOperation(ctx, args.operationId, args.leaseId, args.now);
+        if (!operation) return 'missing' as const;
+        if (operation.revision !== args.revision || operation.rerunRequested) return 'stale' as const;
+
+        const panel = (await ctx.db.get('reactionRolePanels', operation.panelId)) as StoredReactionRolePanel | null;
+        if (
+            !panel ||
+            (panel.status !== 'active' && panel.status !== 'updating') ||
+            operation.panelGeneration !== args.panelGeneration ||
+            panel.generation !== operation.panelGeneration
+        ) {
+            await ctx.db.patch('reactionRoleMemberOperations', operation._id, {
+                baselineRoleIds: undefined,
+                errorCode: 'stale_panel_generation',
+                leaseExpiresAt: undefined,
+                leaseId: undefined,
+                leaseOwner: undefined,
+                nextAttemptAt: undefined,
+                status: 'completed',
+                updatedAt: args.now,
+            });
+            return 'superseded' as const;
+        }
+
+        await ctx.db.patch('reactionRoleMemberOperations', operation._id, {
+            leaseExpiresAt: args.leaseExpiresAt,
+            updatedAt: args.now,
+        });
+        return 'authorized' as const;
     },
 });
 
@@ -376,6 +426,7 @@ async function toWorkerRecord(ctx: QueryCtx | MutationCtx, operation: MemberOper
         leaseOwner: operation.leaseOwner ?? null,
         messageId: panel?.messageId ?? null,
         nextAttemptAt: operation.nextAttemptAt ?? null,
+        panelGeneration: operation.panelGeneration,
         panelId: operation.panelId,
         previousSelections: operation.previousSelections,
         rerunRequested: operation.rerunRequested,

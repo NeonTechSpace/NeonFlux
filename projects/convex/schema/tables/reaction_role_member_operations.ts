@@ -19,6 +19,7 @@ export const reactionRoleMemberOperationsTable = defineTable({
     leaseId: optionalString,
     leaseOwner: optionalString,
     nextAttemptAt: optionalTimestamp,
+    panelGeneration: v.number(),
     panelId: v.id('reactionRolePanels'),
     previousSelections: v.array(reactionRoleSelectionSnapshotValidator),
     rerunRequested: v.boolean(),

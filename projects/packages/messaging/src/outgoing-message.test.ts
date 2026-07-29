@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseOutgoingMessage, serializeDashboardPostingPayload } from './outgoing-message.js';
+import {
+    hashDashboardPostingPayload,
+    parseOutgoingMessage,
+    serializeDashboardPostingPayload,
+} from './outgoing-message.js';
 
 describe('outgoing message contract', () => {
     it('normalizes the supported contract into deterministic serialization', () => {
@@ -36,6 +40,14 @@ describe('outgoing message contract', () => {
             code: 'missing-required-field',
             path: 'message.embeds.0.footer.text',
         });
+    });
+
+    it('hashes the canonical channel and message payload', async () => {
+        const message = parseOutgoingMessage({ content: 'hello', embeds: [] })._unsafeUnwrap();
+
+        await expect(hashDashboardPostingPayload('channel-1', message)).resolves.toBe(
+            '3042ce5f5d0fe8731787fdb927c1c5d897827130fc37b0d6b6927eaebb1d5e29'
+        );
     });
 
     it('rejects empty messages and unsafe URL schemes', () => {

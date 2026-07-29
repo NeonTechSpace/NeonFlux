@@ -182,6 +182,7 @@ export {
     beginReactionRolePanelReconciliation,
     cancelReactionRolePanelReconciliation,
     claimNextReactionRoleMemberOperation,
+    authorizeReactionRoleMemberEffect,
     claimNextReactionRolePanelOperation,
     completeReactionRoleMemberOperation,
     completeReactionRolePanelOperation,

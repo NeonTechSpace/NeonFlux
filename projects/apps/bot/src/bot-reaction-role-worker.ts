@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
     advanceReactionRolePanelOperation,
+    authorizeReactionRoleMemberEffect,
     claimNextReactionRoleMemberOperation,
     claimNextReactionRolePanelOperation,
     completeReactionRoleMemberOperation,
@@ -415,8 +416,8 @@ async function applyMemberSelection(
             });
             continue;
         }
-        if (!(await renewMemberLease(context, currentOperation, leaseId))) {
-            return deferredOperation(currentOperation.id, 'member', 'lease_renewal_failed');
+        if (!(await authorizeMemberEffect(context, currentOperation, leaseId))) {
+            return deferredOperation(currentOperation.id, 'member', 'effect_fence_failed');
         }
         const added = await platform.addMemberRole({
             guildId: currentOperation.guildId,
@@ -433,8 +434,8 @@ async function applyMemberSelection(
     for (const previous of currentOperation.previousSelections) {
         if (desiredOptionIds.has(previous.optionId)) continue;
         if (previous.grantOwnership === 'panel' && roleIds.has(previous.roleId)) {
-            if (!(await renewMemberLease(context, currentOperation, leaseId))) {
-                return deferredOperation(currentOperation.id, 'member', 'lease_renewal_failed');
+            if (!(await authorizeMemberEffect(context, currentOperation, leaseId))) {
+                return deferredOperation(currentOperation.id, 'member', 'effect_fence_failed');
             }
             const removed = await platform.removeMemberRole({
                 guildId: currentOperation.guildId,
@@ -453,8 +454,8 @@ async function applyMemberSelection(
             roleIds.delete(previous.roleId);
         }
         if (currentOperation.messageId) {
-            if (!(await renewMemberLease(context, currentOperation, leaseId))) {
-                return deferredOperation(currentOperation.id, 'member', 'lease_renewal_failed');
+            if (!(await authorizeMemberEffect(context, currentOperation, leaseId))) {
+                return deferredOperation(currentOperation.id, 'member', 'effect_fence_failed');
             }
             const reaction = await platform.removeUserReaction({
                 channelId: currentOperation.channelId,
@@ -609,7 +610,7 @@ async function restoreMemberBaseline(
         ...operation.previousSelections.map((selection) => selection.roleId),
     ]);
     for (const roleId of touchedRoleIds) {
-        if (!(await renewMemberLease(context, operation, leaseId))) return false;
+        if (!(await authorizeMemberEffect(context, operation, leaseId))) return false;
         if (baseline.has(roleId) && !currentRoleIds.has(roleId)) {
             const added = await platform.addMemberRole({
                 guildId: operation.guildId,
@@ -723,6 +724,23 @@ async function renewMemberLease(
         operationId: operation.id,
     });
     return renewed.isOk() && renewed.value;
+}
+
+async function authorizeMemberEffect(
+    context: BotFeatureHandlerContext,
+    operation: ReactionRoleMemberWorkerRecord,
+    leaseId: string
+): Promise<boolean> {
+    const now = new Date();
+    const authorization = await authorizeReactionRoleMemberEffect(context.db, {
+        leaseExpiresAt: new Date(now.getTime() + leaseTtlMs),
+        leaseId,
+        now,
+        operationId: operation.id,
+        panelGeneration: operation.panelGeneration,
+        revision: operation.revision,
+    });
+    return authorization.isOk() && authorization.value === 'authorized';
 }
 
 function retryAt(now: Date, attemptCount: number): Date {

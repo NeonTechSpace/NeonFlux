@@ -1,7 +1,7 @@
 import { v } from 'convex/values';
 
 import { query } from '../_generated/server.js';
-import { requireGuildAccess } from '../auth.js';
+import { requireActiveGuildAccess } from '../auth.js';
 import { BLUEPRINT_RUN_PROTOCOL_VERSION } from '../runtime_contract_model.js';
 
 const runProgressValidator = v.object({
@@ -36,7 +36,7 @@ export const findBlueprintRunProgressForGuild = query({
     },
     returns: v.union(v.null(), runProgressValidator),
     handler: async (ctx, args) => {
-        await requireGuildAccess(ctx, args.guildId);
+        await requireActiveGuildAccess(ctx, args.guildId);
         const run = await ctx.db
             .query('blueprintRuns')
             .withIndex('by_plan_created', (q) => q.eq('planId', args.planId))

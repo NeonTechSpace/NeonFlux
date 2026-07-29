@@ -353,6 +353,28 @@ describe('createFluxerBot lifecycle handlers', () => {
         });
     });
 
+    it('serializes admitted member-controlled message work per guild', async () => {
+        const releaseFirst = Promise.withResolvers<undefined>();
+        const firstStarted = Promise.withResolvers<undefined>();
+        let callCount = 0;
+        const messageCreated = vi.fn(async () => {
+            callCount += 1;
+            if (callCount !== 1) return;
+            firstStarted.resolve(undefined);
+            await releaseFirst.promise;
+        });
+        const bot = createFluxerBot(createConfig(), createLogger(), { messageCreated });
+
+        bot.client.emit(Events.MessageCreate, createMessage({ id: 'message-1' }));
+        bot.client.emit(Events.MessageCreate, createMessage({ id: 'message-2' }));
+        await firstStarted.promise;
+
+        expect(messageCreated).toHaveBeenCalledTimes(1);
+        releaseFirst.resolve(undefined);
+        await settleAsyncHandler();
+        expect(messageCreated).toHaveBeenCalledTimes(2);
+    });
+
     it('treats message events without handlers as harmless', () => {
         const logger = createLogger();
         const bot = createFluxerBot(createConfig(), logger);

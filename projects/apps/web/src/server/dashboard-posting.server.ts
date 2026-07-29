@@ -1,15 +1,12 @@
 import '@tanstack/react-start/server-only';
 
-import { createHash } from 'node:crypto';
-
 import {
-    enqueueDashboardPostingOperation,
     listDashboardPostingOperationsByGuild,
     normalizeDashboardPostingPayload as normalizeDashboardPostingPayloadForQueue,
     resolveDashboardPostingOperationUnknown,
 } from '@neonflux/db';
 import type { DashboardPostingOperationRecord } from '@neonflux/db';
-import { parseOutgoingMessage, serializeDashboardPostingPayload } from '@neonflux/messaging';
+import { hashDashboardPostingPayload, parseOutgoingMessage } from '@neonflux/messaging';
 import type { DashboardPostingOperationResolution, OutgoingEmbed, OutgoingMessage } from '@neonflux/messaging';
 import type { FluxerGuildChannel, FluxerGuildRole } from '@neonflux/fluxer/guild-structure';
 import type { FluxerReactionRoleCatalog } from '@neonflux/fluxer/reaction-roles';
@@ -26,6 +23,7 @@ import { readAuthenticatedFluxerContext } from './fluxer-auth-context.server.js'
 import type { DashboardGuildPageDataResult } from './dashboard-guild-page.server.js';
 import { loadDashboardGuildPageData } from './dashboard-guild-page.server.js';
 import { authorizeDashboardPostingTarget } from './dashboard-posting-authorization.server.js';
+import { enqueueAuthorizedDashboardPostingOperation } from './dashboard-posting-delegation.server.js';
 import { createDashboardPostingRequestTiming } from './dashboard-posting-observability.server.js';
 import {
     recordDashboardPostingWakeFailure,
@@ -172,7 +170,7 @@ export async function postDashboardGuildMessage(
         return { type: targetAuthorizationResult.error };
     }
 
-    const validationResult = timing.measure('validationMs', () => normalizeDashboardPostingRequest(input));
+    const validationResult = await timing.measureAsync('validationMs', () => normalizeDashboardPostingRequest(input));
 
     if (validationResult.type === 'invalid-message') {
         timing.finish('invalid_message');
@@ -180,8 +178,7 @@ export async function postDashboardGuildMessage(
     }
 
     const enqueueResult = await timing.measureAsync('enqueueMs', async () => {
-        const database = await getWebDb();
-        return enqueueDashboardPostingOperation(database.db, {
+        return enqueueAuthorizedDashboardPostingOperation({
             actorUserId: authContextResult.value.fluxerUserId,
             ...(validationResult.payload.message.content ? { content: validationResult.payload.message.content } : {}),
             embeds: validationResult.payload.message.embeds,
@@ -230,11 +227,12 @@ export async function postDashboardGuildMessage(
     return { type: 'operation', operation };
 }
 
-function normalizeDashboardPostingRequest(
+async function normalizeDashboardPostingRequest(
     input: DashboardPostMessageInput
-):
+): Promise<
     | { type: 'valid'; payload: NormalizedPostMessagePayload; payloadHash: string; requestKey: string }
-    | { type: 'invalid-message'; message: string } {
+    | { type: 'invalid-message'; message: string }
+> {
     const payloadResult = normalizePostMessagePayload(input);
 
     if (payloadResult.type === 'invalid-message') {
@@ -262,7 +260,7 @@ function normalizeDashboardPostingRequest(
     return {
         type: 'valid',
         payload,
-        payloadHash: hashDashboardPostingPayload(payload),
+        payloadHash: await hashDashboardPostingPayload(payload.channelId, payload.message),
         requestKey,
     };
 }
@@ -280,12 +278,6 @@ function toPostingRequestResultClass(
         case 'guild-lookup-failed':
             return 'guild_lookup_failed' as const;
     }
-}
-
-function hashDashboardPostingPayload(payload: NormalizedPostMessagePayload): string {
-    return createHash('sha256')
-        .update(serializeDashboardPostingPayload(payload.channelId, payload.message))
-        .digest('hex');
 }
 
 export async function resolveDashboardGuildPostingUnknown(

@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 
-import { requireNeonFluxUser } from '../auth.js';
+import { requireActiveNeonFluxUser } from '../auth.js';
 import { query, type MutationCtx, type QueryCtx } from '../_generated/server.js';
 
 type DashboardCatalogMutationCtx = MutationCtx;
@@ -21,7 +21,7 @@ export const readDashboardCatalogState = query({
     args: {},
     returns: dashboardCatalogStateValidator,
     handler: async (ctx: DashboardCatalogQueryCtx) => {
-        await requireNeonFluxUser(ctx);
+        await requireActiveNeonFluxUser(ctx);
         const state = await ctx.db
             .query('dashboardCatalogStates')
             .withIndex('by_key', (query) => query.eq('key', dashboardCatalogStateKey))

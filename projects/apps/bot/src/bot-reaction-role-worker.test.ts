@@ -1,10 +1,13 @@
 import {
+    authorizeReactionRoleMemberEffect,
     claimNextReactionRoleMemberOperation,
     claimNextReactionRolePanelOperation,
     completeReactionRolePanelOperation,
     deferReactionRolePanelOperation,
     pauseReactionRolePanelOperation,
     renewReactionRolePanelOperationLease,
+    renewReactionRoleMemberOperationLease,
+    type ReactionRoleMemberWorkerRecord,
     type ReactionRolePanelWorkerRecord,
     yieldReactionRolePanelOperation,
 } from '@neonflux/db';
@@ -21,11 +24,13 @@ import { runNextReactionRoleOperation } from './bot-reaction-role-worker.js';
 vi.mock('@neonflux/db', async (importActual) => ({
     ...(await importActual<typeof NeonFluxDb>()),
     claimNextReactionRoleMemberOperation: vi.fn(),
+    authorizeReactionRoleMemberEffect: vi.fn(),
     claimNextReactionRolePanelOperation: vi.fn(),
     completeReactionRolePanelOperation: vi.fn(),
     deferReactionRolePanelOperation: vi.fn(),
     pauseReactionRolePanelOperation: vi.fn(),
     renewReactionRolePanelOperationLease: vi.fn(),
+    renewReactionRoleMemberOperationLease: vi.fn(),
     yieldReactionRolePanelOperation: vi.fn(),
 }));
 
@@ -41,10 +46,12 @@ vi.mock('./bot-reaction-role-policy.js', () => ({
 describe('reaction-role worker state machine', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(claimNextReactionRolePanelOperation).mockResolvedValue(ok(null));
         vi.mocked(claimNextReactionRoleMemberOperation).mockResolvedValue(ok(null));
         vi.mocked(pauseReactionRolePanelOperation).mockResolvedValue(ok(true));
         vi.mocked(deferReactionRolePanelOperation).mockResolvedValue(ok(true));
         vi.mocked(renewReactionRolePanelOperationLease).mockResolvedValue(ok(true));
+        vi.mocked(renewReactionRoleMemberOperationLease).mockResolvedValue(ok(true));
         vi.mocked(yieldReactionRolePanelOperation).mockResolvedValue(ok(true));
     });
 
@@ -101,7 +108,64 @@ describe('reaction-role worker state machine', () => {
         expect(result).toMatchObject({ operationType: 'panel', status: 'completed' });
         expect(createFluxerReactionRolePlatform).not.toHaveBeenCalled();
     });
+
+    it('does not apply a member role after the durable panel generation is superseded', async () => {
+        const platform = {
+            addMemberRole: vi.fn(),
+            readMemberRoleIds: vi.fn().mockResolvedValue(ok([])),
+        };
+        vi.mocked(claimNextReactionRoleMemberOperation).mockResolvedValue(ok(createMemberOperation()));
+        vi.mocked(reactionRolesAllowed).mockResolvedValue(true);
+        vi.mocked(authorizeReactionRoleMemberEffect).mockResolvedValue(ok('superseded'));
+        vi.mocked(createFluxerReactionRolePlatform).mockReturnValue(
+            platform as unknown as ReturnType<typeof createFluxerReactionRolePlatform>
+        );
+
+        const result = await runNextReactionRoleOperation(createContext(), { leaseOwner: 'worker-1' });
+
+        expect(result).toMatchObject({ errorCode: 'effect_fence_failed', status: 'deferred' });
+        expect(authorizeReactionRoleMemberEffect).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ operationId: 'member-operation-1', panelGeneration: 3, revision: 2 })
+        );
+        expect(platform.addMemberRole).not.toHaveBeenCalled();
+    });
 });
+
+function createMemberOperation(): ReactionRoleMemberWorkerRecord {
+    const now = new Date('2026-07-28T09:00:00.000Z');
+    return {
+        addedOptionIds: ['option-1'],
+        attemptCount: 1,
+        baselineRoleIds: [],
+        channelId: 'channel-1',
+        createdAt: now,
+        desiredSelections: [
+            {
+                emoji: { kind: 'unicode', value: '✨' },
+                grantOwnership: 'pending',
+                optionId: 'option-1',
+                roleId: 'role-1',
+            },
+        ],
+        errorCode: null,
+        guildId: 'guild-1',
+        id: 'member-operation-1',
+        leaseExpiresAt: new Date('2026-07-28T09:01:00.000Z'),
+        leaseId: 'lease-1',
+        leaseOwner: 'worker-1',
+        messageId: 'message-1',
+        nextAttemptAt: null,
+        panelGeneration: 3,
+        panelId: 'panel-1',
+        previousSelections: [],
+        rerunRequested: false,
+        revision: 2,
+        status: 'running',
+        updatedAt: now,
+        userId: 'user-1',
+    };
+}
 
 function createPanelOperation(overrides: Partial<ReactionRolePanelWorkerRecord> = {}): ReactionRolePanelWorkerRecord {
     const now = new Date('2026-07-28T09:00:00.000Z');

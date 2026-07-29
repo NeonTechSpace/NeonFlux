@@ -184,6 +184,7 @@ export const reactionRoleMemberWorkerRecordValidator = v.object({
     leaseOwner: v.union(v.string(), v.null()),
     messageId: v.union(v.string(), v.null()),
     nextAttemptAt: v.union(v.string(), v.null()),
+    panelGeneration: v.number(),
     panelId: v.string(),
     previousSelections: v.array(reactionRoleSelectionSnapshotValidator),
     rerunRequested: v.boolean(),

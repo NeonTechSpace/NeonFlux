@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ConvexDatabase } from './convex.js';
 import {
+    authorizeReactionRoleMemberEffect,
     claimNextReactionRoleMemberOperation,
     claimNextReactionRolePanelOperation,
     publishReactionRolePanel,
@@ -9,7 +10,7 @@ import {
 
 describe('reaction-role Convex runtime boundary', () => {
     it('serializes every lease Date before calling Convex', async () => {
-        const db = createConvexDb({ mutationResults: [null, null] });
+        const db = createConvexDb({ mutationResults: [null, null, 'authorized'] });
         const now = new Date('2026-07-28T09:00:00.000Z');
         const leaseExpiresAt = new Date('2026-07-28T09:01:00.000Z');
 
@@ -25,6 +26,14 @@ describe('reaction-role Convex runtime boundary', () => {
             leaseOwner: 'worker-1',
             now,
         });
+        await authorizeReactionRoleMemberEffect(db, {
+            leaseExpiresAt,
+            leaseId: 'member-lease',
+            now,
+            operationId: 'member-operation-1',
+            panelGeneration: 4,
+            revision: 2,
+        });
 
         expect(db.client.mutationCalls.map((call) => call.args)).toStrictEqual([
             {
@@ -38,6 +47,14 @@ describe('reaction-role Convex runtime boundary', () => {
                 leaseId: 'member-lease',
                 leaseOwner: 'worker-1',
                 now: now.toISOString(),
+            },
+            {
+                leaseExpiresAt: leaseExpiresAt.toISOString(),
+                leaseId: 'member-lease',
+                now: now.toISOString(),
+                operationId: 'member-operation-1',
+                panelGeneration: 4,
+                revision: 2,
             },
         ]);
     });
