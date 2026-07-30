@@ -30,7 +30,12 @@ export async function admitServerFunctionRequest(
         return payloadTooLargeResponse();
     }
 
-    const admitted = new Request(request, { body });
+    const admitted = new Request(request.url, {
+        body,
+        headers: Array.from(request.headers.entries()),
+        method: request.method,
+        signal: request.signal,
+    });
     copyRuntimeRequestContext(request, admitted);
     return admitted;
 }

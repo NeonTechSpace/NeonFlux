@@ -69,6 +69,25 @@ describe('Server Function request-body admission', () => {
         expect((admitted as Request & { waitUntil?: unknown }).waitUntil).toBeTypeOf('function');
     });
 
+    it('reconstructs runtime request adapters without native private state', async () => {
+        const source = createServerFunctionRequest(
+            new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode('{"adapter":true}'));
+                    controller.close();
+                },
+            }),
+            { 'Content-Type': 'application/json' }
+        );
+        const request = createRuntimeRequestAdapter(source);
+
+        const admitted = await admitServerFunctionRequest(request, 16);
+
+        expect(admitted).toBeInstanceOf(Request);
+        expect(await (admitted as Request).json()).toStrictEqual({ adapter: true });
+        expect((admitted as Request).headers.get('content-type')).toBe('application/json');
+    });
+
     it('does not consume unrelated request bodies', async () => {
         const request = new Request('https://neonflux.test/api/upload', {
             body: 'unchanged',
@@ -89,4 +108,20 @@ function createServerFunctionRequest(body: ReadableStream<Uint8Array>, headers?:
         headers,
         method: 'POST',
     } as RequestInit & { duplex: 'half' });
+}
+
+function createRuntimeRequestAdapter(source: Request): Request {
+    const headers = Object.defineProperties(Object.create(Headers.prototype) as Headers, {
+        entries: { value: source.headers.entries.bind(source.headers) },
+        get: { value: source.headers.get.bind(source.headers) },
+        [Symbol.iterator]: { value: source.headers[Symbol.iterator].bind(source.headers) },
+    });
+
+    return Object.defineProperties(Object.create(Request.prototype) as Request, {
+        body: { value: source.body },
+        headers: { value: headers },
+        method: { value: source.method },
+        signal: { value: source.signal },
+        url: { value: source.url },
+    });
 }
