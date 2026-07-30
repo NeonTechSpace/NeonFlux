@@ -5,6 +5,7 @@
     "ignoreDependencies": ["tslib"],
     "ignoreIssues": {
         "apps/web/source.config.ts": ["exports"],
+        "apps/web/src/server.ts": ["files"],
         "apps/web/e2e/authenticated-specs/authenticated-features.spec.ts": ["files"],
         "apps/web/e2e/support/authenticated-services.test.ts": ["files"],
         "apps/web/e2e/support/authenticated-test-runner.test.ts": ["files"],
