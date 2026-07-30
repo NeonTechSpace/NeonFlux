@@ -29,12 +29,33 @@ globalThis.fetch = async (input, init) => {
         const state = await readState();
         return Response.json({ protocolVersion: 1, type: 'structure', structure: state.structure });
     }
+    if (
+        url.origin === botInternalApiOrigin &&
+        /^\/v1\/provider\/guilds\/[^/]+\/reaction-roles\/catalog$/u.test(url.pathname)
+    ) {
+        requireBearerAuthorization(input, init, 'reaction-role catalog fixture');
+        const state = await readState();
+        return Response.json({
+            catalog: {
+                channels: [],
+                emojis: [],
+                guildId: state.guild.id,
+                guildName: state.guild.name,
+                roles: [],
+            },
+            protocolVersion: 1,
+            type: 'catalog',
+        });
+    }
     if (url.origin === botInternalApiOrigin && url.pathname === '/v1/posting/worker/wake') {
         requireBearerAuthorization(input, init, 'bot internal API posting-control fixture');
         if ((init?.method ?? (input instanceof Request ? input.method : 'GET')) !== 'POST' || init?.body) {
             throw new Error('Bot internal API posting-control fixture received an invalid request.');
         }
         return Response.json({ protocolVersion: 1, type: 'accepted' }, { status: 202 });
+    }
+    if (url.origin === botInternalApiOrigin) {
+        throw new Error(`Authenticated provider fixture does not implement ${url.pathname}.`);
     }
     return networkFetch(input, init);
 };
