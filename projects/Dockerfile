@@ -26,6 +26,7 @@ COPY packages/core/package.json ./packages/core/package.json
 COPY packages/fluxer/package.json ./packages/fluxer/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/messaging/package.json ./packages/messaging/package.json
+COPY packages/reaction-roles/package.json ./packages/reaction-roles/package.json
 COPY apps/bot/package.json ./apps/bot/package.json
 COPY apps/web/package.json ./apps/web/package.json
 
@@ -51,6 +52,7 @@ COPY packages/core ./packages/core
 COPY packages/fluxer ./packages/fluxer
 COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
+COPY packages/reaction-roles ./packages/reaction-roles
 COPY apps/bot ./apps/bot
 
 RUN pnpm -r --filter @neonflux/bot... build
@@ -68,6 +70,7 @@ COPY packages/core ./packages/core
 COPY packages/fluxer ./packages/fluxer
 COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
+COPY packages/reaction-roles ./packages/reaction-roles
 COPY apps/web ./apps/web
 COPY scripts/check-dashboard-bundle-boundaries.mjs ./scripts/check-dashboard-bundle-boundaries.mjs
 
