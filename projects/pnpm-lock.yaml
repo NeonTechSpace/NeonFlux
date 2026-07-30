@@ -413,8 +413,8 @@ importers:
   packages/fluxer:
     dependencies:
       '@fluxerjs/core':
-        specifier: 2.0.3
-        version: 2.0.3
+        specifier: 2.1.0
+        version: 2.1.0
       '@neonflux/blueprint':
         specifier: workspace:*
         version: link:../blueprint
@@ -1103,27 +1103,33 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@fluxerjs/builders@2.0.0':
-    resolution: {integrity: sha512-0qWHW1NkfCnsH48sBCYgF1Uw4nO61hrZA4mlXMTRqYIWJ43+pyPYjtVURnqVK6Hdyucm2JOzsdWkL2ebefk12g==}
+  '@fluxerjs/builders@2.1.0':
+    resolution: {integrity: sha512-qxn5zi9rzcTKBMQiENXPKf7t2Eg4+BB9SoAN64IufrNnUBojHOgaIwUY5DXansd/K0W0UpvsQHSgA25qrMqUaw==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/collection@2.0.0':
-    resolution: {integrity: sha512-NF2Qwh5uTcyp4DI6T8vWz70uUH8NxvijQwyqMYc9H8fhJZYFoWoL1iUrFu8D9pH2THEDvlSAUw7ees90iU8axA==}
+  '@fluxerjs/collection@2.1.0':
+    resolution: {integrity: sha512-XoB7csG5kG6mmZUNd5WM4MUJtgs6CcuXj5lW+Waz/dDfi2hU4rYU1mOA5Yk9vP7tZ3yE2pIr33nRyk1YibnnMw==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/core@2.0.3':
-    resolution: {integrity: sha512-2xUzb3NYfCuNPW0AuSU9uRWsSi2RdFfuqnCswQIf0kkq20sNAoNvycQN1wcWOISjIYAag5JroZ9Br0fMS20TjA==}
-    engines: {node: '>=18.0.0'}
+  '@fluxerjs/core@2.1.0':
+    resolution: {integrity: sha512-l7SaruZ9x8isFO6jb6878Fhrhx4Ar/emrflk3QH+QDLSPjJvl0+ZVrWUEGdzpY6iFjSq8T67ewaypB4nWj1bNA==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/rest@2.0.2':
-    resolution: {integrity: sha512-gDk226kW078H0mjkGUhYhVB5YR0rcYbP9gBh44S4R3ZFRIl53cyy8NHay7yEeyMP87FCq77vnmE+QrL4tT3UOA==}
+  '@fluxerjs/rest@2.1.0':
+    resolution: {integrity: sha512-kzWfWIRGb/Rk5jfbTWkgq3NdfwlmQvkuVBGrkyb5tGfqqrCKvHHXeUbVuXl/XMNNaxg5ohSW6Dkdmmc9DQ1VjQ==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/types@2.0.0':
-    resolution: {integrity: sha512-p7KXabbP7HEvrlvhmqdLavcAjeW5KssaD1y7ykY66aSv72rJJVIMtey3VNjOZKKmWyH27IQMDWX1nilVEpjamg==}
+  '@fluxerjs/types@2.1.0':
+    resolution: {integrity: sha512-yRQxg+ZkTWlB0fzRgS4sU0o2oWgYnHWtsrpf8D8Xtn5dYuHDsNHTaMUMxJrF8Oo0g70zMas9QHrgCvqchNYcKg==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/util@2.0.0':
-    resolution: {integrity: sha512-ciu6UZeqtIyyk3Y0q9qVyUWn6TtUZkewCe0ibLapV4a8Bfp4OLhJTXRauwWF6a6M6AK26D20MZJ6/zCGEugPsQ==}
+  '@fluxerjs/util@2.1.0':
+    resolution: {integrity: sha512-EvAXdCjHFIXNVUygDgr4/OYvvV801x/DesecVqtk7ksAVwu+COF2VzHEMnUbamgp4djjdQ7yPc6j3eYuPp4Wrg==}
+    engines: {node: '>=22.13.0'}
 
-  '@fluxerjs/ws@2.0.1':
-    resolution: {integrity: sha512-JxCi1MHOqWu2g52Rl/CPtUjWWTgtXq7UKVvWY1+BToVl3LMpbOQlplAXsfT0OQUif/DpzTCijZ/cWiKQY/7VNg==}
+  '@fluxerjs/ws@2.1.0':
+    resolution: {integrity: sha512-Ao69Nw5LXlBLJzGZpNz4UhtmZIN4/VZ/ksZFLHnQE8Kac3k7zG5nDnQm9uUo0s5sMDyJo0/JYP0siZEDZq/77g==}
+    engines: {node: '>=22.13.0'}
 
   '@fontsource/outfit@5.2.8':
     resolution: {integrity: sha512-rXC6g0MqD7cOBjht0bMqc43qM6lRqDLML9KXsmg9uykz0wLQhy8Z/ajrMG6iyoT3NJR+MYgU+OEHp7uHoTb+Yw==}
@@ -7037,40 +7043,40 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@fluxerjs/builders@2.0.0':
+  '@fluxerjs/builders@2.1.0':
     dependencies:
-      '@fluxerjs/types': 2.0.0
-      '@fluxerjs/util': 2.0.0
+      '@fluxerjs/types': 2.1.0
+      '@fluxerjs/util': 2.1.0
 
-  '@fluxerjs/collection@2.0.0': {}
+  '@fluxerjs/collection@2.1.0': {}
 
-  '@fluxerjs/core@2.0.3':
+  '@fluxerjs/core@2.1.0':
     dependencies:
-      '@fluxerjs/builders': 2.0.0
-      '@fluxerjs/collection': 2.0.0
-      '@fluxerjs/rest': 2.0.2
-      '@fluxerjs/types': 2.0.0
-      '@fluxerjs/util': 2.0.0
-      '@fluxerjs/ws': 2.0.1
+      '@fluxerjs/builders': 2.1.0
+      '@fluxerjs/collection': 2.1.0
+      '@fluxerjs/rest': 2.1.0
+      '@fluxerjs/types': 2.1.0
+      '@fluxerjs/util': 2.1.0
+      '@fluxerjs/ws': 2.1.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@fluxerjs/rest@2.0.2':
+  '@fluxerjs/rest@2.1.0':
     dependencies:
-      '@fluxerjs/types': 2.0.0
+      '@fluxerjs/types': 2.1.0
       undici: 7.28.0
 
-  '@fluxerjs/types@2.0.0': {}
+  '@fluxerjs/types@2.1.0': {}
 
-  '@fluxerjs/util@2.0.0':
+  '@fluxerjs/util@2.1.0':
     dependencies:
-      '@fluxerjs/types': 2.0.0
+      '@fluxerjs/types': 2.1.0
 
-  '@fluxerjs/ws@2.0.1':
+  '@fluxerjs/ws@2.1.0':
     dependencies:
-      '@fluxerjs/types': 2.0.0
-      '@fluxerjs/util': 2.0.0
+      '@fluxerjs/types': 2.1.0
+      '@fluxerjs/util': 2.1.0
       ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil

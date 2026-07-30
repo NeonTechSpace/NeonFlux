@@ -14,5 +14,10 @@ overrides:
     postcss: 8.5.23
 
 minimumReleaseAgeExclude:
-    - '@fluxerjs/core@2.0.3'
-    - '@fluxerjs/rest@2.0.2'
+    - '@fluxerjs/builders@2.1.0'
+    - '@fluxerjs/collection@2.1.0'
+    - '@fluxerjs/core@2.1.0'
+    - '@fluxerjs/rest@2.1.0'
+    - '@fluxerjs/types@2.1.0'
+    - '@fluxerjs/util@2.1.0'
+    - '@fluxerjs/ws@2.1.0'
