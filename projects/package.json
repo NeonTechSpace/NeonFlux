@@ -5,7 +5,6 @@
     "type": "module",
     "description": "A Fluxer bot with a protected live dashboard and safe server automation",
     "license": "Apache-2.0",
-    "packageManager": "pnpm@11.9.0",
     "keywords": [
         "fluxer",
         "bot",
@@ -13,10 +12,14 @@
         "javascript"
     ],
     "engines": {
-        "node": "24.18.0",
-        "pnpm": ">=11.0.0 <12"
+        "node": "24.18.0"
     },
     "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "11.x",
+            "onFail": "download"
+        },
         "runtime": {
             "name": "node",
             "version": "24.18.0",
