@@ -49,8 +49,8 @@ jobs:
               working-directory: projects
               shell: bash
               run: |
-                  package_manager="$(node -p "require('./package.json').packageManager")"
-                  echo "version=${package_manager#pnpm@}" >> "$GITHUB_OUTPUT"
+                  pnpm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+                  echo "version=${pnpm_version}" >> "$GITHUB_OUTPUT"
 
             - name: Set up pnpm
               uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9

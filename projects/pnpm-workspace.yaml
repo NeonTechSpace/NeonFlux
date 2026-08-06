@@ -3,6 +3,11 @@ packages:
     - 'convex'
     - 'packages/*'
 
+injectWorkspacePackages: true
+
+syncInjectedDepsAfterScripts:
+    - build
+
 allowBuilds:
     '@tsparticles/engine': false
     esbuild: true

@@ -8,6 +8,7 @@ FROM runtime-base AS build-base
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+ENV COREPACK_ENABLE_PROJECT_SPEC=0
 
 RUN corepack enable
 
@@ -16,7 +17,7 @@ FROM build-base AS package-manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # Keep patches as an optional tracked directory so clean build contexts can copy it when empty.
 COPY patches ./patches
-RUN corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+RUN corepack install --global "$(node -p "const packageManager = require('./package.json').devEngines.packageManager; packageManager.name + '@' + packageManager.version")"
 
 COPY convex/package.json ./convex/package.json
 COPY packages/blueprint/package.json ./packages/blueprint/package.json
@@ -57,7 +58,7 @@ COPY apps/bot ./apps/bot
 
 RUN pnpm -r --filter @neonflux/bot... build
 RUN --mount=type=cache,id=neonflux-pnpm-${TARGETOS}-${TARGETARCH},target=/pnpm/store,sharing=locked \
-    pnpm --filter @neonflux/bot deploy --prod --legacy /deploy/bot
+    pnpm --filter @neonflux/bot deploy --prod /deploy/bot
 
 FROM deps AS build-web
 

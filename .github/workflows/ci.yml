@@ -87,8 +87,8 @@ jobs:
               working-directory: projects
               shell: bash
               run: |
-                  package_manager="$(node -p "require('./package.json').packageManager")"
-                  echo "version=${package_manager#pnpm@}" >> "$GITHUB_OUTPUT"
+                  pnpm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+                  echo "version=${pnpm_version}" >> "$GITHUB_OUTPUT"
 
             - name: Set up pnpm
               if: matrix.runtime == 'node'
