@@ -15,6 +15,8 @@ afterEach(() => {
 
 describe('DashboardPostingPreview', () => {
     it('lazy-loads formatted content and renders complete embed text surfaces', async () => {
+        await import('./dashboard-fluxer-markdown.js');
+
         renderedViews.push(
             render(
                 <DashboardPostingPreview

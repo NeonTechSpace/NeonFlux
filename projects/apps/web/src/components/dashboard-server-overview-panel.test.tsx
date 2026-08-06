@@ -55,6 +55,8 @@ describe('DashboardServerOverviewPanel', () => {
     });
 
     it('labels observed messages precisely and exposes chart values as text', async () => {
+        await import('./dashboard-server-overview-charts.js');
+
         vi.mocked(readDashboardGuildOverviewRouteData).mockResolvedValue({
             type: 'overview',
             overview: {
