@@ -203,10 +203,11 @@ describe('sendFluxerChannelMessage', () => {
 });
 
 describe('sendDashboardFluxerMessage', () => {
-    it('translates the domain contract and always suppresses mentions', async () => {
+    it('allows user and role mentions while keeping mass mentions off by default', async () => {
         const sendMock = createSendMock();
 
         const result = await sendDashboardFluxerMessage({
+            allowMassMentions: false,
             client: createClient(sendMock),
             channelId: 'channel-1',
             message: {
@@ -224,7 +225,7 @@ describe('sendDashboardFluxerMessage', () => {
 
         expect(result.isOk()).toBe(true);
         expect(sendMock).toHaveBeenCalledWith('channel-1', {
-            allowedMentions: { parse: [] },
+            allowedMentions: { parse: ['users', 'roles'] },
             content: '@everyone launch',
             embeds: [
                 {
@@ -235,6 +236,23 @@ describe('sendDashboardFluxerMessage', () => {
                     title: 'Launch',
                 },
             ],
+        });
+    });
+
+    it('allows mass mentions only when requested', async () => {
+        const sendMock = createSendMock();
+
+        const result = await sendDashboardFluxerMessage({
+            allowMassMentions: true,
+            client: createClient(sendMock),
+            channelId: 'channel-1',
+            message: { content: '@everyone launch', embeds: [] },
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(sendMock).toHaveBeenCalledWith('channel-1', {
+            allowedMentions: { parse: ['users', 'roles', 'everyone'] },
+            content: '@everyone launch',
         });
     });
 });

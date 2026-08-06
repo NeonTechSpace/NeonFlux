@@ -35,10 +35,17 @@ export type OutgoingMessage = {
     embeds: OutgoingEmbed[];
 };
 
+export type DashboardMessageMentionPolicy = {
+    allowMassMentions: boolean;
+};
+
+export const DEFAULT_DASHBOARD_MESSAGE_MENTION_POLICY = {
+    allowMassMentions: false,
+} as const satisfies DashboardMessageMentionPolicy;
+
 export const DASHBOARD_MESSAGE_MENTION_POLICY = {
-    allowedMentionTypes: [] as const,
-    kind: 'suppress-all',
-    notice: 'Mentions are suppressed; @user, @role, and @everyone will not notify.',
+    allowedMentionTypes: ['users', 'roles'] as const,
+    massMentionType: 'everyone',
 } as const;
 
 export type OutgoingMessageValidationError = {
@@ -118,12 +125,25 @@ export function serializeOutgoingMessage(message: OutgoingMessage): string {
     return JSON.stringify({ content: message.content ?? null, embeds: message.embeds });
 }
 
-export function serializeDashboardPostingPayload(channelId: string, message: OutgoingMessage): string {
-    return JSON.stringify({ channelId: channelId.trim(), content: message.content ?? null, embeds: message.embeds });
+export function serializeDashboardPostingPayload(
+    channelId: string,
+    message: OutgoingMessage,
+    mentionPolicy: DashboardMessageMentionPolicy = DEFAULT_DASHBOARD_MESSAGE_MENTION_POLICY
+): string {
+    return JSON.stringify({
+        channelId: channelId.trim(),
+        content: message.content ?? null,
+        embeds: message.embeds,
+        ...(mentionPolicy.allowMassMentions ? { allowMassMentions: true } : {}),
+    });
 }
 
-export async function hashDashboardPostingPayload(channelId: string, message: OutgoingMessage): Promise<string> {
-    const bytes = new TextEncoder().encode(serializeDashboardPostingPayload(channelId, message));
+export async function hashDashboardPostingPayload(
+    channelId: string,
+    message: OutgoingMessage,
+    mentionPolicy: DashboardMessageMentionPolicy = DEFAULT_DASHBOARD_MESSAGE_MENTION_POLICY
+): Promise<string> {
+    const bytes = new TextEncoder().encode(serializeDashboardPostingPayload(channelId, message, mentionPolicy));
     const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
     return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
 }

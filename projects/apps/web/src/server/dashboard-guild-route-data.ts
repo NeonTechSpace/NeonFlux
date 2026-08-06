@@ -51,6 +51,7 @@ type DashboardCommandPrefixUpdateRouteInput = {
 };
 
 type DashboardPostMessageRouteInput = {
+    allowMassMentions?: boolean;
     guildId: string;
     channelId: string;
     content?: string;
@@ -355,6 +356,7 @@ function validateDashboardPostMessageRouteInput(input: unknown): DashboardPostMe
     });
 
     return {
+        ...(payload.allowMassMentions === true ? { allowMassMentions: true } : {}),
         guildId: typeof guildId === 'string' ? guildId : '',
         channelId: typeof channelId === 'string' ? channelId : '',
         ...(message.isOk() && message.value.content ? { content: message.value.content } : {}),

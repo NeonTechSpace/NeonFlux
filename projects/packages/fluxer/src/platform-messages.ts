@@ -34,7 +34,7 @@ export function createMessagePlatform(client: FluxerBot['client']) {
             content?: string;
             embeds?: MessageSendOptions['embeds'];
         }) => sendFluxerChannelMessage({ client, ...input }),
-        sendDashboard: (input: { channelId: string; message: OutgoingMessage }) =>
+        sendDashboard: (input: { allowMassMentions: boolean; channelId: string; message: OutgoingMessage }) =>
             sendDashboardFluxerMessage({ client, ...input }),
         resolveDashboardTarget: (input: { channelId: string }) => resolveDashboardPostingTarget(client, input),
         fetch: (input: { channelId: string; messageId: string }) => fetchMessage(client, input),

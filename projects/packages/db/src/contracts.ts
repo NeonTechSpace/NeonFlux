@@ -162,6 +162,7 @@ export type DashboardPostingOperationRecord = {
     actorDisplayName: string | null;
     actorUsername: string | null;
     actorUserId: string;
+    allowMassMentions: boolean;
     attemptCount: number;
     completedAt: Date | null;
     contentLength: number;

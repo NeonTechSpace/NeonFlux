@@ -46,6 +46,7 @@ describe('dashboard posting operation runtime', () => {
         ]);
 
         const enqueued = await enqueueDashboardPostingOperation(db, {
+            allowMassMentions: true,
             content: ' Hello ',
             embeds: [],
             guildId: 'guild-1',
@@ -62,7 +63,11 @@ describe('dashboard posting operation runtime', () => {
 
         expect(enqueued._unsafeUnwrap().operation.createdAt).toStrictEqual(new Date('2026-07-13T12:00:00.000Z'));
         expect(claimed._unsafeUnwrap()?.leaseExpiresAt).toStrictEqual(new Date('2026-07-13T12:01:00.000Z'));
-        expect(db.client.mutationCalls[0]?.args).toMatchObject({ content: 'Hello', requestKey: 'request-1' });
+        expect(db.client.mutationCalls[0]?.args).toMatchObject({
+            allowMassMentions: true,
+            content: 'Hello',
+            requestKey: 'request-1',
+        });
         expect(db.client.mutationCalls[1]?.args).toStrictEqual({
             leaseExpiresAt: '2026-07-13T12:01:00.000Z',
             leaseId: 'lease-1',
@@ -132,6 +137,7 @@ function createConvexOperation() {
         actorDisplayName: null,
         actorUsername: null,
         actorUserId: 'actor-1',
+        allowMassMentions: false,
         attemptCount: 0,
         completedAt: null,
         contentLength: 5,

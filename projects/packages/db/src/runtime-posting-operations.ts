@@ -60,6 +60,7 @@ export function normalizeDashboardPostingPayload(input: {
 export async function enqueueDashboardPostingOperation(
     db: Pick<ConvexDatabase, 'client'>,
     input: {
+        allowMassMentions?: boolean;
         content?: string;
         embeds?: OutgoingEmbed[];
         guildId: string;

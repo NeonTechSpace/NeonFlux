@@ -2,6 +2,7 @@ import type { Client, MessageSendOptions } from '@fluxerjs/core';
 import {
     DASHBOARD_MESSAGE_MENTION_POLICY,
     parseOutgoingMessage,
+    type DashboardMessageMentionPolicy,
     type OutgoingEmbed,
     type OutgoingMessage,
 } from '@neonflux/messaging';
@@ -59,6 +60,7 @@ export type SendFluxerChannelMessageError =
     | { type: 'send-failed'; error: unknown };
 
 export type SendDashboardFluxerMessageInput = {
+    allowMassMentions: boolean;
     client: FluxerBot['client'];
     channelId: string;
     message: OutgoingMessage;
@@ -298,7 +300,9 @@ export async function sendDashboardFluxerMessage(
 ): Promise<Result<FluxerSentMessage, SendFluxerChannelMessageError>> {
     const message = parseOutgoingMessage(input.message);
     if (message.isErr()) return err({ type: 'missing-input', field: 'message' });
-    const payload = toDashboardFluxerMessagePayload(message.value);
+    const payload = toDashboardFluxerMessagePayload(message.value, {
+        allowMassMentions: input.allowMassMentions,
+    });
     return sendFluxerChannelMessage({
         client: input.client,
         channelId: input.channelId,
@@ -306,10 +310,16 @@ export async function sendDashboardFluxerMessage(
     });
 }
 
-export function toDashboardFluxerMessagePayload(message: OutgoingMessage): MessageSendOptions {
+export function toDashboardFluxerMessagePayload(
+    message: OutgoingMessage,
+    mentionPolicy: DashboardMessageMentionPolicy = { allowMassMentions: false }
+): MessageSendOptions {
     const embeds: NonNullable<MessageSendOptions['embeds']> = message.embeds.map(toFluxerEmbed);
+    const allowedMentionTypes = mentionPolicy.allowMassMentions
+        ? [...DASHBOARD_MESSAGE_MENTION_POLICY.allowedMentionTypes, DASHBOARD_MESSAGE_MENTION_POLICY.massMentionType]
+        : [...DASHBOARD_MESSAGE_MENTION_POLICY.allowedMentionTypes];
     return {
-        allowedMentions: { parse: [...DASHBOARD_MESSAGE_MENTION_POLICY.allowedMentionTypes] },
+        allowedMentions: { parse: allowedMentionTypes },
         ...(message.content ? { content: message.content } : {}),
         ...(embeds.length > 0 ? { embeds } : {}),
     };

@@ -187,6 +187,7 @@ export async function runNextDashboardPostingOperation(
     const providerSendStartedAt = performance.now();
     const sent = await waitForProviderSend(
         platform.messages.sendDashboard({
+            allowMassMentions: operation.allowMassMentions,
             channelId: operation.requestedChannelId,
             message: payload.value,
         }),

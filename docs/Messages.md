@@ -5,7 +5,7 @@ The Message Builder lets an authorized user compose a message, preview it, choos
 ## What happens after Send
 
 1. NeonFlux checks the message and saves the send request.
-2. The connected bot sends the message to Fluxer with mentions disabled.
+2. The connected bot sends the message to Fluxer with the selected mention settings.
 3. The dashboard shows whether the request is waiting, delivering, sent, not sent, or unconfirmed.
 
 Delivery continues if you leave the page.
@@ -26,8 +26,8 @@ You can send a follow-up after accepting the duplicate risk.
 
 ## Mentions
 
-User, role, and everyone mentions are disabled by default.
-This also applies to copied text and message embeds.
+User and role mentions notify normally.
+`@everyone` and `@here` notify only when **Allow @everyone and @here** is enabled for that send.
 
 ## Templates
 

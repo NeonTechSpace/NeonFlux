@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DASHBOARD_MESSAGE_MENTION_POLICY, OUTGOING_MESSAGE_LIMITS } from '@neonflux/messaging';
+import { OUTGOING_MESSAGE_LIMITS } from '@neonflux/messaging';
 import type { OutgoingEmbed } from '@neonflux/messaging';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -61,11 +61,13 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
     const liveInvalidationHealthy = isDashboardLiveHealthy(liveStatus);
     const previousLiveInvalidationHealthyRef = useRef(liveInvalidationHealthy);
     const messageContentId = useId();
+    const massMentionsId = useId();
     const previewRef = useRef<HTMLElement>(null);
     const [selectedChannelId, setSelectedChannelId] = useState('');
     const [channelSearch, setChannelSearch] = useState('');
     const [channelPickerOpen, setChannelPickerOpen] = useState(false);
     const [content, setContent] = useState('');
+    const [allowMassMentions, setAllowMassMentions] = useState(false);
     const [embedDraft, setEmbedDraft] = useState<DashboardEmbedDraft>(createEmptyDashboardEmbedDraft);
     const [embedEditorOpen, setEmbedEditorOpen] = useState(false);
     const [formMessage, setFormMessage] = useState<PostingFormMessage>();
@@ -157,6 +159,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
 
     const mutation = useMutation({
         mutationFn: (payload: {
+            allowMassMentions: boolean;
             channelId: string;
             channelLabel: string;
             content?: string;
@@ -166,6 +169,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         }) =>
             postDashboardMessageRouteData({
                 data: {
+                    allowMassMentions: payload.allowMassMentions,
                     guildId,
                     channelId: payload.channelId,
                     ...(payload.content ? { content: payload.content } : {}),
@@ -309,6 +313,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
         const requestKey = retryOfOperationId ? crypto.randomUUID() : (retryRequestKey ?? crypto.randomUUID());
         setRetryRequestKey(retryOfOperationId ? undefined : requestKey);
         mutation.mutate({
+            allowMassMentions,
             channelId: trimmedChannelId,
             channelLabel: getPostingChannelLabel(postingCatalogQuery.data?.channels ?? [], trimmedChannelId),
             ...(trimmedContent ? { content: trimmedContent } : {}),
@@ -414,6 +419,29 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     />
                 </div>
 
+                <div className='rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[var(--dash-surface-muted)] p-3'>
+                    <label
+                        htmlFor={massMentionsId}
+                        className='flex cursor-pointer items-center gap-3 text-sm font-medium text-[var(--dash-text)]'>
+                        <input
+                            id={massMentionsId}
+                            type='checkbox'
+                            checked={allowMassMentions}
+                            disabled={mutation.isPending}
+                            onChange={(event) => {
+                                setAllowMassMentions(event.currentTarget.checked);
+                                setFormMessage(undefined);
+                            }}
+                            className='size-4 accent-[var(--dash-accent)]'
+                        />
+                        Allow @everyone and @here
+                    </label>
+                    <p className='mt-1 pl-7 text-xs leading-5 text-[var(--dash-text-muted)]'>
+                        User and role mentions notify normally. Enable this only when the whole channel should be
+                        notified.
+                    </p>
+                </div>
+
                 <div className='space-y-3'>
                     <div className='flex flex-wrap items-center justify-between gap-3'>
                         <div>
@@ -499,7 +527,6 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                             </motion.p>
                         )}
                     </AnimatePresence>
-                    <p className='mt-3 text-xs leading-5 text-[var(--dash-text-subtle)]'>{getMentionPolicyNotice()}</p>
                     {activeOperation?.status === 'unknown' && !activeOperation.resolution ? (
                         <div className='mt-3 space-y-2' aria-label='Resolve unknown delivery'>
                             <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>
@@ -634,10 +661,6 @@ function getResolutionErrorMessage(type: string): string {
         default:
             return 'NeonFlux could not record the delivery check. Try again.';
     }
-}
-
-function getMentionPolicyNotice(): string {
-    return DASHBOARD_MESSAGE_MENTION_POLICY.notice;
 }
 
 function getFormMessageTone(type: PostingFormMessage['type']): 'danger' | 'success' | 'warning' {

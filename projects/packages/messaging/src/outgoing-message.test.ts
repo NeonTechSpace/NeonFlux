@@ -48,6 +48,12 @@ describe('outgoing message contract', () => {
         await expect(hashDashboardPostingPayload('channel-1', message)).resolves.toBe(
             '3042ce5f5d0fe8731787fdb927c1c5d897827130fc37b0d6b6927eaebb1d5e29'
         );
+        expect(serializeDashboardPostingPayload('channel-1', message, { allowMassMentions: true })).toBe(
+            '{"channelId":"channel-1","content":"hello","embeds":[],"allowMassMentions":true}'
+        );
+        await expect(hashDashboardPostingPayload('channel-1', message, { allowMassMentions: true })).resolves.not.toBe(
+            '3042ce5f5d0fe8731787fdb927c1c5d897827130fc37b0d6b6927eaebb1d5e29'
+        );
     });
 
     it('rejects empty messages and unsafe URL schemes', () => {

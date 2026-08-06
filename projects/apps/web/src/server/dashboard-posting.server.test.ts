@@ -318,6 +318,7 @@ describe('dashboard posting', () => {
         expect(enqueueAuthorizedDashboardPostingOperation).toHaveBeenCalledWith(
             expect.objectContaining({
                 actorUserId: 'actor-1',
+                allowMassMentions: false,
                 content: 'hello',
                 embeds: [{ title: 'NeonFlux' }],
                 guildId: 'guild-1',
@@ -511,6 +512,7 @@ function createPostingOperationRecord(overrides: { status?: 'queued' | 'sent' } 
         actorDisplayName: 'Neonsy',
         actorUsername: 'neonsy',
         actorUserId: 'actor-1',
+        allowMassMentions: false,
         attemptCount: 0,
         completedAt: null,
         contentLength: 5,

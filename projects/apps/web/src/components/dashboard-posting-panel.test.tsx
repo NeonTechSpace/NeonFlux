@@ -133,7 +133,26 @@ describe('DashboardPostingPanel', () => {
         expect(screen.getByRole('button', { name: 'I did not find it' })).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Send a new copy despite duplicate risk' })).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true);
-        expect(screen.getByText(/mentions are suppressed/i)).toBeTruthy();
+    });
+
+    it('requires an explicit choice before allowing mass mentions', async () => {
+        renderPanel();
+
+        const massMentions = await screen.findByRole('checkbox', { name: /allow @everyone and @here/i });
+        expect((massMentions as HTMLInputElement).checked).toBe(false);
+        fireEvent.focus(screen.getByRole('combobox', { name: 'Channel' }));
+        fireEvent.click(await screen.findByRole('option', { name: /#general/i }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Message content' }), {
+            target: { value: '@everyone Hello' },
+        });
+        fireEvent.click(massMentions);
+        fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+        await waitFor(() =>
+            expect(postDashboardMessageRouteData).toHaveBeenCalledWith({
+                data: expect.objectContaining({ allowMassMentions: true, content: '@everyone Hello' }),
+            })
+        );
     });
 
     it('keeps an older unresolved delivery actionable when a newer terminal delivery exists', async () => {

@@ -11,6 +11,7 @@ export const dashboardPostingOperationsTable = defineTable({
     actorDisplayName: optionalString,
     actorUsername: optionalString,
     actorUserId: v.string(),
+    allowMassMentions: v.optional(v.boolean()),
     attemptCount: v.optional(v.number()),
     content: v.optional(v.string()),
     contentLength: v.optional(v.number()),

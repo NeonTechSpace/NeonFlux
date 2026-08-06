@@ -31,6 +31,7 @@ import {
 } from './dashboard-posting-wake-observability.server.js';
 
 export type DashboardPostMessageInput = {
+    allowMassMentions?: boolean;
     guildId: string;
     channelId: string;
     content?: string;
@@ -129,6 +130,7 @@ type DashboardGuildPageErrorResult =
     | { type: 'guild-lookup-failed' };
 
 type NormalizedPostMessagePayload = {
+    allowMassMentions: boolean;
     channelId: string;
     message: OutgoingMessage;
 };
@@ -180,6 +182,7 @@ export async function postDashboardGuildMessage(
     const enqueueResult = await timing.measureAsync('enqueueMs', async () => {
         return enqueueAuthorizedDashboardPostingOperation({
             actorUserId: authContextResult.value.fluxerUserId,
+            allowMassMentions: validationResult.payload.allowMassMentions,
             ...(validationResult.payload.message.content ? { content: validationResult.payload.message.content } : {}),
             embeds: validationResult.payload.message.embeds,
             guildId: targetAuthorizationResult.value.guild.id,
@@ -253,6 +256,7 @@ async function normalizeDashboardPostingRequest(
     }
 
     const payload: NormalizedPostMessagePayload = {
+        allowMassMentions: input.allowMassMentions === true,
         channelId: payloadResult.payload.channelId,
         message: queuePayload.value,
     };
@@ -260,7 +264,9 @@ async function normalizeDashboardPostingRequest(
     return {
         type: 'valid',
         payload,
-        payloadHash: await hashDashboardPostingPayload(payload.channelId, payload.message),
+        payloadHash: await hashDashboardPostingPayload(payload.channelId, payload.message, {
+            allowMassMentions: payload.allowMassMentions,
+        }),
         requestKey,
     };
 }
@@ -379,6 +385,7 @@ function normalizePostMessagePayload(
     return {
         type: 'valid',
         payload: {
+            allowMassMentions: input.allowMassMentions === true,
             channelId,
             message: message.value,
         },

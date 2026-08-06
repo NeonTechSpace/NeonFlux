@@ -9,6 +9,7 @@ import { loadWebConvexJwtSignerConfig } from './convex-auth.server.js';
 
 export async function enqueueAuthorizedDashboardPostingOperation(input: {
     actorUserId: string;
+    allowMassMentions: boolean;
     content?: string;
     embeds: OutgoingEmbed[];
     guildId: string;
@@ -18,7 +19,14 @@ export async function enqueueAuthorizedDashboardPostingOperation(input: {
     retryOfOperationId?: string;
 }) {
     const config = loadWebConfig();
-    const token = await signNeonFluxPostingDelegationJwt(loadWebConvexJwtSignerConfig(config), input);
+    const token = await signNeonFluxPostingDelegationJwt(loadWebConvexJwtSignerConfig(config), {
+        actorUserId: input.actorUserId,
+        guildId: input.guildId,
+        payloadHash: input.payloadHash,
+        requestKey: input.requestKey,
+        requestedChannelId: input.requestedChannelId,
+        ...(input.retryOfOperationId ? { retryOfOperationId: input.retryOfOperationId } : {}),
+    });
     const client = createNeonFluxConvexHttpClient({
         authTokenProvider: () => Promise.resolve(token),
         url: requireConfigValue(config.convex?.url, 'CONVEX_URL'),
@@ -27,6 +35,7 @@ export async function enqueueAuthorizedDashboardPostingOperation(input: {
     return enqueueDashboardPostingOperation(
         { client },
         {
+            allowMassMentions: input.allowMassMentions,
             ...(input.content ? { content: input.content } : {}),
             embeds: input.embeds,
             guildId: input.guildId,

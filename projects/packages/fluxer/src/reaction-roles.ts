@@ -273,6 +273,7 @@ async function sendReactionRoleMessage(
     try {
         const sent = await client.channels.send(input.channelId, {
             ...toDashboardFluxerMessagePayload(input.message),
+            allowedMentions: { parse: [] },
             nonce: input.nonce,
         });
         return ok({ channelId: sent.channelId, id: sent.id });
@@ -286,7 +287,10 @@ async function editReactionRoleMessage(
     input: { channelId: string; message: OutgoingMessage; messageId: string }
 ): Promise<Result<{ channelId: string; id: string }, FluxerPlatformError>> {
     return withMessage(client, input, async (message) => {
-        const edited = await message.edit(toDashboardFluxerMessagePayload(input.message));
+        const edited = await message.edit({
+            ...toDashboardFluxerMessagePayload(input.message),
+            allowedMentions: { parse: [] },
+        });
         return { channelId: edited.channelId, id: edited.id };
     });
 }

@@ -18,6 +18,7 @@ export type StoredDashboardPostingOperation = {
     actorDisplayName?: string;
     actorUsername?: string;
     actorUserId: string;
+    allowMassMentions?: boolean;
     attemptCount?: number;
     completedAt?: string;
     content?: string;
@@ -55,6 +56,7 @@ const dashboardPostingOperationRecordFields = {
     actorDisplayName: v.union(v.string(), v.null()),
     actorUsername: v.union(v.string(), v.null()),
     actorUserId: v.string(),
+    allowMassMentions: v.boolean(),
     attemptCount: v.number(),
     completedAt: v.union(v.string(), v.null()),
     contentLength: v.number(),
@@ -123,6 +125,7 @@ export function toDashboardPostingOperationRecord(operation: StoredDashboardPost
         actorDisplayName: operation.actorDisplayName ?? null,
         actorUsername: operation.actorUsername ?? null,
         actorUserId: operation.actorUserId,
+        allowMassMentions: operation.allowMassMentions ?? false,
         attemptCount: operation.attemptCount ?? 0,
         completedAt: operation.completedAt ?? null,
         contentLength: operation.contentLength ?? operation.content?.length ?? 0,

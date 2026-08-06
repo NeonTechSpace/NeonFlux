@@ -25,6 +25,7 @@ const terminalStatuses = ['unknown', 'sent', 'permanent_failure'] as const;
 
 export const enqueueDashboardPostingOperation = mutation({
     args: {
+        allowMassMentions: v.optional(v.boolean()),
         content: v.optional(v.string()),
         embeds: v.optional(v.array(outgoingEmbedValidator)),
         guildId: v.string(),
@@ -42,7 +43,10 @@ export const enqueueDashboardPostingOperation = mutation({
         const requestedChannelId = normalizeBoundedOperationText(args.requestedChannelId, 'channel-id');
         const retryOfOperationId = normalizeOptionalOperationText(args.retryOfOperationId, 'retry-of-operation-id');
         const payload = normalizeDashboardPostingPayload(args);
-        const computedPayloadHash = await hashDashboardPostingPayload(requestedChannelId, payload);
+        const allowMassMentions = args.allowMassMentions === true;
+        const computedPayloadHash = await hashDashboardPostingPayload(requestedChannelId, payload, {
+            allowMassMentions,
+        });
 
         if (
             computedPayloadHash !== payloadHash ||
@@ -77,6 +81,7 @@ export const enqueueDashboardPostingOperation = mutation({
         const now = new Date().toISOString();
         const id = await ctx.db.insert('dashboardPostingOperations', {
             actorUserId,
+            ...(allowMassMentions ? { allowMassMentions: true } : {}),
             attemptCount: 0,
             ...(payload.content ? { content: payload.content } : {}),
             contentLength: payload.content?.length ?? 0,

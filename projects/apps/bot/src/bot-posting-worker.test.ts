@@ -73,6 +73,7 @@ describe('dashboard posting worker', () => {
         if (markedOrder === undefined || sentOrder === undefined) throw new Error('Expected mark and send calls.');
         expect(markedOrder).toBeLessThan(sentOrder);
         expect(sendMessage).toHaveBeenCalledWith({
+            allowMassMentions: false,
             channelId: 'channel-1',
             message: { content: 'Hello', embeds: [] },
         });
@@ -177,6 +178,7 @@ function createOperation(
         actorDisplayName: 'Neonsy',
         actorUsername: 'neonsy',
         actorUserId: 'actor-1',
+        allowMassMentions: false,
         attemptCount: 1,
         completedAt: null,
         content: 'Hello',
