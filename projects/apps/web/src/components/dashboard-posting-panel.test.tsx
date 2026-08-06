@@ -240,6 +240,12 @@ describe('DashboardPostingPanel', () => {
         expect(save.disabled).toBe(false);
     });
 
+    it('uses the same English number formatting during server and browser rendering', () => {
+        renderPanel();
+
+        expect(screen.getByText('0 / 4,000')).toBeTruthy();
+    });
+
     it('keeps failed posting reads visible while their explicit retries are in flight', async () => {
         vi.mocked(readDashboardPostingCatalogRouteData)
             .mockResolvedValueOnce({ type: 'database-error' })

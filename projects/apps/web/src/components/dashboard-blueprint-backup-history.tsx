@@ -98,7 +98,7 @@ export function DashboardBlueprintBackupHistory({
                 ? '1 stored backup'
                 : backups.length > 1
                   ? `${backups.length} stored backups`
-                  : 'Protected snapshots for comparison and recovery',
+                  : 'Saved backups for comparison and recovery',
         [backups.length]
     );
 

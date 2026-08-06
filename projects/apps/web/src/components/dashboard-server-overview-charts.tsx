@@ -271,7 +271,7 @@ function formatChartDate(value: unknown): string {
     const date = new Date(`${text}T00:00:00.000Z`);
     return Number.isNaN(date.getTime())
         ? text
-        : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+        : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function formatLongChartDate(value: unknown): string {
@@ -279,5 +279,5 @@ function formatLongChartDate(value: unknown): string {
     const date = new Date(`${text}T00:00:00.000Z`);
     return Number.isNaN(date.getTime())
         ? text
-        : date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+        : date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }

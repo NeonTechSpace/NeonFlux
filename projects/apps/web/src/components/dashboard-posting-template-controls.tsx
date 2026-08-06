@@ -137,12 +137,15 @@ export function DashboardPostingTemplateControls({
                 case 'deployment-config-not-found':
                 case 'database-error':
                 case 'guild-lookup-failed':
-                    onMessage({ type: 'error', text: 'Could not save this template. Try again.' });
+                    onMessage({ type: 'error', text: getTemplateWriteErrorMessage(result.type, 'save') });
                     return;
             }
         },
         onError: () => {
-            onMessage({ type: 'error', text: 'Could not save this template. Try again.' });
+            onMessage({
+                type: 'error',
+                text: 'The connection ended before NeonFlux could save the template. Try again.',
+            });
         },
     });
 
@@ -181,12 +184,15 @@ export function DashboardPostingTemplateControls({
                 case 'deployment-config-not-found':
                 case 'database-error':
                 case 'guild-lookup-failed':
-                    onMessage({ type: 'error', text: 'Could not delete this template. Try again.' });
+                    onMessage({ type: 'error', text: getTemplateWriteErrorMessage(result.type, 'delete') });
                     return;
             }
         },
         onError: () => {
-            onMessage({ type: 'error', text: 'Could not delete this template. Try again.' });
+            onMessage({
+                type: 'error',
+                text: 'The connection ended before NeonFlux could delete the template. Try again.',
+            });
         },
     });
     const saveDisabled =
@@ -440,6 +446,20 @@ export function DashboardPostingTemplateControls({
             </AnimatePresence>
         </section>
     );
+}
+
+function getTemplateWriteErrorMessage(type: string, action: 'delete' | 'save'): string {
+    const actionLabel = action === 'save' ? 'save' : 'delete';
+    switch (type) {
+        case 'deployment-config-not-found':
+            return `NeonFlux deployment settings are missing. Run the deployment setup before trying to ${actionLabel} the template.`;
+        case 'database-error':
+            return `NeonFlux could not ${actionLabel} the template in Convex. Check the deployment and try again.`;
+        case 'guild-lookup-failed':
+            return `NeonFlux could not verify this server with Fluxer. Check the bot connection and permissions, then try again.`;
+        default:
+            return `NeonFlux could not ${actionLabel} the template. Try again.`;
+    }
 }
 
 function getTemplateLoadErrorMessage(type: string): string {

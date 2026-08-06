@@ -34,7 +34,7 @@ The mention-based prefix command works regardless of the current prefix.
 If the requested prefix already matches the current prefix, NeonFlux reports that nothing changed instead of saving it again.
 
 The prefix can also be changed from the command prefix panel on the selected community dashboard.
-When that panel is open, prefix changes from bot commands or another dashboard tab update live without interval polling.
+Changes made by a bot command or another dashboard tab appear in the open panel without a refresh.
 
 Valid prefixes are 1-3 visible characters. The first character must be an allowed symbol or punctuation mark. After the
 first character, letters and numbers are allowed.
@@ -50,7 +50,7 @@ channels, and other platform syntax. Prefixes also cannot contain spaces, contro
 Yes, I'm here, and no, I don't pong
 ```
 
-This command is intentionally small. It exists to prove that message routing, prefix parsing, DEFCON checks, and channel replies work before larger bot features are added.
+Use `ping` to check whether NeonFlux can reply in the current channel.
 
 ## Help command
 
@@ -64,8 +64,7 @@ current pages:
 ```
 
 Users can open a page directly with `!help general`, `!help reaction_roles`, or `!help settings`. Mentioning the bot with
-`@NeonFlux help` opens the same help entrypoint. Help pages are plain text right now; button navigation is not supported
-until Fluxer message components are wrapped.
+`@NeonFlux help` opens the same help page. Help pages use plain text and do not include navigation buttons.
 
 ## Mention behavior
 

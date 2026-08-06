@@ -85,7 +85,7 @@ const dashboardNavigationSettings = [
         label: 'Overview',
         path: '',
         to: '/dashboard/$guildId',
-        description: 'Server pulse, activity, and operational health.',
+        description: 'Member growth, message activity, and bot status.',
         icon: BarChart3,
         items: [],
     },
@@ -108,7 +108,7 @@ const dashboardNavigationSettings = [
             subNavigation(
                 'reaction-roles',
                 'Reaction Roles',
-                'Publish live role menus with safe, durable role assignment.',
+                'Let members choose roles from a managed message.',
                 '/dashboard/$guildId/messaging/reaction-roles',
                 SmilePlus,
                 'full'
@@ -138,7 +138,7 @@ const dashboardNavigationSettings = [
         label: 'Events & Logs',
         path: 'events',
         to: '/dashboard/$guildId/events',
-        description: 'Audit and operational event history.',
+        description: 'Review dashboard and bot changes.',
         icon: BellDot,
         items: [
             subNavigation(
@@ -166,7 +166,7 @@ const dashboardNavigationJobs = [
     {
         id: 'overview',
         label: 'Overview',
-        description: 'Server pulse, attention, and recent activity.',
+        description: 'Member growth, message activity, and items that need attention.',
         icon: BarChart3,
         routeCategoryIds: ['overview'],
     },
@@ -180,7 +180,7 @@ const dashboardNavigationJobs = [
     {
         id: 'insights-activity',
         label: 'Insights & Activity',
-        description: 'Audit events and operational history.',
+        description: 'Review dashboard and bot changes.',
         icon: ChartNoAxesCombined,
         routeCategoryIds: ['events'],
     },

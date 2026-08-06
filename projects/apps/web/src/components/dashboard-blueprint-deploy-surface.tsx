@@ -496,7 +496,7 @@ function DeployRunAction({ workspace }: { workspace: DashboardBlueprintDeployWor
     }
     if (run.status === 'queued') {
         return (
-            <ActionRow detail='Queued deployments can be cancelled before the worker starts.'>
+            <ActionRow detail='Queued deployments can be cancelled before server changes begin.'>
                 <button
                     type='button'
                     disabled={Boolean(workspace.busyAction)}

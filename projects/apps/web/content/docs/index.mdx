@@ -1,9 +1,9 @@
 ---
 title: Overview
-description: Implemented NeonFlux bot and dashboard surfaces.
+description: What NeonFlux can do from Fluxer and the dashboard.
 ---
 
-NeonFlux is a Fluxer bot with a protected, Convex-backed dashboard. It is an unreleased work in progress; this documentation describes implemented behavior only.
+NeonFlux is a Fluxer bot for sending messages, managing reaction roles, viewing server activity, and planning server layout changes from a dashboard.
 
 <Accordions type='single' collapsible>
     <Accordion title='Bot' value='bot'>
@@ -16,18 +16,15 @@ NeonFlux is a Fluxer bot with a protected, Convex-backed dashboard. It is an unr
     </Accordion>
 </Accordions>
 
-## Current bot behavior
+## What you can do
 
-The bot currently owns:
+NeonFlux currently lets you:
 
-- installation reconciliation in single- and multi-instance modes;
-- prefix, help, ping, and contextless-mention responses;
-- replay-safe message activity and member-join tracking with invite attribution;
-- explicitly at-least-once member-leave tracking because Fluxer supplies no reliable leave event identity;
-- a bounded, best-effort growth telemetry queue;
-- durable dashboard posting delivery;
-- durable reaction-role panels with independent and exclusive selection modes;
-- server-structure observation, backups, drift checks, and reviewed Blueprint runs.
+- change the command prefix and use the help and ping commands
+- view message activity, member changes, and invite attribution
+- build, preview, and send messages from the dashboard
+- create reaction-role panels with independent or exclusive choices
+- view, back up, compare, and deploy reviewed server layouts
 
 ## Dashboard routes
 
@@ -43,18 +40,22 @@ Open `/dashboard` to choose an installed community you can manage. A selected co
 
 Features not listed here are not shipped dashboard routes.
 
-## Loading behavior
+## Dashboard behavior
 
-The selected-community shell and feature identity remain visible during navigation. Each feature route loads its code and data independently, and only the unresolved data island shows cold-loading feedback. Confirmed content remains visible during background refresh, while errors and retries stay local to the affected feature.
+The selected server and current feature remain visible while dashboard pages load.
+Saved content stays visible during background updates, and a failed section can be retried without reloading the whole page.
 
 ## Security boundaries
 
-Fluxer OAuth is the web login flow. Server code re-checks current manageable-community access before protected work. The browser receives a short-lived Convex user token scoped to communities the server confirmed.
+Sign in with Fluxer to use the dashboard.
+NeonFlux checks that you can manage a server before showing its data or making a change.
 
-The Fluxer bot token belongs only to the bot runtime. Dashboard live provider reads cross an authenticated internal bot-read service; web never receives or uses the bot token.
+The bot token stays with the bot service and is never sent to your browser.
 
-## Telemetry accuracy
+## Activity accuracy
 
-Message activity stores a durable receipt keyed by community and message id before incrementing an aggregate. Member joins deduplicate by membership identity. Member leaves can overcount if Fluxer redelivers the same callback because no stable leave event id is available.
+Each message and member join is counted once when Fluxer supplies enough information to identify it.
+Member leaves can be counted more than once if Fluxer repeats a leave notification because those notifications do not include a unique event ID.
 
-Telemetry processing is intentionally best effort so analytics cannot block commands or gateway routing. Overload and persistence failures are logged.
+Activity tracking does not delay bot commands.
+An activity event may be missing from the dashboard if NeonFlux is overloaded or cannot save it.

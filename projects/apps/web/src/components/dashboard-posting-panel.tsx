@@ -205,27 +205,40 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
 
                 case 'request-conflict':
                     setRetryRequestKey(undefined);
-                    setFormMessage({ type: 'error', text: 'This posting attempt conflicts with an existing request.' });
+                    setFormMessage({
+                        type: 'error',
+                        text: 'A send request with this ID already exists. Refresh recent delivery before trying again.',
+                    });
                     return;
 
                 case 'database-error':
                     setFormMessage({
                         type: 'warning',
-                        text: 'The send request could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
+                        text: 'NeonFlux could not confirm whether the send request was saved. Retrying is safe because it reuses the same request.',
                     });
                     return;
 
                 case 'deployment-config-not-found':
+                    setRetryRequestKey(undefined);
+                    setFormMessage({
+                        type: 'error',
+                        text: 'NeonFlux deployment settings are missing. Run the deployment setup before sending messages.',
+                    });
+                    return;
+
                 case 'guild-lookup-failed':
                     setRetryRequestKey(undefined);
-                    setFormMessage({ type: 'error', text: 'Could not post this message. Try again.' });
+                    setFormMessage({
+                        type: 'error',
+                        text: 'NeonFlux could not verify this server with Fluxer. Check the bot connection and permissions, then try again.',
+                    });
                     return;
             }
         },
         onError: () => {
             setFormMessage({
                 type: 'warning',
-                text: 'The send request could not be confirmed. Retry uses the same attempt so it cannot create a second queue item.',
+                text: 'The connection ended before NeonFlux could confirm the send request. Retrying is safe because it reuses the same request.',
             });
         },
     });
@@ -251,10 +264,14 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                 text:
                     result.type === 'resolution-conflict'
                         ? 'This delivery was already resolved differently. Refresh recent delivery.'
-                        : 'Could not record the delivery check. Try again.',
+                        : getResolutionErrorMessage(result.type),
             });
         },
-        onError: () => setFormMessage({ type: 'error', text: 'Could not record the delivery check. Try again.' }),
+        onError: () =>
+            setFormMessage({
+                type: 'error',
+                text: 'The connection ended before NeonFlux could record your check. Try again.',
+            }),
     });
     const sendDisabled =
         mutation.isPending ||
@@ -380,7 +397,8 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                         <span
                             aria-hidden='true'
                             className='text-xs font-normal text-[var(--dash-text-subtle)] tabular-nums'>
-                            {content.length.toLocaleString()} / {OUTGOING_MESSAGE_LIMITS.content.toLocaleString()}
+                            {content.length.toLocaleString('en-US')} /{' '}
+                            {OUTGOING_MESSAGE_LIMITS.content.toLocaleString('en-US')}
                         </span>
                     </div>
                     <textarea
@@ -477,8 +495,7 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                                 initial='initial'
                                 animate='enter'
                                 transition={dashboardConfirmationTransition}>
-                                Sending is durable. You can leave this page while the connected bot delivers the
-                                message.
+                                Delivery continues through the connected bot if you leave this page.
                             </motion.p>
                         )}
                     </AnimatePresence>
@@ -486,8 +503,8 @@ export function DashboardPostingPanel({ guildId }: { guildId: string }) {
                     {activeOperation?.status === 'unknown' && !activeOperation.resolution ? (
                         <div className='mt-3 space-y-2' aria-label='Resolve unknown delivery'>
                             <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>
-                                Record what you found after checking the channel. This reports your observation; it does
-                                not rewrite the provider outcome.
+                                Check the channel and record what you find. NeonFlux cannot change the original delivery
+                                result after Fluxer stops responding.
                             </p>
                             <div className='flex flex-wrap gap-2'>
                                 <button
@@ -566,7 +583,7 @@ function hasEmbedDraftContent(draft: DashboardEmbedDraft): boolean {
 function getChannelLoadErrorMessage(type: string): string {
     switch (type) {
         case 'bot-token-missing':
-            return 'Dashboard posting is not configured for this deployment.';
+            return 'NeonFlux cannot authenticate with the bot service. Check the bot and web service key configuration.';
 
         case 'auth-required':
             return 'Sign in again before posting.';
@@ -575,10 +592,13 @@ function getChannelLoadErrorMessage(type: string): string {
             return 'This server is not available for this account.';
 
         case 'deployment-config-not-found':
+            return 'NeonFlux deployment settings are missing. Run the deployment setup before loading channels.';
         case 'database-error':
+            return 'NeonFlux could not load channels from Convex. Check the deployment and retry.';
         case 'guild-lookup-failed':
+            return 'NeonFlux could not load channels from Fluxer. Check the bot connection and permissions, then retry.';
         default:
-            return 'Could not load channels.';
+            return 'NeonFlux could not load channels. Check your connection and retry.';
     }
 }
 
@@ -591,10 +611,28 @@ function getOperationLoadErrorMessage(type: string): string {
         case 'deployment-config-not-found':
             return 'Recent delivery status is unavailable because this deployment is not fully configured.';
         case 'database-error':
+            return 'NeonFlux could not load recent delivery from Convex. Check the deployment and retry.';
         case 'guild-lookup-failed':
-            return 'Recent delivery status could not be loaded.';
+            return 'NeonFlux could not verify this server with Fluxer. Check the bot connection and permissions, then retry.';
         default:
             return 'Recent delivery status is unavailable.';
+    }
+}
+
+function getResolutionErrorMessage(type: string): string {
+    switch (type) {
+        case 'auth-required':
+            return 'Sign in again before recording the delivery check.';
+        case 'not-found':
+            return 'This delivery or server is no longer available. Refresh recent delivery.';
+        case 'deployment-config-not-found':
+            return 'NeonFlux deployment settings are missing. Run the deployment setup before recording the check.';
+        case 'database-error':
+            return 'NeonFlux could not save the delivery check to Convex. Check the deployment and try again.';
+        case 'guild-lookup-failed':
+            return 'NeonFlux could not verify this server with Fluxer. Check the bot connection and permissions, then try again.';
+        default:
+            return 'NeonFlux could not record the delivery check. Try again.';
     }
 }
 

@@ -155,7 +155,7 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
                             ? result.message
                             : result.type === 'conflict'
                               ? 'This panel changed elsewhere. Refresh before saving again.'
-                              : 'The panel could not be saved.',
+                              : formatPanelWriteError(result.type, 'save'),
                 });
                 return;
             }
@@ -166,7 +166,11 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
             });
             await queryClient.invalidateQueries({ queryKey });
         },
-        onError: () => setNotice({ tone: 'danger', text: 'The panel could not be saved.' }),
+        onError: () =>
+            setNotice({
+                tone: 'danger',
+                text: 'The connection ended before NeonFlux could save the panel. Try again.',
+            }),
     });
     const deactivateMutation = useMutation({
         mutationFn: async (input: { deleteMessage: boolean; revokeOwnedRoles: boolean }) => {
@@ -183,7 +187,7 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         },
         onSuccess: async (result) => {
             if (result.type !== 'panel') {
-                setNotice({ tone: 'danger', text: 'The panel could not be deactivated.' });
+                setNotice({ tone: 'danger', text: formatPanelWriteError(result.type, 'deactivate') });
                 return;
             }
             setNotice({ tone: 'success', text: 'Panel deactivation queued.' });
@@ -193,7 +197,10 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
         },
         onError: () => {
             setPendingDeactivation(undefined);
-            setNotice({ tone: 'danger', text: 'The panel could not be deactivated.' });
+            setNotice({
+                tone: 'danger',
+                text: 'The connection ended before NeonFlux could deactivate the panel. Try again.',
+            });
         },
     });
 
@@ -349,13 +356,14 @@ export function DashboardReactionRolesPanel({ guildId }: { guildId: string }) {
                                     {panel.name}
                                 </span>
                                 <span className='mt-1 block text-xs text-[var(--dash-text-muted)]'>
-                                    {panel.status} · {panel.payload.options.length} roles
+                                    {formatPanelStatus(panel.status)} · {panel.payload.options.length} roles
                                 </span>
                                 {panel.errorCode ? (
-                                    <span
-                                        className='mt-1 block text-xs text-[var(--dash-danger)]'
-                                        title={panel.errorCode}>
+                                    <span className='mt-1 block text-xs text-[var(--dash-danger)]'>
                                         {formatPanelAttention(panel.errorCode)}
+                                        <span className='mt-0.5 block font-mono text-[10px] text-[var(--dash-text-subtle)]'>
+                                            Error code: {panel.errorCode}
+                                        </span>
                                     </span>
                                 ) : null}
                             </button>
@@ -736,7 +744,7 @@ function toPostingRoles(roles: Array<{ color: number; id: string; name: string }
 function formatPanelAttention(errorCode: string): string {
     switch (errorCode) {
         case 'managed_message_deleted':
-            return 'Managed message deleted — save to recreate it.';
+            return 'The managed message was deleted. Save the panel to recreate it.';
         case 'send_outcome_unknown':
         case 'send_outcome_unknown_after_restart':
             return 'Message delivery needs manual review.';
@@ -745,6 +753,45 @@ function formatPanelAttention(errorCode: string): string {
         case 'reaction_emoji_removed_review_required':
             return 'A configured reaction was removed.';
         default:
-            return 'Operation needs attention.';
+            return 'This panel needs attention. Open its details to see what failed and what to do next.';
+    }
+}
+
+function formatPanelStatus(status: StoredPanel['status']): string {
+    switch (status) {
+        case 'publishing':
+            return 'Publishing';
+        case 'active':
+            return 'Active';
+        case 'updating':
+            return 'Updating';
+        case 'deactivating':
+            return 'Deactivating';
+        case 'degraded':
+            return 'Needs attention';
+        case 'unknown':
+            return 'Delivery unknown';
+        case 'inactive':
+            return 'Inactive';
+    }
+}
+
+function formatPanelWriteError(type: string, action: 'deactivate' | 'save'): string {
+    const actionLabel = action === 'save' ? 'saving this panel' : 'deactivating this panel';
+    switch (type) {
+        case 'auth-required':
+            return `Sign in again before ${actionLabel}.`;
+        case 'not-found':
+            return 'This panel or server is no longer available. Refresh the page.';
+        case 'deployment-config-not-found':
+            return `NeonFlux deployment settings are missing. Run the deployment setup before ${actionLabel}.`;
+        case 'database-error':
+            return `NeonFlux could not update the panel in Convex. Check the deployment before ${actionLabel} again.`;
+        case 'guild-lookup-failed':
+            return `NeonFlux could not verify this server with Fluxer. Check the bot connection and permissions before ${actionLabel} again.`;
+        case 'bot-token-missing':
+            return `NeonFlux cannot authenticate with the bot service. Check the bot and web service keys before ${actionLabel}.`;
+        default:
+            return `NeonFlux could not finish ${actionLabel}. Try again.`;
     }
 }

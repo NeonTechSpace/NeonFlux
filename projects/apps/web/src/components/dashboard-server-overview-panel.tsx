@@ -264,7 +264,7 @@ function formatSignedNumber(value: number): string {
 function formatDateTime(value: string): string {
     const date = new Date(value);
 
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US');
 }
 
 function formatRefreshTime(value: number): string {
@@ -274,7 +274,7 @@ function formatRefreshTime(value: number): string {
 
     return Number.isNaN(date.getTime())
         ? 'recently'
-        : date.toLocaleTimeString(undefined, {
+        : date.toLocaleTimeString('en-US', {
               hour: 'numeric',
               minute: '2-digit',
           });

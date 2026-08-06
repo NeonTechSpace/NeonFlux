@@ -42,7 +42,7 @@ export function DashboardBlueprintPlanStepInspector({
             </dl>
             <details className='mt-3 border-t border-[var(--dash-border)] pt-3'>
                 <summary className='cursor-pointer rounded-sm text-xs font-semibold text-[var(--dash-text-muted)] focus-visible:shadow-[var(--dash-shadow-focus)] focus-visible:outline-none'>
-                    Plan step payload
+                    Step details
                 </summary>
                 <pre className='mt-2 max-h-[min(16rem,45dvh)] overflow-auto font-mono text-[11px] break-all whitespace-pre-wrap text-[var(--dash-text-muted)]'>
                     {JSON.stringify(action.details, null, 2)}

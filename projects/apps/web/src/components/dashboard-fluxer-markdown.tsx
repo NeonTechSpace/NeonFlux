@@ -404,7 +404,7 @@ function renderTimestamp(node: DashboardMarkdownNode, key: string): ReactNode {
         <time
             key={key}
             dateTime={date.toISOString()}
-            title={date.toLocaleString()}
+            title={date.toLocaleString('en-US')}
             className='rounded bg-[#303541] px-1 py-px'>
             {formatTimestamp(date, node.format)}
         </time>

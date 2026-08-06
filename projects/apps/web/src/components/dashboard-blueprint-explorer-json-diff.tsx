@@ -43,9 +43,9 @@ export function DashboardBlueprintExplorerJsonDiffView({
                         JSON diff is too large to render inline.
                     </p>
                     <p className='mt-2 text-xs leading-5 text-[var(--dash-text-muted)]'>
-                        Source JSON is {jsonDiff.beforeLength.toLocaleString()} characters and comparison JSON is{' '}
-                        {jsonDiff.afterLength.toLocaleString()} characters. Inline rendering is capped at{' '}
-                        {jsonDiff.limit.toLocaleString()} combined characters.
+                        Source JSON is {jsonDiff.beforeLength.toLocaleString('en-US')} characters and comparison JSON is{' '}
+                        {jsonDiff.afterLength.toLocaleString('en-US')} characters. Inline rendering is capped at{' '}
+                        {jsonDiff.limit.toLocaleString('en-US')} combined characters.
                     </p>
                 </div>
             ) : (

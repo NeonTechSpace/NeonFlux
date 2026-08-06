@@ -143,7 +143,8 @@ export function DashboardBlueprintDeployRun({
 
             {!compatible ? (
                 <p className='mt-4 text-xs text-[var(--dash-warning)]'>
-                    Deployment controls are disabled because this run uses a different Blueprint protocol.
+                    This deployment was created by a different NeonFlux version. Open it with the matching version to
+                    resume or control it.
                 </p>
             ) : null}
 
@@ -270,7 +271,9 @@ function formatAuthorizationDecision(decision: Run['authorizationDecision']): st
         return 'The target changed while NeonFlux was securing the restore point.';
     }
     if (decision === 'preflight_expired') return 'The safety check expired before authorization.';
-    if (decision === 'fingerprint_version_mismatch') return 'The deployment safety protocol changed.';
+    if (decision === 'fingerprint_version_mismatch') {
+        return 'This plan was checked by a different NeonFlux version. Create a new plan before continuing.';
+    }
     return 'The target no longer matched the latest safety check.';
 }
 
@@ -297,7 +300,7 @@ function formatRunOutcome(status: Run['status']): string {
         case 'failed_before_mutation':
             return 'Stopped before server changes';
         case 'needs_reconciliation':
-            return 'Reconciliation required';
+            return 'Deployment needs review';
         case 'outcome_unknown':
             return 'Server outcome unknown';
         case 'cancelled':
@@ -320,5 +323,5 @@ function getRunOutcomeClassName(status: Run['status']): string {
 
 function formatDate(value: string): string {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-US');
 }

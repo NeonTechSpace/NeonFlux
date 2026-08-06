@@ -105,13 +105,13 @@ function getStatusExplanation(operation: DashboardPostingOperation): string {
 function getUnknownOperationDescription(resolution: DashboardPostingOperation['resolution']): string {
     switch (resolution) {
         case 'reported_seen':
-            return 'The provider outcome remains unknown. An operator reported finding the message.';
+            return 'The message was found in the channel, but NeonFlux still cannot verify the original delivery.';
         case 'reported_not_seen':
-            return 'The provider outcome remains unknown. An operator reported not finding the message.';
+            return 'The message was not found when the channel was checked. The original delivery is still unconfirmed.';
         case 'duplicate_risk_accepted':
-            return 'The provider outcome remains unknown. An operator accepted the risk and created a linked follow-up.';
+            return 'A follow-up was sent after the duplicate risk was accepted. The original delivery is still unconfirmed.';
         case undefined:
-            return 'The provider outcome is unknown. Check the channel before another attempt.';
+            return 'NeonFlux could not confirm whether Fluxer accepted the message. Check the channel before trying again.';
     }
 }
 

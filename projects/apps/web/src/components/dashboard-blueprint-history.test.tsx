@@ -81,7 +81,7 @@ describe('Server Blueprint action inspection', () => {
         expect(pauseButton.hasAttribute('disabled')).toBe(true);
         fireEvent.click(pauseButton);
         expect(onControl).not.toHaveBeenCalled();
-        expect(screen.getByText(/controls are disabled because this deployment uses a different/i)).toBeTruthy();
+        expect(screen.getByText(/deployment was created by a different NeonFlux version/i)).toBeTruthy();
     });
 
     it('turns review into one clear continuation to the final safety check', async () => {

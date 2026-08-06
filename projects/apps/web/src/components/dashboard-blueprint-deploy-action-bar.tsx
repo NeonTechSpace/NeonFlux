@@ -100,8 +100,8 @@ function formatNextActionDetail(
         return 'Records this exact review. NeonFlux will immediately check the live server again; nothing changes yet.';
     }
     if (action === 'preflight') return 'Re-reads the live server; it does not change server state.';
-    if (action === 'confirm-delete') return 'Confirm the human-readable impact; the server keeps authority.';
-    if (action === 'apply') return 'Starts the durable deployment after saving its restore point.';
+    if (action === 'confirm-delete') return 'Review and confirm the listed deletions before deploying.';
+    if (action === 'apply') return 'Saves a restore point, then starts the deployment.';
     return 'Inspect the blocking change before correcting the source and creating a new plan.';
 }
 

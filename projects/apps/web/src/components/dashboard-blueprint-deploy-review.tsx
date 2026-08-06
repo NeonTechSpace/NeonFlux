@@ -288,9 +288,7 @@ function ReadinessChecklist({
         },
         {
             label: 'Apply readiness',
-            detail: readiness.canApply
-                ? 'Ready to start the durable deployment.'
-                : 'Locked until every prior check passes.',
+            detail: readiness.canApply ? 'Ready to start the deployment.' : 'Locked until every prior check passes.',
             state: readiness.canApply ? 'current' : plan.run ? 'complete' : 'pending',
         },
     ] as const;
@@ -337,7 +335,7 @@ function formatTargetDetail(
 
 function formatDate(value: string): string {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-US');
 }
 
 function readinessStepClassName(state: 'blocked' | 'complete' | 'current' | 'pending'): string {

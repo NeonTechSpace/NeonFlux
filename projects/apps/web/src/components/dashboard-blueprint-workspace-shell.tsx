@@ -231,7 +231,7 @@ function BlueprintRunStrip({
 function formatRunTimestamp(value: number | string): string {
     const date = new Date(value);
 
-    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('en-US');
 }
 
 function formatTransportLabel(mode: DashboardBlueprintProgressTransport['mode']): string {
@@ -239,13 +239,13 @@ function formatTransportLabel(mode: DashboardBlueprintProgressTransport['mode'])
         case 'live':
             return 'Live updates';
         case 'polling':
-            return 'Polling fallback';
+            return 'Checking for updates';
         case 'reconnecting':
             return 'Reconnecting to progress';
         case 'incompatible':
-            return 'Progress protocol incompatible';
+            return 'NeonFlux version mismatch';
         case 'unavailable':
-            return 'Progress transport unavailable';
+            return 'Live progress unavailable';
         case 'idle':
             return 'Waiting for progress';
     }

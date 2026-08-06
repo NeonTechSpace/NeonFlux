@@ -73,6 +73,50 @@ describe('DashboardReactionRolesPanel', () => {
         );
         expect(screen.getByText(/Fix options/)).toBeTruthy();
     });
+
+    it('shows readable panel status with a reportable error code', async () => {
+        vi.mocked(readDashboardReactionRolesRouteData).mockResolvedValue({
+            catalog: {
+                channels: [],
+                emojis: [],
+                guildId: 'guild-1',
+                guildName: 'Guild',
+                roles: [],
+            },
+            panels: [
+                {
+                    channelId: 'channel-1',
+                    createdAt: '2026-08-06T08:00:00.000Z',
+                    errorCode: 'managed_message_deleted',
+                    id: 'panel-1',
+                    name: 'Community roles',
+                    payload: {
+                        content: '{roles}',
+                        embeds: [],
+                        mode: 'independent',
+                        options: [
+                            {
+                                emoji: { kind: 'unicode', value: '✨' },
+                                id: 'option-1',
+                                roleId: 'role-1',
+                                roleName: 'Alpha',
+                            },
+                        ],
+                    },
+                    status: 'degraded',
+                    updatedAt: '2026-08-06T08:00:00.000Z',
+                    version: 1,
+                },
+            ],
+            type: 'reaction-roles',
+        });
+
+        renderPanel();
+
+        expect(await screen.findByText('Needs attention · 1 roles')).toBeTruthy();
+        expect(screen.getByText('The managed message was deleted. Save the panel to recreate it.')).toBeTruthy();
+        expect(screen.getByText('Error code: managed_message_deleted')).toBeTruthy();
+    });
 });
 
 function renderPanel(): void {

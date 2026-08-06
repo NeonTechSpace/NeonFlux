@@ -4,31 +4,33 @@ The Message Builder lets an authorized user compose a message, preview it, choos
 
 ## What happens after Send
 
-1. The web app validates the message and saves a queued operation in Convex.
-2. A bot worker claims that operation.
-3. The worker records that sending has started.
-4. The Fluxer adapter sends the validated message with mentions suppressed.
-5. The worker records a final or uncertain result for the dashboard.
+1. NeonFlux checks the message and saves the send request.
+2. The connected bot sends the message to Fluxer with mentions disabled.
+3. The dashboard shows whether the request is waiting, delivering, sent, not sent, or unconfirmed.
 
-The dashboard shows queue and delivery state. Users do not need to understand the worker implementation.
+Delivery continues if you leave the page.
 
 ## Delivery results
 
-| Result             | Meaning                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| Sent               | Fluxer confirmed the message.                                                         |
-| Failed             | NeonFlux knows Fluxer rejected it or that it was unsafe to attempt.                   |
-| Waiting to retry   | The failure happened before sending, so a later attempt is safe.                      |
-| Delivery uncertain | Fluxer may have accepted the message, but NeonFlux did not receive a reliable answer. |
+| Result          | Meaning                                                                               |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Queued          | The request is waiting for the connected bot.                                         |
+| Delivering      | The bot is sending the message.                                                       |
+| Sent            | Fluxer confirmed the message.                                                         |
+| Not sent        | NeonFlux knows that nothing was sent, so you can revise the message and try again.    |
+| Outcome unknown | Fluxer may have accepted the message, but NeonFlux did not receive a reliable answer. |
 
-An uncertain result is never retried automatically. An operator can record that the message was found, record that it was not found, or deliberately send a follow-up while accepting the duplicate risk. That decision is stored with the operation.
+NeonFlux does not automatically retry an unconfirmed delivery because that could post a duplicate.
+Check the channel, then record whether you found the message.
+You can send a follow-up after accepting the duplicate risk.
 
 ## Mentions
 
-User, role, and everyone mentions are suppressed by the Fluxer adapter by default. This prevents copied text or advanced message JSON from unexpectedly notifying a server.
+User, role, and everyone mentions are disabled by default.
+This also applies to copied text and message embeds.
 
 ## Templates
 
-Templates reuse the same validated outgoing-message format. They do not bypass authorization, durable delivery, or mention suppression.
+Templates follow the same permissions, delivery checks, and mention settings as a message you build from scratch.
 
 For the service boundaries behind delivery, read [How NeonFlux works](How-NeonFlux-Works.md).

@@ -1,6 +1,6 @@
 ---
 title: Reaction roles
-description: Publish and operate durable role menus from the dashboard.
+description: Create and manage role menus from the dashboard.
 ---
 
 Reaction-role panels let members add or remove eligible server roles by reacting to a managed message. Create and
@@ -12,12 +12,11 @@ Each panel uses the same normal-content and single-embed model as Message Builde
 message, including the ordered role legend.
 
 Both previews resolve server role mentions, channel mentions, and uploaded emoji against the selected server's current
-catalog. Uploaded emoji therefore appear as the real image while composing; unknown or deleted emoji remain visibly
-unresolved instead of being presented as valid.
+catalog. Uploaded emoji appear as the real image while composing. Unknown or deleted emoji remain visibly unresolved.
 
 Place `{roles}` once in normal content or the embed description to choose the exact legend position. If the marker is
-omitted, NeonFlux appends the legend to the embed when an embed exists; otherwise it appends the legend to normal
-content. When both normal content and an embed exist, the embed is therefore the default location.
+omitted, NeonFlux appends the legend to the embed when an embed exists. Otherwise, it appends the legend to normal
+content. When both normal content and an embed exist, the embed is the default location.
 
 The stored message source keeps the marker. NeonFlux re-renders the legend whenever the panel changes, so the visible
 role order and reaction behavior remain aligned.
@@ -42,48 +41,42 @@ adds a reaction that is not configured, NeonFlux removes that reaction from the 
 
 Clicking the selected emoji again removes that selection in either mode.
 
-NeonFlux records selection intent before changing a role. Role work runs from a durable leased queue and always adds the
-new target role before removing an old exclusive role. A pre-existing role is never relabeled as panel-owned, so
-deactivation and later selection changes do not remove roles the panel did not grant.
+In exclusive mode, NeonFlux adds the new role before removing the previous panel role.
+If a member already had a role before using the panel, NeonFlux does not remove it when the panel changes or is deactivated.
 
-Reaction state is periodically reconciled in bounded batches, and a server-side removal of a still-selected managed role
-queues a safe repair. The reaction remains the source of truth until the member removes it. Reactions that arrive during
-a reconciliation snapshot are applied normally and mark that member as newer than the snapshot, so stale snapshot data
-cannot overwrite their choice. During a message-version update, reaction intent remains fenced to the last applied
-message version; newly introduced emoji are removed until that version becomes active. This prevents a reaction against
-one visible message version from granting roles from another.
+NeonFlux regularly checks active panels against their reactions and roles.
+If a managed role is removed while its reaction remains selected, NeonFlux tries to restore it.
+Reactions made during a check or panel update are matched to the message version the member saw, so an old message cannot grant a newly configured role.
 
 ## Eligibility and permissions
 
 The dashboard catalog is read from the resident bot and hides unsafe targets. NeonFlux will not offer:
 
-- the everyone, bot, integration, or other managed roles;
-- roles at or above the bot's highest role;
-- roles with any permission outside NeonFlux's explicit low-risk communication and participation allowlist;
-- channels where the bot cannot view, send, read history, add reactions, and manage reactions.
+- the everyone, bot, integration, or other managed roles
+- roles at or above the bot's highest role
+- roles with permissions outside NeonFlux's supported communication and participation permissions
+- channels where the bot cannot view, send, read history, add reactions, and manage reactions
 
 The bot repeats channel, hierarchy, and permission checks immediately before publishing or updating. A stale dashboard
 selection therefore cannot bypass current server policy.
 
 ## Publish, update, and deactivate
 
-Publishing creates the message, persists its provider id, and then seeds reactions in configured order. Updates seed new
-emoji, edit the projected message, and remove retired emoji groups. The panel remains visibly in a transitional state
-until that work completes. Every operation is fenced to the panel generation that created it. Transient provider
-failures use persisted exponential backoff, and workers renew their leases during long operations so stale work cannot
-complete a newer panel version.
+Publishing posts the message and adds its reactions in the configured order.
+An update adds new reactions, edits the message, and removes reactions that are no longer used.
+The dashboard shows the panel as updating until the change finishes and retries temporary Fluxer failures automatically.
 
 Deactivation stops new selection intake before cleanup. You can keep the message without its reaction-role legend, or
 delete it. The destructive option can also revoke roles that NeonFlux knows the panel granted. Roles that already
-existed on a member are retained. Revocations finish through the durable member queue; a failed cleanup remains visible
-as an attention state and Audit Event instead of being reported as silently successful.
+existed on a member are retained. If cleanup fails, the panel remains marked as needing attention and the failure appears
+in Audit Events.
 
-If an external send may have succeeded but its receipt cannot be proven, NeonFlux marks the panel `unknown` rather than
-risk posting a duplicate. Missing managed messages and aggregate reaction deletion mark a panel as needing attention.
-These states appear in the dashboard and Audit Events.
+If Fluxer may have accepted a message but NeonFlux cannot confirm it, the panel is marked `unknown` so another copy is not posted automatically.
+A missing managed message or removal of all its reactions marks the panel as needing attention.
+The dashboard and Audit Events show these states so you can inspect the channel and decide what to do next.
 
-Inactive panel history is retained according to the deployment-wide data-retention policy and then removed in bounded
-background batches. Inactive panels stop reserving panel capacity and role ownership immediately.
+Inactive panel history follows the deployment's data-retention setting.
+Inactive panels stop reserving panel capacity and roles immediately.
 
 ## Status command
 
@@ -99,7 +92,7 @@ the status, mode, and option count for one managed message. The command is also 
 
 ## DEFCON behavior
 
-At normal and guarded DEFCON levels, members can use active panels. At the highest lockdown, new member reaction intent,
-queued role changes, panel publication work, and periodic reconciliation are paused. Paused work does not consume retry
-attempts and resumes only after the effective DEFCON level permits it. Dashboard mutations remain protected by the
-normal dashboard authorization and DEFCON checks.
+At normal and guarded DEFCON levels, members can use active panels.
+At the highest lockdown, NeonFlux pauses reactions, role changes, and panel updates.
+Paused changes resume when the effective DEFCON level allows them, and failed attempts are not counted while paused.
+Dashboard changes still require the normal permissions and must pass the current DEFCON checks.

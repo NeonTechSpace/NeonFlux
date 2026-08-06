@@ -460,7 +460,8 @@ function RunProgress({
             ) : null}
             {!hasCompatibleProtocol ? (
                 <p className='mt-2 text-xs text-[var(--dash-warning)]'>
-                    Deployment controls are disabled because this deployment uses a different Blueprint protocol.
+                    This deployment was created by a different NeonFlux version. Open it with the matching version to
+                    resume or control it.
                 </p>
             ) : null}
             <div className='mt-3 flex flex-wrap gap-2'>
@@ -587,7 +588,9 @@ function formatAuthorizationDecision(decision: NonNullable<DashboardBlueprintPla
         return 'The target changed while NeonFlux was securing the restore point.';
     }
     if (decision === 'preflight_expired') return 'The safety check expired before authorization.';
-    if (decision === 'fingerprint_version_mismatch') return 'The deployment safety protocol changed.';
+    if (decision === 'fingerprint_version_mismatch') {
+        return 'This plan was checked by a different NeonFlux version. Create a new plan before continuing.';
+    }
     return 'The target no longer matched the latest safety check.';
 }
 
@@ -614,7 +617,7 @@ function formatRunOutcome(status: NonNullable<DashboardBlueprintPlan['run']>['st
         case 'failed_before_mutation':
             return 'Stopped before server changes';
         case 'needs_reconciliation':
-            return 'Reconciliation required';
+            return 'Deployment needs review';
         case 'outcome_unknown':
             return 'Server outcome unknown';
         case 'cancelled':

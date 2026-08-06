@@ -142,7 +142,7 @@ test('composes and queues a message, observes the durable unknown status, and re
     await expect(page.getByRole('button', { name: 'I found the message' })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'I found the message' }).click();
     await expect(page.getByText('Recorded that you found the message.')).toBeVisible();
-    await expect(page.getByText(/operator reported finding the message/u)).toBeVisible();
+    await expect(page.getByText(/message was found in the channel/u)).toBeVisible();
     diagnostics.assertClean();
 });
 

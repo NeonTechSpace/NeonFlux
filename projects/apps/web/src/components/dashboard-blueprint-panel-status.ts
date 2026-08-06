@@ -58,21 +58,26 @@ export function toErrorStatus(type: string): PanelStatus {
     const messages: Record<string, string> = {
         'auth-required': 'Sign in again before changing server blueprint data.',
         'backend-incompatible':
-            'The Convex backend does not match this NeonFlux build. Deploy the matching backend before using Server Blueprint.',
+            'The dashboard and Convex backend use different NeonFlux versions. Deploy matching versions before using Server Blueprint.',
         'run-protocol-incompatible':
-            'This deployment was created by a different Blueprint protocol and cannot be controlled by this build. Use the matching build or reset development data.',
-        'bot-token-missing': 'The bot internal API is not configured for this deployment.',
+            'This deployment was created by a different NeonFlux version and cannot be controlled here. Use the matching version or reset development data.',
+        'bot-token-missing':
+            'NeonFlux cannot authenticate with the bot service. Check the bot and web service key configuration.',
         'restore-point-failed': 'Apply was not started because NeonFlux could not save a restore point.',
         'structure-read-failed': 'NeonFlux could not read this server layout.',
-        'database-error': 'The dashboard database could not save the server blueprint data.',
+        'database-error':
+            'NeonFlux could not save the Server Blueprint data. Check the Convex deployment and try again.',
         'guild-lookup-failed': 'This server could not be loaded from Fluxer.',
-        'deployment-config-not-found': 'Dashboard deployment config is missing.',
+        'deployment-config-not-found':
+            'NeonFlux deployment settings are missing. Run the deployment setup before using Server Blueprint.',
         'not-found': 'This server is not available for this account.',
     };
 
     return {
         tone: 'error',
-        message: messages[type] ?? 'Server blueprint operation failed.',
+        message:
+            messages[type] ??
+            'NeonFlux could not complete this Server Blueprint action. Try again and check the technical details if it fails again.',
     };
 }
 

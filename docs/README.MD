@@ -1,8 +1,8 @@
 <h1 align="center">NeonFlux</h1>
 
 <p align="center">
-  <strong>A Fluxer bot with a secure web dashboard.</strong><br />
-  Send messages, inspect server activity, and safely plan or apply complete server layouts.
+  <strong>A Fluxer bot with a signed-in web dashboard.</strong><br />
+  Send messages, inspect server activity, and review or apply complete server layouts.
 </p>
 
 <div align="center">

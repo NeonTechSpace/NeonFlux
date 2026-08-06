@@ -349,5 +349,5 @@ function formatAuditEventTimestamp(value: string): string {
         return value;
     }
 
-    return date.toLocaleString();
+    return date.toLocaleString('en-US');
 }

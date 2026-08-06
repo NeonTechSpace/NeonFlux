@@ -170,8 +170,8 @@ export function DashboardEmbedBuilder({
             </DashboardEmbedDetails>
 
             <p className='text-right text-xs text-[var(--dash-text-subtle)]'>
-                Embed text {embedTextLength.toLocaleString()} /{' '}
-                {OUTGOING_MESSAGE_LIMITS.embedTextTotal.toLocaleString()}
+                Embed text {embedTextLength.toLocaleString('en-US')} /{' '}
+                {OUTGOING_MESSAGE_LIMITS.embedTextTotal.toLocaleString('en-US')}
             </p>
         </section>
     );
@@ -379,7 +379,7 @@ function DashboardEmbedDetails({
 function DashboardCharacterCount({ value, maxLength }: { value: string; maxLength: number }) {
     return (
         <span aria-hidden='true' className='text-xs font-normal text-[var(--dash-text-subtle)] tabular-nums'>
-            {value.length.toLocaleString()} / {maxLength.toLocaleString()}
+            {value.length.toLocaleString('en-US')} / {maxLength.toLocaleString('en-US')}
         </span>
     );
 }
@@ -459,7 +459,7 @@ function describeEmbedValidationError(code: string, path: string): string {
         case 'too-long':
             return `${field} exceeds the supported character limit.`;
         case 'payload-too-large':
-            return 'The complete message payload is too large.';
+            return 'This message is too large to send. Shorten its text or remove an embed field.';
         default:
             return `Check ${field}; it contains an unsupported value.`;
     }

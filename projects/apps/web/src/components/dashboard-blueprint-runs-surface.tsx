@@ -120,7 +120,7 @@ function formatRunStatus(plan: DashboardBlueprintPlan): string {
             case 'failed_before_mutation':
                 return 'Stopped before server changes';
             case 'needs_reconciliation':
-                return 'Reconciliation required';
+                return 'Deployment needs review';
             case 'outcome_unknown':
                 return 'Server outcome unknown';
             case 'cancelled':

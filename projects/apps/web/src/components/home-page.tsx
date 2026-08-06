@@ -7,7 +7,7 @@ export function HomePage() {
             <section className='mx-auto flex w-full max-w-3xl flex-col items-center text-center'>
                 <h1 className='text-5xl font-semibold tracking-normal text-white sm:text-7xl'>NeonFlux</h1>
                 <p className='mt-5 max-w-xl text-base leading-7 text-neutral-400 sm:text-lg'>
-                    A multi functional bot for Fluxer.
+                    Build messages, manage roles, and update your Fluxer server from one dashboard.
                 </p>
                 <div className='mt-9 grid w-full max-w-sm grid-cols-1 gap-3 sm:grid-cols-2'>
                     <a
