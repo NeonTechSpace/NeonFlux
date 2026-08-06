@@ -245,6 +245,7 @@ describe.runIf(enabled)('signed-in services with owned Convex and a fake provide
             resolvedByUserId: userId,
         });
         expect(sendMessage).toHaveBeenCalledWith({
+            allowMassMentions: false,
             channelId: 'channel-1',
             message: { content: 'Success', embeds: [] },
         });
