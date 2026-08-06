@@ -36,14 +36,9 @@ export function DashboardPostingPreview({
 
     return (
         <DashboardSurface as='section' tone='glass' className='space-y-4' aria-label='Message preview'>
-            <div className='border-b border-[var(--dash-border)] pb-3'>
-                <p className='text-xs font-semibold tracking-[0.12em] text-[var(--dash-text-subtle)] uppercase'>
-                    Fluxer payload preview
-                </p>
-                <div className='mt-1 flex flex-wrap items-center justify-between gap-2'>
-                    <h3 className='text-base font-semibold text-[var(--dash-text)]'>Message preview</h3>
-                    <span className='text-xs text-[var(--dash-text-muted)]'>{channelLabel ?? 'Choose a channel'}</span>
-                </div>
+            <div className='flex flex-wrap items-center justify-between gap-2 border-b border-[var(--dash-border)] pb-3'>
+                <h3 className='text-base font-semibold text-[var(--dash-text)]'>Message preview</h3>
+                <span className='text-xs text-[var(--dash-text-muted)]'>{channelLabel ?? 'Choose a channel'}</span>
             </div>
             <AnimatePresence initial={false} mode='popLayout'>
                 {!trimmedContent && previewEmbedItems.length === 0 ? (
@@ -395,7 +390,7 @@ function formatPreviewTimestamp(value: string): string {
         return value;
     }
 
-    return date.toLocaleString();
+    return date.toLocaleString('en-US');
 }
 
 function readSafePreviewHttpUrl(value: string | undefined): string | undefined {

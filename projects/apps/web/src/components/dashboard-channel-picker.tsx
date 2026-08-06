@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 import { dashboardFieldClassName, dashboardSecondaryActionClassName } from './dashboard-ui.js';
 
@@ -76,7 +77,7 @@ export function DashboardChannelPicker({
     };
 
     return (
-        <div className='space-y-2'>
+        <div className='relative'>
             <label className='block text-[0.9rem] font-semibold text-[var(--dash-text)]'>
                 <span>{label}</span>
                 <input
@@ -142,13 +143,14 @@ export function DashboardChannelPicker({
                     aria-controls={listboxId}
                     aria-expanded={isOpen}
                     aria-activedescendant={isOpen ? activeOptionId : undefined}
+                    aria-busy={isLoading || isRetrying || undefined}
+                    aria-invalid={hasError || undefined}
                     placeholder='Search channels'
                 />
             </label>
 
-            {isLoading ? <p className='text-xs leading-5 text-[var(--dash-text-muted)]'>Loading channels...</p> : null}
-            {hasError ? (
-                <div className='flex flex-wrap items-center gap-2'>
+            {hasError && !isOpen ? (
+                <div className='mt-2 flex flex-wrap items-center gap-2'>
                     <p className='text-xs leading-5 text-[var(--dash-danger)]'>{errorMessage}</p>
                     {onRetry ? (
                         <button
@@ -163,41 +165,75 @@ export function DashboardChannelPicker({
                 </div>
             ) : null}
 
-            {isOpen && !isLoading && !hasError ? (
-                <ul
-                    id={listboxId}
-                    className='max-h-56 overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(5,9,16,0.96)] p-1 shadow-[var(--dash-shadow-popover)]'
-                    role='listbox'>
-                    {matchedChannels.length > 0 ? (
-                        matchedChannels.map((channel, index) => (
-                            <li key={channel.id} role='none'>
+            {isOpen ? (
+                <div className='absolute inset-x-0 top-full z-40 mt-2'>
+                    {isLoading ? (
+                        <div
+                            role='status'
+                            aria-label='Loading channels'
+                            aria-live='polite'
+                            className='flex min-h-12 items-center gap-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(5,9,16,0.96)] px-3 text-sm text-[var(--dash-text-muted)] shadow-[var(--dash-shadow-popover)]'>
+                            <Loader2
+                                aria-hidden='true'
+                                data-dashboard-loading='spinner'
+                                className='size-4 shrink-0 animate-spin'
+                            />
+                            Loading channels…
+                        </div>
+                    ) : hasError ? (
+                        <div className='flex min-h-12 flex-wrap items-center gap-2 rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(5,9,16,0.96)] p-2 shadow-[var(--dash-shadow-popover)]'>
+                            <p className='px-1 text-xs leading-5 text-[var(--dash-danger)]'>{errorMessage}</p>
+                            {onRetry ? (
                                 <button
-                                    id={getChannelOptionId(listboxId, index)}
                                     type='button'
-                                    role='option'
-                                    tabIndex={-1}
-                                    aria-selected={selectedChannelId === channel.id}
                                     onMouseDown={(event) => event.preventDefault()}
-                                    onMouseMove={() => setActiveChannelId(channel.id)}
-                                    onClick={() => onSelect(channel)}
-                                    className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--dash-radius-control)] px-3 text-left text-sm text-[var(--dash-text)] transition focus:outline-none ${resolvedActiveChannelId === channel.id ? 'bg-[rgba(56,189,248,0.14)] shadow-[inset_0_0_0_1px_rgba(90,215,255,0.2)]' : 'hover:bg-[rgba(56,189,248,0.1)]'}`}>
-                                    <span className='min-w-0 truncate'>{formatDashboardChannelLabel(channel)}</span>
-                                    <span className='shrink-0 text-xs text-[var(--dash-text-muted)]'>
-                                        {channel.parentName ?? channel.id}
-                                    </span>
+                                    onClick={onRetry}
+                                    disabled={isRetrying}
+                                    aria-busy={isRetrying || undefined}
+                                    className={`${dashboardSecondaryActionClassName} min-h-8 text-xs`}>
+                                    {isRetrying ? 'Retrying…' : 'Retry channels'}
                                 </button>
-                            </li>
-                        ))
+                            ) : null}
+                        </div>
                     ) : (
-                        <li
-                            role='option'
-                            aria-selected='false'
-                            aria-disabled='true'
-                            className='px-3 py-3 text-sm text-[var(--dash-text-muted)]'>
-                            No matching channels.
-                        </li>
+                        <ul
+                            id={listboxId}
+                            className='max-h-[min(14rem,40dvh)] overflow-y-auto rounded-[var(--dash-radius-control)] border border-[var(--dash-border)] bg-[rgba(5,9,16,0.96)] p-1 shadow-[var(--dash-shadow-popover)]'
+                            role='listbox'>
+                            {matchedChannels.length > 0 ? (
+                                matchedChannels.map((channel, index) => (
+                                    <li key={channel.id} role='none'>
+                                        <button
+                                            id={getChannelOptionId(listboxId, index)}
+                                            type='button'
+                                            role='option'
+                                            tabIndex={-1}
+                                            aria-selected={selectedChannelId === channel.id}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            onMouseMove={() => setActiveChannelId(channel.id)}
+                                            onClick={() => onSelect(channel)}
+                                            className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--dash-radius-control)] px-3 text-left text-sm text-[var(--dash-text)] transition focus:outline-none ${resolvedActiveChannelId === channel.id ? 'bg-[rgba(56,189,248,0.14)] shadow-[inset_0_0_0_1px_rgba(90,215,255,0.2)]' : 'hover:bg-[rgba(56,189,248,0.1)]'}`}>
+                                            <span className='min-w-0 truncate'>
+                                                {formatDashboardChannelLabel(channel)}
+                                            </span>
+                                            <span className='shrink-0 text-xs text-[var(--dash-text-muted)]'>
+                                                {channel.parentName ?? channel.id}
+                                            </span>
+                                        </button>
+                                    </li>
+                                ))
+                            ) : (
+                                <li
+                                    role='option'
+                                    aria-selected='false'
+                                    aria-disabled='true'
+                                    className='px-3 py-3 text-sm text-[var(--dash-text-muted)]'>
+                                    No matching channels.
+                                </li>
+                            )}
+                        </ul>
                     )}
-                </ul>
+                </div>
             ) : null}
         </div>
     );

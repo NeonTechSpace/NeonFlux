@@ -100,4 +100,26 @@ describe('DashboardChannelPicker', () => {
         expect(screen.getByRole('status', { name: 'Pointer channel selection' }).textContent).toBe('staff');
         expect((input as HTMLInputElement).value).toBe('#staff');
     });
+
+    it('announces channel loading as soon as the picker opens', () => {
+        render(
+            <DashboardChannelPicker
+                channels={[]}
+                hasError={false}
+                isLoading
+                isOpen
+                label='Loading channel'
+                search=''
+                selectedChannelId=''
+                onBlur={() => undefined}
+                onFocus={() => undefined}
+                onSearchChange={() => undefined}
+                onSelect={() => undefined}
+            />
+        );
+
+        expect(screen.getByRole('status', { name: 'Loading channels' })).toBeTruthy();
+        expect(screen.getByRole('combobox', { name: 'Loading channel' }).getAttribute('aria-busy')).toBe('true');
+        expect(screen.queryByRole('listbox')).toBeNull();
+    });
 });
