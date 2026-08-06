@@ -86,6 +86,7 @@ describe('sendFluxerChannelMessage', () => {
         const embeds: NonNullable<MessageSendOptions['embeds']> = [
             {
                 title: 'NeonFlux',
+                description: null,
             },
         ];
 
@@ -228,6 +229,7 @@ describe('sendDashboardFluxerMessage', () => {
             embeds: [
                 {
                     author: { name: 'NeonFlux', icon_url: 'https://example.com/icon.png' },
+                    description: null,
                     footer: { text: 'Ready', icon_url: 'https://example.com/footer.png' },
                     image: { url: 'https://example.com/image.png' },
                     title: 'Launch',
@@ -303,8 +305,8 @@ describe('sendFluxerBotChannelMessage', () => {
         vi.restoreAllMocks();
     });
 
-    it('logs in with the bot token, sends the message, and destroys the temporary client', async () => {
-        const login = vi.spyOn(Client.prototype, 'login').mockResolvedValue('session-id');
+    it('uses a REST-only authenticated client, sends the message, and destroys the temporary client', async () => {
+        const login = vi.spyOn(Client.prototype, 'login');
         const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
         const send = vi.spyOn(ChannelManager.prototype, 'send').mockResolvedValue(createMessage());
 
@@ -315,12 +317,12 @@ describe('sendFluxerBotChannelMessage', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(login).toHaveBeenCalledWith('bot-token');
+        expect(login).not.toHaveBeenCalled();
         expect(send).toHaveBeenCalledWith('channel-1', { content: 'hello' });
         expect(destroy).toHaveBeenCalledOnce();
     });
 
-    it('rejects missing bot tokens before login', async () => {
+    it('rejects missing bot tokens before creating a gateway session', async () => {
         const login = vi.spyOn(Client.prototype, 'login');
 
         const result = await sendFluxerBotChannelMessage({
@@ -336,50 +338,24 @@ describe('sendFluxerBotChannelMessage', () => {
         } satisfies SendFluxerBotChannelMessageError);
         expect(login).not.toHaveBeenCalled();
     });
-
-    it('maps login failures without calling send', async () => {
-        const loginError = new Error('bad token');
-        vi.spyOn(Client.prototype, 'login').mockRejectedValue(loginError);
-        vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
-        const send = vi.spyOn(ChannelManager.prototype, 'send');
-
-        const result = await sendFluxerBotChannelMessage({
-            botToken: 'bot-token',
-            channelId: 'channel-1',
-            content: 'hello',
-        });
-
-        expect(result.isErr()).toBe(true);
-        expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'login-failed',
-            error: loginError,
-        } satisfies SendFluxerBotChannelMessageError);
-        expect(send).not.toHaveBeenCalled();
-    });
 });
 
 describe('editFluxerChannelMessage', () => {
     it('fetches the trimmed message and edits it with the normalized payload', async () => {
         const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
-        const fetchMessage = vi.fn<(messageId: string) => Promise<{ edit: typeof edit }>>().mockResolvedValue({ edit });
-        const resolveChannel = createResolveChannelMock(
-            Promise.resolve({
-                messages: {
-                    fetch: fetchMessage,
-                },
-            })
-        );
+        const fetchMessage = vi
+            .fn<(channelId: string, messageId: string) => Promise<{ edit: typeof edit }>>()
+            .mockResolvedValue({ edit });
 
         const result = await editFluxerChannelMessage({
-            client: createEditClient(resolveChannel),
+            client: createEditClient(fetchMessage),
             channelId: ' channel-1 ',
             messageId: ' message-1 ',
             content: ' updated content ',
         });
 
         expect(result.isOk()).toBe(true);
-        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
-        expect(fetchMessage).toHaveBeenCalledWith('message-1');
+        expect(fetchMessage).toHaveBeenCalledWith('channel-1', 'message-1');
         expect(edit).toHaveBeenCalledWith({ content: 'updated content' });
         expect(result._unsafeUnwrap()).toStrictEqual({
             id: 'message-1',
@@ -389,10 +365,10 @@ describe('editFluxerChannelMessage', () => {
     });
 
     it('rejects empty edit payloads before fetching the message', async () => {
-        const resolveChannel = createResolveChannelMock();
+        const fetchMessage = createFetchMessageMock();
 
         const result = await editFluxerChannelMessage({
-            client: createEditClient(resolveChannel),
+            client: createEditClient(fetchMessage),
             channelId: 'channel-1',
             messageId: 'message-1',
             content: '   ',
@@ -404,22 +380,16 @@ describe('editFluxerChannelMessage', () => {
             type: 'missing-input',
             field: 'message',
         } satisfies EditFluxerChannelMessageError);
-        expect(resolveChannel).not.toHaveBeenCalled();
+        expect(fetchMessage).not.toHaveBeenCalled();
     });
 
     it('maps SDK edit rejections to edit-failed', async () => {
         const editError = new Error('missing access');
         const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockRejectedValue(editError);
-        const resolveChannel = createResolveChannelMock(
-            Promise.resolve({
-                messages: {
-                    fetch: vi.fn().mockResolvedValue({ edit }),
-                },
-            })
-        );
+        const fetchMessage = createFetchMessageMock(Promise.resolve({ edit }));
 
         const result = await editFluxerChannelMessage({
-            client: createEditClient(resolveChannel),
+            client: createEditClient(fetchMessage),
             channelId: 'channel-1',
             messageId: 'message-1',
             content: 'updated',
@@ -436,18 +406,12 @@ describe('editFluxerChannelMessage', () => {
 describe('editFluxerGuildChannelMessage', () => {
     it('edits only after verifying the channel belongs to the guild', async () => {
         const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
-        const resolveChannel = createResolveChannelMock(
-            Promise.resolve({
-                messages: {
-                    fetch: vi.fn().mockResolvedValue({ edit }),
-                },
-            })
-        );
+        const fetchMessage = createFetchMessageMock(Promise.resolve({ edit }));
         const guild = createGuild({ channels: [createChannel({ id: 'channel-1' })] });
         const fetchGuild = createFetchGuildMock(Promise.resolve(guild));
 
         const result = await editFluxerGuildChannelMessage({
-            client: createGuildAwareEditClient({ fetchGuild, resolveChannel }),
+            client: createGuildAwareEditClient({ fetchGuild, fetchMessage }),
             guildId: ' guild-1 ',
             channelId: ' channel-1 ',
             messageId: ' message-1 ',
@@ -456,17 +420,17 @@ describe('editFluxerGuildChannelMessage', () => {
 
         expect(result.isOk()).toBe(true);
         expect(fetchGuild).toHaveBeenCalledWith('guild-1');
-        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('channel-1', 'message-1');
         expect(edit).toHaveBeenCalledWith({ content: 'updated' });
     });
 
     it('rejects edits outside the authorized guild before fetching the message', async () => {
-        const resolveChannel = createResolveChannelMock();
+        const fetchMessage = createFetchMessageMock();
 
         const result = await editFluxerGuildChannelMessage({
             client: createGuildAwareEditClient({
                 fetchGuild: createFetchGuildMock(Promise.resolve(createGuild({ channels: [createChannel()] }))),
-                resolveChannel,
+                fetchMessage,
             }),
             guildId: 'guild-1',
             channelId: 'other-channel',
@@ -478,7 +442,7 @@ describe('editFluxerGuildChannelMessage', () => {
         expect(result._unsafeUnwrapErr()).toStrictEqual({
             type: 'channel-not-in-guild',
         } satisfies EditFluxerGuildChannelMessageError);
-        expect(resolveChannel).not.toHaveBeenCalled();
+        expect(fetchMessage).not.toHaveBeenCalled();
     });
 });
 
@@ -487,34 +451,20 @@ describe('editFluxerBotGuildChannelMessage', () => {
         vi.restoreAllMocks();
     });
 
-    it('logs in with the bot token, edits the message, and destroys the temporary client', async () => {
+    it('uses a REST-only authenticated client, edits the message, and destroys the temporary client', async () => {
         const edit = vi.fn<(payload: MessageSendOptions) => Promise<Message>>().mockResolvedValue(createMessage());
         const fetchGuild = createFetchGuildMock(
             Promise.resolve(createGuild({ channels: [createChannel({ id: 'channel-1' })] }))
         );
-        const resolveChannel = createResolveChannelMock(
-            Promise.resolve({
-                messages: {
-                    fetch: vi.fn().mockResolvedValue({ edit }),
-                },
-            })
-        );
-        const login = vi.spyOn(Client.prototype, 'login').mockImplementation(function (this: Client) {
-            Object.defineProperty(this, 'guilds', {
-                configurable: true,
-                value: {
-                    fetch: fetchGuild,
-                },
-            });
-            Object.defineProperty(this, 'channels', {
-                configurable: true,
-                value: {
-                    resolve: resolveChannel,
-                },
-            });
-
-            return Promise.resolve('session-id');
-        });
+        const fetchMessage = vi
+            .spyOn(ChannelManager.prototype, 'fetchMessage')
+            .mockResolvedValue({ edit } as unknown as Message);
+        const managerOwner = new Client();
+        vi.spyOn(
+            Object.getPrototypeOf(managerOwner.guilds) as { fetch: typeof fetchGuild },
+            'fetch'
+        ).mockImplementation(fetchGuild);
+        const login = vi.spyOn(Client.prototype, 'login');
         const destroy = vi.spyOn(Client.prototype, 'destroy').mockResolvedValue(undefined);
 
         const result = await editFluxerBotGuildChannelMessage({
@@ -526,11 +476,12 @@ describe('editFluxerBotGuildChannelMessage', () => {
         });
 
         expect(result.isOk()).toBe(true);
-        expect(login).toHaveBeenCalledWith('bot-token');
+        expect(login).not.toHaveBeenCalled();
         expect(fetchGuild).toHaveBeenCalledWith('guild-1');
-        expect(resolveChannel).toHaveBeenCalledWith('channel-1');
+        expect(fetchMessage).toHaveBeenCalledWith('channel-1', 'message-1');
         expect(edit).toHaveBeenCalledWith({ content: 'updated' });
         expect(destroy).toHaveBeenCalledOnce();
+        await managerOwner.destroy();
     });
 
     it('rejects missing bot tokens before login', async () => {
@@ -564,7 +515,11 @@ function createClient(sendMock: SendMock): SendFluxerChannelMessageInput['client
 type SendMock = ReturnType<typeof vi.fn<(channelId: string, payload: string | MessageSendOptions) => Promise<Message>>>;
 
 type FetchGuildMock = ReturnType<typeof vi.fn<(guildId: string) => Promise<Guild | null>>>;
-type ResolveChannelMock = ReturnType<typeof vi.fn<(channelId: string) => Promise<unknown>>>;
+type FetchMessageMock = ReturnType<
+    typeof vi.fn<
+        (channelId: string, messageId: string) => Promise<{ edit: (payload: MessageSendOptions) => Promise<Message> }>
+    >
+>;
 
 function createSendMock(result: Promise<Message> = Promise.resolve(createMessage())): SendMock {
     return vi
@@ -576,8 +531,19 @@ function createFetchGuildMock(result: Promise<Guild | null>): FetchGuildMock {
     return vi.fn<(guildId: string) => Promise<Guild | null>>().mockReturnValue(result);
 }
 
-function createResolveChannelMock(result: Promise<unknown> = Promise.resolve(undefined)): ResolveChannelMock {
-    return vi.fn<(channelId: string) => Promise<unknown>>().mockReturnValue(result);
+function createFetchMessageMock(
+    result: Promise<{ edit: (payload: MessageSendOptions) => Promise<Message> }> = Promise.resolve({
+        edit: vi.fn(),
+    })
+): FetchMessageMock {
+    return vi
+        .fn<
+            (
+                channelId: string,
+                messageId: string
+            ) => Promise<{ edit: (payload: MessageSendOptions) => Promise<Message> }>
+        >()
+        .mockReturnValue(result);
 }
 
 function createGuildAwareClient(input: {
@@ -594,21 +560,21 @@ function createGuildAwareClient(input: {
     } as unknown as Parameters<typeof sendFluxerGuildChannelMessage>[0]['client'];
 }
 
-function createEditClient(resolveChannel: ResolveChannelMock): EditFluxerChannelMessageInput['client'] {
+function createEditClient(fetchMessage: FetchMessageMock): EditFluxerChannelMessageInput['client'] {
     return {
         channels: {
-            resolve: resolveChannel,
+            fetchMessage,
         },
     } as unknown as EditFluxerChannelMessageInput['client'];
 }
 
 function createGuildAwareEditClient(input: {
     fetchGuild: FetchGuildMock;
-    resolveChannel: ResolveChannelMock;
+    fetchMessage: FetchMessageMock;
 }): Parameters<typeof editFluxerGuildChannelMessage>[0]['client'] {
     return {
         channels: {
-            resolve: input.resolveChannel,
+            fetchMessage: input.fetchMessage,
         },
         guilds: {
             fetch: input.fetchGuild,

@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { applyFluxerBotGuildStructureAction, applyFluxerBotGuildStructureActions } from './guild-structure-apply.js';
 import {
-    createFluxerGuildStructureRestClient,
-    GUILD_STRUCTURE_REST_TIMEOUT_MS,
-} from './guild-structure-rest-client.js';
+    createFluxerAuthenticatedRestClient,
+    FLUXER_REST_TIMEOUT_MS,
+    fluxerBoundedNoRetryRestOptions,
+} from './authenticated-rest-client.js';
 
 describe('applyFluxerBotGuildStructureAction', () => {
     afterEach(() => {
@@ -13,11 +14,11 @@ describe('applyFluxerBotGuildStructureAction', () => {
         vi.restoreAllMocks();
     });
 
-    it('constructs Blueprint clients with bounded REST and automatic retries disabled', async () => {
+    it('constructs authenticated REST clients with a bounded timeout and mutation retries disabled', async () => {
         const login = vi.spyOn(Client.prototype, 'login');
-        const client = createFluxerGuildStructureRestClient('bot-token');
+        const client = createFluxerAuthenticatedRestClient('bot-token', fluxerBoundedNoRetryRestOptions);
 
-        expect(client.options.rest).toMatchObject({ retries: 0, timeout: GUILD_STRUCTURE_REST_TIMEOUT_MS });
+        expect(client.options.rest).toMatchObject({ retries: 0, timeout: FLUXER_REST_TIMEOUT_MS });
         expect(client.rest.token).toBe('bot-token');
         expect(login).not.toHaveBeenCalled();
         await client.destroy();

@@ -33,16 +33,12 @@ describe('createFluxerPlatform', () => {
     });
 
     it('fetches messages without exposing SDK message objects', async () => {
-        const fetch = vi.fn<(messageId: string) => Promise<Message>>();
-        fetch.mockResolvedValue(createMessage());
+        const fetchMessage = vi.fn<(channelId: string, messageId: string) => Promise<Message>>();
+        fetchMessage.mockResolvedValue(createMessage());
         const platform = createFluxerPlatform(
             createClient({
                 channels: {
-                    resolve: vi.fn().mockResolvedValue({
-                        messages: {
-                            fetch,
-                        },
-                    }),
+                    fetchMessage,
                 },
             })
         );
@@ -58,7 +54,7 @@ describe('createFluxerPlatform', () => {
             channelId: 'channel-1',
             guildId: 'guild-1',
         });
-        expect(fetch).toHaveBeenCalledWith('message-1');
+        expect(fetchMessage).toHaveBeenCalledWith('channel-1', 'message-1');
     });
 
     it('resolves only the focused guild channel metadata needed before dashboard posting', async () => {
@@ -161,11 +157,11 @@ describe('createFluxerPlatform', () => {
     });
 
     it('rejects missing required platform inputs before calling the SDK', async () => {
-        const resolve = vi.fn();
+        const fetchMessage = vi.fn();
         const platform = createFluxerPlatform(
             createClient({
                 channels: {
-                    resolve,
+                    fetchMessage,
                 },
             })
         );
@@ -180,7 +176,7 @@ describe('createFluxerPlatform', () => {
             type: 'missing-input',
             field: 'channelId',
         } satisfies FluxerPlatformError);
-        expect(resolve).not.toHaveBeenCalled();
+        expect(fetchMessage).not.toHaveBeenCalled();
     });
 
     it('rejects invalid recent-message limits before resolving the channel', async () => {
@@ -207,11 +203,11 @@ describe('createFluxerPlatform', () => {
     });
 
     it('rejects empty message edit payloads before fetching the message', async () => {
-        const resolve = vi.fn();
+        const fetchMessage = vi.fn();
         const platform = createFluxerPlatform(
             createClient({
                 channels: {
-                    resolve,
+                    fetchMessage,
                 },
             })
         );
@@ -228,7 +224,7 @@ describe('createFluxerPlatform', () => {
             type: 'missing-input',
             field: 'message',
         } satisfies FluxerPlatformError);
-        expect(resolve).not.toHaveBeenCalled();
+        expect(fetchMessage).not.toHaveBeenCalled();
     });
 
     it('keeps explicit empty embed arrays so full-state edits clear stale embeds', async () => {
@@ -242,7 +238,7 @@ describe('createFluxerPlatform', () => {
         const platform = createFluxerPlatform(
             createClient({
                 channels: {
-                    resolve: vi.fn().mockResolvedValue({ messages: { fetch } }),
+                    fetchMessage: fetch,
                 },
             })
         );
@@ -612,7 +608,7 @@ describe('createFluxerPlatform', () => {
         const platform = createFluxerPlatform(
             createClient({
                 channels: {
-                    resolve: vi.fn().mockRejectedValue({
+                    fetchMessage: vi.fn().mockRejectedValue({
                         statusCode: 403,
                     }),
                 },

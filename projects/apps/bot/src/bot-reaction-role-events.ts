@@ -68,7 +68,7 @@ export async function handleBotReactionRoleEvent(
         }
         return marked.isOk() && marked.value ? 'handled' : 'ignored';
     }
-    if (event.userIsBot && event.userId !== context.botUserId) return 'ignored';
+    if (event.userIsBot && (event.userId !== context.botUserId || event.selected)) return 'ignored';
     if (!(await reactionRolesAllowed(context, event.guildId))) return 'ignored';
     const intent = await recordReactionRoleReactionIntent(context.db, {
         channelId: event.channelId,

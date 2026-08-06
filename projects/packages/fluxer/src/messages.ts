@@ -1,4 +1,4 @@
-import { Client, type MessageSendOptions } from '@fluxerjs/core';
+import type { Client, MessageSendOptions } from '@fluxerjs/core';
 import {
     DASHBOARD_MESSAGE_MENTION_POLICY,
     parseOutgoingMessage,
@@ -8,8 +8,8 @@ import {
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
+import { createFluxerAuthenticatedRestClient } from './authenticated-rest-client.js';
 import { readFluxerGuildStructure } from './guild-structure.js';
-import { fluxerSafeRestOptions } from './rest-retry-policy.js';
 
 export type SendFluxerChannelMessageInput = {
     allowedMentions?: MessageSendOptions['allowedMentions'];
@@ -73,12 +73,12 @@ export type SendFluxerGuildChannelMessageError =
 export type SendFluxerBotChannelMessageError =
     | SendFluxerChannelMessageError
     | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown };
+    | { type: 'client-setup-failed'; error: unknown };
 
 export type SendFluxerBotGuildChannelMessageError =
     | SendFluxerGuildChannelMessageError
     | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown };
+    | { type: 'client-setup-failed'; error: unknown };
 
 export type EditFluxerChannelMessageError =
     | { type: 'missing-input'; field: 'channelId' | 'messageId' | 'message' }
@@ -93,22 +93,7 @@ export type EditFluxerGuildChannelMessageError =
 export type EditFluxerBotGuildChannelMessageError =
     | EditFluxerGuildChannelMessageError
     | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown };
-
-type EditableMessageChannel = {
-    messages: {
-        fetch(messageId: string): Promise<{
-            id?: string;
-            channelId?: string;
-            guildId?: string | null;
-            edit?(options: MessageSendOptions): Promise<{
-                id: string;
-                channelId: string;
-                guildId?: string | null;
-            }>;
-        }>;
-    };
-};
+    | { type: 'client-setup-failed'; error: unknown };
 
 export async function sendFluxerBotChannelMessage(
     input: SendFluxerBotChannelMessageInput
@@ -119,11 +104,10 @@ export async function sendFluxerBotChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
+    let client: Client | undefined;
 
     try {
-        await client.login(botToken);
-
+        client = createFluxerAuthenticatedRestClient(botToken);
         return await sendFluxerChannelMessage({
             ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
@@ -132,9 +116,9 @@ export async function sendFluxerBotChannelMessage(
             ...(input.embeds ? { embeds: input.embeds } : {}),
         });
     } catch (error) {
-        return err({ type: 'login-failed', error });
+        return err({ type: 'client-setup-failed', error });
     } finally {
-        await client.destroy().catch(() => undefined);
+        await client?.destroy().catch(() => undefined);
     }
 }
 
@@ -147,11 +131,10 @@ export async function sendFluxerBotGuildChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
+    let client: Client | undefined;
 
     try {
-        await client.login(botToken);
-
+        client = createFluxerAuthenticatedRestClient(botToken);
         return await sendFluxerGuildChannelMessage({
             ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
@@ -161,9 +144,9 @@ export async function sendFluxerBotGuildChannelMessage(
             ...(input.embeds ? { embeds: input.embeds } : {}),
         });
     } catch (error) {
-        return err({ type: 'login-failed', error });
+        return err({ type: 'client-setup-failed', error });
     } finally {
-        await client.destroy().catch(() => undefined);
+        await client?.destroy().catch(() => undefined);
     }
 }
 
@@ -176,11 +159,10 @@ export async function editFluxerBotGuildChannelMessage(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = new Client({ gatewayDebug: false, rest: fluxerSafeRestOptions });
+    let client: Client | undefined;
 
     try {
-        await client.login(botToken);
-
+        client = createFluxerAuthenticatedRestClient(botToken);
         return await editFluxerGuildChannelMessage({
             ...(input.allowedMentions ? { allowedMentions: input.allowedMentions } : {}),
             client,
@@ -191,9 +173,9 @@ export async function editFluxerBotGuildChannelMessage(
             ...(input.embeds ? { embeds: input.embeds } : {}),
         });
     } catch (error) {
-        return err({ type: 'login-failed', error });
+        return err({ type: 'client-setup-failed', error });
     } finally {
-        await client.destroy().catch(() => undefined);
+        await client?.destroy().catch(() => undefined);
     }
 }
 
@@ -345,7 +327,7 @@ function toFluxerEmbed(embed: OutgoingEmbed): NonNullable<MessageSendOptions['em
               }
             : {}),
         ...(embed.color === undefined ? {} : { color: embed.color }),
-        ...(embed.description ? { description: embed.description } : {}),
+        description: embed.description ?? null,
         ...(embed.fields ? { fields: embed.fields } : {}),
         ...(embed.footer
             ? {
@@ -398,18 +380,7 @@ export async function editFluxerChannelMessage(
     }
 
     try {
-        const channel = await input.client.channels.resolve(channelId);
-
-        if (!isEditableMessageChannel(channel)) {
-            return err({ type: 'edit-failed', error: new Error('Message channel is not fetchable.') });
-        }
-
-        const message = await channel.messages.fetch(messageId);
-
-        if (typeof message.edit !== 'function') {
-            return err({ type: 'edit-failed', error: new Error('Message is not editable.') });
-        }
-
+        const message = await input.client.channels.fetchMessage(channelId, messageId);
         const editedMessage = await message.edit(payload);
 
         return ok({
@@ -420,14 +391,4 @@ export async function editFluxerChannelMessage(
     } catch (error) {
         return err({ type: 'edit-failed', error });
     }
-}
-
-function isEditableMessageChannel(channel: unknown): channel is EditableMessageChannel {
-    if (typeof channel !== 'object' || channel === null) {
-        return false;
-    }
-
-    const possibleChannel = channel as { messages?: { fetch?: unknown } };
-
-    return typeof possibleChannel.messages?.fetch === 'function';
 }

@@ -433,7 +433,7 @@ describe('readFluxerBotGuildStructure', () => {
 
         expect(result.isErr()).toBe(true);
         expect(result._unsafeUnwrapErr()).toStrictEqual({
-            type: 'login-failed',
+            type: 'authentication-failed',
             error: loginError,
         } satisfies ReadFluxerBotGuildStructureError);
         expect(login).not.toHaveBeenCalled();

@@ -1,7 +1,6 @@
 import {
-    Client,
+    type Client,
     Events,
-    GatewayOpcodes,
     PermissionFlags,
     type Channel,
     type Guild,
@@ -71,46 +70,6 @@ describe('createFluxerBot lifecycle handlers', () => {
         expect(guildUnavailable).toHaveBeenCalledWith({ guildId: guild.id });
         expect(guildAvailable).toHaveBeenCalledWith({ guildId: guild.id });
         expect(guildDeleted).toHaveBeenCalledWith({ guildId: guild.id });
-    });
-
-    it('retains a known guild for an unavailable gateway delete and removes it for a permanent delete', async () => {
-        const client = new Client({ gatewayDeferHandlers: false, waitForGuilds: false });
-        const guild = createGuild('guild-1', { available: true });
-        const guildUnavailable = vi.fn();
-        const guildDeleted = vi.fn();
-        const dispatch = (payload: unknown) =>
-            (client as unknown as { handleDispatch(payload: unknown): Promise<void> }).handleDispatch(payload);
-        client.guilds.set(guild.id, guild);
-        client.on(Events.GuildUnavailable, guildUnavailable);
-        client.on(Events.GuildDelete, guildDeleted);
-
-        await dispatch({
-            d: { id: guild.id, unavailable: true },
-            op: GatewayOpcodes.Dispatch,
-            s: 1,
-            t: 'GUILD_DELETE',
-        });
-        await dispatch({
-            d: { id: guild.id, unavailable: true },
-            op: GatewayOpcodes.Dispatch,
-            s: 2,
-            t: 'GUILD_DELETE',
-        });
-
-        expect(client.guilds.get(guild.id)).toBe(guild);
-        expect(guild.available).toBe(false);
-        expect(guildUnavailable).toHaveBeenCalledExactlyOnceWith(guild);
-        expect(guildDeleted).not.toHaveBeenCalled();
-
-        await dispatch({
-            d: { id: guild.id, unavailable: false },
-            op: GatewayOpcodes.Dispatch,
-            s: 3,
-            t: 'GUILD_DELETE',
-        });
-
-        expect(client.guilds.has(guild.id)).toBe(false);
-        expect(guildDeleted).toHaveBeenCalledWith(guild);
     });
 
     it('calls guildUpdated with only the new guild id on GuildUpdate', () => {
@@ -200,7 +159,10 @@ describe('createFluxerBot lifecycle handlers', () => {
             channels: 5_000,
             guilds: 0,
             members: 5_000,
-            messages: 0,
+            emojis: 0,
+            messages: false,
+            roles: 0,
+            stickers: 0,
             users: 10_000,
         });
         expect(multiBot.client.options.rest?.retryPolicy).toBeTypeOf('function');
@@ -257,17 +219,18 @@ describe('createFluxerBot lifecycle handlers', () => {
             },
             logger
         );
-        const sendToGateway = vi.spyOn(bot.client, 'sendToGateway').mockImplementation(() => undefined);
+        const setPresence = vi.fn();
+        Object.defineProperty(bot.client, 'user', {
+            configurable: true,
+            value: { setPresence },
+        });
 
         bot.client.emit(Events.Ready);
 
-        expect(sendToGateway).toHaveBeenCalledWith(0, {
-            op: GatewayOpcodes.PresenceUpdate,
-            d: {
-                status: 'online',
-                custom_status: {
-                    text: 'Testing NeonFlux',
-                },
+        expect(setPresence).toHaveBeenCalledWith({
+            status: 'online',
+            customStatus: {
+                text: 'Testing NeonFlux',
             },
         });
     });

@@ -1,4 +1,4 @@
-import { PermissionFlags, type MessageSendOptions } from '@fluxerjs/core';
+import { PermissionFlags } from '@fluxerjs/core';
 import type { OutgoingMessage } from '@neonflux/messaging';
 import {
     evaluateReactionRoleRoleEligibility,
@@ -10,6 +10,7 @@ import { err, ok, type Result } from 'neverthrow';
 import type { FluxerBot } from './client.js';
 import { isFluxerGuildUnavailable } from './guild-availability.js';
 import { readFluxerGuildStructure } from './guild-structure.js';
+import { toDashboardFluxerMessagePayload } from './messages.js';
 import { mapPlatformError, type FluxerPlatformError } from './platform-shared.js';
 
 const POSTABLE_CHANNEL_TYPES = new Set([0]);
@@ -271,7 +272,7 @@ async function sendReactionRoleMessage(
 ): Promise<Result<{ channelId: string; id: string }, FluxerPlatformError>> {
     try {
         const sent = await client.channels.send(input.channelId, {
-            ...toMessagePayload(input.message),
+            ...toDashboardFluxerMessagePayload(input.message),
             nonce: input.nonce,
         });
         return ok({ channelId: sent.channelId, id: sent.id });
@@ -285,17 +286,9 @@ async function editReactionRoleMessage(
     input: { channelId: string; message: OutgoingMessage; messageId: string }
 ): Promise<Result<{ channelId: string; id: string }, FluxerPlatformError>> {
     return withMessage(client, input, async (message) => {
-        const edited = await message.edit(toMessagePayload(input.message));
+        const edited = await message.edit(toDashboardFluxerMessagePayload(input.message));
         return { channelId: edited.channelId, id: edited.id };
     });
-}
-
-function toMessagePayload(message: OutgoingMessage): MessageSendOptions {
-    return {
-        allowedMentions: { parse: [] },
-        ...(message.content ? { content: message.content } : {}),
-        ...(message.embeds.length > 0 ? { embeds: message.embeds } : {}),
-    };
 }
 
 async function withMessage<T>(

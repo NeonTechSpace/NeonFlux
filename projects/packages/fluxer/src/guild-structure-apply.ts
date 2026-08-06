@@ -3,7 +3,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { createChannelPlatform, createRolePlatform } from './platform-guild-operations.js';
 import type { FluxerPlatformError } from './platform-shared.js';
-import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
+import { createFluxerAuthenticatedRestClient, fluxerBoundedNoRetryRestOptions } from './authenticated-rest-client.js';
 import {
     createBlueprintReferenceMapping,
     normalizeRequestedChannelPositions,
@@ -98,8 +98,7 @@ export type ApplyFluxerBotGuildStructureUpdateError =
           field: 'parentId' | 'permissionOverwrites' | 'targetId';
           actionId?: string;
       }
-    | { type: 'unsupported-action'; reason: string }
-    | { type: 'login-failed'; error: unknown };
+    | { type: 'unsupported-action'; reason: string };
 
 export type ApplyFluxerBotGuildStructureActionError = ApplyFluxerBotGuildStructureUpdateError;
 type ApplyNormalizedActionError = ApplyFluxerBotGuildStructureActionError;
@@ -128,7 +127,7 @@ export async function applyFluxerBotGuildStructureAction(
         return err(normalized.error);
     }
 
-    const client = createFluxerGuildStructureRestClient(normalized.value.botToken);
+    const client = createFluxerAuthenticatedRestClient(normalized.value.botToken, fluxerBoundedNoRetryRestOptions);
 
     try {
         return await applyNormalizedAction(client, normalized.value, createStructureApplyRateLimiter(0));
@@ -178,7 +177,7 @@ export async function applyFluxerBotGuildStructureActions(
         );
     }
 
-    const client = createFluxerGuildStructureRestClient(botToken);
+    const client = createFluxerAuthenticatedRestClient(botToken, fluxerBoundedNoRetryRestOptions);
     const idMap: Record<string, string> = { ...(input.idMap ?? {}) };
     const actions: ApplyFluxerBotGuildStructureBatchResult['actions'] = [];
     const rateLimiter = createStructureApplyRateLimiter(input.operationDelayMs, input.beforeMutation);

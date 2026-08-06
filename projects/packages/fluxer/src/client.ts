@@ -1,13 +1,15 @@
 import {
     Client,
     Events,
-    GatewayOpcodes,
     PermissionFlags,
     type Channel,
     type GuildBan,
     type GuildMember,
     type Message,
+    type MessageReactionAddManyPayload,
+    type MessageReactionPayload,
     type PartialMessage,
+    type ReactionEmojiPayload,
     type Role,
 } from '@fluxerjs/core';
 
@@ -160,7 +162,7 @@ const USER_CACHE_LIMIT = 10_000;
 function createBotPresence(customStatusText: string) {
     return {
         status: BOT_PRESENCE_STATUS,
-        custom_status: {
+        customStatus: {
             text: customStatusText,
         },
     } as const;
@@ -178,7 +180,7 @@ export function createFluxerBot(
             channels: CHANNEL_CACHE_LIMIT,
             guilds: config.instanceMode === 'single' ? 1 : 0,
             members: MEMBER_CACHE_LIMIT,
-            messages: 0,
+            messages: false,
             users: USER_CACHE_LIMIT,
         },
     });
@@ -405,26 +407,7 @@ export function createFluxerBot(
         runResolvedLifecycleHandler(
             'fluxer.reactions_added_many_handler_failed',
             lifecycleHandlers.reactionsAddedMany,
-            () =>
-                Promise.all(
-                    payload.reactions.map(async (reaction) => {
-                        const event = {
-                            channelId: payload.channelId,
-                            emoji: normalizeReactionEmoji(reaction.emoji),
-                            guildId: payload.guildId,
-                            messageId: payload.messageId,
-                            userId: reaction.userId,
-                        };
-                        return {
-                            ...event,
-                            userIsBot: await resolveReactionActorIsBot(
-                                client,
-                                event,
-                                reaction.member?.user.bot ?? reaction.userId === client.user?.id
-                            ),
-                        };
-                    })
-                )
+            () => normalizeReactionAddManyEvent(client, payload)
         );
     });
 
@@ -607,18 +590,16 @@ function applyBotPresence(logger: AppLogger, client: Client, customStatusText: s
     const presence = createBotPresence(customStatusText);
 
     try {
-        client.sendToGateway(0, {
-            op: GatewayOpcodes.PresenceUpdate,
-            d: presence,
-        });
+        if (!client.user) throw new Error('Fluxer client user is unavailable after ready.');
+        client.user.setPresence(presence);
         logger.info('fluxer.presence_updated', {
             presenceStatus: presence.status,
-            customStatusText: presence.custom_status.text,
+            customStatusText: presence.customStatus.text,
         });
     } catch {
         logger.error('fluxer.presence_update_failed', {
             presenceStatus: presence.status,
-            customStatusText: presence.custom_status.text,
+            customStatusText: presence.customStatus.text,
         });
     }
 }
@@ -724,14 +705,7 @@ function normalizeChannelEvent(channel: Channel): FluxerBotChannelEvent {
     };
 }
 
-function normalizeReactionEvent(payload: {
-    channelId: string;
-    emoji: { animated?: boolean; id?: string; name: string };
-    messageId: string;
-    reaction: { guildId: string | null };
-    user: { bot: boolean };
-    userId: string;
-}): FluxerBotReactionEvent {
+function normalizeReactionEvent(payload: MessageReactionPayload): FluxerBotReactionEvent {
     return {
         channelId: payload.channelId,
         emoji: normalizeReactionEmoji(payload.emoji),
@@ -742,7 +716,32 @@ function normalizeReactionEvent(payload: {
     };
 }
 
-function normalizeReactionEmoji(emoji: { animated?: boolean; id?: string; name: string }): ReactionRoleEmoji {
+async function normalizeReactionAddManyEvent(
+    client: Client,
+    payload: MessageReactionAddManyPayload
+): Promise<FluxerBotReactionEvent[]> {
+    return Promise.all(
+        payload.reactions.map(async (reaction) => {
+            const event = {
+                channelId: payload.channelId,
+                emoji: normalizeReactionEmoji(reaction.emoji),
+                guildId: payload.guildId,
+                messageId: payload.messageId,
+                userId: reaction.userId,
+            };
+            return {
+                ...event,
+                userIsBot: await resolveReactionActorIsBot(
+                    client,
+                    event,
+                    reaction.member?.user.bot ?? reaction.userId === client.user?.id
+                ),
+            };
+        })
+    );
+}
+
+function normalizeReactionEmoji(emoji: ReactionEmojiPayload): ReactionRoleEmoji {
     return emoji.id
         ? { animated: emoji.animated ?? false, id: emoji.id, kind: 'custom', name: emoji.name }
         : { kind: 'unicode', value: emoji.name.normalize('NFC') };

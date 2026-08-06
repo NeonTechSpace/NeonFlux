@@ -1,7 +1,7 @@
 import type { Client, Guild, GuildChannel } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
-import { createFluxerGuildStructureRestClient } from './guild-structure-rest-client.js';
+import { createFluxerAuthenticatedRestClient, fluxerBoundedNoRetryRestOptions } from './authenticated-rest-client.js';
 import { isFluxerGuildUnavailable } from './guild-availability.js';
 
 const GUILD_CATEGORY_CHANNEL_TYPE = 4;
@@ -79,7 +79,7 @@ export type ReadFluxerGuildStructureError =
 export type ReadFluxerBotGuildStructureError =
     | ReadFluxerGuildStructureError
     | { type: 'missing-input'; field: 'botToken' }
-    | { type: 'login-failed'; error: unknown };
+    | { type: 'authentication-failed'; error: unknown };
 
 export async function readFluxerBotGuildStructure(
     input: ReadFluxerBotGuildStructureInput
@@ -90,7 +90,7 @@ export async function readFluxerBotGuildStructure(
         return err({ type: 'missing-input', field: 'botToken' });
     }
 
-    const client = createFluxerGuildStructureRestClient(botToken);
+    const client = createFluxerAuthenticatedRestClient(botToken, fluxerBoundedNoRetryRestOptions);
 
     try {
         const botUserId = await readAuthenticatedBotUserId(client);
@@ -101,7 +101,7 @@ export async function readFluxerBotGuildStructure(
             guildId: input.guildId,
         });
     } catch (error) {
-        return err({ type: 'login-failed', error });
+        return err({ type: 'authentication-failed', error });
     } finally {
         await client.destroy().catch(() => undefined);
     }

@@ -937,7 +937,7 @@ describe('Blueprint run worker', () => {
         vi.mocked(applyFluxerBotGuildStructureActions).mockResolvedValue(ok({ actions: [], idMap: {} }));
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
-            err({ type: 'login-failed', error: new Error('offline') })
+            err({ type: 'authentication-failed', error: new Error('offline') })
         );
 
         await runWorker();
@@ -996,7 +996,7 @@ describe('Blueprint run worker', () => {
         vi.mocked(finalizeBlueprintRun).mockResolvedValue(err({ type: 'database-error' }));
         vi.mocked(normalizeBlueprintSnapshot).mockReturnValue({ type: 'valid', snapshot: {} } as never);
         vi.mocked(readFluxerBotGuildStructure).mockResolvedValue(
-            err({ type: 'login-failed', error: new Error('offline') })
+            err({ type: 'authentication-failed', error: new Error('offline') })
         );
 
         await expect(runWorker()).rejects.toThrow('blueprint-run-finalize-failed');

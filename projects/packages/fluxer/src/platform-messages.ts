@@ -1,4 +1,4 @@
-import type { MessageSendOptions } from '@fluxerjs/core';
+import type { Message, MessageEditOptions, MessageSendOptions } from '@fluxerjs/core';
 import { err, ok, type Result } from 'neverthrow';
 
 import type { FluxerBot } from './client.js';
@@ -8,25 +8,8 @@ import { mapPlatformError, requireTextInputs, type FluxerPlatformError } from '.
 
 type MessageLookupChannel = {
     messages: {
-        fetch(messageId: string): Promise<SdkMessage>;
-        fetch(options: FetchManyMessagesOptions): Promise<{ values(): Iterable<SdkMessage> }>;
+        fetch(options: FetchManyMessagesOptions): Promise<{ values(): Iterable<Message> }>;
     };
-};
-
-type SdkMessage = {
-    id: string;
-    channelId: string;
-    guildId: string | null;
-    edit(options: {
-        allowedMentions?: MessageSendOptions['allowedMentions'];
-        content?: string;
-        embeds?: MessageSendOptions['embeds'];
-    }): Promise<{
-        id: string;
-        channelId: string;
-        guildId: string | null;
-    }>;
-    delete(): Promise<void>;
 };
 
 type FetchManyMessagesOptions = {
@@ -265,27 +248,14 @@ async function fetchSdkMessage(client: FluxerBot['client'], input: { channelId: 
 }
 
 async function fetchSdkMessageValue(client: FluxerBot['client'], input: { channelId: string; messageId: string }) {
-    const channel = await client.channels.resolve(input.channelId.trim());
-
-    if (!hasMessageLookup(channel)) {
-        throw new Error('message channel is not fetchable');
-    }
-
-    return await channel.messages.fetch(input.messageId.trim());
+    return await client.channels.fetchMessage(input.channelId.trim(), input.messageId.trim());
 }
 
 function normalizeMessageEditPayload(input: {
     allowedMentions?: MessageSendOptions['allowedMentions'];
     content?: string;
     embeds?: MessageSendOptions['embeds'];
-}): Result<
-    {
-        allowedMentions?: MessageSendOptions['allowedMentions'];
-        content?: string;
-        embeds?: MessageSendOptions['embeds'];
-    },
-    FluxerPlatformError
-> {
+}): Result<MessageEditOptions, FluxerPlatformError> {
     const content = input.content?.trim();
     const embeds = input.embeds;
 

@@ -82,7 +82,7 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
-        "@fluxerjs/core": "2.1.0",
+        "@fluxerjs/core": "2.2.0",
         "@neonflux/blueprint": "workspace:*",
         "@neonflux/core": "workspace:*",
         "@neonflux/messaging": "workspace:*",
