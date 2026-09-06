@@ -1,0 +1,15 @@
+{
+    "name": "neonflux-workspace",
+    "private": true,
+    "packageManager": "pnpm@12.9.1",
+    "scripts": {
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "engines": {
+        "node": ">=24 <25"
+    },
+    "devDependencies": {
+        "prettier": "3.9.9"
+    }
+}

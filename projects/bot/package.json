@@ -1,0 +1,6 @@
+{
+    "name": "@neonflux/bot",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0"
+}
