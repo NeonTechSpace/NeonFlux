@@ -1,0 +1,10 @@
+{
+    "name": "@neonflux/bot",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "@types/node": "24.13.3",
+        "typescript": "7.0.2"
+    }
+}
