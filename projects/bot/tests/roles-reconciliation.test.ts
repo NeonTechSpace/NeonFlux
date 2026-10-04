@@ -8,6 +8,7 @@ import { createBotOptions } from "../src/bot.ts"
 import { processRoleReactionJob } from "../src/role-reconciliation.ts"
 import { boundary, token } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
+import { greetingsBoundary } from "./welcome-fixture.ts"
 import { nativeRoles, savedPanel } from "./roles-native-fixture.ts"
 
 test("cleared reaction jobs persist blocked unknown targets while later targets and pages progress", async () => {
@@ -94,11 +95,11 @@ for (const expiryAlreadyReached of [false, true]) test(`startup resumes a saved 
     })).pipe(Effect.provide(TestClock.layer())))
 })
 
-for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI"] as const) test(`${eventName} resumes bounded known consumers through the native gateway entry point`, { timeout: 10000 }, async () => {
-    const f = createFixtures(), remote = rolesBoundary(), moderation = boundary()
+for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI"] as const) test(`${eventName} resumes bounded known consumers through the native gateway entry point${eventName === "MESSAGE_REACTION_REMOVE_EMOJI" ? " with greeting hooks" : ""}`, { timeout: 10000 }, async () => {
+    const f = createFixtures(), remote = rolesBoundary(), moderation = boundary(), greetings = eventName === "MESSAGE_REACTION_REMOVE_EMOJI" ? greetingsBoundary() : undefined
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
         const completed = yield* Deferred.make<void>()
-        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store }))
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, { moderation: moderation.store, roles: remote.store, greetings: greetings?.store }))
         const p = nativeRoles(bot), panel = savedPanel(bot, p, remote); remote.current.panelsEnabled = true; p.roleIds.add(p.role.id)
         const joinedAt = (yield* bot.client.members.fetch({ guildId: f.ids.guild, userId: p.targetId })).joinedAt
         bot.rest.respond((request) => new URL(request.url).pathname.endsWith("/users"), { body: { items: [], has_more: false, next_after: null } })

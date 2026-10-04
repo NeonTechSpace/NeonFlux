@@ -1,3 +1,4 @@
+import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import { RolesEvaluateRequest, type RolesEvaluateResult } from "@neonflux/contracts/roles"
 import { internalMutation } from "./_generated/server.js"
@@ -84,6 +85,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
             const value = { rulesRevision: published.revision, panelName: panel.name, acknowledgedAt: now }
             if (old) { if (old.rulesRevision !== published.revision || old.panelName !== panel.name) await ctx.db.patch(old._id, value) }
             else { await releaseEarlierEpochs(ctx, identity.serverId, member); await ctx.db.insert("roleAcknowledgments", { serverId: identity.serverId, userId: member.userId, joinedAt: member.joinedAt, ...value }) }
+            await wakeGreetings(ctx, identity.serverId, member.userId, member.joinedAt)
         } else if (op.type === "reaction") {
             if (panel.kind !== "reaction" || op.messageId !== published.messageId || !op.panelVerified) fail(400, "Invalid current panel reaction")
             if (!policy.settings.panelsEnabled || !panel.enabled || panel.withdrawing) fail(403, "Role panel unavailable")
