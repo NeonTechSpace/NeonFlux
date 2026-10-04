@@ -52,6 +52,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
+| Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

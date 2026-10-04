@@ -10,6 +10,8 @@ import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
 const optional = Schema.optionalKey
 /** The bot's capability for one dispatch: 32 lowercase hexadecimal digits */
 const ClaimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
+/** The member who asked. Tickets send their whole read of the member, and the backend keeps the moderation fields */
+const actor = Schema.StructWithRest(ModerationActor, [Schema.Record(Schema.String, Schema.Unknown)])
 const canonical = (value: { content: PublishingContent, canonicalContent: PublishingContent }) => equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 
 export const PublishingSettings = Schema.Struct({ enabled: Schema.Boolean })
@@ -67,7 +69,7 @@ export const PublishingManageOperation = Schema.Union([...PublishingConfiguratio
     Schema.Struct({ type: Schema.Literal("resolve"), ...tracked, outcome: Schema.Literal("failed") }),
 ])
 export type PublishingManageOperation = typeof PublishingManageOperation.Type
-export const PublishingManageRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor: ModerationActor, operation: PublishingManageOperation })
+export const PublishingManageRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor, operation: PublishingManageOperation })
 export type PublishingManageRequest = typeof PublishingManageRequest.Type
 const done = { duplicate: Schema.Literal(false) }
 export const PublishingManageResult = Schema.Union([Schema.Struct({ duplicate: Schema.Literal(true) }),
@@ -80,7 +82,7 @@ export const PublishingManageResult = Schema.Union([Schema.Struct({ duplicate: S
     Schema.Struct({ ...done, type: Schema.Literal("resolved"), post: PublishingPost }),
 ])
 export type PublishingManageResult = typeof PublishingManageResult.Type
-export const PublishingQueryRequest = Schema.Struct({ serverId: Id, actor: ModerationActor, operation: Schema.Union([
+export const PublishingQueryRequest = Schema.Struct({ serverId: Id, actor, operation: Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings") }),
     Schema.Struct({ type: Schema.Literal("draft-show"), ...named }),
     // Drafts list in name order, and afterName continues after the last name of the previous page
@@ -103,7 +105,7 @@ export const PublishingOutcomeRequest = Schema.Struct({ serverId: Id, postNo: In
 export type PublishingOutcomeRequest = typeof PublishingOutcomeRequest.Type
 export const PublishingOutcomeResult = Schema.Struct({ recorded: Schema.Boolean })
 export type PublishingOutcomeResult = typeof PublishingOutcomeResult.Type
-export const PublishingReconcileRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor: ModerationActor, postNo: Int(1), attemptId: Token, expectedGeneration: Int(1),
+export const PublishingReconcileRequest = Schema.Struct({ ...ModerationSource.fields, serverId: Id, actor, postNo: Int(1), attemptId: Token, expectedGeneration: Int(1),
     observation: PublishingObservation })
 export type PublishingReconcileRequest = typeof PublishingReconcileRequest.Type
 export const PublishingReconcileResult = Schema.Struct({ recorded: Schema.Boolean, post: PublishingPost })
