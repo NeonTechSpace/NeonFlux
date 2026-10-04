@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
 import { Exit, Schema } from "effect"
-import { isId } from "@neonflux/contracts/common"
+import { isId, isName } from "@neonflux/contracts/common"
 
 export { isId }
 
@@ -34,6 +34,19 @@ export function integer(value: unknown, min: number, max: number): number {
     return value
 }
 
+export function name(value: unknown): string {
+    if (typeof value !== "string") fail(400, "Invalid request")
+    const result = value.trim().toLowerCase()
+    if (!isName(result)) fail(400, "Invalid request")
+    return result
+}
+
+export function cursor(value: unknown): string | null {
+    if (value === undefined || value === null) return null
+    if (typeof value !== "string" || !value.length || value.length > 16384) fail(400, "Invalid cursor")
+    return value
+}
+
 export function fresh(timestamp: number, now: number) {
     if (timestamp < now - 15 * 60000 || timestamp > now + 60000) fail(400, "Invalid source event")
 }
@@ -45,4 +58,9 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     const createdAt = integer(input.createdAt, 0, Number.MAX_SAFE_INTEGER)
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
+}
+
+// Work bindings select a member, so supplied native evidence must name that same member
+export function requireReadMember(row: Record<string, unknown>, userId: string) {
+    if (Object.hasOwn(row, "memberUserId") && row.memberUserId !== userId) fail(403, "Native evidence member mismatch")
 }

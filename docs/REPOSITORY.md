@@ -22,7 +22,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and serial message pipeline
 - `tests/` holds the bot tests, which use the SDK's in-memory transport
-- [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source and tests without emitting
+- `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
+- [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
 
 ## Backend package
 
@@ -33,20 +34,21 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Contracts package
 
 - `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
-- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks
-- A module imports only this base module and the modules of the features it builds on, never in a cycle
+- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, and [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send
+- A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar and `-store.ts` decodes backend HTTP responses with the feature's shared schemas.
-In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules and `Validators.ts` owns persisted shapes.
+In the bot, `<prefix>-command.ts` owns command grammar, `-permissions.ts` owns fresh native permission checks and `-store.ts` decodes backend HTTP responses with the feature's shared schemas.
+In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes.
 The requests and answers between them live in the feature's module of the [contracts package](#contracts-package)
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
 | --- | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `afk`, `response`, `responses` | `common`, `afk`, `responses`, `general` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
+| Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes
@@ -62,7 +64,8 @@ pnpm run check
 
 pnpm selects the exact version pinned in the workspace manifest.
 The aggregate check runs the contracts typecheck, then the backend checks, then the bot typecheck, build and tests.
-Tests need no live credentials
+Tests need no live credentials.
+The opt-in live smoke runs separately through `pnpm run smoke:live` and is not part of the aggregate check
 
 Use `pnpm run build` to compile the bot and `pnpm run start` to run the bot's last build.
 During development, `pnpm run dev:bot` runs the bot from its source and restarts it on changes, and `pnpm run deploy:dev` publishes the backend once to the development deployment.
@@ -74,6 +77,6 @@ There are no production deployment or container commands yet
 
 - Regenerate the lockfile through pnpm when dependency inputs change, review it and verify a frozen install
 - Regenerate `convex/_generated/` against a configured deployment after changing the backend schema or function interfaces, as described in [the backend guide](BACKEND.md)
-- Dependency installs, compiler output, build caches and private `.env` files stay ignored through the [workspace ignore rules](../projects/.gitignore) and the backend's own `.gitignore`
+- Dependency installs, compiler output, build caches and private `.env` files stay ignored through the [workspace ignore rules](../projects/.gitignore) and each package's own `.gitignore`
 - Keep ignore rules at workspace or package scope, not in a root `.gitignore`. Use Git's local `.git/info/exclude` for repository-root machine files
 - The [workspace configuration](../projects/pnpm-workspace.yaml) allows build scripts only for the reviewed `esbuild` version that Convex needs, and exempts the pinned SDK release from the minimum release age. Review a changed script or version before updating these entries

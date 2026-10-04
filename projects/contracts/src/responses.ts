@@ -8,7 +8,7 @@ export const RESPONSE_PAGE_SIZE = 10
 export const ResponseKind = Schema.Literals(["custom", "auto"])
 export type ResponseKind = typeof ResponseKind.Type
 /** Every built-in command, the one catalog that the reserved custom command names follow */
-export const BUILT_IN_COMMANDS = ["ping", "afk", "prefix", "custom", "auto"] as const
+export const BUILT_IN_COMMANDS = ["ping", "afk", "prefix", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeals", "appeal"] as const
 export type BuiltInCommand = typeof BUILT_IN_COMMANDS[number]
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
 export const isResponseName = (value: string) => isName(value) && !(BUILT_IN_COMMANDS as readonly string[]).includes(value)
