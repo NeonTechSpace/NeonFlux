@@ -114,4 +114,15 @@ mutation("/roles/outcome", 262144, internal.roleLifecycle.outcome)
 mutation("/roles/reconcile", 262144, internal.roleLifecycle.reconcile)
 mutation("/roles/observe", 262144, internal.roleLifecycle.observe)
 
+query("/greetings/query", 65536, internal.greetings.query)
+query("/greetings/member", 65536, internal.greetings.member)
+query("/greetings/pending", 65536, internal.greetings.pending)
+mutation("/greetings/manage", 65536, internal.greetings.manage)
+mutation("/greetings/observe", 65536, internal.greetings.observe)
+mutation("/greetings/discover", 65536, internal.greetings.discover)
+mutation("/greetings/reserve", 65536, internal.greetingLifecycle.reserve)
+mutation("/greetings/dispatch", 65536, internal.greetingLifecycle.dispatch)
+mutation("/greetings/outcome", 65536, internal.greetingLifecycle.outcome)
+mutation("/greetings/defer", 65536, internal.greetingLifecycle.defer)
+
 export default http

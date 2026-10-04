@@ -54,7 +54,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Permission checks read current server, role, member and channel data for each request. A failed read denies the request
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
-- Durable worker state, such as schedule queues, lives in the backend. Workers resume it after a restart
+- Durable worker state, such as greeting and schedule queues, lives in the backend. Workers resume it after a restart
 
 ## Ping, AFK, prefix and custom responses
 
@@ -331,3 +331,26 @@ Plain reaction verification is an acknowledgement, not a CAPTCHA
 Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`. Autorole applies to future joins only and to humans by default. `!autorole humans off` includes bots. When verification is configured, autorole waits for it
 
 A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations`. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire [settings-revision]`, `next`, `history [cursor]` and `reconcile|withdraw @user [cursor]`
+
+## Welcome and goodbye
+
+Owners and Administrators configure three routes: a channel welcome, a private DM greeting and a channel goodbye. All start off and apply to human members. Compose the message as a [publishing template](#drafts-templates-and-posts). Configuring a route copies the template's current revision, so later template edits do not change it
+
+```text
+!welcome configure arrival #welcome join
+!welcome dm configure private_arrival verified
+!goodbye configure departure #departures
+!welcome module on
+!welcome dm module on
+!goodbye module on
+!welcome preview
+```
+
+Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module on|off`, `clear`, `preview`, `show`, `status [delivery-number]`, `history [before-delivery]`, `member @user` and `help`. `!welcome rate <1-60>` sets the shared sending pace per minute, default 10, and `!welcome retention <30-3650>` sets how many days delivery history is kept, default 30
+
+- Placeholders are `{user.name}`, `{user.mention}`, `{user.id}`, `{server.name}`, `{server.id}` and `{channel.id}`. `{user.mention}` can notify only the greeted member, and `{channel.id}` works only in channel routes
+- Welcome and DM routes need `join` or `verified` timing. `verified` waits until the member completed rules verification and holds the access role
+- Enabling a route does not greet existing members, and a join is greeted only within 15 minutes
+- Goodbye is sent when a member leaves, including members who joined before the bot started tracking. The bot cannot tell whether a departure was voluntary, a kick or a ban
+- Preview sends a sample for the invoking staff member in the current channel
+- A delivery with an unknown outcome is never resent

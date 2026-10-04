@@ -1,3 +1,4 @@
+import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import type { RolesEvaluateResult } from "../contracts.js"
 import { internalMutation } from "./_generated/server.js"
@@ -94,6 +95,7 @@ export const evaluate = internalMutation({ args: { request: v.any() }, handler: 
             const value = { rulesRevision: published.revision, panelName: panel.name, acknowledgedAt: now }
             if (old) { if (old.rulesRevision !== published.revision || old.panelName !== panel.name) await ctx.db.patch(old._id, value) }
             else { await releaseEarlierEpochs(ctx, identity.serverId, member); await ctx.db.insert("roleAcknowledgments", { serverId: identity.serverId, userId: member.userId, joinedAt: member.joinedAt, ...value }) }
+            await wakeGreetings(ctx, identity.serverId, member.userId, member.joinedAt)
         } else if (op.type === "reaction") {
             shape(op, ["type", "name", "revision", "messageId", "presentEmojis", "panelVerified"], ["type", "name", "revision", "messageId", "presentEmojis", "panelVerified"])
             if (panel.kind !== "reaction" || requireId(op.messageId) !== published.messageId || op.panelVerified !== true || !Array.isArray(op.presentEmojis) || op.presentEmojis.length > 20) fail(400, "Invalid current panel reaction")

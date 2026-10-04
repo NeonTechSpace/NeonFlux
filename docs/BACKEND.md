@@ -79,7 +79,7 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `publish` and `roles`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles` and `welcome`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
@@ -174,3 +174,18 @@ A reaction on the current verification panel acknowledges the rules. Configured 
 | `/roles/evaluate` | 262,144 | Participation policy and role reservations |
 | `/roles/dispatch`, `/roles/outcome` | 262,144 | One-time claim and native outcome |
 | `/roles/reconcile`, `/roles/observe` | 262,144 | Read-only ownership recovery and aging without writes |
+
+## Welcome and goodbye
+
+Channel welcomes, optional DM welcomes and channel goodbyes are independent routes that start disabled and accept human members only. Each route copies an exact publishing template revision. Text fields accept `{user.name}`, `{user.id}`, `{server.name}`, `{server.id}` and, for channel routes, `{channel.id}`, with display text escaped and mentions disabled
+
+Welcome timing is `join` or `verified`. A join must be a genuine event within 15 minutes whose native `joinedAt` matches fresh membership. Verified timing needs the current rules acknowledgment and fresh access-role presence. A goodbye needs a retained presence observation followed by a fresh typed member `404`. Enabling a route never backfills earlier joins
+
+Pending work expires after 24 hours, grants after 180 seconds, and native requests are bounded to five seconds. Claimed sends are never replayed. One server-wide budget spaces claims across the three routes, ten per minute by default and configurable from 1 to 60. At most 1,000 deliveries can be pending or claimed within 50,000 retained deliveries. Member observations are capped at 50,000 and expire 365 days after the latest observation. Terminal history defaults to 30 days, configurable from 30 to 3,650
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/greetings/manage`, `/greetings/query` | 65,536 | Configuration, preview and numbered delivery history |
+| `/greetings/member`, `/greetings/observe` | 65,536 | Member observations, joins and typed absence |
+| `/greetings/discover`, `/greetings/pending` | 65,536 | Waiting eligibility hints and ready pages |
+| `/greetings/reserve`, `/greetings/dispatch`, `/greetings/outcome`, `/greetings/defer` | 65,536 | Reservation, one-time claim, outcome and deferral |

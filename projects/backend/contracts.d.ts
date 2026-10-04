@@ -469,6 +469,48 @@ export type RolesReactionJobsResult = { type: "jobs", jobs: RolesReactionJob[] }
     | { type: "page", claimed: false, job: RolesReactionJob }
     | { type: "page", claimed: true, job: RolesReactionJob, targets: { userId: string, joinedAt: string, sourceId: string }[], hasMore: boolean }
 
+export type GreetingsRoute = "welcome" | "dm" | "goodbye"
+export type GreetingsRouteSettings = { revision: number, enabled: boolean, timing: "join" | "verified", channelId?: string, templateName?: string, templateRevision?: number, content?: PublishingContent }
+export type GreetingsSettings = { routes: Record<GreetingsRoute, GreetingsRouteSettings>, claimsPerMinute: number, retentionDays: number }
+export type GreetingsMemberContext = { userId: string, userName: string, serverName: string, joinedAt: string, isBot: boolean, roleIds: string[], timeoutUntil: string | null }
+export type GreetingsContext = { botId: string, botAuthorized: boolean, observedAt: number, member: GreetingsMemberContext | null, memberAbsent: boolean, memberUserId?: string, channelId?: string }
+export type GreetingsState = "waiting" | "ready" | "reserved" | "sent" | "failed" | "uncertain" | "cancelled" | "expired"
+export type GreetingsDelivery = { deliveryId: string, deliveryNo: number, route: GreetingsRoute, routeRevision: number, userId: string, joinedAt: string, memberGeneration: number, state: GreetingsState, createdAt: number, pendingExpiresAt: number, nextCheckAt: number, reason?: "verification" | "eligibility" | "configuration" | "membership" | "lifetime" | "capacity", grant?: GreetingsGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, channelId?: string }
+export type GreetingsGrant = { deliveryId: string, deliveryNo: number, route: GreetingsRoute, routeRevision: number, templateName: string, templateRevision: number, userId: string, joinedAt: string, memberGeneration: number, botId: string, channelId?: string, content: PublishingContent, canonicalContent: PublishingContent, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type GreetingsBinding = { serverId: string, deliveryId: string, route: GreetingsRoute, routeRevision: number, userId: string, joinedAt: string, memberGeneration: number }
+export type GreetingsManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation:
+    | { type: "configure", route: GreetingsRoute, templateName: string, expectedTemplateRevision: number, channelId?: string, timing?: "join" | "verified" }
+    | { type: "module", route: GreetingsRoute, enabled: boolean }
+    | { type: "clear", route: GreetingsRoute }
+    | { type: "settings", claimsPerMinute?: number, retentionDays?: number }
+}
+export type GreetingsManageResult = { duplicate: boolean, settings: GreetingsSettings }
+export type GreetingsQueryRequest = { serverId: string, actor: ModerationActor, operation: { type: "settings" } | { type: "member", userId: string } | { type: "delivery", deliveryNo: number } | { type: "deliveries", beforeDeliveryNo?: number } | { type: "preview", route: GreetingsRoute, userId: string, userName: string, serverName: string, channelId: string } }
+export type GreetingsMember = { userId: string, joinedAt: string, generation: number, present: boolean, observedAt: number, expiresAt: number }
+export type GreetingsQueryResult = { type: "settings", settings: GreetingsSettings } | { type: "member", member: GreetingsMember | null } | { type: "delivery", delivery: GreetingsDelivery } | { type: "deliveries", deliveries: GreetingsDelivery[], nextBeforeDeliveryNo?: number } | { type: "preview", content: PublishingContent, canonicalContent: PublishingContent }
+export type GreetingsObserveRequest = { serverId: string, operation:
+    | { type: "join", eventJoinedAt: string, observedAt: number, member: GreetingsMemberContext }
+    | { type: "present", expectedGeneration: number, observedAt: number, member: GreetingsMemberContext }
+    | ({ type: "absent", userId: string, expectedGeneration: number, joinedAt: string, observedAt: number, memberAbsent: true })
+    | ({ type: "departed", userId: string, userName: string, serverName: string, observedAt: number, memberAbsent: true })
+}
+export type GreetingsObserveResult = { recorded: boolean, member: GreetingsMember | null, admitted: number }
+export type GreetingsPendingRequest = { serverId: string, cursor?: string, userId?: string, scanAt?: number }
+export type GreetingsPendingResult = { scanAt: number, candidates: { deliveryId: string, route: GreetingsRoute, routeRevision: number, userId: string, joinedAt: string, memberGeneration: number, channelId?: string, hasEmbed: boolean }[], nextCursor?: string, nextClaimAt: number, nextCheckAt?: number }
+export type GreetingsReserveRequest = GreetingsBinding & { context: GreetingsContext }
+export type GreetingsReserveResult = { status: "reserved", grant: GreetingsGrant } | { status: "waiting" | "cancelled" | "expired" | "terminal" }
+export type GreetingsDispatchRequest = GreetingsBinding & { claimToken: string, context: GreetingsContext }
+export type GreetingsDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000, nextClaimAt: number }
+export type GreetingsOutcomeRequest = GreetingsBinding & { claimToken?: string, outcome: "sent" | "failed" | "uncertain", noDispatch?: true, messageId?: string, channelId?: string }
+export type GreetingsOutcomeResult = { recorded: boolean }
+export type GreetingsDeferRequest = GreetingsBinding & { reason: "verification" | "eligibility" }
+export type GreetingsDeferResult = { deferred: boolean }
+export type GreetingsMemberRequest = { serverId: string, userId: string }
+export type GreetingsMemberResult = { member: GreetingsMember | null }
+
+export type GreetingsDiscoverRequest = { serverId: string, cursor?: string, userId?: string, scanAt?: number }
+export type GreetingsDiscoverResult = { scanAt: number, examined: number, queued: number, nextCursor?: string }
+
 export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
 export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }

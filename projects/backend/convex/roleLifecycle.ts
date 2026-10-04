@@ -1,3 +1,4 @@
+import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import type { RolesDispatchResult, RolesOutcomeResult, RolesReconcileResult, RolesObserveResult } from "../contracts.js"
 import { internalMutation } from "./_generated/server.js"
@@ -64,6 +65,7 @@ export const outcome = internalMutation({ args: { request: v.any() }, handler: a
     const owned = input.outcome === "succeeded" ? attempt.action === "add" : owner.owned
     await ctx.db.patch(owner._id, { status: input.outcome === "uncertain" ? "uncertain" : "idle", owned, protected: input.outcome === "uncertain" || owned, updatedAt: now })
     if (input.outcome === "succeeded" && attempt.action === "remove") await dropUndesiredReferences(ctx, owner._id)
+    await wakeGreetings(ctx, serverId, owner.userId, owner.joinedAt)
     return { recorded: true }
 } })
 
@@ -88,6 +90,7 @@ export const reconcile = internalMutation({ args: { request: v.any() }, handler:
         for (const ref of await ownerReferences(ctx, owner._id)) { await ctx.db.delete(ref._id) }
     } else if (!owned) await dropUndesiredReferences(ctx, owner._id)
     await ctx.db.patch(attempt._id, { observationAt: observedAt, expiresAt: now + ROLES_RETENTION })
+    await wakeGreetings(ctx, identity.serverId, owner.userId, owner.joinedAt)
     return { recorded: true, claim: await publicRoleClaim(ctx, (await ctx.db.get(owner._id))!) }
 } })
 
