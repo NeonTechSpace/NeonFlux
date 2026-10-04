@@ -63,7 +63,7 @@ export function readEventsAuthority(client: Client, serverId: string, userId: st
         }), catch: () => new EventsPermissionError({ stage: "destination" }) })
         const required = Permissions.ViewChannel | (options.write ? Permissions.SendMessages | (options.hasEmbed ? Permissions.EmbedLinks : 0n) : 0n)
         const botTimeout = authority.bot.communicationDisabledUntil
-        const context: C.SchedulesContext = { observedAt, actor: moderationActor(authority), channelId, botId: authority.botId,
+        const context: C.EventsContext = { observedAt, actor: moderationActor(authority), channelId, botId: authority.botId,
             botAuthorized: (bits.bot & required) === required && botTimeout !== undefined && (botTimeout === null || Number.isFinite(Date.parse(botTimeout)) && Date.parse(botTimeout) <= observedAt),
             actorAuthorized: (bits.actor & required) === required,
             member: { ...member, canView: (bits.member & Permissions.ViewChannel) !== 0n, canReadHistory: (bits.member & Permissions.ReadMessageHistory) !== 0n } }

@@ -2,7 +2,7 @@
 
 This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers other than its configured server
 
-Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
+Examples use the default `!` prefix. The server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
 ## Set up and run
 
@@ -32,6 +32,7 @@ The check typechecks, builds and tests the backend and bot without a Fluxer toke
 | `CONVEX_SITE_URL` | Convex HTTP Actions origin, such as `https://your-deployment.convex.site` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, at least 32 characters |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 |
+| `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-additive-restore) |
 
 `CONVEX_SITE_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. Set both backend variables or neither. Without them only `!ping` works
 
@@ -62,7 +63,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Server owners and members with Manage Server change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered
 
-The bot caches each server's prefix. A chat change applies at once and other changes apply within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+The bot caches the server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
 
 ### AFK
 
@@ -324,7 +325,7 @@ Retire and delete withdraw the roles a panel granted, within the same command. I
 
 A member reacts to the rules panel or sends `!verify`. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
 
-Plain reaction verification is an acknowledgement, not a CAPTCHA
+Reaction verification is an acknowledgement, not a CAPTCHA
 
 ### Autorole and reservations
 
@@ -429,7 +430,7 @@ Transcript capture is explicit and incomplete by design. Each stored message kee
 
 Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies suppress mentions, and cards and leaderboards show account IDs without storing display names or avatars
 
-Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining.
+Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining
 
 | Command | Behavior |
 | --- | --- |
@@ -606,3 +607,28 @@ Each category has a color: Membership green, resources blue, messages cyan, audi
 Logged events cover member joins, updates and removals, role and channel changes, server updates, message edits and deletions and new audit log entries. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON and metadata configuration only
 
 Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the backlog. A send with an unknown result is never repeated. Use `!logs delivery reconcile` to recheck it. Logs are append-only and settled records expire after 30 days
+
+## Selective backup and additive restore
+
+Only the current server Owner can use `!backup`, in a verified one-to-one DM with NeonFlux. Running it in the server returns only a private hint. Archives and reports stay private and suppress mentions
+
+| Command | Behavior |
+| --- | --- |
+| `!backup help` | Show usage and key setup |
+| `!backup export config xp structure` | Export only the categories you name |
+| `!backup inspect` | Validate the attached encrypted `.nfb` archive and show its metadata |
+| `!backup plan` | Preview creates, identical skips, conflicts and blocked items |
+| `!backup confirm <planID> <planHash> <archiveDigest>` | Run up to 20 items of the reviewed plan |
+| `!backup status [<planID> <planHash> <archiveDigest>]` | List plans or show one plan's items |
+| `!backup reconcile <planID> <planHash> <archiveDigest>` | Recheck up to 20 created items with unknown results |
+| `!backup forget <planID> <planHash> <archiveDigest>` | Drop a settled plan and keep what it created |
+
+Repeat the same confirmation until the plan finishes, within its 15-minute expiry. Restore only adds. It never overwrites or deletes records, changes existing channels, recreates roles, assigns rewards, moves members or lowers DEFCON. Existing values that conflict stay untouched. Restored automation stays disabled until you turn it on. A partly finished restore is not rolled back
+
+- `config`: Authored settings for moderation, automod, responses, publishing drafts and templates, roles and unpublished panels, greetings, tickets, leveling, milestones, suggestions, cleanup, metadata logs and the event and schedule switches. Event and schedule definitions are excluded
+- `xp`: Current-season XP for at most 1000 members. Restore creates missing profiles, skips identical ones and leaves conflicts. It assigns no reward roles
+- `structure`: At most 100 categories, text channels and voice channels with at most 500 permission overwrites. Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept. Other channel types are skipped. Missing categories are created first, with full permissions in the creation request
+
+Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot and 500 plan items
+
+Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend credentials. Without it, export, inspect and plan are disabled and other features keep working. NeonFlux never generates the key or sends it to Convex. Keep offline copies of the key and every archive, because a lost key makes its archives unreadable and a changed key makes older archives unreadable until the old key is restored. Archives use AES-256-GCM and are authenticated before parsing. Keys, URLs and file paths are never accepted in commands. Attachments stored on the platform are not durable backup storage

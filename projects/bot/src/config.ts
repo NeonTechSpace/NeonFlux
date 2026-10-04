@@ -1,11 +1,13 @@
 import { snowflakes } from "@neontechspace/fluxerly/effect"
 import { Data, Effect, Redacted } from "effect"
+import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 export interface BotConfig {
     readonly token: Redacted.Redacted<string>
     readonly serverId: string
     readonly backend?: BackendConfig
     readonly customStatus?: string
+    readonly backupKey?: BackupKey
 }
 
 export interface BackendConfig {
@@ -27,7 +29,7 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         }
 
         const serverId = environment.NEONFLUX_SERVER_ID?.trim()
-        if (!snowflakes.isValid(serverId) || serverId === "0") {
+        if (!serverId || !/^[1-9]\d*$/.test(serverId) || !snowflakes.isValid(serverId)) {
             return yield* Effect.fail(new BotConfigError({
                 message: "Set NEONFLUX_SERVER_ID to the decimal ID of the server NeonFlux should manage",
             }))
@@ -58,6 +60,7 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             backend = { siteUrl: url.origin, secret: Redacted.make(backendSecret) }
         }
 
-        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}) } satisfies BotConfig
+        const backupKey = yield* Effect.try({ try: () => parseBackupKey(environment), catch: () => new BotConfigError({ message: "Set NEONFLUX_BACKUP_KEY to an independent canonical base64 32-byte recovery key" }) })
+        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}), ...(backupKey ? { backupKey } : {}) } satisfies BotConfig
     })
 }

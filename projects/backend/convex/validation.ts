@@ -10,12 +10,8 @@ export function fail(status: number, error: string): never {
 }
 
 export function requireServer(serverId: string) {
-    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) {
-        fail(403, "Server not allowed")
-    }
+    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) fail(403, "Server not allowed")
 }
-
-export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
 
 export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
@@ -77,6 +73,8 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
 }
+export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
+export function configurationSourceId(identity: ConfigurationIdentity) { return identity.source.messageId }
 
 // Work bindings select a member, so supplied native evidence must name that same member
 export function requireReadMember(row: Record<string, unknown>, userId: string) {

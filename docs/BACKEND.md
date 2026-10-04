@@ -15,7 +15,7 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 5. Set `NEONFLUX_SERVER_ID` and `NEONFLUX_BOT_API_SECRET` in the deployment's environment variables through the dashboard. Local `.env.local` values do not reach the deployed functions
 6. Set the same server ID and secret in `projects/bot/.env`, with `CONVEX_SITE_URL` set to the copied HTTP Actions URL. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
-Keep the bot API secret separate from the Fluxer bot token and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
+Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
 The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact URL rather than deriving it when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
 
@@ -24,10 +24,11 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `CONVEX_DEPLOY_KEY` | `projects/backend/.env.local` only | Lets the CLI deploy to the development deployment |
-| `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server |
+| `NEONFLUX_SERVER_ID` | Convex and bot | Canonical decimal ID of the one server NeonFlux manages |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
+| `NEONFLUX_BACKUP_KEY` | Bot only | Optional base64 encoding of exactly 32 bytes. Leave it absent to disable backup archives |
 
-A missing or invalid server ID fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
+Invalid configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
@@ -39,7 +40,7 @@ The bot imports the types-only [shared contracts](../projects/backend/contracts.
 | --- | --- |
 | `400` | Invalid input or JSON |
 | `401` | Missing or wrong service credential |
-| `403` | Authorization denied, or a request for a server other than the configured one |
+| `403` | Authorization denied |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request body over the route's limit |
 | `429` | A remaining capacity bound was reached |
@@ -79,7 +80,7 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles`, `welcome` and `ticket`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles`, `ticket`, `event`, `backup`, `cleanup`, `milestone` and `suggest`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
@@ -289,3 +290,17 @@ Each server retains at most 10,000 records, and the oldest are evicted at capaci
 | `/metadata-logs/admit` | 65,536 | Record one event |
 | `/metadata-logs/manage`, `/metadata-logs/query` | 65,536 | Routes, overrides and record reads |
 | `/metadata-logs/work` | 65,536 | Delivery reservation, claims and outcomes |
+
+## Selective backup and additive restore
+
+Backups export selected authored configuration, effective XP and channel structure. Private history, participation, receipts and live ownership are never exported. The bot encrypts archives with AES-256-GCM using `NEONFLUX_BACKUP_KEY`. Recovery keys and archive bytes never reach the backend. Owner commands run in a verified DM
+
+Structure export covers categories, text and voice channels and skips other channel types. An export larger than the restore limits is refused, so every archive stays restorable. Limits are a 1 MiB snapshot, 1,000 XP profiles, 100 structure items and 500 permission overwrites
+
+Restore is additive. `backupPlans` keeps the archive hash, owner binding and preview counts with a 15-minute expiry, and `backupItems` keeps at most 500 operations per plan. A server keeps at most ten plans of up to 512 KiB of manifest each. Confirmation binds the exact owner, plan and archive. Imports create missing data, skip identical items and leave conflicts untouched. Restored automation stays disabled and imported XP grants no reward roles. `backupOrigins` keeps up to 5,000 body-free mappings so the same archive item is never imported twice. Settled plan details expire after seven days
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/backup/snapshot`, `/backup/query` | 262,144 | Export projection and plan reads |
+| `/backup/manage` | 1,048,576 | Plan creation, confirmation and forgetting |
+| `/backup/work` | 262,144 | Native structure creation and outcomes |

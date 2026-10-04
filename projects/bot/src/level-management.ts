@@ -82,7 +82,7 @@ export function handleLevelCommand(store: LevelingStore, config: BotConfig, invo
         }
         let operation: C.LevelingManageOperation | undefined, currentActor = actor
         if (c.type === "module" || c.type === "rate" || c.type === "exclude") {
-            // The current revision is read here so members never type it. It still fences concurrent edits.
+            // The current revision is read here so members never type it.
             const settings = yield* query({ type: "settings" })
             if (settings.type !== "settings") return yield* Effect.fail(new LevelingHandlingError({ stage: "response" }))
             const patch: Extract<C.LevelingManageOperation, { type: "settings" }>["patch"] = c.type === "module" ? { enabled: c.enabled }

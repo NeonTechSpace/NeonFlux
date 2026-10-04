@@ -7,7 +7,7 @@ import { publishingName, shape } from "./publishingDomain.ts"
 import { reconcilePublishing, releaseSchedulePublication } from "./publishing.ts"
 import { advanceSchedule, scheduleContext, validateScheduleCalendar, SCHEDULES_BATCH } from "./schedulesDomain.ts"
 import { addSchedulePlan, closeScheduleDelivery, publicSchedule, publicScheduleDelivery, publisherSettings, scheduleAdmin, scheduleCount, scheduleReceipt, scheduleRow, scheduleSettings, scheduleSnapshot, scheduleState } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, bool, integer, source, token } from "./validation.ts"
+import { fail, object, requireId, requireServer, bool, integer, source, token, type ConfigurationIdentity } from "./validation.ts"
 const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({ enabled: row?.enabled ?? false, revision: row?.revision ?? 1, activatedAt: row?.activatedAt ?? 0 })
 async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number, cancel = false) {
     // Retained delivery capacity bounds the number of indexed pages
@@ -57,7 +57,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     const critical = op.type === "disable" || op.type === "cancel" || op.type === "reconcile" || op.type === "forget" || op.type === "settings" && op.enabled === false
     await scheduleAdmin(ctx, identity.serverId, context, critical)
     if (!await scheduleReceipt(ctx, identity, context.actor.userId, op)) return { duplicate: true }
-    const result = await applySchedulesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId }, context, op, now)
+    const result = await applySchedulesManagement(ctx, { serverId: identity.serverId, actorId: context.actor.userId, createdAt: identity.createdAt, source: { kind: "chat", messageId: identity.messageId } }, context, op, now)
     return result
 } })
 export const query = internalQuery({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<SchedulesQueryResult> => {
@@ -89,7 +89,7 @@ export const query = internalQuery({ args: { request: v.any() }, handler: async 
     return { type: "deliveries", deliveries, ...(more ? { nextAfterOccurrenceNo: last!.occurrenceNo } : {}) }
 } })
 
-export async function applySchedulesManagement(ctx: MutationCtx, identity: { serverId: string, actorId: string }, context: ReturnType<typeof scheduleContext> | undefined, op: Record<string, unknown>, now: number): Promise<SchedulesManageResult> {
+export async function applySchedulesManagement(ctx: MutationCtx, identity: ConfigurationIdentity, context: ReturnType<typeof scheduleContext> | undefined, op: Record<string, unknown>, now: number): Promise<SchedulesManageResult> {
     const current = await scheduleState(ctx, identity.serverId)
     if (op.type === "settings") {
         shape(op, ["type", "expectedRevision", "enabled"], ["type", "expectedRevision", "enabled"])

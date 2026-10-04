@@ -23,7 +23,7 @@ function offlineWorkers() {
         afk: { set: () => Effect.die("unused"), observe: () => Effect.succeed({ cleared: false, statuses: [] }) } satisfies AfkStore }
 }
 
-test("gateway dispatch caches the shared prefix, refreshes changes after the TTL and keeps fixed prefix discovery", async () => {
+test("gateway dispatch caches the shared prefix, refreshes backend changes after the TTL and keeps fixed prefix discovery", async () => {
     const fixtures = createFixtures()
     let prefix = "?", revision = 1, reads = 0, reason: string | undefined
     const general: GeneralSettingsStore = {

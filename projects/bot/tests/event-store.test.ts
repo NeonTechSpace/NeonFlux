@@ -65,3 +65,4 @@ test("promotion discovery validates bounded ordered continuation including empty
         await assert.rejects(Effect.runPromise(store.work(input)), /EventsStoreError/)
     }
 })
+

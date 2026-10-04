@@ -1,7 +1,7 @@
 import type { MetadataLogsActor, MetadataLogsBinding, MetadataLogsCategory, MetadataLogsEvent, MetadataLogsEventType, MetadataLogsEventSelector, MetadataLogsSource, MetadataLogsPresentation } from "../contracts.js"
 import { shape } from "./publishingDomain.ts"
 import { epoch } from "./rolesDomain.ts"
-import { fail, requireId, bool, integer, token } from "./validation.ts"
+import { fail, requireId, bool, integer } from "./validation.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import type { MetadataLogsContext } from "../contracts.js"
 
@@ -71,7 +71,7 @@ export function metadataEvent(value: unknown, internal = false): MetadataLogsEve
     if (a.kind === "unknown") { shape(a, ["kind"], ["kind"]); actor = { kind: "unknown" } }
     else if (a.kind === "audit" && category === "audit" || a.kind === "configuration" && category === "settings" && internal) actor = { kind: a.kind as "audit" | "configuration", userId: requireId(a.userId) }
     else fail(400, "Unproven metadata actor")
-    const s = shape(r.source, ["kind", "auditEntryId", "messageId", "userId", "joinedAt", "sessionId", "sequence", "scope", "jobId", "revision"], ["kind"])
+    const s = shape(r.source, ["kind", "auditEntryId", "messageId", "userId", "joinedAt", "sessionId", "sequence", "scope"], ["kind"])
     let source: MetadataLogsSource
     if (type === "audit-entry") { shape(s, ["kind", "auditEntryId"], ["kind", "auditEntryId"]); if (s.kind !== "audit") fail(400, "Audit source required"); source = { kind: "audit", auditEntryId: requireId(s.auditEntryId) } }
     else if (type === "message-delete") { shape(s, ["kind", "messageId"], ["kind", "messageId"]); if (s.kind !== "message-delete") fail(400, "Message deletion source required"); source = { kind: "message-delete", messageId: requireId(s.messageId) }; if (!resourceIds.includes(source.messageId)) fail(400, "Message source mismatch") }

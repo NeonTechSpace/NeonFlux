@@ -17,7 +17,7 @@ export function readNativeMember(client: Client, serverId: string, userId: strin
     )
 }
 
-export function levelingMember(member: GuildMember, serverId: string, userId: string): Omit<C.SchedulesMemberContext, "canView" | "canReadHistory"> | undefined {
+export function levelingMember(member: GuildMember, serverId: string, userId: string): C.LevelingMemberContext | undefined {
     if (member.guildId !== serverId || member.userId !== userId || member.communicationDisabledUntil === undefined
         || typeof member.joinedAt !== "string" || member.joinedAt.length > 64
         || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(member.joinedAt) || !Number.isFinite(Date.parse(member.joinedAt))) return

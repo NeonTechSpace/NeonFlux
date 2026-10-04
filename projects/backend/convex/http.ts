@@ -15,19 +15,19 @@ function json(body: unknown, status = 200) {
 }
 
 function failure(error: unknown) {
-    const data = error instanceof ConvexError ? error.data as { status?: unknown, error?: unknown, code?: unknown } | null : null
+    const data = error instanceof ConvexError ? error.data as { status?: unknown, error?: unknown } | null : null
     if (typeof data?.status !== "number" || typeof data.error !== "string" || data.status < 400 || data.status > 599) {
         return json({ error: "Backend unavailable" }, 503)
     }
     return json({ error: data.error }, data.status)
 }
 
-function authenticate(request: Request): Response | string {
+function authenticate(request: Request): Response | { serverId: string } {
     const secret = process.env.NEONFLUX_BOT_API_SECRET
     const serverId = process.env.NEONFLUX_SERVER_ID
     if (!secret || secret.length < 32 || !isId(serverId)) return json({ error: "Backend not configured" }, 503)
     if (request.headers.get("Authorization") !== `Bearer ${secret}`) return json({ error: "Unauthorized" }, 401)
-    return serverId
+    return { serverId }
 }
 
 async function readBody(request: Request, limit: number): Promise<Response | Record<string, unknown>> {
@@ -42,15 +42,15 @@ async function readBody(request: Request, limit: number): Promise<Response | Rec
     }
 }
 
-// Every bot request is bound to the configured server before any feature code runs
+// Every bot request must name the configured server before any feature code runs
 function serviceRoute(path: string, limit: number, run: (ctx: ActionCtx, request: Service) => Promise<unknown>) {
     http.route({ path, method: "POST", handler: httpAction(async (ctx, request) => {
-        const serverId = authenticate(request)
-        if (serverId instanceof Response) return serverId
+        const auth = authenticate(request)
+        if (auth instanceof Response) return auth
         const body = await readBody(request, limit)
         if (body instanceof Response) return body
-        if (body.serverId !== serverId) return json({ error: "Server not allowed" }, 403)
         try {
+            if (body.serverId !== auth.serverId) fail(403, "Server not allowed")
             return json(await run(ctx, body as Service))
         } catch (error) {
             return failure(error)
@@ -163,5 +163,10 @@ query("/metadata-logs/query", 65536, internal.metadataLogs.query)
 mutation("/metadata-logs/manage", 65536, internal.metadataLogs.manage)
 mutation("/metadata-logs/admit", 65536, internal.metadataLogs.admit)
 mutation("/metadata-logs/work", 65536, internal.metadataLogsWork.work)
+
+query("/backup/snapshot", 262144, internal.backup.snapshot)
+query("/backup/query", 262144, internal.backup.query)
+mutation("/backup/manage", 1048576, internal.backup.manage)
+mutation("/backup/work", 262144, internal.backup.work)
 
 export default http

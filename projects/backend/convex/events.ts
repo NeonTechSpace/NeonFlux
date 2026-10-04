@@ -9,7 +9,7 @@ import { reservePublishing, forgetConsumerPost } from "./publishing.ts"
 import { advanceEvent, eventCapacity, eventOffsets, epochOrder, EVENTS_DAY, renderEvent, validateEventCalendar } from "./eventsDomain.ts"
 import { eventCount, eventReceipt, eventRow, eventSettings, eventState, lifecycle, occurrenceRow, publicEvent, publicOccurrence, publicRsvp, wakePromotion } from "./eventsStore.ts"
 import { eventGate } from "./schedulesStore.ts"
-import { fail, object, requireId, requireServer, integer, name, source, text, type ConfigurationIdentity } from "./validation.ts"
+import { fail, object, requireId, requireServer, integer, name, source, text, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
 import { eventAdmin, eventContext, eventEligible } from "./publishingContext.ts"
 
 export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"events">) {
@@ -43,7 +43,7 @@ async function eventCard(ctx: MutationCtx, event: Doc<"events">, identity: Confi
     const existing = event.cardPostNo !== undefined ? await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", event.serverId).eq("postNo", event.cardPostNo!)).unique() : null
     if (event.cardPostNo !== undefined && !existing) fail(503, "Event card unavailable")
     await eventEligible(ctx, event.serverId, context, event.channelId, context.actor.userId)
-    const reserved = await reservePublishing(ctx, { serverId: event.serverId, sourceId: identity.source.messageId, actorId: context.actor.userId, botId: context.botId, channelId: event.channelId,
+    const reserved = await reservePublishing(ctx, { serverId: event.serverId, sourceId: configurationSourceId(identity), actorId: context.actor.userId, botId: context.botId, channelId: event.channelId,
         source: { type: "human", messageId: identity.source.messageId, createdAt: identity.createdAt }, provenance: { type: "event", eventNo: event.eventNo, revision: event.revision, ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}) },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "card" }, content: renderEvent(event), ...(existing ? { existing } : {}) })
     await ctx.db.patch(event._id, { cardPostNo: reserved.post.postNo })

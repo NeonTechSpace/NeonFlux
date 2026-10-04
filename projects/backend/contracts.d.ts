@@ -1,6 +1,56 @@
 
 export type ResponseKind = "custom" | "auto"
 
+export type BackupCategory = "config" | "xp" | "structure"
+export type BackupConfigValues = {
+    moderation: Omit<ModerationSettings, "defcon">
+    responses: { customEnabled: boolean, autoEnabled: boolean }
+    response: Omit<ResponseDefinition, "createdAt" | "updatedAt">
+    automod: AutomodRule
+    publishing: { enabled: boolean, retentionDays: number }
+    draft: { kind: PublishingKind, name: string, content: PublishingContent }
+    roles: Omit<RolesSettings, "revision">
+    panel: { name: string, kind: RolesPanel["kind"], enabled: boolean, exclusive: boolean, mappings: RolesMapping[] }
+    greetings: { claimsPerMinute: number, retentionDays: number, routes: Record<GreetingsRoute, Omit<GreetingsRouteSettings, "revision">> }
+    tickets: TicketSettings
+    ticketCategory: Omit<TicketCategory, "revision">
+    leveling: Omit<LevelingSettings, "revision" | "mappingRevision" | "scoreEpoch">
+    milestones: { enabled: boolean }
+    milestoneRoute: Pick<MilestonesRoute, "kind" | "channelId" | "zone" | "time" | "fold" | "template" | "content" | "enabled">
+    suggestions: { enabled: boolean, channelId?: string, ownerId?: string }
+    cleanup: { enabled: boolean }
+    cleanupPolicy: Pick<CleanupPolicy, "channelId" | "enabled" | "ageMs" | "ownerId" | "excludedAuthorIds" | "excludedMessageIds">
+    metadata: { enabled: boolean, routes: Omit<MetadataLogsSettings["routes"][number], "revision">[], eventRoutes?: Omit<MetadataLogsEventRoute, "revision">[], messageChannelIds: string[], excludedChannelIds: string[] }
+    events: { enabled: boolean }
+    schedules: { enabled: boolean }
+}
+export type BackupConfigFamily = keyof BackupConfigValues
+export type BackupConfigObject = { [K in BackupConfigFamily]: { family: K, sourceId: string, value: BackupConfigValues[K] } }[BackupConfigFamily]
+export type BackupXpObject = { sourceId: string, userId: string, xp: number }
+export type BackupOverwrite = { id: string, type: "role" | "member", allow: string, deny: string }
+export type BackupStructureObject = { sourceId: string, type: "category" | "text" | "voice", name: string, parentId: string | null, overwrites: BackupOverwrite[], topic?: string | null, nsfw?: boolean, slowmodeSeconds?: number, bitrate?: number, userLimit?: number, capturedAt: number }
+export type BackupSnapshot = { capturedAt: number, config: BackupConfigObject[], xp: BackupXpObject[], counts: { config: number, xp: number } }
+export type BackupManifest = { version: 1, backupId: string, provider: string, serverId: string, selected: BackupCategory[], capturedAt: number, observations: { databaseAt: number | null, structureStartedAt: number | null, structureFinishedAt: number | null }, counts: { config: number, xp: number, structure: number, overwrites: number }, exclusions: string[], config: BackupConfigObject[], xp: BackupXpObject[], structure: BackupStructureObject[] }
+export type BackupContext = { provider: string, observedAt: number, ownerId: string, actorId: string, actorKind: "human", botId: string, botKind: "bot", ownerJoinedAt: string, ownerTimeoutUntil: string | null, botTimeoutUntil: string | null, dmChannelId: string, dmType: 1, recipientIds: string[], privateReplyAuthorized: boolean }
+export type BackupReference = { id: string, type: "role" | "member" | "category" | "text" | "voice", serverId: string, observedAt: number, exists: boolean, actorCanAccess: boolean, botCanAccess: boolean, actorCanManage: boolean, botCanManage: boolean, permissions: string }
+export type BackupNativeObservation = { sourceId: string, observedAt: number, status: "present" | "absent" | "unknown", channel: BackupStructureObject | null }
+export type BackupNativeProof = { observedAt: number, serverId: string, ownerId: string, botId: string, actorPermissions: string, botPermissions: string, actorCanManageChannels: boolean, botCanManageChannels: boolean, references: BackupReference[], observations: BackupNativeObservation[] }
+export type BackupBinding = { planId: string, revision: 1, planHash: string, archiveDigest: string }
+export type BackupItemBinding = BackupBinding & { itemNo: number, generation: 1 }
+export type BackupDisposition = "create" | "skip" | "conflict" | "blocked"
+export type BackupItemState = "planned" | "reserved" | "claimed" | "created" | "skipped" | "conflict" | "blocked" | "failed" | "uncertain"
+export type BackupItem = BackupItemBinding & { category: BackupCategory, family: BackupConfigFamily | "xp" | "structure", sourceId: string, disposition: BackupDisposition, reason: string | null, state: BackupItemState, expectedHash: string, desiredHash: string, dependencyItemNo: number | null, mappedId: string | null, disabledOnCreate: boolean, dispatchExpiresAt?: number, claimedAt?: number, finishedAt?: number, noDispatch?: true, historicalOutcome?: "created" | "failed" | "uncertain", resolution?: "match" | "absent" | "conflict" }
+export type BackupPlan = BackupBinding & { backupId: string, manifestDigest: string, provider: string, serverId: string, ownerId: string, createdAt: number, expiresAt: number, confirmedAt?: number, itemCount: number, counts: Record<BackupDisposition, number>, forgotten: boolean }
+export type BackupOrigin = { provider: string, serverId: string, category: BackupCategory, family: BackupConfigFamily | "xp" | "structure", sourceId: string, state: "reserved" | "claimed" | "created" | "uncertain" | "failed", planId: string, itemNo: number, generation: 1, mappedId: string | null, desiredHash: string, resolved?: "match" | "absent" | "conflict" }
+export type BackupGrant = BackupItemBinding & { provider: string, serverId: string, ownerId: string, botId: string, sourceId: string, channel: BackupStructureObject, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type BackupCapabilities = { version: 1, configFamilies: BackupConfigFamily[], exclusions: string[], limits: { xp: 1000, structure: 100, overwrites: 500, planItems: 500, plans: 10, page: 20, planMs: 900000, snapshotBytes: 1048576, planBytes: 524288, originMappings: 5000 }, safeAllowMask: string, knownDenyMask: string }
+export type BackupSnapshotRequest = { serverId: string, context: BackupContext, selected: ("config" | "xp")[] }
+export type BackupQueryRequest = { serverId: string, context: BackupContext, operation: { type: "capabilities" } | { type: "plans", cursor?: string } | { type: "plan", binding: BackupBinding } | { type: "items", binding: BackupBinding, cursor?: string } | { type: "item", binding: BackupItemBinding } | { type: "origins", provider: string, cursor?: string } }
+export type BackupQueryResult = { type: "capabilities", capabilities: BackupCapabilities } | { type: "plans", plans: BackupPlan[], nextCursor?: string } | { type: "plan", plan: BackupPlan } | { type: "items", items: BackupItem[], nextCursor?: string } | { type: "item", item: BackupItem, object: BackupConfigObject | BackupXpObject | BackupStructureObject | null } | { type: "origins", origins: BackupOrigin[], nextCursor?: string }
+export type BackupManageRequest = { serverId: string, messageId: string, createdAt: number, context: BackupContext, operation: { type: "plan", manifest: BackupManifest, archiveDigest: string, native: BackupNativeProof | null } | { type: "confirm", binding: BackupBinding } | { type: "forget", binding: BackupBinding } }
+export type BackupManageResult = { type: "plan", duplicate: boolean, plan: BackupPlan, items: BackupItem[], nextCursor?: string } | { type: "confirmed", duplicate: boolean, plan: BackupPlan } | { type: "forgotten", plan: BackupPlan }
+export type BackupWorkRequest = { serverId: string, operation: { type: "apply", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof | null } | { type: "reserve" | "claim", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof, claimToken?: string } | { type: "outcome", binding: BackupItemBinding, claimToken: string, outcome: "created" | "failed" | "uncertain", noDispatch?: true, channel: BackupStructureObject | null, mappedId: string | null } | { type: "reconcile", binding: BackupItemBinding, context: BackupContext, native: BackupNativeProof } }
+export type BackupWorkResult = { type: "item", item: BackupItem } | { type: "grant", item: BackupItem, grant: BackupGrant, claimed: boolean }
 export type ResponseTrigger = { mode: "exact" | "contains", text: string }
 export type ResponseReply =
     | { type: "text", text: string }
@@ -422,7 +472,7 @@ export type RolesManageOperation =
     | { type: "withdraw", name: string, revision: number, deletePanel?: boolean }
     | { type: "autorole-withdraw", revision: number }
     | { type: "withdraw-next", withdrawalId: string, expectedStep: number }
-    | ({ type: "withdraw-departed", withdrawalId: string, userId: string, joinedAt: string, currentJoinedAt: string | null, observedAt: number, memberUserId?: string })
+    | { type: "withdraw-departed", withdrawalId: string, userId: string, joinedAt: string, currentJoinedAt: string | null, observedAt: number, memberUserId?: string }
 export type RolesWithdrawal = { withdrawalId: string, consumerKey: string, step: number, status: "pending" | "blocked" | "complete", remainingAtLeast: number, hasMore: boolean, deletePanel: boolean, targets: { userId: string, joinedAt: string, roleId: string }[], nextCursor?: string }
 export type RolesManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: RolesManageOperation }
 export type RolesManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: RolesSettings } | { duplicate: false, type: "panel", panel: RolesPanel } | { duplicate: false, type: "withdrawal", withdrawal: RolesWithdrawal }
@@ -462,7 +512,7 @@ export type RolesReactionJobsRequest = { serverId: string, operation:
     | { type: "enqueue", messageId: string }
     | { type: "list" }
     | { type: "claim", jobId: string, claimToken: string }
-    | ({ type: "skip", binding: RolesReactionJobBinding, currentJoinedAt: string | null, observedAt?: number, memberUserId?: string })
+    | { type: "skip", binding: RolesReactionJobBinding, currentJoinedAt: string | null, observedAt?: number, memberUserId?: string }
     | { type: "block", binding: RolesReactionJobBinding }
     | { type: "checkpoint", jobId: string, generation: number, claimToken: string, pageStep: number, blocked: boolean }
 }
@@ -493,8 +543,8 @@ export type GreetingsQueryResult = { type: "settings", settings: GreetingsSettin
 export type GreetingsObserveRequest = { serverId: string, operation:
     | { type: "join", eventJoinedAt: string, observedAt: number, member: GreetingsMemberContext }
     | { type: "present", expectedGeneration: number, observedAt: number, member: GreetingsMemberContext }
-    | ({ type: "absent", userId: string, expectedGeneration: number, joinedAt: string, observedAt: number, memberAbsent: true })
-    | ({ type: "departed", userId: string, userName: string, serverName: string, observedAt: number, memberAbsent: true })
+    | { type: "absent", userId: string, expectedGeneration: number, joinedAt: string, observedAt: number, memberAbsent: true }
+    | { type: "departed", userId: string, userName: string, serverName: string, observedAt: number, memberAbsent: true }
 }
 export type GreetingsObserveResult = { recorded: boolean, member: GreetingsMember | null, admitted: number }
 export type GreetingsPendingRequest = { serverId: string, cursor?: string, userId?: string, scanAt?: number }
@@ -684,7 +734,7 @@ export type CivilResolvedDate = { localMinute: string, instantAt: number, offset
 export type CivilCalendar = { localMinute: string, zone: string, fold: CivilFoldPolicy, recurrence: CivilRecurrence, dates: CivilResolvedDate[] }
 export type SchedulesResolvedDate = { localMinute: string, dueAt: number, offsetMinutes: number }
 export type SchedulesCalendar = Omit<CivilCalendar, "dates"> & { dates: SchedulesResolvedDate[] }
-export type SchedulesMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
+export type SchedulesMemberContext = EventsMemberContext
 export type SchedulesContext = { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: SchedulesMemberContext }
 export type SchedulesAutomationContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
 export type SchedulesContentSource = { kind: PublishingKind, name: string, revision: number }
@@ -728,8 +778,8 @@ export type EventsFoldPolicy = "reject" | "earlier" | "later"
 export type EventsRecurrence = { type: "none" } | { type: "daily" | "weekly", interval: number, count: number }
 export type EventsResolvedDate = { localMinute: string, startsAt: number, endsAt: number, offsetMinutes: number }
 export type EventsCalendar = { localMinute: string, zone: string, fold: EventsFoldPolicy, durationMinutes: number, recurrence: EventsRecurrence, dates: EventsResolvedDate[] }
-export type EventsMemberContext = SchedulesMemberContext
-export type EventsContext = SchedulesContext
+export type EventsMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
+export type EventsContext = { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: EventsMemberContext }
 export type EventsSettings = { enabled: boolean, revision: number }
 export type EventsDefinition = { eventNo: number, name: string, revision: number, channelId: string, title: string, description: string, capacity: number | null, reminderOffsets: number[], state: EventsLifecycle, participationStarted: boolean, calendar?: EventsCalendar, template?: { name: string, revision: number, content: PublishingContent }, cardPostNo?: number, createdAt: number, updatedAt: number }
 export type EventsOccurrence = EventsResolvedDate & { eventNo: number, occurrenceNo: number, revision: number, state: EventsLifecycle, participationStarted: boolean, going: number, waitlisted: number, capacity: number | null, workGeneration: number }

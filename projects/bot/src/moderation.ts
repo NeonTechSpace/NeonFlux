@@ -116,7 +116,7 @@ function privateChannel(client: Client, userId: string, channelId?: string) {
         return id
     })
 }
-function sendReport(client: Client, channelId: string, content: string, config: BotConfig) {
+function sendReport(client: Client, channelId: string, content: string) {
     return Effect.forEach(splitReport(content), (page) => client.messages.send(channelId, { content: page, allowedMentions: noMentions }, { timeoutMs: 5000 }), { concurrency: 1, discard: true })
 }
 function validateReferences(command: Extract<SafetyCommand, { kind: "manage" }>, authority: SafetyAuthority, client: Client, serverId: string) {
@@ -155,7 +155,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const report = result.type === "appeal" ? appealDetails(result.appeal) : result.type === "appeals"
                 ? `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
                 : `Your eligible cases\n${result.cases.map((value) => `Case ${value.caseNo}: ${value.action}, ${value.outcome}\nReason: ${value.reason}`).join("\n\n") || "None"}${result.nextBeforeCaseNo ? `\nNext: !appeal cases ${result.nextBeforeCaseNo}` : ""}`
-            yield* sendReport(client, message.channelId, report, config)
+            yield* sendReport(client, message.channelId, report)
             return
         }
         let action = command.kind === "action" ? command.action : undefined
@@ -183,9 +183,9 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const dm = command.private ? yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined) : undefined
             const result = yield* store.query({ serverId: config.serverId, actor, operation: command.operation, ...(dm ? { privateChannelVerified: true } : {}) })
             if (dm) {
-                yield* sendReport(client, dm, queryDetails(result, command.operation), config)
+                yield* sendReport(client, dm, queryDetails(result, command.operation))
                 if (!privateInvocation) yield* respond("Private details sent by DM")
-            } else yield* sendReport(client, message.channelId, queryDetails(result), config)
+            } else yield* sendReport(client, message.channelId, queryDetails(result))
             return
         }
         if (command.kind === "staff-appeal") {
@@ -193,7 +193,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const result = yield* store.staffAppeal({ serverId: config.serverId, actor, privateChannelVerified: true, ...source, operation: command.operation })
             if (result.duplicate) return
             const report = result.type === "appeal" ? appealDetails(result.appeal) : `Appeals, page ${result.page}/${result.totalPages}\n${result.appeals.map(appealDetails).join("\n\n") || "None"}`
-            yield* sendReport(client, dm, report, config)
+            yield* sendReport(client, dm, report)
             if (!privateInvocation) yield* respond(result.type === "appeal" ? `Appeal ${result.appeal.appealNo}: ${result.appeal.status}. Private details sent by DM` : "Private appeal list sent by DM")
             return
         }
@@ -209,7 +209,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             const observation = yield* observeAction(client, config.serverId, record.case)
             const result = yield* store.reconcile({ serverId: config.serverId, actor: moderationActor(recoveryAuthority), privateChannelVerified: true, ...source, actionId: record.case.actionId, observation })
             if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-            yield* sendReport(client, dm, queryDetails({ type: "case", case: result.case }), config)
+            yield* sendReport(client, dm, queryDetails({ type: "case", case: result.case }))
             if (!privateInvocation) yield* respond(`Case ${result.case.caseNo} observed. No sanction or delivery was replayed. Private details sent by DM`)
             return
         }
@@ -244,7 +244,7 @@ export function handleSafetyCommand(store: ModerationStore, config: BotConfig, n
             yield* respond(`Case ${result.case.caseNo}: ${result.case.action}, ${outcome.outcome}${linked}${expired}${uncertain}${lock}`)
         } else {
             const confirmation = manageConfirmation(result)
-            if (confirmation) yield* sendReport(client, message.channelId, confirmation, config)
+            if (confirmation) yield* sendReport(client, message.channelId, confirmation)
         }
     }).pipe(Effect.catch((error) => context.reply({ content: error instanceof ModerationHandlingError ? "I couldn't verify permissions, state, or private delivery. No uncertain operation was retried"
         : error instanceof ModerationStoreError ? moderationErrorMessage(error)

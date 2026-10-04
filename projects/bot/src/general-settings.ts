@@ -16,7 +16,7 @@ export function createGeneralSettingsStore(backend: BackendConfig, serverId: str
 }
 export type GeneralSettingsStore = ReturnType<typeof createGeneralSettingsStore>
 
-// The server prefix in bot memory. Chat changes apply at once and other changes within the TTL
+// Each managed server's prefix in bot memory. Chat changes apply at once and other backend changes within the TTL
 export const prefixTtlMs = 30000
 const prefixes = new Map<string, { value: string, readAt: number }>()
 const remember = (serverId: string, value: string) => Clock.currentTimeMillis.pipe(Effect.map(readAt => { prefixes.set(serverId, { value, readAt }) }))

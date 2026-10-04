@@ -11,6 +11,13 @@
 import type * as afk from "../afk.js";
 import type * as afkDomain from "../afkDomain.js";
 import type * as appeals from "../appeals.js";
+import type * as backup from "../backup.js";
+import type * as backupDomain from "../backupDomain.js";
+import type * as backupImports from "../backupImports.js";
+import type * as backupProjections from "../backupProjections.js";
+import type * as backupRetention from "../backupRetention.js";
+import type * as backupStore from "../backupStore.js";
+import type * as backupValidators from "../backupValidators.js";
 import type * as civilDomain from "../civilDomain.js";
 import type * as cleanup from "../cleanup.js";
 import type * as cleanupDomain from "../cleanupDomain.js";
@@ -102,6 +109,13 @@ declare const fullApi: ApiFromModules<{
   afk: typeof afk;
   afkDomain: typeof afkDomain;
   appeals: typeof appeals;
+  backup: typeof backup;
+  backupDomain: typeof backupDomain;
+  backupImports: typeof backupImports;
+  backupProjections: typeof backupProjections;
+  backupRetention: typeof backupRetention;
+  backupStore: typeof backupStore;
+  backupValidators: typeof backupValidators;
   civilDomain: typeof civilDomain;
   cleanup: typeof cleanup;
   cleanupDomain: typeof cleanupDomain;
