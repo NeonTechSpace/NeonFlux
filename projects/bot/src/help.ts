@@ -8,6 +8,7 @@ import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
+import { ticketHelpAll } from "./ticket-command.ts"
 import { greetingsHelpAll } from "./welcome-command.ts"
 
 /**
@@ -15,6 +16,7 @@ import { greetingsHelpAll } from "./welcome-command.ts"
  * A command's help shows its most used forms and ends with a line that points here
  */
 const moreForms: Readonly<Record<string, readonly string[]>> = {
+    ticket: ticketHelpAll,
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
     roles: roleHelpAll.roles,

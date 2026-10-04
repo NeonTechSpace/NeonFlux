@@ -87,20 +87,20 @@ export type SafetyAuthority = {
     botServerPermissions: bigint
 }
 
-/** Everything that posts in a channel or its threads. Locks deny these bits */
+/** Everything that posts in a channel or its threads. Locks and closed tickets deny these bits */
 const postingPermissions =
     Permissions.SendMessages |
     Permissions.SendMessagesInThreads |
     Permissions.CreatePublicThreads |
     Permissions.CreatePrivateThreads
-/** The posting bits the bot holds server-wide, as decimal. Fluxer lets a bot stop denying only permissions it holds, so a lock owns no other thread bit */
+/** The posting bits the bot holds server-wide, as decimal. Fluxer lets a bot stop denying only permissions it holds, so a lock or close owns no other thread bit */
 export const restorablePostingBits = (botServerPermissions: bigint) => String(botServerPermissions & postingPermissions)
-/** Bits a lock grant owns. Lock and unlock grants carry them, and their execution refuses a grant without them */
+/** Bits a lock or ticket grant owns. Lock, unlock, close and reopen grants carry them, and their execution refuses a grant without them */
 export const ownedPostingBits = (grant: { readonly ownedPermissions?: string | undefined }) =>
     BigInt(grant.ownedPermissions ?? "0") & postingPermissions
 /**
  * Fluxer lets a bot lift a denial only of permissions it holds in the channel, and a denial for everyone also takes
- * them from the bot. A lock therefore first allows the bot the bits it is about to deny, unless it is an
+ * them from the bot. A lock or close therefore first allows the bot the bits it is about to deny, unless it is an
  * Administrator or already has them
  */
 export function allowBotPosting(

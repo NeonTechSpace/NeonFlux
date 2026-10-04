@@ -8,6 +8,7 @@ import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
 import { cleanupRoles } from "./roleLifecycle.ts"
 import { cleanupSchedules } from "./schedulesCleanup.ts"
+import { cleanupTickets, scheduleTicketPurges } from "./ticketLifecycle.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
 // day. A run repeats each module's pass while it fills a batch, within a read budget, and a run that spends its budget
@@ -27,8 +28,11 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["publishing", cleanupPublishing],
     ["roles", cleanupRoles],
     ["greetings", cleanupGreetings],
+    ["tickets", cleanupTickets],
     ["schedules", cleanupSchedules],
 ]
+// Passes that only schedule other work run once when a chain starts, not in its continuations
+const RETENTION_START_PASSES: readonly RetentionPass[] = [scheduleTicketPurges]
 
 async function spent(ctx: MutationCtx) {
     const metrics = await ctx.meta.getTransactionMetrics()
@@ -68,6 +72,7 @@ export const run = internalMutation({
         )
         const failed: string[] = [],
             unproven = new Set(isolated)
+        if (next === undefined) for (const start of RETENTION_START_PASSES) await start(ctx, now)
         // Rounds repeat the passes that made progress with a full batch until none is left or the budget is spent
         let due = RETENTION_PASSES.map((_, index) => (index + (next ?? 0)) % RETENTION_PASSES.length),
             resume: number | undefined,

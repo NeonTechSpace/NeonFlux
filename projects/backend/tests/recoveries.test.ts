@@ -3,9 +3,11 @@ import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
+import type { TicketContext } from "@neonflux/contracts/tickets"
 import type { MutationCtx } from "../convex/_generated/server.js"
 import { memberRecoveries } from "../convex/moderationStore.ts"
 import { participationProtection } from "../convex/roleClaims.ts"
+import { ticketProtection } from "../convex/ticketStore.ts"
 import { insertDocument } from "./schema-documents.ts"
 
 // A quarantine recovery whose timeout has ended no longer restricts its member, even before retention deletes it
@@ -114,5 +116,14 @@ test("Role participation ignores an ended quarantine", async () => {
         await quarantined(),
         (ctx) => participationProtection(ctx, "10", "20", null),
         /Quarantine blocks role participation/,
+    )
+})
+
+test("Tickets ignore an ended quarantine", async () => {
+    const context = { actor: { userId: "20", timeoutUntil: null } } as unknown as TicketContext
+    await blocksUntilDeadline(
+        await quarantined(),
+        (ctx) => ticketProtection(ctx, "10", context),
+        /Ticket member restricted/,
     )
 })

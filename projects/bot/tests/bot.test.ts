@@ -119,6 +119,7 @@ test("a feature without its storage says it is not set up", async () => {
                 })
                 yield* bot.ready()
                 for (const [content, feature] of [
+                    ["!ticket list", "Tickets"],
                     ["!verify status", "Rules verification"],
                     ["!auto list", "Autoresponders"],
                 ] as const) {
@@ -129,7 +130,7 @@ test("a feature without its storage says it is not set up", async () => {
                         `${feature} isn't available on this NeonFlux yet. The bot operator needs to finish setting it up`,
                     )
                 }
-                assert.equal(replies.requests().length, 2)
+                assert.equal(replies.requests().length, 3)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

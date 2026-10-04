@@ -14,6 +14,15 @@ import {
     greetingsReason,
     greetingsGrant,
 } from "./greetingsValidators.ts"
+import {
+    ticketSettings,
+    ticketCategory,
+    ticketIntakeCategory,
+    ticketState,
+    ticketGrant,
+    ticketChannel,
+    ticketOverwrite,
+} from "./ticketValidators.ts"
 import { responseKind, responseReply, responseTrigger } from "./responseValidators.ts"
 import { publishingContent, publishingKind, publishingObservation, publishingOutcome } from "./publishingValidators.ts"
 import {
@@ -134,6 +143,159 @@ export default defineSchema({
     })
         .index("by_source", ["serverId", "messageId"])
         .index("by_expiry", ["expiresAt"]),
+    ticketSettings: defineTable({
+        serverId: v.string(),
+        config: ticketSettings,
+        nextCategoryRevision: v.number(),
+        nextIntakeNo: v.number(),
+        nextTicketNo: v.number(),
+        nextEntryNo: v.number(),
+        nextAttemptNo: v.number(),
+        nextTranscriptNo: v.number(),
+    }).index("by_server", ["serverId"]),
+    ticketCategories: defineTable({
+        serverId: v.string(),
+        config: ticketCategory,
+    }).index("by_name", ["serverId", "config.name"]),
+    ticketIntakes: defineTable({
+        serverId: v.string(),
+        intakeNo: v.number(),
+        generation: v.number(),
+        category: ticketIntakeCategory,
+        requesterId: v.string(),
+        joinedAt: v.string(),
+        answers: v.array(v.string()),
+        state: v.union(v.literal("draft"), v.literal("submitted"), v.literal("cancelled"), v.literal("expired")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        ticketNo: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "intakeNo"])
+        .index("by_user_live", ["serverId", "requesterId", "state", "expiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    tickets: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        intakeNo: v.number(),
+        requesterId: v.string(),
+        requesterJoinedAt: v.string(),
+        category: ticketCategory,
+        answers: v.array(v.string()),
+        state: ticketState,
+        generation: v.number(),
+        botId: v.string(),
+        createdAt: v.number(),
+        channelId: v.optional(v.string()),
+        channel: v.optional(ticketChannel),
+        claimedBy: v.optional(v.string()),
+        priority: v.union(v.literal("low"), v.literal("normal"), v.literal("high"), v.literal("urgent")),
+        currentAttemptId: v.optional(v.id("ticketAttempts")),
+        entryCount: v.number(),
+        active: v.boolean(),
+        nativeProtected: v.boolean(),
+        bodiesProtected: v.boolean(),
+        baselineOverwrites: v.optional(v.array(ticketOverwrite)),
+        // Permission bits the current close owns, from the close until the reopen
+        ownedPermissions: v.optional(v.string()),
+        transition: v.optional(v.union(v.literal("close"), v.literal("reopen"))),
+        completedSteps: v.number(),
+        closedAt: v.optional(v.number()),
+        retiredAt: v.optional(v.number()),
+        tombstoneExpiresAt: v.optional(v.number()),
+        bodyExpiresAt: v.optional(v.number()),
+        erased: v.boolean(),
+        erasing: v.boolean(),
+    })
+        .index("by_number", ["serverId", "ticketNo"])
+        .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
+        .index("by_body_expiry", ["bodyExpiresAt"])
+        .index("by_tombstone_expiry", ["tombstoneExpiresAt"]),
+    ticketEntries: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        entryNo: v.number(),
+        authorId: v.string(),
+        kind: v.union(v.literal("reply"), v.literal("note")),
+        createdAt: v.number(),
+        content: v.optional(publishingContent),
+        erased: v.boolean(),
+        attemptNo: v.optional(v.number()),
+    })
+        .index("by_ticket", ["serverId", "ticketNo", "entryNo"])
+        .index("by_kind", ["serverId", "ticketNo", "kind", "entryNo"])
+        .index("by_payload", ["serverId", "ticketNo", "erased"]),
+    ticketAttempts: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        attemptNo: v.number(),
+        generation: v.number(),
+        sourceId: v.string(),
+        actorId: v.string(),
+        grant: v.optional(ticketGrant),
+        outcome: v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed"), v.literal("uncertain")),
+        createdAt: v.number(),
+        dispatchExpiresAt: v.number(),
+        claimedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        messageId: v.optional(v.string()),
+        channelId: v.optional(v.string()),
+        observationAt: v.optional(v.number()),
+        resolved: v.optional(v.union(v.literal("before"), v.literal("desired"), v.literal("absent"))),
+        redacted: v.boolean(),
+        nativeDeleteConfirmed: v.optional(v.literal(true)),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "ticketNo", "attemptNo"])
+        .index("by_payload", ["serverId", "ticketNo", "redacted"])
+        .index("by_pending", ["outcome", "dispatchExpiresAt"])
+        .index("by_ticket_outcome", ["serverId", "ticketNo", "outcome", "resolved", "grant.action"])
+        .index("by_expiry", ["expiresAt"]),
+    ticketTranscripts: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        sourceId: v.string(),
+        actorId: v.string(),
+        transcriptNo: v.number(),
+        channelId: v.string(),
+        capturedAt: v.number(),
+        messageCount: v.number(),
+        truncated: v.boolean(),
+        // The page count of the body in ticketTranscriptPages. Erasure removes it
+        pages: v.optional(v.number()),
+        createdAt: v.number(),
+    })
+        .index("by_number", ["serverId", "ticketNo", "transcriptNo"])
+        .index("by_source", ["serverId", "sourceId"]),
+    // One 1,500-character page of a transcript body, so lists and page reads never read whole bodies
+    ticketTranscriptPages: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        transcriptNo: v.number(),
+        pageNo: v.number(),
+        text: v.string(),
+    }).index("by_page", ["serverId", "ticketNo", "transcriptNo", "pageNo"]),
+    ticketReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        kind: v.union(v.literal("staff"), v.literal("user")),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_user", ["serverId", "actorId", "kind", "expiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    ticketRoleProtections: defineTable({
+        serverId: v.string(),
+        roleId: v.string(),
+        configurationRefs: v.number(),
+        nativeOwnershipRefs: v.number(),
+        privateBodyRefs: v.number(),
+        protected: v.boolean(),
+    })
+        .index("by_role", ["serverId", "roleId"])
+        .index("by_protected", ["serverId", "protected"]),
     greetingSettings: defineTable({
         serverId: v.string(),
         config: greetingsSettings,

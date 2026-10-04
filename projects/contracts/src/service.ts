@@ -128,5 +128,12 @@ export const BOT_FUNCTIONS = {
     greetingsDispatch: "mutation",
     greetingsOutcome: "mutation",
     greetingsDefer: "mutation",
+    ticketsQuery: "query",
+    ticketsManage: "mutation",
+    ticketsIntake: "mutation",
+    ticketsTranscript: "mutation",
+    ticketsDispatch: "mutation",
+    ticketsOutcome: "mutation",
+    ticketsReconcile: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

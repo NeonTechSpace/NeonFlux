@@ -84,7 +84,7 @@ pnpm run deploy:dev
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation ignores it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
+Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation and tickets ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
 
 ### Opt-in live smoke runner
 
@@ -197,6 +197,28 @@ bounded to five seconds. Claimed sends are never replayed. One server-wide budge
 ten per minute by default and configurable from 1 to 60. Workers read deliveries and members in bounded pages. A member
 record expires 365 days after the join it records, or one day after the member leaves, and a later presence check does
 not extend it. Terminal history defaults to 30 days, configurable from 30 to 3,650
+
+## Tickets
+
+Tickets start disabled. Owners and administrators configure up to 20 categories, each with visibility, an optional parent, disclosed support roles, up to five intake questions and up to 20 copied canned replies. Submitted tickets keep snapshots of their category and replies
+
+Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each requester can have at most three drafts
+and three active tickets. Private answers, staff notes and transcripts need fresh membership, role authority and a
+verified DM. Creation sends the full permission set in the initial request. Close and reopen change only the everyone
+and requester `SendMessages`, `SendMessagesInThreads`, `CreatePublicThreads` and `CreatePrivateThreads` bits. A close
+owns `SendMessages` plus the thread bits the ticket context's `botPostingPermissions` reports, records them as the
+ticket's `ownedPermissions` until reopen completes, and each close or reopen grant carries the bits it owns. Another
+overwrite allowing an owned bit blocks the close, and deletion needs explicit confirmation on a closed channel. The bot
+first allows itself the owned bits in the channel, because Fluxer lets it lift a denial only of bits it holds there. A
+reconcile that finds a first close or reopen step unchanged restores the ticket's state before the command (open or
+closed, with its slot and body expiry), and one that finds an established channel gone retires the ticket, starting body
+retention if none is running. It needs no attempt when retention already removed the last action, and an unconfirmed
+creation or delete keeps its own rules. An unknown creation is never replayed or adopted. `!ticket abandon` releases the
+requester's slot for such a ticket while native and support-role protection stay
+
+Transcript capture stores each capture of up to 500 messages and 200,000 characters as `ticketTranscriptPages` rows of 1,500 characters, so lists read only small headers and a page read loads one page. Reads show a truncation notice. Erasure hides every capture at once and then deletes its pages in bounded batches. A capture keeps text, message, author and channel IDs and timestamps, without attachments, embeds, intake answers or staff notes. Each ticket has at most 200 authored entries and 20 transcripts, of which the requester can save 5, so staff can still capture. Failed captures store nothing
+
+Closed-ticket private content expires after 30 days by default, configurable from 1 to 365. Explicit erasure hides private content immediately and then removes it, without deleting provider messages or the channel. Terminal attempt history and settled ticket tombstones expire after 30 days
 
 ## Server scope
 

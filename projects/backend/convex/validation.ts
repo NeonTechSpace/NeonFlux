@@ -67,6 +67,11 @@ export function listsChannel(list: readonly string[], channelId: string | undefi
     )
 }
 
+export function object(value: unknown): Record<string, unknown> {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) fail(400, "Invalid request")
+    return value as Record<string, unknown>
+}
+
 export function integer(value: unknown, min: number, max: number): number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
         fail(400, "Invalid request")

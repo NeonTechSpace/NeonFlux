@@ -64,6 +64,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
+| Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

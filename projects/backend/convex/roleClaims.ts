@@ -19,9 +19,19 @@ export async function rolePolicy(ctx: RolesRead, serverId: string) {
         .query("moderationSettings")
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
+    const ticketRoles = await ctx.db
+        .query("ticketRoleProtections")
+        .withIndex("by_protected", (q) => q.eq("serverId", serverId).eq("protected", true))
+        .take(1001)
+    if (ticketRoles.length > 1000) fail(409, "Ticket protection capacity conflict")
     return {
         settings,
-        staffRoleIds: [...new Set(Object.values(moderation?.config.staffRoleIds ?? {}).flat())],
+        staffRoleIds: [
+            ...new Set([
+                ...Object.values(moderation?.config.staffRoleIds ?? {}).flat(),
+                ...ticketRoles.map((r) => r.roleId),
+            ]),
+        ],
         defcon: moderation?.config.defcon ?? 3,
     }
 }

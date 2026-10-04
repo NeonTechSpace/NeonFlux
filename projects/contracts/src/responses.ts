@@ -26,6 +26,7 @@ export const BUILT_IN_COMMANDS = [
     "goodbye",
     "custom",
     "auto",
+    "ticket",
 ] as const
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */
 export const isResponseName = (value: string) =>

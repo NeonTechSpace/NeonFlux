@@ -21,7 +21,7 @@ export const RETENTION = 180 * DAY
 export const BATCH = 128
 /** Permission bits a lock owns, as every lock recovery stores them */
 export const lockMask = (row: { ownedPermissions?: string }) => BigInt(row.ownedPermissions!) & LOCK_PERMISSIONS
-/** A lock owns SendMessages and the thread bits the bot holds, since Fluxer lets a bot stop denying only permissions it holds */
+/** A lock or close owns SendMessages and the thread bits the bot holds, since Fluxer lets a bot stop denying only permissions it holds */
 export const ownedPostingBits = (all: bigint, botPostingPermissions: string | undefined) =>
     SEND_MESSAGES | (all & BigInt(botPostingPermissions ?? "0"))
 export const defaultSettings = (): ModerationSettings => ({

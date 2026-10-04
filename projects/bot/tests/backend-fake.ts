@@ -3,6 +3,8 @@ import type { TestContext } from "node:test"
 import { jsonToConvex, type JSONValue } from "convex/values"
 import type { BackendClient } from "../src/config.ts"
 import { backendFunction, backendKind, backendRoutes, type BackendPath } from "../src/backend-routes.ts"
+import { Effect } from "effect"
+import type { GeneralSettingsStore } from "../src/general-settings.ts"
 
 /** One bot request as the backend function receives it */
 export interface BackendCall {
@@ -126,5 +128,13 @@ export function fakeClient(respond: BackendResponder, subscribe?: BackendClient[
             (() => {
                 throw new Error("This test does not subscribe")
             }),
+    }
+}
+
+/** General settings that hold only a prefix, for tests of the commands that replies print */
+export function prefixStore(prefix: string): GeneralSettingsStore {
+    return {
+        get: () => Effect.succeed({ prefix, revision: 1 }),
+        set: () => Effect.die("unused"),
     }
 }

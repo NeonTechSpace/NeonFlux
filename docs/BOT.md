@@ -60,10 +60,10 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
-- Status, detail and list replies, such as `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
+- Status, detail and list replies, such as `!ticket show 1` or `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins
-- Scheduled posts are named by their name, such as `!publish schedule show news`. Records that have no name, such as cases and posts, keep their numbers
+- Scheduled posts are named by their name, such as `!publish schedule show news`. Records that have no name, such as cases, tickets and posts, keep their numbers
 - A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
 - A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
@@ -85,7 +85,7 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 
 Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`
 
-When a moderation action or a role panel, autorole or verification change fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
+When a moderation action, a role panel, autorole or verification change or a ticket creation fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
 
 ## Ping, AFK, prefix and custom responses
 
@@ -420,3 +420,89 @@ Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module o
 - Preview sends a sample for the invoking staff member in the current channel
 - A delivery with an unknown outcome is never resent
 - One delivery pass considers at most 20 due greetings and reads at most ten pages of waiting greetings. Greetings beyond that continue a minute later. While DEFCON is below 3 a greeting queued before that waits without Fluxer requests and is checked again every ten minutes, so it is sent up to ten minutes after DEFCON is 3 again, if its 24 hours have not passed. A verified greeting is also checked every ten minutes instead of every minute while rules verification is off, or its panel is disabled, being withdrawn, unpublished or edited but not republished, so it can lag up to ten minutes after verification is usable again
+
+## Tickets
+
+Tickets start disabled. Owners and Administrators configure categories, conversation visibility, an optional native parent category, dedicated support roles, up to five intake questions of at most 200 characters and canned replies copied from publishing templates. Ticket support roles are separate from moderation staff roles. A category with no support roles leaves staff access to Owners and Administrators
+
+```text
+!ticket help
+!ticket module on|off
+!ticket retention <1..365 days>
+!ticket categories
+!ticket settings
+```
+
+Category setup, canned replies, ticket lists, operation history, intake, notes and transcripts work only in a verified one-to-one DM with NeonFlux. Public category descriptions never show questions or canned content
+
+```text
+!ticket category create <name> private|public #parent|none @support-roles...|none
+!ticket category show|delete <name>
+!ticket category set <name> description "text"
+!ticket category set <name> visibility private|public
+!ticket category set <name> parent #category|none
+!ticket category set <name> staff @roles...|none
+!ticket category set <name> enabled on|off
+!ticket question <category> add "question"
+!ticket question <category> set <1..5> "question"
+!ticket question <category> remove <1..5>
+!ticket question <category> clear
+!ticket canned <category> set <name> <publishing-template>
+!ticket canned <category> remove <name>
+!ticket canned <category> list [next]
+```
+
+Members open a ticket from the DM. Intake shows who will see the conversation before any answer is entered and again before submission. Each answer allows 2000 characters and stays private even when the conversation channel is public. A category change after an intake starts makes submission fail instead of silently changing that intake
+
+```text
+!ticket open <category>
+!ticket answer <intake-number> <1..5> "answer"
+!ticket review|cancel <intake-number>
+!ticket submit <intake-number> private|public
+```
+
+Staff work in the ticket's own channel. Requesters can read their own tickets and close or reopen them
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!ticket list [next]` | Staff, requester | List visible tickets, 10 per page. Each page looks through the 50 newest tickets before it, so a page can be empty with a `next` line |
+| `!ticket show\|intake <ticket>` | Staff, requester | Show the ticket's state, people, category, priority and channel, or the private intake answers |
+| `!ticket attempt <ticket> [attempt]` | Staff, requester | Show what the ticket's last action did, or one numbered attempt |
+| `!ticket claim\|unclaim <ticket>` | Staff | Take or release the ticket |
+| `!ticket priority <ticket> low\|normal\|high\|urgent` | Staff | Set priority |
+| `!ticket reply <ticket> "text"` or `canned <name>` | Staff | Post a reply in the ticket channel |
+| `!ticket note <ticket> add "text"`, `list [next]` or `show <note>` | Staff | Private staff notes, kept apart from intake and channel history. The list shows 5 notes per page as short snippets, and `show` reads one in full |
+| `!ticket close\|reopen <ticket>` | Staff, requester | Remove or restore send access |
+| `!ticket reconcile <ticket>` | Staff, requester | Recheck a partial close, reopen or create against the live channel |
+| `!ticket transcript <ticket> capture [1..500]` | Staff, requester | Store a transcript of up to 500 recent messages |
+| `!ticket transcript <ticket> list [next]` | Staff, requester | List stored transcripts, 10 per page |
+| `!ticket transcript <ticket> show <transcript> [next]` | Staff, requester | Read a transcript in 1500-character pages |
+| `!ticket delete <ticket> confirm` | Owner, Administrator | Delete the closed ticket channel and release it |
+| `!ticket erase <ticket> confirm` | Owner, Administrator | Erase stored intake, notes and transcripts |
+| `!ticket abandon <ticket>` | Owner, Administrator | Release the requester's slot after a channel creation whose result stayed unknown |
+
+Creation sets the full conversation audience in the first channel request, and the introduction contains metadata only
+with mentions disabled. Close removes send access for everyone and the requester, including sending in the ticket's
+threads and starting new ones, as far as NeonFlux holds those thread permissions server-wide. Reopen restores the
+recorded permissions and leaves unrelated ones untouched. Fluxer lets NeonFlux lift a denial only of permissions it
+holds in the channel, so a close first allows NeonFlux itself the thread permissions it holds there, unless it is an
+Administrator. Another role or member allowed to send or post in threads blocks closing until staff remove that grant.
+Staff keep send access, and Administrator permission still bypasses these overwrites. Renaming or moving a ticket
+channel does not block replies, close, reopen or delete
+
+If close, reopen or creation is interrupted, the ticket stays unresolved until `!ticket reconcile` confirms the live
+state. NeonFlux never retries an operation with an unknown result or searches for a channel by name. When reconcile
+finds a first close or reopen step unchanged, the ticket returns to the state it had, open or closed, while an unchanged
+second step keeps the first step's progress. When an established ticket's channel is confirmed gone, for example deleted
+by hand, reconcile retires the ticket and frees the requester's slot, even after retention removed its last action, and
+the stored bodies start their retention period. A creation or delete that was never confirmed keeps its own rules. A
+ticket closed before NeonFlux allowed itself the thread permissions may still fail to reopen with a permission error.
+Give NeonFlux the missing permission, or delete the channel and reconcile the ticket. After `!ticket abandon`, check the
+server for a leftover channel yourself. Erasing such a ticket also releases the slot but keeps protection for a channel
+that might exist
+
+Private bodies require current server membership, the ticket's recorded requester and support-role access and native view and history permission. A requester who rejoins with the same account regains access. Deleting a channel needs explicit confirmation, a successful delete response and a fresh check that the channel is gone
+
+Closed ticket bodies expire after 30 days by default, configurable from 1 through 365 days. Reopen is unavailable after expiry or erasure. Erasure removes stored copies only and never deletes messages already sent. Body retention never deletes native channels
+
+Transcript capture is explicit and incomplete by design. Each stored message keeps at most 2000 characters of text with its author and timestamps. Attachment URLs and embed bodies are left out, and a capture that exceeds the storage budget is truncated with a notice. A failed capture stores nothing. Each ticket keeps at most 20 transcripts and 200 staff notes and replies sent through NeonFlux together, after which both are refused. The requester can save 5 of those transcripts, so staff can still capture. To share a public summary, write a separate publishing draft, because private content is never copied automatically

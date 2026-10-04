@@ -36,6 +36,10 @@ import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
 import { handleGreetingsCommand } from "./welcome-management.ts"
 import { startGreetingsWorker } from "./welcome-worker.ts"
 import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events.ts"
+import type { TicketStore } from "./ticket-store.ts"
+import { parseTicketCommand } from "./ticket-command.ts"
+import { handleTicketCommand } from "./ticket-management.ts"
+import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -61,6 +65,7 @@ interface BotStores {
     readonly publishing?: PublishingStore | undefined
     readonly roles?: RolesStore | undefined
     readonly greetings?: GreetingsStore | undefined
+    readonly tickets?: TicketStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -279,7 +284,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
-    const { afk: store, responses, publishing, greetings, schedules, general } = stores
+    const { afk: store, responses, publishing, greetings, tickets, schedules, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
@@ -422,17 +427,28 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 ? usage(parseGreetingsCommand(greetingName, command.args))
                                 : quotingError(`${greetingName} help for examples`)
                             : undefined
+                        const parsedTicket =
+                            name === "ticket"
+                                ? command
+                                    ? usage(parseTicketCommand(command.args))
+                                    : quotingError("ticket help for examples")
+                                : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
-                            if (message.guildId !== undefined || !(safetyName && moderation)) return
-                            const verified = yield* verifyPrivateAuthor(
-                                context.client,
-                                message.channelId,
-                                message.author.id,
-                            ).pipe(
-                                Effect.as(true),
-                                Effect.catch(() => Effect.succeed(false)),
+                            if (
+                                message.guildId !== undefined ||
+                                !((name === "ticket" && tickets) || (safetyName && moderation))
                             )
+                                return
+                            const verified = yield* name === "ticket"
+                                ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(
+                                      Effect.as(true),
+                                      Effect.catch(() => Effect.succeed(false)),
+                                  )
+                                : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(
+                                      Effect.as(true),
+                                      Effect.catch(() => Effect.succeed(false)),
+                                  )
                             if (!verified) return
                         }
                         let protectionUnknown = false
@@ -462,23 +478,26 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 (parsedRoles.type === "verify" || parsedRoles.type === "choose")
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
-                            const gateClass = safetyName
-                                ? safetyGateClass(safetyName, parsedSafety!)
-                                : publishingCritical ||
-                                    roleCritical ||
-                                    (parsedGreeting && greetingsCritical(parsedGreeting))
-                                  ? "critical"
-                                  : greetingName ||
-                                      (roleName && !rolePublic) ||
-                                      name === "prefix" ||
-                                      name === "custom" ||
-                                      name === "auto" ||
-                                      name === "publish"
-                                    ? "staff"
-                                    : "public"
+                            const gateClass =
+                                name === "ticket"
+                                    ? "critical"
+                                    : safetyName
+                                      ? safetyGateClass(safetyName, parsedSafety!)
+                                      : publishingCritical ||
+                                          roleCritical ||
+                                          (parsedGreeting && greetingsCritical(parsedGreeting))
+                                        ? "critical"
+                                        : greetingName ||
+                                            (roleName && !rolePublic) ||
+                                            name === "prefix" ||
+                                            name === "custom" ||
+                                            name === "auto" ||
+                                            name === "publish"
+                                          ? "staff"
+                                          : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
                             // answer reported a raised DEFCON, and after a refusal the hint did not expect
-                            const privileged = !(gateClass === "public" || gateClass === "appeal")
+                            const privileged = !(name === "ticket" || gateClass === "public" || gateClass === "appeal")
                             const authority = readSafetyAuthority(
                                 context.client,
                                 config.serverId,
@@ -508,14 +527,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     : admitted.gate
                             const blocked = admitted.blocked
                             yield* applyDefconPresence(context.client, config, gate.defcon)
-                            if (!gate.allowed || blocked === true) {
+                            if ((name !== "ticket" && !gate.allowed) || blocked === true) {
                                 if (!privateInvocation && store)
                                     yield* handleAfk(store, config.serverId, context, false, prefix)
                                 return
                             }
                             // A message protection could not judge gets no public command or reply
                             protectionUnknown = blocked === "unknown" && gateClass === "public"
-                        } else if (privateInvocation) return
+                        } else if (privateInvocation && name !== "ticket") return
                         if (protectionUnknown) {
                             if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
@@ -548,6 +567,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (name === "ticket") {
+                                            if (!tickets)
+                                                yield* reply({
+                                                    content: notSetUp("Tickets"),
+                                                })
+                                            else
+                                                yield* handleTicketCommand(
+                                                    tickets,
+                                                    publishing,
+                                                    config,
+                                                    parsedTicket!,
+                                                    context,
+                                                )
                                             return
                                         }
                                         if (greetingName) {

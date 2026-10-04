@@ -427,6 +427,8 @@ test("reserved names, duplicate definitions, malformed quoting, unknown updates 
                     '!auto create afk exact "hello" text "collision"',
                     '!custom create Welcome text "collision"',
                     '!custom create goodbye text "collision"',
+                    '!custom create ticket text "collision"',
+                    '!auto create ticket exact "hello" text "collision"',
                     '!custom create rules text "Read rules"',
                     '!custom create rules text "Again"',
                     '!custom create bad text "unclosed',

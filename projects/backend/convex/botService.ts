@@ -24,6 +24,8 @@ import * as roleParticipation from "./roleParticipation.ts"
 import * as roleLifecycle from "./roleLifecycle.ts"
 import * as greetings from "./greetings.ts"
 import * as greetingLifecycle from "./greetingLifecycle.ts"
+import * as tickets from "./tickets.ts"
+import * as ticketLifecycle from "./ticketLifecycle.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -236,3 +238,11 @@ export const greetingsReserve = botMutation(65536, greetingLifecycle.reserve)
 export const greetingsDispatch = botMutation(65536, greetingLifecycle.dispatch)
 export const greetingsOutcome = botMutation(65536, greetingLifecycle.outcome)
 export const greetingsDefer = botMutation(65536, greetingLifecycle.defer)
+
+export const ticketsQuery = botQuery(262144, tickets.query)
+export const ticketsManage = botMutation(262144, tickets.manage)
+export const ticketsIntake = botMutation(262144, tickets.intake)
+export const ticketsTranscript = botMutation(262144, tickets.transcript)
+export const ticketsDispatch = botMutation(262144, ticketLifecycle.dispatch)
+export const ticketsOutcome = botMutation(262144, ticketLifecycle.outcome)
+export const ticketsReconcile = botMutation(262144, ticketLifecycle.reconcile)

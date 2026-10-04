@@ -21,6 +21,8 @@ import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
 const optional = Schema.optionalKey
 /** The bot's capability for one dispatch: 32 lowercase hexadecimal digits */
 const ClaimToken = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/))
+/** The member who asked. Tickets send their whole read of the member, and the backend keeps the moderation fields */
+const actor = Schema.StructWithRest(ModerationActor, [Schema.Record(Schema.String, Schema.Unknown)])
 const canonical = (value: { content: PublishingContent; canonicalContent: PublishingContent }) =>
     equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 
@@ -138,7 +140,7 @@ export type PublishingManageOperation = typeof PublishingManageOperation.Type
 export const PublishingManageRequest = Schema.Struct({
     ...ModerationSource.fields,
     serverId: Id,
-    actor: ModerationActor,
+    actor,
     operation: PublishingManageOperation,
 })
 export type PublishingManageRequest = typeof PublishingManageRequest.Type
@@ -156,7 +158,7 @@ export const PublishingManageResult = Schema.Union([
 export type PublishingManageResult = typeof PublishingManageResult.Type
 export const PublishingQueryRequest = Schema.Struct({
     serverId: Id,
-    actor: ModerationActor,
+    actor,
     operation: Schema.Union([
         Schema.Struct({ type: Schema.Literal("settings") }),
         Schema.Struct({ type: Schema.Literal("draft-show"), ...named }),
@@ -205,7 +207,7 @@ export type PublishingOutcomeResult = typeof PublishingOutcomeResult.Type
 export const PublishingReconcileRequest = Schema.Struct({
     ...ModerationSource.fields,
     serverId: Id,
-    actor: ModerationActor,
+    actor,
     postNo: Int(1),
     attemptId: Token,
     expectedGeneration: Int(1),

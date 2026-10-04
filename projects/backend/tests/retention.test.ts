@@ -139,28 +139,36 @@ test("A future recovery deadline schedules nothing, and the next run after it de
 
 test("A failing pass is isolated, the other modules keep their retention and isolation ends once the pass succeeds", async () => {
     const t = backend()
-    // An expired delivery whose schedule accounting is missing makes the schedules pass fail
+    // A pending attempt whose ticket is missing makes the ticket pass fail
     const broken = await t.run(async (ctx) => {
         await ctx.db.insert("responseReceipts", { serverId: "10", messageId: "1", expiresAt: now - 1 })
-        return insertDocument(ctx, "scheduleDeliveries", "10", { scheduleNo: 99, historyExpiresAt: now - 1 })
+        return insertDocument(ctx, "ticketAttempts", "10", {
+            ticketNo: 99,
+            outcome: "pending",
+            dispatchExpiresAt: now - 3600000,
+        })
     })
     // Before the first finished run every pass is isolated
-    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    assert.deepEqual((await step(t)).result.failed, ["tickets"])
     assert.equal(await count(t, "responseReceipts"), 0)
     now += RETENTION_INTERVAL_MS
     await t.run((ctx) => ctx.db.insert("responseReceipts", { serverId: "10", messageId: "2", expiresAt: now - 1 }))
-    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    assert.deepEqual((await step(t)).result.failed, ["tickets"])
     assert.equal(await count(t, "responseReceipts"), 0)
     await t.run((ctx) => ctx.db.delete(broken))
     now += RETENTION_INTERVAL_MS
     assert.deepEqual((await step(t)).result.failed, [])
     // A pass that fails outside isolation fails its run, and the run after a missed one isolates every pass
     const again = await t.run((ctx) =>
-        insertDocument(ctx, "scheduleDeliveries", "10", { scheduleNo: 99, historyExpiresAt: now - 1 }),
+        insertDocument(ctx, "ticketAttempts", "10", {
+            ticketNo: 99,
+            outcome: "pending",
+            dispatchExpiresAt: now - 3600000,
+        }),
     )
     now += RETENTION_INTERVAL_MS
-    await assert.rejects(step(t), /Schedule accounting unavailable/)
+    await assert.rejects(step(t), /Ticket not found/)
     now += RETENTION_INTERVAL_MS
-    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    assert.deepEqual((await step(t)).result.failed, ["tickets"])
     await t.run((ctx) => ctx.db.delete(again))
 })
