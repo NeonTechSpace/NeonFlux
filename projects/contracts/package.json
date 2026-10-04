@@ -1,0 +1,19 @@
+{
+    "name": "@neonflux/contracts",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0",
+    "exports": {
+        "./*": "./src/*.ts"
+    },
+    "scripts": {
+        "typecheck": "node ../scripts/heavy.mjs node ../scripts/effect-tsc.mjs --project tsconfig.json --singleThreaded",
+        "check": "pnpm run typecheck"
+    },
+    "dependencies": {
+        "effect": "catalog:"
+    },
+    "devDependencies": {
+        "typescript": "catalog:"
+    }
+}

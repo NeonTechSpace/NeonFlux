@@ -10,6 +10,13 @@
         "noUncheckedIndexedAccess": true,
         "verbatimModuleSyntax": true,
         "forceConsistentCasingInFileNames": true,
+        "plugins": [
+            {
+                "name": "@effect/language-service",
+                "includeSuggestionsInTsc": false,
+                "diagnosticSeverity": { "schemaNumber": "warning" }
+            }
+        ],
         "noEmitOnError": true,
         "sourceMap": true,
         "inlineSources": true,

@@ -1,0 +1,190 @@
+import assert from "node:assert/strict"
+import { readdirSync } from "node:fs"
+import { afterEach, beforeEach, test } from "node:test"
+import { ConvexError } from "convex/values"
+import { convexTest } from "convex-test"
+import schema from "../convex/schema.ts"
+import { internal } from "../convex/_generated/api.js"
+import { backendRoutes } from "../../bot/src/backend-routes.ts"
+import { botCall } from "./bot-service.ts"
+import { requireOrigin } from "../convex/serverScope.ts"
+import { parseServerScope } from "@neonflux/contracts/service"
+
+const secret = "synthetic-server-scope-backend-secret-000000000"
+const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
+const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+beforeEach(() => {
+    for (const key of keys) delete process.env[key]
+    process.env.NEONFLUX_BOT_API_SECRET = secret
+})
+afterEach(() => {
+    for (const key of keys) {
+        if (original[key] === undefined) delete process.env[key]
+        else process.env[key] = original[key]
+    }
+})
+const configureServer = (serverId: string) => {
+    process.env.NEONFLUX_SERVER_ID = serverId
+}
+
+const modules = {
+    "../convex/botService.ts": () => import("../convex/botService.ts"),
+    "../convex/afk.ts": () => import("../convex/afk.ts"),
+    "../convex/responses.ts": () => import("../convex/responses.ts"),
+    "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
+    "../convex/schema.ts": () => import("../convex/schema.ts"),
+    "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
+    "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
+}
+const backend = () => convexTest({ schema, modules, transactionLimits: true })
+type Backend = ReturnType<typeof backend>
+function post(t: Backend, path: string, body: unknown, serverId?: string, keySecret?: string) {
+    return botCall(t, path, body, { serverId, ...(keySecret === undefined ? {} : { secret: keySecret }) })
+}
+function status(expected: number) {
+    return (error: unknown) =>
+        error instanceof ConvexError &&
+        typeof error.data === "object" &&
+        error.data !== null &&
+        "status" in error.data &&
+        error.data.status === expected
+}
+
+test("Scope parser trims a single server", () => {
+    assert.deepEqual(parseServerScope({ NEONFLUX_SERVER_ID: " 10 " }), { serverIds: ["10"] })
+})
+
+test("Scope parser rejects malformed inputs without echoing them", () => {
+    const invalid = [{}, { NEONFLUX_SERVER_ID: "" }, { NEONFLUX_SERVER_ID: "synthetic-server" }]
+    for (const env of invalid) {
+        assert.throws(
+            () => parseServerScope(env),
+            (error) => error instanceof Error && !error.message.includes("synthetic-server"),
+        )
+    }
+    for (const id of ["", "01", "0", "-1", "1.0", "1e3", "9223372036854775808"])
+        assert.throws(() => parseServerScope({ NEONFLUX_SERVER_ID: id }))
+})
+
+test("Authenticated scope discovery names the single server", async () => {
+    configureServer("10")
+    const t = backend()
+    assert.equal((await botCall(t, "/service/scope", {}, { secret: null })).status, 401)
+    const response = await botCall(t, "/service/scope", {})
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { serverIds: ["10"] })
+})
+
+test("Invalid scope settings answer 503 and log the variable to fix without its value", async (tc) => {
+    const t = backend(),
+        logged: string[] = []
+    tc.mock.method(console, "error", (message: unknown) => {
+        logged.push(String(message))
+    })
+    for (const [name, value] of [["NEONFLUX_SERVER_ID", "synthetic-private-server"]] as const) {
+        process.env[name] = value
+        const response = await botCall(t, "/service/scope", {})
+        assert.equal(response.status, 503)
+        assert.deepEqual(await response.json(), { error: "Backend not configured" })
+        assert.match(logged.at(-1)!, new RegExp(name))
+        assert.ok(!logged.at(-1)!.includes(value))
+        delete process.env[name]
+    }
+})
+
+const everyModule = Object.fromEntries([
+    ...readdirSync(new URL("../convex/", import.meta.url))
+        .filter((name) => name.endsWith(".ts"))
+        .map((name) => [`../convex/${name}`, () => import(`../convex/${name}`)]),
+    ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
+    ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
+])
+const tableCounts = (t: Backend) =>
+    t.run(async (ctx) => {
+        const counts: Record<string, number> = {}
+        for (const table of Object.keys(schema.tables) as (keyof typeof schema.tables)[])
+            counts[table] = (await ctx.db.query(table).collect()).length
+        return counts
+    })
+
+test("Every bot route rejects other servers before domain work", async () => {
+    configureServer("10")
+    const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
+    const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
+    assert.ok(routes.length > 2)
+    const rejectAll = async (serverId: string) => {
+        const before = await tableCounts(t)
+        for (const path of routes) {
+            const response = await post(
+                t,
+                path,
+                { serverId, userId: "40", reason: "Away", mentionedUserIds: [] },
+                serverId,
+            )
+            assert.equal(response.status, 403, path)
+            assert.deepEqual(
+                await response.json(),
+                { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" },
+                path,
+            )
+        }
+        assert.deepEqual(await tableCounts(t), before)
+    }
+    await rejectAll("30")
+})
+
+test("Every feature family rejects absent, foreign and mismatched server bindings before domain work", async () => {
+    configureServer("10")
+    const t = backend()
+    const paths = ["/afk/set", "/responses/manage"]
+    for (const path of paths) {
+        for (const selected of [undefined, "99", "01", "20"]) {
+            const result = await post(t, path, { serverId: "20" }, selected)
+            assert.equal(result.status, 403, path)
+            assert.deepEqual(await result.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
+        }
+        assert.equal((await post(t, path, null, "99", "synthetic-wrong-secret-00000000000000000")).status, 401)
+    }
+})
+
+test("An omitted header still binds the body server", async () => {
+    configureServer("10")
+    const t = backend()
+    assert.equal((await post(t, "/afk/set", { serverId: "10", userId: "30", reason: "Single" })).status, 200)
+    const wrong = await post(t, "/afk/set", { serverId: "20", userId: "30", reason: "Rejected" })
+    assert.deepEqual(await wrong.json(), { error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
+    assert.equal((await post(t, "/afk/set", { serverId: "20" }, "20")).status, 403)
+})
+
+test("Foreign origins anywhere in the request reject before state changes", async () => {
+    configureServer("20")
+    const t = backend()
+    for (const evidence of [
+        { originServerId: "10", channelId: "60" },
+        { originServerId: "10", userId: "30" },
+        [{ originServerId: "10", roleId: "70" }],
+        { nested: { originServerId: "10" } },
+    ]) {
+        const response = await post(t, "/responses/manage", { serverId: "20", operation: { evidence } }, "20")
+        assert.equal(response.status, 403)
+        assert.deepEqual(await response.json(), { error: "Native evidence server mismatch" })
+    }
+})
+
+test("Native evidence read from another server rejects", () => {
+    const context = { channelId: "40" }
+    assert.throws(
+        () => requireOrigin({ serverId: "20", context: { ...context, originServerId: "10" } }, "20"),
+        status(403),
+    )
+    assert.doesNotThrow(() => requireOrigin({ serverId: "20", context: { ...context, originServerId: "20" } }, "20"))
+})
+
+test("Internal guards allow only the configured server", async () => {
+    configureServer("10")
+    const t = backend()
+    await assert.rejects(
+        t.mutation(internal.afk.setStatus, { request: { serverId: "99", userId: "30", reason: "Rejected" } }),
+        status(403),
+    )
+})

@@ -3,13 +3,19 @@
     "private": true,
     "packageManager": "pnpm@12.9.1",
     "scripts": {
+        "build": "pnpm --filter @neonflux/bot run build",
+        "check": "pnpm run format:check && node --test scripts/heavy.test.mjs && pnpm --filter @neonflux/contracts run check && pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check",
         "format": "prettier --write .",
-        "format:check": "prettier --check ."
+        "format:check": "prettier --check .",
+        "dev:bot": "pnpm --filter @neonflux/bot run dev",
+        "deploy:dev": "pnpm --filter @neonflux/backend run deploy:dev",
+        "start": "pnpm --filter @neonflux/bot run start"
     },
     "engines": {
         "node": ">=24 <25"
     },
     "devDependencies": {
+        "@effect/tsgo": "0.53.3",
         "prettier": "3.9.9"
     }
 }

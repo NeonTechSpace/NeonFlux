@@ -1,2 +1,18 @@
 packages:
     - bot
+    - backend
+    - contracts
+
+# Versions every package must share. The bot calls the backend's functions with the same Convex client, and each side decodes
+# with the schema values the contracts build, so Convex and Effect stay at one exact version across the workspace. TypeScript
+# stays at one version because the Effect typecheck needs an @effect/tsgo release that supports the version every package uses
+catalog:
+    convex: 1.46.0
+    effect: 4.0.0
+    typescript: 7.0.2
+
+allowBuilds:
+    esbuild@0.27.0: true
+
+minimumReleaseAgeExclude:
+    - "@neontechspace/fluxerly@1000.0.0-nightly.20261021.25"
