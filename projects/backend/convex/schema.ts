@@ -7,6 +7,13 @@ import {
     scheduleDeliveryState,
     scheduleSource,
 } from "./schedulesValidators.ts"
+import {
+    greetingsSettings,
+    greetingsRoute,
+    greetingsState,
+    greetingsReason,
+    greetingsGrant,
+} from "./greetingsValidators.ts"
 import { responseKind, responseReply, responseTrigger } from "./responseValidators.ts"
 import { publishingContent, publishingKind, publishingObservation, publishingOutcome } from "./publishingValidators.ts"
 import {
@@ -126,6 +133,66 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    greetingSettings: defineTable({
+        serverId: v.string(),
+        config: greetingsSettings,
+        activatedAt: v.object({ welcome: v.number(), dm: v.number(), goodbye: v.number() }),
+        nextGeneration: v.number(),
+        nextDeliveryNo: v.number(),
+        nextClaimAt: v.number(),
+    }).index("by_server", ["serverId"]),
+    greetingMembers: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        userName: v.string(),
+        serverName: v.string(),
+        joinedAt: v.string(),
+        generation: v.number(),
+        present: v.boolean(),
+        observedAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_server_user", ["serverId", "userId"])
+        .index("by_expiry", ["expiresAt"]),
+    greetingReceipts: defineTable({ serverId: v.string(), messageId: v.string(), expiresAt: v.number() })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    greetingDeliveries: defineTable({
+        serverId: v.string(),
+        deliveryNo: v.number(),
+        route: greetingsRoute,
+        routeRevision: v.number(),
+        templateName: v.string(),
+        templateRevision: v.number(),
+        content: publishingContent,
+        userId: v.string(),
+        joinedAt: v.string(),
+        memberGeneration: v.number(),
+        timing: v.union(v.literal("join"), v.literal("verified")),
+        state: greetingsState,
+        active: v.boolean(),
+        createdAt: v.number(),
+        pendingExpiresAt: v.number(),
+        nextCheckAt: v.number(),
+        reason: v.optional(greetingsReason),
+        grant: v.optional(greetingsGrant),
+        claimedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        messageId: v.optional(v.string()),
+        channelId: v.optional(v.string()),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "deliveryNo"])
+        .index("by_epoch_route", ["serverId", "userId", "joinedAt", "route"])
+        .index("by_ready", ["serverId", "state", "nextCheckAt"])
+        .index("by_member_state", ["serverId", "userId", "state", "nextCheckAt"])
+        .index("by_member_epoch_state", ["serverId", "userId", "joinedAt", "state", "nextCheckAt"])
+        .index("by_route_unclaimed", ["serverId", "route", "active", "claimedAt", "routeRevision"])
+        .index("by_active_expiry", ["active", "claimedAt", "pendingExpiresAt"])
+        .index("by_reserved", ["state", "grant.dispatchExpiresAt"])
         .index("by_expiry", ["expiresAt"]),
     roleSettings: defineTable({
         serverId: v.string(),

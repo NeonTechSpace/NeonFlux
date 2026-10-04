@@ -63,6 +63,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
+| Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

@@ -22,6 +22,8 @@ export const BUILT_IN_COMMANDS = [
     "verify",
     "autorole",
     "publish",
+    "welcome",
+    "goodbye",
     "custom",
     "auto",
 ] as const

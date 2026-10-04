@@ -41,6 +41,63 @@ const inputContent = (value: PublishingContent) => ({
     embeds: value.embed ? [value.embed] : [],
 })
 
+type PublishingStage = "authorization" | "claim" | "native" | "readback" | "acknowledgement"
+const publishingFailureClasses = [
+    "MessageError",
+    "MessageOperationError",
+    "ClientClosedError",
+    "PublishingHandlingError",
+    "PublishingPermissionError",
+    "SafetyPermissionError",
+    "PublishingStoreError",
+    "TimeoutError",
+] as const
+const publishingFailureKinds = [
+    "input",
+    "busy",
+    "notFound",
+    "rejected",
+    "network",
+    "response",
+    "timeout",
+    "rateLimit",
+    "unknown",
+] as const
+export interface PublishingDiagnostic {
+    readonly stage: PublishingStage
+    readonly failureClass: (typeof publishingFailureClasses)[number] | "Unknown"
+    readonly kind?: (typeof publishingFailureKinds)[number]
+    readonly status?: number
+    readonly retryAfterMs?: number
+    readonly nativeOutcome?: "notDispatched" | "rejected" | "unknown"
+}
+export function publishingDiagnostic(stage: PublishingStage, error: unknown): PublishingDiagnostic {
+    try {
+        const value = error && typeof error === "object" ? (error as Record<string, unknown>) : {}
+        const failureClass = publishingFailureClasses.find((tag) => tag === value._tag) ?? "Unknown"
+        const kind = publishingFailureKinds.find((item) => item === (value.kind ?? value.reason))
+        const status =
+            typeof value.status === "number" &&
+            Number.isInteger(value.status) &&
+            value.status >= 100 &&
+            value.status <= 599
+                ? value.status
+                : undefined
+        const retryAfterMs = errors.retryAfterMs(error)
+        const nativeOutcome = errors.outcome(error)
+        return {
+            stage,
+            failureClass,
+            ...(kind ? { kind } : {}),
+            ...(status !== undefined ? { status } : {}),
+            ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+            ...(nativeOutcome ? { nativeOutcome } : {}),
+        }
+    } catch {
+        return { stage, failureClass: "Unknown" }
+    }
+}
+
 /** Whether a failed write came from a missing permission, which a member or staff can fix */
 const permissionRefused = (error: unknown) =>
     error instanceof PublishingPermissionError ||

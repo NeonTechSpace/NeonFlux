@@ -8,6 +8,7 @@ import { createResponseStore } from "./responses-store.ts"
 import { createModerationStore } from "./moderation-store.ts"
 import { createPublishingStore } from "./publishing-store.ts"
 import { createRolesStore } from "./roles-store.ts"
+import { createGreetingsStore } from "./welcome-store.ts"
 import { createSchedulesStore } from "./schedule-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
@@ -74,6 +75,7 @@ function createServerAdapters(config: BotConfig) {
         moderation: createModerationStore(backend),
         publishing: createPublishingStore(backend),
         roles: createRolesStore(backend),
+        greetings: createGreetingsStore(backend),
         schedules: createSchedulesStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }

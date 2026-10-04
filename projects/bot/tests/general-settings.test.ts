@@ -10,6 +10,7 @@ import { BackendRequestError } from "../src/backend-http.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
+import { greetingsBoundary } from "./welcome-fixture.ts"
 import { schedulesBoundary } from "./schedule-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
@@ -19,6 +20,7 @@ function offlineWorkers() {
     return {
         publishing,
         roles: rolesBoundary(publishing).store,
+        greetings: greetingsBoundary().store,
         schedules: schedulesBoundary().store,
         moderation: boundary().store,
         afk: {

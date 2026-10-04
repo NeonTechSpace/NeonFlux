@@ -20,13 +20,13 @@ export function scopeDenied(): never {
     throw new ConvexError({ status: 403, error: "Server not allowed", code: "NEONFLUX_SCOPE_DENIED" })
 }
 
-// The bot names the server of every native read in originServerId.
+// The bot names the server of every native read in originServerId or memberOriginServerId.
 // Evidence read from one allowed server can never authorize work in another
 export function requireOrigin(value: unknown, serverId: string, depth = 0): void {
     if (depth > 32) throw new ConvexError({ status: 400, error: "Invalid request" })
     if (value === null || typeof value !== "object") return
     for (const [key, child] of Object.entries(value)) {
-        if (key === "originServerId" && child !== serverId) {
+        if ((key === "originServerId" || key === "memberOriginServerId") && child !== serverId) {
             throw new ConvexError({ status: 403, error: "Native evidence server mismatch" })
         }
         requireOrigin(child, serverId, depth + 1)

@@ -425,6 +425,8 @@ test("reserved names, duplicate definitions, malformed quoting, unknown updates 
                 for (const content of [
                     '!custom create ping text "collision"',
                     '!auto create afk exact "hello" text "collision"',
+                    '!custom create Welcome text "collision"',
+                    '!custom create goodbye text "collision"',
                     '!custom create rules text "Read rules"',
                     '!custom create rules text "Again"',
                     '!custom create bad text "unclosed',

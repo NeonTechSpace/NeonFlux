@@ -10,6 +10,7 @@ import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
+import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import { platform } from "./moderation-fixture.ts"
 
@@ -71,6 +72,9 @@ const commandHelps: Record<string, string> = {
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
+    welcome: greetingsHelp("welcome"),
+    "welcome dm": greetingsHelp("dm"),
+    goodbye: greetingsHelp("goodbye"),
 }
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
@@ -81,6 +85,9 @@ const helpAlls: Record<string, readonly string[]> = {
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     ...safetyHelpAll,
+    welcome: greetingsHelpAll("welcome"),
+    "welcome dm": greetingsHelpAll("dm"),
+    goodbye: greetingsHelpAll("goodbye"),
 }
 // Words that name NeonFlux's internals rather than what a member sees. Command words such as module, reconcile or dry-run stay in the forms
 const internal = /\b(backend|revision|stale|tracked|payload|deployment|module|attempt|reconcile|dry-run)\b/i
@@ -152,6 +159,7 @@ test("help all lists a command's remaining forms ten at a time with next, also f
                     "There is no next page to show. Send ?publish help all to start the list again",
                 ])
                 assert.deepEqual(yield* say("?publish schedule help all"), [prefixed(scheduleHelpAll)])
+                assert.deepEqual(yield* say("?welcome dm help all"), [prefixed(greetingsHelpAll("dm"))])
                 for (const [path, forms] of Object.entries(helpAlls))
                     assert.ok(forms.length > 0 && forms.length <= 30, path)
                 assert.equal(bot.failures().length, 0)

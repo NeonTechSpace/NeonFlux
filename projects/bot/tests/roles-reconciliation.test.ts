@@ -9,6 +9,7 @@ import { processRoleReactionJob, startRoleReactionWorker } from "../src/role-rec
 import { RolesStoreError } from "../src/roles-store.ts"
 import { boundary, token } from "./moderation-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
+import { greetingsBoundary } from "./welcome-fixture.ts"
 import { nativeRoles, savedPanel } from "./roles-native-fixture.ts"
 
 test("cleared reaction jobs persist blocked unknown targets while later targets and pages progress", async () => {
@@ -181,12 +182,13 @@ for (const expiryAlreadyReached of [false, true])
 
 for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI"] as const)
     test(
-        `${eventName} resumes bounded known consumers through the native gateway entry point`,
+        `${eventName} resumes bounded known consumers through the native gateway entry point${eventName === "MESSAGE_REACTION_REMOVE_EMOJI" ? " with greeting hooks" : ""}`,
         { timeout: 10000 },
         async () => {
             const f = createFixtures(),
                 remote = rolesBoundary(),
-                moderation = boundary()
+                moderation = boundary(),
+                greetings = eventName === "MESSAGE_REACTION_REMOVE_EMOJI" ? greetingsBoundary() : undefined
             await Effect.runPromise(
                 Effect.scoped(
                     Effect.gen(function* () {
@@ -194,7 +196,7 @@ for (const eventName of ["MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE
                         const bot = yield* createTestBot(
                             createBotOptions(
                                 { token, serverId: f.ids.guild },
-                                { moderation: moderation.store, roles: remote.store },
+                                { moderation: moderation.store, roles: remote.store, greetings: greetings?.store },
                             ),
                         )
                         const p = nativeRoles(bot),

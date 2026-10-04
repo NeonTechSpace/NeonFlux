@@ -18,7 +18,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { performPublishingGrant, publishingDraftCard } from "../src/publishing.ts"
+import { performPublishingGrant, publishingDiagnostic, publishingDraftCard } from "../src/publishing.ts"
 import { publishingMessageContent } from "../src/publishing-content.ts"
 import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -1099,6 +1099,28 @@ test("a failed write names a permission refusal only for a missing permission, a
             ),
         )
     }
+    assert.deepEqual(
+        publishingDiagnostic("native", {
+            _tag: "UnapprovedPrivateClass",
+            reason: "private-kind",
+            status: 999,
+            retryAfterMs: -1,
+            message: "Private body",
+            cause: "Private token",
+        }),
+        { stage: "native", failureClass: "Unknown" },
+    )
+    assert.deepEqual(
+        publishingDiagnostic(
+            "native",
+            Object.defineProperty({}, "_tag", {
+                get: () => {
+                    throw new Error("Private getter")
+                },
+            }),
+        ),
+        { stage: "native", failureClass: "Unknown" },
+    )
 })
 
 test("client closure after a publishing claim fails the post, since the SDK proves the send never left", async () => {

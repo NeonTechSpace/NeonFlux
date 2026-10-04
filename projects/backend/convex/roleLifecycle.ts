@@ -1,3 +1,4 @@
+import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import {
     RolesDispatchRequest,
@@ -115,7 +116,7 @@ export const outcome = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<RolesOutcomeResult> => {
         const input = decode(RolesOutcomeRequest, request)
-        const { attempt, owner } = await boundAttempt(ctx, input),
+        const { serverId, attempt, owner } = await boundAttempt(ctx, input),
             now = Date.now(),
             capability = input.claimToken
         if (attempt.dispatchedAt === undefined) {
@@ -140,6 +141,7 @@ export const outcome = serviceMutation({
             updatedAt: now,
         })
         if (input.outcome === "succeeded" && attempt.action === "remove") await dropUndesiredReferences(ctx, owner._id)
+        await wakeGreetings(ctx, serverId, owner.userId, owner.joinedAt)
         return { recorded: true }
     },
 })
@@ -185,6 +187,7 @@ export const reconcile = serviceMutation({
             }
         } else if (!owned) await dropUndesiredReferences(ctx, owner._id)
         await ctx.db.patch(attempt._id, { observationAt: observedAt, expiresAt: now + ROLES_RETENTION })
+        await wakeGreetings(ctx, identity.serverId, owner.userId, owner.joinedAt)
         return { recorded: true, claim: await publicRoleClaim(ctx, (await ctx.db.get(owner._id))!) }
     },
 })

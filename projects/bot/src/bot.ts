@@ -31,6 +31,11 @@ import { parseRoleCommand, type RoleCommandName } from "./role-command.ts"
 import { handleRoleCommand } from "./role-management.ts"
 import { handleRoleReaction, handleRoleJoin, RoleHandlingError } from "./roles.ts"
 import { startRoleReactionWorker } from "./role-reconciliation.ts"
+import type { GreetingsStore } from "./welcome-store.ts"
+import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
+import { handleGreetingsCommand } from "./welcome-management.ts"
+import { startGreetingsWorker } from "./welcome-worker.ts"
+import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -55,6 +60,7 @@ interface BotStores {
     readonly moderation?: ModerationStore | undefined
     readonly publishing?: PublishingStore | undefined
     readonly roles?: RolesStore | undefined
+    readonly greetings?: GreetingsStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -64,6 +70,8 @@ const routedEvents = [
     "messageCreate",
     "messageUpdate",
     "guildMemberAdd",
+    "guildMemberRemove",
+    "guildMemberUpdate",
     "messageReactionAdd",
     "messageReactionAddMany",
     "messageReactionRemove",
@@ -271,11 +279,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
-    const { afk: store, responses, publishing, schedules, general } = stores
+    const { afk: store, responses, publishing, greetings, schedules, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
     const roleBackend = stores.roles
-    // Panel reads and changes keep the panel index current
+    // A member event wakes greeting discovery only when its observation recorded a change, so one that changed nothing costs no discovery
+    const wake = (userId?: string) => greetingWorker?.notify(userId) ?? Effect.void
+    // Role changes wake greetings when they are configured, and panel reads and changes keep the panel index current
     const panelIndex = createPanelIndex()
     // Whether the last policy or member answer had autorole or rules verification on. Only an answer sets it, so a stale value costs reads, never a skipped join
     let joinWork = false
@@ -295,9 +306,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
               reactionJobs: (input) => roleBackend.reactionJobs(input),
               dispatch: (input) => roleBackend.dispatch(input),
               observe: (input) => roleBackend.observe(input),
-              evaluate: (input) => roleBackend.evaluate(input),
-              outcome: (input) => roleBackend.outcome(input),
-              reconcile: (input) => roleBackend.reconcile(input),
+              evaluate: (input) => roleBackend.evaluate(input).pipe(Effect.tap(() => wake(input.context.userId))),
+              outcome: (input) =>
+                  roleBackend.outcome(input).pipe(Effect.tap((value) => (value.recorded ? wake() : Effect.void))),
+              reconcile: (input) =>
+                  roleBackend
+                      .reconcile(input)
+                      .pipe(Effect.tap((value) => (value.recorded ? wake(input.observation.userId) : Effect.void))),
           }
         : undefined
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
@@ -323,6 +338,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     yield* roles.observe({ serverId: config.serverId, mode: "restart" })
                     roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
                 }
+                if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
                 if (schedules && publishing)
                     wakers.schedules = (scheduleWorker = yield* startSchedulesWorker(
                         schedules,
@@ -400,6 +416,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 ? usage(parseRoleCommand(roleName, command.args))
                                 : quotingError(`${roleName} help for examples`)
                             : undefined
+                        const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
+                        const parsedGreeting = greetingName
+                            ? command
+                                ? usage(parseGreetingsCommand(greetingName, command.args))
+                                : quotingError(`${greetingName} help for examples`)
+                            : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
                             if (message.guildId !== undefined || !(safetyName && moderation)) return
@@ -442,9 +464,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             // The moderation read still supplies presence and native message protection.
                             const gateClass = safetyName
                                 ? safetyGateClass(safetyName, parsedSafety!)
-                                : publishingCritical || roleCritical
+                                : publishingCritical ||
+                                    roleCritical ||
+                                    (parsedGreeting && greetingsCritical(parsedGreeting))
                                   ? "critical"
-                                  : (roleName && !rolePublic) ||
+                                  : greetingName ||
+                                      (roleName && !rolePublic) ||
                                       name === "prefix" ||
                                       name === "custom" ||
                                       name === "auto" ||
@@ -523,6 +548,22 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (greetingName) {
+                                            if (!greetings)
+                                                yield* reply({
+                                                    content: notSetUp("Welcome and goodbye"),
+                                                })
+                                            else
+                                                yield* handleGreetingsCommand(
+                                                    greetings,
+                                                    publishing,
+                                                    config,
+                                                    parsedGreeting!,
+                                                    context,
+                                                    greetingWorker,
+                                                )
                                             return
                                         }
                                         if (roleName) {
@@ -665,6 +706,23 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     )
                             }
                         }
+                        if (greetings)
+                            yield* observeGreetingJoin(
+                                greetings,
+                                config.serverId,
+                                context.client,
+                                context.event.userId,
+                                context.event.joinedAt,
+                            ).pipe(
+                                Effect.flatMap((recorded) => (recorded ? wake(context.event.userId) : Effect.void)),
+                                Effect.catchCause((cause) =>
+                                    Cause.hasInterrupts(cause)
+                                        ? Effect.failCause(cause)
+                                        : Effect.logWarning(
+                                              "Greeting admission could not be verified. Existing join protection and role handling remain independent",
+                                          ),
+                                ),
+                            )
                         if (roles && allowed) {
                             yield* handleRoleJoin(
                                 roles,
@@ -675,6 +733,30 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 () => joinWork,
                             ).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })))
                         }
+                    }),
+            },
+            guildMemberRemove: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        if (event.guildId !== config.serverId) return
+                        if (greetings)
+                            yield* observeGreetingMembership(
+                                greetings,
+                                config.serverId,
+                                client,
+                                event.userId,
+                                true,
+                            ).pipe(Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)))
+                    }),
+            },
+            guildMemberUpdate: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        if (event.guildId !== config.serverId) return
+                        if (greetings)
+                            yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(
+                                Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)),
+                            )
                     }),
             },
             messageReactionAdd: {

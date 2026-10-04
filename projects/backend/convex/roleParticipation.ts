@@ -1,3 +1,4 @@
+import { wakeGreetings } from "./greetingLifecycle.ts"
 import { v } from "convex/values"
 import { RolesEvaluateRequest, type RolesEvaluateResult } from "@neonflux/contracts/roles"
 import { serviceMutation } from "./serviceGuard.ts"
@@ -231,6 +232,7 @@ export const evaluate = serviceMutation({
                         ...value,
                     })
                 }
+                await wakeGreetings(ctx, identity.serverId, member.userId, member.joinedAt)
             } else if (op.type === "reaction") {
                 if (panel.kind !== "reaction" || op.messageId !== published.messageId || !op.panelVerified)
                     fail(400, "Invalid current panel reaction")

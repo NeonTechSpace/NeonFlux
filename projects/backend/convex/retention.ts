@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
+import { cleanupGreetings } from "./greetingLifecycle.ts"
 import { cleanupModeration } from "./moderation.ts"
 import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
@@ -25,6 +26,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["moderation", cleanupModeration],
     ["publishing", cleanupPublishing],
     ["roles", cleanupRoles],
+    ["greetings", cleanupGreetings],
     ["schedules", cleanupSchedules],
 ]
 

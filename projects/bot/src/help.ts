@@ -8,6 +8,7 @@ import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
+import { greetingsHelpAll } from "./welcome-command.ts"
 
 /**
  * The forms each command's own help leaves out, which `!<command> help all` lists, keyed by the words before help.
@@ -23,6 +24,9 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     mod: safetyHelpAll.mod,
     automod: safetyHelpAll.automod,
     security: safetyHelpAll.security,
+    welcome: greetingsHelpAll("welcome"),
+    "welcome dm": greetingsHelpAll("dm"),
+    goodbye: greetingsHelpAll("goodbye"),
 }
 /** Forms on one page of `help all` */
 const FORMS_PER_PAGE = 10

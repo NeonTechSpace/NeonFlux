@@ -180,13 +180,31 @@ the panel as its own. Settled role history is retained for a fixed 180 days, whi
 stays. When a later membership epoch records its first acknowledgment or ownership, settled rows from the member's
 earlier epochs are released, and unresolved ownership stays until it is reconciled, which also finds it after the member rejoined
 
+## Welcome and goodbye
+
+Channel welcomes, optional DM welcomes and channel goodbyes are independent routes that start disabled and accept human members only. Each route copies an exact publishing template revision. Text fields accept `{user.name}`, `{user.id}`, `{user.mention}`, `{server.name}`, `{server.id}` and, for channel routes, `{channel.id}`, with display text escaped. Only the greeted member can be notified, through `{user.mention}`
+
+Welcome timing is `join` or `verified`. A join must be a genuine event within 15 minutes whose native `joinedAt` matches fresh membership. Verified timing needs the current rules acknowledgment and fresh access-role presence. A goodbye needs a fresh typed member `404`, after either a retained presence observation or a removal event for a human account the bot had not recorded. Enabling a route never backfills earlier joins
+
+While DEFCON is below 3, `pending` hands out no candidate, because every reservation would be refused, so the bot reads
+nothing from Fluxer for a greeting. It sets `nextCheckAt` ten minutes ahead while any greeting waits, so the bot checks
+once per ten minutes. The greeting is handed out at the first check after DEFCON is 3, up to ten minutes later, if its
+24 hours have not passed. While rules verification is not usable, which means the setting is off or the verification
+panel is disabled, being withdrawn, unpublished or edited but not republished, `discover` moves a waiting verified
+greeting's check ten minutes ahead instead of one. It goes back to one minute at the first check after verification is
+usable, up to ten minutes later. Pending work expires after 24 hours, grants after 180 seconds, and native requests are
+bounded to five seconds. Claimed sends are never replayed. One server-wide budget spaces claims across the three routes,
+ten per minute by default and configurable from 1 to 60. Workers read deliveries and members in bounded pages. A member
+record expires 365 days after the join it records, or one day after the member leaves, and a later presence check does
+not extend it. Terminal history defaults to 30 days, configurable from 30 to 3,650
+
 ## Server scope
 
 A deployment serves the server in `NEONFLUX_SERVER_ID`. The deployment owns the scope, so changing it means updating the deployment and restarting the bot, which adopts it. A bot environment that sets its own `NEONFLUX_SERVER_ID` must match
 
 `/service/scope` checks the key and returns `{ serverIds }` with exactly one server. The bot adopts it before starting any server runtime
 
-Every feature request selects its server with the `serverId` argument, which may be omitted. It must match `request.serverId` and name the configured server. Each bot service function checks the server in its own transaction before any domain work. Otherwise the function answers `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId`, which must match the selected server
+Every feature request selects its server with the `serverId` argument, which may be omitted. It must match `request.serverId` and name the configured server. Each bot service function checks the server in its own transaction before any domain work. Otherwise the function answers `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server
 
 ## Background work dispatch
 

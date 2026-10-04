@@ -45,6 +45,16 @@ export const backendRoutes = {
     "/roles/outcome": "rolesOutcome",
     "/roles/reconcile": "rolesReconcile",
     "/roles/observe": "rolesObserve",
+    "/greetings/query": "greetingsQuery",
+    "/greetings/member": "greetingsMember",
+    "/greetings/pending": "greetingsPending",
+    "/greetings/manage": "greetingsManage",
+    "/greetings/observe": "greetingsObserve",
+    "/greetings/discover": "greetingsDiscover",
+    "/greetings/reserve": "greetingsReserve",
+    "/greetings/dispatch": "greetingsDispatch",
+    "/greetings/outcome": "greetingsOutcome",
+    "/greetings/defer": "greetingsDefer",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

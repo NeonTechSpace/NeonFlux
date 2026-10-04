@@ -34,6 +34,8 @@ const modules = {
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
+    "../convex/greetings.ts": () => import("../convex/greetings.ts"),
+    "../convex/greetingLifecycle.ts": () => import("../convex/greetingLifecycle.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -122,7 +124,7 @@ test("Every bot route rejects other servers before domain work", async () => {
     configureServer("10")
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 33)
+    assert.ok(routes.length > 43)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
@@ -154,6 +156,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
         "/appeals/member",
         "/publishing/manage",
         "/roles/manage",
+        "/greetings/manage",
         "/schedules/manage",
     ]
     for (const path of paths) {
@@ -200,17 +203,35 @@ test("Admin evidence read from another server cannot authorize this one", async 
 
 test("Foreign origins anywhere in the request reject before state changes", async () => {
     configureServer("20")
-    const t = backend()
+    const t = backend(),
+        observedAt = Date.now(),
+        joinedAt = "2020-01-01T00:00:00Z"
     for (const evidence of [
         { originServerId: "10", channelId: "60" },
         { originServerId: "10", userId: "30" },
         [{ originServerId: "10", roleId: "70" }],
         { nested: { originServerId: "10" } },
+        { nested: { memberOriginServerId: "10" } },
     ]) {
         const response = await post(t, "/responses/manage", { serverId: "20", operation: { evidence } }, "20")
         assert.equal(response.status, 403)
         assert.deepEqual(await response.json(), { error: "Native evidence server mismatch" })
     }
+    const absence = { type: "absent", userId: "30", expectedGeneration: 1, joinedAt, observedAt, memberAbsent: true }
+    assert.equal(
+        (await post(t, "/greetings/observe", { serverId: "20", operation: { ...absence, originServerId: "10" } }, "20"))
+            .status,
+        403,
+    )
+    assert.deepEqual(await t.run((ctx) => ctx.db.query("greetingMembers").collect()), [])
+    const accepted = await post(
+        t,
+        "/greetings/observe",
+        { serverId: "20", operation: { ...absence, originServerId: "20" } },
+        "20",
+    )
+    assert.equal(accepted.status, 200)
+    assert.deepEqual(await accepted.json(), { recorded: false, member: null, admitted: 0 })
 })
 
 test("Bot automation authority read from another server rejects", () => {
@@ -220,6 +241,38 @@ test("Bot automation authority read from another server rejects", () => {
         status(403),
     )
     assert.doesNotThrow(() => requireOrigin({ serverId: "20", context: { ...context, originServerId: "20" } }, "20"))
+})
+
+test("Greeting membership proof binds its read server", async () => {
+    configureServer("20")
+    const t = backend(),
+        now = Date.now()
+    const request = {
+        serverId: "20",
+        deliveryId: "synthetic-delivery",
+        route: "goodbye",
+        routeRevision: 1,
+        userId: "30",
+        joinedAt: "2020-01-01T00:00:00Z",
+        memberGeneration: 1,
+    }
+    const context = {
+        originServerId: "20",
+        botId: "40",
+        botAuthorized: true,
+        observedAt: now,
+        member: null,
+        memberAbsent: true,
+        memberOriginServerId: "20",
+        memberUserId: "30",
+        channelId: "60",
+    }
+    assert.equal(
+        (await post(t, "/greetings/reserve", { ...request, context: { ...context, memberOriginServerId: "10" } }, "20"))
+            .status,
+        403,
+    )
+    assert.equal((await post(t, "/greetings/reserve", { ...request, context }, "20")).status, 404)
 })
 
 test("Internal guards allow only the configured server", async () => {

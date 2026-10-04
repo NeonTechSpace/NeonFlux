@@ -71,7 +71,7 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 - Evaluating everyday activity, such as message protection, automod, custom responses and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
 - A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels and custom response channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
-- Durable worker state, such as schedule queues, lives in the backend. Workers resume it after a restart
+- Durable worker state, such as greeting and schedule queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod and security
 - Background workers for scheduled posts run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
@@ -394,3 +394,29 @@ A rules panel that has a role or a published message holds back member features 
 Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`. Autorole applies to future joins only and to humans by default. `!autorole humans off` includes bots. When verification is configured, autorole waits for it
 
 A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations [next]`, which counts them and lists 10 at a time. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire` once the list and reservations are empty, which withdraws every earlier revision of the list that granted roles first, `next`, `history [next]` and `reconcile|withdraw @user [next]`
+
+## Welcome and goodbye
+
+Owners and Administrators configure three routes: a channel welcome, a private DM greeting and a channel goodbye. All start off and apply to human members. Compose the message as a [publishing template](#drafts-templates-and-posts). Configuring a route copies the template's current revision, so later template edits do not change it
+
+```text
+!welcome configure arrival #welcome join
+!welcome dm configure private_arrival verified
+!goodbye configure departure #departures
+!welcome module on
+!welcome dm module on
+!goodbye module on
+!welcome preview
+```
+
+Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module on|off`, `clear`, `preview`, `show`, `status [delivery-number]`, `history [next]`, `member @user` and `help`. `!welcome rate <1-60>` sets the shared sending pace per minute, default 10, and `!welcome retention <30-3650>` sets how many days delivery history is kept, default 30
+
+- Placeholders are `{user.name}`, `{user.mention}`, `{user.id}`, `{server.name}`, `{server.id}` and `{channel.id}`. `{user.mention}` can notify only the greeted member, and `{channel.id}` works only in channel routes. Fluxer notifies only for mentions in the message text, so a channel greeting whose `{user.mention}` appears only in its embed also starts its text with the mention, unless the text is too long to take it
+- Filled-in placeholders can make a greeting longer than its template. When the message text would pass 2,000 characters, or the embed would pass one of Fluxer's embed limits, every text in that part that grew is cut back to its length in the template, so a valid template always goes out
+- Welcome and DM routes need `join` or `verified` timing. `verified` waits until the member completed rules verification and holds the access role
+- Enabling a route does not greet existing members, and the bot greets a join only when it sees the join within 15 minutes
+- Goodbye is sent when a member leaves, including members who joined before the bot started tracking. The bot cannot tell whether a departure was voluntary, a kick or a ban
+- A join or departure while DEFCON is below 3 or while moderation restricts the member, such as a quarantine or, for a join, a timeout, gets no greeting, also not once that ends
+- Preview sends a sample for the invoking staff member in the current channel
+- A delivery with an unknown outcome is never resent
+- One delivery pass considers at most 20 due greetings and reads at most ten pages of waiting greetings. Greetings beyond that continue a minute later. While DEFCON is below 3 a greeting queued before that waits without Fluxer requests and is checked again every ten minutes, so it is sent up to ten minutes after DEFCON is 3 again, if its 24 hours have not passed. A verified greeting is also checked every ten minutes instead of every minute while rules verification is off, or its panel is disabled, being withdrawn, unpublished or edited but not republished, so it can lag up to ten minutes after verification is usable again
