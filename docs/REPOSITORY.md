@@ -47,6 +47,7 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Tickets | `ticket`, `tickets` | `ticket`, `tickets` |
 | Message leveling | `level`, `leveling` | `leveling` |
 | Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` |
+| Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import type { ModerationManageResult, ModerationQueryResult, ModerationOutcomeResult, ModerationReconcileResult, ModerationObserveResult, ModerationGateResult, StaffClass, ProviderObservation } from "../contracts.js"
+import type { ModerationManageResult, ModerationQueryResult, ModerationOutcomeResult, ModerationReconcileResult, ModerationObserveResult, ModerationGateResult, StaffClass, ModerationSettings, ProviderObservation } from "../contracts.js"
 import { internalMutation, internalQuery } from "./_generated/server.js"
 import type { MutationCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
@@ -8,6 +8,8 @@ import { actionContext, actionInput, ownedOverwriteEqual, reserveAction } from "
 import { caseByNo, config, paged, publicCase, publicRecovery, publicRule, readSettings, receipt, retireRecovery, state } from "./moderationStore.ts"
 import { fail, object, requireId, requireReadMember, requireServer, bool, fresh, integer, name, source, text, token } from "./validation.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
+import { metadataCoreReceipt, metadataSettingsEvent } from "./metadataLogsStore.ts"
+import { metadataChangedFields } from "./metadataLogsDomain.ts"
 
 function criticalOperation(op: Record<string, unknown>) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(String(object(op.action).type))
@@ -29,9 +31,16 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     else authorize(who, settings, type === "action" && ["quarantine", "release", "lock", "unlock"].includes(String(object(op.action).type)) ? "security" : scopeFor(type), critical)
     if (type === "erase" && !who.isOwner) fail(403, "Owner permission required")
     const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
+    if (type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
     if (claim.duplicate) return { duplicate: true }
     if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove") {
         const result = await applyModerationConfiguration(ctx, identity.serverId, op, now)
+        if (type === "settings" && !result.duplicate && result.type === "settings") {
+            const tracked = metadataChangedFields.settings as readonly string[]
+            const changed = Object.keys(object(op.patch)).filter(key => tracked.includes(key)
+                && JSON.stringify(settings[key as keyof ModerationSettings]) !== JSON.stringify(result.settings[key as keyof ModerationSettings]))
+            if (changed.length) await metadataSettingsEvent(ctx, identity, who.userId, "moderation", changed)
+        }
         return result
     }
     if (type === "action") {

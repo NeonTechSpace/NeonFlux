@@ -264,3 +264,28 @@ Limits are 1,000 retained suggestions, 1,000 voters per suggestion and 10,000 pe
 | `/suggestions/manage`, `/suggestions/query` | 65,536 | Staff status, configuration and reads |
 | `/suggestions/member` | 65,536 | Submission, votes and withdrawal |
 | `/suggestions/work` | 65,536 | Card send and edit work |
+
+## Message cleanup and metadata logs
+
+### Automatic message cleanup
+
+Cleanup starts disabled at module and channel level. Each channel policy sets an age from one hour to 365 days and can exclude up to 50 authors and 100 messages, with at most 50 policies per server. Enabling a policy needs explicit confirmation because existing old messages may be deleted. Automatic work runs under the server automation policy: The bot's permissions, the module and policy switches, and DEFCON. The atomic backend claim is the final check before each delete
+
+Pinned, system, webhook, bot and unclassifiable messages are skipped, as are protected publishing and panel messages. No message bodies or attachments are stored. Delete grants expire after 120 seconds with a five-second native request, and uncertain deletes are not retried. Settled audit expires after 30 days
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/cleanup/manage`, `/cleanup/query` | 65,536 | Policies, exclusions and status |
+| `/cleanup/work` | 65,536 | Sweep pages, target reservation, claims and outcomes |
+
+### Metadata logs
+
+Metadata logs record body-free server events, such as configuration, member, channel and role changes and 18 audit-log actions, into configured log channels. Settings hold module and category routes, per-event overrides, message opt-ins and channel exclusions. Records keep changed-field names and at most 20 resource IDs
+
+Each server retains at most 10,000 records, and the oldest are evicted at capacity. There is no daily cap. Settled records expire after 30 days. Delivery runs as the bot under the automation policy with a 120-second grant and five-second request, and uncertain sends are not replayed. `!logs metadata status` reports the bot's current permissions in each enabled destination
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/metadata-logs/admit` | 65,536 | Record one event |
+| `/metadata-logs/manage`, `/metadata-logs/query` | 65,536 | Routes, overrides and record reads |
+| `/metadata-logs/work` | 65,536 | Delivery reservation, claims and outcomes |

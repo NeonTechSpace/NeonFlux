@@ -838,3 +838,156 @@ export type SuggestionsWorkRequest = { serverId: string, operation:
 export type SuggestionsWorkResult = { type: "cards", cards: SuggestionsWorkRow[], hasMore: boolean, nextCursor?: SuggestionsWorkCursor }
     | { type: "reserved", grant: SuggestionsCardGrant }
     | { type: "progress", recorded: boolean }
+
+export type CleanupContext = {
+    observedAt: number, actor: ModerationActor, member: EventsMemberContext,
+    channelId: string, channelType: 0 | 5, botId: string, botAuthorized: boolean, actorAuthorized: boolean,
+    actorKind: "human" | "bot" | "unknown", botKind: "bot" | "unknown", botMember: EventsMemberContext,
+}
+export type CleanupMessage = {
+    messageId: string, channelId: string, serverId: string | null, observedAt: number, createdAt: string | null,
+    authorId: string | null, authorBot: boolean | null, authorSystem: boolean | null,
+    type: number | null, pinned: boolean | null, webhookId: string | null,
+}
+export type CleanupSkipReason = "pinned" | "pin-unknown" | "bot" | "webhook" | "system" | "identity-unknown" | "timestamp-unknown" | "too-new" | "excluded-author" | "excluded-message" | "protected" | "retained-attempt"
+export type CleanupCounts = { scanned: number, skipped: number, attempted: number, submitted: number, acknowledged: number, observedAbsent: number, unresolved: number, failed: number, cancelled: number }
+export type CleanupSettings = { enabled: boolean, revision: number, policies: number, retainedTargets: number, retainedSweeps: number, receipts: number, targetCapacity: 10000, quotaPaused: boolean }
+export type CleanupPolicy = { channelId: string, revision: number, enabled: boolean, ageMs: number, ownerId: string, excludedAuthorIds: string[], excludedMessageIds: string[], nextCheckAt: number, sweepNo?: number, blockedReason?: string }
+export type CleanupSweepBinding = { channelId: string, policyRevision: number, moduleRevision: number, sweepNo: number }
+export type CleanupSweep = CleanupSweepBinding & { ownerId: string, cutoffAt: number, before: string, pageNo: number, state: "active" | "complete" | "cancelled", counts: CleanupCounts, createdAt: number, updatedAt: number }
+export type CleanupPageItem = { message: CleanupMessage, disposition: "eligible" | "skipped", reason?: CleanupSkipReason, targetNo?: number }
+export type CleanupPage = CleanupSweepBinding & { pageNo: number, before: string, nextBefore?: string, empty: boolean, items: CleanupPageItem[], persistedAt: number }
+export type CleanupTargetBinding = CleanupSweepBinding & { pageNo: number, targetNo: number, messageId: string }
+export type CleanupTargetState = "queued" | "reserved" | "deleted" | "failed" | "uncertain" | "absent" | "skipped" | "cancelled"
+export type CleanupGrant = CleanupTargetBinding & { ownerId: string, botId: string, cutoffAt: number, createdAt: string, authorId: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type CleanupObservation = { messageId: string, channelId: string, observedAt: number, status: "present" | "absent" | "unknown", channelVisible: boolean }
+export type CleanupTarget = CleanupTargetBinding & { ownerId: string, state: CleanupTargetState, message: CleanupMessage, createdAt: number, updatedAt: number, grant?: CleanupGrant, claimedAt?: number, finishedAt?: number, noDispatch?: true, expiresAt?: number, reason?: string, observation?: CleanupObservation, lateOutcome?: "deleted" | "failed" | "uncertain", reassessedAt?: number }
+export type CleanupManageOperation =
+    | { type: "module", expectedRevision: number, enabled: boolean }
+    | { type: "configure", channelId: string, expectedRevision: number, ageMs: number }
+    | { type: "enable", channelId: string, expectedRevision: number, enabled: boolean, confirm?: true }
+    | { type: "exclude", channelId: string, expectedRevision: number, kind: "author" | "message", id: string, add: boolean }
+    | { type: "owner", channelId: string, expectedRevision: number, ownerId: string, recipientOwner: CleanupContext }
+    | { type: "reconcile", binding: CleanupTargetBinding, observation: CleanupObservation }
+    | { type: "forget", channelId: string, confirm: true }
+export type CleanupManageRequest = ModerationSource & { serverId: string, context: CleanupContext, operation: CleanupManageOperation }
+export type CleanupManageResult = { duplicate: true } | { duplicate: false } & (
+    { type: "settings", settings: CleanupSettings } | { type: "policy", policy: CleanupPolicy }
+    | { type: "reconciled", recorded: boolean, target: CleanupTarget } | { type: "forgotten", removed: number, complete: boolean })
+export type CleanupQueryRequest = { serverId: string, context: CleanupContext, operation:
+    | { type: "settings" } | { type: "list" } | { type: "show", channelId: string }
+    | { type: "status", channelId: string, beforeTargetNo?: number }
+    | { type: "preview", channelId: string, messages: CleanupMessage[] } }
+export type CleanupQueryResult = { type: "settings", settings: CleanupSettings } | { type: "policies", policies: CleanupPolicy[] }
+    | { type: "policy", policy: CleanupPolicy }
+    | { type: "status", settings: CleanupSettings, policy: CleanupPolicy, sweep: CleanupSweep | null, page: CleanupPage | null, targets: CleanupTarget[], nextBeforeTargetNo?: number }
+    | { type: "preview", cutoffAt: number, eligible: number, skipped: number, unknown: number, items: CleanupPageItem[] }
+export type CleanupWorkCursor = { cursor: string, throughAt: number }
+export type CleanupWorkRequest = { serverId: string, operation:
+    | { type: "list", cursor?: CleanupWorkCursor }
+    | { type: "start", channelId: string, expectedRevision: number, context: CleanupContext }
+    | { type: "page", binding: CleanupSweepBinding, pageNo: number, before: string, messages: CleanupMessage[], context: CleanupContext }
+    | { type: "advance", binding: CleanupSweepBinding, pageNo: number }
+    | { type: "defer", channelId: string, expectedRevision: number, reason: "authority" | "history" | "malformed" | "quota" | "target" }
+    | { type: "reserve", binding: CleanupTargetBinding, message: CleanupMessage, context: CleanupContext }
+    | { type: "claim", binding: CleanupTargetBinding, message: CleanupMessage, context: CleanupContext, claimToken: string }
+    | { type: "check", binding: CleanupTargetBinding, message: CleanupMessage, context: CleanupContext, claimToken: string }
+    | { type: "outcome", binding: CleanupTargetBinding, outcome: "deleted" | "failed" | "uncertain" | "absent" | "skipped", claimToken?: string, noDispatch?: true, observation?: CleanupObservation }
+    | { type: "recover", binding: CleanupTargetBinding, observation: CleanupObservation }
+    | { type: "recovery", beforeTargetNo?: number } }
+export type CleanupWorkResult = { type: "policies", policies: CleanupPolicy[], hasMore: boolean, nextCursor?: CleanupWorkCursor, settings: CleanupSettings }
+    | { type: "sweep", sweep: CleanupSweep, page: CleanupPage | null, targets: CleanupTarget[] }
+    | { type: "page", page: CleanupPage | null, targets: CleanupTarget[], quotaPaused: boolean }
+    | { type: "reserved", grant: CleanupGrant } | { type: "claimed", claimed: boolean, grant: CleanupGrant }
+    | { type: "target", recorded: boolean, target: CleanupTarget }
+    | { type: "progress", recorded: boolean, complete: boolean }
+    | { type: "recovery", targets: CleanupTarget[], nextBeforeTargetNo?: number }
+export type MetadataLogsCategory = "membership" | "resources" | "messages" | "audit" | "settings" | "operations"
+export type MetadataLogsEventType = "member-add" | "member-update" | "member-remove" | "role-create" | "role-update" | "role-delete" | "channel-create" | "channel-update" | "channel-delete" | "server-update" | "message-update" | "message-delete" | "message-bulk-delete" | "audit-entry" | "settings-change" | "backend-failure" | "admission-failure" | "delivery-failure" | "gateway-discontinuity"
+export type MetadataLogsSource = { kind: "audit", auditEntryId: string } | { kind: "message-delete", messageId: string } | { kind: "member-add", userId: string, joinedAt: string } | { kind: "observation", sessionId: string, sequence: number } | { kind: "settings", messageId: string, scope: "moderation" | "metadata" | "security" }
+export type MetadataLogsActor = { kind: "unknown" } | { kind: "audit" | "configuration", userId: string }
+export interface MetadataLogsEvent {
+    category: MetadataLogsCategory
+    type: MetadataLogsEventType
+    source: MetadataLogsSource
+    observedAt: number
+    actor: MetadataLogsActor
+    resourceIds: string[]
+    changedFields: string[]
+    count: number
+    channelId?: string
+    authorBot?: boolean | null
+    privateChannel?: boolean
+    auditAction?: number
+    outcome?: "observed" | "accepted" | "failed" | "disconnected" | "reconnected"
+}
+/** actorAuthorized is destination View/Send, botAuthorized is View/Send/Embed/History. Neither is inferred from administrator status */
+export type MetadataLogsContext = Omit<CleanupContext, "channelType"> & { channelType: 0 | 1 | 5 }
+export interface MetadataLogsPrivateRead { channelId: string, recipientIds: string[], oneToOne: true }
+export interface MetadataLogsRoute { category: MetadataLogsCategory, revision: number, enabled: boolean, channelId?: string, ownerId?: string }
+export type MetadataLogsAuditAction = 1 | 10 | 11 | 12 | 13 | 14 | 15 | 20 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 30 | 31 | 32
+export type MetadataLogsEventSelector = MetadataLogsEventType | `audit-entry:${MetadataLogsAuditAction}`
+export interface MetadataLogsEventRoute { eventType: MetadataLogsEventSelector, revision: number, enabled: boolean, channelId?: string, ownerId?: string }
+export interface MetadataLogsEmbed { title: string, description: string, color: number }
+export interface MetadataLogsPresentation { format: "embed-v1", embed: MetadataLogsEmbed }
+export interface MetadataLogsSettings {
+    enabled: boolean
+    revision: number
+    routes: MetadataLogsRoute[]
+    eventRoutes: MetadataLogsEventRoute[]
+    configRevision: number
+    messageChannelIds: string[]
+    excludedChannelIds: string[]
+    retained: number
+    admissions: number
+    admissionWindowStartedAt: number
+    capacity: 10000
+    admissionCapacity: 10000
+    retentionMs: 2592000000
+    quotaPaused: boolean
+    refused: number
+    suppressed: number
+}
+export interface MetadataLogsBinding { recordNo: number, routeRevision: number, moduleRevision: number, generation: number, channelId: string, ownerId: string, routeEventType?: MetadataLogsEventSelector }
+export type MetadataLogsDeliveryState = "queued" | "reserved" | "sent" | "failed" | "uncertain" | "cancelled"
+export interface MetadataLogsGrant extends MetadataLogsBinding { botId: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000, content: string, embed?: MetadataLogsEmbed }
+export interface MetadataLogsDelivery extends MetadataLogsBinding {
+    state: MetadataLogsDeliveryState
+    nextCheckAt: number
+    grant?: MetadataLogsGrant
+    claimedAt?: number
+    finishedAt?: number
+    noDispatch?: true
+    messageId?: string
+    reconciledAt?: number
+    resolution?: "match" | "absent"
+}
+export interface MetadataLogsRecord { recordNo: number, event: MetadataLogsEvent, admittedAt: number, expiresAt: number, presentation?: MetadataLogsPresentation, delivery: MetadataLogsDelivery | null }
+export interface MetadataLogsCounters {
+    activeTicketSlots: number
+    retainedModerationCases: number
+    retainedMetadataRecords: number
+    categories: Record<MetadataLogsCategory, number>
+    queued: number
+    reserved: number
+    failed: number
+    uncertain: number
+    refused: number
+    suppressed: number
+    definitions: { tickets: "Active slots including reserved and recovery work", moderation: "Retained manual, event and critical cases", metadata: "Retained admitted records, not unique causal actions", deliveries: "Current delivery states, independent of event admission" }
+}
+export interface MetadataLogsDiagnosticItem { key: string, supported: boolean, configured: boolean, enabled: boolean | null, channelId?: string, ownerId?: string, roleIds?: string[], action: string }
+export type MetadataLogsDiagnosticSection = "core" | "logging" | "modules" | "destinations"
+export type MetadataLogsConfigurationOperation = { type: "module", expectedRevision: number, enabled: boolean } | { type: "route", category: MetadataLogsCategory, expectedRevision: number, enabled: boolean, channelId: string, ownerId: string, recipientOwner: MetadataLogsContext } | { type: "clear", category: MetadataLogsCategory, expectedRevision: number } | { type: "channels", expectedRevision: number, messageChannelIds: string[], excludedChannelIds: string[] } | { type: "event-route", eventType: MetadataLogsEventSelector, expectedRevision: number, enabled: boolean, channelId?: string, ownerId?: string, recipientOwner?: MetadataLogsContext } | { type: "event-clear", eventType: MetadataLogsEventSelector, expectedRevision: number }
+export type MetadataLogsManageOperation = MetadataLogsConfigurationOperation | { type: "forget", recordNo: number, confirm: true } | { type: "reconcile", binding: MetadataLogsBinding, observation: MetadataLogsObservation }
+export interface MetadataLogsObservation { messageId: string, channelId: string, botId: string, observedAt: number, status: "match" | "absent" | "conflict" | "unknown", content?: string, embed?: MetadataLogsEmbed }
+export interface MetadataLogsManageRequest { serverId: string, messageId: string, createdAt: number, context: MetadataLogsContext, operation: MetadataLogsManageOperation }
+export type MetadataLogsManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: MetadataLogsSettings } | { duplicate: false, type: "forgotten", recordNo: number } | { duplicate: false, type: "reconciled", recorded: boolean, record: MetadataLogsRecord }
+export interface MetadataLogsAdmitRequest { serverId: string, event: MetadataLogsEvent }
+export type MetadataLogsAdmitResult = { admitted: true, duplicate: false, record: MetadataLogsRecord } | { admitted: false, duplicate: boolean, reason: "duplicate" | "disabled" | "excluded" | "quota" | "rate-limited" }
+export type MetadataLogsQueryOperation = { type: "settings" } | { type: "list", beforeRecordNo?: number } | { type: "show", recordNo: number } | { type: "counters" } | { type: "diagnose", section: MetadataLogsDiagnosticSection, cursor?: string }
+export interface MetadataLogsQueryRequest { serverId: string, context: MetadataLogsContext, privateRead?: MetadataLogsPrivateRead, operation: MetadataLogsQueryOperation }
+export type MetadataLogsQueryResult = { type: "settings", settings: MetadataLogsSettings } | { type: "records", records: MetadataLogsRecord[], nextBeforeRecordNo?: number } | { type: "record", record: MetadataLogsRecord } | { type: "counters", counters: MetadataLogsCounters } | { type: "diagnostics", section: MetadataLogsDiagnosticSection, items: MetadataLogsDiagnosticItem[], nextCursor?: string, settings?: MetadataLogsSettings, counters?: MetadataLogsCounters }
+export type MetadataLogsWorkOperation = { type: "discover", cursor?: string } | { type: "reserve", binding: MetadataLogsBinding, context: MetadataLogsContext } | { type: "claim", binding: MetadataLogsBinding, context: MetadataLogsContext, claimToken: string } | { type: "defer", binding: MetadataLogsBinding } | { type: "no-dispatch", binding: MetadataLogsBinding } | { type: "outcome", binding: MetadataLogsBinding, claimToken: string, outcome: "sent" | "failed" | "uncertain", messageId?: string, observedAt: number }
+export interface MetadataLogsWorkRequest { serverId: string, operation: MetadataLogsWorkOperation }
+export type MetadataLogsWorkResult = { type: "work", records: MetadataLogsRecord[], nextCursor?: string } | { type: "reserved", grant: MetadataLogsGrant } | { type: "claimed", claimed: boolean, grant: MetadataLogsGrant } | { type: "record", record: MetadataLogsRecord }

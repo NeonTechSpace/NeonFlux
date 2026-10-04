@@ -1,0 +1,22 @@
+import { v } from "convex/values"
+
+export const metadataCategoryValidator = v.union(v.literal("membership"), v.literal("resources"), v.literal("messages"), v.literal("audit"), v.literal("settings"), v.literal("operations"))
+const eventTypes = ["member-add", "member-update", "member-remove", "role-create", "role-update", "role-delete", "channel-create", "channel-update", "channel-delete", "server-update", "message-update", "message-delete", "message-bulk-delete", "audit-entry", "settings-change", "backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"] as const
+const auditSelectors = ["audit-entry:1", "audit-entry:10", "audit-entry:11", "audit-entry:12", "audit-entry:13", "audit-entry:14", "audit-entry:15", "audit-entry:20", "audit-entry:22", "audit-entry:23", "audit-entry:24", "audit-entry:25", "audit-entry:26", "audit-entry:27", "audit-entry:28", "audit-entry:30", "audit-entry:31", "audit-entry:32"] as const
+export const metadataEventTypeValidator = v.union(...eventTypes.map(x => v.literal(x)))
+export const metadataEventSelectorValidator = v.union(metadataEventTypeValidator, ...auditSelectors.map(action => v.literal(action)))
+export const metadataEventValidator = v.object({
+    category: metadataCategoryValidator,
+    type: metadataEventTypeValidator,
+    source: v.union(v.object({ kind: v.literal("audit"), auditEntryId: v.string() }), v.object({ kind: v.literal("message-delete"), messageId: v.string() }), v.object({ kind: v.literal("member-add"), userId: v.string(), joinedAt: v.string() }), v.object({ kind: v.literal("observation"), sessionId: v.string(), sequence: v.number() }), v.object({ kind: v.literal("settings"), messageId: v.string(), scope: v.union(v.literal("moderation"), v.literal("metadata"), v.literal("security")) })),
+    actor: v.union(v.object({ kind: v.literal("unknown") }), v.object({ kind: v.union(v.literal("audit"), v.literal("configuration")), userId: v.string() })),
+    observedAt: v.number(), resourceIds: v.array(v.string()), changedFields: v.array(v.string()), count: v.number(), channelId: v.optional(v.string()), authorBot: v.optional(v.union(v.boolean(), v.null())), privateChannel: v.optional(v.boolean()), auditAction: v.optional(v.number()), outcome: v.optional(v.union(v.literal("observed"), v.literal("accepted"), v.literal("failed"), v.literal("disconnected"), v.literal("reconnected"))),
+})
+export const metadataRouteValidator = v.object({ category: metadataCategoryValidator, revision: v.number(), enabled: v.boolean(), channelId: v.optional(v.string()), ownerId: v.optional(v.string()) })
+export const metadataEventRouteValidator = v.object({ eventType: metadataEventSelectorValidator, revision: v.number(), enabled: v.boolean(), channelId: v.optional(v.string()), ownerId: v.optional(v.string()) })
+export const metadataEmbedValidator = v.object({ title: v.string(), description: v.string(), color: v.number() })
+export const metadataPresentationValidator = v.object({ format: v.literal("embed-v1"), embed: metadataEmbedValidator })
+export const metadataCategoryCounts = v.object({ membership: v.number(), resources: v.number(), messages: v.number(), audit: v.number(), settings: v.number(), operations: v.number() })
+export const metadataBindingFields = { recordNo: v.number(), routeRevision: v.number(), moduleRevision: v.number(), generation: v.number(), channelId: v.string(), ownerId: v.string(), routeEventType: v.optional(metadataEventSelectorValidator) }
+export const metadataGrantValidator = v.object({ ...metadataBindingFields, botId: v.string(), dispatchExpiresAt: v.number(), nativeDeadlineMs: v.literal(5000), content: v.string(), embed: v.optional(metadataEmbedValidator) })
+export const metadataDeliveryValidator = v.object({ ...metadataBindingFields, state: v.union(v.literal("queued"), v.literal("reserved"), v.literal("sent"), v.literal("failed"), v.literal("uncertain"), v.literal("cancelled")), nextCheckAt: v.number(), grant: v.optional(metadataGrantValidator), claimedAt: v.optional(v.number()), finishedAt: v.optional(v.number()), noDispatch: v.optional(v.literal(true)), messageId: v.optional(v.string()), reconciledAt: v.optional(v.number()), resolution: v.optional(v.union(v.literal("match"), v.literal("absent"))) })

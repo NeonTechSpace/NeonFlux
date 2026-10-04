@@ -50,6 +50,15 @@ import { createSuggestionsStore, type SuggestionsStore } from "./suggestion-stor
 import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
 import { handleSuggestionCommand } from "./suggestion-management.ts"
 import { startSuggestionsWorker } from "./suggestion-worker.ts"
+import { createCleanupStore, type CleanupStore } from "./cleanup-store.ts"
+import { parseCleanupCommand } from "./cleanup-command.ts"
+import { handleCleanupCommand } from "./cleanup-management.ts"
+import { startCleanupWorker } from "./cleanup-worker.ts"
+import { createMetadataLogsStore, type MetadataLogsStore } from "./metadata-log-store.ts"
+import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-command.ts"
+import { handleMetadataLogCommand } from "./metadata-log-management.ts"
+import { createMetadataGatewayAdmission } from "./metadata-log-events.ts"
+import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import { createGeneralSettingsStore, createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
@@ -66,6 +75,8 @@ export interface BotStores {
     readonly schedules?: SchedulesStore | undefined
     readonly milestones?: MilestonesStore | undefined
     readonly suggestions?: SuggestionsStore | undefined
+    readonly cleanup?: CleanupStore | undefined
+    readonly metadata?: MetadataLogsStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -74,9 +85,12 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation = backend && createModerationStore(backend),
         publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend), tickets = backend && createTicketStore(backend),
         leveling: levels = backend && createLevelingStore(backend), events = backend && createEventsStore(backend), schedules = backend && createSchedulesStore(backend),
-        milestones = backend && createMilestonesStore(backend), suggestions = backend && createSuggestionsStore(backend),
-        general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
+        milestones = backend && createMilestonesStore(backend), suggestions = backend && createSuggestionsStore(backend), cleanup = backend && createCleanupStore(backend),
+        metadata = backend && createMetadataLogsStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
+    let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
+    const admitMetadata = metadata ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void) : undefined
+    let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
     let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
@@ -116,6 +130,8 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
             if (milestones && publishing) milestoneWorker = yield* startMilestonesWorker(milestones, publishing, config.serverId, client)
             if (suggestions && publishing) suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)
+            if (cleanup) cleanupWorker = yield* startCleanupWorker(cleanup, config.serverId, client)
+            if (metadata) metadataWorker = yield* startMetadataLogsWorker(metadata, config.serverId, client)
             if (levels) {
                 if (roles) levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)
                 levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
@@ -141,6 +157,8 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         ? { ...parsed, error: withPrefix(parsed.error, invocationPrefix!) } : parsed
                     const quotingError = (hint: string) => ({ error: `Check quoting and syntax. Use ${invocationPrefix}${hint}` })
                     const safetyName = safetyNames.includes(name as SafetyName) ? name as SafetyName : undefined
+                    const metadataInvocation = name === "logs" && command && isMetadataLogCommand(command.args)
+                    const parsedMetadata = metadataInvocation ? usage(parseMetadataLogCommand(command.args)) : undefined
                     const parsedSafety = safetyName ? command ? usage(parseSafetyCommand(safetyName, command.args)) : quotingError(`${safetyName} help for examples`) : undefined
                     const parsedPublishing = name === "publish" ? command ? usage(parsePublishingCommand(command.args)) : quotingError("publish help for examples") : undefined
                     const roleName = ["roles", "verify", "autorole"].includes(name ?? "") ? name as RoleCommandName : undefined
@@ -150,20 +168,21 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
                     const parsedMilestone = name === "milestone" ? command ? usage(parseMilestoneCommand(command.args)) : quotingError("milestone help in private") : undefined
                     const parsedSuggestion = name === "suggest" ? command ? usage(parseSuggestionCommand(command.args)) : quotingError("suggest help") : undefined
+                    const parsedCleanup = name === "cleanup" ? command ? usage(parseCleanupCommand(command.args)) : quotingError("cleanup help") : undefined
                     const levelName = name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                     const eventName = name === "event" || name === "events" ? name : undefined
                     const parsedEvent = eventName ? command ? usage(parseEventCommand(eventName === "events" ? ["list", ...command.args] : command.args))
                         : quotingError("event help for examples") : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
-                        if (message.guildId !== undefined || !(name === "milestone" && milestones || name === "ticket" && tickets || safetyName && moderation)) return
+                        if (message.guildId !== undefined || !(metadataInvocation && metadata || name === "milestone" && milestones || name === "ticket" && tickets || safetyName && moderation)) return
                         const verified = yield* (name === "milestone" ? verifyMilestonePrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
-                            : name === "ticket" ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
+                            : name === "ticket" || metadataInvocation ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
                             : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false))))
                         if (!verified) return
                     }
                     let protectionUnknown = false
-                    if (moderation) {
+                    if (moderation && !metadataInvocation) {
                         const publishingCritical = parsedPublishing && !("error" in parsedPublishing) && (parsedPublishing.type === "settings" && parsedPublishing.patch.enabled === false
                             || parsedPublishing.type === "reconcile" || parsedPublishing.type === "query" && ["settings", "post-show", "post-list"].includes(parsedPublishing.operation.type)
                             || parsedPublishing.type === "schedule" && scheduleCritical(parsedPublishing.command))
@@ -176,21 +195,21 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                             || parsedLevel.type === "module" && !parsedLevel.enabled || parsedLevel.type === "correct")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = name === "ticket" || name === "milestone" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) ? "critical"
+                        const gateClass = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) ? "critical"
                             : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) ? "staff" : "public"
-                        const actor = name === "ticket" || name === "milestone" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
+                        const actor = metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
                         yield* applyDefconPresence(context.client, config, gate.defcon)
                         const blocked = !privateInvocation && gate.messageProtectionEnabled
                             ? yield* containProtection(handleProtectionMessage(moderation, config, "create", message, context.client), "unknown" as const) : false
-                        if (name !== "ticket" && name !== "milestone" && !gate.allowed || blocked === true) {
+                        if (name !== "ticket" && name !== "milestone" && name !== "cleanup" && !gate.allowed || blocked === true) {
                             if (!privateInvocation && store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
                         }
                         // A message protection could not judge gets no public command or reply. Leveling collection still runs
                         protectionUnknown = blocked === "unknown" && gateClass === "public"
-                    } else if (privateInvocation && name !== "ticket" && name !== "milestone") return
+                    } else if (privateInvocation && name !== "ticket" && name !== "milestone" && !metadataInvocation) return
                     // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                     if (!privateInvocation && name === "prefix" && !protectionUnknown) {
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
@@ -211,6 +230,15 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     if (Exit.isFailure(afkExit) && Cause.hasInterrupts(afkExit.cause)) return yield* Effect.failCause(afkExit.cause)
                     const responseExit: Exit.Exit<void, unknown> = yield* Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (metadataInvocation) {
+                            if (metadata) yield* handleMetadataLogCommand(metadata, config, parsedMetadata!, context, metadataWorker)
+                            return
+                        }
+                        if (name === "cleanup") {
+                            if (cleanup) yield* handleCleanupCommand(cleanup, config, parsedCleanup!, context, cleanupWorker)
+                            else yield* reply({ content: "Cleanup persistence is not configured", allowedMentions: noMentions })
+                            return
+                        }
                         if (name === "suggest") {
                             if (suggestions) yield* handleSuggestionCommand(suggestions, config, parsedSuggestion!, context, suggestionWorker)
                             else yield* reply({ content: "Suggestion persistence is not configured", allowedMentions: noMentions })
@@ -282,6 +310,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             messageUpdate: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
+                    if (admitMetadata) yield* admitMetadata("messageUpdate", event, client)
                     if (!moderation || event.guildId !== config.serverId || event.author.isSystem || event.webhookId
                         || (event.type !== MessageType.Default && event.type !== MessageType.Reply)) return
                     const gate = yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(event.author.id), command: "public" })
@@ -291,6 +320,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             guildMemberAdd: {
                 concurrency: 1,
                 handler: (context) => Effect.gen(function* () {
+                    if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                     if (context.event.guildId !== config.serverId) return
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                     const gate = moderation ? yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(context.event.userId), command: "public" }) : undefined
@@ -307,6 +337,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             guildMemberRemove: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
+                    if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                     if (event.guildId !== config.serverId) return
                     if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
@@ -316,11 +347,24 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             guildMemberUpdate: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
+                    if (admitMetadata) yield* admitMetadata("guildMemberUpdate", event, client)
                     if (event.guildId !== config.serverId) return
                     if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(Effect.andThen(wake(event.userId)))
                 }),
             },
+            messageDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("messageDelete", event, client) ?? Effect.void },
+            messageDeleteBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("messageDeleteBulk", event, client) ?? Effect.void },
+            guildRoleCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleCreate", event, client) ?? Effect.void },
+            guildRoleUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleUpdate", event, client) ?? Effect.void },
+            guildRoleDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void },
+            guildRoleUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void },
+            guildChannelCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void },
+            guildChannelUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void },
+            guildChannelDelete: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelDelete", event, client) ?? Effect.void },
+            guildChannelUpdateBulk: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void },
+            guildUpdate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void },
+            guildAuditLogEntryCreate: { concurrency: 1, handler: ({ event, client }) => admitMetadata?.("guildAuditLogEntryCreate", event, client) ?? Effect.void },
             messageReactionAdd: {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {

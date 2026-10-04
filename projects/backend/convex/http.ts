@@ -155,4 +155,13 @@ mutation("/suggestions/manage", 65536, internal.suggestions.manage)
 mutation("/suggestions/member", 65536, internal.suggestions.member)
 mutation("/suggestions/work", 65536, internal.suggestionsWork.work)
 
+query("/cleanup/query", 65536, internal.cleanup.query)
+mutation("/cleanup/manage", 65536, internal.cleanup.manage)
+mutation("/cleanup/work", 65536, internal.cleanupWork.work)
+
+query("/metadata-logs/query", 65536, internal.metadataLogs.query)
+mutation("/metadata-logs/manage", 65536, internal.metadataLogs.manage)
+mutation("/metadata-logs/admit", 65536, internal.metadataLogs.admit)
+mutation("/metadata-logs/work", 65536, internal.metadataLogsWork.work)
+
 export default http

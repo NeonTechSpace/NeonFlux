@@ -54,7 +54,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Permission checks read current server, role, member and channel data for each request. A failed read denies the request
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
-- Durable worker state, such as greeting and schedule queues, lives in the backend. Workers resume it after a restart
+- Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 
 ## Ping, AFK, prefix and custom responses
 
@@ -553,3 +553,56 @@ Voting uses commands only, and reactions change nothing. Under-review and planne
 Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
 
 Limits are 1000 suggestions per server, 1000 voters per suggestion and 10000 vote records per server. Closed suggestions expire after 180 days
+
+## Automatic message cleanup
+
+Owners and Administrators use `!cleanup` to delete messages older than a chosen age in selected Text and Announcement channels. The module and every policy start disabled. Ages run from one hour through 365 days in whole minutes, hours or days, such as `60m`, `1h` or `30d`
+
+| Command | Behavior |
+| --- | --- |
+| `!cleanup help` | Show syntax |
+| `!cleanup configure #channel <revision, 0 for new> <age>` | Create or replace a channel policy |
+| `!cleanup show\|preview #channel` | Show the policy, or check up to 50 older messages without deleting |
+| `!cleanup list` | List up to 50 configured channels |
+| `!cleanup status [#channel [before-target-number]]` | Show module status or up to 20 recent targets |
+| `!cleanup enable #channel <revision> [confirm]` | Enable the policy, including existing old messages |
+| `!cleanup disable #channel <revision>` | Stop new deletions and keep configuration |
+| `!cleanup module on\|off <settings-revision>` | Turn the module on or off |
+| `!cleanup exclude #channel <revision> author\|message add\|remove <id>` | Keep up to 50 authors and 100 messages |
+
+Only human messages of ordinary or reply type that are unpinned, older than the cutoff and outside every exclusion and publishing or panel protection are deleted. Anything with unknown pin state, author, type or time is kept. Preview counts unknown messages as skipped. Replies contain metadata only and suppress mentions
+
+Automatic deletion runs as NeonFlux under the server automation policy. It needs View Channel, Read Message History and Manage Messages, the module and policy switches and a DEFCON level that allows it. It does not depend on the Administrator who configured it. DEFCON 1 pauses new deletion. Each pass runs at startup and every 60 seconds and deletes at most five messages per channel and 20 overall. A deletion with an unknown result is never retried
+
+Deletion has no server-side pin check, so a message pinned just before deletion can still be removed. Cleanup stores only IDs, authors, timestamps and outcomes, never message text or attachments. Settled records expire after 30 days
+
+## Metadata logs
+
+Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel with the revisions from `!logs metadata status`. Status, counters, events and delivery reports arrive in a private DM, and these reads also work from a verified one-to-one DM
+
+```text
+!logs metadata help
+!logs metadata status
+!logs metadata module on|off <revision>
+!logs metadata route <category> <revision> <channel> <owner> on|off
+!logs metadata clear <category> <revision>
+!logs metadata event <event> <configuration-revision> <channel> <owner> on
+!logs metadata event <event> <configuration-revision> off
+!logs metadata inherit <event> <configuration-revision>
+!logs metadata channels <revision> <channel-IDs|none> <excluded-IDs|none>
+!logs events list [before-record]
+!logs events show <record>
+!logs delivery show|reconcile <record>
+!logs metadata forget <record> confirm
+!logs counters
+```
+
+Categories are `membership`, `resources`, `messages`, `audit`, `settings` and `operations`. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. `!logs metadata status` also shows NeonFlux's current View, Send and Embed permissions in each enabled destination
+
+Per-event overrides cover nineteen event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+
+Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber and operations coral red. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
+
+Logged events cover member joins, updates and removals, role and channel changes, server updates, message edits and deletions and new audit log entries. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON and metadata configuration only
+
+Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the backlog. A send with an unknown result is never repeated. Use `!logs delivery reconcile` to recheck it. Logs are append-only and settled records expire after 30 days
