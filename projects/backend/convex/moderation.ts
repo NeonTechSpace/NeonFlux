@@ -19,6 +19,7 @@ import {
     type ModerationOutcomeResult,
     type ModerationQueryResult,
     type ModerationReconcileResult,
+    type ModerationSettings,
     type StaffClass,
     type StaffLogGrant,
     type WarningNoticeGrant,
@@ -54,6 +55,8 @@ import {
 } from "./moderationStore.ts"
 import { decode, fail, requireReadMember, requireServer, fresh, name, source } from "./validation.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
+import { metadataCoreReceipt, metadataSettingsEvent } from "./metadataLogsStore.ts"
+import { metadataChangedFields } from "./metadataLogsDomain.ts"
 import { ringWork } from "./workSignal.ts"
 
 function criticalOperation(op: ModerationManageOperation) {
@@ -118,6 +121,7 @@ export const manage = serviceMutation({
             )
         if (type === "erase" && !who.isOwner) fail(403, "Owner permission required")
         const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
+        if (op.type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
         if (claim.duplicate) return { duplicate: true }
         if (
             type === "settings" ||
@@ -126,6 +130,16 @@ export const manage = serviceMutation({
             type === "watchlist-remove"
         ) {
             const result = await applyConfiguration(ctx, identity.serverId, op, now)
+            if (op.type === "settings" && !result.duplicate && result.type === "settings") {
+                const tracked = metadataChangedFields.settings as readonly string[]
+                const changed = Object.keys(op.patch).filter(
+                    (key) =>
+                        tracked.includes(key) &&
+                        JSON.stringify(settings[key as keyof ModerationSettings]) !==
+                            JSON.stringify(result.settings[key as keyof ModerationSettings]),
+                )
+                if (changed.length) await metadataSettingsEvent(ctx, identity, who.userId, "moderation", changed)
+            }
             return result
         }
         if (op.type === "action") {
@@ -670,6 +684,8 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
             await ctx.db.delete(correction._id)
         await ctx.db.delete(row._id)
         removed++
+        const settings = await readSettings(ctx, row.serverId)
+        if (settings) await ctx.db.patch(settings._id, { casesRemoved: (settings.casesRemoved ?? 0) + 1 })
     }
     continuation ||= cases.length === BATCH
     return { removed, more: continuation }
@@ -690,8 +706,10 @@ async function applyConfiguration(
             await protectedStaffRoles(ctx, identity.serverId, [...new Set(Object.values(staffRoleIds).flat())])
         }
         await ctx.db.patch(current._id, { config: next })
-        // Returning to DEFCON 3 makes the scheduled and milestone posts and the level rewards due again. The wakes run as
-        // scheduled batches, so a large backlog can never make the DEFCON change itself fail
+        // Leaving DEFCON 1 makes the log posts it held due again, and returning to DEFCON 3 the scheduled and milestone posts and
+        // the level rewards. The wakes run as scheduled batches, so a large backlog can never make the DEFCON change itself fail
+        if (settings.defcon === 1 && next.defcon !== 1)
+            await ctx.scheduler.runAfter(0, internal.metadataLogsWork.wake, { serverId, afterRecordNo: 0 })
         if (settings.defcon !== 3 && next.defcon === 3) {
             // Suggestion cards and event reminders stay due while held, so the bot only needs to hear that they may go out again
             await ringWork(ctx)

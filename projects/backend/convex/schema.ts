@@ -1,6 +1,14 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import {
+    metadataCategoryCounts,
+    metadataDeliveryValidator,
+    metadataEventValidator,
+    metadataRouteValidator,
+    metadataEventRouteValidator,
+    metadataPresentationValidator,
+} from "./metadataLogsValidators.ts"
+import {
     eventsAllocation,
     eventsCalendar,
     eventsChoice,
@@ -72,6 +80,16 @@ import {
 } from "./moderationValidators.ts"
 
 import { suggestionState, suggestionChoice, suggestionCardState } from "./suggestionsValidators.ts"
+import {
+    cleanupBindingFields,
+    cleanupTargetBindingFields,
+    cleanupCounts,
+    cleanupMessage,
+    cleanupGrant,
+    cleanupObservation,
+    cleanupTargetState,
+    cleanupPageItem,
+} from "./cleanupValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -90,6 +108,166 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
+    metadataLogSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        configRevision: v.number(),
+        routes: v.array(metadataRouteValidator),
+        eventRoutes: v.array(metadataEventRouteValidator),
+        messageChannelIds: v.array(v.string()),
+        excludedChannelIds: v.array(v.string()),
+        retained: v.number(),
+        nextRecordNo: v.number(),
+        categories: metadataCategoryCounts,
+        queued: v.number(),
+        reserved: v.number(),
+        failed: v.number(),
+        uncertain: v.number(),
+        suppressed: v.number(),
+        operationNextAt: v.number(),
+        receipts: v.number(),
+        acceptedCreatedAt: v.optional(v.number()),
+        acceptedMessageId: v.optional(v.string()),
+    }).index("by_server", ["serverId"]),
+    metadataLogRecords: defineTable({
+        serverId: v.string(),
+        recordNo: v.number(),
+        sourceKey: v.string(),
+        event: metadataEventValidator,
+        admittedAt: v.number(),
+        expiresAt: v.number(),
+        presentation: metadataPresentationValidator,
+        cleanupAt: v.optional(v.number()),
+        delivery: v.union(metadataDeliveryValidator, v.null()),
+        claimToken: v.optional(v.string()),
+        actionable: v.boolean(),
+        nextCheckAt: v.number(),
+    })
+        .index("by_number", ["serverId", "recordNo"])
+        .index("by_source", ["serverId", "sourceKey"])
+        .index("by_work", ["serverId", "actionable", "nextCheckAt", "recordNo"])
+        .index("by_cleanup", ["cleanupAt"])
+        .index("by_deadline", ["delivery.state", "delivery.grant.dispatchExpiresAt"])
+        .index("by_destination", ["serverId", "delivery.channelId"])
+        .index("by_active_expiry", ["actionable", "expiresAt"])
+        .index("by_global_work", ["actionable", "nextCheckAt"]),
+    metadataLogAttempts: defineTable({
+        serverId: v.string(),
+        recordNo: v.number(),
+        generation: v.number(),
+        delivery: metadataDeliveryValidator,
+        claimToken: v.optional(v.string()),
+    }).index("by_binding", ["serverId", "recordNo", "generation"]),
+    metadataLogReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        operationKey: v.string(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    metadataLogCoreFences: defineTable({
+        serverId: v.string(),
+        scope: v.literal("moderation"),
+        createdAt: v.number(),
+        messageId: v.string(),
+        actorId: v.string(),
+        operationKey: v.string(),
+    }).index("by_scope", ["serverId", "scope"]),
+    cleanupSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        policies: v.number(),
+        receipts: v.number(),
+        nextSweepNo: v.number(),
+        nextTargetNo: v.number(),
+        acceptedCreatedAt: v.optional(v.number()),
+        acceptedMessageId: v.optional(v.string()),
+    }).index("by_server", ["serverId"]),
+    cleanupPolicies: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        revision: v.number(),
+        enabled: v.boolean(),
+        ageMs: v.number(),
+        ownerId: v.string(),
+        excludedAuthorIds: v.array(v.string()),
+        excludedMessageIds: v.array(v.string()),
+        nextCheckAt: v.number(),
+        sweepNo: v.optional(v.number()),
+        blockedReason: v.optional(v.string()),
+        acceptedCreatedAt: v.optional(v.number()),
+        acceptedMessageId: v.optional(v.string()),
+    })
+        .index("by_channel", ["serverId", "channelId"])
+        .index("by_due", ["serverId", "enabled", "nextCheckAt"])
+        .index("by_global_due", ["enabled", "nextCheckAt"]),
+    cleanupSweeps: defineTable({
+        serverId: v.string(),
+        ...cleanupBindingFields,
+        ownerId: v.string(),
+        cutoffAt: v.number(),
+        before: v.string(),
+        pageNo: v.number(),
+        state: v.union(v.literal("active"), v.literal("complete"), v.literal("cancelled")),
+        counts: cleanupCounts,
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "sweepNo"])
+        .index("by_expiry", ["expiresAt"]),
+    cleanupPages: defineTable({
+        serverId: v.string(),
+        ...cleanupBindingFields,
+        pageNo: v.number(),
+        before: v.string(),
+        nextBefore: v.optional(v.string()),
+        empty: v.boolean(),
+        items: v.array(cleanupPageItem),
+        persistedAt: v.number(),
+    }).index("by_sweep", ["serverId", "sweepNo"]),
+    cleanupTargets: defineTable({
+        serverId: v.string(),
+        ...cleanupTargetBindingFields,
+        ownerId: v.string(),
+        state: cleanupTargetState,
+        message: cleanupMessage,
+        active: v.boolean(),
+        replayBlocked: v.boolean(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        grant: v.optional(cleanupGrant),
+        claimedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        expiresAt: v.optional(v.number()),
+        reason: v.optional(v.string()),
+        observation: v.optional(cleanupObservation),
+        absenceObservedAt: v.optional(v.number()),
+        lateOutcome: v.optional(v.union(v.literal("deleted"), v.literal("failed"), v.literal("uncertain"))),
+        reassessedAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "targetNo"])
+        .index("by_page", ["serverId", "sweepNo", "pageNo", "targetNo"])
+        .index("by_sweep_active", ["serverId", "sweepNo", "active"])
+        .index("by_message_replay", ["serverId", "channelId", "messageId", "active", "replayBlocked"])
+        .index("by_channel", ["serverId", "channelId", "targetNo"])
+        .index("by_deadline", ["state", "grant.dispatchExpiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    cleanupReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        operationKey: v.string(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
     suggestionSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -561,6 +739,8 @@ export default defineSchema({
         nextEntryNo: v.number(),
         nextAttemptNo: v.number(),
         nextTranscriptNo: v.number(),
+        // Active tickets, for metadata counters
+        activeTickets: v.number(),
     }).index("by_server", ["serverId"]),
     ticketCategories: defineTable({
         serverId: v.string(),
@@ -618,7 +798,8 @@ export default defineSchema({
         .index("by_number", ["serverId", "ticketNo"])
         .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
         .index("by_body_expiry", ["bodyExpiresAt"])
-        .index("by_tombstone_expiry", ["tombstoneExpiresAt"]),
+        .index("by_tombstone_expiry", ["tombstoneExpiresAt"])
+        .index("by_channel", ["serverId", "channelId"]),
     ticketEntries: defineTable({
         serverId: v.string(),
         ticketNo: v.number(),
@@ -783,7 +964,8 @@ export default defineSchema({
     })
         .index("by_server_name", ["serverId", "name"])
         .index("by_server_kind", ["serverId", "kind"])
-        .index("by_server_message", ["serverId", "published.messageId"]),
+        .index("by_server_message", ["serverId", "published.messageId"])
+        .index("by_native_message", ["serverId", "published.channelId", "published.messageId"]),
     roleAcknowledgments: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -950,7 +1132,8 @@ export default defineSchema({
         .index("by_server_post", ["serverId", "postNo"])
         .index("by_event", ["serverId", "consumer.eventNo", "postNo"])
         .index("by_schedule", ["serverId", "consumer.scheduleNo", "postNo"])
-        .index("by_suggestion", ["serverId", "consumer.suggestionNo", "postNo"]),
+        .index("by_suggestion", ["serverId", "consumer.suggestionNo", "postNo"])
+        .index("by_native_message", ["serverId", "channelId", "messageId"]),
     publishingAttempts: defineTable({
         serverId: v.string(),
         postNo: v.number(),
@@ -998,7 +1181,8 @@ export default defineSchema({
         .index("by_suggestion_unresolved", ["serverId", "consumer.suggestionNo", "unresolved"])
         .index("by_expiry", ["expiresAt"])
         .index("by_pending_deadline", ["serverId", "outcome", "dispatchExpiresAt"])
-        .index("by_global_pending_deadline", ["outcome", "dispatchExpiresAt"]),
+        .index("by_global_pending_deadline", ["outcome", "dispatchExpiresAt"])
+        .index("by_native_message", ["serverId", "channelId", "messageId"]),
     publishingReceipts: defineTable({
         serverId: v.string(),
         sourceId: v.string(),
@@ -1007,11 +1191,13 @@ export default defineSchema({
     })
         .index("by_server_source", ["serverId", "sourceId"])
         .index("by_expiry", ["expiresAt"]),
+    // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion
     moderationSettings: defineTable({
         serverId: v.string(),
         config: moderationSettings,
         nextCaseNo: v.number(),
         nextAppealNo: v.number(),
+        casesRemoved: v.optional(v.number()),
     }).index("by_server", ["serverId"]),
     moderationCases: defineTable({
         serverId: v.string(),

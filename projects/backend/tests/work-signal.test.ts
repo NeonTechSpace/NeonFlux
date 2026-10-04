@@ -202,6 +202,7 @@ test("The next due time is the earliest future row of any timed source and ignor
             nextCheckAt: start + 30000,
             startsAt: start + 3600000,
         })
+        await insertDocument(ctx, "metadataLogRecords", "10", { actionable: false, nextCheckAt: start + 5000 })
     })
     const work = async () =>
         (await (await botCall(t, "/service/work", { cursor: null, requestedAt: 1 })).json()) as ServiceWork

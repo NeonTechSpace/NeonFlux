@@ -1,14 +1,15 @@
 import { isThreadChannel, type Client } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
+import { noticeThread, threadForgets } from "./thread-memory.ts"
 
-// Parents come from the SDK's channel cache, which channel and thread events keep current, and a channel it does not hold
-// costs one read
+// Parents come from the SDK's channel cache, which channel and thread events keep current, and a channel it does not hold costs one
+// read. Either way the thread is taught to thread memory
 export class ChannelParentError extends Data.TaggedError("ChannelParentError")<{}> {}
 
 function readKnownChannel(client: Client, channelId: string) {
-    return client.channels
-        .get(channelId)
-        .pipe(
+    return Effect.suspend(() => {
+        const forgets = threadForgets(client)
+        return client.channels.get(channelId).pipe(
             Effect.flatMap((known) =>
                 known
                     ? Effect.succeed(known)
@@ -22,7 +23,9 @@ function readKnownChannel(client: Client, channelId: string) {
                               ),
                           ),
             ),
+            Effect.tap((channel) => Effect.sync(() => noticeThread(client, channel, forgets))),
         )
+    })
 }
 /** The parent channel of a thread, or undefined for any other channel. A channel the bot does not hold costs one channel read */
 export function readChannelParent(client: Client, channelId: string) {

@@ -68,13 +68,13 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 - A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
 - Commands and actions, such as moderation, role changes, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
-- Evaluating everyday activity, such as message protection, automod, custom responses, leveling and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
-- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels and leveling's excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
+- Evaluating everyday activity, such as message protection, automod, custom responses, leveling, metadata logs and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
+- A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels, custom response channels, leveling's excluded channels and metadata logs' message and excluded channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
-- Durable worker state, such as greeting and schedule queues, lives in the backend. Workers resume it after a restart
+- Durable worker state, such as greeting, schedule and cleanup queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
-- A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod and security
-- Background workers for events, scheduled posts, birthdays and anniversaries, suggestion cards and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
+- A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod, security and metadata logs
+- Background workers for events, scheduled posts, birthdays and anniversaries, suggestion cards, message cleanup, metadata logs and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ## Command help and permission fixes
 
@@ -660,3 +660,84 @@ Voting uses commands only, and reactions change nothing. Under-review and planne
 Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON 3. At DEFCON 1 or 2 updates wait without requests and go out after DEFCON is set to 3. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
 
 Limits are 1000 suggestions per server, 1000 voters per suggestion, 10000 vote records per server, 1000 cards waiting for an update or unable to update, and 1000 staff and 10000 member commands a day. Closed suggestions expire after 180 days
+
+## Automatic message cleanup
+
+Owners and Administrators use `!cleanup` to delete messages older than a chosen age in selected Text and Announcement channels. Send a command that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused. The module and every policy start disabled. A server can have cleanup in at most 50 channels. Turning a channel's cleanup off keeps its slot. Ages run from one hour through 365 days and are written like other durations, in any case, such as `60m`, `1h30m`, `30d` or `2w`. A total that is not whole seconds is refused
+
+| Command | Behavior |
+| --- | --- |
+| `!cleanup help` | Show the common forms. `!cleanup help all` lists the rest |
+| `!cleanup configure #channel <age>` | Create or replace a channel policy |
+| `!cleanup show\|preview #channel` | Show the policy, or check up to 50 older messages without deleting |
+| `!cleanup list [next]` | List configured channels, 10 per page. `next` shows the following page |
+| `!cleanup status [#channel]` | Show the module and channel count, or one channel's state and last run in a few lines |
+| `!cleanup status #channel messages [next]` | List links to the channel's handled messages with their outcome, 10 per page and newest first. `next` shows the following page |
+| `!cleanup enable #channel [confirm]` | Enable the policy, including existing old messages |
+| `!cleanup disable #channel` | Stop new deletions and keep configuration |
+| `!cleanup module on\|off` | Turn the module on or off |
+| `!cleanup exclude #channel author\|message add\|remove <id>` | Keep up to 50 authors and 100 messages |
+
+Only human messages of ordinary or reply type that are unpinned, older than the cutoff and outside every exclusion and publishing or panel protection are deleted. Anything with unknown pin state, author, type or time is kept. Preview counts unknown messages as skipped. Replies contain metadata only and suppress mentions
+
+Automatic deletion runs as NeonFlux under the server automation policy. It needs View channel, Read message history and
+Manage messages, the module and policy switches and a DEFCON level that allows it. It does not depend on the
+Administrator who configured it. DEFCON 1 pauses new deletion. Each pass runs at startup and every 60 seconds and
+deletes at most five messages per channel and 20 overall. A channel whose sweep has read all its messages rests 15
+minutes before the next sweep starts, so a message that has just passed the age can wait that much longer. A deletion
+with an unknown result is never retried
+
+Deletion has no server-side pin check, so a message pinned just before deletion can still be removed. Cleanup stores
+only IDs, authors, timestamps and outcomes, never message text or attachments. Records expire after 30 days, also those
+of deletions that failed or have an unknown result
+
+## Metadata logs
+
+Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel. Status, category, override, counter, event and delivery reports arrive in a private DM, and these reads also work from a verified one-to-one DM. `!logs events list` and `!logs metadata overrides` show 10 entries a page, and `next` shows the following page
+
+```text
+!logs metadata help
+!logs metadata status
+!logs metadata categories
+!logs metadata overrides [next]
+!logs metadata module on|off
+!logs metadata route <category> <channel> <owner> on|off
+!logs metadata clear <category>
+!logs metadata event <event> <channel> <owner> on
+!logs metadata event <event> off
+!logs metadata inherit <event>
+!logs metadata channels <channel-IDs|none> <excluded-IDs|none>
+!logs events list [next]
+!logs events show <record>
+!logs delivery show|reconcile <record>
+!logs metadata forget <record> confirm
+!logs counters
+```
+
+Categories are `membership`, `resources`, `messages`, `audit`, `settings` and `operations`. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. Send a change that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused
+
+`!logs metadata status` is a summary: Whether the module is on, how many categories post to a channel, the number of event overrides, the message channels, the log channels that no longer exist and the log channels where NeonFlux currently lacks View channel, Send messages, Embed links or Read message history. It shows the stored record count only once 8000 of the 10000 records are in use. `!logs metadata categories` shows each category's channel and whether NeonFlux can post there. Replies and log post titles name events in plain words, such as Member joined or Audit: Member kicked. `event` and `inherit` take that name, in any case and with or without the colon, as in `!logs metadata event member joined off`, or the event code, such as `member-add` or `audit-entry:20`. `!logs counters` shows open tickets, stored moderation cases, stored metadata records by category and the log posts that are waiting, failed or not confirmed
+
+Per-event overrides cover twenty-two event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+
+Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber and operations coral red. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
+
+Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Messages and webhooks appear by their IDs
+
+Logged events cover member joins, updates and removals, role and channel changes, thread and forum post creation, changes and deletion, server updates, message edits and deletions and new audit log entries. Thread events use the resources category with their own event types `thread-create`, `thread-update` and `thread-delete`, and name the parent channel. A thread change names the changed fields `name`, `archived`, `locked` and `tags` when NeonFlux saw the thread before, since Fluxer sends only the new state. A thread NeonFlux merely joins is not logged as created. Deleting a channel deletes its threads without separate events, so one `thread-delete` record counts the threads NeonFlux knew in that channel. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON and metadata configuration only
+
+Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux
+under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the
+backlog. A post that waits while logs or its category or event route are off, or while DEFCON 1 pauses delivery, costs
+no requests until they are turned back on or DEFCON is set to 2 or 3, and it is dropped if its record expires first. A
+send with an unknown result is never repeated. Use `!logs delivery reconcile` to recheck it. A send that a rate limit or
+another retryable failure stopped before it ran is known to be unsent, so it is tried again a minute later, up to three
+tries in all. A post whose send never returned a message has nothing to recheck. The reply says to look in the log channel, and
+once its window has passed `!logs metadata forget <record> confirm` removes the record, which no retention removes.
+Metadata settings change only in a server channel, and a change sent in a DM says so. When Fluxer answers that a log
+channel no longer exists, each post for it fails without being sent and is not tried again. `!logs events show` says so
+for the record, `!logs metadata status` and `!logs metadata categories` name the channel, so route the category or event
+to another channel. A post whose channel
+could not be read for another reason, such as a timeout, a rate limit or a Fluxer server error, is tried again a minute
+later. Logs are append-only and settled records expire after 30 days. While logs are off, the bot sends no gateway
+events for a minute after the backend answers that they are off, or until a `!logs` command

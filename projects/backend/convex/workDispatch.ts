@@ -2,6 +2,7 @@ import type { QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
 import { type ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import { isServed } from "./serviceGuard.ts"
+import { cleanupSettings } from "./cleanupStore.ts"
 import { eventSettings, lifecycle } from "./eventsStore.ts"
 import { suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
@@ -64,6 +65,7 @@ function serverSettings(ctx: QueryCtx) {
                             .unique()
                     )?.config.defcon ?? 3,
             ),
+        cleanup: (serverId: string) => once(`cleanup:${serverId}`, () => cleanupSettings(ctx, serverId)),
         events: (serverId: string) => once(`events:${serverId}`, () => eventSettings(ctx, serverId)),
         suggestions: (serverId: string) => once(`suggestions:${serverId}`, () => suggestionSettings(ctx, serverId)),
         publishing: (serverId: string) => once(`publishing:${serverId}`, () => publisherSettings(ctx, serverId)),
@@ -158,6 +160,24 @@ const WORK_SOURCES: readonly Source[] = [
             (await settings.publishing(serverId))?.enabled !== false &&
             (await settings.defcon(serverId)) === 3,
         work: (_ctx, row, now) => !row.forgetting && (row.historyExpiresAt === undefined || now < row.historyExpiresAt),
+    }),
+    source({
+        kind: "cleanup",
+        key: "cleanupPolicies",
+        table: "cleanupPolicies",
+        index: "by_global_due",
+        prefix: [["enabled", true]],
+        order: "nextCheckAt",
+        gate: async (settings, serverId) =>
+            (await settings.cleanup(serverId))?.enabled === true && (await settings.defcon(serverId)) !== 1,
+    }),
+    source({
+        kind: "metadata",
+        key: "metadataLogRecords",
+        table: "metadataLogRecords",
+        index: "by_global_work",
+        prefix: [["actionable", true]],
+        order: "nextCheckAt",
     }),
     source({
         kind: "levels",

@@ -11,6 +11,7 @@ import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { decode, fresh, listsChannel } from "./validation.ts"
+import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
 const byPriority = (a: AutomodRule, b: AutomodRule) =>
     b.priority - a.priority || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
@@ -272,6 +273,9 @@ export const join = serviceMutation({
         if (burst && settings.joinDefcon2 && settings.securityMode === "enforce" && settings.defcon === 3) {
             settings = { ...settings, defcon: 2 }
             await ctx.db.patch((await state(ctx, serverId))._id, { config: settings })
+            await metadataSettingsEvent(ctx, { serverId, messageId: String(result.case.caseNo) }, null, "security", [
+                "defcon",
+            ])
         }
         return { duplicate: false, settings, ...result }
     },

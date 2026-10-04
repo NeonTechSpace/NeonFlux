@@ -66,7 +66,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
     run(
         Effect.gen(function* () {
             const backend = yield* scripted([
-                work({ schedules: ["10"], levels: ["20", "10"], events: ["30"] }, "synthetic_cursor"),
+                work({ schedules: ["10"], cleanup: ["20", "10"], events: ["30"] }, "synthetic_cursor"),
                 work({}),
             ])
             const wakes: string[] = []
@@ -84,7 +84,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
             assert.deepEqual(backend.subscriptions, [{ key: Redacted.value(deriveServiceKey(secret)) }])
             const second = yield* backend.next
             assert.deepEqual([sentCursor(second), sentAt(second)], ["synthetic_cursor", 0])
-            assert.deepEqual(wakes, ["events 30", "schedules 10", "levels 20", "levels 10"])
+            assert.deepEqual(wakes, ["events 30", "schedules 10", "cleanup 20", "cleanup 10"])
         }),
     ))
 
@@ -247,11 +247,11 @@ test("failures back off from ten seconds to five minutes, restart the cursor and
                 Response.json({ error: "Backend unavailable" }, { status: 503 }),
                 Response.json({ error: "Unauthorized" }, { status: 401 }),
                 work({}).kinds,
-                { kinds: { ...noWork, schedules: ["01"] }, cursor: null, nextDueIn: null },
-                { kinds: { ...noWork, schedules: ["10", "10"] }, cursor: null, nextDueIn: null },
+                { kinds: { ...noWork, cleanup: ["01"] }, cursor: null, nextDueIn: null },
+                { kinds: { ...noWork, cleanup: ["10", "10"] }, cursor: null, nextDueIn: null },
                 { kinds: noWork, cursor: "", nextDueIn: null },
                 {
-                    kinds: { ...noWork, schedules: Array.from({ length: 101 }, (_, index) => String(100 + index)) },
+                    kinds: { ...noWork, metadata: Array.from({ length: 101 }, (_, index) => String(100 + index)) },
                     cursor: null,
                     nextDueIn: null,
                 },
@@ -319,6 +319,8 @@ const workerPaths: Record<ServiceWorkKind, string> = {
     schedules: "/schedules/delivery",
     milestones: "/milestones/delivery",
     suggestions: "/suggestions/work",
+    cleanup: "/cleanup/work",
+    metadata: "/metadata-logs/work",
     levels: "/levels/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
@@ -379,8 +381,8 @@ test("the bot's one dispatcher wakes only the reported workers of its server", a
             release = resolve
         }),
     )
-    // Suggestions are not reported. Levels is woken last, so a wrong wake of the suggestions worker would run before it
-    const reported = workKinds.filter((kind) => kind !== "suggestions"),
+    // Cleanup is not reported. Levels is woken last, so a wrong wake of the cleanup worker would run before it
+    const reported = workKinds.filter((kind) => kind !== "cleanup"),
         paths = reported.map((kind) => workerPaths[kind])
     await Effect.runPromise(
         Effect.scoped(

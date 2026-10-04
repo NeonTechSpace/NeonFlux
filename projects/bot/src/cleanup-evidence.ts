@@ -1,0 +1,83 @@
+import type { CleanupMessage } from "@neonflux/contracts/cleanup"
+import { errors, snowflakes, type Client, type Message } from "@neontechspace/fluxerly/effect"
+import { Clock, Data, Effect } from "effect"
+
+export class CleanupEvidenceError extends Data.TaggedError("CleanupEvidenceError")<{
+    readonly stage: "identity" | "history" | "metadata" | "absent"
+}> {}
+const identifier = (value: unknown) => (snowflakes.isValid(value) && value !== "0" ? value : null)
+/** The SDK keeps an omitted pin flag absent, which stays unknown here. Fluxer omits false author flags, which the SDK reads
+ * as false: https://docs.fluxer.app/http-api/users/#partial-user-object. Bodies never leave this projection */
+export function cleanupMessageMetadata(message: Message, channelId: string, observedAt: number): CleanupMessage {
+    const messageId = identifier(message.id)
+    if (
+        messageId === null ||
+        message.channelId !== channelId ||
+        (message.guildId !== undefined && identifier(message.guildId) === null) ||
+        (message.webhookId !== undefined && identifier(message.webhookId) === null)
+    )
+        throw new CleanupEvidenceError({ stage: "identity" })
+    return {
+        messageId,
+        channelId,
+        serverId: identifier(message.guildId),
+        observedAt,
+        createdAt: message.createdAt ?? null,
+        authorId: identifier(message.author.id),
+        authorBot: message.author.isBot,
+        authorSystem: message.author.isSystem ?? false,
+        type: message.type ?? null,
+        pinned: message.pinned ?? null,
+        webhookId: identifier(message.webhookId),
+    }
+}
+/** One message read supplies pin status and author flags */
+export function fetchCleanupMessage(client: Client, channelId: string, messageId: string, serverId?: string) {
+    return Effect.gen(function* () {
+        const channel = serverId ? yield* client.channels.fetch(channelId, { timeoutMs: 5000 }) : undefined
+        if (channel && (channel.id !== channelId || channel.guildId !== serverId))
+            return yield* Effect.fail(new CleanupEvidenceError({ stage: "identity" }))
+        const read = yield* client.messages
+            .fetch({ id: messageId, channelId }, { timeoutMs: 5000 })
+            .pipe(
+                Effect.mapError((error) =>
+                    errors.isNotFound(error) ? new CleanupEvidenceError({ stage: "absent" }) : error,
+                ),
+            )
+        const observedAt = yield* Clock.currentTimeMillis
+        const message = yield* Effect.try({
+            try: () => cleanupMessageMetadata(read, channelId, observedAt),
+            catch: () => new CleanupEvidenceError({ stage: "metadata" }),
+        })
+        if (message.messageId !== messageId) return yield* Effect.fail(new CleanupEvidenceError({ stage: "identity" }))
+        return { ...message, ...(channel ? { originServerId: channel.guildId } : {}) }
+    })
+}
+export function fetchCleanupHistory(client: Client, serverId: string, channelId: string, before: string) {
+    return Effect.gen(function* () {
+        const channel = yield* client.channels.fetch(channelId, { timeoutMs: 5000 })
+        if (channel.id !== channelId || channel.guildId !== serverId || !snowflakes.isValid(before))
+            return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
+        const page = yield* client.messages.fetchHistory(channelId, { limit: 50, before }, { timeoutMs: 5000 })
+        if (page.length > 50) return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
+        const observedAt = yield* Clock.currentTimeMillis
+        const messages = yield* Effect.try({
+            try: () =>
+                page.map((m) => ({
+                    ...cleanupMessageMetadata(m, channelId, observedAt),
+                    originServerId: channel.guildId,
+                })),
+            catch: () => new CleanupEvidenceError({ stage: "history" }),
+        })
+        // A page runs strictly newest first below its cursor, so the oldest ID advances it
+        if (
+            messages.some(
+                (m, index) =>
+                    (m.serverId !== null && m.serverId !== serverId) ||
+                    BigInt(m.messageId) >= BigInt(index === 0 ? before : messages[index - 1]!.messageId),
+            )
+        )
+            return yield* Effect.fail(new CleanupEvidenceError({ stage: "history" }))
+        return messages
+    })
+}

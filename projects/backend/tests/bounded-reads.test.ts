@@ -5,7 +5,10 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import type { MutationCtx } from "../convex/_generated/server.js"
 import { internal } from "../convex/_generated/api.js"
+import { metadataCounters } from "../convex/metadataLogsStore.ts"
+import { cleanupModeration } from "../convex/moderation.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { countActiveTickets } from "../convex/ticketStore.ts"
 import { levelForXp } from "../convex/levelingDomain.ts"
 import type { LevelingQueryResult, LevelingRank } from "@neonflux/contracts/leveling"
 import { insertDocument } from "./schema-documents.ts"
@@ -53,6 +56,49 @@ const measure = (t: Backend, fn: (ctx: MutationCtx) => Promise<unknown>) =>
             bytes: after.bytesRead.used - before.bytesRead.used,
         }
     })
+
+test("Metadata log counters read settings rows instead of counting tickets and moderation cases", async () => {
+    const t = backend()
+    await t.run(async (ctx) => {
+        await ctx.db.insert("moderationSettings", {
+            serverId: "10",
+            config: defaultSettings(),
+            nextCaseNo: 2501,
+            nextAppealNo: 1,
+        })
+        for (let caseNo = 1; caseNo <= 2500; caseNo++)
+            await insertDocument(ctx, "moderationCases", "10", {
+                caseNo,
+                expiresAt: caseNo <= 10 ? now - 1 : now + 86400000,
+            })
+        await insertDocument(ctx, "ticketSettings", "10", { activeTickets: 300 })
+        for (let ticketNo = 1; ticketNo <= 300; ticketNo++)
+            await insertDocument(ctx, "tickets", "10", { ticketNo, active: true })
+    })
+    const counters = async () => {
+        const measured = await measure(t, (ctx) => metadataCounters(ctx, "10"))
+        const value = measured.value as Awaited<ReturnType<typeof metadataCounters>>
+        return { read: measured.read, cases: value.retainedModerationCases, tickets: value.activeTicketSlots }
+    }
+    const counted = await counters()
+    assert.deepEqual({ cases: counted.cases, tickets: counted.tickets }, { cases: 2500, tickets: 300 })
+    assert(counted.read <= 3, `Counters read ${counted.read} documents`)
+    // Retention counts each removed case
+    await t.run((ctx) => cleanupModeration(ctx, now))
+    assert.equal((await counters()).cases, 2490)
+    // Each active change updates the ticket count
+    await t.run(async (ctx) => {
+        const ticket = (await ctx.db
+            .query("tickets")
+            .withIndex("by_number", (q) => q.eq("serverId", "10").eq("ticketNo", 1))
+            .unique())!
+        await ctx.db.patch(ticket._id, { active: false })
+        await countActiveTickets(ctx, "10", -1)
+    })
+    const recounted = await counters()
+    assert.equal(recounted.tickets, 299)
+    assert(recounted.read <= 3, `Counters read ${recounted.read} documents`)
+})
 
 test("A repeat rule reads only the member's windows with the same content", async (t) => {
     serveSingle(t)

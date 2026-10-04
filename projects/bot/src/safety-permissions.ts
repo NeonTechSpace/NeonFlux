@@ -4,15 +4,37 @@ import {
     isThreadChannel,
     errors,
     Permissions,
+    UserOperationError,
     type Client,
     type Guild,
     type GuildMember,
     type GuildRole,
     type GuildChannel,
+    type User,
 } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { readNativeMember } from "./member-evidence.ts"
+import { noticeThread, threadForgets } from "./thread-memory.ts"
 
+export const nativeHumanAccount = (user: User | undefined) => !!user && !user.isBot && !user.isSystem
+export const nativeBotAccount = (user: User | undefined) => !!user && user.isBot && !user.isSystem
+/**
+ * A fresh read of an account, the bot's own when userId is left out. Undefined means Fluxer answered with no valid account.
+ * The SDK rejects bot and system flags that are not booleans, so isBot and isSystem are exact. Transport failures still fail
+ */
+export function readNativeAccount(client: Client, userId?: string) {
+    return (
+        userId === undefined
+            ? client.users.fetchSelf({ timeoutMs: 5000 })
+            : client.users.fetch(userId, { timeoutMs: 5000 })
+    ).pipe(
+        Effect.catch((error) =>
+            error instanceof UserOperationError && error.status !== null
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+        ),
+    )
+}
 type PermissionReadOperation = "self" | "guild" | "roles" | "actor" | "bot" | "channel" | "target"
 
 export class SafetyPermissionError extends Data.TaggedError("SafetyPermissionError")<{
@@ -186,8 +208,19 @@ export function readSafetyAuthority(
             return yield* Effect.fail(new SafetyPermissionError({ stage: "identity" }))
         }
         // A channel read enters the SDK's cache, so later handlers of the same message find the channel's parent without reading it again
-        const readChannel = (id: string) =>
-            read(cachedOr(client.channels.get(id), client.channels.fetch(id)), "channel")
+        const readChannel = (id: string) => {
+            const forgets = threadForgets(client)
+            return read(
+                cachedOr(client.channels.get(id), client.channels.fetch(id)).pipe(
+                    Effect.tap((found) =>
+                        Effect.sync(() => {
+                            if (found.id === id && found.guildId === serverId) noticeThread(client, found, forgets)
+                        }),
+                    ),
+                ),
+                "channel",
+            )
+        }
         const channel = options.channelId ? yield* readChannel(options.channelId) : undefined
         if (channel && (channel.id !== options.channelId || channel.guildId !== serverId)) {
             return yield* Effect.fail(new SafetyPermissionError({ stage: "channel" }))

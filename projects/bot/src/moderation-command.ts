@@ -93,6 +93,8 @@ export function safetyHelp(name: SafetyName) {
             "!logs list [next]: Recent staff log posts",
             "!logs show <case>: One case's log post",
             "!logs recover <case>: Same as !mod recover, checks the action of a case that was not confirmed",
+            "!logs counters: Log counts, sent by DM to the owner or Administrators",
+            "!logs metadata help: Metadata logs of server changes",
         ],
         automod: [
             '!automod create <name> <type> log|delete|warn|timeout ["pattern"...]: Add a rule',

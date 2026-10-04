@@ -38,6 +38,7 @@ const modules = {
     "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/roleReactions.ts": () => import("../convex/roleReactions.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
+    "../convex/metadataLogsWork.ts": () => import("../convex/metadataLogsWork.ts"),
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/milestonesDelivery.ts": () => import("../convex/milestonesDelivery.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),

@@ -1,10 +1,12 @@
 import {
+    ChannelType,
     commands,
     MessageType,
     type BotOptions,
     type BotEventContext,
     type Client,
     type EventName,
+    type Observation,
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Effect, Exit, Redacted, Scope } from "effect"
 import type { AfkStore } from "./afk-store.ts"
@@ -61,6 +63,15 @@ import type { SuggestionsStore } from "./suggestion-store.ts"
 import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
 import { handleSuggestionCommand } from "./suggestion-management.ts"
 import { startSuggestionsWorker } from "./suggestion-worker.ts"
+import type { CleanupStore } from "./cleanup-store.ts"
+import { parseCleanupCommand } from "./cleanup-command.ts"
+import { handleCleanupCommand } from "./cleanup-management.ts"
+import { startCleanupWorker } from "./cleanup-worker.ts"
+import type { MetadataLogsStore } from "./metadata-log-store.ts"
+import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-command.ts"
+import { handleMetadataLogCommand } from "./metadata-log-management.ts"
+import { createMetadataGatewayAdmission } from "./metadata-log-events.ts"
+import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
 import { configScope, createServerRuntime, type ServerRuntime } from "./server-runtime.ts"
 import { selectServerCommand, validServerId, type DeploymentScope } from "./server-scope.ts"
 import {
@@ -73,6 +84,13 @@ import {
 import { createPanelIndex } from "./role-panel-index.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
+import {
+    forgetShardThreads,
+    forgetServerThreads,
+    forgetThread,
+    forgetThreadsOf,
+    rememberThread,
+} from "./thread-memory.ts"
 import { handleHelpAll, helpAllRequest } from "./help.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
@@ -89,6 +107,8 @@ interface BotStores {
     readonly schedules?: SchedulesStore | undefined
     readonly milestones?: MilestonesStore | undefined
     readonly suggestions?: SuggestionsStore | undefined
+    readonly cleanup?: CleanupStore | undefined
+    readonly metadata?: MetadataLogsStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -99,11 +119,27 @@ const routedEvents = [
     "guildMemberAdd",
     "guildMemberRemove",
     "guildMemberUpdate",
+    "messageDelete",
+    "messageDeleteBulk",
+    "guildRoleCreate",
+    "guildRoleUpdate",
+    "guildRoleDelete",
+    "guildRoleUpdateBulk",
+    "guildChannelCreate",
+    "guildChannelUpdate",
+    "guildChannelDelete",
+    "guildChannelUpdateBulk",
+    "guildUpdate",
+    "guildAuditLogEntryCreate",
     "messageReactionAdd",
     "messageReactionAddMany",
     "messageReactionRemove",
     "messageReactionRemoveAll",
     "messageReactionRemoveEmoji",
+    "threadCreate",
+    "threadUpdate",
+    "threadDelete",
+    "threadListSync",
 ] as const satisfies readonly EventName[]
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -111,6 +147,9 @@ type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 const routedEventsComplete: Same<keyof ScopedBotOptions["events"], (typeof routedEvents)[number]> = true
 void routedEventsComplete
 
+// The byte limit of guildCreate. The SDK counts it at the whole GUILD_CREATE frame, 50 to 100 times what it retains, so the default 4 MiB
+// would drop it at a restart, and 1 GiB of frames still bounds hostile input
+const GUILD_FRAME_BYTES = 1073741824
 // The SDK caches that evaluation reads, kept current by gateway events and bounded across the whole client
 const CACHE = {
     guilds: { maxEntries: 5000, maxBytes: 8388608 },
@@ -142,10 +181,11 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 const payload = context.event as unknown as {
                     guildId?: string
                     channelId?: string
+                    id?: string
                     content?: string
                     channelType?: number
                 }
-                let guildId = payload.guildId
+                let guildId = payload.guildId ?? (name === "guildUpdate" ? payload.id : undefined)
                 if (guildId !== undefined && !served(guildId)) return
                 // A link preview or another embed-only update changes nothing a feature reads
                 if (name === "messageUpdate" && !revisions.changed((context as BotEventContext<"messageUpdate">).event))
@@ -219,6 +259,21 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             },
         })
     }
+    // A server that becomes available or unavailable may have changed unseen, so the threads kept for it are forgotten
+    Object.assign(events, {
+        guildCreate: {
+            ...serverEvent,
+            maxPendingBytes: GUILD_FRAME_BYTES,
+            handler: ({ event, client }: BotEventContext<"guildCreate">) =>
+                Effect.sync(() => forgetServerThreads(client, event.id)),
+        },
+        guildDelete: {
+            ...serverEvent,
+            handler: ({ event, client }: BotEventContext<"guildDelete">) =>
+                Effect.sync(() => forgetServerThreads(client, event.id)),
+        },
+    })
+    let connected: Client | undefined
     // Every handler is registered before the gateway connects, so automatic filtering asks Fluxer not to send the other
     // dispatch types, such as typing and presence updates
     return {
@@ -226,9 +281,14 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         processSignals: true,
         events,
         cache: CACHE,
+        observe: (observation: Observation) => {
+            // A lost connection can miss events that a new session does not replay
+            if (observation.type === "reconnect" && connected) forgetShardThreads(connected, observation.shardId)
+        },
         gateway: { ignoredEvents: "auto" as const },
         setup: (client: Client) =>
             Effect.gen(function* () {
+                connected = client
                 yield* runtimes.start(client, yield* Effect.scope)
                 // One dispatcher serves every runtime, so a server without due work causes no backend requests
                 if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
@@ -317,9 +377,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
         schedules,
         milestones,
         suggestions,
+        cleanup,
+        metadata,
         general,
     } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
+    let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
+    const admitMetadata = metadata
+        ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
+        : undefined
+    let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
     let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
@@ -411,6 +478,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         config.serverId,
                         client,
                     )).wake
+                if (cleanup)
+                    wakers.cleanup = (cleanupWorker = yield* startCleanupWorker(
+                        cleanup,
+                        config.serverId,
+                        client,
+                    )).notify
+                if (metadata)
+                    wakers.metadata = (metadataWorker = yield* startMetadataLogsWorker(
+                        metadata,
+                        config.serverId,
+                        client,
+                    )).notify
                 if (levels) {
                     if (roles)
                         wakers.levels = (levelRewards = yield* startLevelRoleWorker(
@@ -477,6 +556,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             error: `${syntaxProblem} Use ${invocationPrefix}${hint}`,
                         })
                         const safetyName = safetyNames.includes(name as SafetyName) ? (name as SafetyName) : undefined
+                        const metadataInvocation = name === "logs" && command && isMetadataLogCommand(command.args)
+                        const parsedMetadata = metadataInvocation
+                            ? usage(parseMetadataLogCommand(command.args))
+                            : undefined
                         const parsedSafety = safetyName
                             ? command
                                 ? usage(parseSafetyCommand(safetyName, command.args))
@@ -520,6 +603,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     ? usage(parseSuggestionCommand(command.args))
                                     : quotingError("suggest help")
                                 : undefined
+                        const parsedCleanup =
+                            name === "cleanup"
+                                ? command
+                                    ? usage(parseCleanupCommand(command.args))
+                                    : quotingError("cleanup help")
+                                : undefined
                         const levelName =
                             name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                         const eventName = name === "event" ? name : undefined
@@ -533,6 +622,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             if (
                                 message.guildId !== undefined ||
                                 !(
+                                    (metadataInvocation && metadata) ||
                                     (name === "milestone" && milestones) ||
                                     (name === "ticket" && tickets) ||
                                     (safetyName && moderation)
@@ -548,7 +638,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                       Effect.as(true),
                                       Effect.catch(() => Effect.succeed(false)),
                                   )
-                                : name === "ticket"
+                                : name === "ticket" || metadataInvocation
                                   ? verifyTicketPrivateAuthor(
                                         context.client,
                                         message.channelId,
@@ -564,7 +654,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             if (!verified) return
                         }
                         let protectionUnknown = false
-                        if (moderation) {
+                        if (moderation && !metadataInvocation) {
                             const publishingCritical =
                                 parsedPublishing &&
                                 !("error" in parsedPublishing) &&
@@ -605,7 +695,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass =
-                                name === "ticket" || name === "milestone"
+                                metadataInvocation || name === "ticket" || name === "milestone" || name === "cleanup"
                                     ? "critical"
                                     : safetyName
                                       ? safetyGateClass(safetyName, parsedSafety!)
@@ -634,6 +724,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             const privileged = !(
                                 name === "ticket" ||
                                 name === "milestone" ||
+                                name === "cleanup" ||
                                 gateClass === "public" ||
                                 gateClass === "appeal"
                             )
@@ -666,14 +757,23 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     : admitted.gate
                             const blocked = admitted.blocked
                             yield* applyDefconPresence(context.client, config, gate.defcon)
-                            if ((name !== "ticket" && name !== "milestone" && !gate.allowed) || blocked === true) {
+                            if (
+                                (name !== "ticket" && name !== "milestone" && name !== "cleanup" && !gate.allowed) ||
+                                blocked === true
+                            ) {
                                 if (!privateInvocation && store)
                                     yield* handleAfk(store, config.serverId, context, false, prefix)
                                 return
                             }
                             // A message protection could not judge gets no public command or reply. Leveling collection still runs
                             protectionUnknown = blocked === "unknown" && gateClass === "public"
-                        } else if (privateInvocation && name !== "ticket" && name !== "milestone") return
+                        } else if (
+                            privateInvocation &&
+                            name !== "ticket" &&
+                            name !== "milestone" &&
+                            !metadataInvocation
+                        )
+                            return
                         // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                         if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
                             const candidate = levelCandidate(message, config.serverId, config.backend.secret)
@@ -711,6 +811,33 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (metadataInvocation) {
+                                            // Gateway admission pauses while logs are off, so a logs command rechecks it
+                                            if (metadata)
+                                                yield* handleMetadataLogCommand(
+                                                    metadata,
+                                                    config,
+                                                    parsedMetadata!,
+                                                    context,
+                                                    metadataWorker,
+                                                ).pipe(Effect.ensuring(Effect.sync(() => admitMetadata?.recheck())))
+                                            return
+                                        }
+                                        if (name === "cleanup") {
+                                            if (cleanup)
+                                                yield* handleCleanupCommand(
+                                                    cleanup,
+                                                    config,
+                                                    parsedCleanup!,
+                                                    context,
+                                                    cleanupWorker,
+                                                )
+                                            else
+                                                yield* reply({
+                                                    content: notSetUp("Message cleanup"),
+                                                })
                                             return
                                         }
                                         if (name === "suggest") {
@@ -925,6 +1052,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             messageUpdate: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
+                        if (admitMetadata) yield* admitMetadata("messageUpdate", event, client)
                         if (
                             !moderation ||
                             event.guildId !== config.serverId ||
@@ -942,6 +1070,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             guildMemberAdd: {
                 handler: (context) =>
                     Effect.gen(function* () {
+                        if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
                         if (context.event.guildId !== config.serverId) return
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
@@ -998,6 +1127,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             guildMemberRemove: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
+                        if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
                         if (event.guildId !== config.serverId) return
                         if (eventWorker) yield* eventWorker.notifyMember(event.userId)
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
@@ -1014,6 +1144,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             guildMemberUpdate: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
+                        if (admitMetadata) yield* admitMetadata("guildMemberUpdate", event, client)
                         if (event.guildId !== config.serverId) return
                         // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
                         if (greetings)
@@ -1021,6 +1152,93 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)),
                             )
                     }),
+            },
+            messageDelete: {
+                handler: ({ event, client }) => admitMetadata?.("messageDelete", event, client) ?? Effect.void,
+            },
+            messageDeleteBulk: {
+                handler: ({ event, client }) => admitMetadata?.("messageDeleteBulk", event, client) ?? Effect.void,
+            },
+            guildRoleCreate: {
+                handler: ({ event, client }) => admitMetadata?.("guildRoleCreate", event, client) ?? Effect.void,
+            },
+            guildRoleUpdate: {
+                handler: ({ event, client }) => admitMetadata?.("guildRoleUpdate", event, client) ?? Effect.void,
+            },
+            guildRoleDelete: {
+                handler: ({ event, client }) => admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void,
+            },
+            guildRoleUpdateBulk: {
+                handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void,
+            },
+            guildChannelCreate: {
+                handler: ({ event, client }) => admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
+            },
+            // A changed category can move its channels or change their permissions, so the threads kept for the server are forgotten
+            guildChannelUpdate: {
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
+                        return admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void
+                    }),
+            },
+            guildChannelDelete: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        // Fluxer deletes a channel's threads with it and sends no thread events for them
+                        if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
+                        const threadIds = event.type === ChannelType.Category ? [] : forgetThreadsOf(client, event.id)
+                        if (admitMetadata) {
+                            yield* admitMetadata("guildChannelDelete", event, client)
+                            if (threadIds.length)
+                                yield* admitMetadata(
+                                    "threadsDeletedWithParent",
+                                    { guildId: event.guildId, id: event.id, threadIds },
+                                    client,
+                                )
+                        }
+                    }),
+            },
+            // Metadata logs record thread creation, changes and deletion
+            threadCreate: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        rememberThread(client, event)
+                        // A bot joining an existing thread is not a creation
+                        if (admitMetadata && event.isNewlyCreated) yield* admitMetadata("threadCreate", event, client)
+                    }),
+            },
+            threadUpdate: {
+                handler: ({ event, client }) => {
+                    const previous = rememberThread(client, event)
+                    return admitMetadata?.("threadUpdate", event, client, previous) ?? Effect.void
+                },
+            },
+            threadDelete: {
+                handler: ({ event, client }) => {
+                    forgetThread(client, event.id)
+                    return admitMetadata?.("threadDelete", event, client) ?? Effect.void
+                },
+            },
+            threadListSync: {
+                handler: ({ event, client }) =>
+                    Effect.sync(() => {
+                        for (const thread of event.threads) rememberThread(client, thread)
+                    }),
+            },
+            guildChannelUpdateBulk: {
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        forgetServerThreads(client, event.guildId)
+                        return admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void
+                    }),
+            },
+            guildUpdate: {
+                handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void,
+            },
+            guildAuditLogEntryCreate: {
+                handler: ({ event, client }) =>
+                    admitMetadata?.("guildAuditLogEntryCreate", event, client) ?? Effect.void,
             },
             messageReactionAdd: {
                 handler: ({ event, client }) =>

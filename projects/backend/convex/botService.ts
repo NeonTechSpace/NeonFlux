@@ -35,6 +35,10 @@ import * as milestones from "./milestones.ts"
 import * as milestonesDeliveryModule from "./milestonesDelivery.ts"
 import * as suggestions from "./suggestions.ts"
 import * as suggestionsWorkModule from "./suggestionsWork.ts"
+import * as cleanup from "./cleanup.ts"
+import * as cleanupWorkModule from "./cleanupWork.ts"
+import * as metadataLogs from "./metadataLogs.ts"
+import * as metadataLogsWorkModule from "./metadataLogsWork.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -277,3 +281,12 @@ export const suggestionsQuery = botQuery(65536, suggestions.query)
 export const suggestionsManage = botMutation(65536, suggestions.manage)
 export const suggestionsMember = botMutation(65536, suggestions.member)
 export const suggestionsWork = botMutation(65536, suggestionsWorkModule.work)
+
+export const cleanupQuery = botQuery(65536, cleanup.query)
+export const cleanupManage = botMutation(65536, cleanup.manage)
+export const cleanupWork = botMutation(65536, cleanupWorkModule.work)
+
+export const metadataLogsQuery = botQuery(65536, metadataLogs.query)
+export const metadataLogsManage = botMutation(65536, metadataLogs.manage)
+export const metadataLogsAdmit = botMutation(65536, metadataLogs.admit)
+export const metadataLogsWork = botMutation(65536, metadataLogsWorkModule.work)

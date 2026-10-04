@@ -26,6 +26,7 @@ export const BUILT_IN_COMMANDS = [
     "goodbye",
     "custom",
     "auto",
+    "cleanup",
     "ticket",
     "suggest",
     "rank",

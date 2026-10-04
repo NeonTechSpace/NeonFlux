@@ -45,6 +45,10 @@ async function work(t: Backend, cursor: string | null = null, held?: string | nu
 }
 const only = (serverIds: Partial<Record<ServiceWorkKind, string[]>>) =>
     Object.fromEntries(WORK_KINDS.map((kind) => [kind, serverIds[kind] ?? []]))
+async function defcon(ctx: Ctx, serverId: string, level: 1 | 2 | 3) {
+    const id = await insertDocument(ctx, "moderationSettings", serverId)
+    await ctx.db.patch(id, { config: { ...(await ctx.db.get(id))!.config, defcon: level } })
+}
 // Due work of every worker kind for one server, with the settings that let each gated worker act
 async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "eventSettings", serverId, { enabled: true })
@@ -62,6 +66,9 @@ async function dueWork(ctx: Ctx, serverId: string) {
     await insertDocument(ctx, "milestoneEnrollments", serverId, { nextCheckAt: now - 1000 })
     await insertDocument(ctx, "suggestionSettings", serverId, { enabled: true })
     await insertDocument(ctx, "suggestions", serverId, { dirty: true, nextCheckAt: now - 1000 })
+    await insertDocument(ctx, "cleanupSettings", serverId, { enabled: true })
+    await insertDocument(ctx, "cleanupPolicies", serverId, { enabled: true, nextCheckAt: now - 1000 })
+    await insertDocument(ctx, "metadataLogRecords", serverId, { actionable: true, nextCheckAt: now - 1000 })
     await insertDocument(ctx, "levelingProfiles", serverId, { rewardDueAt: now - 1000 })
 }
 
@@ -69,7 +76,7 @@ test("The work route authenticates, validates its cursor and costs nothing when 
     tc.mock.method(Date, "now", () => now)
     const t = backend()
     assert.equal((await post(t, "/service/work", {}, undefined, "synthetic-wrong-secret-0000000000000000")).status, 401)
-    for (const cursor of [5, "", "{", "[]", '{"unknown":[1,2]}', '{"scheduleDeliveries":[1]}'])
+    for (const cursor of [5, "", "{", "[]", '{"unknown":[1,2]}', '{"cleanupPolicies":[1]}'])
         assert.equal((await post(t, "/service/work", { cursor })).status, 400)
     assert.equal((await post(t, "/service/work", { cursor: "x".repeat(5000) })).status, 413)
     assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: null })
@@ -106,6 +113,10 @@ test("Each worker kind reports exactly the servers its worker would find work fo
         })
         await insertDocument(ctx, "milestoneEnrollments", "20", { nextCheckAt: now + 1000 })
         await insertDocument(ctx, "suggestions", "20", { dirty: true, nextCheckAt: now - 1000 })
+        await insertDocument(ctx, "cleanupSettings", "20", { enabled: true })
+        await insertDocument(ctx, "cleanupPolicies", "20", { enabled: true, nextCheckAt: now - 1000 })
+        await defcon(ctx, "20", 1)
+        await insertDocument(ctx, "metadataLogRecords", "20", { actionable: false, nextCheckAt: now - 1000 })
         await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
     })
     // Server 20's milestone and level reward rows are due in one second. Gates and the server scope do not hide due times
@@ -115,7 +126,10 @@ test("Each worker kind reports exactly the servers its worker would find work fo
         nextDueIn: 1000,
     })
 
-    // The workers' own endpoints agree for level rewards
+    // The workers' own endpoints agree for cleanup and level rewards
+    const cleanup = async (serverId: string) =>
+        post(t, "/cleanup/work", { serverId, operation: { type: "list" } }, serverId)
+    assert.equal(((await (await cleanup("10")).json()) as { policies: unknown[] }).policies.length, 1)
     const levels = async (serverId: string) =>
         (await (await post(t, "/levels/work", { serverId, operation: { type: "list" } }, serverId)).json()) as {
             accounts: unknown[]
@@ -125,6 +139,7 @@ test("Each worker kind reports exactly the servers its worker would find work fo
     // Server 20 has no work any worker would act on now
     process.env.NEONFLUX_SERVER_ID = "20"
     assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: 1000 })
+    assert.equal((await cleanup("20")).status, 403)
     assert.equal((await levels("20")).accounts.length, 0)
 })
 
@@ -219,23 +234,19 @@ test("Due rows of other servers cannot hide the configured server's work", async
         others = WORK_ROWS_PER_SOURCE + 20
     await t.run(async (ctx) => {
         for (let index = 0; index < others; index++) {
-            await insertDocument(ctx, "scheduleDeliveries", String(2000 + index), {
-                active: true,
-                dueAt: now - 500000 + index,
+            await insertDocument(ctx, "cleanupPolicies", String(2000 + index), {
+                enabled: true,
                 nextCheckAt: now - 500000 + index,
             })
         }
-        await insertDocument(ctx, "scheduleDeliveries", "10", {
-            active: true,
-            dueAt: now - 1000,
-            nextCheckAt: now - 1000,
-        })
+        await insertDocument(ctx, "cleanupSettings", "10", { enabled: true })
+        await insertDocument(ctx, "cleanupPolicies", "10", { enabled: true, nextCheckAt: now - 1000 })
     })
     const first = await work(t)
-    assert.deepEqual(first.kinds.schedules, [])
+    assert.deepEqual(first.kinds.cleanup, [])
     assert.notEqual(first.cursor, null)
     const second = await work(t, first.cursor)
-    assert.deepEqual(second.kinds.schedules, ["10"])
+    assert.deepEqual(second.kinds.cleanup, ["10"])
     assert.equal(second.cursor, null)
 })
 test("A fresh read goes on with both a held backlog and a source that became unfinished since", async (tc) => {
@@ -243,9 +254,8 @@ test("A fresh read goes on with both a held backlog and a source that became unf
     const t = backend()
     await t.run(async (ctx) => {
         for (let index = 0; index < 2 * WORK_ROWS_PER_SOURCE + 20; index++) {
-            await insertDocument(ctx, "scheduleDeliveries", String(2000 + index), {
-                active: true,
-                dueAt: now - 500000 + index,
+            await insertDocument(ctx, "cleanupPolicies", String(2000 + index), {
+                enabled: true,
                 nextCheckAt: now - 500000 + index,
             })
         }

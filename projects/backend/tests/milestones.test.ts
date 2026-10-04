@@ -35,6 +35,7 @@ const modules = {
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/milestonesCleanup.ts": () => import("../convex/milestonesCleanup.ts"),
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
+    "../convex/metadataLogsWork.ts": () => import("../convex/metadataLogsWork.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),

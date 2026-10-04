@@ -1,8 +1,10 @@
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { cleanupHelpAll } from "./cleanup-command.ts"
 import { eventHelpAll } from "./event-command.ts"
 import { withPrefix } from "./general-settings.ts"
 import { levelHelpAll } from "./level-command.ts"
+import { metadataLogHelpAll } from "./metadata-log-command.ts"
 import { milestoneHelpAll } from "./milestone-command.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
@@ -28,11 +30,13 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     level: levelHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
+    cleanup: cleanupHelpAll,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     mod: safetyHelpAll.mod,
     automod: safetyHelpAll.automod,
     security: safetyHelpAll.security,
+    "logs metadata": metadataLogHelpAll,
     suggest: suggestionHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),

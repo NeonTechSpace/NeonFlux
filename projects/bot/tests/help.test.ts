@@ -4,9 +4,11 @@ import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
+import { cleanupHelp, cleanupHelpAll } from "../src/cleanup-command.ts"
 import { eventHelp, eventHelpAll } from "../src/event-command.ts"
 import { helpAllRequest } from "../src/help.ts"
 import { levelHelp, levelHelpAll } from "../src/level-command.ts"
+import { metadataLogHelp, metadataLogHelpAll } from "../src/metadata-log-command.ts"
 import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
@@ -80,8 +82,10 @@ const commandHelps: Record<string, string> = {
     autorole: roleHelp("autorole"),
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
+    cleanup: cleanupHelp,
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
     suggest: suggestionHelp,
+    "logs metadata": metadataLogHelp,
     welcome: greetingsHelp("welcome"),
     "welcome dm": greetingsHelp("dm"),
     goodbye: greetingsHelp("goodbye"),
@@ -98,8 +102,10 @@ const helpAlls: Record<string, readonly string[]> = {
     autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
+    cleanup: cleanupHelpAll,
     ...safetyHelpAll,
     suggest: suggestionHelpAll,
+    "logs metadata": metadataLogHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),
     goodbye: greetingsHelpAll("goodbye"),
@@ -188,6 +194,7 @@ test("help all lists a command's remaining forms ten at a time with next, also f
                 ])
                 assert.deepEqual(yield* say("?publish schedule help all"), [prefixed(scheduleHelpAll)])
                 assert.deepEqual(yield* say("?welcome dm help all"), [prefixed(greetingsHelpAll("dm"))])
+                assert.deepEqual(yield* say("?logs metadata help all"), [prefixed(metadataLogHelpAll)])
                 for (const [path, forms] of Object.entries(helpAlls))
                     assert.ok(forms.length > 0 && forms.length <= 30, path)
                 assert.equal(bot.failures().length, 0)

@@ -152,18 +152,27 @@ test("a stop requested before startup completes without registering process list
     assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")], before)
 })
 
-// Dispatch types of the events NeonFlux handles and of those its SDK caches need
+// Dispatch types that deliver the events NeonFlux handles
 const handledDispatches = [
     "MESSAGE_CREATE",
     "MESSAGE_UPDATE",
+    "MESSAGE_DELETE",
+    "MESSAGE_DELETE_BULK",
     "GUILD_MEMBER_ADD",
     "GUILD_MEMBER_UPDATE",
     "GUILD_MEMBER_REMOVE",
+    "GUILD_ROLE_CREATE",
+    "GUILD_ROLE_UPDATE",
+    "GUILD_ROLE_DELETE",
+    "GUILD_ROLE_UPDATE_BULK",
+    "CHANNEL_CREATE",
     "CHANNEL_UPDATE",
     "CHANNEL_DELETE",
     "CHANNEL_UPDATE_BULK",
     "GUILD_CREATE",
+    "GUILD_UPDATE",
     "GUILD_DELETE",
+    "GUILD_AUDIT_LOG_ENTRY_CREATE",
     "MESSAGE_REACTION_ADD",
     "MESSAGE_REACTION_REMOVE",
     "MESSAGE_REACTION_REMOVE_ALL",
@@ -205,6 +214,25 @@ test("the bot asks Fluxer to skip unhandled dispatches and keeps every handled o
                 )
                 assert.equal(typing._tag, "Failure")
                 yield* bot.idle()
+            }),
+        ),
+    )
+})
+
+test("a server whose GUILD_CREATE frame is over 4 MiB keeps its guild event", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(createBotOptions({ token, serverId: createFixtures().ids.guild }))
+                yield* bot.ready()
+                // The SDK counts each event of a frame at the whole frame, so each is bigger than its default queue limit
+                yield* bot.emit("GUILD_CREATE", {
+                    ...bot.fixtures.guildCreate({ channels: [], voice_states: [] }),
+                    padding: "x".repeat(5000000),
+                })
+                assert.equal(bot.counters().eventsDropped.overflow, 0)
+                yield* bot.idle({ timeoutMs: 30000 })
+                assert.equal(bot.failures().length, 0)
             }),
         ),
     )

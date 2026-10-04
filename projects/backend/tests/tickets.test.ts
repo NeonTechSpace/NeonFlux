@@ -1259,6 +1259,7 @@ test("A failed reopen that is reconciled and erased leaves a closed ticket that 
     assert.equal(reconciled.ticket.state, "closed")
     assert.equal((await f.table("tickets"))[0]!.active, false)
     // The slot reserved when the reopen began is freed and the bodies get their expiry back
+    assert.equal((await f.table("ticketSettings"))[0]!.activeTickets, 0)
     assert((await f.table("tickets"))[0]!.bodyExpiresAt !== undefined)
     const erased = await read(
         await f.manage(

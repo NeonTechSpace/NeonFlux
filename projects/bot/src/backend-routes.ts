@@ -80,6 +80,13 @@ export const backendRoutes = {
     "/suggestions/manage": "suggestionsManage",
     "/suggestions/member": "suggestionsMember",
     "/suggestions/work": "suggestionsWork",
+    "/cleanup/query": "cleanupQuery",
+    "/cleanup/manage": "cleanupManage",
+    "/cleanup/work": "cleanupWork",
+    "/metadata-logs/query": "metadataLogsQuery",
+    "/metadata-logs/manage": "metadataLogsManage",
+    "/metadata-logs/admit": "metadataLogsAdmit",
+    "/metadata-logs/work": "metadataLogsWork",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

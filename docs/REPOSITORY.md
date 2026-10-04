@@ -28,7 +28,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   and kind the [service contract](../projects/contracts/src/service.ts) owns.
   [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher, and
   [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop workers can share
-- [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold
+- [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the forms each command's own help leaves out, which `help all` lists,
   and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing permission or role position into the
@@ -59,7 +59,7 @@ The requests and answers between them live in the feature's module of the [contr
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
 | --- | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `general-settings`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `generalSettings`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `thread-memory`, `general-settings`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `generalSettings`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
@@ -67,6 +67,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
 | Message leveling | `level`, `leveling` | `leveling` | `leveling` |
 | Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
+| Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

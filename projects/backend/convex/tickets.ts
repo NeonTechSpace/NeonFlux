@@ -60,6 +60,7 @@ import {
     rejectTicketAudience,
     reserveTicket,
     ticketAttemptBlocks,
+    countActiveTickets,
 } from "./ticketStore.ts"
 
 function aliveBodies(ticket: Doc<"tickets">) {
@@ -315,6 +316,7 @@ export const manage = serviceMutation({
                     .take(3)
                 if (ownActive.length >= 3) fail(429, "Requester active ticket limit")
                 await ctx.db.patch(ticket._id, { active: true })
+                await countActiveTickets(ctx, ticket.serverId, ticket.active ? 0 : 1)
             }
             await ctx.db.patch(ticket._id, {
                 transition: op.type,
@@ -481,6 +483,7 @@ export const intake = serviceMutation({
                 erased: false,
                 erasing: false,
             })
+        await countActiveTickets(ctx, identity.serverId, 1)
         await ctx.db.patch(draft._id, {
             state: "submitted",
             ticketNo,

@@ -95,6 +95,12 @@ export function name(value: unknown): string {
     return result
 }
 
+export function cursor(value: unknown): string | null {
+    if (value === undefined || value === null) return null
+    if (typeof value !== "string" || !value.length || value.length > 16384) fail(400, "Invalid cursor")
+    return value
+}
+
 // A value as JSON with its object keys sorted, so a replayed request compares equal whatever order its keys arrived in
 export const canonicalJson = (value: unknown): string | undefined =>
     JSON.stringify(value, (_, item: unknown) =>

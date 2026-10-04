@@ -22,7 +22,9 @@ The bot runs on the SDK's native Effect lifecycle through `runBot`, with backgro
 rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
-The bot keeps one serialized `messageCreate` pipeline
+The bot keeps one serialized `messageCreate` pipeline.
+The event that a server availability frame carries has a 1 GiB byte limit instead of 4 MiB, because the SDK counts it
+at the size of the whole frame
 
 The bot owns its Fluxer token and every provider operation.
 It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.

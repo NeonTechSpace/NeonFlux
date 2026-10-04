@@ -3,8 +3,10 @@ import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
+import type { CleanupContext } from "@neonflux/contracts/cleanup"
 import type { TicketContext } from "@neonflux/contracts/tickets"
 import type { MutationCtx } from "../convex/_generated/server.js"
+import { cleanupAutomation } from "../convex/cleanupStore.ts"
 import { memberRecoveries } from "../convex/moderationStore.ts"
 import { participationProtection } from "../convex/roleClaims.ts"
 import { ticketProtection } from "../convex/ticketStore.ts"
@@ -125,5 +127,19 @@ test("Tickets ignore an ended quarantine", async () => {
         await quarantined(),
         (ctx) => ticketProtection(ctx, "10", context),
         /Ticket member restricted/,
+    )
+})
+
+test("Message cleanup ignores an ended quarantine", async () => {
+    const context = {
+        channelId: "30",
+        botAuthorized: true,
+        botKind: "bot",
+        botMember: { userId: "20", isBot: true, canView: true, canReadHistory: true, timeoutUntil: null },
+    } as unknown as CleanupContext
+    await blocksUntilDeadline(
+        await quarantined(),
+        (ctx) => cleanupAutomation(ctx, "10", context, "30"),
+        /Quarantine blocks cleanup/,
     )
 })

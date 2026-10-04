@@ -14,6 +14,14 @@ import { decode, fail, name } from "./validation.ts"
 
 export type RolesRead = MutationCtx | QueryCtx
 
+export async function panelProtectsMessage(ctx: RolesRead, serverId: string, channelId: string, messageId: string) {
+    return !!(await ctx.db
+        .query("rolePanels")
+        .withIndex("by_native_message", (q) =>
+            q.eq("serverId", serverId).eq("published.channelId", channelId).eq("published.messageId", messageId),
+        )
+        .first())
+}
 export async function readRolesSettings(ctx: RolesRead, serverId: string) {
     return ctx.db
         .query("roleSettings")

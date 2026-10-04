@@ -84,7 +84,7 @@ pnpm run deploy:dev
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling and tickets ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
+Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation, leveling, tickets and message cleanup ignore it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
 
 ### Opt-in live smoke runner
 
@@ -94,7 +94,7 @@ The script is described in [the bot guide](BOT.md#live-moderation-check)
 
 ### Threads and channel rules
 
-For a message in a thread, the bot sends the thread's parent channel as `parentChannelId` with `/moderation/evaluate`, `/responses/evaluate` and leveling candidates. It is validated like any other ID and must differ from the message's channel. Channel rules then match the thread or its parent: automod channels and exemptions, honeypot channels, response channel restrictions and leveling's excluded channels. `automodWindows` keeps the parent with each message, so a rule scoped to a channel counts its threads' messages too. Without `parentChannelId`, rules match only the message's own channel
+For a message in a thread, the bot sends the thread's parent channel as `parentChannelId` with `/moderation/evaluate`, `/responses/evaluate`, leveling candidates and metadata message events. It is validated like any other ID and must differ from the message's channel. Channel rules then match the thread or its parent: automod channels and exemptions, honeypot channels, response channel restrictions, leveling's excluded channels, and metadata logs' message channels, excluded channels, log destinations and ticket channels. `automodWindows` keeps the parent with each message, so a rule scoped to a channel counts its threads' messages too. Without `parentChannelId`, rules match only the message's own channel
 
 ### Prefix
 
@@ -255,6 +255,45 @@ works as for any other configuration
 
 While DEFCON is below 3, `list` returns no cards and the work dispatcher does not list the server for suggestions, as while suggestions or publishing are off. Cards keep their changes and stay due, and returning to DEFCON 3 raises the work signal, so the bot lists them at once
 
+## Message cleanup and metadata logs
+
+### Automatic message cleanup
+
+Cleanup starts disabled at module and channel level. Each channel policy sets an age from one hour to 365 days and can
+exclude up to 50 authors and 100 messages, with at most 50 policies per server. Enabling a policy needs explicit
+confirmation because existing old messages may be deleted. Automatic work runs under the server automation policy: The
+bot's permissions, the module and policy switches, and DEFCON. The atomic backend claim is the final check before each
+delete. A claim of a queued target reserves it in the same mutation, so each deletion costs one claim and one outcome. Every target expires 30
+days after it settles, also one whose deletion failed or has an unknown result, because a message delete is safe to
+repeat once its record is gone. Retention keeps an expired target that is still active and checks it again a day later,
+so kept targets never hold up later expired ones. A sweep
+that reached the end of a channel sets the policy's next check 15 minutes ahead instead of one minute
+
+Pinned, system, webhook, bot and unclassifiable messages are skipped, as are protected publishing and panel messages. No message bodies or attachments are stored. Delete grants expire after 120 seconds with a five-second native request, and uncertain deletes are not retried. Settled audit expires after 30 days
+
+### Metadata logs
+
+Metadata logs record body-free server events, such as configuration, member, channel and role changes and 18 audit-log actions, into configured log channels. Settings hold module and category routes, per-event overrides, message opt-ins and channel exclusions. Records keep changed-field names and at most 20 resource IDs. Thread events are the resources types `thread-create`, `thread-update` and `thread-delete`, which require `parentChannelId`. A `thread-delete` record for a deleted parent carries the count of the threads the bot knew, with up to 20 of their IDs
+
+Each server retains at most 10,000 records, and the oldest are evicted at capacity. There is no daily cap. While no
+channel is listed for message logging, the admit answer for a message event is `messages-off` and writes nothing, and
+the bot skips message events for a minute or until a `!logs` change. Settled records expire after 30 days. Delivery runs
+as the bot under the automation policy with a 120-second grant and five-second request, and uncertain sends are not
+replayed. `!logs metadata status` reports the bot's current permissions in each enabled destination
+
+The bot reports a destination that Fluxer answered does not exist with the work operation `destination-missing`. It
+settles an unclaimed queued, reserved or retried delivery as `failed` with `noDispatch` and `problem: "channel"`, which
+is never discovered, reserved or deferred again and expires with its record. A repeated report returns the settled
+record, and a claimed delivery is refused, so its unknown outcome stays open. Any other failed read of the destination
+is deferred by a minute. A claimed delivery that a retryable failure such as a rate limit stopped before it ran is
+reported as an `outcome` of `failed` with `unsent`, which settles it as `failed` with `noDispatch` and due a minute
+later, without its claim, so a fresh generation may reserve it. Every other unsuccessful send stays uncertain and is not
+replayed, and such a send that returned no message may be forgotten once its window has passed
+
+`discover` returns a waiting delivery only while DEFCON is not 1 and the module and the delivery's category or event route are on. Otherwise it sets the record's `nextCheckAt` to its expiry, so neither `discover` nor the work dispatcher sees it again before then. Turning the module, a route or an event route on wakes the waiting deliveries whose module and route are now on. Changing DEFCON from 1 to 2 or 3 schedules the same wake. Nothing wakes while DEFCON is 1. Each transaction reads 100 records in number order and schedules the next batch. A delivery still waiting at expiry is cancelled like any other
+
+The counters report reads three settings rows. Retained moderation cases are the cases numbered so far minus `casesRemoved`, which retention increments for each case it deletes. `ticketSettings.activeTickets` changes with every ticket that becomes active or inactive
+
 ## Server scope
 
 A deployment serves the server in `NEONFLUX_SERVER_ID`. The deployment owns the scope, so changing it means updating the deployment and restarting the bot, which adopts it. A bot environment that sets its own `NEONFLUX_SERVER_ID` must match
@@ -275,6 +314,8 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
 | `milestones` | An enrollment's check time has passed | `milestoneEnrollments.by_global_discovery` |
 | `suggestions` | A changed card is due while suggestions and publishing are on at DEFCON 3 | `suggestions.by_global_work` |
+| `cleanup` | An enabled policy is due while cleanup is on and DEFCON is not 1 | `cleanupPolicies.by_global_due` |
+| `metadata` | A record with delivery work is due | `metadataLogRecords.by_global_work` |
 | `levels` | A dirty level profile's reward time has passed, or a reward sweep is pending | `levelingProfiles.by_global_reward_due`, `levelingSettings.by_sweep` |
 
-The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Scheduled wake batches raise it when they make held work due: scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Scheduled wake batches raise it when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting

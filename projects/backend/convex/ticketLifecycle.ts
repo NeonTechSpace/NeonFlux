@@ -40,6 +40,7 @@ import {
     reserveTicket,
     ticketAttemptBlocks,
     ticketOwnsNativeResource,
+    countActiveTickets,
 } from "./ticketStore.ts"
 
 export const dispatch = serviceMutation({
@@ -186,6 +187,7 @@ async function completed(
                       ownedPermissions: undefined,
                   }),
         })
+        await countActiveTickets(ctx, ticket.serverId, Number(!closing) - Number(ticket.active))
     } else if (action === "delete") await retireTicket(ctx, ticket)
 }
 async function retireTicket(ctx: MutationCtx, ticket: Doc<"tickets">) {
@@ -203,6 +205,7 @@ async function retireTicket(ctx: MutationCtx, ticket: Doc<"tickets">) {
             : {}),
         ...(ticket.erased ? { tombstoneExpiresAt: Date.now() + 30 * TICKET_DAY } : {}),
     })
+    await countActiveTickets(ctx, ticket.serverId, -Number(ticket.active))
     await releaseTicketNative(ctx, ticket)
 }
 function createReadback(ticket: Doc<"tickets">, attempt: Doc<"ticketAttempts">, channel: TicketChannelSnapshot) {
@@ -227,6 +230,7 @@ async function failedBefore(ctx: MutationCtx, ticket: Doc<"tickets">, attempt: D
             bodyExpiresAt:
                 Date.now() + (await readTicketSettings(ctx, ticket.serverId))!.config.retentionDays * TICKET_DAY,
         })
+        await countActiveTickets(ctx, ticket.serverId, -Number(ticket.active))
         await releaseTicketNative(ctx, ticket)
     } else if (attempt.grant!.action === "delete") await ctx.db.patch(ticket._id, { state: "closed" })
     else if (attempt.grant!.action.startsWith("close-") || attempt.grant!.action.startsWith("reopen-")) {
@@ -250,6 +254,7 @@ async function failedBefore(ctx: MutationCtx, ticket: Doc<"tickets">, attempt: D
                           : {}),
                   }),
         })
+        if (!closing) await countActiveTickets(ctx, ticket.serverId, -Number(ticket.active))
     }
 }
 async function unknownCreate(ctx: MutationCtx, ticket: Doc<"tickets">) {
@@ -262,6 +267,7 @@ async function unknownCreate(ctx: MutationCtx, ticket: Doc<"tickets">) {
 export async function releaseUnknownCreateSlot(ctx: MutationCtx, ticket: Doc<"tickets">) {
     if (!ticket.active || !(await unknownCreate(ctx, ticket))) return false
     await ctx.db.patch(ticket._id, { active: false })
+    await countActiveTickets(ctx, ticket.serverId, -1)
     return true
 }
 export const outcome = serviceMutation({

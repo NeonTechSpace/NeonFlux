@@ -274,6 +274,7 @@ test("Domain validation rejects reserved names, scripts, unknown templates and o
         "welcome",
         "goodbye",
         "event",
+        "cleanup",
         "milestone",
         "suggest",
         "With Space",

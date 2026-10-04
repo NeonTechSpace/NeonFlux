@@ -33,6 +33,7 @@ const modules = {
     "../convex/roleParticipation.ts": () => import("../convex/roleParticipation.ts"),
     "../convex/roleLifecycle.ts": () => import("../convex/roleLifecycle.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
+    "../convex/metadataLogsWork.ts": () => import("../convex/metadataLogsWork.ts"),
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/milestonesDelivery.ts": () => import("../convex/milestonesDelivery.ts"),
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),

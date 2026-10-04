@@ -62,8 +62,16 @@ export async function ticketState(ctx: MutationCtx, serverId: string) {
         nextEntryNo: 1,
         nextAttemptNo: 1,
         nextTranscriptNo: 1,
+        activeTickets: 0,
     })
     return (await ctx.db.get(id))!
+}
+/** Applies a change of active tickets after the tickets were written */
+export async function countActiveTickets(ctx: MutationCtx, serverId: string, delta: number) {
+    if (!delta) return
+    const state = await readTicketSettings(ctx, serverId)
+    if (!state) return
+    await ctx.db.patch(state._id, { activeTickets: Math.max(0, state.activeTickets + delta) })
 }
 export async function ticketNumber(
     ctx: MutationCtx,
