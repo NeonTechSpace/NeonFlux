@@ -399,6 +399,76 @@ export type PublishingReconcileResult = { recorded: boolean, post: PublishingPos
 export type PublishingObserveRequest = { serverId: string, mode: "restart" | "aged" }
 export type PublishingObserveResult = { uncertainAttempts: number }
 
+export type RolesReservation = { userId: string, roleIds: string[] }
+export type RolesSettings = { panelsEnabled: boolean, verificationEnabled: boolean, autoroleEnabled: boolean, humansOnly: boolean, autoroleIds: string[], reservations?: RolesReservation[], revision: number }
+export type RolesPanelKind = "reaction" | "verification"
+export type RolesMapping = { emoji: string, roleId: string, prerequisiteRoleIds: string[], exclusionRoleIds: string[] }
+export type RolesPanelSnapshot = { revision: number, publishedAt: number, postNo: number, postGeneration: number, channelId: string, messageId: string, botId: string, content: PublishingContent, mappings: RolesMapping[], exclusive: boolean }
+export type RolesPanel = { name: string, kind: RolesPanelKind, revision: number, enabled: boolean, exclusive: boolean, mappings: RolesMapping[], published?: RolesPanelSnapshot, withdrawing: boolean }
+export type RolesRoleSnapshot = { roleId: string, permissions: string, botCanManage: boolean, actorCanManage: boolean }
+export type RolesMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, botId: string, botAuthorized: boolean, roles: RolesRoleSnapshot[] }
+export type RolesSource = { sourceId: string, createdAt: number }
+export type RolesOutcome = "pending" | "succeeded" | "failed" | "uncertain"
+export type RolesGrant = { attemptId: string, ownershipId: string, generation: number, sourceId: string, action: "add" | "remove", userId: string, joinedAt: string, roleId: string, botId: string, expectedPresent: boolean, consumerKey: string, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type RolesAttempt = RolesGrant & { outcome: RolesOutcome, createdAt: number, finishedAt?: number, noDispatch?: true, dispatchedAt?: number }
+export type RolesClaim = { ownershipId: string, userId: string, joinedAt: string, roleId: string, generation: number, owned: boolean, status: "idle" | "pending" | "uncertain", consumerKeys: string[], attempt?: RolesAttempt }
+export type RolesAcknowledgment = { acknowledged: boolean, rulesRevision?: number, acknowledgedAt?: number, accessConfirmed: boolean, accessRolePresent: boolean }
+export type RolesManageOperation =
+    | { type: "settings", patch: Partial<Omit<RolesSettings, "revision">>, roles?: RolesRoleSnapshot[], expectedRevision?: number }
+    | { type: "panel-create", name: string, kind: RolesPanelKind, mappings?: RolesMapping[], roles?: RolesRoleSnapshot[], exclusive?: boolean }
+    | { type: "panel-update", name: string, expectedRevision: number, patch: { enabled?: boolean, exclusive?: boolean, mappings?: RolesMapping[] }, roles?: RolesRoleSnapshot[] }
+    | { type: "panel-bind", name: string, expectedRevision: number, postNo: number, expectedPostGeneration: number }
+    | { type: "withdraw", name: string, revision: number, deletePanel?: boolean }
+    | { type: "autorole-withdraw", revision: number }
+    | { type: "withdraw-next", withdrawalId: string, expectedStep: number }
+    | ({ type: "withdraw-departed", withdrawalId: string, userId: string, joinedAt: string, currentJoinedAt: string | null, observedAt: number, memberUserId?: string })
+export type RolesWithdrawal = { withdrawalId: string, consumerKey: string, step: number, status: "pending" | "blocked" | "complete", remainingAtLeast: number, hasMore: boolean, deletePanel: boolean, targets: { userId: string, joinedAt: string, roleId: string }[], nextCursor?: string }
+export type RolesManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: RolesManageOperation }
+export type RolesManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: RolesSettings } | { duplicate: false, type: "panel", panel: RolesPanel } | { duplicate: false, type: "withdrawal", withdrawal: RolesWithdrawal }
+export type RolesQueryRequest = { serverId: string, actor: ModerationActor, operation:
+    | { type: "settings" } | { type: "panel-show", name: string } | { type: "panel-list", page?: number }
+    | { type: "claim-list", userId: string, joinedAt: string, cursor?: string }
+    | { type: "attempt-show", attemptId: string } | { type: "withdrawal-show", withdrawalId: string, cursor?: string }
+    | { type: "configuration-list", name?: string, cursor?: string }
+}
+export type RolesQueryResult = { type: "settings", settings: RolesSettings } | { type: "panel", panel: RolesPanel } | { type: "panels", panels: RolesPanel[], page: number, totalPages: number }
+    | { type: "claims", claims: RolesClaim[], nextCursor?: string } | { type: "attempt", attempt: RolesAttempt } | { type: "withdrawal", withdrawal: RolesWithdrawal }
+    | { type: "configurations", references: { consumerKey: string, roleId: string, postNo?: number }[], nextCursor?: string }
+export type RolesEvaluateOperation = { type: "choose", name: string, revision: number, roleId: string, selected: boolean }
+    | { type: "reaction", name: string, revision: number, messageId: string, presentEmojis: string[], panelVerified: boolean }
+    | { type: "verify", name: string, revision: number, messageId?: string, panelVerified?: boolean, reactionPresent?: boolean }
+    | { type: "join" }
+    | { type: "withdraw", withdrawalId: string, roleId: string }
+    | { type: "withdraw-member", consumerKey: string, roleId: string }
+export type RolesEvaluateRequest = RolesSource & { serverId: string, context: RolesMemberContext, operation: RolesEvaluateOperation, continuationAttemptId?: string, actor?: ModerationActor, reactionJob?: RolesReactionJobBinding }
+export type RolesEvaluateResult = { duplicate: boolean, status: "unchanged" | "acknowledged" | "reserved" | "partial" | "ambiguous" | "blocked", acknowledgment: RolesAcknowledgment, grant?: RolesGrant }
+export type RolesDispatchRequest = { serverId: string, attemptId: string, ownershipId: string, generation: number, sourceId: string, claimToken: string, context: RolesMemberContext, actor?: ModerationActor }
+export type RolesDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type RolesOutcomeRequest = Omit<RolesDispatchRequest, "claimToken" | "context" | "actor"> & { claimToken?: string, outcome: Exclude<RolesOutcome, "pending"> }
+export type RolesOutcomeResult = { recorded: boolean }
+export type RolesReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, attemptId: string, generation: number, observation: { observedAt: number, userId: string, joinedAt: string, roleId: string, present: boolean } }
+export type RolesReconcileResult = { recorded: boolean, claim: RolesClaim }
+export type RolesMemberQueryRequest = { serverId: string, context: RolesMemberContext }
+export type RolesMemberQueryResult = { settings: RolesSettings, panels: RolesPanel[], acknowledgment: RolesAcknowledgment }
+export type RolesObserveRequest = { serverId: string, mode: "restart" | "aged" }
+export type RolesObserveResult = { uncertainAttempts: number }
+export type RolesPolicyRequest = { serverId: string }
+export type RolesPolicyResult = { settings: RolesSettings }
+export type RolesReactionJobBinding = { jobId: string, generation: number, claimToken: string, pageStep: number, index: number }
+export type RolesReactionJob = { jobId: string, name: string, revision: number, messageId: string, channelId: string, generation: number, pageStep: number, status: "queued" | "running" | "blocked" | "complete" | "cancelled", rerun: boolean, leaseExpiresAt?: number }
+export type RolesReactionJobsRequest = { serverId: string, operation:
+    | { type: "enqueue", messageId: string }
+    | { type: "list" }
+    | { type: "claim", jobId: string, claimToken: string }
+    | ({ type: "skip", binding: RolesReactionJobBinding, currentJoinedAt: string | null, observedAt?: number, memberUserId?: string })
+    | { type: "block", binding: RolesReactionJobBinding }
+    | { type: "checkpoint", jobId: string, generation: number, claimToken: string, pageStep: number, blocked: boolean }
+}
+export type RolesReactionJobsResult = { type: "jobs", jobs: RolesReactionJob[] }
+    | { type: "job", job: RolesReactionJob }
+    | { type: "page", claimed: false, job: RolesReactionJob }
+    | { type: "page", claimed: true, job: RolesReactionJob, targets: { userId: string, joinedAt: string, sourceId: string }[], hasMore: boolean }
+
 export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
 export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }

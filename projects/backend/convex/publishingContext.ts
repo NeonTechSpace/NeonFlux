@@ -1,12 +1,9 @@
 import type { SchedulesContext, SchedulesMemberContext } from "../contracts.js"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { actor, administrator } from "./moderationDomain.ts"
+import { epoch } from "./rolesDomain.ts"
 import { shape } from "./publishingDomain.ts"
 import { fail, requireId, bool, ids, integer } from "./validation.ts"
-function epoch(value: unknown): string {
-    if (typeof value !== "string" || value.length > 64 || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(value) || !Number.isFinite(Date.parse(value))) fail(400, "Invalid membership epoch")
-    return value
-}
 // Fresh actor, channel and member observations shared by publishing consumers
 export function eventContext(value: unknown, now = Date.now()): SchedulesContext {
     const r = shape(value, ["observedAt", "actor", "channelId", "botId", "botAuthorized", "actorAuthorized", "member"], ["observedAt", "actor", "channelId", "botId", "botAuthorized", "actorAuthorized"])

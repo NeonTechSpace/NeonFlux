@@ -1,8 +1,8 @@
 # Run and develop the bot
 
-This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and other servers
+This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API and stores durable state in the Convex [backend](BACKEND.md). It ignores bot messages, webhooks, system notices and servers other than its configured server
 
-Examples use the default `!` prefix. The server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
+Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
 ## Set up and run
 
@@ -62,7 +62,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Server owners and members with Manage Server change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered
 
-The bot caches the server's prefix. A chat change applies at once. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+The bot caches each server's prefix. A chat change applies at once and other changes apply within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
 
 ### AFK
 
@@ -275,3 +275,59 @@ Owners and Administrators plan finite announcements with `!publish schedule`. Sc
 `show` and `status` print the current revisions. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
 
 Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days
+
+## Role panels, reaction verification, autorole and reservations
+
+Reaction panels, rules verification and autorole each start disabled. The owner or an Administrator configures them. The bot needs Manage Roles and a role above every role it assigns. It only assigns roles with ordinary permissions, never everyone, privileged roles or staff roles, and it does not create roles
+
+The bot adds and removes roles one at a time and keeps unrelated roles. It removes a role only if it added it during the member's current stay and no other panel, verification or autorole still needs it
+
+### Reaction role panels
+
+Compose the panel message with `!publish`, then publish it through `!roles` so the bot tracks that exact message
+
+```text
+!publish create colors
+!publish set colors content "Choose your color"
+!roles create colors exclusive
+!roles map colors 🔵 @Blue
+!roles map colors 🟢 @Green
+!roles publish colors #roles colors
+!roles module on
+```
+
+Toggle panels allow any combination, and exclusive panels allow one choice. Members react or use `!roles choose colors 🔵`, or `!roles choose colors none` to clear. Changing mappings, rules or mode requires publishing a fresh panel message. Old reactions keep their original meaning
+
+| Task | Command |
+| --- | --- |
+| Show or list panels | `!roles show <name>`, `!roles list [page]` |
+| Require or exclude roles | `!roles requires\|excludes <name> <emoji> @roles...\|none` |
+| Change a mapping or mode | `!roles unmap <name> <emoji>`, `!roles mode <name> toggle\|exclusive` |
+| Enable, disable or delete | `!roles enable\|disable\|delete <name>` |
+| Retire a published panel | `!roles retire <name> [published-revision]`, then `!roles next <withdrawal-id>` |
+| Inspect history | `!roles history <name> [cursor]` |
+| Process a cleared reaction set | `!roles reactions <name>`, `!roles jobs`, `!roles resume <job-id>` |
+| Check or withdraw a member's roles | `!roles reconcile\|withdraw <name> [@user] [cursor]` |
+| Status and module | `!roles status`, `!roles module on\|off`, `!roles help` |
+
+Retire and delete withdraw the roles a panel granted, within the same command. If a role change has an unknown outcome, `!roles reconcile` checks that member once the attempt window closes, and `!roles next <withdrawal-id>` continues the withdrawal. Withdraw and reconcile are Administrator recovery commands. Settled role history is kept for 180 days
+
+### Rules verification
+
+```text
+!publish create rules
+!publish set rules content "Read and accept the current server rules"
+!verify configure @Member ✅
+!verify publish #rules rules
+!verify module on
+```
+
+A member reacts to the rules panel or sends `!verify`. `!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use `!verify reconcile|withdraw [@user] [cursor]`, `retire` and `next` for recovery
+
+Plain reaction verification is an acknowledgement, not a CAPTCHA
+
+### Autorole and reservations
+
+Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`. Autorole applies to future joins only and to humans by default. `!autorole humans off` includes bots. When verification is configured, autorole waits for it
+
+A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations`. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire [settings-revision]`, `next`, `history [cursor]` and `reconcile|withdraw @user [cursor]`

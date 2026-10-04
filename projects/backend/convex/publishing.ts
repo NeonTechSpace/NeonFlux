@@ -7,6 +7,7 @@ import { internal } from "./_generated/api.js"
 import { actor, administrator } from "./moderationDomain.ts"
 import { canonicalPublishingContent, editPublishingContent, PUBLISHING_BATCH, PUBLISHING_DAY, publishingContent, publishingKind, publishingName, shape } from "./publishingDomain.ts"
 import { fail, object, requireId, requireServer, fresh, integer, source, token } from "./validation.ts"
+import { protectedPanelPost } from "./rolesStore.ts"
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -109,6 +110,7 @@ export async function releaseSchedulePublication(ctx: MutationCtx, delivery: Doc
     if (!attempt || attempt.consumer?.type !== "schedule" || attempt.consumer.deliveryId !== delivery._id || attempt.outcome === "pending" || attempt.unresolved) fail(409, "Unresolved schedule publication preserved")
     const row = await ctx.db.query("publishingPosts").withIndex("by_server_post", q => q.eq("serverId", delivery.serverId).eq("postNo", attempt.postNo)).unique()
     if (!row || row.attemptId !== attempt._id || row.consumer?.type !== "schedule" || row.consumer.deliveryId !== delivery._id) fail(503, "Schedule publication unavailable")
+    await protectedPanelPost(ctx, delivery.serverId, row.postNo)
     if (await ctx.db.query("publishingAttempts").withIndex("by_server_post_unresolved", q => q.eq("serverId", row.serverId).eq("postNo", row.postNo).eq("unresolved", true)).first()) fail(409, "Unresolved schedule publication preserved")
     await ctx.db.delete(row._id)
     await ctx.db.delete(attempt._id)
@@ -128,6 +130,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
         shape(op, ["type", "postNo", "expectedGeneration"], ["type", "postNo", "expectedGeneration"])
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
         if (row.consumer) fail(409, "Tracked post retained by publishing consumer")
+        await protectedPanelPost(ctx, identity.serverId, row.postNo)
         if (await ctx.db.query("publishingAttempts").withIndex("by_server_post_unresolved", q => q.eq("serverId", identity.serverId).eq("postNo", row.postNo).eq("unresolved", true)).first()) fail(409, "Unresolved tracked post preserved")
         await ctx.db.delete(row._id)
         return { duplicate: false, type: "forgotten", postNo: row.postNo }
@@ -135,6 +138,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (op.type === "resolve") {
         shape(op, ["type", "postNo", "expectedGeneration", "outcome", "messageId", "channelId", "botId", "content"], ["type", "postNo", "expectedGeneration", "outcome"])
         const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
+        await protectedPanelPost(ctx, identity.serverId, row.postNo)
         const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
         if (!attempt || attempt.outcome !== "uncertain" || !attempt.unresolved) fail(409, "Tracked post has no unknown outcome")
         const outcome = op.outcome === "sent" || op.outcome === "failed" ? op.outcome : fail(400, "Invalid publishing resolution")
@@ -159,6 +163,7 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     if (context.botAuthorized !== true || context.actorAuthorized !== true) fail(403, "Publishing channel permission required")
     const botId = requireId(context.botId), channelId = requireId(context.channelId), action = op.type === "send" ? "send" : "edit"
     const existing = action === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
+    if (existing) await protectedPanelPost(ctx, identity.serverId, existing.postNo)
     if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
     const previousAttempt = existing?.attemptId ? await ctx.db.get(existing.attemptId) : null
     if (existing && (previousAttempt?.unresolved !== false || !existing.messageId || !existing.confirmedCanonicalContent)) fail(409, "Tracked post cannot be edited")

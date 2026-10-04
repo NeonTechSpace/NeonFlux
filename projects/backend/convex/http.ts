@@ -103,4 +103,15 @@ query("/schedules/query", 65536, internal.schedules.query)
 mutation("/schedules/manage", 65536, internal.schedules.manage)
 mutation("/schedules/delivery", 65536, internal.schedulesDelivery.delivery)
 
+query("/roles/query", 262144, internal.roles.query)
+query("/roles/member-query", 262144, internal.roles.memberQuery)
+query("/roles/policy", 262144, internal.roles.policy)
+mutation("/roles/manage", 262144, internal.roles.manage)
+mutation("/roles/reaction-jobs", 262144, internal.roleReactions.manage)
+mutation("/roles/evaluate", 262144, internal.roleParticipation.evaluate)
+mutation("/roles/dispatch", 262144, internal.roleLifecycle.dispatch)
+mutation("/roles/outcome", 262144, internal.roleLifecycle.outcome)
+mutation("/roles/reconcile", 262144, internal.roleLifecycle.reconcile)
+mutation("/roles/observe", 262144, internal.roleLifecycle.observe)
+
 export default http

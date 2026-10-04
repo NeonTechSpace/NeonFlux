@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state. Docker distribution through GHCR and public documentation pages are planned
+  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state for one configured server. Docker distribution through GHCR and public documentation pages are planned
 </p>
 
 <p align="center">

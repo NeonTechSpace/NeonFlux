@@ -27,19 +27,19 @@ The HTTP Actions URL differs from the `.convex.cloud` client URL. Copy the exact
 | `NEONFLUX_SERVER_ID` | Convex and bot | The one allowed server |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service credential of at least 32 characters |
 
-Missing or invalid configuration fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
+A missing or invalid server ID fails closed with `503 Backend not configured`. Generate the bot API secret randomly and rotate it in Convex and the bot together
 
 ### Service authentication and errors
 
 Every bot route requires `Authorization: Bearer <NEONFLUX_BOT_API_SECRET>`. Feature routes are JSON `POST` requests. Authentication is checked before the body is parsed, and every response carries `Cache-Control: no-store`. IDs are canonical positive decimal strings within the signed 64-bit range. Feature mutations are internal Convex functions and cannot be called as public functions
 
-The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot service credential vouches for them
+The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot service credential vouches for them, so these fields never authenticate a browser user
 
 | Status | Meaning |
 | --- | --- |
 | `400` | Invalid input or JSON |
 | `401` | Missing or wrong service credential |
-| `403` | Authorization denied |
+| `403` | Authorization denied, or a request for a server other than the configured one |
 | `409` | Conflict, such as an existing name or a stale revision |
 | `413` | Request body over the route's limit |
 | `429` | A remaining capacity bound was reached |
@@ -79,7 +79,7 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix` and `mod`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `publish` and `roles`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
@@ -151,3 +151,26 @@ Limits are 50 schedules, 200 retained occurrence rows and 1,000 management recei
 | `/schedules/manage` | 65,536 | Configuration, cancellation and settled forgetting |
 | `/schedules/query` | 65,536 | Definitions, occurrence pages and quota status |
 | `/schedules/delivery` | 65,536 | Due discovery, reservation and deferral |
+
+## Role panels, reaction verification, autorole and reservations
+
+Role panels, rules verification and autorole start disabled, and configuration requires the server owner or an administrator. Enabling a module does not scan the roster or assign roles retroactively
+
+- `roleSettings`: Module switches, humans-only autorole, default autoroles and up to 100 per-user autorole reservations, applied with default autoroles when that user joins
+- `rolePanels`: At most 50 reaction panels and one verification panel per server, each bound to an exact published message with up to 20 mappings that may list prerequisite and exclusion roles
+- `roleAcknowledgments`: Rules acknowledgment, kept separate from delivery of the access role
+- `roleOwnership` and `roleReferences`: Which roles the bot added for each member and membership epoch and which features still need them
+- `roleAttempts`, `roleWithdrawals`, `roleParticipationReceipts` and `roleReactionJobs`: Grants and outcomes, explicit withdrawals, source deduplication and bulk reaction-removal progress
+
+Each command, reaction or join is evaluated as its own source, and a participation receipt only records that the source was applied, so a redelivered event grants nothing twice. The bot rechecks membership, role permissions and hierarchy before every assignment and never assigns the everyone role, privileged roles or roles above its own. Removal needs confirmed bot ownership in the same membership epoch and no other feature reference, so pre-existing roles are never removed. Grants use a one-time claim within 180 seconds and a five-second native request, and uncertain writes are not replayed
+
+A reaction on the current verification panel acknowledges the rules. Configured verification gates autorole and self-service roles, while native timeouts and unresolved quarantine block participation. Changing mappings or rules requires a new published message. Withdrawal and history are available through chat commands only. Settled role history is retained for a fixed 180 days, while active and unresolved ownership stays. When a later membership epoch records its first acknowledgment or ownership, settled rows from the member's earlier epochs are released, and unresolved ownership stays until it is reconciled
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/roles/manage` | 262,144 | Configuration, panel binding and withdrawal |
+| `/roles/query`, `/roles/member-query`, `/roles/policy` | 262,144 | Staff reads, member context and module policy |
+| `/roles/reaction-jobs` | 262,144 | Durable bulk reaction-removal pages |
+| `/roles/evaluate` | 262,144 | Participation policy and role reservations |
+| `/roles/dispatch`, `/roles/outcome` | 262,144 | One-time claim and native outcome |
+| `/roles/reconcile`, `/roles/observe` | 262,144 | Read-only ownership recovery and aging without writes |
