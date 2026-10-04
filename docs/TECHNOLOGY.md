@@ -24,7 +24,8 @@ Command parsing uses the SDK's public `commands.parseQuoted` parser, with no sep
 The bot keeps one serialized `messageCreate` pipeline
 
 The bot owns its Fluxer token and every provider operation.
-It decodes every HTTP response with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable
+It decodes every HTTP response with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.
+Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM, without a compression or archive dependency
 
 ## Shared contracts
 
@@ -36,7 +37,7 @@ Node does not strip types in files under `node_modules`, so the planned bot imag
 
 ## Backend
 
-Convex owns durable bot state, separately from the bot image.
+Convex owns durable state, separately from the bot image.
 One deployment serves the bot's authenticated HTTP actions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.

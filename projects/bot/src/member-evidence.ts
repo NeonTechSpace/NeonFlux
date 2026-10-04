@@ -1,4 +1,4 @@
-import type { SchedulesMemberContext } from "@neonflux/contracts/schedules"
+import type { LevelingMemberContext } from "@neonflux/contracts/leveling"
 import { GuildOperationError, type Client, type GuildMember } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 
@@ -17,7 +17,7 @@ export function readNativeMember(client: Client, serverId: string, userId: strin
     )
 }
 
-export function levelingMember(member: GuildMember, serverId: string, userId: string): Omit<SchedulesMemberContext, "canView" | "canReadHistory"> | undefined {
+export function levelingMember(member: GuildMember, serverId: string, userId: string): LevelingMemberContext | undefined {
     if (member.guildId !== serverId || member.userId !== userId || member.communicationDisabledUntil === undefined
         || typeof member.joinedAt !== "string" || member.joinedAt.length > 64
         || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(member.joinedAt) || !Number.isFinite(Date.parse(member.joinedAt))) return

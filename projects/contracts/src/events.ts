@@ -1,8 +1,7 @@
 import { Schema } from "effect"
 import { Id, Int, IsoTime, List, Millis, Text, Token } from "./common.ts"
-import { ModerationSource } from "./shared.ts"
+import { EventsMemberContext, ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingEventConsumer, PublishingGrant, PublishingName, PublishingProvenance, PublishingSource, publishingGrantFields } from "./publishing-base.ts"
-import { SchedulesContext } from "./schedules.ts"
 
 export const EVENTS_DAY = 86400000, EVENTS_BATCH = 20
 const optional = Schema.optionalKey
@@ -94,7 +93,7 @@ export type EventsDelivery = typeof EventsDelivery.Type
 export const EventsDeliveryResult = Schema.Union([Schema.Struct({ type: Schema.Literal("event"), event: EventsDefinition }), Schema.Struct({ type: Schema.Literal("deliveries"), deliveries: List(EventsDelivery, 20), nextAfterDeliveryId: optional(Token) }),
     Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literal("reserved"), grant: EventsDeliveryGrant }), Schema.Struct({ type: Schema.Literal("reservation"), status: Schema.Literals(["waiting", "skipped", "cancelled", "terminal"]) }), Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean })])
 export type EventsDeliveryResult = typeof EventsDeliveryResult.Type
-export const EventsContext = SchedulesContext
+export const EventsContext = Schema.Struct({ observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean, member: optional(EventsMemberContext) })
 export type EventsContext = typeof EventsContext.Type
 export const EventsSource = Schema.Struct({ ...ModerationSource.fields, serverId: Id, context: EventsContext })
 export type EventsSource = typeof EventsSource.Type

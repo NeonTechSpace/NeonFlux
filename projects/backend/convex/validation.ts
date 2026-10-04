@@ -19,16 +19,17 @@ export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, v
 }
 
 export function requireServer(serverId: string) {
-    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) {
-        fail(403, "Server not allowed")
-    }
+    if (!isId(process.env.NEONFLUX_SERVER_ID) || serverId !== process.env.NEONFLUX_SERVER_ID) fail(403, "Server not allowed")
 }
-
-export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
 
 export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
     return value
+}
+
+export function object(value: unknown): Record<string, unknown> {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) fail(400, "Invalid request")
+    return value as Record<string, unknown>
 }
 
 export function integer(value: unknown, min: number, max: number): number {
@@ -71,6 +72,8 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
 }
+export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
+export function configurationSourceId(identity: ConfigurationIdentity) { return identity.source.messageId }
 
 // Work bindings select a member, so supplied native evidence must name that same member
 export function requireReadMember(row: Record<string, unknown>, userId: string) {

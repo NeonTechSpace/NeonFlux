@@ -104,7 +104,7 @@ test("Adapter requires a presentation, an unchanged embed and matching audit sel
     }
 })
 
-test("Adapter preserves disabled event destinations and rejects incomplete destination pairs", async t => {
+test("Adapter preserves disabled backup event destinations and rejects incomplete destination pairs", async t => {
     const route = { eventType: "audit-entry:20" as const, revision: 1, enabled: false, channelId: f.ids.channel, ownerId: f.ids.user }
     const settings: MetadataLogsSettings = { enabled: false, revision: 1, configRevision: 1, routes: metadataLogCategories.map(category => ({ category, revision: 1, enabled: false })), eventRoutes: [route],
         messageChannelIds: [], excludedChannelIds: [], retained: 0, admissions: 0, admissionWindowStartedAt: now, capacity: 10000, admissionCapacity: 10000, retentionMs: 2592000000, quotaPaused: false, refused: 0, suppressed: 0 }

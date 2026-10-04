@@ -1,6 +1,6 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, IsoTime, List, Millis, Token } from "./common.ts"
-import { ModerationActor, ModerationSource } from "./shared.ts"
+import { Id, Int, List, Millis, Token } from "./common.ts"
+import { EventsMemberContext, ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingGrant, PublishingName, PublishingObservation, PublishingPost, PublishingScheduleConsumer, SchedulesContentSource, canonicalPublishingContent, equalPublishingContent,
     publishingGrantFields } from "./publishing-base.ts"
 import { CivilLocalMinute, CivilOffset, CivilZone, civilAt, civilIntent, civilSeries } from "./civil.ts"
@@ -21,8 +21,7 @@ export type SchedulesResolvedDate = typeof SchedulesResolvedDate.Type
 /** The dates are resolved once when the calendar is set. Other edits copy them, so a changed zone database never moves a planned post */
 export const SchedulesCalendar = Schema.Struct({ ...civilIntent, dates: List(SchedulesResolvedDate, 26) }).check(Schema.makeFilter(v => civilSeries(v, v.dates.map(date => date.dueAt))))
 export type SchedulesCalendar = typeof SchedulesCalendar.Type
-export const SchedulesMemberContext = Schema.Struct({ userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime), canView: Schema.Boolean,
-    canReadHistory: Schema.Boolean })
+export const SchedulesMemberContext = EventsMemberContext
 export type SchedulesMemberContext = typeof SchedulesMemberContext.Type
 /** The fresh native read of the member who asked, and of the bot, in the channel a change names */
 export const SchedulesContext = Schema.Struct({ observedAt: Millis, actor: ModerationActor, channelId: Id, botId: Id, botAuthorized: Schema.Boolean, actorAuthorized: Schema.Boolean,

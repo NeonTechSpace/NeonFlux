@@ -20,7 +20,7 @@ export function name(value: unknown): string {
     return normalized
 }
 
-// One field of a definition. Triggers are stored trimmed and listed IDs once each
+// One field of a stored or archived definition. Triggers are stored trimmed and listed IDs once each
 export const reply = (value: unknown): ResponseReply => decode(ResponseReplyInput, value, "Invalid definition")
 const trimmed = (input: ResponseTrigger): ResponseTrigger => ({ mode: input.mode, text: input.text.trim() })
 export const trigger = (value: unknown): ResponseTrigger => trimmed(decode(ResponseTriggerInput, value, "Invalid definition"))

@@ -24,14 +24,9 @@ const baseModules = {
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 
-export async function adapterFixture(t: TestContext, modules: Modules, scopeEnvironment?: Readonly<Record<string, string | undefined>>, controlTimers = true) {
-    const scopeKeys = ["NEONFLUX_SERVER_ID"] as const
-    const previousScope = Object.fromEntries(scopeKeys.map(key => [key, process.env[key]]))
-    for (const key of scopeKeys) {
-        const value = scopeEnvironment ? scopeEnvironment[key] : key === "NEONFLUX_SERVER_ID" ? "1" : undefined
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-    }
+export async function adapterFixture(t: TestContext, modules: Modules, controlTimers = true) {
+    const previousServerId = process.env.NEONFLUX_SERVER_ID
+    process.env.NEONFLUX_SERVER_ID = "1"
     let blockedNetwork = 0
     const blockNetwork = () => {
         blockedNetwork++
@@ -66,11 +61,8 @@ export async function adapterFixture(t: TestContext, modules: Modules, scopeEnvi
             assert.equal(blockedNetwork, 0)
             t.diagnostic(`${calls.length} real in-process HTTP calls, no real network`)
         } finally {
-            for (const key of scopeKeys) {
-                const value = previousScope[key]
-                if (value === undefined) delete process.env[key]
-                else process.env[key] = value
-            }
+            if (previousServerId === undefined) delete process.env.NEONFLUX_SERVER_ID
+            else process.env.NEONFLUX_SERVER_ID = previousServerId
             t.mock.restoreAll()
             syncBuiltinESMExports()
         }

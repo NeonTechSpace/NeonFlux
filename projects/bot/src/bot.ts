@@ -1,5 +1,5 @@
 import { commands, MessageType, type BotOptions } from "@neontechspace/fluxerly/effect"
-import { Cause, Effect, Exit, Redacted } from "effect"
+import { Cause, Effect, Exit, Redacted, Scope } from "effect"
 import { createAfkStore, type AfkStore } from "./afk-store.ts"
 import { handleAfk } from "./afk.ts"
 import type { BotConfig } from "./config.ts"
@@ -61,6 +61,9 @@ import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-co
 import { handleMetadataLogCommand } from "./metadata-log-management.ts"
 import { createMetadataGatewayAdmission, metadataRechecks } from "./metadata-log-events.ts"
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
+import { createBackupStore, type BackupStore } from "./backup-store.ts"
+import { parseBackupCommand } from "./backup-command.ts"
+import { handleBackupCommand } from "./backup.ts"
 import { createGeneralSettingsStore, createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
@@ -79,17 +82,24 @@ export interface BotStores {
     readonly suggestions?: SuggestionsStore | undefined
     readonly cleanup?: CleanupStore | undefined
     readonly metadata?: MetadataLogsStore | undefined
+    readonly backup?: BackupStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
 export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const backend = config.backend
-    const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation: moderationStore = backend && createModerationStore(backend),
-        publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend), tickets = backend && createTicketStore(backend),
-        leveling: levels = backend && createLevelingStore(backend), events = backend && createEventsStore(backend), schedules = backend && createSchedulesStore(backend),
-        milestones = backend && createMilestonesStore(backend), suggestions = backend && createSuggestionsStore(backend), cleanup = backend && createCleanupStore(backend),
-        metadata = backend && createMetadataLogsStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
-    const tracked = moderationStore && trackModerationHints(moderationStore), moderation = tracked?.store, moderationHints = tracked?.hints
+    const adapters: BotStores = backend ? {
+        afk: createAfkStore(backend, config.serverId), responses: createResponseStore(backend), moderation: createModerationStore(backend), publishing: createPublishingStore(backend),
+        roles: createRolesStore(backend), greetings: createGreetingsStore(backend), tickets: createTicketStore(backend), leveling: createLevelingStore(backend), events: createEventsStore(backend),
+        schedules: createSchedulesStore(backend), milestones: createMilestonesStore(backend), suggestions: createSuggestionsStore(backend), cleanup: createCleanupStore(backend), metadata: createMetadataLogsStore(backend), backup: createBackupStore(backend), general: createGeneralSettingsStore(backend, config.serverId),
+    } : {}
+    return createScopedBotOptions(config, { ...adapters, ...Object.fromEntries(Object.entries(stores).filter(([, store]) => store !== undefined)) })
+}
+
+function createScopedBotOptions(config: BotConfig, stores: BotStores) {
+    const tracked = stores.moderation && trackModerationHints(stores.moderation), moderation = tracked?.store, moderationHints = tracked?.hints
+    const { afk: store, responses, publishing, greetings, tickets, leveling: levels, events, schedules, milestones, suggestions, cleanup, metadata,
+        backup: backups, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
     const admitMetadata = metadata ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void) : undefined
@@ -101,7 +111,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     let levelCredits: Effect.Success<ReturnType<typeof startLevelCreditWorker>> | undefined
     let levelRewards: Effect.Success<ReturnType<typeof startLevelRoleWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
-    const roleBackend = stores.roles ?? (backend ? createRolesStore(backend) : undefined)
+    const roleBackend = stores.roles
     // A member event wakes greeting discovery only when its observation recorded a change, so one that changed nothing costs no discovery
     const wake = (userId?: string) => greetingWorker?.notify(userId) ?? Effect.void
     // Whether the last policy or member answer had autorole or rules verification on. Only an answer sets it, so a stale value costs reads, never a skipped join
@@ -120,11 +130,13 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
         reconcile: (input) => roleBackend.reconcile(input).pipe(Effect.tap((value) => value.recorded ? wake(input.observation.userId) : Effect.void)),
     } : roleBackend
     let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
+    let backupScope: Scope.Scope | undefined
     const unprivilegedActor = (userId: string): ModerationActor => ({ userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
     return {
         token: Redacted.value(config.token),
         processSignals: true,
         setup: (client) => Effect.gen(function* () {
+            backupScope = yield* Effect.scope
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
@@ -158,7 +170,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         || (message.type !== MessageType.Default && message.type !== MessageType.Reply)) return
                     const content = message.content.trimStart()
                     const prefix = message.guildId === config.serverId && /^[!$%&*+,.?~^|:/\-]/.test(content) ? yield* readPrefix : "!"
-                    // The fixed prefix remains available for recovery
+                    // The fixed prefix remains available for recovery and private server selection
                     const invocationPrefix = content.startsWith(prefix) ? prefix : /^!prefix(?:\s|$)/i.test(content) ? "!" : undefined
                     const commandBody = invocationPrefix ? content.slice(invocationPrefix.length) : undefined
                     const command = commandBody !== undefined
@@ -168,6 +180,13 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const usage = <T,>(parsed: T): T => parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string"
                         ? { ...parsed, error: withPrefix(parsed.error, invocationPrefix!) } : parsed
                     const quotingError = (hint: string) => ({ error: `Check quoting and syntax. Use ${invocationPrefix}${hint}` })
+                    if (name === "backup") {
+                        // Backups run beside the serial message handler, so a long export never blocks other commands
+                        const backup = handleBackupCommand(backups, config, command ? parseBackupCommand(command.args) : { error: "Check quoting and syntax. Use !backup help privately" }, context)
+                            .pipe(Effect.catchCause(() => Effect.logWarning("Backup command stopped")))
+                        yield* backupScope ? backup.pipe(Effect.forkIn(backupScope)) : backup.pipe(Effect.forkDetach)
+                        return
+                    }
                     const safetyName = safetyNames.includes(name as SafetyName) ? name as SafetyName : undefined
                     const metadataInvocation = name === "logs" && command && isMetadataLogCommand(command.args)
                     const parsedMetadata = metadataInvocation ? usage(parseMetadataLogCommand(command.args)) : undefined
