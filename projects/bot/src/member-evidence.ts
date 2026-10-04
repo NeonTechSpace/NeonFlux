@@ -1,4 +1,5 @@
-import { GuildOperationError, type Client } from "@neontechspace/fluxerly/effect"
+import type * as C from "@neonflux/backend/contracts"
+import { GuildOperationError, type Client, type GuildMember } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 
 export class MemberEvidenceError extends Data.TaggedError("MemberEvidenceError")<{ readonly stage: "identity" }> {}
@@ -16,3 +17,9 @@ export function readNativeMember(client: Client, serverId: string, userId: strin
     )
 }
 
+export function levelingMember(member: GuildMember, serverId: string, userId: string): Omit<C.SchedulesMemberContext, "canView" | "canReadHistory"> | undefined {
+    if (member.guildId !== serverId || member.userId !== userId || member.communicationDisabledUntil === undefined
+        || typeof member.joinedAt !== "string" || member.joinedAt.length > 64
+        || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(member.joinedAt) || !Number.isFinite(Date.parse(member.joinedAt))) return
+    return { userId, joinedAt: member.joinedAt, roleIds: [...member.roleIds], isBot: member.isBot, timeoutUntil: member.communicationDisabledUntil }
+}

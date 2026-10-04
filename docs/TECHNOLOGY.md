@@ -18,7 +18,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md) and [t
 
 ## Bot
 
-The bot runs on the SDK's native Effect lifecycle through `runBot`.
+The bot runs on the SDK's native Effect lifecycle through `runBot`, with background workers as scoped Effect fibers rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
 The bot keeps one serialized `messageCreate` pipeline

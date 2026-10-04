@@ -29,18 +29,19 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [http.ts](../projects/backend/convex/http.ts) owns the bot's authenticated HTTP entry points and [crons.ts](../projects/backend/convex/crons.ts) starts bounded retention cleanup
 - `convex/_generated/` is created by the Convex CLI and kept in version control
 - [contracts.d.ts](../projects/backend/contracts.d.ts) is a types-only export for the bot. It contains no runtime code or credentials
-- `tests/` holds `convex-test` tests
+- `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's HTTP adapters against an isolated backend fixture
 
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-permissions.ts` owns fresh native permission checks and `-store.ts` decodes backend HTTP responses.
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns fresh native permission checks, `-store.ts` decodes backend HTTP responses and `-worker.ts` runs scoped background work.
 In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns validation, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix |
 | --- | --- | --- |
 | Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `protection`, `afk`, `response`, `responses` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` |
+| Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

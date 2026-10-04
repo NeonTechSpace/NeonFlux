@@ -53,7 +53,8 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 - Replies suppress user, role, everyone and reply-author notifications
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Permission checks read current server, role, member and channel data for each request. A failed read denies the request
-- The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and recovery commands read the exact known message or member without resending
+- The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
+- Durable worker state, such as schedule queues, lives in the backend. Workers resume it after a restart
 
 ## Ping, AFK, prefix and custom responses
 
@@ -206,3 +207,71 @@ Each case accepts one open appeal per user. Staff use `!appeals list [page]`, `s
 `pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the server from `projects/bot/.env`, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
 
 Stop the gateway bot first. The script warns the target, quarantines them for 30 seconds, locks the channel and checks the DEFCON gates, then reverses each change and restores the original settings, also after a failure or Ctrl+C. It prints each check and exits with code 1 when one fails. Cases and notices remain as normal history
+
+## Publishing and scheduled publishing
+
+### Drafts, templates and posts
+
+Server owners and Administrators prepare drafts and reusable templates with `!publish`
+
+```text
+!publish create announcement
+!publish set announcement content "Release notes"
+!publish set announcement title "New release"
+!publish set announcement color #3d66b8
+!publish field announcement add "Status" "Available" on
+!publish preview announcement
+!publish send announcement #announcements
+```
+
+The send reply gives a tracked post number. To change the sent message, update the draft and run `!publish edit <post-number> announcement`. The bot first checks that the message still matches what it last sent
+
+| Task | Command |
+| --- | --- |
+| Create, show, delete or preview | `!publish create\|show\|delete\|preview <name>`, `!publish list [page]` |
+| Copy a draft | `!publish clone <name> <new-name>` |
+| Work with templates | Put `template` after `!publish`, for example `!publish template create welcome` |
+| Copy a template into a draft | `!publish template clone <name> <new-name> draft` |
+| Set text | `!publish set <name> content\|title\|description\|url\|timestamp "value"`, `color #RRGGBB` |
+| Set author and footer | `!publish set <name> author "name" ["URL"\|none] ["icon URL"\|none]`, `footer "text" ["icon URL"]` |
+| Set media | `!publish set <name> image\|thumbnail "URL" ["description"]` |
+| Manage fields | `!publish field <name> add "name" "value" [on\|off]`, `set <1-25> ...`, `remove <1-25>` |
+| Clear parts | `!publish clear <name> content\|embed\|title\|description\|url\|color\|timestamp\|author\|footer\|image\|thumbnail\|fields` |
+| Inspect posts | `!publish posts [before-post]`, `!publish status <post-number>` |
+| Check a post with an unknown outcome | `!publish reconcile <post-number>` |
+| Record a post's outcome by hand | `!publish resolve <post-number> sent <message-id>`, `!publish resolve <post-number> failed` |
+| Stop tracking a post | `!publish forget <post-number>` |
+| Configure | `!publish module on\|off`, `!publish status` |
+
+A message has up to 2000 code units of content and one embed with up to 25 fields and 6000 code units of embed text. URLs must use HTTP or HTTPS and fit in 2048 code units. The bot does not fetch media or upload files
+
+When a send or edit has an unknown outcome, `reconcile` reads the known message, or staff use `resolve` to record what happened. Edit and forget work again once the outcome is known. Deleting a draft or forgetting a post never deletes the message. Attempt history is kept for 180 days. Publishing starts enabled. DEFCON 2 still allows Administrators to publish, and DEFCON 1 allows only disabling, status and reconcile
+
+### Scheduled publishing
+
+Owners and Administrators plan finite announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the selected draft or template revision, so later edits to the source do not change it
+
+```text
+!publish show notice
+!publish schedule create news draft notice 3 #announcements 2026-11-01T18:00 Europe/Berlin reject weekly 1 3
+!publish schedule module on 1
+!publish schedule enable 1 1
+!publish schedule status 1
+```
+
+| Task | Command |
+| --- | --- |
+| Create | `!publish schedule create <name> draft\|template <source-name> <source-revision> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <1-12 interval> <1-26 count>]` |
+| Show or list | `!publish schedule show <schedule>`, `list [before-schedule-number]` |
+| Inspect settings or deliveries | `!publish schedule status [schedule [after-occurrence-number]]` |
+| Replace content | `!publish schedule update <schedule> <management-revision> content draft\|template <source-name> <source-revision>` |
+| Replace time | `!publish schedule update <schedule> <management-revision> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> <count>]` |
+| Change destination | `!publish schedule update <schedule> <management-revision> destination #channel` |
+| Enable, pause or cancel | `!publish schedule enable\|disable\|cancel <schedule> <management-revision>` |
+| Check a known post | `!publish schedule reconcile <schedule> <management-revision> <tracked-post-number>` |
+| Forget settled deliveries | `!publish schedule forget <schedule> <management-revision> [occurrence-number ...] [confirm]` |
+| Turn the module on or off | `!publish schedule module on\|off <settings-revision>` |
+
+`show` and `status` print the current revisions. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
+
+Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days

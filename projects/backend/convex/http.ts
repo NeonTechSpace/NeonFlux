@@ -92,4 +92,15 @@ mutation("/moderation/observe", 65536, internal.moderation.observe)
 mutation("/appeals/member", 65536, internal.appeals.member)
 mutation("/appeals/staff", 65536, internal.appeals.staff)
 
+query("/publishing/query", 65536, internal.publishing.query)
+mutation("/publishing/manage", 65536, internal.publishing.manage)
+mutation("/publishing/dispatch", 65536, internal.publishing.dispatch)
+mutation("/publishing/outcome", 65536, internal.publishing.outcome)
+mutation("/publishing/reconcile", 65536, internal.publishing.reconcile)
+mutation("/publishing/observe", 65536, internal.publishing.observe)
+
+query("/schedules/query", 65536, internal.schedules.query)
+mutation("/schedules/manage", 65536, internal.schedules.manage)
+mutation("/schedules/delivery", 65536, internal.schedulesDelivery.delivery)
+
 export default http

@@ -303,3 +303,146 @@ export type AppealMemberRequest = ModerationSource & { serverId: string, request
 export type AppealMemberResult = { duplicate: true } | { duplicate: false, type: "appeal", appeal: Appeal } | { duplicate: false, type: "appeals", appeals: Appeal[], page: number, totalPages: number } | { duplicate: false, type: "cases", cases: AppealCaseSummary[], nextBeforeCaseNo?: number }
 export type AppealStaffRequest = ModerationSource & { serverId: string, actor: ModerationActor, privateChannelVerified: boolean, operation: { type: "list", page?: number } | { type: "show", appealNo: number } | { type: "decide", appealNo: number, decision: "accepted" | "rejected", reason: string } }
 export type AppealStaffResult = { duplicate: true } | { duplicate: false, type: "appeal", appeal: Appeal } | { duplicate: false, type: "appeals", appeals: Appeal[], page: number, totalPages: number }
+
+export type PublishingKind = "draft" | "template"
+export type PublishingEmbedField = { name: string, value: string, inline?: boolean }
+export type PublishingEmbed = {
+    title?: string
+    description?: string
+    url?: string
+    color?: number
+    timestamp?: string
+    author?: { name: string, url?: string, iconUrl?: string }
+    footer?: { text: string, iconUrl?: string }
+    image?: { url: string, description?: string }
+    thumbnail?: { url: string, description?: string }
+    fields?: PublishingEmbedField[]
+}
+export type PublishingContent = { content: string, embed?: PublishingEmbed }
+export type PublishingSettings = { enabled: boolean }
+export type PublishingDraft = { kind: PublishingKind, name: string, revision: number, content: PublishingContent, canonicalContent: PublishingContent, createdAt: number, updatedAt: number }
+export type PublishingOutcome = "pending" | "sent" | "failed" | "uncertain"
+export type PublishingObservation = { observedAt: number, messageId: string, channelId: string, botId: string, content: PublishingContent }
+export type PublishingResolution = { attemptId: string, generation: number, sourceId: string, observedAt: number, matched: "intended" | "previous" }
+export type PublishingDispatchPolicy = { windowMs: 180000, nativeDeadlineMs: 5000, marginMs: 5000 }
+export type PublishingAttempt = {
+    attemptId: string, postNo: number, generation: number, sourceId: string, actorId: string, botId: string,
+    action: "send" | "edit", channelId: string, messageId?: string,
+    draftKind?: PublishingKind, draftName?: string, draftRevision?: number,
+    source?: PublishingSource, provenance?: PublishingProvenance, consumer?: PublishingConsumer,
+    content: PublishingContent, canonicalContent: PublishingContent, expectedContent?: PublishingContent,
+    dispatchExpiresAt: number, nativeDeadlineMs: 5000, dispatchedAt?: number,
+    outcome: PublishingOutcome, createdAt: number, finishedAt?: number, noDispatch?: true, observation?: PublishingObservation, resolution?: PublishingResolution,
+}
+export type PublishingPost = {
+    postNo: number, generation: number, channelId: string, botId: string, messageId?: string,
+    outcome: PublishingOutcome, createdAt: number, updatedAt: number,
+    confirmedContent?: PublishingContent, confirmedCanonicalContent?: PublishingContent, confirmedDraftRevision?: number,
+    attempt: PublishingAttempt, consumer?: PublishingConsumer,
+}
+export type PublishingGrant = Omit<PublishingAttempt, "outcome" | "createdAt" | "finishedAt" | "noDispatch" | "dispatchedAt" | "observation" | "resolution">
+export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, scheduleContext?: SchedulesAutomationContext }
+export type PublishingDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type PublishingContext = { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
+type PublishingEmbedProperty = {
+    [K in keyof Omit<PublishingEmbed, "fields">]-?: { type: "embed-property", field: K, value: NonNullable<PublishingEmbed[K]> | null }
+}[keyof Omit<PublishingEmbed, "fields">]
+export type PublishingDraftEdit =
+    | { type: "content", content: string }
+    | { type: "embed", embed: PublishingEmbed }
+    | { type: "embed-clear" }
+    | PublishingEmbedProperty
+    | { type: "field-add", field: PublishingEmbedField }
+    | { type: "field-set", index: number, field: PublishingEmbedField }
+    | { type: "field-remove", index: number }
+    | { type: "fields-clear" }
+export type PublishingManageOperation =
+    | { type: "settings", patch: Partial<PublishingSettings> }
+    | { type: "draft-create", kind: PublishingKind, name: string, content?: PublishingContent }
+    | { type: "draft-set", kind: PublishingKind, name: string, expectedRevision: number, content: PublishingContent }
+    | { type: "draft-clone", kind: PublishingKind, name: string, expectedRevision: number, toKind: PublishingKind, toName: string }
+    | { type: "draft-delete", kind: PublishingKind, name: string, expectedRevision: number }
+    | { type: "draft-update", kind: PublishingKind, name: string, expectedRevision: number, edit: PublishingDraftEdit }
+    | { type: "preview", kind: PublishingKind, name: string, expectedRevision: number }
+    | { type: "send", kind: PublishingKind, name: string, expectedRevision: number, channelId: string, context: PublishingContext }
+    | { type: "edit", kind: PublishingKind, name: string, expectedRevision: number, postNo: number, expectedGeneration: number, context: PublishingContext }
+    | { type: "forget", postNo: number, expectedGeneration: number }
+    | { type: "resolve", postNo: number, expectedGeneration: number, outcome: "sent", messageId: string, channelId: string, botId: string, content: PublishingContent }
+    | { type: "resolve", postNo: number, expectedGeneration: number, outcome: "failed" }
+export type PublishingManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: PublishingManageOperation }
+export type PublishingManageResult =
+    | { duplicate: true }
+    | { duplicate: false, type: "settings", settings: PublishingSettings }
+    | { duplicate: false, type: "draft", draft: PublishingDraft }
+    | { duplicate: false, type: "deleted", kind: PublishingKind, name: string }
+    | { duplicate: false, type: "preview", draft: PublishingDraft }
+    | { duplicate: false, type: "post", post: PublishingPost, grant: PublishingGrant }
+    | { duplicate: false, type: "forgotten", postNo: number }
+    | { duplicate: false, type: "resolved", post: PublishingPost }
+export type PublishingQueryRequest = { serverId: string, actor: ModerationActor, operation:
+    | { type: "settings" }
+    | { type: "draft-show", kind: PublishingKind, name: string }
+    | { type: "draft-list", kind: PublishingKind, page?: number }
+    | { type: "post-show", postNo: number }
+    | { type: "post-list", beforePostNo?: number }
+}
+export type PublishingQueryResult =
+    | { type: "settings", settings: PublishingSettings }
+    | { type: "draft", draft: PublishingDraft }
+    | { type: "drafts", drafts: PublishingDraft[], kind: PublishingKind, page: number, totalPages: number }
+    | { type: "post", post: PublishingPost }
+    | { type: "posts", posts: PublishingPost[], nextBeforePostNo?: number }
+export type PublishingOutcomeRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, outcome: Exclude<PublishingOutcome, "pending">, messageId?: string, claimToken?: string }
+export type PublishingOutcomeResult = { recorded: boolean }
+export type PublishingReconcileRequest = ModerationSource & { serverId: string, actor: ModerationActor, postNo: number, attemptId: string, expectedGeneration: number, observation: PublishingObservation }
+export type PublishingReconcileResult = { recorded: boolean, post: PublishingPost }
+export type PublishingObserveRequest = { serverId: string, mode: "restart" | "aged" }
+export type PublishingObserveResult = { uncertainAttempts: number }
+
+export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
+export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }
+export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
+export type PublishingConsumer = PublishingScheduleConsumer
+export type CivilFoldPolicy = "reject" | "earlier" | "later"
+export type CivilRecurrence = { type: "none" } | { type: "daily" | "weekly", interval: number, count: number }
+export type CivilResolvedDate = { localMinute: string, instantAt: number, offsetMinutes: number }
+export type CivilCalendar = { localMinute: string, zone: string, fold: CivilFoldPolicy, recurrence: CivilRecurrence, dates: CivilResolvedDate[] }
+export type SchedulesResolvedDate = { localMinute: string, dueAt: number, offsetMinutes: number }
+export type SchedulesCalendar = Omit<CivilCalendar, "dates"> & { dates: SchedulesResolvedDate[] }
+export type SchedulesMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null, canView: boolean, canReadHistory: boolean }
+export type SchedulesContext = { observedAt: number, actor: ModerationActor, channelId: string, botId: string, botAuthorized: boolean, actorAuthorized: boolean, member?: SchedulesMemberContext }
+export type SchedulesAutomationContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type SchedulesContentSource = { kind: PublishingKind, name: string, revision: number }
+export type SchedulesSnapshot = { source: SchedulesContentSource, content: PublishingContent, canonicalContent: PublishingContent }
+export type SchedulesSettings = { enabled: boolean, revision: number, activatedAt: number }
+export type SchedulesDefinition = SchedulesSnapshot & { scheduleNo: number, name: string, revision: number, planRevision: number, createdBy: string, channelId: string, calendar: SchedulesCalendar, enabled: boolean, cancelled: boolean, activatedAt: number, createdAt: number, updatedAt: number }
+export type SchedulesDeliveryBinding = { deliveryId: string, scheduleNo: number, planRevision: number, occurrenceNo: number }
+export type SchedulesDeliveryState = "queued" | "blocked" | "reserved" | "sent" | "failed" | "uncertain" | "skipped" | "cancelled" | "superseded"
+export type SchedulesDeliveryReason = "activation-cutoff" | "late-window" | "superseded" | "cancelled" | "permission" | "capacity" | "dispatch-expired"
+export type SchedulesDelivery = SchedulesDeliveryBinding & SchedulesSnapshot & { channelId: string, localMinute: string, zone: string, offsetMinutes: number, dueAt: number, state: SchedulesDeliveryState, nextCheckAt: number, claimedAt?: number, postNo?: number, attemptId?: string, reason?: SchedulesDeliveryReason }
+export type SchedulesDeliveryGrant = PublishingGrant & { source: Extract<PublishingSource, { type: "schedule-timer" }>, provenance: Extract<PublishingProvenance, { type: "schedule" }>, consumer: PublishingScheduleConsumer }
+export type SchedulesManageOperation =
+    | { type: "settings", expectedRevision: number, enabled: boolean }
+    | { type: "create", name: string, source: SchedulesContentSource, channelId: string, calendar: SchedulesCalendar }
+    | { type: "content", scheduleNo: number, expectedRevision: number, source: SchedulesContentSource }
+    | { type: "calendar", scheduleNo: number, expectedRevision: number, calendar: SchedulesCalendar }
+    | { type: "destination", scheduleNo: number, expectedRevision: number, channelId: string }
+    | { type: "enable" | "disable" | "cancel", scheduleNo: number, expectedRevision: number }
+    | { type: "reconcile", scheduleNo: number, expectedRevision: number, deliveryId: string, attemptId: string, expectedGeneration: number, observation: PublishingObservation }
+    | { type: "forget", scheduleNo: number, expectedRevision: number, confirm: "forget", occurrenceNos?: number[] }
+export type SchedulesManageRequest = ModerationSource & { serverId: string, context: SchedulesContext, operation: SchedulesManageOperation }
+export type SchedulesManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: SchedulesSettings } | { duplicate: false, type: "schedule", schedule: SchedulesDefinition } | { duplicate: false, type: "reconciled", recorded: boolean, post: PublishingPost } | { duplicate: false, type: "forgotten", scheduleNo: number, complete: boolean, removed: number }
+export type SchedulesQueryRequest = { serverId: string, context: SchedulesContext, operation:
+    | { type: "settings" | "status" }
+    | { type: "list", beforeScheduleNo?: number }
+    | { type: "show", scheduleNo: number }
+    | { type: "deliveries", scheduleNo: number, afterOccurrenceNo?: number }
+}
+export type SchedulesQueryResult = { type: "settings", settings: SchedulesSettings } | { type: "status", settings: SchedulesSettings, definitions: number, deliveries: number, receipts: number, publishing: { enabled: boolean }, limits: { definitions: 50, deliveries: 200, receipts: 1000 } } | { type: "schedules", schedules: SchedulesDefinition[], nextBeforeScheduleNo?: number } | { type: "schedule", schedule: SchedulesDefinition } | { type: "deliveries", deliveries: SchedulesDelivery[], nextAfterOccurrenceNo?: number }
+export type SchedulesDeliveryCursor = { cursor: string, throughAt: number }
+export type SchedulesDeliveryRequest = { serverId: string, operation:
+    | { type: "list", cursor?: SchedulesDeliveryCursor }
+    | { type: "reserve", binding: SchedulesDeliveryBinding, context: SchedulesAutomationContext }
+    | { type: "defer", binding: SchedulesDeliveryBinding }
+}
+export type SchedulesDeliveryResult = { type: "deliveries", deliveries: SchedulesDelivery[], hasMore: boolean, nextCursor?: SchedulesDeliveryCursor } | { type: "reservation", status: "reserved", grant: SchedulesDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }

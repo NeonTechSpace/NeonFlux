@@ -7,11 +7,14 @@ import { createBotOptions } from "../src/bot.ts"
 import { prefixTtlMs, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { AfkStore } from "../src/afk-store.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
+import { publishingBoundary } from "./publishing-fixture.ts"
+import { schedulesBoundary } from "./schedule-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
 // In-memory stores for every adapter the bot reads during setup, so only the general adapter uses the backend
 function offlineWorkers() {
-    return { moderation: boundary().store,
+    const publishing = publishingBoundary().store
+    return { publishing, schedules: schedulesBoundary().store, moderation: boundary().store,
         afk: { set: () => Effect.die("unused"), observe: () => Effect.succeed({ cleared: false, statuses: [] }) } satisfies AfkStore }
 }
 

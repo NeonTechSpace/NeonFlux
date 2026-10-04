@@ -117,3 +117,37 @@ Cases and closed appeals are retained for a fixed 180 days, and records needed f
 | `/moderation/reconcile`, `/moderation/observe` | 65,536 | Provider observations and startup handling of interrupted work |
 | `/moderation/gate` | 65,536 | DEFCON command policy and enabled detection modules |
 | `/appeals/member`, `/appeals/staff` | 65,536 | Private submission, withdrawal and staff review |
+
+## Publishing and scheduled publishing
+
+### Publishing
+
+Publishing stores named drafts and templates (`publishingDrafts`), tracked messages with their latest confirmed content (`publishingPosts`), immutable send and edit attempts (`publishingAttempts`) and management receipts. The module starts enabled. The destination must be a text or announcement channel in the server
+
+Content is up to 2,000 UTF-16 code units of text and one rich embed with title, description, URL, color, timestamp, author, footer, image, thumbnail and up to 25 fields, within the 6,000-character embed total. URLs use HTTP or HTTPS without credentials, and mentions are disabled. An edit verifies the exact tracked message, bot author, channel and preceding confirmed content first. The provider has no conditional edit, so an external change can still race
+
+A send or edit grant expires after 180 seconds and needs a one-time dispatch claim, followed by a native request bounded to five seconds. Only an explicit SDK `notDispatched` result proves a request was not sent. Other failures stay uncertain and are never replayed. Staff can resolve a post with an unknown outcome by stating that it was sent with a given message ID or that it failed
+
+Drafts, templates and tracked posts persist until deleted or forgotten. Terminal attempt history is retained for a fixed 180 days, and management receipts for 24 hours
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/publishing/manage`, `/publishing/query` | 65,536 | Drafts, templates, tracked posts, previews and send or edit reservations |
+| `/publishing/dispatch` | 65,536 | Claim the current unexpired attempt once |
+| `/publishing/outcome` | 65,536 | Record a delivery outcome or fail unclaimed work |
+| `/publishing/reconcile` | 65,536 | Bind a fresh native observation to the current attempt |
+| `/publishing/observe` | 65,536 | Age closed dispatch windows without replay |
+
+### Scheduled publishing
+
+Schedules copy the exact revision of a named draft or template and store a finite civil plan: Local time, IANA zone, fold policy for repeated minutes and daily or weekly recurrence with an interval of 1 to 12. Nonexistent local minutes are rejected. A plan has at most 26 occurrences within 180 days, and the saved UTC instants stay frozen. Schedules start disabled. Content and plan changes replace only future unclaimed occurrences
+
+Automatic sends act as the bot. They need the bot's channel permissions, the schedule, scheduling module and publishing switches, and an allowing DEFCON level. Administrators are checked when configuring. A late occurrence still sends until local midnight after its due time. Delivery reuses the publishing claim, outcome and reconciliation routes with `scheduleContext`
+
+Limits are 50 schedules, 200 retained occurrence rows and 1,000 management receipts per server. Terminal history is kept for 180 days
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/schedules/manage` | 65,536 | Configuration, cancellation and settled forgetting |
+| `/schedules/query` | 65,536 | Definitions, occurrence pages and quota status |
+| `/schedules/delivery` | 65,536 | Due discovery, reservation and deferral |
