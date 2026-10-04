@@ -79,4 +79,17 @@ serviceRoute("/afk/observe", 4096, (ctx, body) => {
 mutation("/responses/manage", 32768, internal.responses.manage)
 mutation("/responses/evaluate", 32768, internal.responses.evaluate)
 
+query("/moderation/query", 65536, internal.moderation.query)
+query("/moderation/gate", 65536, internal.moderation.gate)
+mutation("/moderation/manage", 65536, internal.moderation.manage)
+mutation("/moderation/evaluate", 65536, internal.protection.evaluate)
+mutation("/moderation/join", 65536, internal.protection.join)
+mutation("/moderation/outcome", 65536, internal.moderation.outcome)
+mutation("/moderation/log-outcome", 65536, internal.moderation.logOutcome)
+mutation("/moderation/notice-outcome", 65536, internal.moderation.noticeOutcome)
+mutation("/moderation/reconcile", 65536, internal.moderation.reconcile)
+mutation("/moderation/observe", 65536, internal.moderation.observe)
+mutation("/appeals/member", 65536, internal.appeals.member)
+mutation("/appeals/staff", 65536, internal.appeals.staff)
+
 export default http

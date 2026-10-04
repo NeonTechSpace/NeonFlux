@@ -21,7 +21,8 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `src/` holds the bot source. [main.ts](../projects/bot/src/main.ts) starts the process, [config.ts](../projects/bot/src/config.ts) reads the environment and [bot.ts](../projects/bot/src/bot.ts) builds the SDK lifecycle, gateway routing and serial message pipeline
 - `tests/` holds the bot tests, which use the SDK's in-memory transport
-- [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source and tests without emitting
+- `scripts/` holds the opt-in [live smoke script](../projects/bot/scripts/smoke-live.ts). The test compiler checks it and Node runs it directly. [smoke-live.example.json](../projects/bot/smoke-live.example.json) shows its configuration, and the private local copy stays ignored
+- [tsconfig.json](../projects/bot/tsconfig.json) compiles `src/` into `dist/`, and [tsconfig.test.json](../projects/bot/tsconfig.test.json) checks source, tests and scripts without emitting
 
 ## Backend package
 
@@ -33,12 +34,13 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar and `-store.ts` decodes backend HTTP responses.
-In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns validation and `Validators.ts` owns persisted shapes
+In the bot, `<prefix>-command.ts` owns command grammar, `-permissions.ts` owns fresh native permission checks and `-store.ts` decodes backend HTTP responses.
+In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns validation, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix |
 | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `afk`, `response`, `responses` |
+| Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `protection`, `afk`, `response`, `responses` |
+| Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes
@@ -54,7 +56,8 @@ pnpm run check
 
 pnpm selects the exact version pinned in the workspace manifest.
 The aggregate check runs the backend checks, then the bot typecheck, build and tests.
-Tests need no live credentials
+Tests need no live credentials.
+The opt-in live smoke runs separately through `pnpm run smoke:live` and is not part of the aggregate check
 
 Use `pnpm run build` to compile the bot and `pnpm run start` to run the bot.
 Each package has an `.env.example` file for its private `.env`.
@@ -65,6 +68,6 @@ There are no deployment or container commands yet
 
 - Regenerate the lockfile through pnpm when dependency inputs change, review it and verify a frozen install
 - Regenerate `convex/_generated/` against a configured deployment after changing the backend schema or function interfaces, as described in [the backend guide](BACKEND.md)
-- Dependency installs, compiler output, build caches and private `.env` files stay ignored through the [workspace ignore rules](../projects/.gitignore) and the backend's own `.gitignore`
+- Dependency installs, compiler output, build caches and private `.env` files stay ignored through the [workspace ignore rules](../projects/.gitignore) and each package's own `.gitignore`
 - Keep ignore rules at workspace or package scope, not in a root `.gitignore`. Use Git's local `.git/info/exclude` for repository-root machine files
 - The [workspace configuration](../projects/pnpm-workspace.yaml) allows build scripts only for the reviewed `esbuild` version that Convex needs, and exempts the pinned SDK release from the minimum release age. Review a changed script or version before updating these entries

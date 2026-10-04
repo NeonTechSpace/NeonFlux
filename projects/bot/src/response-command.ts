@@ -10,7 +10,7 @@ export type ManagementCommand =
 export type ManagementParse = ManagementCommand | { error: string } | { help: string }
 
 const validName = (name: string) => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)
-    && !["prefix", "ping", "afk", "custom", "auto"].includes(name)
+    && !["prefix", "ping", "afk", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeal", "appeals"].includes(name)
 
 export function managementHelp(kind: ResponseKind) {
     const prefix = `!${kind}`

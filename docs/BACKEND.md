@@ -33,7 +33,7 @@ Missing or invalid configuration fails closed with `503 Backend not configured`.
 
 Every bot route requires `Authorization: Bearer <NEONFLUX_BOT_API_SECRET>`. Feature routes are JSON `POST` requests. Authentication is checked before the body is parsed, and every response carries `Cache-Control: no-store`. IDs are canonical positive decimal strings within the signed 64-bit range. Feature mutations are internal Convex functions and cannot be called as public functions
 
-The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission and membership facts only because the bot service credential vouches for them
+The bot imports the types-only [shared contracts](../projects/backend/contracts.d.ts) through `@neonflux/backend/contracts` and decodes every response at runtime. The backend owns validation and domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot service credential vouches for them
 
 | Status | Meaning |
 | --- | --- |
@@ -61,6 +61,10 @@ Codegen uses the existing deployment and writes `convex/_generated/` without pub
 
 Retention cleanup runs as Convex cron jobs every minute, one per feature, in bounded batches with scheduled continuations
 
+### Opt-in live smoke runner
+
+`pnpm smoke:live` runs [the smoke script](../projects/bot/scripts/smoke-live.ts) against a configured development server without a gateway connection. It reads the bot's `.env` and an ignored `projects/bot/smoke-live.local.json` created from `smoke-live.example.json`, which names the server, an operator, a target member and a channel. It sets the log channel, warns, quarantines, locks a channel and checks DEFCON gates through the production backend adapter and real REST calls. Every change registers its restoration, so restorations run in reverse order after success, failure or Ctrl+C. Its command sources are synthetic, so a pass does not prove gateway command dispatch, member DMs, visible presence or restart behavior. Tests never run it
+
 ## Bot foundation
 
 ### Prefix
@@ -75,7 +79,7 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix` and `mod`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
@@ -88,3 +92,28 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 | `/afk/set`, `/afk/observe` | 4,096 | Set AFK, and clear it and resolve mentions on a message |
 | `/responses/manage` | 32,768 | Definition and module management |
 | `/responses/evaluate` | 32,768 | Match one message and reserve at most one reply |
+
+## Moderation, protections, DEFCON and appeals
+
+The backend owns settings, validation, permission policy, action reservations, numbered cases and appeals. The bot owns fresh native permission and hierarchy checks and the platform actions. Configuration requires the server owner or an administrator, and other staff need a configured role for each operation
+
+Manual moderation covers warnings, timeout and clearing, kick, permanent and temporary ban, unban, bounded message deletion, slowmode, and channel lock and restore. It starts enabled. Automod and security detection start disabled and in dry-run mode. Each case records source, actor, target, reason, action outcome, correction history and separate staff-log and warning-notice outcomes. A grant belongs to one source and case and is never replayed after a lost response or uncertain write. Actions, logs and notices still pending when the bot starts are marked uncertain once
+
+- Automod: Message frequency, repeated content, mass mentions, literal words, domain allow or block lists and invite patterns, with channel scopes and exemptions. Detection uses message text and metadata only. One source message reserves at most one action
+- Protections: Join bursts, an opt-in honeypot channel that quarantines through a native timeout, and a local watchlist each create a classified case (`join-burst`, `honeypot` or `watchlist`) shown through the case commands. One join-burst case covers a burst window
+- Recovery: Owned timeout release and channel restore link a new case to the original action. Channel lock changes only the everyone role's `SendMessages` overwrite bits
+- DEFCON: Durable and restored after restart. Level 3 is normal, level 2 blocks public commands while staff work and private appeals continue, and level 1 allows only critical owner and administrator controls. Changing DEFCON does not lock channels
+
+Member appeals use verified one-to-one DMs and reveal only the member's own cases and appeals, so banned users can appeal where Fluxer allows private messages. Staff review requires fresh authorization. A decision records the outcome, and any reversal is a separate explicit moderation action
+
+Cases and closed appeals are retained for a fixed 180 days, and records needed for active recovery are excluded from expiry. Explicit owner erasure removes a case's private text, including corrections and appeal decisions, and keeps a minimal tombstone. Erasure does not remove messages already sent to staff channels, DMs or Fluxer's audit log. There are no capacity limits beyond source deduplication of messages, joins, commands and appeals
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/moderation/manage`, `/moderation/query` | 65,536 | Configuration, action reservations, cases, rules and watchlist |
+| `/moderation/evaluate`, `/moderation/join` | 65,536 | Message and join detection with source deduplication |
+| `/moderation/outcome` | 65,536 | Record the action result and reserve staff-log and notice delivery |
+| `/moderation/log-outcome`, `/moderation/notice-outcome` | 65,536 | Record each delivery result |
+| `/moderation/reconcile`, `/moderation/observe` | 65,536 | Provider observations and startup handling of interrupted work |
+| `/moderation/gate` | 65,536 | DEFCON command policy and enabled detection modules |
+| `/appeals/member`, `/appeals/staff` | 65,536 | Private submission, withdrawal and staff review |

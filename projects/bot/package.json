@@ -8,7 +8,8 @@
         "typecheck": "node ../scripts/heavy.mjs tsc --project tsconfig.test.json --singleThreaded",
         "test": "node ../scripts/heavy.mjs \"pnpm run build && node --test --test-concurrency=1 tests/*.test.ts\"",
         "check": "pnpm run typecheck && pnpm run test",
-        "start": "node --env-file-if-exists=.env dist/main.js"
+        "start": "node --env-file-if-exists=.env dist/main.js",
+        "smoke:live": "node --env-file-if-exists=.env scripts/smoke-live.ts"
     },
     "devDependencies": {
         "@neonflux/backend": "workspace:*",

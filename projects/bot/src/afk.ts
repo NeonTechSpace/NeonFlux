@@ -2,7 +2,7 @@ import { MessageType, type BotEventContext } from "@neontechspace/fluxerly/effec
 import { Effect } from "effect"
 import type { AfkStore } from "./afk-store.ts"
 
-export function handleAfk(store: AfkStore, serverId: string, context: BotEventContext<"messageCreate">, prefix = "!") {
+export function handleAfk(store: AfkStore, serverId: string, context: BotEventContext<"messageCreate">, publicRepliesAllowed = true, prefix = "!") {
     return Effect.gen(function* () {
         const { message, reply } = context
         if (message.guildId !== serverId || message.webhookId
@@ -15,6 +15,7 @@ export function handleAfk(store: AfkStore, serverId: string, context: BotEventCo
             allowedMentions: { users: [], roles: [], everyone: false, repliedUser: false },
         })
         if (command) {
+            if (!publicRepliesAllowed) return
             const reason = command[1]?.trim() || "Away"
             if (reason.length > 200) {
                 yield* respond("Keep your away message within 200 characters")
@@ -36,6 +37,6 @@ export function handleAfk(store: AfkStore, serverId: string, context: BotEventCo
         const lines: string[] = []
         if (result.cleared) lines.push("Welcome back! Your AFK status has been cleared")
         for (const status of result.statuses) lines.push(`<@${status.userId}> is AFK: ${status.reason}`)
-        if (lines.length) yield* respond(lines.join("\n"))
+        if (lines.length && publicRepliesAllowed) yield* respond(lines.join("\n"))
     })
 }

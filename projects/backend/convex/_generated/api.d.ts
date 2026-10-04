@@ -10,9 +10,16 @@
 
 import type * as afk from "../afk.js";
 import type * as afkDomain from "../afkDomain.js";
+import type * as appeals from "../appeals.js";
 import type * as crons from "../crons.js";
 import type * as generalSettings from "../generalSettings.js";
 import type * as http from "../http.js";
+import type * as moderation from "../moderation.js";
+import type * as moderationActions from "../moderationActions.js";
+import type * as moderationDomain from "../moderationDomain.js";
+import type * as moderationStore from "../moderationStore.js";
+import type * as moderationValidators from "../moderationValidators.js";
+import type * as protection from "../protection.js";
 import type * as responseDomain from "../responseDomain.js";
 import type * as responseValidators from "../responseValidators.js";
 import type * as responses from "../responses.js";
@@ -27,9 +34,16 @@ import type {
 declare const fullApi: ApiFromModules<{
   afk: typeof afk;
   afkDomain: typeof afkDomain;
+  appeals: typeof appeals;
   crons: typeof crons;
   generalSettings: typeof generalSettings;
   http: typeof http;
+  moderation: typeof moderation;
+  moderationActions: typeof moderationActions;
+  moderationDomain: typeof moderationDomain;
+  moderationStore: typeof moderationStore;
+  moderationValidators: typeof moderationValidators;
+  protection: typeof protection;
   responseDomain: typeof responseDomain;
   responseValidators: typeof responseValidators;
   responses: typeof responses;

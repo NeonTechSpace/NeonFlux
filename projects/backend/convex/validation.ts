@@ -30,6 +30,11 @@ export function integer(value: unknown, min: number, max: number): number {
     return value
 }
 
+export function bool(value: unknown): boolean {
+    if (typeof value !== "boolean") fail(400, "Invalid request")
+    return value
+}
+
 export function text(value: unknown, maximum = 512): string {
     if (typeof value !== "string" || value.length > maximum || !value.replace(/[\u000c\u202e]/g, "").trim()) fail(400, "Invalid request")
     return value
@@ -52,6 +57,12 @@ export function name(value: unknown): string {
     return result
 }
 
+export function cursor(value: unknown): string | null {
+    if (value === undefined || value === null) return null
+    if (typeof value !== "string" || !value.length || value.length > 16384) fail(400, "Invalid cursor")
+    return value
+}
+
 export function fresh(timestamp: number, now: number) {
     if (timestamp < now - 15 * 60000 || timestamp > now + 60000) fail(400, "Invalid source event")
 }
@@ -63,4 +74,9 @@ export function source(input: Record<string, unknown>, now: number): { serverId:
     const createdAt = integer(input.createdAt, 0, Number.MAX_SAFE_INTEGER)
     fresh(createdAt, now)
     return { serverId, messageId, createdAt }
+}
+
+// Work bindings select a member, so supplied native evidence must name that same member
+export function requireReadMember(row: Record<string, unknown>, userId: string) {
+    if (Object.hasOwn(row, "memberUserId") && row.memberUserId !== userId) fail(403, "Native evidence member mismatch")
 }

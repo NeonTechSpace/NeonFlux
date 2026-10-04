@@ -7,6 +7,18 @@ import { readConfig } from "../src/config.ts"
 const token = "synthetic-neonflux-test-token"
 const serverId = "123456789012345678"
 
+test("optional normal presence status validates bounded text without exposing supplied values", async () => {
+    const config = await Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: serverId, NEONFLUX_CUSTOM_STATUS: "  Ready for commands  " }))
+    assert.equal(config.customStatus, "Ready for commands")
+    for (const value of ["x".repeat(129), "private\u202evalue", "private\u000cvalue"]) {
+        await assert.rejects(Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_ID: serverId, NEONFLUX_CUSTOM_STATUS: value })), (error: unknown) => {
+            assert.match(String(error), /NEONFLUX_CUSTOM_STATUS/)
+            assert.equal(String(error).includes(value), false)
+            return true
+        })
+    }
+})
+
 test("configuration keeps the token redacted and the server ID as a string", async () => {
     const config = await Effect.runPromise(readConfig({
         FLUXER_BOT_TOKEN: ` ${token} `,

@@ -5,7 +5,8 @@
     "scripts": {
         "build": "pnpm --filter @neonflux/bot run build",
         "check": "pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check",
-        "start": "pnpm --filter @neonflux/bot run start"
+        "start": "pnpm --filter @neonflux/bot run start",
+        "smoke:live": "pnpm --filter @neonflux/bot run smoke:live"
     },
     "engines": {
         "node": ">=24 <25"

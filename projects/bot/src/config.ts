@@ -5,6 +5,7 @@ export interface BotConfig {
     readonly token: Redacted.Redacted<string>
     readonly serverId: string
     readonly backend?: BackendConfig
+    readonly customStatus?: string
 }
 
 export interface BackendConfig {
@@ -33,6 +34,10 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
         }
 
         const siteUrl = environment.CONVEX_SITE_URL?.trim()
+        const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
+        if (customStatus && (customStatus.length > 128 || /[\u000c\u202e]/.test(customStatus))) {
+            return yield* Effect.fail(new BotConfigError({ message: "Set NEONFLUX_CUSTOM_STATUS to at most 128 characters of normal status text" }))
+        }
         const backendSecret = environment.NEONFLUX_BOT_API_SECRET?.trim()
         let backend: BackendConfig | undefined
         if (siteUrl || backendSecret) {
@@ -53,6 +58,6 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             backend = { siteUrl: url.origin, secret: Redacted.make(backendSecret) }
         }
 
-        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}) } satisfies BotConfig
+        return { token: Redacted.make(token), serverId, ...(backend ? { backend } : {}), ...(customStatus ? { customStatus } : {}) } satisfies BotConfig
     })
 }
