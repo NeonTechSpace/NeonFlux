@@ -1,2 +1,16 @@
 packages:
     - bot
+    - backend
+    - contracts
+
+# Versions every package must share. The bot calls the backend's functions with the same Convex client, and each side decodes
+# with the schema values the contracts build, so Convex and Effect stay at one exact version across the workspace
+catalog:
+    convex: 1.46.0
+    effect: 4.0.0
+
+allowBuilds:
+    esbuild@0.27.0: true
+
+minimumReleaseAgeExclude:
+    - '@neontechspace/fluxerly@1000.0.0-rc.6'
