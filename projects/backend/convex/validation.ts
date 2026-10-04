@@ -15,6 +15,8 @@ export function requireServer(serverId: string) {
     }
 }
 
+export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
+
 export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
     return value

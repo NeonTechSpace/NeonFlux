@@ -34,11 +34,23 @@ import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./
 import { handleLevelCommand } from "./level-management.ts"
 import { levelCandidate, startLevelCreditWorker } from "./leveling.ts"
 import { startLevelRoleWorker } from "./level-worker.ts"
+import { createEventsStore, type EventsStore } from "./event-store.ts"
+import { parseEventCommand, eventCritical, eventPublic } from "./event-command.ts"
+import { handleEventCommand } from "./event-management.ts"
+import { startEventsWorker } from "./event-worker.ts"
 import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
+import { createMilestonesStore, type MilestonesStore } from "./milestone-store.ts"
+import { parseMilestoneCommand } from "./milestone-command.ts"
+import { handleMilestoneCommand } from "./milestone-management.ts"
+import { verifyMilestonePrivateAuthor } from "./milestone-permissions.ts"
+import { startMilestonesWorker } from "./milestone-worker.ts"
+import { createSuggestionsStore, type SuggestionsStore } from "./suggestion-store.ts"
+import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
+import { handleSuggestionCommand } from "./suggestion-management.ts"
+import { startSuggestionsWorker } from "./suggestion-worker.ts"
 import { createGeneralSettingsStore, createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
-
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -50,7 +62,10 @@ export interface BotStores {
     readonly greetings?: GreetingsStore | undefined
     readonly tickets?: TicketStore | undefined
     readonly leveling?: LevelingStore | undefined
+    readonly events?: EventsStore | undefined
     readonly schedules?: SchedulesStore | undefined
+    readonly milestones?: MilestonesStore | undefined
+    readonly suggestions?: SuggestionsStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -58,9 +73,14 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const backend = config.backend
     const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation = backend && createModerationStore(backend),
         publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend), tickets = backend && createTicketStore(backend),
-        leveling: levels = backend && createLevelingStore(backend), schedules = backend && createSchedulesStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
+        leveling: levels = backend && createLevelingStore(backend), events = backend && createEventsStore(backend), schedules = backend && createSchedulesStore(backend),
+        milestones = backend && createMilestonesStore(backend), suggestions = backend && createSuggestionsStore(backend),
+        general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
+    let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
+    let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    let eventWorker: Effect.Success<ReturnType<typeof startEventsWorker>> | undefined
     let levelCredits: Effect.Success<ReturnType<typeof startLevelCreditWorker>> | undefined
     let levelRewards: Effect.Success<ReturnType<typeof startLevelRoleWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
@@ -92,7 +112,10 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                 roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
             }
             if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
+            if (events && publishing) eventWorker = yield* startEventsWorker(events, publishing, config.serverId, client)
             if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
+            if (milestones && publishing) milestoneWorker = yield* startMilestonesWorker(milestones, publishing, config.serverId, client)
+            if (suggestions && publishing) suggestionWorker = yield* startSuggestionsWorker(suggestions, publishing, config.serverId, client)
             if (levels) {
                 if (roles) levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)
                 levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
@@ -125,11 +148,17 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                     const parsedGreeting = greetingName ? command ? usage(parseGreetingsCommand(greetingName, command.args)) : quotingError(`${greetingName} help for examples`) : undefined
                     const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
+                    const parsedMilestone = name === "milestone" ? command ? usage(parseMilestoneCommand(command.args)) : quotingError("milestone help in private") : undefined
+                    const parsedSuggestion = name === "suggest" ? command ? usage(parseSuggestionCommand(command.args)) : quotingError("suggest help") : undefined
                     const levelName = name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
+                    const eventName = name === "event" || name === "events" ? name : undefined
+                    const parsedEvent = eventName ? command ? usage(parseEventCommand(eventName === "events" ? ["list", ...command.args] : command.args))
+                        : quotingError("event help for examples") : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
-                        if (message.guildId !== undefined || !(name === "ticket" && tickets || safetyName && moderation)) return
-                        const verified = yield* (name === "ticket" ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
+                        if (message.guildId !== undefined || !(name === "milestone" && milestones || name === "ticket" && tickets || safetyName && moderation)) return
+                        const verified = yield* (name === "milestone" ? verifyMilestonePrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
+                            : name === "ticket" ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
                             : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false))))
                         if (!verified) return
                     }
@@ -147,21 +176,21 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                             || parsedLevel.type === "module" && !parsedLevel.enabled || parsedLevel.type === "correct")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = name === "ticket" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) ? "critical"
-                            : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" || levelName === "level" ? "staff" : "public"
-                        const actor = name === "ticket" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
+                        const gateClass = name === "ticket" || name === "milestone" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) || parsedEvent && eventCritical(parsedEvent) || parsedSuggestion && suggestionCritical(parsedSuggestion) ? "critical"
+                            : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" || levelName === "level" || parsedEvent && !eventPublic(parsedEvent) || parsedSuggestion && !("error" in parsedSuggestion) && !suggestionPublic(parsedSuggestion) ? "staff" : "public"
+                        const actor = name === "ticket" || name === "milestone" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
                         yield* applyDefconPresence(context.client, config, gate.defcon)
                         const blocked = !privateInvocation && gate.messageProtectionEnabled
                             ? yield* containProtection(handleProtectionMessage(moderation, config, "create", message, context.client), "unknown" as const) : false
-                        if (name !== "ticket" && !gate.allowed || blocked === true) {
+                        if (name !== "ticket" && name !== "milestone" && !gate.allowed || blocked === true) {
                             if (!privateInvocation && store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
                         }
                         // A message protection could not judge gets no public command or reply. Leveling collection still runs
                         protectionUnknown = blocked === "unknown" && gateClass === "public"
-                    } else if (privateInvocation && name !== "ticket") return
+                    } else if (privateInvocation && name !== "ticket" && name !== "milestone") return
                     // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                     if (!privateInvocation && name === "prefix" && !protectionUnknown) {
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
@@ -182,6 +211,20 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     if (Exit.isFailure(afkExit) && Cause.hasInterrupts(afkExit.cause)) return yield* Effect.failCause(afkExit.cause)
                     const responseExit: Exit.Exit<void, unknown> = yield* Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (name === "suggest") {
+                            if (suggestions) yield* handleSuggestionCommand(suggestions, config, parsedSuggestion!, context, suggestionWorker)
+                            else yield* reply({ content: "Suggestion persistence is not configured", allowedMentions: noMentions })
+                            return
+                        }
+                        if (name === "milestone") {
+                            if (milestones) yield* handleMilestoneCommand(milestones, publishing, config, parsedMilestone!, context, milestoneWorker)
+                            return
+                        }
+                        if (eventName) {
+                            if (!events) yield* reply({ content: "Event persistence is not configured", allowedMentions: noMentions })
+                            else yield* handleEventCommand(events, publishing, config, parsedEvent!, context, eventWorker)
+                            return
+                        }
                         if (levelName) {
                             if (!levels) yield* reply({ content: "Leveling persistence is not configured", allowedMentions: noMentions })
                             else if (!command) yield* reply({ content: `Check quoting and syntax. Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`, allowedMentions: noMentions })
@@ -249,6 +292,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                 concurrency: 1,
                 handler: (context) => Effect.gen(function* () {
                     if (context.event.guildId !== config.serverId) return
+                    if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                     const gate = moderation ? yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(context.event.userId), command: "public" }) : undefined
                     if (moderation && gate?.joinProtectionEnabled) yield* containProtection(handleProtectionJoin(moderation, config, context), undefined)
                     if (greetings) yield* observeGreetingJoin(greetings, config.serverId, context.client, context.event.userId, context.event.joinedAt)
@@ -264,6 +308,8 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (event.guildId !== config.serverId) return
+                    if (eventWorker) yield* eventWorker.notifyMember(event.userId)
+                    if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId, true).pipe(Effect.andThen(wake(event.userId)))
                 }),
             },
@@ -271,6 +317,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                 concurrency: 1,
                 handler: ({ event, client }) => Effect.gen(function* () {
                     if (event.guildId !== config.serverId) return
+                    if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                     if (greetings) yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(Effect.andThen(wake(event.userId)))
                 }),
             },

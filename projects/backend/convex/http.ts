@@ -139,4 +139,20 @@ mutation("/levels/manage", 262144, internal.leveling.manage)
 mutation("/levels/award", 262144, internal.leveling.award)
 mutation("/levels/work", 262144, internal.levelingWork.work)
 
+query("/events/query", 65536, internal.events.query)
+mutation("/events/manage", 65536, internal.events.manage)
+mutation("/events/rsvp", 65536, internal.events.rsvp)
+mutation("/events/work", 65536, internal.eventsWork.work)
+mutation("/events/delivery", 65536, internal.eventsDelivery.delivery)
+
+query("/milestones/query", 65536, internal.milestones.query)
+mutation("/milestones/manage", 65536, internal.milestones.manage)
+mutation("/milestones/personal", 65536, internal.milestones.personal)
+mutation("/milestones/delivery", 65536, internal.milestonesDelivery.delivery)
+
+query("/suggestions/query", 65536, internal.suggestions.query)
+mutation("/suggestions/manage", 65536, internal.suggestions.manage)
+mutation("/suggestions/member", 65536, internal.suggestions.member)
+mutation("/suggestions/work", 65536, internal.suggestionsWork.work)
+
 export default http

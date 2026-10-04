@@ -1,0 +1,111 @@
+import assert from "node:assert/strict"
+import test from "node:test"
+import type * as C from "@neonflux/backend/contracts"
+import { Permissions } from "@neontechspace/fluxerly/effect"
+import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
+import { Effect } from "effect"
+import { createBotOptions } from "../src/bot.ts"
+import type { SuggestionsStore } from "../src/suggestion-store.ts"
+import { boundary, platform, token } from "./moderation-fixture.ts"
+
+const f = createFixtures()
+function remote() {
+    const calls: { method: string, input: C.SuggestionsMemberRequest | C.SuggestionsManageRequest | C.SuggestionsQueryRequest }[] = []
+    const suggestion: C.SuggestionsDefinition = { suggestionNo: 1, revision: 2, authorId: f.ids.user, channelId: f.ids.channel, text: "Immutable public proposition", state: "under-review", up: 1, down: 0, voters: 1, desiredRevision: 2, publishedRevision: 0, cardGeneration: 1, cardState: "queued", cardStale: true, createdAt: 0, updatedAt: 0, forgetting: false }
+    const vote: C.SuggestionsVote = { choice: "up", joinedAt: "2020-01-01T00:00:00.123456789+00:00", acceptedCreatedAt: 0, acceptedMessageId: f.nextId() }
+    const store: SuggestionsStore = {
+        query: input => { calls.push({ method: "query", input }); return Effect.succeed(input.operation.type === "mine" ? { type: "vote", suggestion, vote } : input.operation.type === "list" ? { type: "suggestions", suggestions: [suggestion] } : input.operation.type === "publication" ? { type: "publication", suggestion, post: null } : { type: "suggestion", suggestion }) },
+        member: input => { calls.push({ method: "member", input }); return Effect.succeed(input.operation.type === "vote" ? { duplicate: false, type: "vote", accepted: true, suggestion, vote } : { duplicate: false, type: "suggestion", suggestion }) },
+        manage: input => { calls.push({ method: "manage", input }); return Effect.succeed(input.operation.type === "forget" ? { duplicate: false, type: "forgotten", suggestionNo: 1, revision: 3, removed: 20, complete: false } : { duplicate: false, type: "suggestion", suggestion }) },
+        work: () => Effect.succeed({ type: "cards", cards: [], hasMore: false }),
+    }
+    return { calls, store, suggestion, vote }
+}
+const options = (store: SuggestionsStore, moderation?: ReturnType<typeof boundary>["store"]) => createBotOptions({ token, serverId: f.ids.guild }, { moderation, suggestions: store })
+
+test("gateway command votes use eligible human evidence without a vote preflight or admin grant fabrication", async () => {
+    const r = remote()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store)), p = platform(bot, { actorOwner: false, actorPermissions: Permissions.ViewChannel | Permissions.ReadMessageHistory })
+        p.actor.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, { body: bot.fixtures.member({ roles: [p.actorRole.id], joined_at: r.vote.joinedAt, communication_disabled_until: null }) })
+        yield* bot.ready()
+        for (const content of ['!suggest submit "Immutable public proposition"', "!suggest vote 1 clear", "!suggest mine 1", "!suggest show 1"]) {
+            yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* p.replies.next(); yield* bot.idle()
+        }
+        const vote = r.calls.find(c => c.method === "member" && c.input.operation.type === "vote")!.input as C.SuggestionsMemberRequest
+        assert.deepEqual(vote.operation, { type: "vote", suggestionNo: 1, choice: "clear" })
+        assert.equal(r.calls.filter(c => c.method === "query").length, 2)
+        assert.equal(vote.context.member!.joinedAt, r.vote.joinedAt); assert.equal(vote.context.actor.isAdministrator, false); assert.equal(vote.context.actor.isOwner, false)
+        assert.equal(vote.context.actor.userId, f.ids.user); assert(vote.messageId && vote.createdAt > 0)
+        const before = r.calls.length
+        yield* bot.emit("MESSAGE_REACTION_ADD", { user_id: f.ids.user, channel_id: f.ids.channel, message_id: f.nextId(), guild_id: f.ids.guild, emoji: { name: "👍" } }); yield* bot.idle()
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ guild_id: undefined, channel_id: p.dmId, content: "!suggest vote 1 up" })); yield* bot.idle()
+        assert.equal(r.calls.length, before)
+        for (const request of p.replies.requests()) assert.deepEqual((request.body as { allowed_mentions: unknown }).allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("destination privacy and missing fresh history or timed-out membership fail before disclosure or vote", async () => {
+    for (const scenario of ["wrong-destination", "no-history", "timeout"] as const) {
+        const r = remote()
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot(options(r.store)), p = platform(bot, { actorOwner: false, actorPermissions: Permissions.ViewChannel | (scenario === "no-history" ? 0n : Permissions.ReadMessageHistory) })
+            if (scenario === "wrong-destination") r.suggestion.channelId = f.nextId()
+            if (scenario === "timeout") { p.actor.remove(); bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, { body: bot.fixtures.member({ roles: [p.actorRole.id], communication_disabled_until: "2099-01-01T00:00:00Z" }) }) }
+            yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: scenario === "timeout" ? "!suggest vote 1 up" : "!suggest show 1" })); const denied = yield* p.replies.next(); yield* bot.idle()
+            assert(!((denied.body as { content: string }).content.includes(r.suggestion.text)))
+            assert.equal(r.calls.some(c => c.method === "member"), false)
+            if (scenario === "no-history" || scenario === "timeout") assert.equal(r.calls.length, 0)
+        })))
+    }
+})
+
+test("staff confirmation and bounded forget continuation use returned revision", async () => {
+    const r = remote()
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store)), p = platform(bot)
+        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 2" })); const preview = yield* p.replies.next(); yield* bot.idle()
+        assert.match((preview.body as { content: string }).content, /!suggest forget 1 2 confirm/); assert.equal(r.calls.length, 0)
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest forget 1 2 confirm" })); const result = yield* p.replies.next(); yield* bot.idle()
+        assert.match((result.body as { content: string }).content, /!suggest forget 1 3 confirm/)
+        assert.deepEqual(r.calls[0]!.input.operation, { type: "forget", suggestionNo: 1, expectedRevision: 2, confirm: true })
+    })))
+})
+
+test("restricted mode blocks ordinary votes while staff decline and disable retain critical gate", async () => {
+    const r = remote(), moderation = boundary(); moderation.current.defcon = 2
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const bot = yield* createTestBot(options(r.store, moderation.store)), p = platform(bot)
+        yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest vote 1 up" })); yield* bot.idle(); assert.equal(r.calls.length, 0)
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: '!suggest status 1 2 declined "Public reason"' })); yield* p.replies.next(); yield* bot.idle()
+        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!suggest disable 1" })); yield* p.replies.next(); yield* bot.idle()
+        assert.deepEqual(r.calls.filter(c => c.method === "manage").map(c => c.input.operation), [{ type: "status", suggestionNo: 1, expectedRevision: 2, state: "declined", reason: "Public reason" }, { type: "settings", expectedRevision: 1, enabled: false }])
+        assert.equal(bot.failures().length, 0)
+    })))
+})
+
+test("exact known-card recovery requires matching identity and typed404 replacement, with no native writes", async () => {
+    for (const scenario of ["reconcile", "missing", "forbidden", "unknown", "wrong-author"] as const) {
+        const r = remote(), messageId = f.nextId(), binding = { type: "suggestion-card" as const, suggestionNo: 1, cardGeneration: 1, desiredRevision: 2 }
+        const grant: C.SuggestionsCardGrant = { attemptId: "synthetic_recovery_attempt", postNo: 1, generation: 2, sourceId: "suggestion_1_1_2_2", actorId: f.ids.user, botId: f.ids.bot, action: "edit", channelId: f.ids.channel, messageId, expectedContent: { content: "Previous" }, source: binding, provenance: binding, consumer: binding, content: { content: "Current card" }, canonicalContent: { content: "Current card" }, dispatchExpiresAt: 180000, nativeDeadlineMs: 5000 }
+        const post: C.PublishingPost = { postNo: 1, generation: 2, channelId: f.ids.channel, botId: f.ids.bot, ...(scenario === "unknown" ? {} : { messageId }), consumer: binding, outcome: "uncertain", createdAt: 0, updatedAt: 190000, attempt: { ...grant, outcome: "uncertain", createdAt: 0, dispatchedAt: 1000, finishedAt: 190000 } }
+        r.suggestion.postNo = post.postNo; r.suggestion.attemptId = grant.attemptId
+        r.store.query = input => { r.calls.push({ method: "query", input }); return Effect.succeed({ type: "publication", suggestion: r.suggestion, post }) }
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+            const bot = yield* createTestBot(options(r.store)), p = platform(bot)
+            const fetched = bot.rest.respond(`GET /channels/${f.ids.channel}/messages/${messageId}`, scenario === "missing" || scenario === "forbidden"
+                ? { status: scenario === "missing" ? 404 : 403, body: { message: "Synthetic provider refusal" } }
+                : { body: bot.fixtures.message({ id: messageId, author: scenario === "wrong-author" ? bot.fixtures.user() : bot.fixtures.botUser(), content: "Current card" }) })
+            yield* bot.ready(); yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: `!suggest ${scenario === "reconcile" || scenario === "wrong-author" ? "reconcile" : "replace"} 1 2 1 confirm` })); yield* p.replies.next(); yield* bot.idle()
+            const write = r.calls.find(c => c.method === "manage")?.input as C.SuggestionsManageRequest | undefined
+            if (scenario === "reconcile" || scenario === "missing") {
+                assert(write); assert.equal(write.operation.type, scenario === "missing" ? "replace" : "reconcile")
+                const op = write.operation as Extract<C.SuggestionsManageOperation, { type: "replace" | "reconcile" }>
+                assert.equal(op.postNo, 1); assert.equal(op.attemptId, grant.attemptId); assert.equal(op.cardGeneration, 1); assert.equal(op.expectedGeneration, 2); assert.equal(op.observation.messageId, messageId)
+            } else assert.equal(write, undefined)
+            assert.equal(fetched.requests().length, scenario === "unknown" ? 0 : 1)
+            assert(bot.requests().filter(request => request.method !== "GET").every(request => request.method === "POST" && request.path.endsWith("/messages")))
+        })))
+    }
+})

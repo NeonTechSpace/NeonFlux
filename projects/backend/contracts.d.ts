@@ -1,5 +1,6 @@
 
 export type ResponseKind = "custom" | "auto"
+
 export type ResponseTrigger = { mode: "exact" | "contains", text: string }
 export type ResponseReply =
     | { type: "text", text: string }
@@ -341,7 +342,7 @@ export type PublishingPost = {
     attempt: PublishingAttempt, consumer?: PublishingConsumer,
 }
 export type PublishingGrant = Omit<PublishingAttempt, "outcome" | "createdAt" | "finishedAt" | "noDispatch" | "dispatchedAt" | "observation" | "resolution">
-export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, scheduleContext?: SchedulesAutomationContext }
+export type PublishingDispatchRequest = { serverId: string, postNo: number, attemptId: string, generation: number, sourceId: string, claimToken: string, eventContext?: EventsContext | EventsAutomationContext, scheduleContext?: SchedulesAutomationContext, milestoneContext?: MilestonesDeliveryContext, suggestionContext?: SuggestionsCardContext }
 export type PublishingDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
 export type PublishingContext = { botId: string, channelId: string, botAuthorized: boolean, actorAuthorized: boolean }
 type PublishingEmbedProperty = {
@@ -621,10 +622,62 @@ export type LevelingWorkRequest = { serverId: string, operation:
 }
 export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
 
-export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
-export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }
+export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "event-timer", deliveryId: string, dueAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number } | { type: "milestone-timer", deliveryId: string, dueAt: number } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
+export type PublishingEventConsumer = { type: "event", eventNo: number, revision: number, purpose: "card" | "reminder", occurrenceNo?: number, offsetMinutes?: number, deliveryId?: string }
+export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "event", eventNo: number, revision: number, template?: { name: string, revision: number } } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource } | { type: "milestone", kind: MilestonesKind, intentRevision: number, template: MilestonesTemplateSource } | ({ type: "suggestion-card" } & SuggestionsCardBinding)
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
-export type PublishingConsumer = PublishingScheduleConsumer
+export type PublishingConsumer = PublishingEventConsumer | PublishingScheduleConsumer | PublishingMilestoneConsumer | PublishingSuggestionConsumer
+
+export type MilestonesKind = "birthday" | "anniversary"
+export type MilestonesContext = SchedulesContext
+export type MilestonesTemplateSource = { name: string, revision: number }
+export type MilestonesSettings = { enabled: boolean, revision: number, activatedAt: number }
+export type MilestonesRoute = { kind: MilestonesKind, revision: number, intentRevision: number, audienceGeneration: number, createdBy: string, channelId: string, zone: string, time: string, fold: CivilFoldPolicy, template: MilestonesTemplateSource, content: PublishingContent, canonicalContent: PublishingContent, enabled: boolean, activatedAt: number, createdAt: number, updatedAt: number }
+export type MilestonesDmIdentity = { userId: string, channelId: string, isDirectMessage: true, isBot: false, observedAt: number }
+export type MilestonesParticipantContext = { observedAt: number, channelId: string, botId: string, member: EventsMemberContext, userName: string, serverName: string }
+export type MilestonesDeliveryContext = { automation: SchedulesAutomationContext, participant: MilestonesParticipantContext }
+export type MilestonesEnrollment = { kind: MilestonesKind, revision: number, joinedAt: string, audienceGeneration: number, channelId: string, consentedAt: number, monthDay?: string, needsReconsent: boolean }
+export type MilestonesPersonalRequest = ModerationSource & { serverId: string, identity: MilestonesDmIdentity, operation:
+    | { type: "me" }
+    | { type: "enroll", kind: "birthday", monthDay: string, confirmChannelId: string, participant: MilestonesParticipantContext }
+    | { type: "enroll", kind: "anniversary", confirmChannelId: string, participant: MilestonesParticipantContext }
+    | { type: "remove", kind: MilestonesKind | "all" }
+}
+export type MilestonesPersonalResult = { duplicate: true } | { duplicate: false, type: "me", enrollments: MilestonesEnrollment[], routes: MilestonesRoute[] } | { duplicate: false, type: "enrollment", enrollment: MilestonesEnrollment } | { duplicate: false, type: "removed", removed: number }
+export type MilestonesDeliveryBinding = { deliveryId: string, kind: MilestonesKind, intentRevision: number, userId: string, joinedAt: string, consentRevision: number, audienceGeneration: number, celebrationYear: number, completedYears: number, generation: number }
+export type PublishingMilestoneConsumer = MilestonesDeliveryBinding & { type: "milestone" }
+export type MilestonesDeliveryState = SchedulesDeliveryState
+export type MilestonesDeliveryReason = SchedulesDeliveryReason | "consent" | "membership" | "civil-gap" | "civil-fold" | "consumed"
+export type MilestonesDelivery = MilestonesDeliveryBinding & { channelId: string, zone: string, dueAt: number, offsetMinutes: number, state: MilestonesDeliveryState, nextCheckAt: number, claimedAt?: number, postNo?: number, attemptId?: string, reason?: MilestonesDeliveryReason }
+export type MilestonesDeliveryGrant = PublishingGrant & { source: Extract<PublishingSource, { type: "milestone-timer" }>, provenance: Extract<PublishingProvenance, { type: "milestone" }>, consumer: PublishingMilestoneConsumer }
+export type MilestonesManageOperation =
+    | { type: "settings", expectedRevision: number, enabled: boolean }
+    | { type: "configure", kind: MilestonesKind, expectedRevision: number, channelId: string, zone: string, time: string, fold: CivilFoldPolicy, template: MilestonesTemplateSource }
+    | { type: "enable" | "disable" | "clear", kind: MilestonesKind, expectedRevision: number }
+    | { type: "reconcile", binding: MilestonesDeliveryBinding, attemptId: string, expectedGeneration: number, observation: PublishingObservation }
+    | { type: "forget", binding: MilestonesDeliveryBinding, confirm: "forget" }
+export type MilestonesManageRequest = ModerationSource & { serverId: string, context: MilestonesContext, operation: MilestonesManageOperation }
+export type MilestonesManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: MilestonesSettings } | { duplicate: false, type: "route", route: MilestonesRoute } | { duplicate: false, type: "cleared", kind: MilestonesKind } | { duplicate: false, type: "reconciled", recorded: boolean, post: PublishingPost } | { duplicate: false, type: "forgotten", removed: number }
+export type MilestonesQueryRequest = { serverId: string, context: MilestonesContext, operation:
+    | { type: "settings" | "status" }
+    | { type: "preview", kind: MilestonesKind }
+    | { type: "deliveries", kind: MilestonesKind, cursor?: string }
+}
+export type MilestonesQueryResult = { type: "settings", settings: MilestonesSettings, routes: MilestonesRoute[] } | { type: "status", settings: MilestonesSettings, routes: MilestonesRoute[], accounts: number, enrollments: number, deliveries: number, staffReceipts: number, memberReceipts: number, publishing: { enabled: boolean }, limits: { accounts: 1000, slotsPerAccount: 2, deliveries: 4000, staffReceipts: 1000, memberReceipts: 10000 } } | { type: "preview", route: MilestonesRoute, content: PublishingContent } | { type: "deliveries", deliveries: MilestonesDelivery[], nextCursor?: string }
+export type MilestonesDeliveryCursor = { cursor: string, throughAt: number }
+export type MilestonesMemberCursor = { cursor: string, userId: string, joinedAt: string, observedAt: number }
+export type MilestonesMembershipObservation = ({ observedAt: number, userId: string, status: "absent" } | { observedAt: number, userId: string, status: "present", joinedAt: string })
+export type MilestonesMemberTarget = { kind: MilestonesKind, userId: string, joinedAt: string, consentRevision: number, consentedAt: number }
+export type MilestonesDeliveryRequest = { serverId: string, operation:
+    | { type: "list", cursor?: MilestonesDeliveryCursor }
+    | { type: "reserve", binding: MilestonesDeliveryBinding, context: MilestonesDeliveryContext }
+    | { type: "defer", binding: MilestonesDeliveryBinding }
+    | { type: "membership", binding: MilestonesDeliveryBinding, observation: MilestonesMembershipObservation, cursor?: MilestonesMemberCursor }
+    | { type: "member-targets", userId: string, cursor?: string }
+    | { type: "member-observation", target: MilestonesMemberTarget, observation: MilestonesMembershipObservation }
+}
+export type MilestonesDeliveryResult = { type: "deliveries", deliveries: MilestonesDelivery[], hasMore: boolean, nextCursor?: MilestonesDeliveryCursor } | { type: "reservation", status: "reserved", grant: MilestonesDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean, hasMore?: boolean, nextCursor?: MilestonesMemberCursor } | { type: "member-targets", targets: MilestonesMemberTarget[], hasMore: boolean, nextCursor?: string }
+
 export type CivilFoldPolicy = "reject" | "earlier" | "later"
 export type CivilRecurrence = { type: "none" } | { type: "daily" | "weekly", interval: number, count: number }
 export type CivilResolvedDate = { localMinute: string, instantAt: number, offsetMinutes: number }
@@ -668,3 +721,120 @@ export type SchedulesDeliveryRequest = { serverId: string, operation:
     | { type: "defer", binding: SchedulesDeliveryBinding }
 }
 export type SchedulesDeliveryResult = { type: "deliveries", deliveries: SchedulesDelivery[], hasMore: boolean, nextCursor?: SchedulesDeliveryCursor } | { type: "reservation", status: "reserved", grant: SchedulesDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }
+
+export type EventsChoice = "going" | "maybe" | "not-going" | "none"
+export type EventsLifecycle = "draft" | "open" | "started" | "completed" | "cancelled"
+export type EventsFoldPolicy = "reject" | "earlier" | "later"
+export type EventsRecurrence = { type: "none" } | { type: "daily" | "weekly", interval: number, count: number }
+export type EventsResolvedDate = { localMinute: string, startsAt: number, endsAt: number, offsetMinutes: number }
+export type EventsCalendar = { localMinute: string, zone: string, fold: EventsFoldPolicy, durationMinutes: number, recurrence: EventsRecurrence, dates: EventsResolvedDate[] }
+export type EventsMemberContext = SchedulesMemberContext
+export type EventsContext = SchedulesContext
+export type EventsSettings = { enabled: boolean, revision: number }
+export type EventsDefinition = { eventNo: number, name: string, revision: number, channelId: string, title: string, description: string, capacity: number | null, reminderOffsets: number[], state: EventsLifecycle, participationStarted: boolean, calendar?: EventsCalendar, template?: { name: string, revision: number, content: PublishingContent }, cardPostNo?: number, createdAt: number, updatedAt: number }
+export type EventsOccurrence = EventsResolvedDate & { eventNo: number, occurrenceNo: number, revision: number, state: EventsLifecycle, participationStarted: boolean, going: number, waitlisted: number, capacity: number | null, workGeneration: number }
+export type EventsRsvp = { eventNo: number, occurrenceNo: number, userId: string, joinedAt: string, membershipGeneration: number, revision: number, choice: EventsChoice, allocation: "seat" | "waitlist" | "none", queueOrder?: number, acceptedCreatedAt: number, acceptedMessageId: string }
+export type EventsSource = ModerationSource & { serverId: string, context: EventsContext }
+export type EventsManageOperation =
+    | { type: "settings", expectedRevision: number, enabled: boolean }
+    | { type: "create", name: string, title: string, description?: string, channelId: string }
+    | { type: "calendar", eventNo: number, expectedRevision: number, calendar: EventsCalendar }
+    | { type: "content", eventNo: number, expectedRevision: number, title: string, description: string }
+    | { type: "capacity", eventNo: number, expectedRevision: number, capacity: number | null }
+    | { type: "reminders", eventNo: number, expectedRevision: number, offsets: number[] }
+    | { type: "template", eventNo: number, expectedRevision: number, templateName: string | null, expectedTemplateRevision?: number }
+    | { type: "publish" | "cancel" | "reconcile", eventNo: number, expectedRevision: number }
+    | { type: "forget", eventNo: number, expectedRevision: number, confirm: "forget" }
+export type EventsManageRequest = EventsSource & { operation: EventsManageOperation }
+export type EventsManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: EventsSettings } | { duplicate: false, type: "event", event: EventsDefinition, grant?: EventsDeliveryGrant } | { duplicate: false, type: "forgotten", eventNo: number, complete: boolean, removed: number }
+export type EventsQueryRequest = { serverId: string, context: EventsContext, operation:
+    | { type: "settings" | "status" }
+    | { type: "list", beforeEventNo?: number }
+    | { type: "show", eventNo: number }
+    | { type: "dates", eventNo: number, afterOccurrenceNo?: number }
+    | { type: "attendees", eventNo: number, occurrenceNo: number, afterUserId?: string }
+}
+export type EventsQueryResult = { type: "settings", settings: EventsSettings } | { type: "status", settings: EventsSettings, definitions: number, occurrences: number, rsvps: number, receipts: number } | { type: "events", events: EventsDefinition[], nextBeforeEventNo?: number } | { type: "event", event: EventsDefinition } | { type: "dates", dates: EventsOccurrence[], nextAfterOccurrenceNo?: number } | { type: "attendees", attendees: EventsRsvp[], nextAfterUserId?: string }
+export type EventsRsvpRequest = EventsSource & { eventNo: number, occurrenceNo: number, choice: EventsChoice }
+export type EventsRsvpResult = { duplicate: boolean, accepted: boolean, rsvp: EventsRsvp | null, occurrence: EventsOccurrence }
+export type EventsPromotionJob = { eventNo: number, occurrenceNo: number, revision: number, generation: number, nextCheckAt: number, channelId: string }
+export type EventsPromotionBinding = { eventNo: number, occurrenceNo: number, revision: number, generation: number, claimToken: string, rsvpRevision: number, membershipGeneration: number, userId: string, joinedAt: string, queueOrder: number }
+export type EventsMemberTarget = { eventNo: number, occurrenceNo: number, revision: number, generation: number, userId: string, joinedAt: string, membershipGeneration: number, rsvpRevision: number }
+export type EventsMemberCursor = { eventNo: number, occurrenceNo: number }
+export type EventsWorkRequest = { serverId: string, operation:
+    | { type: "list", cursor?: EventsMemberCursor, limit?: number }
+    | { type: "member-targets", userId: string, cursor?: EventsMemberCursor }
+    | { type: "claim", eventNo: number, occurrenceNo: number, revision: number, generation: number, claimToken: string }
+    | { type: "promote", binding: EventsPromotionBinding, context: EventsContext }
+    | { type: "defer", binding: EventsPromotionBinding }
+    | ({ type: "observe", observedAt: number, memberAbsent: true } & EventsMemberTarget)
+}
+export type EventsWorkResult = { type: "jobs", jobs: EventsPromotionJob[], nextCursor?: EventsMemberCursor } | { type: "member-targets", targets: EventsMemberTarget[], nextCursor?: EventsMemberCursor } | { type: "head", claimed: false } | { type: "head", claimed: true, binding: EventsPromotionBinding, leaseExpiresAt: number } | { type: "progress", recorded: boolean, promoted?: boolean }
+export type EventsAutomationContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type EventsDeliveryBinding = { deliveryId: string, eventNo: number, occurrenceNo: number, revision: number, offsetMinutes: number }
+export type EventsDelivery = EventsDeliveryBinding & { dueAt: number, startsAt: number, state: "queued" | "blocked" | "reserved" | "sent" | "failed" | "uncertain" | "skipped" | "cancelled", nextCheckAt: number, channelId: string, postNo?: number, attemptId?: string }
+export type EventsDeliveryGrant = PublishingGrant & { source: PublishingSource, provenance: Extract<PublishingProvenance, { type: "event" }>, consumer: PublishingEventConsumer }
+export type EventsDeliveryRequest = { serverId: string, operation:
+    | { type: "list", beforeDueAt?: number }
+    | { type: "status", eventNo: number, afterDeliveryId?: string }
+    | { type: "show", eventNo: number }
+    | { type: "reserve", binding: EventsDeliveryBinding, context: EventsAutomationContext }
+    | { type: "defer", binding: EventsDeliveryBinding }
+}
+export type EventsDeliveryResult = { type: "event", event: EventsDefinition } | { type: "deliveries", deliveries: EventsDelivery[], nextAfterDeliveryId?: string } | { type: "reservation", status: "reserved", grant: EventsDeliveryGrant } | { type: "reservation", status: "waiting" | "skipped" | "cancelled" | "terminal" } | { type: "progress", recorded: boolean }
+
+export type SuggestionsContext = EventsContext
+export type SuggestionsCardContext = { observedAt: number, channelId: string, botId: string, botAuthorized: true }
+export type SuggestionsState = "under-review" | "planned" | "completed" | "declined" | "withdrawn"
+export type SuggestionsVoteChoice = "up" | "down" | "clear"
+export type SuggestionsSettings = { enabled: boolean, revision: number, channelId?: string, suggestions: number, voters: number, staffReceipts: number, memberReceipts: number, dirty: number, blocked: number }
+export type SuggestionsDefinition = {
+    suggestionNo: number, revision: number, authorId: string, channelId: string, text: string, state: SuggestionsState,
+    up: number, down: number, voters: number, desiredRevision: number, publishedRevision: number, cardGeneration: number,
+    cardState: "queued" | "reserved" | "current" | "blocked", cardStale: boolean, createdAt: number, updatedAt: number,
+    reason?: string, statusBy?: string, statusAt?: number, historyExpiresAt?: number, forgetting: boolean, postNo?: number, attemptId?: string,
+}
+export type SuggestionsVote = { choice: SuggestionsVoteChoice, joinedAt: string, acceptedCreatedAt: number, acceptedMessageId: string }
+export type SuggestionsCardBinding = { suggestionNo: number, cardGeneration: number, desiredRevision: number }
+export type PublishingSuggestionConsumer = { type: "suggestion-card" } & SuggestionsCardBinding
+export type SuggestionsCardGrant = PublishingGrant & { source: Extract<PublishingSource, { type: "suggestion-card" }>, provenance: Extract<PublishingProvenance, { type: "suggestion-card" }>, consumer: PublishingSuggestionConsumer }
+export type SuggestionsWorkRow = SuggestionsCardBinding & { channelId: string, dueAt: number, nextCheckAt: number, state: "queued" | "reserved" | "blocked", postNo?: number, attemptId?: string }
+export type SuggestionsWorkCursor = { cursor: string, throughAt: number }
+export type SuggestionsPostBinding = { suggestionNo: number, expectedRevision: number, cardGeneration: number, postNo: number, attemptId: string, expectedGeneration: number }
+export type SuggestionsMissingObservation = { status: "absent", observedAt: number, messageId: string, channelId: string, botId: string }
+export type SuggestionsManageOperation =
+    | { type: "configure", expectedRevision: number, channelId: string }
+    | { type: "settings", expectedRevision: number, enabled: boolean }
+    | { type: "status", suggestionNo: number, expectedRevision: number, state: Exclude<SuggestionsState, "withdrawn">, reason: string }
+    | ({ type: "reconcile", observation: PublishingObservation } & SuggestionsPostBinding)
+    | ({ type: "replace", observation: SuggestionsMissingObservation, confirm: true } & SuggestionsPostBinding)
+    | { type: "forget", suggestionNo: number, expectedRevision: number, confirm: true }
+export type SuggestionsManageRequest = ModerationSource & { serverId: string, context: SuggestionsContext, operation: SuggestionsManageOperation }
+export type SuggestionsManageResult = { duplicate: true } | { duplicate: false } & (
+    { type: "settings", settings: SuggestionsSettings } | { type: "suggestion", suggestion: SuggestionsDefinition }
+    | { type: "reconciled", recorded: boolean, suggestion: SuggestionsDefinition, post: PublishingPost }
+    | { type: "forgotten", suggestionNo: number, revision: number, complete: boolean, removed: number })
+export type SuggestionsMemberRequest = ModerationSource & { serverId: string, context: SuggestionsContext, operation:
+    | { type: "submit", text: string }
+    | { type: "vote", suggestionNo: number, choice: SuggestionsVoteChoice }
+    | { type: "withdraw", suggestionNo: number, expectedRevision: number, confirm: true } }
+export type SuggestionsMemberResult = { duplicate: boolean, type: "suggestion", suggestion: SuggestionsDefinition }
+    | { duplicate: boolean, type: "vote", accepted: boolean, vote: SuggestionsVote | null, suggestion: SuggestionsDefinition }
+export type SuggestionsQueryRequest = { serverId: string, context: SuggestionsContext, operation:
+    | { type: "settings" }
+    | { type: "show", suggestionNo: number }
+    | { type: "list", state?: SuggestionsState, beforeSuggestionNo?: number }
+    | { type: "mine", suggestionNo: number }
+    | { type: "publication", suggestionNo: number } }
+export type SuggestionsQueryResult = { type: "settings", settings: SuggestionsSettings }
+    | { type: "suggestion", suggestion: SuggestionsDefinition }
+    | { type: "suggestions", suggestions: SuggestionsDefinition[], nextBeforeSuggestionNo?: number }
+    | { type: "vote", vote: SuggestionsVote | null, suggestion: SuggestionsDefinition }
+    | { type: "publication", suggestion: SuggestionsDefinition, post: PublishingPost | null }
+export type SuggestionsWorkRequest = { serverId: string, operation:
+    | { type: "list", cursor?: SuggestionsWorkCursor }
+    | { type: "reserve", binding: SuggestionsCardBinding, context: SuggestionsCardContext }
+    | { type: "defer", binding: SuggestionsCardBinding } }
+export type SuggestionsWorkResult = { type: "cards", cards: SuggestionsWorkRow[], hasMore: boolean, nextCursor?: SuggestionsWorkCursor }
+    | { type: "reserved", grant: SuggestionsCardGrant }
+    | { type: "progress", recorded: boolean }

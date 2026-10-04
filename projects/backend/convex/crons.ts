@@ -9,5 +9,8 @@ crons.interval("Clean expired role metadata", { minutes: 1 }, internal.roleLifec
 crons.interval("Clean expired greeting metadata", { minutes: 1 }, internal.greetingLifecycle.cleanup)
 crons.interval("Clean expired ticket metadata", { minutes: 1 }, internal.ticketLifecycle.cleanup)
 crons.interval("Clean expired leveling metadata", { minutes: 1 }, internal.levelingCleanup.cleanup)
+crons.interval("Clean expired event metadata", { minutes: 1 }, internal.eventsCleanup.cleanup)
 crons.interval("Clean expired schedule metadata", { minutes: 1 }, internal.schedulesCleanup.cleanup)
+crons.interval("Clean expired milestone metadata", { minutes: 1 }, internal.milestonesCleanup.cleanup)
+crons.interval("Clean expired suggestion metadata", { minutes: 1 }, internal.suggestionsCleanup.cleanup)
 export default crons

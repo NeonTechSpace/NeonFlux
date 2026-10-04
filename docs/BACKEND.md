@@ -223,3 +223,44 @@ Owner and administrator corrections set absolute XP and apply in source command 
 | `/levels/query` | 262,144 | Settings, rank, leaderboard and audits |
 | `/levels/preflight`, `/levels/award` | 262,144 | Candidate admission and atomic award |
 | `/levels/work` | 262,144 | Reward role work |
+
+## Events, birthdays, anniversaries and suggestions
+
+These features share publishing's protected posts and claim lifecycle. Their automatic sends act as the bot and need the bot's channel permissions, the module and publishing switches, and an allowing DEFCON level. Administrators are checked when configuring
+
+### Events and RSVPs
+
+Events start disabled. Each definition has a frozen calendar of at most 26 occurrences within 180 days, using the same civil rules as schedules, with durations from 1 to 10,080 minutes. RSVPs store one record per account and occurrence with the membership token, without names or message bodies. Capacity is off or 1 to 500 seats with a first-in waitlist. Reminders default to 1,440 and 60 minutes before start and are skipped once five minutes late or when the event starts
+
+Limits are 50 definitions, 200 retained occurrences, 1,000 RSVPs per occurrence and 50,000 overall. Source receipts are kept for 24 hours and terminal event history for 180 days
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/events/manage`, `/events/query` | 65,536 | Configuration, cancellation, forgetting and status |
+| `/events/rsvp` | 65,536 | Ordered RSVP changes and seat allocation |
+| `/events/work` | 65,536 | Waitlist promotion and departed-member cleanup |
+| `/events/delivery` | 65,536 | Card and reminder reservation |
+
+### Birthdays and membership anniversaries
+
+Two annual routes are configured separately, each with a template snapshot, destination, IANA zone and local time. Members opt in privately through DMs. Birthdays store month and day only, never a year or age, and February 29 maps to February 28 in non-leap years. Anniversaries keep the exact native `joinedAt` and count complete years. Leaving the server or changing the destination revokes consent
+
+A late delivery still sends until local midnight, and a missed day does not consume that year's birthday. Removing enrollment deletes it immediately. Settled deliveries retire after 30 days, and body-free fences that prevent a second celebration in the same year stay for 400 days. Limits are 1,000 enrolled accounts, 4,000 retained deliveries, 1,000 staff receipts and 10,000 member receipts per server
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/milestones/manage`, `/milestones/query` | 65,536 | Staff configuration, preview and delivery pages |
+| `/milestones/personal` | 65,536 | DM enrollment, own state and removal |
+| `/milestones/delivery` | 65,536 | Due discovery, reservation and deferral |
+
+### Suggestions
+
+Each suggestion stores its text, status, vote counts and a protected card. Each account has at most one vote per suggestion, and votes take no revision numbers. Status keeps only the latest reason, actor and time. Voter IDs stay out of public projections but are visible to database administrators. Card updates coalesce for five seconds before an edit is queued
+
+Limits are 1,000 retained suggestions, 1,000 voters per suggestion and 10,000 per server, 1,000 staff receipts and 10,000 member receipts. Terminal suggestions expire after 180 days. Forgetting removes backend data without deleting posted cards
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/suggestions/manage`, `/suggestions/query` | 65,536 | Staff status, configuration and reads |
+| `/suggestions/member` | 65,536 | Submission, votes and withdrawal |
+| `/suggestions/work` | 65,536 | Card send and edit work |

@@ -457,3 +457,99 @@ XP comes only from human ordinary or reply messages in the configured server tha
 Leveling never stores message text, display names or avatars. It keeps account and message IDs, timestamps and a keyed digest for duplicate detection, retained for ten minutes. Correction and reset audits keep actor, target, XP before and after, reason and time for 180 days
 
 Reward roles are cumulative and use the shared safe-role checks, so NeonFlux needs Manage Roles and a role above each reward. Collection itself does not need Manage Roles. Awards, corrections, resets and mapping changes mark an account for a reward pass, and a failed role change keeps the account marked for a later pass without blocking other roles. Turning leveling off keeps existing rewards, while clearing mappings, resets and demotions still remove rewards NeonFlux granted. A server reset hides old scores at once. A rejoining member keeps XP but must earn role ownership again through a new message or `!level reconcile @user`. NeonFlux removes only roles it granted and confirmed, and preserves roles granted any other way
+
+## Events and RSVPs
+
+Events start disabled and use `!event`. Owners and Administrators manage definitions. Current members read published events and RSVP in the event's destination channel, and `!events` lists them. Replies and attendee lists suppress mentions and show account IDs. DMs cannot run event commands
+
+Management commands take the current revision shown by `!event status` or `!event show <event>`. A new event follows this flow, with your own channel, date and zone
+
+```text
+!event create study #channel "Study group" "Bring your questions"
+!event time 1 1 2026-11-01T18:00 Europe/Berlin 60 reject
+!event repeat 1 2 weekly 1 4
+!event dates 1
+!event module on 1
+!event publish 1 3
+```
+
+| Command | Behavior |
+| --- | --- |
+| `!event list [before-event-number]` | List events in this destination |
+| `!event show <event>` | Read one event and its revision |
+| `!event dates <event> [after-occurrence-number]` | List occurrences with zone, offset and UTC times |
+| `!event attendees <event> <occurrence> [after-user-ID]` | List attendees and the waitlist |
+| `!event rsvp <event> <occurrence> going\|maybe\|not-going\|none` | Set or clear your RSVP |
+| `!event time <event> <revision> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
+| `!event repeat <event> <revision> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
+| `!event title <event> <revision> "title" ["description"]` | Change the text |
+| `!event template <event> <revision> <template> <template-revision>\|off` | Use a publishing template snapshot |
+| `!event capacity <event> <revision> off\|1-500` | Limit Going seats |
+| `!event reminders <event> <revision> off\|<minutes> [minutes]` | Set up to two reminder offsets, 1 to 10080 minutes |
+| `!event publish\|cancel <event> <revision>` | Publish the card or cancel the event |
+| `!event status [event [1-26 page]]` | Show module, card and reminder outcomes |
+| `!event reconcile <event> <revision> [tracked-post-number]` | Recheck a known card or reminder message |
+| `!event forget <event> <revision> [confirm]` | Remove settled event data in pages |
+| `!event module on\|off <settings-revision>` | Turn the module on or off |
+
+Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again joins the end of the waitlist. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
+
+Times use an exact local minute and an IANA zone. Repeats allow at most 26 occurrences within 180 days, and wall-clock times hold across offset changes. Nonexistent local minutes are rejected, and repeated minutes are rejected unless you choose `earlier` or `later`. Once anyone has RSVPed, the calendar cannot change. Cancel the event and create a new one instead. Capacity cannot drop below confirmed Going attendance
+
+Each event has one protected publishing card that follows publishing limits. Event changes edit the card, and RSVPs do not. `!publish` cannot edit or forget event cards. Reminders default to 1440 and 60 minutes before start, are skipped if already past due on activation and must send before the event starts. Automatic cards and reminders send as NeonFlux and need its channel permissions, the module and publishing switches and a DEFCON level that allows them. DEFCON 2 pauses automatic sends and public RSVPs. Cancellation and disable never delete posted messages. A send with an unknown result is never repeated, so use `!event status` and `!event reconcile` to recover it
+
+A server keeps at most 50 events, 200 occurrences, 1000 RSVPs per occurrence and 50000 RSVPs overall. RSVPs expire 30 days after an occurrence ends or is cancelled, and ended event history after 180 days. No message bodies, member names or avatars are stored
+
+## Birthdays and membership anniversaries
+
+Members opt into public birthday and membership-anniversary posts with `!milestone` in a verified one-to-one DM with NeonFlux. Birthdays take only `MM-DD`, including `02-29`, with no year or age. Anniversaries use the member's actual join time, never a supplied date. The module and both routes start disabled, and shared publishing must also be enabled
+
+```text
+!milestone help
+!milestone me
+!milestone birthday set 02-29 confirm #celebrations
+!milestone anniversary on confirm #celebrations
+!milestone remove [birthday|anniversary]
+```
+
+Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again
+
+Owners and Administrators configure each route from a publishing template revision. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions
+
+| Command | Behavior |
+| --- | --- |
+| `!milestone status [birthday\|anniversary [quoted-cursor]]` | Show configuration and limits, or delivery history for one route |
+| `!milestone configure birthday\|anniversary <route-revision> #channel <IANA zone> HH:mm earlier\|later\|reject template <name> <revision>` | Set a route. Use revision `0` the first time |
+| `!milestone preview birthday\|anniversary` | Preview the post privately |
+| `!milestone enable\|disable\|clear birthday\|anniversary <route-revision>` | Control one route |
+| `!milestone module on\|off <settings-revision>` | Turn the module on or off |
+| `!milestone reconcile birthday\|anniversary <post>` | Recheck one known post |
+| `!milestone forget birthday\|anniversary <settled-post> [confirm]` | Drop settled tracking without deleting the post |
+
+Posts go out at the configured local time in the server's zone. February 29 celebrates on February 28 in other years. Anniversaries count completed years from one. A late delivery still sends until local midnight, and a missed day does not use up that year's birthday. Enrolling skips a celebration already due. Automatic posts send as NeonFlux and need its channel permissions, the module and publishing switches and DEFCON allowance. Leaving the server ends consent
+
+Removal deletes the enrollment and stored date. Posts already sent stay. A server allows at most 1000 enrolled accounts and 4000 retained deliveries. Settled tracking expires after 30 days, and a body-free record of each delivered year lasts 400 days so re-enrolling cannot repeat it
+
+## Suggestions and voting
+
+Owners and Administrators set up the disabled module with `!suggest configure <settings-revision> #channel`, enable it with `!suggest enable <settings-revision>` and inspect it with `!suggest settings`. Members use the other commands in the configured destination
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!suggest submit "text"` | Member | Post a suggestion of at most 2000 characters |
+| `!suggest show <number>` | Member | Read text, author, state, counts and card status |
+| `!suggest list [state] [cursor]` | Member | List up to ten suggestions |
+| `!suggest vote <number> up\|down\|clear` | Member | Set, change or clear your vote |
+| `!suggest mine <number>` | Member | See your own vote |
+| `!suggest withdraw <number> <revision> confirm` | Author | Withdraw permanently |
+| `!suggest status <number> <revision> under-review\|planned\|completed\|declined "reason"` | Staff | Change state with a public reason of at most 500 characters |
+| `!suggest publication <number>` | Staff | Show card delivery state |
+| `!suggest reconcile\|replace <number> <revision> <card-generation> confirm` | Staff | Recheck a known card, or replace one confirmed missing |
+| `!suggest forget <number> <revision> confirm` | Staff | Remove settled closed suggestion data in pages |
+| `!suggest disable <settings-revision>` | Staff | Stop submissions, votes and cards and keep data |
+
+Voting uses commands only, and reactions change nothing. Under-review and planned suggestions accept votes. Completed and declined ones close voting and can be reopened with a reason until they expire. Withdrawn suggestions stay closed. Only the latest status reason, actor and time are kept. Self-votes count, and votes stay after the voter leaves. Editing or deleting a command message does not change the recorded text or vote
+
+Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
+
+Limits are 1000 suggestions per server, 1000 voters per suggestion and 10000 vote records per server. Closed suggestions expire after 180 days

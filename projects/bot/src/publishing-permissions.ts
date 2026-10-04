@@ -71,3 +71,5 @@ export function readEventsAuthority(client: Client, serverId: string, userId: st
         return { context, authority }
     })
 }
+export const readEventsContext = (client: Client, serverId: string, userId: string, channelId: string, options: EventsReadOptions = {}) =>
+    readEventsAuthority(client, serverId, userId, channelId, options).pipe(Effect.map(v => v.context))
