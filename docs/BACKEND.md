@@ -79,7 +79,7 @@ Retention cleanup runs as Convex cron jobs every minute, one per feature, in bou
 
 `responseDefinitions` stores content, matching rules, channel and role restrictions, cooldown, priority, enable state and timestamps. `responseSettings` stores separate module switches for custom commands and autoresponders, both enabled by default. New definitions are enabled, unrestricted and have a five-second per-user cooldown
 
-- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles` and `welcome`, is reserved
+- Names: 1 to 32 letters, numbers, underscores or hyphens, starting with a letter or number, lowercase and unique per kind. Every bot command namespace, such as `prefix`, `mod`, `roles`, `welcome` and `ticket`, is reserved
 - Limits: 100 definitions across both kinds, ten per list page, 2,000-unit text, 256-unit embed title, 4,000-unit embed description, 200-unit literal trigger, 20 channel and 20 role restrictions, cooldowns from 0 to 3,600 seconds and priorities from -100 to 100
 - Matching: Custom commands compare the whole first token case-insensitively. Autoresponders compare trimmed content as exact or contains, never match prefixed messages, and pick by higher priority, then exact over contains, then name
 - Rendering: Placeholders are `{user.name}`, `{user.id}`, `{user.mention}`, `{channel.id}`, `{server.id}` and `{args}`. Unknown placeholders are rejected, substitution runs once, limits are rechecked afterwards and all replies disable mentions
@@ -189,3 +189,22 @@ Pending work expires after 24 hours, grants after 180 seconds, and native reques
 | `/greetings/member`, `/greetings/observe` | 65,536 | Member observations, joins and typed absence |
 | `/greetings/discover`, `/greetings/pending` | 65,536 | Waiting eligibility hints and ready pages |
 | `/greetings/reserve`, `/greetings/dispatch`, `/greetings/outcome`, `/greetings/defer` | 65,536 | Reservation, one-time claim, outcome and deferral |
+
+## Tickets
+
+Tickets start disabled. Owners and administrators configure up to 20 categories, each with visibility, an optional parent, disclosed support roles, up to five intake questions and up to 20 copied canned replies. Submitted tickets keep snapshots of their category and replies
+
+Intake runs in a verified one-to-one DM. Drafts expire after 24 hours, and each requester can have at most three drafts and three active tickets. Private answers, staff notes and transcripts need fresh membership, role authority and a verified DM. Creation sends the full permission set in the initial request. Close and reopen change only the everyone and requester `SendMessages` bits, and deletion needs explicit confirmation on a closed channel. An unknown creation is never replayed or adopted. `!ticket abandon` releases the requester's slot for such a ticket while native and support-role protection stay
+
+Transcript capture stores one bounded body per capture of up to 500 messages, read in 1,500-character pages with a truncation notice. It keeps text, message, author and channel IDs and timestamps, without attachments, embeds, intake answers or staff notes. Each ticket has at most 200 authored entries and 20 transcripts. Failed captures store nothing
+
+Closed-ticket private content expires after 30 days by default, configurable from 1 to 365. Explicit erasure hides private content immediately and then removes it, without deleting provider messages or the channel. Terminal attempt history and settled ticket tombstones expire after 30 days
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/tickets/manage` | 262,144 | Configuration, staff actions, replies, close, reopen, deletion and erasure |
+| `/tickets/query` | 262,144 | Category projections, private intake, queues, entries and transcripts |
+| `/tickets/intake` | 262,144 | DM drafts, answers, cancellation and submission |
+| `/tickets/dispatch`, `/tickets/outcome` | 262,144 | One-time claim and native outcome |
+| `/tickets/reconcile` | 262,144 | Channel observations without native writes |
+| `/tickets/transcript` | 262,144 | Bounded transcript capture |

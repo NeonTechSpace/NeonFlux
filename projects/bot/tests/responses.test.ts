@@ -170,7 +170,8 @@ test("reserved names, duplicate definitions, malformed quoting, unknown updates 
         yield* bot.ready()
         for (const content of [
             '!custom create ping text "collision"', '!auto create afk exact "hello" text "collision"',
-            '!custom create Welcome text "collision"', '!custom create goodbye text "collision"',
+            '!custom create Welcome text "collision"', '!custom create goodbye text "collision"', '!custom create ticket text "collision"',
+            '!auto create ticket exact "hello" text "collision"',
             '!custom create rules text "Read rules"', '!custom create rules text "Again"',
             '!custom create bad text "unclosed', "!auto update x priority 101", "!custom update x priority 1", "!custom help", "!auto help",
         ]) { yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })); yield* bot.idle() }

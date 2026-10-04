@@ -3,6 +3,7 @@ import { v } from "convex/values"
 import { publishingConsumer, publishingProvenance, publishingSource } from "./publishingConsumers.ts"
 import { scheduleCalendar, scheduleDeliveryReason, scheduleDeliveryState, scheduleSource } from "./schedulesValidators.ts"
 import { greetingsSettings, greetingsRoute, greetingsState, greetingsReason, greetingsGrant } from "./greetingsValidators.ts"
+import { ticketSettings, ticketCategory, ticketIntakeCategory, ticketState, ticketGrant, ticketChannel, ticketOverwrite } from "./ticketValidators.ts"
 import { responseKind, responseReply, responseTrigger } from "./responseValidators.ts"
 import { publishingContent, publishingKind, publishingObservation, publishingOutcome } from "./publishingValidators.ts"
 import { rolesAction, rolesKind, rolesMapping, rolesOutcome, rolesOwnershipStatus, rolesPanelSnapshot, rolesSettings, rolesWithdrawalStatus, rolesParticipationOperation } from "./rolesValidators.ts"
@@ -16,6 +17,155 @@ export default defineSchema({
     schedules: defineTable({ serverId: v.string(), scheduleNo: v.number(), name: v.string(), revision: v.number(), planRevision: v.number(), createdBy: v.string(), channelId: v.string(), calendar: scheduleCalendar, source: scheduleSource, content: publishingContent, canonicalContent: publishingContent, enabled: v.boolean(), cancelled: v.boolean(), activatedAt: v.number(), createdAt: v.number(), updatedAt: v.number() }).index("by_number", ["serverId", "scheduleNo"]).index("by_name", ["serverId", "name"]),
     scheduleDeliveries: defineTable({ serverId: v.string(), scheduleNo: v.number(), planRevision: v.number(), occurrenceNo: v.number(), channelId: v.string(), source: scheduleSource, content: publishingContent, canonicalContent: publishingContent, localMinute: v.string(), zone: v.string(), offsetMinutes: v.number(), dueAt: v.number(), state: scheduleDeliveryState, reason: v.optional(scheduleDeliveryReason), active: v.boolean(), nextCheckAt: v.number(), createdAt: v.number(), claimedAt: v.optional(v.number()), postNo: v.optional(v.number()), attemptId: v.optional(v.id("publishingAttempts")), historyExpiresAt: v.optional(v.number()) }).index("by_schedule_occurrence", ["serverId", "scheduleNo", "occurrenceNo"]).index("by_schedule_active_due", ["serverId", "scheduleNo", "active", "dueAt"]).index("by_discovery", ["serverId", "active", "nextCheckAt"]).index("by_global_due", ["active", "dueAt"]).index("by_history", ["historyExpiresAt"]),
     scheduleReceipts: defineTable({ serverId: v.string(), messageId: v.string(), actorId: v.string(), operationKey: v.string(), createdAt: v.number(), expiresAt: v.number() }).index("by_source", ["serverId", "messageId"]).index("by_expiry", ["expiresAt"]),
+    ticketSettings: defineTable({
+        serverId: v.string(),
+        config: ticketSettings,
+        nextCategoryRevision: v.number(),
+        nextIntakeNo: v.number(),
+        nextTicketNo: v.number(),
+        nextEntryNo: v.number(),
+        nextAttemptNo: v.number(),
+        nextTranscriptNo: v.number(),
+    })
+        .index("by_server", ["serverId"]),
+    ticketCategories: defineTable({
+        serverId: v.string(),
+        config: ticketCategory,
+    })
+        .index("by_name", ["serverId", "config.name"]),
+    ticketIntakes: defineTable({
+        serverId: v.string(),
+        intakeNo: v.number(),
+        generation: v.number(),
+        category: ticketIntakeCategory,
+        requesterId: v.string(),
+        joinedAt: v.string(),
+        answers: v.array(v.string()),
+        state: v.union(v.literal("draft"), v.literal("submitted"), v.literal("cancelled"), v.literal("expired")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        ticketNo: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "intakeNo"])
+        .index("by_user", ["serverId", "requesterId", "state", "intakeNo"])
+        .index("by_user_live", ["serverId", "requesterId", "state", "expiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    tickets: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        intakeNo: v.number(),
+        requesterId: v.string(),
+        requesterJoinedAt: v.string(),
+        category: ticketCategory,
+        answers: v.array(v.string()),
+        state: ticketState,
+        generation: v.number(),
+        botId: v.string(),
+        createdAt: v.number(),
+        channelId: v.optional(v.string()),
+        channel: v.optional(ticketChannel),
+        claimedBy: v.optional(v.string()),
+        priority: v.union(v.literal("low"), v.literal("normal"), v.literal("high"), v.literal("urgent")),
+        currentAttemptId: v.optional(v.id("ticketAttempts")),
+        entryCount: v.number(),
+        active: v.boolean(),
+        nativeProtected: v.boolean(),
+        bodiesProtected: v.boolean(),
+        baselineOverwrites: v.optional(v.array(ticketOverwrite)),
+        transition: v.optional(v.union(v.literal("close"), v.literal("reopen"))),
+        completedSteps: v.number(),
+        closedAt: v.optional(v.number()),
+        retiredAt: v.optional(v.number()),
+        tombstoneExpiresAt: v.optional(v.number()),
+        bodyExpiresAt: v.optional(v.number()),
+        erased: v.boolean(),
+        erasing: v.boolean(),
+    })
+        .index("by_number", ["serverId", "ticketNo"])
+        .index("by_user", ["serverId", "requesterId", "active", "ticketNo"])
+        .index("by_active", ["serverId", "active"])
+        .index("by_requester", ["serverId", "requesterId", "ticketNo"])
+        .index("by_body_expiry", ["bodyExpiresAt"])
+        .index("by_erasing", ["erasing"])
+        .index("by_tombstone_expiry", ["tombstoneExpiresAt"])
+        .index("by_channel", ["serverId", "channelId"]),
+    ticketEntries: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        entryNo: v.number(),
+        authorId: v.string(),
+        kind: v.union(v.literal("reply"), v.literal("note")),
+        createdAt: v.number(),
+        content: v.optional(publishingContent),
+        erased: v.boolean(),
+        attemptNo: v.optional(v.number()),
+    })
+        .index("by_ticket", ["serverId", "ticketNo", "entryNo"])
+        .index("by_kind", ["serverId", "ticketNo", "kind", "entryNo"])
+        .index("by_payload", ["serverId", "ticketNo", "erased"]),
+    ticketAttempts: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        attemptNo: v.number(),
+        generation: v.number(),
+        sourceId: v.string(),
+        actorId: v.string(),
+        grant: v.optional(ticketGrant),
+        outcome: v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed"), v.literal("uncertain")),
+        createdAt: v.number(),
+        dispatchExpiresAt: v.number(),
+        claimedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        messageId: v.optional(v.string()),
+        channelId: v.optional(v.string()),
+        observationAt: v.optional(v.number()),
+        resolved: v.optional(v.union(v.literal("before"), v.literal("desired"), v.literal("absent"))),
+        redacted: v.boolean(),
+        nativeDeleteConfirmed: v.optional(v.literal(true)),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "ticketNo", "attemptNo"])
+        .index("by_payload", ["serverId", "ticketNo", "redacted"])
+        .index("by_pending", ["outcome", "dispatchExpiresAt"])
+        .index("by_ticket_outcome", ["serverId", "ticketNo", "outcome", "resolved", "grant.action"])
+        .index("by_expiry", ["expiresAt"]),
+    ticketTranscripts: defineTable({
+        serverId: v.string(),
+        ticketNo: v.number(),
+        sourceId: v.string(),
+        actorId: v.string(),
+        transcriptNo: v.number(),
+        channelId: v.string(),
+        capturedAt: v.number(),
+        messageCount: v.number(),
+        truncated: v.boolean(),
+        body: v.optional(v.string()),
+        createdAt: v.number(),
+    })
+        .index("by_number", ["serverId", "ticketNo", "transcriptNo"])
+        .index("by_source", ["serverId", "sourceId"]),
+    ticketReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        kind: v.union(v.literal("staff"), v.literal("user")),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_user", ["serverId", "actorId", "kind", "expiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    ticketRoleProtections: defineTable({
+        serverId: v.string(),
+        roleId: v.string(),
+        configurationRefs: v.number(),
+        nativeOwnershipRefs: v.number(),
+        privateBodyRefs: v.number(),
+        protected: v.boolean(),
+    })
+        .index("by_role", ["serverId", "roleId"])
+        .index("by_protected", ["serverId", "protected"]),
     greetingSettings: defineTable({ serverId: v.string(), config: greetingsSettings, activatedAt: v.object({ welcome: v.number(), dm: v.number(), goodbye: v.number() }), nextGeneration: v.number(), nextDeliveryNo: v.number(), nextClaimAt: v.number() }).index("by_server", ["serverId"]),
     greetingMembers: defineTable({ serverId: v.string(), userId: v.string(), userName: v.string(), serverName: v.string(), joinedAt: v.string(), generation: v.number(), present: v.boolean(), observedAt: v.number(), expiresAt: v.number() }).index("by_server_user", ["serverId", "userId"]).index("by_expiry", ["expiresAt"]),
     greetingReceipts: defineTable({ serverId: v.string(), messageId: v.string(), expiresAt: v.number() }).index("by_source", ["serverId", "messageId"]).index("by_expiry", ["expiresAt"]),

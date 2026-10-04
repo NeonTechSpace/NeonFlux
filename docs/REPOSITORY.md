@@ -44,6 +44,7 @@ In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns valid
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` |
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` |
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` |
+| Tickets | `ticket`, `tickets` | `ticket`, `tickets` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

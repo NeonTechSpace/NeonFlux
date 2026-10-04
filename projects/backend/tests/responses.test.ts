@@ -139,7 +139,7 @@ test("Listing is sorted and paged and names are unique per kind with a combined 
 
 test("Domain validation rejects reserved names, scripts, unknown templates and oversized values", async (ctx) => {
     const f = fixture(ctx)
-    for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "With Space", "x".repeat(33), "-bad"]) {
+    for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "ticket", "With Space", "x".repeat(33), "-bad"]) {
         await error(await f.post("/responses/manage", f.management({ type: "create", name, reply: { type: "text", text: "Reply" } })), 400, "Invalid definition")
     }
     for (const reply of [

@@ -125,4 +125,12 @@ mutation("/greetings/dispatch", 65536, internal.greetingLifecycle.dispatch)
 mutation("/greetings/outcome", 65536, internal.greetingLifecycle.outcome)
 mutation("/greetings/defer", 65536, internal.greetingLifecycle.defer)
 
+query("/tickets/query", 262144, internal.tickets.query)
+mutation("/tickets/manage", 262144, internal.tickets.manage)
+mutation("/tickets/intake", 262144, internal.tickets.intake)
+mutation("/tickets/transcript", 262144, internal.tickets.transcript)
+mutation("/tickets/dispatch", 262144, internal.ticketLifecycle.dispatch)
+mutation("/tickets/outcome", 262144, internal.ticketLifecycle.outcome)
+mutation("/tickets/reconcile", 262144, internal.ticketLifecycle.reconcile)
+
 export default http

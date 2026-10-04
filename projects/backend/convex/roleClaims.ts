@@ -8,7 +8,9 @@ import { fail } from "./validation.ts"
 export async function rolePolicy(ctx: RolesRead, serverId: string) {
     const settings = (await readRolesSettings(ctx, serverId))?.config ?? defaultRolesSettings()
     const moderation = await ctx.db.query("moderationSettings").withIndex("by_server", q => q.eq("serverId", serverId)).unique()
-    return { settings, staffRoleIds: [...new Set(Object.values(moderation?.config.staffRoleIds ?? {}).flat())], defcon: moderation?.config.defcon ?? 3 }
+    const ticketRoles = await ctx.db.query("ticketRoleProtections").withIndex("by_protected", q => q.eq("serverId", serverId).eq("protected", true)).take(1001)
+    if (ticketRoles.length > 1000) fail(409, "Ticket protection capacity conflict")
+    return { settings, staffRoleIds: [...new Set([...Object.values(moderation?.config.staffRoleIds ?? {}).flat(), ...ticketRoles.map(r => r.roleId)])], defcon: moderation?.config.defcon ?? 3 }
 }
 export async function onboardingProtection(ctx: RolesRead, serverId: string, userId: string, timeoutUntil: string | null) {
     const policy = await rolePolicy(ctx, serverId)

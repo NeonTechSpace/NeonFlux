@@ -47,6 +47,11 @@ import type * as schedulesDelivery from "../schedulesDelivery.js";
 import type * as schedulesDomain from "../schedulesDomain.js";
 import type * as schedulesStore from "../schedulesStore.js";
 import type * as schedulesValidators from "../schedulesValidators.js";
+import type * as ticketDomain from "../ticketDomain.js";
+import type * as ticketLifecycle from "../ticketLifecycle.js";
+import type * as ticketStore from "../ticketStore.js";
+import type * as ticketValidators from "../ticketValidators.js";
+import type * as tickets from "../tickets.js";
 import type * as validation from "../validation.js";
 
 import type {
@@ -95,6 +100,11 @@ declare const fullApi: ApiFromModules<{
   schedulesDomain: typeof schedulesDomain;
   schedulesStore: typeof schedulesStore;
   schedulesValidators: typeof schedulesValidators;
+  ticketDomain: typeof ticketDomain;
+  ticketLifecycle: typeof ticketLifecycle;
+  ticketStore: typeof ticketStore;
+  ticketValidators: typeof ticketValidators;
+  tickets: typeof tickets;
   validation: typeof validation;
 }>;
 

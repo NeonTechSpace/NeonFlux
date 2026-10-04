@@ -354,3 +354,73 @@ Each of `!welcome`, `!welcome dm` and `!goodbye` supports `configure`, `module o
 - Goodbye is sent when a member leaves, including members who joined before the bot started tracking. The bot cannot tell whether a departure was voluntary, a kick or a ban
 - Preview sends a sample for the invoking staff member in the current channel
 - A delivery with an unknown outcome is never resent
+
+## Tickets
+
+Tickets start disabled. Owners and Administrators configure categories, conversation visibility, an optional native parent category, dedicated support roles, up to five intake questions of at most 200 characters and canned replies copied from publishing templates. Ticket support roles are separate from moderation staff roles. A category with no support roles leaves staff access to Owners and Administrators
+
+```text
+!ticket help
+!ticket module on|off
+!ticket retention <1..365 days>
+!ticket categories
+!ticket settings
+```
+
+Category setup, canned replies, ticket lists, operation history, intake, notes and transcripts work only in a verified one-to-one DM with NeonFlux. Public category descriptions never show questions or canned content
+
+```text
+!ticket category create <name> private|public #parent|none @support-roles...|none
+!ticket category show|delete <name>
+!ticket category set <name> description "text"
+!ticket category set <name> visibility private|public
+!ticket category set <name> parent #category|none
+!ticket category set <name> staff @roles...|none
+!ticket category set <name> enabled on|off
+!ticket question <category> add "question"
+!ticket question <category> set <1..5> "question"
+!ticket question <category> remove <1..5>
+!ticket question <category> clear
+!ticket canned <category> set <name> <publishing-template>
+!ticket canned <category> remove <name>
+!ticket canned <category> list
+```
+
+Members open a ticket from the DM. Intake shows who will see the conversation before any answer is entered and again before submission. Each answer allows 2000 characters and stays private even when the conversation channel is public. A category or template change after an intake starts makes submission fail instead of silently changing that intake
+
+```text
+!ticket open <category>
+!ticket answer <intake-number> <1..5> "answer"
+!ticket review|cancel <intake-number>
+!ticket submit <intake-number> private|public
+```
+
+Staff work in the ticket's own channel. Requesters can read their own tickets and ask to close or reopen them under the category policy
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!ticket list [before-ticket]` | Staff, requester | List visible tickets with a continuation number |
+| `!ticket status\|intake <ticket>` | Staff, requester | Show the state and last operation, or the private intake answers |
+| `!ticket attempt <ticket> <attempt>` | Staff | Show metadata for one numbered operation attempt |
+| `!ticket claim\|unclaim <ticket>` | Staff | Take or release the ticket |
+| `!ticket priority <ticket> low\|normal\|high\|urgent` | Staff | Set priority |
+| `!ticket reply <ticket> "text"` or `canned <name>` | Staff | Post a reply in the ticket channel |
+| `!ticket note <ticket> add "text"` or `list [before-entry]` | Staff | Private staff notes, kept apart from intake and channel history |
+| `!ticket close\|reopen <ticket>` | Staff, requester | Remove or restore send access |
+| `!ticket reconcile <ticket>` | Staff | Recheck a partial close, reopen or create against the live channel |
+| `!ticket transcript <ticket> capture [1..500]` | Staff | Store a transcript of up to 500 recent messages |
+| `!ticket transcript <ticket> list [before-transcript]` | Staff | List stored transcripts |
+| `!ticket transcript <ticket> show <transcript> [page]` | Staff | Read a transcript in 1500-character pages |
+| `!ticket delete <ticket> confirm` | Owner, Administrator | Delete the closed ticket channel and release it |
+| `!ticket erase <ticket> confirm` | Owner, Administrator | Erase stored intake, notes and transcripts |
+| `!ticket abandon <ticket>` | Owner, Administrator | Release the requester's slot after a channel creation whose result stayed unknown |
+
+Creation sets the full conversation audience in the first channel request, and the introduction contains metadata only with mentions disabled. Close removes send access for everyone and the requester. Reopen restores the recorded permissions and leaves unrelated ones untouched. Staff keep send access, and Administrator permission still bypasses these overwrites. Renaming or moving a ticket channel does not block replies, close, reopen or delete
+
+If close, reopen or creation is interrupted, the ticket stays unresolved until `!ticket reconcile` confirms the live state. NeonFlux never retries an operation with an unknown result or searches for a channel by name. After `!ticket abandon`, check the server for a leftover channel yourself. Erasing such a ticket also releases the slot but keeps protection for a channel that might exist
+
+Private bodies require current server membership, the ticket's recorded requester and support-role access and native view and history permission. A requester who rejoins with the same account regains access. Deleting a channel needs explicit confirmation, a successful delete response and a fresh check that the channel is gone
+
+Closed ticket bodies expire after 30 days by default, configurable from 1 through 365 days. Reopen is unavailable after expiry or erasure. Erasure removes stored copies only and never deletes messages already sent. Body retention never deletes native channels
+
+Transcript capture is explicit and incomplete by design. Each stored message keeps at most 2000 characters of text with its author and timestamps. Attachment URLs and embed bodies are left out, and a capture that exceeds the storage budget is truncated with a notice. A failed capture stores nothing. Each ticket keeps at most 20 transcripts and 200 note entries. To share a public summary, write a separate publishing draft, because private content is never copied automatically

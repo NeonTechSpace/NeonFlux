@@ -25,6 +25,10 @@ import { parseGreetingsCommand, greetingsCritical } from "./welcome-command.ts"
 import { handleGreetingsCommand } from "./welcome-management.ts"
 import { startGreetingsWorker } from "./welcome-worker.ts"
 import { observeGreetingJoin, observeGreetingMembership } from "./welcome-events.ts"
+import { createTicketStore, type TicketStore } from "./ticket-store.ts"
+import { parseTicketCommand } from "./ticket-command.ts"
+import { handleTicketCommand } from "./ticket-management.ts"
+import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
 import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -39,6 +43,7 @@ export interface BotStores {
     readonly publishing?: PublishingStore | undefined
     readonly roles?: RolesStore | undefined
     readonly greetings?: GreetingsStore | undefined
+    readonly tickets?: TicketStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -46,7 +51,7 @@ export interface BotStores {
 export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const backend = config.backend
     const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation = backend && createModerationStore(backend),
-        publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend),
+        publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend), tickets = backend && createTicketStore(backend),
         schedules = backend && createSchedulesStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
@@ -107,10 +112,12 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const parsedRoles = roleName ? command ? usage(parseRoleCommand(roleName, command.args)) : quotingError(`${roleName} help for examples`) : undefined
                     const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                     const parsedGreeting = greetingName ? command ? usage(parseGreetingsCommand(greetingName, command.args)) : quotingError(`${greetingName} help for examples`) : undefined
+                    const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
-                        if (message.guildId !== undefined || !(safetyName && moderation)) return
-                        const verified = yield* verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
+                        if (message.guildId !== undefined || !(name === "ticket" && tickets || safetyName && moderation)) return
+                        const verified = yield* (name === "ticket" ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)))
+                            : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false))))
                         if (!verified) return
                     }
                     let protectionUnknown = false
@@ -123,21 +130,21 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         const rolePublic = parsedRoles && !("error" in parsedRoles) && (parsedRoles.type === "verify" || parsedRoles.type === "choose")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || parsedGreeting && greetingsCritical(parsedGreeting) ? "critical"
+                        const gateClass = name === "ticket" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || parsedGreeting && greetingsCritical(parsedGreeting) ? "critical"
                             : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" ? "staff" : "public"
-                        const actor = gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
+                        const actor = name === "ticket" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
                         yield* applyDefconPresence(context.client, config, gate.defcon)
                         const blocked = !privateInvocation && gate.messageProtectionEnabled
                             ? yield* containProtection(handleProtectionMessage(moderation, config, "create", message, context.client), "unknown" as const) : false
-                        if (!gate.allowed || blocked === true) {
+                        if (name !== "ticket" && !gate.allowed || blocked === true) {
                             if (!privateInvocation && store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
                         }
                         // A message protection could not judge gets no public command or reply
                         protectionUnknown = blocked === "unknown" && gateClass === "public"
-                    } else if (privateInvocation) return
+                    } else if (privateInvocation && name !== "ticket") return
                     if (!privateInvocation && name === "prefix" && !protectionUnknown) {
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
                         return
@@ -153,6 +160,11 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     if (Exit.isFailure(afkExit) && Cause.hasInterrupts(afkExit.cause)) return yield* Effect.failCause(afkExit.cause)
                     const responseExit: Exit.Exit<void, unknown> = yield* Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (name === "ticket") {
+                            if (!tickets) yield* reply({ content: "Ticket persistence is not configured", allowedMentions: noMentions })
+                            else yield* handleTicketCommand(tickets, publishing, config, parsedTicket!, context)
+                            return
+                        }
                         if (greetingName) {
                             if (!greetings) yield* reply({ content: "Greeting persistence is not configured", allowedMentions: noMentions })
                             else yield* handleGreetingsCommand(greetings, publishing, config, parsedGreeting!, context, greetingWorker)

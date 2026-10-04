@@ -511,6 +511,77 @@ export type GreetingsMemberResult = { member: GreetingsMember | null }
 export type GreetingsDiscoverRequest = { serverId: string, cursor?: string, userId?: string, scanAt?: number }
 export type GreetingsDiscoverResult = { scanAt: number, examined: number, queued: number, nextCursor?: string }
 
+export type TicketVisibility = "private" | "public"
+export type TicketOverwrite = { id: string, type: "role" | "member", allow: string, deny: string }
+export type TicketChannelSnapshot = { channelId: string, serverId: string, type: "text", name: string, parentId: string | null, overwrites: TicketOverwrite[] }
+export type TicketActor = ModerationActor & { joinedAt: string, isBot: boolean, timeoutUntil: string | null, privateChannelVerified: boolean, privateChannelId?: string, canView: boolean, canReadHistory: boolean, canSend: boolean }
+export type TicketContext = { observedAt: number, actor: TicketActor, botId: string, botAuthorized: boolean, parentVerified?: boolean, channel?: TicketChannelSnapshot }
+export type TicketSettings = { enabled: boolean, retentionDays: number }
+export type TicketCannedReply = { name: string, templateName: string, templateRevision: number, content: PublishingContent }
+export type TicketCategory = { name: string, revision: number, enabled: boolean, visibility: TicketVisibility, description: string, parentId: string | null, supportRoleIds: string[], questions: string[], cannedReplies: TicketCannedReply[] }
+export type TicketCategorySummary = Pick<TicketCategory, "name" | "revision" | "enabled" | "visibility" | "description">
+export type TicketIntakeCategory = TicketCategorySummary & Pick<TicketCategory, "parentId" | "supportRoleIds" | "questions">
+export type TicketIntake = { intakeNo: number, generation: number, category: TicketIntakeCategory, requesterId: string, joinedAt: string, answers: string[], state: "draft" | "submitted" | "cancelled" | "expired", createdAt: number, expiresAt: number, ticketNo?: number }
+export type TicketState = "creating" | "open" | "closing" | "closed" | "reopening" | "deleting" | "retired" | "failed" | "uncertain"
+export type TicketRecord = { ticketNo: number, requesterId: string, requesterJoinedAt: string, categoryName: string, categoryRevision: number, visibility: TicketVisibility, supportRoleIds: string[], state: TicketState, generation: number, botId: string, channelId?: string, channel?: TicketChannelSnapshot, claimedBy?: string, priority: "low" | "normal" | "high" | "urgent", createdAt: number, closedAt?: number, retiredAt?: number, bodyExpiresAt?: number, erased: boolean, entryCount: number, currentAttempt?: TicketAttempt, transition?: "close" | "reopen", completedSteps?: number }
+export type TicketAction = "create" | "introduction" | "reply" | "close-everyone" | "close-requester" | "reopen-requester" | "reopen-everyone" | "delete"
+export type TicketActionGrant = { attemptId: string, attemptNo: number, ticketNo: number, generation: number, sourceId: string, actorId: string, botId: string, requesterId: string, requesterJoinedAt: string, visibility: TicketVisibility, supportRoleIds: string[], action: TicketAction, dispatchExpiresAt: number, nativeDeadlineMs: 5000, channelId?: string, expectedChannel?: TicketChannelSnapshot, desiredChannel?: TicketChannelSnapshot, targetOverwrite?: TicketOverwrite, channelName?: string, parentId?: string | null, overwrites?: TicketOverwrite[], content?: PublishingContent }
+export type TicketLocator = Pick<TicketRecord,"ticketNo"|"requesterId"|"supportRoleIds"|"state"|"generation"|"botId"|"channelId"|"retiredAt">
+export type TicketAttempt = TicketActionGrant & { outcome: "pending" | "succeeded" | "failed" | "uncertain", createdAt: number, claimedAt?: number, finishedAt?: number, noDispatch?: true, messageId?: string, observationAt?: number, resolved?: "before" | "desired" | "absent", redacted?: true, nativeDeleteConfirmed?: true }
+export type TicketEntry = { entryNo: number, ticketNo: number, authorId: string, kind: "reply" | "note", createdAt: number, content?: PublishingContent, erased: boolean, attemptNo?: number }
+export type TicketTranscriptMessage = { messageId: string, authorId: string, createdAt?: string, content: string, omittedAttachments: number }
+export type TicketTranscript = { transcriptNo: number, ticketNo: number, channelId: string, capturedAt: number, messageCount: number, truncated: boolean, erased: boolean, pages: number }
+export type TicketSource = ModerationSource & { serverId: string, context: TicketContext }
+export type TicketManageOperation =
+    | { type: "settings", enabled?: boolean, retentionDays?: number }
+    | { type: "category-create", name: string, visibility: TicketVisibility, description?: string, parentId?: string | null, supportRoleIds: string[], roles: RolesRoleSnapshot[] }
+    | { type: "category-update", name: string, expectedRevision: number, patch: Partial<Pick<TicketCategory, "enabled" | "visibility" | "description" | "parentId" | "supportRoleIds" | "questions">>, roles?: RolesRoleSnapshot[] }
+    | { type: "category-delete", name: string, expectedRevision: number }
+    | { type: "canned-set", name: string, expectedRevision: number, cannedName: string, templateName: string, expectedTemplateRevision: number }
+    | { type: "canned-remove", name: string, expectedRevision: number, cannedName: string }
+    | { type: "claim" | "unclaim", ticketNo: number, expectedGeneration: number }
+    | { type: "priority", ticketNo: number, expectedGeneration: number, priority: TicketRecord["priority"] }
+    | { type: "reply", ticketNo: number, expectedGeneration: number, content: PublishingContent }
+    | { type: "canned-reply", ticketNo: number, expectedGeneration: number, cannedName: string }
+    | { type: "note", ticketNo: number, expectedGeneration: number, content: string }
+    | { type: "close" | "reopen", ticketNo: number, expectedGeneration: number }
+    | { type: "delete" | "erase", ticketNo: number, expectedGeneration: number, confirm: true }
+    | { type: "abandon", ticketNo: number, expectedGeneration: number }
+export type TicketManageRequest = TicketSource & { operation: TicketManageOperation }
+export type TicketManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: TicketSettings } | { duplicate: false, type: "category", category: TicketCategory } | { duplicate: false, type: "deleted", name: string } | { duplicate: false, type: "ticket", ticket: TicketRecord, grant?: TicketActionGrant } | { duplicate: false, type: "entry", entry: TicketEntry }
+export type TicketIntakeRequest = TicketSource & { operation:
+    | { type: "open", categoryName: string, expectedCategoryRevision: number }
+    | { type: "answer", intakeNo: number, expectedGeneration: number, question: number, answer: string }
+    | { type: "cancel", intakeNo: number, expectedGeneration: number }
+    | { type: "submit", intakeNo: number, expectedGeneration: number, expectedCategoryRevision: number, visibility: TicketVisibility }
+}
+export type TicketIntakeResult = { duplicate: true } | { duplicate: false, type: "intake", intake: TicketIntake } | { duplicate: false, type: "ticket", ticket: TicketRecord, grant: TicketActionGrant }
+export type TicketQueryRequest = { serverId: string, context: TicketContext, operation:
+    | { type: "settings" }
+    | { type: "categories" }
+    | { type: "category", name: string }
+    | { type: "category-config", name: string }
+    | { type: "intake", intakeNo: number }
+    | { type: "intakes", beforeIntakeNo?: number }
+    | { type: "ticket" | "private-intake", ticketNo: number }
+    | { type: "locate", ticketNo: number }
+    | { type: "tickets", beforeTicketNo?: number, own?: boolean }
+    | { type: "entries", ticketNo: number, kind: "reply" | "note", beforeEntryNo?: number }
+    | { type: "attempt", ticketNo: number, attemptNo: number }
+    | { type: "transcripts", ticketNo: number, beforeTranscriptNo?: number }
+    | { type: "transcript", ticketNo: number, transcriptNo: number, page?: number }
+}
+export type TicketQueryResult = { type: "settings", settings: TicketSettings } | { type: "categories", categories: TicketCategorySummary[] } | { type: "category", category: TicketCategorySummary } | { type: "category-config", category: TicketCategory } | { type: "intake", intake: TicketIntake } | { type: "intakes", intakes: TicketIntake[], nextBeforeIntakeNo?: number } | { type: "ticket", ticket: TicketRecord } | { type: "locate", ticket: TicketLocator } | { type: "private-intake", ticketNo: number, questions: string[], answers: string[], erased: boolean } | { type: "tickets", tickets: TicketRecord[], nextBeforeTicketNo?: number } | { type: "entries", entries: TicketEntry[], nextBeforeEntryNo?: number } | { type: "attempt", attempt: TicketAttempt } | { type: "transcripts", transcripts: TicketTranscript[], nextBeforeTranscriptNo?: number } | { type: "transcript", transcript: TicketTranscript, page: number, text: string }
+export type TicketBinding = { serverId: string, ticketNo: number, generation: number, attemptId: string, sourceId: string }
+export type TicketDispatchRequest = TicketBinding & { claimToken: string, context: TicketContext }
+export type TicketDispatchResult = { claimed: boolean, dispatchExpiresAt: number, nativeDeadlineMs: 5000 }
+export type TicketOutcomeRequest = TicketBinding & { claimToken?: string, outcome: "succeeded" | "failed" | "uncertain", noDispatch?: true, channelId?: string, channel?: TicketChannelSnapshot, messageId?: string, observedAt?: number, channelAbsent?: true, nativeDeleteConfirmed?: true }
+export type TicketOutcomeResult = { recorded: boolean, ticket: TicketRecord, grant?: TicketActionGrant }
+export type TicketReconcileRequest = TicketSource & { ticketNo: number, expectedGeneration: number, attemptId: string, observation: { observedAt: number, channelId: string, channelAbsent: boolean, channel?: TicketChannelSnapshot } }
+export type TicketReconcileResult = { recorded: boolean, ticket: TicketRecord }
+export type TicketTranscriptUploadRequest = TicketSource & { ticketNo: number, expectedGeneration: number, capturedAt: number, messages: TicketTranscriptMessage[], truncated: boolean }
+export type TicketTranscriptUploadResult = { duplicate: boolean, transcript: TicketTranscript }
+
 export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
 export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }
 export type PublishingScheduleConsumer = { type: "schedule", scheduleNo: number, planRevision: number, occurrenceNo: number, deliveryId: string }
