@@ -18,16 +18,30 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md) and [t
 
 ## Bot
 
-The bot runs on the SDK's native Effect lifecycle through `runBot`.
+The bot runs on the SDK's native Effect lifecycle through `runBot`, with background workers as scoped Effect fibers
+rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework
 
 The bot keeps one serialized `messageCreate` pipeline
 
 The bot owns its Fluxer token and every provider operation.
 It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.
-The bot calls the backend's public functions with the `convex` package, the same exact version as the backend. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so concurrent requests still run in parallel. The WebSocket client would run every mutation of the process one after another. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
+The bot calls the backend's public functions with the `convex` package, the same exact version as the backend. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so concurrent requests still run in parallel. The WebSocket client would run every mutation of the process one after another, so the bot uses it only for its one work signal subscription. Node 24 provides the global `WebSocket` it uses. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
+
+### Background work dispatch
+
+Background workers run only when there is work. One dispatcher per bot process asks the backend which servers have due work for each worker, from bounded reads of global indexes, and wakes only those servers' workers. It does not poll on a short interval. It asks at startup, at once when the backend's work signal changes, at the next due time a dispatch or a mutation answer reports, and otherwise every two minutes. Passes start at least three seconds apart, full pages are read back to back up to ten per pass, and failures back off from 10 seconds to at most five minutes, with one early try per backoff when the work signal changes. See [the backend guide](BACKEND.md#background-work-dispatch) for the signal and the due times
 
 Each bot request is one billed Convex function call. The bot's functions check a key derived from the bot secret themselves, so no HTTP action runs in front of them
+
+Idle counts below are computed from the code, not measured, and exclude worker requests for work that is due
+
+| Billed Convex calls per day | Count |
+| --- | --- |
+| Idle server | None |
+| Idle bot | About 721: 720 safety passes and the work signal's first read, plus one more pass and read after each restart or reconnect |
+| Worker request for due work | 1 |
+| Busiest dispatch | At most 28,800 passes of one call each, plus extra pages and one signal read for each change of the work signal |
 
 ## Shared contracts
 
@@ -40,7 +54,7 @@ Node does not strip types in files under `node_modules`, so the planned bot imag
 ## Backend
 
 Convex owns durable state, separately from the bot image.
-One deployment serves the bot's key-checked functions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
+One deployment serves the bot's key-checked functions, its work signal and scheduled cleanup, and Convex meets the requirement for self-hosting support.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.
 See [the backend guide](BACKEND.md) for setup and the bot's function contract

@@ -14,7 +14,7 @@ export const isName = (value: unknown): value is string =>
 /** Whether a value is a bot-generated token, such as a moderation action ID */
 const isToken = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
 /** Text without form feeds, right-to-left overrides and surrounding space, which Fluxer removes from names */
-const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
+export const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 /** Whether text has something left once form feeds, right-to-left overrides and surrounding space are removed */
 export const hasText = (value: string) => visibleText(value) !== ""
 
@@ -34,12 +34,23 @@ export const Ids = (max: number) => List(Id, max)
 export const Str = (max: number) => Schema.String.check(Schema.isMaxLength(max))
 /** 1 to max characters with something besides space and invisible formatting */
 export const Text = (max: number) => Schema.String.check(Schema.isMaxLength(max), Schema.makeFilter(hasText))
+/** An opaque page cursor. Convex cursors can be several hundred characters long */
+export const Cursor = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(16384))
 /** A bot-generated token, see isToken */
 export const Token = Schema.String.check(Schema.makeFilter(isToken))
 /** A stored name, see isName */
 export const Name = Schema.String.check(Schema.makeFilter(isName))
 /** A name as a member types it. The backend stores it trimmed and in lowercase */
 export const NameInput = Schema.String.check(Schema.makeFilter((value: string) => isName(value.trim().toLowerCase())))
+/** An ISO 8601 timestamp with a zone, as Fluxer reports join and timeout times */
+export const IsoTime = Schema.String.check(
+    Schema.makeFilter(
+        (value: string) =>
+            value.length <= 64 &&
+            /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(value) &&
+            Number.isFinite(Date.parse(value)),
+    ),
+)
 
 /**
  * The server a native read came from. The backend matches every originServerId in a request to the request's server before

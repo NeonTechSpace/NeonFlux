@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
-import { Data, Effect, Redacted } from "effect"
-import { SERVICE_KEY_LABEL } from "@neonflux/contracts/service"
+import { Clock, Data, Effect, Redacted, Schema } from "effect"
+import { SERVICE_KEY_LABEL, ServiceMutationResult } from "@neonflux/contracts/service"
 import type { BackendConfig } from "./config.ts"
 import { backendFunction, backendKind, isBackendPath } from "./backend-routes.ts"
 import { convexBackendClient } from "./convex-client.ts"
@@ -38,6 +38,9 @@ export function deriveServiceKey(secret: Redacted.Redacted<string>): Redacted.Re
     return key
 }
 
+// A mutation answers { value, dueIn }. dueIn is set when its writes created background work, in milliseconds from now
+const mutationAnswer = Schema.decodeUnknownSync(ServiceMutationResult(Schema.Unknown), { onExcessProperty: "error" })
+
 // A failure the backend reported on purpose carries a status, a fixed message and the scope denial code or a reason code. Anything else,
 // such as a lost connection or a timeout, has no status because the request may or may not have run
 function reported(error: unknown): { status: number; code?: unknown; message: string } | undefined {
@@ -54,7 +57,8 @@ function reported(error: unknown): { status: number; code?: unknown; message: st
 }
 
 // One backend request: the public function for the path, called with the derived key, the bound server and the body.
-// Server runtimes bind every request to their server, and a retired runtime sends nothing
+// Server runtimes bind every request to their server, and a retired runtime sends nothing. When a mutation's writes
+// created background work, onWorkDue learns when it becomes due, on this process's clock
 type BackendRequest = (path: string, body: unknown) => Effect.Effect<unknown, BackendRequestError>
 // A server runtime hands one frozen configuration to every feature store, so they all share this one transport
 const transports = new WeakMap<BackendConfig, BackendRequest>()
@@ -99,7 +103,7 @@ function backendTransport(config: BackendConfig): BackendRequest {
                         ...(failure.code === "REFUSED" ? { reason: failure.message } : {}),
                     })
                 }
-                return answer
+                return kind === "query" ? { value: answer } : mutationAnswer(answer)
             },
             catch: (error) =>
                 error instanceof BackendRequestError ? error : new BackendRequestError({ status: null }),
@@ -108,5 +112,11 @@ function backendTransport(config: BackendConfig): BackendRequest {
             Effect.mapError((error) =>
                 error instanceof BackendRequestError ? error : new BackendRequestError({ status: null }),
             ),
+            Effect.tap(({ dueIn }) =>
+                dueIn === undefined || !config.onWorkDue
+                    ? Effect.void
+                    : Clock.currentTimeMillis.pipe(Effect.map((now) => config.onWorkDue!(now + dueIn))),
+            ),
+            Effect.map(({ value }): unknown => value),
         )
 }

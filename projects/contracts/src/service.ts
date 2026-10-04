@@ -1,7 +1,7 @@
 import { Schema } from "effect"
-import { Ids, isId } from "./common.ts"
+import { Cursor, Ids, Int, Millis, isId } from "./common.ts"
 
-// The bot service: the deployment scope
+// The bot service: the deployment scope, the work dispatcher and its signal
 
 /** Every bot request carries the HMAC-SHA256 of this label keyed by NEONFLUX_BOT_API_SECRET. Changing it changes the key on both sides */
 export const SERVICE_KEY_LABEL = "neonflux/bot-service-key/v1"
@@ -40,12 +40,47 @@ export function parseOrigin(value: string): URL | undefined {
         return undefined
     return url
 }
+/** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them */
+export const ServiceWorkKind = Schema.Literals(["schedules"])
+export type ServiceWorkKind = typeof ServiceWorkKind.Type
+/**
+ * The cursor is the previous answer's. held is the cursor of an earlier pass that a fresh read without a cursor goes on
+ * with, for the sources the fresh read leaves unfinished. requestedAt only makes each call distinct, so a cached result
+ * never hides work that became due since
+ */
+export const ServiceWorkRequest = Schema.Struct({
+    cursor: Schema.optionalKey(Schema.NullOr(Cursor)),
+    held: Schema.optionalKey(Schema.NullOr(Cursor)),
+    requestedAt: Schema.optionalKey(Millis),
+})
+export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
+const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
+/**
+ * Servers with due work per worker, oldest due first. The cursor is opaque and goes back with the next request.
+ * nextDueIn is how many milliseconds from now, by the backend clock, the next listed row becomes due, or null when none waits
+ */
+export const ServiceWork = Schema.Struct({
+    kinds: Schema.Record(ServiceWorkKind, Ids(100).check(Schema.isUnique())),
+    cursor: Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
+    nextDueIn: Schema.NullOr(delay),
+})
+export type ServiceWork = typeof ServiceWork.Type
+/** The bot's work signal. version changes whenever a writer other than the bot creates work for it */
+export const ServiceWorkSignal = Schema.Struct({ version: Int() })
+export type ServiceWorkSignal = typeof ServiceWorkSignal.Type
+/** A bot mutation's answer. dueIn is set when its writes created work, in milliseconds from now by the backend clock */
+export const ServiceMutationResult = <S extends Schema.Top>(value: S) =>
+    Schema.Struct({ value, dueIn: Schema.optionalKey(delay) })
+export type ServiceMutationResult<T = unknown> = ReturnType<typeof ServiceMutationResult<Schema.Codec<T>>>["Type"]
 /**
  * Every public function of the backend's botService module, by name, and whether it is a query or a mutation. The bot calls them by
- * these names, and a backend test checks the list against botService.ts
+ * these names, and a backend test checks the list against botService.ts. Mutations answer ServiceMutationResult
  */
 export const BOT_FUNCTIONS = {
     serviceScope: "query",
+    serviceWork: "query",
+    // Subscribed by the work dispatcher rather than requested
+    serviceWorkSignal: "query",
     afkSet: "mutation",
     afkObserve: "mutation",
     generalGet: "query",
@@ -64,5 +99,14 @@ export const BOT_FUNCTIONS = {
     moderationObserve: "mutation",
     appealsMember: "mutation",
     appealsStaff: "mutation",
+    publishingQuery: "query",
+    publishingManage: "mutation",
+    publishingDispatch: "mutation",
+    publishingOutcome: "mutation",
+    publishingReconcile: "mutation",
+    publishingObserve: "mutation",
+    schedulesQuery: "query",
+    schedulesManage: "mutation",
+    schedulesDelivery: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

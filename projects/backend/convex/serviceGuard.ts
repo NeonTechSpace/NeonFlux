@@ -6,7 +6,7 @@ import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 import { isId } from "./validation.ts"
 
 // Whether the deployment serves a server: only the configured one
-async function isServed(serverId: string): Promise<boolean> {
+export async function isServed(serverId: string): Promise<boolean> {
     if (!isId(serverId)) return false
     const scope = configuredServerScope()
     return scope.serverIds[0] === serverId

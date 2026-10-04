@@ -86,7 +86,7 @@ test("Only the derived key opens a bot function, checked before scope, body or s
         { key: 7 },
         { secret: "synthetic-other-secret-not-a-credential-00000" },
     ]
-    for (const path of ["/service/scope", "/general/get", "/afk/set", "/afk/observe"] as const) {
+    for (const path of ["/service/scope", "/service/work", "/general/get", "/afk/set", "/afk/observe"] as const) {
         for (const options of rejected) {
             // A foreign server and an invalid body would fail later checks, so 401 shows the key is checked first
             const response = await botCall(t, path, { serverId: "99" }, { ...options, serverId: "99" })

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict"
 import { makeFunctionReference } from "convex/server"
 import { ConvexError } from "convex/values"
 import { deriveServiceKey } from "../convex/serviceKey.ts"
@@ -19,7 +20,8 @@ export interface BotCallOptions {
 }
 
 // Calls a bot entry point the way the bot's transport does: the public function for the path with the derived key, the
-// bound server and the request as JSON values. Results and backend errors come back as a status and a JSON body
+// bound server and the request as JSON values. Results and backend errors come back as a status and a JSON body. A
+// mutation's value is unwrapped, and its dueIn, when its writes created work, is the X-Due-In header
 export async function botCall(
     t: Backend,
     path: string,
@@ -38,7 +40,17 @@ export async function botCall(
     const reference = makeFunctionReference(backendFunction(path)) as never
     try {
         if (backendKind(path) === "query") return Response.json((await t.query(reference, args as never)) ?? null)
-        return Response.json((await t.mutation(reference, args as never)) ?? null)
+        const answer = (await t.mutation(reference, args as never)) as { value?: unknown; dueIn?: unknown }
+        assert(
+            answer !== null &&
+                typeof answer === "object" &&
+                Object.keys(answer).every((key) => key === "value" || key === "dueIn"),
+            `${path} answers { value, dueIn }`,
+        )
+        return Response.json(
+            answer.value ?? null,
+            typeof answer.dueIn === "number" ? { headers: { "X-Due-In": String(answer.dueIn) } } : {},
+        )
     } catch (error) {
         const data =
             error instanceof ConvexError

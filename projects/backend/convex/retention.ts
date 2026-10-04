@@ -2,8 +2,10 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { cleanupModeration } from "./moderation.ts"
+import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
+import { cleanupSchedules } from "./schedulesCleanup.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
 // day. A run repeats each module's pass while it fills a batch, within a read budget, and a run that spends its budget
@@ -20,6 +22,8 @@ const RETENTION_LEASE_MS = 5 * 60000,
 export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["responses", cleanupResponses],
     ["moderation", cleanupModeration],
+    ["publishing", cleanupPublishing],
+    ["schedules", cleanupSchedules],
 ]
 
 async function spent(ctx: MutationCtx) {

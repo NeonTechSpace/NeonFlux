@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { Effect, Exit, Redacted } from "effect"
+import { TestClock } from "effect/testing"
 import type { BackendClient } from "../src/config.ts"
 import { BackendRequestError, createBackendRequest, deriveServiceKey } from "../src/backend-http.ts"
 import { BOT_FUNCTIONS } from "@neonflux/contracts/service"
 import { backendFunction, backendKind, backendRoutes, type BackendPath } from "../src/backend-routes.ts"
-import { fakeClient } from "./backend-fake.ts"
+import { dueLater, fakeClient, type BackendCall } from "./backend-fake.ts"
 
 const secret = Redacted.make("synthetic-transport-secret-not-a-credential")
 const url = "https://synthetic-transport.convex.cloud"
@@ -36,7 +37,10 @@ test("requests call their function with the derived key, the bound server and th
         },
         mutation: async (name, args) => {
             calls.push({ kind: "mutation", name, args })
-            return { revision: 2 }
+            return { value: { revision: 2 } }
+        },
+        subscribe: () => {
+            throw new Error("Not subscribed")
         },
     }
     const request = createBackendRequest({ url, secret, serverId: "10", client })
@@ -139,6 +143,66 @@ test("only a REFUSED refusal passes its message on as the sentence for members",
     }
     assert.deepEqual(await failure("REFUSED"), ["REFUSED", "Synthetic sentence"])
     assert.deepEqual(await failure("BOT_PERMISSION"), ["BOT_PERMISSION", undefined])
+})
+
+test("a mutation's due time reaches the dispatcher on the process clock, and malformed mutation answers fail", async () => {
+    const reported: number[] = [],
+        seen: BackendCall[] = []
+    const request = createBackendRequest({
+        url,
+        secret,
+        client: fakeClient((call) => {
+            seen.push(call)
+            return call.path === "/afk/set"
+                ? dueLater({ serverId: "10", active: true }, 2000)
+                : { serverId: "10", active: false }
+        }),
+        onWorkDue: (at) => {
+            reported.push(at)
+        },
+    })
+    await Effect.runPromise(
+        Effect.gen(function* () {
+            yield* TestClock.setTime(5000)
+            assert.deepEqual(yield* request("/afk/set", { serverId: "10" }), {
+                serverId: "10",
+                active: true,
+            })
+            assert.deepEqual(yield* request("/afk/observe", { serverId: "10" }), {
+                serverId: "10",
+                active: false,
+            })
+        }).pipe(Effect.provide(TestClock.layer())),
+    )
+    assert.deepEqual(reported, [7000])
+    for (const answer of [
+        null,
+        [],
+        { value: 1, extra: true },
+        { value: 1, dueIn: -1 },
+        { value: 1, dueIn: "soon" },
+        { value: 1, dueIn: Infinity },
+    ]) {
+        const client: BackendClient = {
+            query: async () => answer,
+            mutation: async () => answer,
+            subscribe: () => () => {},
+        }
+        assert.equal(
+            await status(
+                createBackendRequest({
+                    url,
+                    secret,
+                    client,
+                    onWorkDue: (at) => {
+                        reported.push(at)
+                    },
+                })("/afk/set", {}),
+            ),
+            null,
+        )
+    }
+    assert.deepEqual(reported, [7000])
 })
 
 test("a retired runtime, a body for another server and an unknown path send nothing", async () => {

@@ -125,6 +125,10 @@ export function codeBlock(value: string) {
     return `${fence}\n${value}\n${fence}`
 }
 export const onOff = (value: boolean) => (value ? "On" : "Off")
+/** A count that names its limit only once at least 80% of it is used, such as 3 or 45 of 50 */
+export const usage = (count: number, limit: number) => (count >= limit * 0.8 ? `${count} of ${limit}` : String(count))
+/** Free text on one line, cut to about max characters, such as a note or reason inside a list */
+export const snippet = (value: string, max: number) => clip(value.replace(/\s+/g, " ").trim(), max)
 /** The reply when a feature's storage was never set up for this bot, naming the feature, such as Custom commands */
 export function notSetUp(feature: string) {
     return `${feature} isn't available on this NeonFlux yet. The bot operator needs to finish setting it up`

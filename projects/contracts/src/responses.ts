@@ -18,6 +18,7 @@ export const BUILT_IN_COMMANDS = [
     "defcon",
     "logs",
     "appeal",
+    "publish",
     "custom",
     "auto",
 ] as const

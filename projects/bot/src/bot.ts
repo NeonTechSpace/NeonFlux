@@ -19,7 +19,14 @@ import { handleSafetyCommand, initializeModeration, moderationActor, applyDefcon
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
+import type { ServiceWorkKind } from "@neonflux/contracts/service"
 import type { ModerationActor } from "@neonflux/contracts/shared"
+import type { PublishingStore } from "./publishing-store.ts"
+import { parsePublishingCommand } from "./publishing-command.ts"
+import { handlePublishing } from "./publishing.ts"
+import type { SchedulesStore } from "./schedule-store.ts"
+import { scheduleCritical } from "./schedule-command.ts"
+import { startSchedulesWorker } from "./schedule-worker.ts"
 import { configScope, createServerRuntime, type ServerRuntime } from "./server-runtime.ts"
 import { selectServerCommand, validServerId, type DeploymentScope } from "./server-scope.ts"
 import {
@@ -29,6 +36,7 @@ import {
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
+import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import { handleHelpAll, helpAllRequest } from "./help.ts"
 
@@ -37,6 +45,8 @@ interface BotStores {
     readonly afk?: AfkStore | undefined
     readonly responses?: ResponseStore | undefined
     readonly moderation?: ModerationStore | undefined
+    readonly publishing?: PublishingStore | undefined
+    readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -57,7 +67,12 @@ const CACHE = {
     channels: { maxEntries: 20000, maxBytes: 33554432 },
 } as const
 
-export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) {
+export function createBotOptions(options: BotRootConfig, stores: BotStores = {}) {
+    // Every runtime's backend answers report the due times of work their writes create to the one dispatcher
+    const notices = createWorkNotices()
+    const config: BotRootConfig = options.backend
+        ? { ...options, backend: { ...options.backend, onWorkDue: notices.report } }
+        : options
     const scope = configScope(config)
     const runtimes = createRuntimeRegistry(config, scope, stores)
     // Says whether a runtime still serves its server as the registry's current entry
@@ -162,6 +177,8 @@ export function createBotOptions(config: BotRootConfig, stores: BotStores = {}) 
         setup: (client: Client) =>
             Effect.gen(function* () {
                 yield* runtimes.start(client, yield* Effect.scope)
+                // One dispatcher serves every runtime, so a server without due work causes no backend requests
+                if (config.backend) yield* startWorkDispatcher(config.backend, runtimes.wake, notices)
             }),
     } satisfies BotOptions<unknown>
 }
@@ -191,7 +208,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         entries.set(serverId, entry)
         return entry
     }
-    // Retiring stops the runtime's backend requests and event routing. Its stored data stays in the backend
+    // Retiring stops the runtime's backend requests, workers and event routing. Its stored data stays in the backend
     function retire(entry: RuntimeEntry) {
         const serverId = entry.runtime.config.serverId,
             runtimeScope = entry.scope,
@@ -223,6 +240,12 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 lifetime = { client, scope: rootScope }
                 return yield* start(register(scope.serverIds[0]!))
             }),
+        // Retiring removes a runtime from the registry before its scope closes, so the dispatcher never wakes a retired runtime
+        wake: (serverId: string, kind: ServiceWorkKind) => {
+            const entry = entries.get(serverId)
+            if (!entry?.runtime.active()) return Effect.void
+            return entry.options.wake(kind)
+        },
     }
 }
 
@@ -230,8 +253,11 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
-    const { afk: store, responses, general } = stores
+    const { afk: store, responses, publishing, schedules, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
+    let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    // Each started worker's wake, for the process's work dispatcher
+    const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
     const unprivilegedActor = (userId: string): ModerationActor => ({
         originServerId: config.serverId,
         userId,
@@ -247,6 +273,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 yield* Effect.addFinalizer(() => Effect.sync(() => forgetPrefix(config.serverId)))
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
+                if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+                if (schedules && publishing)
+                    wakers.schedules = (scheduleWorker = yield* startSchedulesWorker(
+                        schedules,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).notify
             }),
         events: {
             messageCreate: {
@@ -303,6 +337,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 ? usage(parseSafetyCommand(safetyName, command.args))
                                 : quotingError(`${safetyName} help for examples`)
                             : undefined
+                        const parsedPublishing =
+                            name === "publish"
+                                ? command
+                                    ? usage(parsePublishingCommand(command.args))
+                                    : quotingError("publish help for examples")
+                                : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
                             if (message.guildId !== undefined || !(safetyName && moderation)) return
@@ -318,13 +358,26 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         }
                         let protectionUnknown = false
                         if (moderation) {
-                            // Independent feature handlers apply their own backend authorization.
+                            const publishingCritical =
+                                parsedPublishing &&
+                                !("error" in parsedPublishing) &&
+                                ((parsedPublishing.type === "settings" && parsedPublishing.patch.enabled === false) ||
+                                    parsedPublishing.type === "reconcile" ||
+                                    (parsedPublishing.type === "query" &&
+                                        ["settings", "post-show", "post-list"].includes(
+                                            parsedPublishing.operation.type,
+                                        )) ||
+                                    (parsedPublishing.type === "schedule" &&
+                                        scheduleCritical(parsedPublishing.command)))
+                            // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass = safetyName
                                 ? safetyGateClass(safetyName, parsedSafety!)
-                                : name === "prefix" || name === "custom" || name === "auto"
-                                  ? "staff"
-                                  : "public"
+                                : publishingCritical
+                                  ? "critical"
+                                  : name === "prefix" || name === "custom" || name === "auto" || name === "publish"
+                                    ? "staff"
+                                    : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
                             // answer reported a raised DEFCON, and after a refusal the hint did not expect
                             const privileged = !(gateClass === "public" || gateClass === "appeal")
@@ -397,6 +450,22 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (name === "publish") {
+                                            if (!publishing)
+                                                yield* reply({
+                                                    content: notSetUp("Publishing"),
+                                                })
+                                            else
+                                                yield* handlePublishing(
+                                                    publishing,
+                                                    config,
+                                                    parsedPublishing!,
+                                                    context,
+                                                    schedules,
+                                                    scheduleWorker,
+                                                )
                                             return
                                         }
                                         if (safetyName) {
@@ -501,5 +570,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
             },
         },
     } satisfies Pick<BotOptions<unknown>, "setup" | "events">
-    return options
+    return {
+        ...options,
+        wake: (kind: ServiceWorkKind) => wakers[kind]?.() ?? Effect.void,
+    }
 }

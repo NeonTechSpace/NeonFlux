@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Millis, origin } from "./common.ts"
+import { Id, Ids, IsoTime, Millis, origin } from "./common.ts"
 
 // Native reads that many features send with their requests
 
@@ -16,3 +16,13 @@ export type ModerationActor = typeof ModerationActor.Type
 /** The chat message that asked for a change */
 export const ModerationSource = Schema.Struct({ messageId: Id, createdAt: Millis })
 export type ModerationSource = typeof ModerationSource.Type
+
+export const ChannelMemberContext = Schema.Struct({
+    ...origin,
+    userId: Id,
+    joinedAt: IsoTime,
+    roleIds: Ids(1000),
+    isBot: Schema.Boolean,
+    timeoutUntil: Schema.NullOr(IsoTime),
+})
+export type ChannelMemberContext = typeof ChannelMemberContext.Type

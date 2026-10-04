@@ -10,7 +10,7 @@ import {
     RETENTION_ROWS_PER_RUN,
     type RetentionRun,
 } from "../convex/retention.ts"
-import { retentionPass, type RetentionPass } from "../convex/retentionStore.ts"
+import { retentionPass } from "../convex/retentionStore.ts"
 import { insertDocument } from "./schema-documents.ts"
 
 const start = Date.parse("2026-01-01T00:00:00Z")
@@ -139,35 +139,28 @@ test("A future recovery deadline schedules nothing, and the next run after it de
 
 test("A failing pass is isolated, the other modules keep their retention and isolation ends once the pass succeeds", async () => {
     const t = backend()
-    // A pass that throws while broken is set stands in for a module whose cleanup fails
-    let broken = true
-    const passes = RETENTION_PASSES as (readonly [string, RetentionPass])[]
-    passes.push([
-        "failing",
-        async () => {
-            if (broken) throw new Error("Synthetic pass failure")
-            return { more: false }
-        },
-    ])
-    try {
-        await t.run((ctx) => ctx.db.insert("responseReceipts", { serverId: "10", messageId: "1", expiresAt: now - 1 }))
-        // Before the first finished run every pass is isolated
-        assert.deepEqual((await step(t)).result.failed, ["failing"])
-        assert.equal(await count(t, "responseReceipts"), 0)
-        now += RETENTION_INTERVAL_MS
-        await t.run((ctx) => ctx.db.insert("responseReceipts", { serverId: "10", messageId: "2", expiresAt: now - 1 }))
-        assert.deepEqual((await step(t)).result.failed, ["failing"])
-        assert.equal(await count(t, "responseReceipts"), 0)
-        broken = false
-        now += RETENTION_INTERVAL_MS
-        assert.deepEqual((await step(t)).result.failed, [])
-        // A pass that fails outside isolation fails its run, and the run after a missed one isolates every pass
-        broken = true
-        now += RETENTION_INTERVAL_MS
-        await assert.rejects(step(t), /Synthetic pass failure/)
-        now += RETENTION_INTERVAL_MS
-        assert.deepEqual((await step(t)).result.failed, ["failing"])
-    } finally {
-        passes.pop()
-    }
+    // An expired delivery whose schedule accounting is missing makes the schedules pass fail
+    const broken = await t.run(async (ctx) => {
+        await ctx.db.insert("responseReceipts", { serverId: "10", messageId: "1", expiresAt: now - 1 })
+        return insertDocument(ctx, "scheduleDeliveries", "10", { scheduleNo: 99, historyExpiresAt: now - 1 })
+    })
+    // Before the first finished run every pass is isolated
+    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    assert.equal(await count(t, "responseReceipts"), 0)
+    now += RETENTION_INTERVAL_MS
+    await t.run((ctx) => ctx.db.insert("responseReceipts", { serverId: "10", messageId: "2", expiresAt: now - 1 }))
+    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    assert.equal(await count(t, "responseReceipts"), 0)
+    await t.run((ctx) => ctx.db.delete(broken))
+    now += RETENTION_INTERVAL_MS
+    assert.deepEqual((await step(t)).result.failed, [])
+    // A pass that fails outside isolation fails its run, and the run after a missed one isolates every pass
+    const again = await t.run((ctx) =>
+        insertDocument(ctx, "scheduleDeliveries", "10", { scheduleNo: 99, historyExpiresAt: now - 1 }),
+    )
+    now += RETENTION_INTERVAL_MS
+    await assert.rejects(step(t), /Schedule accounting unavailable/)
+    now += RETENTION_INTERVAL_MS
+    assert.deepEqual((await step(t)).result.failed, ["schedules"])
+    await t.run((ctx) => ctx.db.delete(again))
 })

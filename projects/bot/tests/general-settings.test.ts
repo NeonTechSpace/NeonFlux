@@ -7,12 +7,17 @@ import { createBotOptions } from "../src/bot.ts"
 import { prefixTtlMs, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { AfkStore } from "../src/afk-store.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
-import { fakeClient } from "./backend-fake.ts"
+import { fakeClient, quietSignal } from "./backend-fake.ts"
+import { publishingBoundary } from "./publishing-fixture.ts"
+import { schedulesBoundary } from "./schedule-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
 // In-memory stores for every adapter the bot reads during setup, so only the general adapter uses the backend
 function offlineWorkers() {
+    const publishing = publishingBoundary().store
     return {
+        publishing,
+        schedules: schedulesBoundary().store,
         moderation: boundary().store,
         afk: {
             set: () => Effect.die("unused"),
@@ -123,12 +128,14 @@ test("a failed first prefix read caches the ! fallback for the refresh interval"
 test("explicitly undefined store overrides keep the configured backend adapters", async () => {
     const fixtures = createFixtures(),
         scope = { serverIds: [fixtures.ids.guild] }
-    const client = fakeClient((call) =>
-        call.path === "/service/scope"
-            ? scope
-            : call.path === "/general/get"
-              ? { prefix: "?", revision: 1 }
-              : Response.json({ error: "Synthetic unavailable" }, { status: 503 }),
+    const client = fakeClient(
+        (call) =>
+            call.path === "/service/scope"
+                ? scope
+                : call.path === "/general/get"
+                  ? { prefix: "?", revision: 1 }
+                  : Response.json({ error: "Synthetic unavailable" }, { status: 503 }),
+        quietSignal,
     )
     const config = {
         token: Redacted.make("synthetic-prefix-token"),

@@ -2,7 +2,7 @@ import type { AutomodRule, ModerationCase, ModerationSettings, SecurityRecovery 
 import type { Appeal } from "@neonflux/contracts/appeal"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { DAY, defaultSettings } from "./moderationDomain.ts"
+import { DAY, actor, administrator, defaultSettings } from "./moderationDomain.ts"
 import { fail } from "./validation.ts"
 
 type ReadCtx = MutationCtx | QueryCtx
@@ -128,4 +128,14 @@ export function paged<T>(rows: T[], page: number) {
     const totalPages = Math.max(1, Math.ceil(rows.length / 10))
     if (page > totalPages) fail(400, "Invalid page")
     return { rows: rows.slice((page - 1) * 10, page * 10), page, totalPages }
+}
+export async function requireAdministrator(ctx: ReadCtx, serverId: string, input: unknown, critical = false) {
+    const who = actor(input)
+    if (!administrator(who)) fail(403, "Administrator permission required")
+    const moderation = await ctx.db
+        .query("moderationSettings")
+        .withIndex("by_server", (q) => q.eq("serverId", serverId))
+        .unique()
+    if (moderation?.config.defcon === 1 && !critical) fail(403, "DEFCON restriction")
+    return who
 }

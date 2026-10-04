@@ -28,12 +28,21 @@ export interface BackendConfig {
     readonly secret: Redacted.Redacted<string>
     /** Replaces the Convex client. Tests pass an in-memory backend */
     readonly client?: BackendClient
+    /** Receives the time, on this process's clock, at which work a mutation created becomes due */
+    readonly onWorkDue?: (at: number) => void
 }
 
 /** Calls the backend's public functions by name. Rejections that carry `data` with a status are backend answers */
 export interface BackendClient {
     query(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
     mutation(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
+    /** Calls onValue with each new result of a query until the returned function stops the subscription */
+    subscribe(
+        name: string,
+        args: Record<string, unknown>,
+        onValue: (value: unknown) => void,
+        onError: (error: unknown) => void,
+    ): () => void
 }
 
 class BotConfigError extends Data.TaggedError("BotConfigError")<{

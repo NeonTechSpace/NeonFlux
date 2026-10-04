@@ -6,7 +6,9 @@ import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { helpAllRequest } from "../src/help.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
+import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
+import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import { platform } from "./moderation-fixture.ts"
 
@@ -60,12 +62,16 @@ function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
 
 // Every command's own help text, as !<command> help answers it
 const commandHelps: Record<string, string> = {
+    publish: publishingHelp,
+    "publish schedule": scheduleHelp,
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
 }
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
+    publish: publishingHelpAll,
+    "publish schedule": scheduleHelpAll,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     ...safetyHelpAll,
@@ -106,10 +112,11 @@ test("each command's help shows at most eight forms and one hint, and the hint o
     assert.equal(helpAllRequest("custom", ["help"]), undefined)
     assert.equal(helpAllRequest("ping", ["help", "all"]), undefined)
     assert.equal(helpAllRequest("custom", ["create", "help", "all"]), undefined)
+    assert.equal(helpAllRequest("publish", ["template", "help", "all"]), undefined)
     assert.equal(helpAllRequest("custom", ["constructor", "help", "all"]), undefined)
 })
 
-test("help all lists a command's remaining forms ten at a time with next", async () => {
+test("help all lists a command's remaining forms ten at a time with next, also for subcommands", async () => {
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -128,6 +135,17 @@ test("help all lists a command's remaining forms ten at a time with next", async
                 assert.deepEqual(yield* say("?security help all next"), [
                     "There is no next page to show. Send ?security help all to start the list again",
                 ])
+                assert.ok(publishingHelpAll.length > 10 && publishingHelpAll.length <= 20)
+                assert.deepEqual(yield* say("?publish help all"), [
+                    prefixed([...publishingHelpAll.slice(0, 10), "Send !publish help all next for more"]),
+                ])
+                const last = (yield* say("?publish help all next"))[0]!
+                assert.equal(last, prefixed(publishingHelpAll.slice(10)))
+                assert.ok(last.split("\n").length <= 10)
+                assert.deepEqual(yield* say("?publish help all next"), [
+                    "There is no next page to show. Send ?publish help all to start the list again",
+                ])
+                assert.deepEqual(yield* say("?publish schedule help all"), [prefixed(scheduleHelpAll)])
                 for (const [path, forms] of Object.entries(helpAlls))
                     assert.ok(forms.length > 0 && forms.length <= 30, path)
                 assert.equal(bot.failures().length, 0)

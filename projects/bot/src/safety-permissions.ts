@@ -54,6 +54,15 @@ export function readAuthenticatedBotId(client: Client) {
         )
 }
 
+/** Whether a member is timed out at a moment. A timestamp the SDK cannot read counts as unknown, which callers treat as timed out (they test for "none") */
+export function memberTimeout(client: Client, member: Pick<GuildMember, "communicationDisabledUntil">, now: number) {
+    try {
+        return client.members.timeoutState(member, { now: new Date(now) })
+    } catch {
+        return "unknown" as const
+    }
+}
+
 export type SafetyAuthority = {
     actorId: string
     roleIds: string[]

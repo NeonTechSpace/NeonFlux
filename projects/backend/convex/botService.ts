@@ -1,22 +1,29 @@
 import type { RegisteredMutation, RegisteredQuery } from "convex/server"
 import { ConvexError, v } from "convex/values"
-import { mutation, query } from "./_generated/server.js"
-import type { ServiceScope } from "@neonflux/contracts/service"
-import { fail, isId, REASON_CODES } from "./validation.ts"
+import { mutation, query, type MutationCtx } from "./_generated/server.js"
+import type { TableNames } from "./_generated/dataModel.js"
+import { ServiceWorkRequest, type ServiceMutationResult, type ServiceScope } from "@neonflux/contracts/service"
+import { decode, fail, isId, REASON_CODES } from "./validation.ts"
 import { requireOrigin, scopeDenied } from "./serverScope.ts"
 import { requireServiceKey } from "./serviceKey.ts"
 import { guardedMutation, guardedQuery } from "./serviceGuard.ts"
+import { dueWork, rowDueAt, WORK_TABLES } from "./workDispatch.ts"
+import { readWorkSignal } from "./workSignal.ts"
 import * as afk from "./afk.ts"
 import * as generalSettings from "./generalSettings.ts"
 import * as responses from "./responses.ts"
 import * as moderation from "./moderation.ts"
 import * as protection from "./protection.ts"
 import * as appeals from "./appeals.ts"
+import * as publishing from "./publishing.ts"
+import * as schedules from "./schedules.ts"
+import * as schedulesDeliveryModule from "./schedulesDelivery.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
 // server-checked handler in this transaction. Nothing here calls ctx.runQuery or ctx.runMutation, so each bot
-// request is one function call. The bot maps its request paths to these names in bot/src/backend-routes.ts
+// request is one function call. The bot maps its request paths to these names in bot/src/backend-routes.ts.
+// Mutations answer { value, dueIn }, where dueIn says when work their writes created becomes due
 
 type Service = Record<string, unknown> & { serverId: string }
 const entryArgs = { key: v.optional(v.any()), serverId: v.optional(v.any()), request: v.optional(v.any()) }
@@ -81,6 +88,44 @@ function nestedCall(): never {
 }
 export const inline = <Ctx extends object>(ctx: Ctx): Ctx => ({ ...ctx, runQuery: nestedCall, runMutation: nestedCall })
 
+// Watches a mutation's writes to the tables the dispatcher reads, so its answer can tell the bot when the work they created
+// becomes due. The bot then dispatches at that time instead of waiting for its next safety poll
+function observed(ctx: MutationCtx, now: number) {
+    let dueAt: number | undefined
+    const note = (table: TableNames, row: Record<string, unknown> | null) => {
+        const at = row ? rowDueAt(table, row) : undefined
+        if (at !== undefined) dueAt = Math.min(dueAt ?? at, at)
+    }
+    const tableOf = (id: string) => [...WORK_TABLES].find((table) => ctx.db.normalizeId(table, id) !== null)
+    const db = new Proxy(ctx.db, {
+        get: (target, property) => {
+            if (property === "insert")
+                return async (table: TableNames, value: Record<string, unknown>) => {
+                    const id = await target.insert(table, value as never)
+                    if (WORK_TABLES.has(table)) note(table, value)
+                    return id
+                }
+            if (property === "patch" || property === "replace")
+                return async (...args: unknown[]) => {
+                    await (target[property] as (...values: unknown[]) => Promise<void>)(...args)
+                    const [table, id] =
+                        args.length === 3
+                            ? [args[0] as TableNames, args[1] as string]
+                            : [tableOf(args[0] as string), args[0] as string]
+                    if (table && WORK_TABLES.has(table))
+                        note(table, (await target.get(id as never)) as Record<string, unknown> | null)
+                }
+            const value: unknown = Reflect.get(target, property)
+            return typeof value === "function" ? value.bind(target) : value
+        },
+    })
+    return {
+        ctx: { ...ctx, db },
+        answer: <T>(value: T): ServiceMutationResult<T> =>
+            dueAt === undefined ? { value } : { value, dueIn: Math.max(0, dueAt - now) },
+    }
+}
+
 function botQuery<Returns>(limit: number, fn: RegisteredQuery<"internal", { request: any }, Returns>) {
     const handler = guardedQuery(fn)
     return query({
@@ -94,7 +139,11 @@ function botMutation<Returns>(limit: number, fn: RegisteredMutation<"internal", 
     return mutation({
         args: entryArgs,
         handler: (ctx, args) =>
-            entry(async () => await handler(inline(ctx), { request: await boundRequest(args, limit) })),
+            entry(async () => {
+                const request = await boundRequest(args, limit),
+                    writes = observed(ctx, Date.now())
+                return writes.answer(await handler(inline(writes.ctx), { request }))
+            }),
     })
 }
 
@@ -102,6 +151,29 @@ function botMutation<Returns>(limit: number, fn: RegisteredMutation<"internal", 
 export const serviceScope = query({
     args: entryArgs,
     handler: (_ctx, args): Promise<ServiceScope> => entry(() => requireServiceKey(args.key)),
+})
+
+// The bot's one work dispatcher calls this. It binds no server and reads only bounded global indexes.
+// Due checks use the backend clock, the same clock the worker functions use. The bot's requestedAt only makes each call
+// distinct, so a cached query result never hides work that became due since
+export const serviceWork = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            await requireServiceKey(args.key)
+            const request = decode(ServiceWorkRequest, readRequest(args.request, 4096))
+            return dueWork(ctx, Date.now(), request.cursor ?? null, request.held ?? null)
+        }),
+})
+
+// The bot subscribes to this. It returns only the signal's counter, so a subscriber learns nothing about any server
+export const serviceWorkSignal = query({
+    args: entryArgs,
+    handler: (ctx, args) =>
+        entry(async () => {
+            await requireServiceKey(args.key)
+            return readWorkSignal(ctx)
+        }),
 })
 
 export const afkSet = botMutation(4096, afk.setStatus)
@@ -125,3 +197,14 @@ export const moderationReconcile = botMutation(65536, moderation.reconcile)
 export const moderationObserve = botMutation(65536, moderation.observe)
 export const appealsMember = botMutation(65536, appeals.member)
 export const appealsStaff = botMutation(65536, appeals.staff)
+
+export const publishingQuery = botQuery(65536, publishing.query)
+export const publishingManage = botMutation(65536, publishing.manage)
+export const publishingDispatch = botMutation(65536, publishing.dispatch)
+export const publishingOutcome = botMutation(65536, publishing.outcome)
+export const publishingReconcile = botMutation(65536, publishing.reconcile)
+export const publishingObserve = botMutation(65536, publishing.observe)
+
+export const schedulesQuery = botQuery(65536, schedules.query)
+export const schedulesManage = botMutation(65536, schedules.manage)
+export const schedulesDelivery = botMutation(65536, schedulesDeliveryModule.delivery)

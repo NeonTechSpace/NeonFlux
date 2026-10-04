@@ -5,6 +5,7 @@ export const argument = {
     user: { type: "id", mention: "user" },
     role: { type: "id", mention: "role" },
     channel: { type: "id", mention: "channel" },
+    id: { type: "id" },
     positive: { type: "integer", min: 1 },
 } as const
 /** A whole number in a range. The SDK reads -0 as -0, which would show as "-0" in replies and stored records */

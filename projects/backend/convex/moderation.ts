@@ -683,6 +683,11 @@ async function applyConfiguration(
     if (op.type === "settings") {
         const next = settingsPatch(settings, op.patch)
         await ctx.db.patch(current._id, { config: next })
+        // Returning to DEFCON 3 makes the scheduled posts due again. The wakes run as scheduled batches, so a large
+        // backlog can never make the DEFCON change itself fail
+        if (settings.defcon !== 3 && next.defcon === 3) {
+            await ctx.scheduler.runAfter(0, internal.schedulesDelivery.wake, { serverId, throughAt: now, cursor: null })
+        }
         return { duplicate: false, type: "settings", settings: next }
     }
     if (op.type === "rule-create" || op.type === "rule-update" || op.type === "rule-delete") {

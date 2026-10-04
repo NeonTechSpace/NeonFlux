@@ -3,14 +3,18 @@ import { Effect } from "effect"
 import { withPrefix } from "./general-settings.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { publishingHelpAll } from "./publishing-command.ts"
 import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
+import { scheduleHelpAll } from "./schedule-command.ts"
 
 /**
  * The forms each command's own help leaves out, which `!<command> help all` lists, keyed by the words before help.
  * A command's help shows its most used forms and ends with a line that points here
  */
 const moreForms: Readonly<Record<string, readonly string[]>> = {
+    publish: publishingHelpAll,
+    "publish schedule": scheduleHelpAll,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     mod: safetyHelpAll.mod,

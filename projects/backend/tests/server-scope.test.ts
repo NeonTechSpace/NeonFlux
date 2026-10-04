@@ -33,6 +33,7 @@ const modules = {
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
+    "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -121,7 +122,7 @@ test("Every bot route rejects other servers before domain work", async () => {
     configureServer("10")
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 14)
+    assert.ok(routes.length > 23)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
@@ -146,7 +147,14 @@ test("Every bot route rejects other servers before domain work", async () => {
 test("Every feature family rejects absent, foreign and mismatched server bindings before domain work", async () => {
     configureServer("10")
     const t = backend()
-    const paths = ["/afk/set", "/responses/manage", "/moderation/manage", "/appeals/member"]
+    const paths = [
+        "/afk/set",
+        "/responses/manage",
+        "/moderation/manage",
+        "/appeals/member",
+        "/publishing/manage",
+        "/schedules/manage",
+    ]
     for (const path of paths) {
         for (const selected of [undefined, "99", "01", "20"]) {
             const result = await post(t, path, { serverId: "20" }, selected)
@@ -204,8 +212,8 @@ test("Foreign origins anywhere in the request reject before state changes", asyn
     }
 })
 
-test("Native evidence read from another server rejects", () => {
-    const context = { channelId: "40" }
+test("Bot automation authority read from another server rejects", () => {
+    const context = { observedAt: 1, channelId: "40", botId: "50", botAuthorized: true }
     assert.throws(
         () => requireOrigin({ serverId: "20", context: { ...context, originServerId: "10" } }, "20"),
         status(403),

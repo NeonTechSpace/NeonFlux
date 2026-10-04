@@ -2,9 +2,12 @@ import { BOT_FUNCTIONS, type BotFunction } from "@neonflux/contracts/service"
 
 // Every backend request the bot makes, by the path the bot and its tests name it with, and the botService function it calls.
 // The contracts own the function names and whether each is a query or a mutation, and a backend test checks them against
-// botService.ts
+// botService.ts. Mutations answer { value, dueIn }, see backend-http.ts
 export const backendRoutes = {
     "/service/scope": "serviceScope",
+    "/service/work": "serviceWork",
+    // Subscribed by the work dispatcher rather than requested
+    "/service/work-signal": "serviceWorkSignal",
     "/afk/set": "afkSet",
     "/afk/observe": "afkObserve",
     "/general/get": "generalGet",
@@ -23,6 +26,15 @@ export const backendRoutes = {
     "/moderation/observe": "moderationObserve",
     "/appeals/member": "appealsMember",
     "/appeals/staff": "appealsStaff",
+    "/publishing/query": "publishingQuery",
+    "/publishing/manage": "publishingManage",
+    "/publishing/dispatch": "publishingDispatch",
+    "/publishing/outcome": "publishingOutcome",
+    "/publishing/reconcile": "publishingReconcile",
+    "/publishing/observe": "publishingObserve",
+    "/schedules/query": "schedulesQuery",
+    "/schedules/manage": "schedulesManage",
+    "/schedules/delivery": "schedulesDelivery",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

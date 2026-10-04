@@ -26,13 +26,23 @@ function backendCall(name: string, args: Record<string, unknown>, signal: AbortS
     return { path, serverId: args.serverId as string | undefined, body: args.request, key: args.key, signal }
 }
 
-// A function that returns nothing answers null, as Convex does
-const functionResult = (value: unknown) => value ?? null
+const dueMark = Symbol("due")
+/** A mutation result whose writes created background work due in dueIn milliseconds */
+export function dueLater(value: unknown, dueIn: number) {
+    return { [dueMark]: true, value, dueIn }
+}
+// Mutations answer { value, dueIn }, so responders return only the value unless they use dueLater
+function functionResult(path: string, value: unknown) {
+    if (backendKind(path as BackendPath) === "query") return value ?? null
+    if (value === null || typeof value !== "object" || !(dueMark in value)) return { value }
+    const later = value as unknown as ReturnType<typeof dueLater>
+    return { value: later.value, dueIn: later.dueIn }
+}
 
 // The Convex HTTP API reply for a responder's answer: 200 with the value, or 560 with the error data a ConvexError carries
-async function convexReply(answer: unknown): Promise<Response> {
+async function convexReply(path: string, answer: unknown): Promise<Response> {
     if (!(answer instanceof Response))
-        return Response.json({ status: "success", value: functionResult(answer), logLines: [] })
+        return Response.json({ status: "success", value: functionResult(path, answer), logLines: [] })
     const text = await answer.text()
     let body: unknown
     try {
@@ -40,7 +50,7 @@ async function convexReply(answer: unknown): Promise<Response> {
     } catch {
         return new Response(text, { status: answer.ok ? 200 : 500 })
     }
-    if (answer.ok) return Response.json({ status: "success", value: functionResult(body), logLines: [] })
+    if (answer.ok) return Response.json({ status: "success", value: functionResult(path, body), logLines: [] })
     const { error, code } =
         body !== null && typeof body === "object" ? (body as { error?: unknown; code?: unknown }) : {}
     return Response.json(
@@ -74,16 +84,22 @@ export function mockBackend(t: Pick<TestContext, "mock">, respond: BackendRespon
             init?.signal ?? undefined,
         )
         assert.equal(url.pathname, `/api/${backendKind(call.path as BackendPath)}`)
-        return convexReply(await respond(call))
+        return convexReply(call.path, await respond(call))
     })
 }
 
-/** A client that answers in memory without the Convex client library, for whole-bot and transport tests */
-export function fakeClient(respond: BackendResponder): BackendClient {
+/** A work signal that answers once and never changes, for whole-bot tests that do not exercise push */
+export const quietSignal: BackendClient["subscribe"] = (_name, _args, onValue) => {
+    onValue({ version: 0 })
+    return () => {}
+}
+
+/** A client that answers in memory without the Convex client library, for whole-bot, transport and dispatcher tests */
+export function fakeClient(respond: BackendResponder, subscribe?: BackendClient["subscribe"]): BackendClient {
     const call = async (name: string, args: Record<string, unknown>, signal: AbortSignal) => {
         const request = backendCall(name, args, signal),
             answer = await respond(request)
-        if (!(answer instanceof Response)) return functionResult(answer)
+        if (!(answer instanceof Response)) return functionResult(request.path, answer)
         const text = await answer.text()
         let body: unknown
         try {
@@ -91,7 +107,7 @@ export function fakeClient(respond: BackendResponder): BackendClient {
         } catch {
             throw new Error("Synthetic broken reply")
         }
-        if (answer.ok) return functionResult(body)
+        if (answer.ok) return functionResult(request.path, body)
         const { error, code } =
             body !== null && typeof body === "object" ? (body as { error?: unknown; code?: unknown }) : {}
         throw Object.assign(new Error(text), {
@@ -105,5 +121,10 @@ export function fakeClient(respond: BackendResponder): BackendClient {
     return {
         query: call,
         mutation: call,
+        subscribe:
+            subscribe ??
+            (() => {
+                throw new Error("This test does not subscribe")
+            }),
     }
 }

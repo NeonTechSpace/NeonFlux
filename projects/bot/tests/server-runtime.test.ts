@@ -11,11 +11,17 @@ import { deriveServiceKey } from "../src/backend-http.ts"
 import { fakeClient, type BackendCall, type BackendResponder } from "./backend-fake.ts"
 
 const scope = parseServerScope({ NEONFLUX_SERVER_ID: "10" })
-// Each test sets the backend's answers
+// Each test sets the backend's answers. The work signal subscription never changes, so only safety polls dispatch
 let respond: BackendResponder = () => {
     throw new Error("Synthetic backend not scripted")
 }
-const client = fakeClient((call) => respond(call))
+const client = fakeClient(
+    (call) => respond(call),
+    (_name, _args, onValue) => {
+        onValue({ version: 0 })
+        return () => {}
+    },
+)
 const backend = { url: "https://synthetic.invalid", secret: Redacted.make("synthetic-secret"), client }
 const config = { token: Redacted.make("synthetic-token"), scope, backend }
 
@@ -97,6 +103,36 @@ test("every concrete adapter is immutable and scope denial retires only its runt
     })
 })
 
+for (const [failing, title] of [
+    [false, "a working /publishing/observe call keeps a single-server bot running"],
+    [true, "a failed /publishing/observe call stops a single-server bot"],
+] as const)
+    test(title, { timeout: 20000 }, async () => {
+        const target = "1100000000000001000"
+        respond = (call) => {
+            if (call.path === "/publishing/observe" && failing)
+                return Response.json({ error: "Backend unavailable" }, { status: 503 })
+            if (call.path === "/publishing/observe") return { uncertainAttempts: 0 }
+            return Response.json({ error: "Backend unavailable" }, { status: 503 })
+        }
+        const options = createBotOptions({
+            token: config.token,
+            scope: parseServerScope({ NEONFLUX_SERVER_ID: target! }),
+            serverId: target!,
+            backend,
+        })
+        const exit = await Effect.runPromiseExit(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(options)
+                    yield* bot.ready()
+                    yield* bot.idle()
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+        assert.equal(exit._tag, failing ? "Failure" : "Success")
+    })
+
 // A message event reports its channel's type, and 1 is a DM, so the bot reads no channel for it. Without the type it
 // still reads the channel, and a failed read ignores the message
 test(
@@ -107,6 +143,7 @@ test(
             direct = "1200000000000000001",
             refused = "1200000000000000002"
         respond = (call) => {
+            if (call.path === "/publishing/observe") return { uncertainAttempts: 0 }
             if (call.path === "/moderation/gate")
                 return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
             return Response.json({ error: "Backend unavailable" }, { status: 503 })

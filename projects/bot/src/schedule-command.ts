@@ -1,0 +1,142 @@
+import { isName } from "@neonflux/contracts/common"
+import type { CivilFoldPolicy, CivilRecurrence } from "@neonflux/contracts/civil"
+import type { PublishingKind, SchedulesContentSource } from "@neonflux/contracts/publishing-base"
+import { commands } from "@neontechspace/fluxerly/effect"
+import { argument } from "./command-arguments.ts"
+
+/** A draft or template named in chat. The bot reads its current revision right before the write */
+export type ScheduleSource = Omit<SchedulesContentSource, "revision">
+type SchedulePlan = { localMinute: string; zone: string; fold: CivilFoldPolicy; recurrence: CivilRecurrence }
+export type ScheduleCommand =
+    | { type: "help" }
+    | { type: "status" }
+    | { type: "list"; next: boolean }
+    | { type: "show" | "preview"; name: string }
+    | { type: "dates"; name: string; next: boolean }
+    | { type: "deliveries"; name: string; next: boolean }
+    | { type: "module"; enabled: boolean }
+    | ({ type: "create"; name: string; source: ScheduleSource; channelId: string } & SchedulePlan)
+    | ({ type: "calendar"; name: string } & SchedulePlan)
+    | { type: "content"; name: string; source: ScheduleSource }
+    | { type: "destination"; name: string; channelId: string }
+    | { type: "enable" | "disable" | "cancel"; name: string }
+    | { type: "reconcile"; name: string; postNo: number }
+    | { type: "forget"; name: string; confirmed: boolean; occurrenceNos?: number[] }
+
+const name = (value: string | undefined) =>
+    value !== undefined && isName(value.toLowerCase()) ? value.toLowerCase() : undefined
+const source = (args: readonly string[]): ScheduleSource | undefined =>
+    args.length === 2 && ["draft", "template"].includes(args[0]!) && name(args[1])
+        ? { kind: args[0] as PublishingKind, name: name(args[1])! }
+        : undefined
+function calendar(args: readonly string[]): SchedulePlan | undefined {
+    if (
+        (args.length !== 3 && args.length !== 6) ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[0] ?? "") ||
+        !args[1] ||
+        args[1].length > 128 ||
+        !["reject", "earlier", "later"].includes(args[2]!)
+    )
+        return undefined
+    let recurrence: CivilRecurrence = { type: "none" }
+    if (args.length === 6) {
+        const interval = commands.parseArgument(args[4], { type: "integer", min: 1, max: 12 }),
+            count = commands.parseArgument(args[5], { type: "integer", min: 1, max: 26 })
+        if (!["daily", "weekly"].includes(args[3]!) || !interval || !count) return undefined
+        recurrence = { type: args[3] as "daily" | "weekly", interval, count }
+    }
+    return { localMinute: args[0]!, zone: args[1], fold: args[2] as CivilFoldPolicy, recurrence }
+}
+export const scheduleHelp = [
+    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject: Plan a post",
+    "!publish schedule list [next]: Your schedules",
+    "!publish schedule show <name>: One schedule in short",
+    "!publish schedule enable|disable <name>: Start or pause a schedule. New ones start paused",
+    "!publish schedule cancel <name>: End a schedule for good",
+    "!publish schedule module on|off: Turn scheduled posts on or off",
+    "Send !publish schedule help all for the other commands",
+].join("\n")
+/** The forms !publish schedule help leaves out, listed by !publish schedule help all */
+export const scheduleHelpAll = [
+    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject daily|weekly <1-12 every> <1-26 dates>: Repeat a post",
+    "!publish schedule update <name> content draft|template <source>: Replace its content",
+    "!publish schedule update <name> time YYYY-MM-DDTHH:mm <zone> reject [daily|weekly <every> <dates>]: Change its time",
+    "!publish schedule update <name> destination #channel: Change its channel",
+    "!publish schedule dates <name> [next]: Its planned dates",
+    "!publish schedule preview <name>: The post it sends",
+    "!publish schedule status [<name> [next]]: Whether scheduled posts are on, or one schedule's posts",
+    "!publish schedule reconcile <name> <post-number>: Check a post that was not confirmed",
+    "!publish schedule forget <name> [date-number ...] [confirm]: Remove finished dates. Messages stay",
+    "Use earlier or later in place of reject to pick the time a clock change repeats",
+]
+export function scheduleCritical(command: ScheduleCommand | { error: string }) {
+    return (
+        !("error" in command) &&
+        ([
+            "status",
+            "list",
+            "show",
+            "dates",
+            "preview",
+            "deliveries",
+            "forget",
+            "reconcile",
+            "disable",
+            "cancel",
+        ].includes(command.type) ||
+            (command.type === "module" && !command.enabled))
+    )
+}
+export function parseScheduleCommand(args: readonly string[]): ScheduleCommand | { error: string } {
+    const error = { error: "Check the schedule name, values and finite dates. Use !publish schedule help for syntax" }
+    const verb = args[0]?.toLowerCase(),
+        target = name(args[1])
+    if (!verb || (verb === "help" && args.length === 1)) return { type: "help" }
+    if (verb === "list" && args.length <= 2 && (args.length === 1 || args[1] === "next"))
+        return { type: "list", next: args.length === 2 }
+    if (verb === "status" && args.length === 1) return { type: "status" }
+    if (verb === "module" && args.length === 2 && ["on", "off"].includes(args[1]!))
+        return { type: "module", enabled: args[1] === "on" }
+    if (!target) return error
+    if ((verb === "show" || verb === "preview") && args.length === 2) return { type: verb, name: target }
+    if (verb === "dates" && args.length <= 3 && (args.length === 2 || args[2] === "next"))
+        return { type: "dates", name: target, next: args.length === 3 }
+    if (verb === "status" && args.length <= 3 && (args.length === 2 || args[2] === "next"))
+        return { type: "deliveries", name: target, next: args.length === 3 }
+    const channelId = commands.parseArgument(args[4], argument.channel)
+    if (verb === "create" && channelId) {
+        const contentSource = source(args.slice(2, 4)),
+            dates = calendar(args.slice(5))
+        if (contentSource && dates) return { type: "create", name: target, source: contentSource, channelId, ...dates }
+    }
+    if (["enable", "disable", "cancel"].includes(verb) && args.length === 2)
+        return { type: verb as "enable" | "disable" | "cancel", name: target }
+    const postNo = commands.parseArgument(args[2], argument.positive)
+    if (verb === "reconcile" && args.length === 3 && postNo) return { type: "reconcile", name: target, postNo }
+    if (verb === "forget") {
+        const confirmed = args.at(-1) === "confirm",
+            occurrenceNos = args
+                .slice(2, confirmed ? -1 : undefined)
+                .map((v) => commands.parseArgument(v, argument.positive))
+        if (
+            occurrenceNos.length <= 20 &&
+            occurrenceNos.every((v) => v !== undefined) &&
+            new Set(occurrenceNos).size === occurrenceNos.length
+        )
+            return {
+                type: "forget",
+                name: target,
+                confirmed,
+                ...(occurrenceNos.length ? { occurrenceNos: occurrenceNos as number[] } : {}),
+            }
+    }
+    if (verb === "update") {
+        const contentSource = args[2] === "content" ? source(args.slice(3)) : undefined,
+            dates = args[2] === "time" ? calendar(args.slice(3)) : undefined
+        if (contentSource) return { type: "content", name: target, source: contentSource }
+        if (dates) return { type: "calendar", name: target, ...dates }
+        const destinationId = args[2] === "destination" ? commands.parseArgument(args[3], argument.channel) : undefined
+        if (args.length === 4 && destinationId) return { type: "destination", name: target, channelId: destinationId }
+    }
+    return error
+}

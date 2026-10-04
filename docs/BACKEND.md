@@ -37,6 +37,8 @@ The key is the lowercase hex HMAC-SHA256 of the fixed label `neonflux/bot-servic
 
 The function then binds the request to one server, as described in [server scope](#server-scope), checks the path's body limit against the request's JSON text in UTF-16 code units and that the request is a JSON object, and checks the origin of native evidence. It runs the feature's own service function handler in the same transaction, and that handler checks the server scope first. A bot function never calls another function, so each bot request is billed as one function call. The feature functions stay internal, and the scheduler still calls some of them directly. IDs are canonical positive decimal strings within the signed 64-bit range. Object field names in requests must be ASCII, as Convex values require
 
+Mutations answer `{ value, dueIn }`. `dueIn` is present when the mutation's writes created background work, in milliseconds from now by the backend clock, so the bot's [work dispatcher](#background-work-dispatch) can run at that time
+
 Every request and answer has a schema in the [contracts package](../projects/contracts/). Each function decodes its request with it before its own checks, refusing a mismatch or an unknown key with `400`, and the bot decodes every answer with it. The backend owns the domain rules. It trusts actor, permission, membership and private-conversation facts only because the bot's key vouches for them, so these fields never authenticate a browser user
 
 Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins
@@ -67,7 +69,7 @@ the request. A `REFUSED` message is already a sentence for members with its next
 | `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's |
 | `ACTOR_PERMISSION` | The actor lacks the native permission for the action |
 | `TARGET_PROTECTED` | The target is the bot, the server owner, an Administrator or the actor |
-| `REFUSED` | A refusal a member can act on, such as a feature that is off. The `error` message is the sentence the bot shows |
+| `REFUSED` | A refusal a member can act on, such as a name already taken or a feature that is off. The `error` message is the sentence the bot shows |
 
 ### Checks
 
@@ -135,6 +137,26 @@ Member appeals use verified one-to-one DMs and reveal only the member's own case
 
 Cases and closed appeals are retained for a fixed 180 days, and records needed for active recovery are excluded from expiry. Explicit owner erasure removes a case's private text, including corrections and appeal decisions, and keeps a minimal tombstone. Erasure does not remove messages already sent to staff channels, DMs or Fluxer's audit log
 
+## Publishing and scheduled publishing
+
+### Publishing
+
+Publishing stores named drafts and templates (`publishingDrafts`), tracked messages with their latest confirmed content (`publishingPosts`), immutable send and edit attempts (`publishingAttempts`) and management receipts. The module starts enabled. The destination must be a text or announcement channel in the server
+
+Content is up to 2,000 UTF-16 code units of text and one rich embed with title, description, URL, color, timestamp, author, footer, image, thumbnail and up to 25 fields, within the 6,000-character embed total. URLs use HTTP or HTTPS without credentials, and mentions are disabled. An edit verifies the exact tracked message, bot author, channel and preceding confirmed content first. The provider has no conditional edit, so an external change can still race
+
+A send or edit grant expires after 180 seconds and needs a one-time dispatch claim, followed by a native request bounded to five seconds. Only an explicit SDK `notDispatched` result proves a request was not sent. Other failures stay uncertain and are never replayed. Staff can resolve a post with an unknown outcome by stating that it was sent with a given message ID or that it failed
+
+Drafts, templates and tracked posts persist until deleted or forgotten. Schedule posts are forgotten with their history once it expires, unless their outcome is unresolved. Lists hold 10 rows: Drafts and templates in name order, where `afterName` continues after the last name of a page, and posts newest first, where `beforePostNo` continues before the last post of a page. Terminal attempt history is retained for a fixed 180 days, and management receipts for 24 hours
+
+### Scheduled publishing
+
+Schedules copy the exact revision of a named draft or template and store a finite civil plan: Local time, IANA zone, fold policy for repeated minutes and daily or weekly recurrence with an interval of 1 to 12. Nonexistent local minutes are rejected. A plan has at most 26 occurrences within 180 days, and the saved UTC instants stay frozen. Schedules start disabled. Content and plan changes replace only future unclaimed occurrences
+
+Automatic sends act as the bot. They need the bot's channel permissions, the schedule, scheduling module and publishing switches, and an allowing DEFCON level. Administrators are checked when configuring. A late occurrence still sends until local midnight after its due time. While DEFCON is below 3, or while the schedule, the scheduling module or publishing is off, `list` holds a due occurrence instead of returning it, so the bot reads nothing from Fluxer for it and nothing checks it every minute. The occurrence is checked again at that midnight, when it is skipped as late. Turning a switch back on cannot make a held occurrence sendable, since the activation skips occurrences due before it, so turning it on wakes nothing and the occurrence is skipped as before the activation at that check. An occurrence with an open reservation is checked again earlier, when the reservation's grant ends, so `list` can close the reservation. Setting DEFCON to 3 schedules a wake that makes the held occurrences due again. It reads 20 due active occurrences per transaction through `scheduleDeliveries.by_server_due`, schedules the next page and stops if DEFCON falls below 3 again. Delivery reuses the publishing claim, outcome and reconciliation routes with `scheduleContext`
+
+Limits are 50 schedules, 200 retained occurrence rows and 1,000 management receipts per server. Terminal history is kept for 180 days. A content, time or destination update deletes the future occurrences it replaces that have no attempt or claim, and keeps the others as superseded
+
 ## Server scope
 
 A deployment serves the server in `NEONFLUX_SERVER_ID`. The deployment owns the scope, so changing it means updating the deployment and restarting the bot, which adopts it. A bot environment that sets its own `NEONFLUX_SERVER_ID` must match
@@ -142,3 +164,15 @@ A deployment serves the server in `NEONFLUX_SERVER_ID`. The deployment owns the 
 `/service/scope` checks the key and returns `{ serverIds }` with exactly one server. The bot adopts it before starting any server runtime
 
 Every feature request selects its server with the `serverId` argument, which may be omitted. It must match `request.serverId` and name the configured server. Each bot service function checks the server in its own transaction before any domain work. Otherwise the function answers `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId`, which must match the selected server
+
+## Background work dispatch
+
+`/service/work` tells the bot's one work dispatcher which servers have due work for each background worker. It checks the key and binds no server. The body is `{ cursor, held, requestedAt }`, with a 4,096 body limit, and the answer is `{ kinds, cursor, nextDueIn }`. `kinds` lists for each worker the configured server when it has due work. The bot returns the opaque `cursor` with its next request. Due checks use the backend clock, and the bot's `requestedAt` only keeps each call distinct, so a cached query result never hides work that became due since. `nextDueIn` is the time until the earliest row of any timed source becomes due, or `null`. It reads one row per timed source and ignores servers and settings, so it can only be early
+
+Each worker's rows are read from global indexes in due order, at most 100 rows per index range and request, so a server without due rows costs no reads. One request reads at most 12 MiB of rows in total, in chunks no larger than the remaining budget holds at Convex's 1 MiB document limit, and the sources it did not finish continue on the next request. Later requests of the same pass read only the sources the cursor names. The bot goes on with a cursor at once only after a pass that found work. When new work, a due time or the two-minute check starts a pass, its first request reads every source and sends the earlier cursor as `held`. Each source that request leaves unfinished goes on from the further of its new and held positions, so a cursor never hides new work. Due rows that no worker will act on, such as those of other servers, are still read on each request until they change. A range that filled its page continues after its last row on the next request, so such rows delay but never hide other servers' work. A server is listed only when the worker's own function would act, so a claimed delivery or work due later keeps it off the list
+
+| Worker | Listed when | Index |
+| --- | --- | --- |
+| `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
+
+The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Scheduled wake batches raise it when they make held work due: scheduled posts. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease

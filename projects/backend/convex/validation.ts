@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
 import { Exit, Schema } from "effect"
-import { isId, isName } from "@neonflux/contracts/common"
+import { IsoTime, isId, isName } from "@neonflux/contracts/common"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
@@ -20,6 +20,16 @@ export const REASON_CODES = [
 type ReasonCode = (typeof REASON_CODES)[number]
 export function fail(status: number, error: string, code?: ReasonCode): never {
     throw new ConvexError({ status, error, ...(code ? { code } : {}) })
+}
+/** Whether an error is a refusal that fail() threw with this status */
+export function failedWith(error: unknown, status: number): error is ConvexError<{ status: number }> {
+    return (
+        error instanceof ConvexError &&
+        typeof error.data === "object" &&
+        error.data !== null &&
+        "status" in error.data &&
+        error.data.status === status
+    )
 }
 
 /**
@@ -43,7 +53,7 @@ export function requireServer(serverId: string) {
     if (scope.serverIds[0] !== serverId) scopeDenied()
 }
 
-function requireId(value: unknown): string {
+export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
     return value
 }
@@ -56,10 +66,15 @@ export function listsChannel(list: readonly string[], channelId: string | undefi
     )
 }
 
-function integer(value: unknown, min: number, max: number): number {
+export function integer(value: unknown, min: number, max: number): number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
         fail(400, "Invalid request")
     return value
+}
+
+export function ids(value: unknown, maximum = 20): string[] {
+    if (!Array.isArray(value) || value.length > maximum) fail(400, "Invalid request")
+    return [...new Set(value.map(requireId))]
 }
 
 export function name(value: unknown): string {
@@ -85,7 +100,14 @@ export function source(
     return { serverId, messageId, createdAt }
 }
 
+/** A member's join or timeout time as Fluxer reports it */
+export const epoch = (value: unknown): string => decode(IsoTime, value, "Invalid membership epoch")
+
 // Native evidence supplied for a member must name that same member
 export function requireReadMember(row: Record<string, unknown>, userId: string) {
     if (Object.hasOwn(row, "memberUserId") && row.memberUserId !== userId) fail(403, "Native evidence member mismatch")
+}
+export type ConfigurationIdentity = {
+    serverId: string
+    actorId: string
 }

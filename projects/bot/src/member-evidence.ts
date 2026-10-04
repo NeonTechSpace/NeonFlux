@@ -1,4 +1,5 @@
-import { errors, type Client } from "@neontechspace/fluxerly/effect"
+import type { ChannelMemberContext } from "@neonflux/contracts/shared"
+import { errors, type Client, type GuildMember } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 
 export class MemberEvidenceError extends Data.TaggedError("MemberEvidenceError")<{ readonly stage: "identity" }> {}
@@ -32,4 +33,25 @@ export function readNativeMember(
                 : Effect.succeed({ originServerId: target.guildId, userId: target.userId, member }),
         ),
     )
+}
+
+export function memberFacts(member: GuildMember, serverId: string, userId: string): ChannelMemberContext | undefined {
+    if (
+        member.guildId !== serverId ||
+        member.userId !== userId ||
+        member.communicationDisabledUntil === undefined ||
+        typeof member.joinedAt !== "string" ||
+        member.joinedAt.length > 64 ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(member.joinedAt) ||
+        !Number.isFinite(Date.parse(member.joinedAt))
+    )
+        return
+    return {
+        originServerId: member.guildId,
+        userId,
+        joinedAt: member.joinedAt,
+        roleIds: [...member.roleIds],
+        isBot: member.isBot,
+        timeoutUntil: member.communicationDisabledUntil,
+    }
 }

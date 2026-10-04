@@ -55,21 +55,26 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Before connecting, the bot adopts the backend's scope. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a server that differs from the bot's own `NEONFLUX_SERVER_ID` each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
+A failed publishing recovery call at startup stops the bot
+
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
 - Status, detail and list replies, such as `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins
+- Scheduled posts are named by their name, such as `!publish schedule show news`. Records that have no name, such as cases and posts, keep their numbers
 - A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
 - A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
 - Commands and actions, such as moderation, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
 - Evaluating everyday activity, such as message protection, automod and custom responses, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
 - A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels and custom response channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
-- The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and recover commands read the exact known member or channel without resending
+- The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
+- Durable worker state, such as schedule queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod and security
+- Background workers for scheduled posts run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ## Command help and permission fixes
 
@@ -251,3 +256,71 @@ Members see only their own cases and appeals. Each case accepts one open appeal 
 `pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the one server that the backend in `projects/bot/.env` serves, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
 
 Stop the gateway bot first. The script warns the target, quarantines them for 30 seconds, locks the channel and checks the DEFCON gates, then reverses each change and restores the original settings, also after a failure or Ctrl+C. It prints each check and exits with code 1 when one fails. Cases and notices remain as normal history. Its command sources are synthetic, so a pass does not prove gateway command dispatch, member DMs, visible presence or restart behavior
+
+## Publishing and scheduled publishing
+
+### Drafts, templates and posts
+
+Server owners and Administrators prepare drafts and reusable templates with `!publish`
+
+```text
+!publish create announcement
+!publish set announcement content "Release notes"
+!publish set announcement title "New release"
+!publish set announcement color #3d66b8
+!publish field announcement add "Status" "Available" on
+!publish preview announcement
+!publish send announcement #announcements
+```
+
+The send reply gives a post number. To change the sent message, update the draft and run `!publish edit <post-number> announcement`. The bot first checks that the message still matches what it last sent
+
+| Task | Command |
+| --- | --- |
+| Create, show, delete or preview | `!publish create\|show\|delete\|preview <name>`, `!publish list [next]` |
+| Copy a draft | `!publish clone <name> <new-name>` |
+| Work with templates | Put `template` after `!publish`, for example `!publish template create welcome` |
+| Copy a template into a draft | `!publish template clone <name> <new-name> draft` |
+| Set text | `!publish set <name> content\|title\|description\|url\|timestamp "value"`, `color #RRGGBB` |
+| Set author and footer | `!publish set <name> author "name" ["URL"\|none] ["icon URL"\|none]`, `footer "text" ["icon URL"]` |
+| Set media | `!publish set <name> image\|thumbnail "URL" ["description"]` |
+| Manage fields | `!publish field <name> add "name" "value" [on\|off]`, `set <1-25> ...`, `remove <1-25>` |
+| Clear parts | `!publish clear <name> content\|embed\|title\|description\|url\|color\|timestamp\|author\|footer\|image\|thumbnail\|fields` |
+| Inspect posts | `!publish posts [next]`, `!publish status <post-number>` |
+| Check a post with an unknown outcome | `!publish reconcile <post-number>` |
+| Record a post's outcome by hand | `!publish resolve <post-number> sent <message-id>`, `!publish resolve <post-number> failed` |
+| Stop tracking a post | `!publish forget <post-number>` |
+| Configure | `!publish module on\|off`, `!publish status` |
+
+A message has up to 2000 code units of content and one embed with up to 25 fields and 6000 code units of embed text. URLs must use HTTP or HTTPS and fit in 2048 code units. The bot does not fetch media or upload files
+
+When a send or edit has an unknown outcome, `reconcile` reads the known message, or staff use `resolve` to record what happened. Edit and forget work again once the outcome is known. Deleting a draft or forgetting a post never deletes the message. Attempt history is kept for 180 days. Publishing starts enabled. DEFCON 2 still allows Administrators to publish, and DEFCON 1 allows only disabling, status, the post list and reconcile
+
+### Scheduled publishing
+
+Owners and Administrators plan finite announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the draft or template as it is when the schedule is created or its content is replaced, so later edits to the source do not change it
+
+```text
+!publish schedule create news draft notice #announcements 2026-11-01T18:00 Europe/Berlin reject weekly 1 3
+!publish schedule module on
+!publish schedule enable news
+!publish schedule status news
+```
+
+| Task | Command |
+| --- | --- |
+| Create | `!publish schedule create <name> draft\|template <source-name> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <1-12 interval> <1-26 count>]` |
+| Show or list | `!publish schedule show <name>`, `list [next]` |
+| See the planned dates or the post | `!publish schedule dates <name> [next]`, `!publish schedule preview <name>` |
+| Inspect settings or deliveries | `!publish schedule status [<name> [next]]` |
+| Replace content | `!publish schedule update <name> content draft\|template <source-name>` |
+| Replace time | `!publish schedule update <name> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> <count>]` |
+| Change destination | `!publish schedule update <name> destination #channel` |
+| Enable, pause or cancel | `!publish schedule enable\|disable\|cancel <name>` |
+| Check a known post | `!publish schedule reconcile <name> <post-number>` |
+| Forget settled deliveries | `!publish schedule forget <name> [date-number ...] [confirm]` |
+| Turn the module on or off | `!publish schedule module on\|off` |
+
+Each schedule has a unique name. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
+
+Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. A post that comes due at DEFCON 1 or 2 waits without requests and sends once DEFCON is set to 3, until local midnight after its due time. A post that comes due while its schedule, the scheduling module or publishing is off also waits without requests, and is skipped at local midnight or, if you turned the switch back on first, as before that activation, because enabling never catches up on missed dates. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days. An update removes the future dates it replaces that never started sending, so updates do not use up schedule capacity

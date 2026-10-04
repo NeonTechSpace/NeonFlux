@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { moderationErrorMessage, ModerationStoreError } from "../src/moderation-store.ts"
+import { publishingErrorMessage, PublishingStoreError } from "../src/publishing-store.ts"
+import { schedulesErrorMessage, SchedulesStoreError } from "../src/schedule-store.ts"
 
 const reason = "Synthetic sentence for members. Do the next step"
 test("each store shows the sentence of a REFUSED refusal, and the fixed reply only without one", () => {
@@ -9,6 +11,16 @@ test("each store shows the sentence of a REFUSED refusal, and the fixed reply on
             "moderation",
             (extra: object) => new ModerationStoreError({ operation: "x", status: 403, ...extra }),
             moderationErrorMessage,
+        ],
+        [
+            "publishing",
+            (extra: object) => new PublishingStoreError({ operation: "x", status: 409, ...extra }),
+            publishingErrorMessage,
+        ],
+        [
+            "schedules",
+            (extra: object) => new SchedulesStoreError({ operation: "x", status: 409, ...extra }),
+            schedulesErrorMessage,
         ],
     ] as const) {
         // The unions of the error classes accept the same fields, so one signature covers them all

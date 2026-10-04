@@ -25,7 +25,9 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [backend-http.ts](../projects/bot/src/backend-http.ts) sends every backend request through the Convex client in
   [convex-client.ts](../projects/bot/src/convex-client.ts), and
   [backend-routes.ts](../projects/bot/src/backend-routes.ts) maps each request path to its backend function, whose name
-  and kind the [service contract](../projects/contracts/src/service.ts) owns
+  and kind the [service contract](../projects/contracts/src/service.ts) owns.
+  [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher, and
+  [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop the scheduled post worker uses
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the forms each command's own help leaves out, which `help all` lists,
@@ -39,19 +41,19 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [botService.ts](../projects/backend/convex/botService.ts) owns the bot's key-checked public entry points, [serviceKey.ts](../projects/backend/convex/serviceKey.ts) checks the key, [crons.ts](../projects/backend/convex/crons.ts) starts scheduled jobs and [retention.ts](../projects/backend/convex/retention.ts) runs every feature's bounded retention cleanup as one chain
 - `convex/_generated/` is created by the Convex CLI and kept in version control
-- `tests/` holds `convex-test` tests
+- `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's backend adapters against an isolated backend fixture
 
 ## Contracts package
 
 - `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
-- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, and [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send
+- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
 - A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-permissions.ts` owns native permission checks, which actions read fresh, and `-store.ts` decodes backend answers with the feature's shared schemas.
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns native permission checks, which actions read fresh, `-store.ts` decodes backend answers with the feature's shared schemas and `-worker.ts` runs scoped background work.
 In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes.
 The requests and answers between them live in the feature's module of the [contracts package](#contracts-package)
 
@@ -59,8 +61,10 @@ The requests and answers between them live in the feature's module of the [contr
 | --- | --- | --- | --- |
 | Bot foundation, AFK and responses | `bot`, `main`, `config`, `reply-style`, `backend-http`, `backend-routes`, `convex-client`, `message-revisions`, `protections`, `member-evidence`, `channel-parents`, `general-settings`, `afk`, `response`, `responses` | `schema`, `botService`, `serviceKey`, `crons`, `retention`, `validation`, `protection`, `generalSettings`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
+| Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
+| Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

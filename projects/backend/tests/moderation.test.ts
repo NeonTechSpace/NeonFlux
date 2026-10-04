@@ -36,6 +36,7 @@ const modules = {
     "../convex/afk.ts": () => import("../convex/afk.ts"),
     "../convex/responses.ts": () => import("../convex/responses.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
+    "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/protection.ts": () => import("../convex/protection.ts"),
     "../convex/appeals.ts": () => import("../convex/appeals.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
