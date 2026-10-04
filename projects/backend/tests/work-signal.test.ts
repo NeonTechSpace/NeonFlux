@@ -3,6 +3,7 @@ import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
+import { LEVELING_DEFER } from "../convex/levelingDomain.ts"
 import { rowDueAt } from "../convex/workDispatch.ts"
 import type { ServiceWork } from "@neonflux/contracts/service"
 import { botCall } from "./bot-service.ts"
@@ -138,6 +139,47 @@ test("Bot mutations report when the work their writes create becomes due, by the
     assert.deepEqual([(await work()).kinds.schedules, (await work()).nextDueIn], [["10"], null])
 })
 
+test("Leveling corrections report reward work now, and an unfinished pass reports its deferral", async (tc) => {
+    const { t, advance } = fixture(tc)
+    const dueIn = (response: Response) => response.headers.get("X-Due-In")
+    // A correction marks the account for reward work now, through an insert and then a patch
+    const adjust = (messageId: string, xp: number) =>
+        botCall(t, "/levels/manage", {
+            serverId: "10",
+            messageId,
+            createdAt: start,
+            actor: owner,
+            operation: { type: "adjust", userId: "40", xp, reason: "Synthetic correction" },
+        })
+    for (const [messageId, xp] of [
+        ["50", 100],
+        ["51", 200],
+    ] as const) {
+        const response = await adjust(messageId, xp)
+        assert.equal(response.status, 200, JSON.stringify(await response.clone().json()))
+        assert.equal(dueIn(response), "0")
+    }
+    const list = (await (await botCall(t, "/levels/work", { serverId: "10", operation: { type: "list" } })).json()) as {
+        accounts: { userId: string; mark: number }[]
+    }
+    assert.equal(list.accounts.length, 1)
+    // An unfinished pass defers the account, so the answer names the deferral instead of now
+    const deferred = await botCall(t, "/levels/work", {
+        serverId: "10",
+        operation: { type: "done", userId: "40", mark: list.accounts[0]!.mark, complete: false },
+    })
+    assert.equal(deferred.status, 200)
+    assert.equal(dueIn(deferred), String(LEVELING_DEFER))
+    // The dispatch agrees: nothing is due now and the next row is due when the deferral ends
+    const work = async () =>
+        (await (await botCall(t, "/service/work", { cursor: null, requestedAt: 1 })).json()) as ServiceWork
+    assert.deepEqual([(await work()).kinds.levels, (await work()).nextDueIn], [[], LEVELING_DEFER])
+    advance(LEVELING_DEFER - 1000)
+    assert.deepEqual([(await work()).kinds.levels, (await work()).nextDueIn], [[], 1000])
+    advance(1000)
+    assert.deepEqual([(await work()).kinds.levels, (await work()).nextDueIn], [["10"], null])
+})
+
 test("The next due time is the earliest future row of any timed source and ignores rows its source would not read", async (tc) => {
     const { t, advance } = fixture(tc)
     await t.run(async (ctx) => {
@@ -151,20 +193,18 @@ test("The next due time is the earliest future row of any timed source and ignor
             dueAt: start + 10000,
             nextCheckAt: start + 10000,
         })
-        await insertDocument(ctx, "scheduleDeliveries", "10", {
-            active: true,
-            dueAt: start + 30000,
-            nextCheckAt: start + 30000,
-        })
+        await insertDocument(ctx, "levelingProfiles", "10", { rewardDueAt: start + 30000 })
     })
     const work = async () =>
         (await (await botCall(t, "/service/work", { cursor: null, requestedAt: 1 })).json()) as ServiceWork
     assert.equal((await work()).nextDueIn, 30000)
     advance(30000)
     const due = await work()
-    assert.deepEqual([due.kinds.schedules, due.nextDueIn], [["10"], 60000])
+    assert.deepEqual([due.kinds.levels, due.nextDueIn], [["10"], 60000])
     // The same rules decide which written rows a mutation reports
-    assert.equal(rowDueAt("scheduleDeliveries", { active: true, nextCheckAt: 7 }), 7)
-    assert.equal(rowDueAt("scheduleDeliveries", { active: false, nextCheckAt: 7 }), undefined)
-    assert.equal(rowDueAt("afkStatuses", { serverId: "10" }), undefined)
+    assert.equal(rowDueAt("scheduleDeliveries", { active: true, nextCheckAt: 7 }, 1), 7)
+    assert.equal(rowDueAt("scheduleDeliveries", { active: false, nextCheckAt: 7 }, 1), undefined)
+    assert.equal(rowDueAt("levelingProfiles", { rewardDueAt: undefined }, 1), undefined)
+    assert.equal(rowDueAt("levelingSettings", { sweepPending: true }, 5), 5)
+    assert.equal(rowDueAt("afkStatuses", { serverId: "10" }, 5), undefined)
 })

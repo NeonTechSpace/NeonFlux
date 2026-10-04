@@ -65,7 +65,10 @@ const run = <A>(body: Effect.Effect<A, never, any>) =>
 test("a pass starts at once, binds no server, wakes every reported server and kind before its next page and returns the cursor", () =>
     run(
         Effect.gen(function* () {
-            const backend = yield* scripted([work({ schedules: ["20", "10"] }, "synthetic_cursor"), work({})])
+            const backend = yield* scripted([
+                work({ schedules: ["10"], levels: ["20", "10"] }, "synthetic_cursor"),
+                work({}),
+            ])
             const wakes: string[] = []
             yield* startWorkDispatcher(backend.backend, (serverId, kind) =>
                 Effect.sync(() => {
@@ -81,7 +84,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
             assert.deepEqual(backend.subscriptions, [{ key: Redacted.value(deriveServiceKey(secret)) }])
             const second = yield* backend.next
             assert.deepEqual([sentCursor(second), sentAt(second)], ["synthetic_cursor", 0])
-            assert.deepEqual(wakes, ["schedules 20", "schedules 10"])
+            assert.deepEqual(wakes, ["schedules 10", "levels 20", "levels 10"])
         }),
     ))
 
@@ -90,7 +93,7 @@ test("full pages are read back to back up to the pass limit, and only a pass tha
         Effect.gen(function* () {
             const pages = (found: boolean) =>
                 Array.from({ length: workPagesPerPass }, (_, page) =>
-                    work(found && page === 0 ? { schedules: ["10"] } : {}, `cursor_${found}_${page}`),
+                    work(found && page === 0 ? { levels: ["10"] } : {}, `cursor_${found}_${page}`),
                 )
             const backend = yield* scripted([...pages(true), ...pages(false), work({}, "cursor_fresh")])
             yield* startWorkDispatcher(backend.backend, () => Effect.void)
@@ -152,7 +155,7 @@ test("a signal while the last page of a pass that woke servers is in flight stil
     run(
         Effect.gen(function* () {
             const pages: unknown[] = Array.from({ length: workPagesPerPass }, (_, page) =>
-                work({ schedules: ["10"] }, `cursor_${page}`),
+                work({ levels: ["10"] }, `cursor_${page}`),
             )
             const backend = yield* scripted(pages)
             // The signal changes while the last page of the pass is in flight
@@ -258,7 +261,7 @@ test("failures back off from ten seconds to five minutes, restart the cursor and
             const backend = yield* scripted([
                 work({ schedules: ["10"] }, "synthetic_cursor"),
                 ...failures,
-                work({ schedules: ["10"] }),
+                work({ levels: ["10"] }),
             ])
             const wakes: string[] = []
             yield* startWorkDispatcher(backend.backend, (serverId, kind) =>
@@ -282,7 +285,7 @@ test("failures back off from ten seconds to five minutes, restart the cursor and
                 failures.map((_, index) => workDelay(index + 1)),
                 [10000, 20000, 40000, 80000, 160000, 300000, 300000, 300000, 300000],
             )
-            assert.deepEqual(wakes, ["schedules 10", "schedules 10"])
+            assert.deepEqual(wakes, ["schedules 10", "levels 10"])
         }),
     ))
 
@@ -313,6 +316,7 @@ test("a failing wake neither stops the dispatcher nor skips the other wakes, and
 const serverA = "1100000000000000001"
 const workerPaths: Record<ServiceWorkKind, string> = {
     schedules: "/schedules/delivery",
+    levels: "/levels/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
 function dispatchBackend(firstPass: Promise<ServiceWork>) {
@@ -365,20 +369,23 @@ function dispatchBot(client: BackendClient) {
     })
 }
 
-test("the bot's one dispatcher wakes the reported worker of its server", async () => {
+test("the bot's one dispatcher wakes only the reported workers of its server", async () => {
     let release!: (value: ServiceWork) => void
     const state = dispatchBackend(
         new Promise((resolve) => {
             release = resolve
         }),
     )
-    const paths = workKinds.map((kind) => workerPaths[kind])
+    // Schedules are not reported. Levels is woken last, so a wrong wake of the schedules worker would run before it
+    const reported = workKinds.filter((kind) => kind !== "schedules"),
+        paths = reported.map((kind) => workerPaths[kind])
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
                 const bot = yield* dispatchBot(state.client)
                 assert.deepEqual(state.workerCalls(serverA), [])
-                release(work(Object.fromEntries(workKinds.map((kind) => [kind, [serverA]]))))
+                assert.equal(workKinds.at(-1), "levels")
+                release(work(Object.fromEntries(reported.map((kind) => [kind, [serverA]]))))
                 yield* Effect.promise(() => Promise.all(paths.map((path) => state.called(path, serverA))))
                 assert.deepEqual(new Set(state.workerCalls(serverA)), new Set(paths))
                 assert.equal(

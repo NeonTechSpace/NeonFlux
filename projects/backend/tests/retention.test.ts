@@ -10,6 +10,7 @@ import {
     RETENTION_ROWS_PER_RUN,
     type RetentionRun,
 } from "../convex/retention.ts"
+import { cleanupLeveling } from "../convex/levelingCleanup.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { insertDocument } from "./schema-documents.ts"
 
@@ -171,4 +172,33 @@ test("A failing pass is isolated, the other modules keep their retention and iso
     now += RETENTION_INTERVAL_MS
     assert.deepEqual((await step(t)).result.failed, ["tickets"])
     await t.run((ctx) => ctx.db.delete(again))
+})
+
+test("A pending leveling sweep advances when it belongs to a server after the first batch of leveling servers", async () => {
+    const t = backend()
+    await t.run(async (ctx) => {
+        for (let index = 0; index < 40; index++)
+            await insertDocument(ctx, "levelingSettings", String(100 + index), { sweepPending: false })
+        await insertDocument(ctx, "levelingSettings", "200", { sweepPending: true })
+        for (let index = 0; index < 25; index++)
+            await insertDocument(ctx, "levelingProfiles", "200", { userId: String(1000 + index) })
+    })
+    await t.run((ctx) => retentionPass(ctx, cleanupLeveling))
+    const state = await t.run((ctx) =>
+        ctx.db
+            .query("levelingSettings")
+            .withIndex("by_server", (q) => q.eq("serverId", "200"))
+            .unique(),
+    )
+    assert.equal(state!.sweepAfterUserId, "1019")
+    assert.equal(state!.sweepPending, true)
+    // The chain finishes the sweep in the same run
+    await step(t)
+    const done = await t.run((ctx) =>
+        ctx.db
+            .query("levelingSettings")
+            .withIndex("by_server", (q) => q.eq("serverId", "200"))
+            .unique(),
+    )
+    assert.equal(done!.sweepPending, false)
 })

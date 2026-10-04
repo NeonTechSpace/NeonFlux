@@ -40,8 +40,8 @@ export function parseOrigin(value: string): URL | undefined {
         return undefined
     return url
 }
-/** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them */
-export const ServiceWorkKind = Schema.Literals(["schedules"])
+/** Background workers the bot wakes when /service/work reports due work for their server, in the order it wakes them, levels last */
+export const ServiceWorkKind = Schema.Literals(["schedules", "levels"])
 export type ServiceWorkKind = typeof ServiceWorkKind.Type
 /**
  * The cursor is the previous answer's. held is the cursor of an earlier pass that a fresh read without a cursor goes on
@@ -135,5 +135,10 @@ export const BOT_FUNCTIONS = {
     ticketsDispatch: "mutation",
     ticketsOutcome: "mutation",
     ticketsReconcile: "mutation",
+    levelsQuery: "query",
+    levelsPreflight: "query",
+    levelsManage: "mutation",
+    levelsAward: "mutation",
+    levelsWork: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

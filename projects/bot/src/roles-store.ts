@@ -216,6 +216,7 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                         value.roleId === op.roleId &&
                         (op.type !== "withdraw-member" || value.consumerKey === op.consumerKey)
                     )
+                if (op.type === "level-sync") return value.consumerKey === "level" && value.roleId === op.roleId
                 return op.type === "join" && value.action === "add" && /^autorole:[1-9]\d*$/.test(value.consumerKey)
             }),
         dispatch: (input) => call("dispatch", input, RolesDispatchResult),

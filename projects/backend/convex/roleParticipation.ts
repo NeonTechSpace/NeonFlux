@@ -26,6 +26,7 @@ import { ownerReferences, roleAttempt, rolePanel, rolesAcknowledgment, roleWithd
 import { requireAdministrator } from "./moderationStore.ts"
 import { decode, fail } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
+import { evaluateLevelRole } from "./levelingRoles.ts"
 
 export const evaluate = serviceMutation({
     args: { request: v.any() },
@@ -35,6 +36,7 @@ export const evaluate = serviceMutation({
             identity = rolesSource(input, now),
             member = memberContext(input.context),
             op = input.operation
+        if (op.type === "level-sync") return evaluateLevelRole(ctx, identity, member, op)
         const job =
             input.reactionJob === undefined ? null : await reactionFence(ctx, identity.serverId, input.reactionJob)
         if (job) {

@@ -689,10 +689,11 @@ async function applyConfiguration(
             await protectedStaffRoles(ctx, identity.serverId, [...new Set(Object.values(staffRoleIds).flat())])
         }
         await ctx.db.patch(current._id, { config: next })
-        // Returning to DEFCON 3 makes the scheduled posts due again. The wakes run as scheduled batches, so a large
-        // backlog can never make the DEFCON change itself fail
+        // Returning to DEFCON 3 makes the scheduled posts and the level rewards due again. The wakes run as scheduled
+        // batches, so a large backlog can never make the DEFCON change itself fail
         if (settings.defcon !== 3 && next.defcon === 3) {
             await ctx.scheduler.runAfter(0, internal.schedulesDelivery.wake, { serverId, throughAt: now, cursor: null })
+            await ctx.scheduler.runAfter(0, internal.levelingWork.wake, { serverId })
         }
         return { duplicate: false, type: "settings", settings: next }
     }

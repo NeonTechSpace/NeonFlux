@@ -34,6 +34,7 @@ const modules = {
     "../convex/schedules.ts": () => import("../convex/schedules.ts"),
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/schedulesCleanup.ts": () => import("../convex/schedulesCleanup.ts"),
+    "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),

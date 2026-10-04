@@ -6,7 +6,7 @@ import type {
     RolesReactionJobBinding,
     RolesSource,
 } from "@neonflux/contracts/roles"
-import type { RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import type { ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import { errors, format, type Client, type MessageReference } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
@@ -16,7 +16,7 @@ import { memberTimeout, readSafetyAuthority } from "./safety-permissions.ts"
 import { canonicalPublishingContent, equalPublishingContent } from "@neonflux/contracts/publishing-base"
 import { publishingMessageContent } from "./publishing-content.ts"
 import { verifyPublishingMessage } from "./publishing-permissions.ts"
-import type { RolesStore } from "./roles-store.ts"
+import { RolesStoreError, type RolesStore } from "./roles-store.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { replyPrefix } from "./general-settings.ts"
 import { code } from "./reply-style.ts"
@@ -97,6 +97,71 @@ export function roleMemberContext(
             roles: roleSnapshots(authority),
         }
         return { authority, context }
+    })
+}
+
+/**
+ * Reads the member again and records what Fluxer shows for the first unconfirmed role change of one feature, which
+ * unlocks that role for the next request. It records one change per command, so the reply says when another
+ * unconfirmed role needs another run
+ */
+export function reconcileRoleChange(
+    roles: RolesStore,
+    serverId: string,
+    client: Client,
+    actor: ModerationActor,
+    source: { messageId: string; createdAt: number },
+    userId: string,
+    ownConsumer: (consumerKey: string) => boolean,
+) {
+    return Effect.gen(function* () {
+        const fresh = yield* roleMemberContext(client, serverId, userId, actor.userId)
+        const unconfirmed = []
+        let cursor: string | undefined
+        do {
+            const page = yield* roles.query({
+                serverId,
+                actor,
+                // Every membership is listed, so a change left unconfirmed before the member rejoined is found too
+                operation: { type: "claim-list", userId, ...(cursor ? { cursor } : {}) },
+            })
+            if (page.type !== "claims") break
+            for (const row of page.claims)
+                if (row.status === "uncertain" && row.attempt && ownConsumer(row.attempt.consumerKey))
+                    unconfirmed.push(row)
+            cursor = unconfirmed.length > 1 ? undefined : page.nextCursor
+        } while (cursor)
+        const claim = unconfirmed[0]
+        if (!claim?.attempt) return "No unconfirmed role change for this member"
+        const present = fresh.context.roleIds.includes(claim.roleId)
+        const recorded = yield* roles
+            .reconcile({
+                serverId,
+                actor,
+                ...source,
+                attemptId: claim.attempt.attemptId,
+                generation: claim.generation,
+                observation: {
+                    originServerId: serverId,
+                    observedAt: yield* Clock.currentTimeMillis,
+                    userId,
+                    joinedAt: fresh.context.joinedAt,
+                    roleId: claim.roleId,
+                    present,
+                },
+            })
+            .pipe(
+                Effect.catch((error) =>
+                    error instanceof RolesStoreError && error.status === 409
+                        ? Effect.succeed(undefined)
+                        : Effect.fail(error),
+                ),
+            )
+        if (recorded && !recorded.recorded)
+            return "Nothing new was recorded for that role. Send the command again as a new message"
+        return recorded
+            ? `Recorded that ${format.roleMention(claim.roleId)} is ${present ? "on" : "not on"} ${format.userMention(userId)}${unconfirmed.length > 1 ? ". Another role change is still unconfirmed, so send the command again" : ""}`
+            : "The last role change is still within its few-minute window. Try again shortly"
     })
 }
 

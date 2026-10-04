@@ -7,6 +7,7 @@ import {
     scheduleDeliveryState,
     scheduleSource,
 } from "./schedulesValidators.ts"
+import { levelingSettings } from "./levelingValidators.ts"
 import {
     greetingsSettings,
     greetingsRoute,
@@ -142,6 +143,82 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    levelingSettings: defineTable({
+        serverId: v.string(),
+        config: levelingSettings,
+        resetAt: v.optional(v.number()),
+        profiles: v.number(),
+        nextAuditNo: v.number(),
+        dirty: v.number(),
+        sweepAfterUserId: v.optional(v.string()),
+        sweepPending: v.boolean(),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_sweep", ["sweepPending"]),
+    // rankLevel is the level a profile with XP is counted under in levelingLevels for its own scoreEpoch
+    levelingProfiles: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        xp: v.number(),
+        scoreEpoch: v.number(),
+        adjustmentRevision: v.number(),
+        correctedAt: v.optional(v.number()),
+        resetAt: v.optional(v.number()),
+        joinedAt: v.optional(v.string()),
+        lastEventAt: v.optional(v.number()),
+        lastAwardAt: v.optional(v.number()),
+        digestExpiresAt: v.optional(v.number()),
+        digests: v.array(v.object({ digest: v.string(), creditedAt: v.number() })),
+        rewardMark: v.optional(v.number()),
+        rewardDueAt: v.optional(v.number()),
+        rankLevel: v.optional(v.number()),
+    })
+        .index("by_user", ["serverId", "userId"])
+        .index("by_reward_due", ["serverId", "rewardDueAt"])
+        .index("by_score", ["serverId", "scoreEpoch", "xp", "userId"])
+        .index("by_digest_expiry", ["digestExpiresAt"])
+        .index("by_global_reward_due", ["rewardDueAt"]),
+    // How many profiles with XP each level holds in a score epoch, so a rank sums at most 1,000 small rows
+    levelingLevels: defineTable({
+        serverId: v.string(),
+        scoreEpoch: v.number(),
+        level: v.number(),
+        count: v.number(),
+    }).index("by_level", ["serverId", "scoreEpoch", "level"]),
+    levelingAwardReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        userId: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    levelingManagementReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        operationKey: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    levelingAudits: defineTable({
+        serverId: v.string(),
+        auditNo: v.number(),
+        actorId: v.string(),
+        userId: v.optional(v.string()),
+        beforeXp: v.optional(v.number()),
+        afterXp: v.optional(v.number()),
+        reason: v.string(),
+        createdAt: v.number(),
+        type: v.union(v.literal("adjust"), v.literal("reset-member"), v.literal("reset-server")),
+        scoreEpoch: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_number", ["serverId", "auditNo"])
         .index("by_expiry", ["expiresAt"]),
     ticketSettings: defineTable({
         serverId: v.string(),
@@ -408,13 +485,16 @@ export default defineSchema({
         desired: v.boolean(),
         ownershipId: v.optional(v.id("roleOwnership")),
         postNo: v.optional(v.number()),
+        userId: v.optional(v.string()),
+        joinedAt: v.optional(v.string()),
         createdAt: v.number(),
     })
         .index("by_configuration_key", ["serverId", "configuration", "consumerKey", "roleId"])
         .index("by_server_role", ["serverId", "roleId"])
         .index("by_consumer", ["serverId", "consumerKey", "configuration"])
         .index("by_owner", ["ownershipId", "consumerKey"])
-        .index("by_server_post", ["serverId", "postNo"]),
+        .index("by_server_post", ["serverId", "postNo"])
+        .index("by_level_member", ["serverId", "consumerKey", "configuration", "userId", "joinedAt", "roleId"]),
     roleAttempts: defineTable({
         serverId: v.string(),
         ownershipId: v.id("roleOwnership"),

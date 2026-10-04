@@ -232,6 +232,7 @@ async function roleHolder(ctx: RolesRead, serverId: string, consumerKey: string)
             : `the role panel ${name}. Remove it from the panel or run !roles retire ${name} first`
     }
     if (kind === "autorole") return "autorole. Remove it from autorole or run !autorole retire first"
+    if (kind === "level") return "leveling rewards. Remove the reward or run !level clear first"
     return "another NeonFlux feature. Release it there first"
 }
 /** A staff role must not be a role a NeonFlux feature gives members. The refusal names the feature and the step that releases the role */

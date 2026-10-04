@@ -5,6 +5,7 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { helpAllRequest } from "../src/help.ts"
+import { levelHelp, levelHelpAll } from "../src/level-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
@@ -68,6 +69,7 @@ const commandHelps: Record<string, string> = {
     ticket: ticketHelp,
     publish: publishingHelp,
     "publish schedule": scheduleHelp,
+    level: levelHelp(),
     roles: roleHelp("roles"),
     verify: roleHelp("verify"),
     autorole: roleHelp("autorole"),
@@ -83,6 +85,7 @@ const helpAlls: Record<string, readonly string[]> = {
     ticket: ticketHelpAll,
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    level: levelHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),

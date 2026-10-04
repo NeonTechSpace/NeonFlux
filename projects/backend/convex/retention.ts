@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { cleanupGreetings } from "./greetingLifecycle.ts"
+import { cleanupLeveling } from "./levelingCleanup.ts"
 import { cleanupModeration } from "./moderation.ts"
 import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
@@ -29,6 +30,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["roles", cleanupRoles],
     ["greetings", cleanupGreetings],
     ["tickets", cleanupTickets],
+    ["leveling", cleanupLeveling],
     ["schedules", cleanupSchedules],
 ]
 // Passes that only schedule other work run once when a chain starts, not in its continuations

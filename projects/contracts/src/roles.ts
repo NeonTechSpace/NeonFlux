@@ -325,6 +325,7 @@ export const RolesEvaluateOperation = Schema.Union([
         roleId: Id,
         selected: Schema.Boolean,
     }),
+    Schema.Struct({ type: Schema.Literal("level-sync"), roleId: Id }),
     Schema.Struct({
         type: Schema.Literal("reaction"),
         name: panelName,
@@ -359,6 +360,7 @@ export const RolesReactionJobBinding = Schema.Struct({
     index: Int(0, 9),
 })
 export type RolesReactionJobBinding = typeof RolesReactionJobBinding.Type
+/** Level rewards take no continuation, actor or reaction page */
 export const RolesEvaluateRequest = Schema.Struct({
     ...RolesSource.fields,
     serverId: Id,
@@ -367,7 +369,13 @@ export const RolesEvaluateRequest = Schema.Struct({
     continuationAttemptId: optional(Schema.String),
     actor: optional(ModerationActor),
     reactionJob: optional(RolesReactionJobBinding),
-})
+}).check(
+    Schema.makeFilter(
+        (value) =>
+            value.operation.type !== "level-sync" ||
+            (value.continuationAttemptId === undefined && value.actor === undefined && value.reactionJob === undefined),
+    ),
+)
 export type RolesEvaluateRequest = typeof RolesEvaluateRequest.Type
 export const RolesEvaluateResult = Schema.Struct({
     duplicate: Schema.Boolean,

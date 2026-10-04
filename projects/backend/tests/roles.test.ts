@@ -1509,10 +1509,20 @@ test("One message withdraws several autorole revisions", async (test) => {
         assert.equal(result.withdrawal.status, "complete")
     }
 })
-test("Autorole history lists only autorole references, not panel role references", async (test) => {
+test("Autorole history lists only autorole references, not panel or level role references", async (test) => {
     const f = fixture(test),
         panel = await f.ready()
     const revision = (await read(await f.settings({ autoroleIds: ["41"] }))).settings.revision
+    await f.t.run((ctx) =>
+        ctx.db.insert("roleReferences", {
+            serverId: "1",
+            consumerKey: "level",
+            roleId: "42",
+            configuration: true,
+            desired: true,
+            createdAt: 0,
+        }),
+    )
     const listed = await read(await f.query({ type: "configuration-list" }))
     assert.deepEqual(
         listed.references.map((x: { consumerKey: string }) => x.consumerKey),

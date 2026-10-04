@@ -8,7 +8,7 @@ import { Cause, Effect, Queue } from "effect"
 export function startSignalledWorker<A, E, R>(
     pass: Effect.Effect<A, E, R>,
     onFailure: Effect.Effect<void>,
-    after: (result: A, wake: Effect.Effect<void>) => Effect.Effect<void>,
+    after?: (result: A, wake: Effect.Effect<void>) => Effect.Effect<void>,
 ) {
     return Effect.gen(function* () {
         const queue = yield* Queue.make<void>({ capacity: 1, strategy: "dropping" })
@@ -18,7 +18,7 @@ export function startSignalledWorker<A, E, R>(
             for (;;) {
                 yield* Queue.take(queue)
                 yield* pass.pipe(
-                    Effect.flatMap((result) => after(result, wake)),
+                    Effect.flatMap((result) => (after ? after(result, wake) : Effect.void)),
                     Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : onFailure)),
                 )
             }

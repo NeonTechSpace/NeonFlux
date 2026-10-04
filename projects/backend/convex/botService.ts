@@ -26,6 +26,8 @@ import * as greetings from "./greetings.ts"
 import * as greetingLifecycle from "./greetingLifecycle.ts"
 import * as tickets from "./tickets.ts"
 import * as ticketLifecycle from "./ticketLifecycle.ts"
+import * as leveling from "./leveling.ts"
+import * as levelingWork from "./levelingWork.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -101,7 +103,7 @@ export const inline = <Ctx extends object>(ctx: Ctx): Ctx => ({ ...ctx, runQuery
 function observed(ctx: MutationCtx, now: number) {
     let dueAt: number | undefined
     const note = (table: TableNames, row: Record<string, unknown> | null) => {
-        const at = row ? rowDueAt(table, row) : undefined
+        const at = row ? rowDueAt(table, row, now) : undefined
         if (at !== undefined) dueAt = Math.min(dueAt ?? at, at)
     }
     const tableOf = (id: string) => [...WORK_TABLES].find((table) => ctx.db.normalizeId(table, id) !== null)
@@ -246,3 +248,9 @@ export const ticketsTranscript = botMutation(262144, tickets.transcript)
 export const ticketsDispatch = botMutation(262144, ticketLifecycle.dispatch)
 export const ticketsOutcome = botMutation(262144, ticketLifecycle.outcome)
 export const ticketsReconcile = botMutation(262144, ticketLifecycle.reconcile)
+
+export const levelsQuery = botQuery(262144, leveling.query)
+export const levelsPreflight = botQuery(262144, leveling.preflight)
+export const levelsManage = botMutation(262144, leveling.manage)
+export const levelsAward = botMutation(262144, leveling.award)
+export const levelsWork = botMutation(262144, levelingWork.work)

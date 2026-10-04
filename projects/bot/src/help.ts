@@ -1,6 +1,7 @@
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { withPrefix } from "./general-settings.ts"
+import { levelHelpAll } from "./level-command.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { publishingHelpAll } from "./publishing-command.ts"
@@ -19,6 +20,7 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     ticket: ticketHelpAll,
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    level: levelHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),

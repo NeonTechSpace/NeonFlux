@@ -52,6 +52,7 @@ async function dueWork(ctx: Ctx, serverId: string) {
         dueAt: now - 1000,
         nextCheckAt: now - 1000,
     })
+    await insertDocument(ctx, "levelingProfiles", serverId, { rewardDueAt: now - 1000 })
 }
 
 test("The work route authenticates, validates its cursor and costs nothing when no server has work", async (tc) => {
@@ -80,17 +81,26 @@ test("Each worker kind reports exactly the servers its worker would find work fo
             dueAt: now - 1000,
             nextCheckAt: now + 59000,
         })
+        await insertDocument(ctx, "levelingProfiles", "20", { rewardDueAt: now + 1000 })
     })
-    // Server 20's second scheduled post is checked again in 59 seconds. The server scope does not hide due times
+    // Server 20's level reward row is due in one second. The server scope does not hide due times
     assert.deepEqual(await work(t), {
         kinds: only(Object.fromEntries(WORK_KINDS.map((kind) => [kind, ["10"]]))),
         cursor: null,
-        nextDueIn: 59000,
+        nextDueIn: 1000,
     })
+
+    // The workers' own endpoints agree for level rewards
+    const levels = async (serverId: string) =>
+        (await (await post(t, "/levels/work", { serverId, operation: { type: "list" } }, serverId)).json()) as {
+            accounts: unknown[]
+        }
+    assert.equal((await levels("10")).accounts.length, 1)
 
     // Server 20 has no work any worker would act on now
     process.env.NEONFLUX_SERVER_ID = "20"
-    assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: 59000 })
+    assert.deepEqual(await work(t), { kinds: only({}), cursor: null, nextDueIn: 1000 })
+    assert.equal((await levels("20")).accounts.length, 0)
 })
 
 test("Large rows stop a page at the read budget, and later pages read only the sources the cursor names", async (tc) => {
@@ -107,18 +117,24 @@ test("Large rows stop a page at the read budget, and later pages read only the s
                 channelId: "x".repeat(700000),
             })
         })
-    const reported: string[] = []
+    await t.run(async (ctx) => {
+        await insertDocument(ctx, "levelingProfiles", "10", { rewardDueAt: now - 1000 })
+    })
+    const reported: string[] = [],
+        levels: string[] = []
     let page = await work(t),
         pages = 1
     while (true) {
         reported.push(...page.kinds.schedules)
+        levels.push(...page.kinds.levels)
         if (page.cursor === null) break
         page = await work(t, page.cursor)
         pages++
     }
-    // The configured server's row is reported once in the pass
+    // The configured server's row is reported once in the pass, and so is the later source the budget pushed to another page
     assert.ok(pages > 1)
     assert.deepEqual(reported, ["10"])
+    assert.deepEqual(levels, ["10"])
 })
 
 test("Due rows of other servers cannot hide the configured server's work", async (tc) => {
@@ -146,7 +162,7 @@ test("Due rows of other servers cannot hide the configured server's work", async
     assert.deepEqual(second.kinds.schedules, ["10"])
     assert.equal(second.cursor, null)
 })
-test("A fresh read goes on with a held backlog", async (tc) => {
+test("A fresh read goes on with both a held backlog and a source that became unfinished since", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()
     await t.run(async (ctx) => {
@@ -157,19 +173,23 @@ test("A fresh read goes on with a held backlog", async (tc) => {
                 nextCheckAt: now - 500000 + index,
             })
         }
-        await insertDocument(ctx, "scheduleDeliveries", "10", {
-            active: true,
-            dueAt: now - 1000,
-            nextCheckAt: now - 1000,
-        })
     })
     const held = (await work(t, (await work(t)).cursor)).cursor
     assert.notEqual(held, null)
+    // New work arrives behind a page of rows no worker acts on, in a source the held cursor does not name
+    await t.run(async (ctx) => {
+        for (let index = 0; index < WORK_ROWS_PER_SOURCE; index++) {
+            await insertDocument(ctx, "levelingProfiles", String(5000 + index), {
+                rewardDueAt: now - 500000 + index,
+            })
+        }
+        await insertDocument(ctx, "levelingProfiles", "10", { rewardDueAt: now - 1000 })
+    })
     const fresh = await work(t, null, held)
-    assert.deepEqual(fresh.kinds.schedules, [])
-    // The held backlog has one short page left, which reaches the waiting server
+    assert.deepEqual(fresh.kinds.levels, [])
+    // The held backlog has one short page left, and the new source goes on to the waiting server
     const next = await work(t, fresh.cursor)
-    assert.deepEqual(next.kinds.schedules, ["10"])
+    assert.deepEqual(next.kinds.levels, ["10"])
     assert.equal(next.cursor, null)
 })
 
@@ -187,7 +207,7 @@ test("A deferred scheduled post is listed and timed by its retry time, not its o
     assert.deepEqual(waiting.kinds.schedules, [])
     assert.equal(waiting.nextDueIn, 60000)
     assert.equal(
-        rowDueAt("scheduleDeliveries", { active: true, dueAt: now - 60000, nextCheckAt: now + 60000 }),
+        rowDueAt("scheduleDeliveries", { active: true, dueAt: now - 60000, nextCheckAt: now + 60000 }, now),
         now + 60000,
     )
 })

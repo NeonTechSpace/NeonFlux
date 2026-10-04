@@ -10,6 +10,7 @@ import { createPublishingStore } from "./publishing-store.ts"
 import { createRolesStore } from "./roles-store.ts"
 import { createGreetingsStore } from "./welcome-store.ts"
 import { createTicketStore } from "./ticket-store.ts"
+import { createLevelingStore } from "./level-store.ts"
 import { createSchedulesStore } from "./schedule-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
@@ -78,6 +79,7 @@ function createServerAdapters(config: BotConfig) {
         roles: createRolesStore(backend),
         greetings: createGreetingsStore(backend),
         tickets: createTicketStore(backend),
+        leveling: createLevelingStore(backend),
         schedules: createSchedulesStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }

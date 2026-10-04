@@ -40,6 +40,11 @@ import type { TicketStore } from "./ticket-store.ts"
 import { parseTicketCommand } from "./ticket-command.ts"
 import { handleTicketCommand } from "./ticket-management.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
+import type { LevelingStore } from "./level-store.ts"
+import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
+import { handleLevelCommand } from "./level-management.ts"
+import { levelCandidate, startLevelCreditWorker } from "./leveling.ts"
+import { startLevelRoleWorker } from "./level-worker.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -66,6 +71,7 @@ interface BotStores {
     readonly roles?: RolesStore | undefined
     readonly greetings?: GreetingsStore | undefined
     readonly tickets?: TicketStore | undefined
+    readonly leveling?: LevelingStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -284,9 +290,11 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
-    const { afk: store, responses, publishing, greetings, tickets, schedules, general } = stores
+    const { afk: store, responses, publishing, greetings, tickets, leveling: levels, schedules, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    let levelCredits: Effect.Success<ReturnType<typeof startLevelCreditWorker>> | undefined
+    let levelRewards: Effect.Success<ReturnType<typeof startLevelRoleWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
     const roleBackend = stores.roles
     // A member event wakes greeting discovery only when its observation recorded a change, so one that changed nothing costs no discovery
@@ -351,6 +359,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         config.serverId,
                         client,
                     )).notify
+                if (levels) {
+                    if (roles)
+                        wakers.levels = (levelRewards = yield* startLevelRoleWorker(
+                            levels,
+                            roles,
+                            config.serverId,
+                            client,
+                        )).notify
+                    levelCredits = yield* startLevelCreditWorker(
+                        levels,
+                        config.serverId,
+                        client,
+                        Effect.suspend(() => levelRewards?.notify() ?? Effect.void),
+                    )
+                }
             }),
         events: {
             messageCreate: {
@@ -433,6 +456,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     ? usage(parseTicketCommand(command.args))
                                     : quotingError("ticket help for examples")
                                 : undefined
+                        const levelName =
+                            name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
                             if (
@@ -476,6 +501,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                 parsedRoles &&
                                 !("error" in parsedRoles) &&
                                 (parsedRoles.type === "verify" || parsedRoles.type === "choose")
+                            const parsedLevel =
+                                levelName === "level" && command ? parseLevelCommand(command.args) : undefined
+                            const levelCritical =
+                                parsedLevel &&
+                                !("error" in parsedLevel) &&
+                                (parsedLevel.type === "config" ||
+                                    parsedLevel.type === "status" ||
+                                    parsedLevel.type === "audit" ||
+                                    parsedLevel.type === "reconcile" ||
+                                    parsedLevel.type === "reset-member" ||
+                                    parsedLevel.type === "reset-server" ||
+                                    parsedLevel.type === "clear" ||
+                                    (parsedLevel.type === "module" && !parsedLevel.enabled) ||
+                                    parsedLevel.type === "correct")
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass =
@@ -485,6 +524,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                       ? safetyGateClass(safetyName, parsedSafety!)
                                       : publishingCritical ||
                                           roleCritical ||
+                                          levelCritical ||
                                           (parsedGreeting && greetingsCritical(parsedGreeting))
                                         ? "critical"
                                         : greetingName ||
@@ -492,7 +532,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             name === "prefix" ||
                                             name === "custom" ||
                                             name === "auto" ||
-                                            name === "publish"
+                                            name === "publish" ||
+                                            levelName === "level"
                                           ? "staff"
                                           : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
@@ -532,9 +573,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     yield* handleAfk(store, config.serverId, context, false, prefix)
                                 return
                             }
-                            // A message protection could not judge gets no public command or reply
+                            // A message protection could not judge gets no public command or reply. Leveling collection still runs
                             protectionUnknown = blocked === "unknown" && gateClass === "public"
                         } else if (privateInvocation && name !== "ticket") return
+                        // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
+                        if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
+                            const candidate = levelCandidate(message, config.serverId, config.backend.secret)
+                            if (candidate && (yield* levelCredits.wanted)) yield* levelCredits.offer(candidate)
+                        }
                         if (protectionUnknown) {
                             if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
@@ -567,6 +613,43 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (levelName) {
+                                            if (!levels)
+                                                yield* reply({
+                                                    content: notSetUp("Leveling"),
+                                                })
+                                            else if (!command)
+                                                yield* reply({
+                                                    content: `${syntaxProblem} Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`,
+                                                })
+                                            else if (levelName === "level")
+                                                yield* handleLevelCommand(
+                                                    levels,
+                                                    config,
+                                                    { name: "level", command: usage(parseLevelCommand(command.args)) },
+                                                    context,
+                                                    levelRewards,
+                                                    roles,
+                                                ).pipe(Effect.ensuring(levelCredits?.recheck() ?? Effect.void))
+                                            else if (levelName === "rank")
+                                                yield* handleLevelCommand(
+                                                    levels,
+                                                    config,
+                                                    { name: "rank", command: usage(parseRankCommand(command.args)) },
+                                                    context,
+                                                )
+                                            else
+                                                yield* handleLevelCommand(
+                                                    levels,
+                                                    config,
+                                                    {
+                                                        name: "leaderboard",
+                                                        command: usage(parseLeaderboardCommand(command.args)),
+                                                    },
+                                                    context,
+                                                )
                                             return
                                         }
                                         if (name === "ticket") {

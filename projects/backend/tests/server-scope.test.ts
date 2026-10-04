@@ -36,6 +36,8 @@ const modules = {
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/greetings.ts": () => import("../convex/greetings.ts"),
     "../convex/greetingLifecycle.ts": () => import("../convex/greetingLifecycle.ts"),
+    "../convex/leveling.ts": () => import("../convex/leveling.ts"),
+    "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/schema.ts": () => import("../convex/schema.ts"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
@@ -124,7 +126,7 @@ test("Every bot route rejects other servers before domain work", async () => {
     configureServer("10")
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 50)
+    assert.ok(routes.length > 55)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
@@ -158,6 +160,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
         "/roles/manage",
         "/greetings/manage",
         "/tickets/manage",
+        "/levels/manage",
         "/schedules/manage",
     ]
     for (const path of paths) {

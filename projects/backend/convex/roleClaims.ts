@@ -9,7 +9,15 @@ import {
     ROLES_DISPATCH_WINDOW,
     safeRole,
 } from "./rolesDomain.ts"
-import { ownerReferences, publicRoleGrant, readRolesSettings, type RolesRead } from "./rolesStore.ts"
+import {
+    ownerReferences,
+    publicRoleGrant,
+    readRolesSettings,
+    rolesAcknowledgment,
+    type RolesRead,
+} from "./rolesStore.ts"
+import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
+import { levelForXp } from "./levelingDomain.ts"
 import { memberRecoveries } from "./moderationStore.ts"
 import { fail } from "./validation.ts"
 
@@ -92,6 +100,29 @@ export async function grantEligibility(
             consumerKey !== `autorole:${policy.settings.revision}`
         )
             fail(403, "Autorole unavailable")
+    } else if (consumerKey === "level") {
+        if (member.isBot) fail(403, "Bot leveling rewards unavailable")
+        const state = await readLeveling(ctx, serverId),
+            profile = await readProfile(ctx, serverId, member.userId)
+        const mapping = state?.config.mappings.find((x) => x.roleId === roleId)
+        if (!state?.config.enabled || !mapping || levelForXp(currentXp(state.config, profile)) < mapping.level)
+            fail(403, "Leveling reward unavailable")
+        if (verifyPanel && (verifyPanel.published || verifyPanel.mappings.length)) {
+            const acknowledgment = await rolesAcknowledgment(
+                ctx,
+                serverId,
+                member.userId,
+                member.joinedAt,
+                member.roleIds,
+            )
+            if (
+                !policy.settings.verificationEnabled ||
+                !verifyPanel.enabled ||
+                verifyPanel.withdrawing ||
+                !acknowledgment.accessConfirmed
+            )
+                fail(403, "Verified access required for leveling rewards")
+        }
     } else {
         if (member.isBot) fail(403, "Bot participation unavailable")
         const panel = await ctx.db
@@ -210,6 +241,7 @@ export async function desiredReference(
         desired,
         ownershipId: owner._id,
         createdAt: now,
+        ...(consumerKey === "level" ? { userId: owner.userId, joinedAt: owner.joinedAt } : {}),
     })
 }
 export async function dropUndesiredReferences(ctx: MutationCtx, ownerId: Id<"roleOwnership">) {

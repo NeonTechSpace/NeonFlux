@@ -24,15 +24,16 @@ interface Source {
     readonly index: string
     /** Equality values for the leading index fields */
     readonly prefix: readonly (readonly [string, unknown])[]
-    /** The index field after the prefix that orders rows by due time */
-    readonly order: string
+    /** The index field after the prefix that orders rows by due time. Without it rows follow creation order */
+    readonly order?: string
+    readonly min?: number
     /** Whether the worker's endpoint would act on this row. Each check mirrors that endpoint's selection */
-    readonly work: (ctx: QueryCtx, row: never, now: number) => boolean | Promise<boolean>
+    readonly work?: (ctx: QueryCtx, row: never, now: number) => boolean | Promise<boolean>
 }
 function source<T extends TableNames>(
     spec: Omit<Source, "table" | "work"> & {
         table: T
-        work: (ctx: QueryCtx, row: Doc<T>, now: number) => boolean | Promise<boolean>
+        work?: (ctx: QueryCtx, row: Doc<T>, now: number) => boolean | Promise<boolean>
     },
 ): Source {
     return spec as Source
@@ -67,18 +68,34 @@ const WORK_SOURCES: readonly Source[] = [
         order: "nextCheckAt",
         work: scheduleWork,
     }),
+    source({
+        kind: "levels",
+        key: "levelingProfiles",
+        table: "levelingProfiles",
+        index: "by_global_reward_due",
+        prefix: [],
+        order: "rewardDueAt",
+        min: 0,
+    }),
+    source({
+        kind: "levels",
+        key: "levelingSettings",
+        table: "levelingSettings",
+        index: "by_sweep",
+        prefix: [["sweepPending", true]],
+    }),
 ]
 
 /** The tables the dispatcher reads, so bot mutations can report the due work their writes create */
 export const WORK_TABLES: ReadonlySet<TableNames> = new Set(WORK_SOURCES.map((source) => source.table))
-// When a row as written makes its worker due, by the same prefix and order its sources read. Work checks are left to the
-// dispatch, so a reported time can only be early
-export function rowDueAt(table: TableNames, row: Record<string, unknown>): number | undefined {
+// When a row as written makes its worker due, by the same prefix and order its sources read. A source without a due order
+// lists its rows at once. Work checks are left to the dispatch, so a reported time can only be early
+export function rowDueAt(table: TableNames, row: Record<string, unknown>, now: number): number | undefined {
     let earliest: number | undefined
     for (const source of WORK_SOURCES) {
         if (source.table !== table || !source.prefix.every(([field, value]) => row[field] === value)) continue
-        const at = row[source.order]
-        if (typeof at !== "number") continue
+        const at = source.order ? row[source.order] : now
+        if (typeof at !== "number" || (source.min !== undefined && at < source.min)) continue
         earliest = Math.min(earliest ?? at, at)
     }
     return earliest
@@ -87,6 +104,7 @@ export function rowDueAt(table: TableNames, row: Record<string, unknown>): numbe
 type Range = {
     eq(field: string, value: unknown): Range
     gt(field: string, value: unknown): Range
+    gte(field: string, value: unknown): Range
     lte(field: string, value: unknown): Range
 }
 type Rows = {
@@ -101,7 +119,7 @@ async function scan(ctx: QueryCtx, source: Source, now: number, after: Position 
         field = source.order
     const prefix = (q: Range) => source.prefix.reduce((range, [name, value]) => range.eq(name, value), q)
     const page: Row[] = []
-    if (after)
+    if (after && field)
         page.push(
             ...(await rows
                 .withIndex(source.index, (q) => prefix(q).eq(field, after[0]).gt("_creationTime", after[1]))
@@ -110,7 +128,16 @@ async function scan(ctx: QueryCtx, source: Source, now: number, after: Position 
     if (page.length < limit)
         page.push(
             ...(await rows
-                .withIndex(source.index, (q) => (after ? prefix(q).gt(field, after[0]) : prefix(q)).lte(field, now))
+                .withIndex(source.index, (q) => {
+                    const range = prefix(q)
+                    if (!field) return after ? range.gt("_creationTime", after[1]) : range
+                    const from = after
+                        ? range.gt(field, after[0])
+                        : source.min !== undefined
+                          ? range.gte(field, source.min)
+                          : range
+                    return from.lte(field, now)
+                })
                 .take(limit - page.length)),
         )
     return page
@@ -173,11 +200,11 @@ export async function dueWork(
             for (const row of rows) {
                 budget -= encoder.encode(JSON.stringify(row)).length
                 if (!found.includes(row.serverId)) {
-                    if ((await served(row.serverId)) && (await source.work(ctx, row as never, now))) {
+                    if ((await served(row.serverId)) && (!source.work || (await source.work(ctx, row as never, now)))) {
                         found.push(row.serverId)
                     }
                 }
-                last = [row[source.order] as number, row._creationTime]
+                last = [source.order ? (row[source.order] as number) : 0, row._creationTime]
                 read++
             }
             if (rows.length < chunk) break
@@ -193,6 +220,7 @@ export async function dueWork(
     let nextDueAt: number | undefined
     for (const source of WORK_SOURCES) {
         const field = source.order
+        if (!field) continue
         const row = await (ctx.db.query(source.table) as unknown as Rows)
             .withIndex(source.index, (q) =>
                 source.prefix.reduce((range, [name, value]) => range.eq(name, value), q).gt(field, now),

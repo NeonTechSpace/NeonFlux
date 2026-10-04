@@ -111,7 +111,7 @@ test("The shared recovery read drops elapsed active recoveries, keeps the rest a
     assert.equal((await read()).count, 11)
 })
 
-test("Role participation ignores an ended quarantine", async () => {
+test("Role participation and leveling ignore an ended quarantine", async () => {
     await blocksUntilDeadline(
         await quarantined(),
         (ctx) => participationProtection(ctx, "10", "20", null),

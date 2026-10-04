@@ -3,7 +3,7 @@ import { SERVICE_KEY_LABEL, type ServiceScope } from "@neonflux/contracts/servic
 import { configuredServerScope, misconfigured } from "./serverScope.ts"
 
 // The bot never sends NEONFLUX_BOT_API_SECRET. It sends a key, an HMAC-SHA256 of the shared versioned label keyed by the
-// secret, so the secret itself never appears in function arguments
+// secret, so the secret itself never appears in function arguments and keeps its other uses, such as leveling digests
 const encoder = new TextEncoder()
 let derived: { secret: string; key: Uint8Array } | undefined
 

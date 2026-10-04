@@ -12,6 +12,7 @@ import { publishingBoundary } from "./publishing-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { greetingsBoundary } from "./welcome-fixture.ts"
 import { schedulesBoundary } from "./schedule-fixture.ts"
+import { levelsBoundary } from "./level-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
 // In-memory stores for every adapter the bot reads during setup, so only the general adapter uses the backend
@@ -22,6 +23,7 @@ function offlineWorkers() {
         roles: rolesBoundary(publishing).store,
         greetings: greetingsBoundary().store,
         schedules: schedulesBoundary().store,
+        leveling: levelsBoundary().store,
         moderation: boundary().store,
         afk: {
             set: () => Effect.die("unused"),

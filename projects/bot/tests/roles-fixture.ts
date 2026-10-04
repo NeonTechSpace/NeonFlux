@@ -1,6 +1,7 @@
 import type {
     RolesAcknowledgment,
     RolesAttempt,
+    RolesClaim,
     RolesEvaluateRequest,
     RolesEvaluateResult,
     RolesGrant,
@@ -187,6 +188,8 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
             }
             if (op.type === "withdraw-member") return Effect.succeed(reserve(input, op.roleId, false, op.consumerKey))
             if (op.type === "withdraw") return Effect.succeed(reserve(input, op.roleId, false, "panel:colors:1"))
+            if (op.type === "level-sync")
+                return Effect.succeed({ duplicate: false, status: "unchanged", acknowledgment })
             const panel = panels.get(op.name)
             if (!panel) return missing("evaluate")
             if (op.type === "verify") {
@@ -237,4 +240,36 @@ export function rolesBoundary(publishing?: PublishingStore, overrides: Partial<R
         ...overrides,
     }
     return { store, calls, current, panels, attempts, acknowledgment }
+}
+
+/** A member's role change that NeonFlux could not confirm, as the claim list shows it to the feature that made it */
+export function uncertainClaim(userId: string, roleId: string, consumerKey: string): RolesClaim {
+    const attempt: RolesAttempt = {
+        attemptId: "synthetic_uncertain",
+        ownershipId: "synthetic_owner",
+        generation: 2,
+        sourceId: "synthetic_source",
+        action: "add",
+        userId,
+        joinedAt: "2026-01-01T00:00:00.000Z",
+        roleId,
+        botId: "synthetic_bot",
+        expectedPresent: false,
+        consumerKey,
+        dispatchExpiresAt: 180000,
+        nativeDeadlineMs: 5000,
+        outcome: "uncertain",
+        createdAt: 0,
+    }
+    return {
+        ownershipId: "synthetic_owner",
+        userId,
+        joinedAt: attempt.joinedAt,
+        roleId,
+        generation: 2,
+        owned: false,
+        status: "uncertain",
+        consumerKeys: [consumerKey],
+        attempt,
+    }
 }

@@ -27,7 +27,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   [backend-routes.ts](../projects/bot/src/backend-routes.ts) maps each request path to its backend function, whose name
   and kind the [service contract](../projects/contracts/src/service.ts) owns.
   [work-dispatcher.ts](../projects/bot/src/work-dispatcher.ts) runs the one work dispatcher, and
-  [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop the scheduled post worker uses
+  [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop workers can share
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, from Fluxerly's channel cache and one read for a channel it does not hold
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as embeds
 - [help.ts](../projects/bot/src/help.ts) holds the forms each command's own help leaves out, which `help all` lists,
@@ -65,6 +65,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
 | Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
+| Message leveling | `level`, `leveling` | `leveling` | `leveling` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |

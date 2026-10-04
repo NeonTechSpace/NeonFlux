@@ -139,6 +139,30 @@ function reserved(): RolesEvaluateResult & { grant: Types.Mutable<RolesGrant> } 
     }
 }
 
+test("level-sync decoding accepts exact level additions/removals and rejects autorole fallthrough or another source", async (t) => {
+    const f = fixture(t),
+        levelSource = "level_synthetic_profile_2_" + roleId
+    const request: RolesEvaluateRequest = {
+        ...evaluate,
+        sourceId: levelSource,
+        operation: { type: "level-sync", roleId },
+    }
+    const result = reserved()
+    result.grant.sourceId = levelSource
+    result.grant.consumerKey = "level"
+    f.respond(result)
+    await Effect.runPromise(f.store.evaluate(request))
+    f.respond({ ...result, grant: { ...result.grant, action: "remove", expectedPresent: true } })
+    await Effect.runPromise(f.store.evaluate({ ...request, context: { ...context, roleIds: [roleId] } }))
+    for (const grant of [
+        { ...result.grant, consumerKey: "autorole:1" },
+        { ...result.grant, roleId: otherId },
+        { ...result.grant, sourceId: "level_synthetic_profile_3_" + roleId },
+    ]) {
+        f.respond({ ...result, grant })
+        await rejected(f.store.evaluate(request))
+    }
+})
 function claimed(status: "idle" | "uncertain" = "uncertain"): RolesClaim {
     const grant = reserved().grant
     return {

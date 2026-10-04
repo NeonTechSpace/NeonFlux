@@ -20,6 +20,7 @@ import { ownerReferences, publicRoleClaim, roleAttempt, rolesReceipt } from "./r
 import { requireAdministrator } from "./moderationStore.ts"
 import { decode, fail, requireServer, integer, source } from "./validation.ts"
 import { reactionFence } from "./roleReactions.ts"
+import { levelAttemptFence, levelRemovalEligibility } from "./levelingRoles.ts"
 
 async function boundAttempt(
     ctx: MutationCtx,
@@ -57,6 +58,7 @@ export const dispatch = serviceMutation({
             return denied
         if (owner.intentSourceId !== attempt.sourceId) return denied
         if (attempt.reactionJob) await reactionFence(ctx, serverId, attempt.reactionJob)
+        if (attempt.consumerKey === "level") await levelAttemptFence(ctx, serverId, attempt)
         if (
             member.userId !== attempt.userId ||
             member.joinedAt !== attempt.joinedAt ||
@@ -87,7 +89,8 @@ export const dispatch = serviceMutation({
         } else {
             const policy = await rolePolicy(ctx, serverId)
             const operation = JSON.parse(attempt.operationKey) as { type: string; name?: string; revision?: number }
-            if (operation.type === "withdraw" || operation.type === "withdraw-member")
+            if (attempt.consumerKey === "level") await levelRemovalEligibility(ctx, serverId, member, attempt.roleId)
+            else if (operation.type === "withdraw" || operation.type === "withdraw-member")
                 await requireAdministrator(ctx, serverId, input.actor, true)
             else {
                 await participationAvailability(ctx, serverId, member)
