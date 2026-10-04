@@ -424,3 +424,36 @@ Private bodies require current server membership, the ticket's recorded requeste
 Closed ticket bodies expire after 30 days by default, configurable from 1 through 365 days. Reopen is unavailable after expiry or erasure. Erasure removes stored copies only and never deletes messages already sent. Body retention never deletes native channels
 
 Transcript capture is explicit and incomplete by design. Each stored message keeps at most 2000 characters of text with its author and timestamps. Attachment URLs and embed bodies are left out, and a capture that exceeds the storage budget is truncated with a notice. A failed capture stores nothing. Each ticket keeps at most 20 transcripts and 200 note entries. To share a public summary, write a separate publishing draft, because private content is never copied automatically
+
+## Message leveling
+
+Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies suppress mentions, and cards and leaderboards show account IDs without storing display names or avatars
+
+Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining.
+
+| Command | Behavior |
+| --- | --- |
+| `!level help` | Show copyable syntax |
+| `!level config` | Show current settings and mappings |
+| `!level module on\|off` | Start or pause XP and new reward grants |
+| `!level rate <1-100 XP> <15-3600 seconds>` | Set XP per message and cooldown |
+| `!level exclude channels\|roles <IDs...\|none>` | Replace the exclusion list, at most 50 each |
+| `!level map <1-1000 level> @role` | Add a reward role, at most 20 mappings |
+| `!level unmap <level>` | Remove one mapping |
+| `!level clear [confirm]` | Preview, then clear all mappings |
+| `!level correct @user <0-100000000 XP> "reason"` | Set an absolute XP value with an audit entry |
+| `!level reset member @user "reason" [confirm]` | Preview, then reset one member |
+| `!level reset server "reason" [confirm]` | Preview, then start a new season for everyone |
+| `!level status` | Show pending and blocked reward work |
+| `!level reconcile [@user]` | Queue a reward check for the server or one member |
+| `!level audit [before-audit-number]` | Read correction and reset audits |
+| `!rank [@user or user ID]` | Show XP, level and rank |
+| `!leaderboard [next-page cursor]` | Show 20 rows ordered by XP |
+
+Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. Copy the next-page command from a leaderboard reply to continue. Rows can shift between pages while XP is awarded, and a server reset invalidates older cursors. Rank is exact within the top 1000 and reported as outside the top 1000 beyond it. Members with zero XP are unranked
+
+XP comes only from human ordinary or reply messages in the configured server that pass existing protection and command gates. Bots, system messages, webhooks, DMs, edits, prefix commands and empty text earn nothing. Duplicate text within ten minutes earns nothing. Candidates wait in a memory queue of at most 1000 accounts, so a busy server or a restart can drop some awards. NeonFlux does not promise XP for every eligible message
+
+Leveling never stores message text, display names or avatars. It keeps account and message IDs, timestamps and a keyed digest for duplicate detection, retained for ten minutes. Correction and reset audits keep actor, target, XP before and after, reason and time for 180 days
+
+Reward roles are cumulative and use the shared safe-role checks, so NeonFlux needs Manage Roles and a role above each reward. Collection itself does not need Manage Roles. Awards, corrections, resets and mapping changes mark an account for a reward pass, and a failed role change keeps the account marked for a later pass without blocking other roles. Turning leveling off keeps existing rewards, while clearing mappings, resets and demotions still remove rewards NeonFlux granted. A server reset hides old scores at once. A rejoining member keeps XP but must earn role ownership again through a new message or `!level reconcile @user`. NeonFlux removes only roles it granted and confirmed, and preserves roles granted any other way

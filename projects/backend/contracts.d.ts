@@ -435,6 +435,7 @@ export type RolesQueryResult = { type: "settings", settings: RolesSettings } | {
     | { type: "claims", claims: RolesClaim[], nextCursor?: string } | { type: "attempt", attempt: RolesAttempt } | { type: "withdrawal", withdrawal: RolesWithdrawal }
     | { type: "configurations", references: { consumerKey: string, roleId: string, postNo?: number }[], nextCursor?: string }
 export type RolesEvaluateOperation = { type: "choose", name: string, revision: number, roleId: string, selected: boolean }
+    | { type: "level-sync", roleId: string }
     | { type: "reaction", name: string, revision: number, messageId: string, presentEmojis: string[], panelVerified: boolean }
     | { type: "verify", name: string, revision: number, messageId?: string, panelVerified?: boolean, reactionPresent?: boolean }
     | { type: "join" }
@@ -581,6 +582,44 @@ export type TicketReconcileRequest = TicketSource & { ticketNo: number, expected
 export type TicketReconcileResult = { recorded: boolean, ticket: TicketRecord }
 export type TicketTranscriptUploadRequest = TicketSource & { ticketNo: number, expectedGeneration: number, capturedAt: number, messages: TicketTranscriptMessage[], truncated: boolean }
 export type TicketTranscriptUploadResult = { duplicate: boolean, transcript: TicketTranscript }
+
+export type LevelingMapping = { level: number, roleId: string }
+export type LevelingFence = { scoreEpoch: number, adjustmentRevision: number, mappingRevision: number }
+export type LevelingSettings = { enabled: boolean, xpPerMessage: number, cooldownSeconds: number, excludedChannelIds: string[], excludedRoleIds: string[], revision: number, mappingRevision: number, scoreEpoch: number, mappings: LevelingMapping[] }
+export type LevelingMemberContext = { userId: string, joinedAt: string, roleIds: string[], isBot: boolean, timeoutUntil: string | null }
+export type LevelingCandidate = { messageId: string, createdAt: number, userId: string, channelId: string, digest: string }
+export type LevelingProfile = { userId: string, xp: number, level: number, nextLevelXp: number | null, fence: LevelingFence }
+export type LevelingAudit = { auditNo: number, actorId: string, userId?: string, beforeXp?: number, afterXp?: number, reason: string, createdAt: number, type: "adjust" | "reset-member" | "reset-server", scoreEpoch: number }
+export type LevelingManageOperation =
+    | { type: "settings", expectedRevision: number, patch: Partial<Pick<LevelingSettings, "enabled" | "xpPerMessage" | "cooldownSeconds" | "excludedChannelIds" | "excludedRoleIds">> }
+    | { type: "mappings", expectedMappingRevision: number, mappings: LevelingMapping[], roles: RolesRoleSnapshot[] }
+    | { type: "adjust", userId: string, xp: number, reason: string }
+    | { type: "reset-member", userId: string, confirm: "reset-member", reason: string }
+    | { type: "reset-server", confirm: "reset-server", reason: string }
+    | { type: "reconcile", userId?: string }
+export type LevelingManageRequest = ModerationSource & { serverId: string, actor: ModerationActor, operation: LevelingManageOperation }
+export type LevelingManageResult = { duplicate: true } | { duplicate: false, type: "settings", settings: LevelingSettings } | { duplicate: false, type: "profile", profile: LevelingProfile, audit: LevelingAudit } | { duplicate: false, type: "reset", settings: LevelingSettings, audit: LevelingAudit } | { duplicate: false, type: "reconcile", queued: boolean }
+export type LevelingLeaderboardCursor = { xp: number, userId: string, scoreEpoch: number }
+export type LevelingQueryRequest = { serverId: string, actor: ModerationActor, member: LevelingMemberContext, observedAt: number, operation:
+    | { type: "settings" }
+    | { type: "rank", userId?: string }
+    | { type: "leaderboard", cursor?: LevelingLeaderboardCursor }
+    | { type: "status" }
+    | { type: "audits", beforeAuditNo?: number }
+}
+export type LevelingQueryResult = { type: "settings", settings: LevelingSettings } | { type: "rank", profile: LevelingProfile, rank: { type: "exact", position: number } | { type: "outside-top-1000" } | { type: "unranked" } } | { type: "leaderboard", profiles: LevelingProfile[], nextCursor?: LevelingLeaderboardCursor } | { type: "status", dirty: number, sweepPending: boolean, profiles: number } | { type: "audits", audits: LevelingAudit[], nextBeforeAuditNo?: number }
+export type LevelingPreflightRequest = { serverId: string, candidate: LevelingCandidate }
+export type LevelingRejectReason = "disabled" | "stale" | "excluded" | "cooldown" | "duplicate" | "capacity" | "policy" | "membership" | "fence"
+export type LevelingPreflightResult = { eligible: false, reason: LevelingRejectReason } | { eligible: true, policyRevision: number, fence: LevelingFence }
+export type LevelingAwardRequest = LevelingPreflightRequest & { policyRevision: number, fence: LevelingFence, member: LevelingMemberContext, observedAt: number }
+export type LevelingAwardResult = { awarded: false, reason: LevelingRejectReason } | { awarded: true, xpAdded: number, profile: LevelingProfile, rewardQueued: boolean }
+export type LevelingRewardAccount = { userId: string, mark: number, refs: { roleId: string, joinedAt: string }[], targets: { roleId: string, sourceId: string }[], complete: boolean }
+export type LevelingWorkRequest = { serverId: string, operation:
+    | { type: "list" }
+    | { type: "skip", userId: string, mark: number, roleId: string, joinedAt: string, observedAt: number, currentJoinedAt: string | null, memberAbsent?: true, memberUserId?: string }
+    | { type: "done", userId: string, mark: number, complete: boolean }
+}
+export type LevelingWorkResult = { type: "accounts", accounts: LevelingRewardAccount[], sweepPending: boolean } | { type: "progress", recorded: boolean }
 
 export type PublishingSource = { type: "human", messageId: string, createdAt: number } | { type: "schedule-timer", deliveryId: string, dueAt: number }
 export type PublishingProvenance = { type: "draft", kind: PublishingKind, name: string, revision: number } | { type: "schedule", scheduleNo: number, planRevision: number, source: SchedulesContentSource }

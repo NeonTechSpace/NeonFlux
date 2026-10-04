@@ -149,6 +149,7 @@ export function createRolesStore(config: BackendConfig): RolesStore {
                 }
                 if (op.type === "withdraw" || op.type === "withdraw-member") return value.action === "remove" && value.roleId === op.roleId
                     && (op.type !== "withdraw-member" || value.consumerKey === op.consumerKey)
+                if (op.type === "level-sync") return value.consumerKey === "level" && value.roleId === op.roleId
                 return op.type === "join" && value.action === "add" && /^autorole:[1-9]\d*$/.test(value.consumerKey)
             }),
         dispatch: (input) => call("dispatch", input, Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: integer(1), nativeDeadlineMs: Schema.Literal(5000) })),

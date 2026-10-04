@@ -8,10 +8,15 @@ import { desiredReference, dropUndesiredReferences, ensureOwner, grantEligibilit
 import { ownerReferences, roleAttempt, rolePanel, rolesAcknowledgment, rolesAdmin, roleWithdrawal } from "./rolesStore.ts"
 import { fail, object, requireId, bool, integer, name, source, token } from "./validation.ts"
 import { completeReactionTarget, reactionFence } from "./roleReactions.ts"
+import { evaluateLevelRole } from "./levelingRoles.ts"
 
 export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<RolesEvaluateResult> => {
     const input = shape(request, ["serverId", "sourceId", "createdAt", "context", "operation", "continuationAttemptId", "actor", "reactionJob"], ["serverId", "sourceId", "createdAt", "context", "operation"])
     const now = Date.now(), identity = rolesSource(input, now), member = memberContext(input.context), operation = participationOperation(input.operation), op = object(operation)
+    if (operation.type === "level-sync") {
+        if (["continuationAttemptId", "actor", "reactionJob"].some(key => input[key] !== undefined)) fail(400, "Invalid leveling role continuation")
+        return evaluateLevelRole(ctx, identity, member, operation)
+    }
     const job = input.reactionJob === undefined ? null : await reactionFence(ctx, identity.serverId, input.reactionJob)
     if (job) {
         const target = job.row.targets[job.index]!

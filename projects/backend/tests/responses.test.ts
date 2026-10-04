@@ -137,6 +137,25 @@ test("Listing is sorted and paged and names are unique per kind with a combined 
     await error(await f.post("/responses/manage", f.management({ type: "create", name: "overflow", reply: { type: "text", text: "Reply" } })), 429, "Definition limit reached")
 })
 
+test("Response management cannot create definitions using leveling built-in names", async (ctx) => {
+    const f = fixture(ctx)
+    for (const kind of ["custom", "auto"] as const) {
+        for (const builtin of ["level", "rank", "leaderboard"]) {
+            for (const name of [builtin, `  ${builtin.toUpperCase()}  `]) {
+                const operation = {
+                    type: "create", name, reply: { type: "text", text: "Reply" },
+                    ...(kind === "auto" ? { trigger: { mode: "exact", text: "Hello" } } : {}),
+                }
+                await error(await f.post("/responses/manage", f.management(operation, kind)), 400, "Invalid definition")
+            }
+        }
+    }
+    assert.deepEqual(await f.t.run(c => c.db.query("responseDefinitions").collect()), [])
+    assert.deepEqual(await f.t.run(c => c.db.query("responseReceipts").collect()), [])
+    await f.create("level-help")
+    await f.create("rank-help", "auto")
+})
+
 test("Domain validation rejects reserved names, scripts, unknown templates and oversized values", async (ctx) => {
     const f = fixture(ctx)
     for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "ticket", "With Space", "x".repeat(33), "-bad"]) {

@@ -208,3 +208,18 @@ Closed-ticket private content expires after 30 days by default, configurable fro
 | `/tickets/dispatch`, `/tickets/outcome` | 262,144 | One-time claim and native outcome |
 | `/tickets/reconcile` | 262,144 | Channel observations without native writes |
 | `/tickets/transcript` | 262,144 | Bounded transcript capture |
+
+## Message leveling
+
+Leveling starts disabled with 15 XP per message and a 60-second cooldown, configurable from 1 to 100 XP and 15 to 3,600 seconds, with up to 50 excluded channels and 50 excluded roles. Level N begins at `100 * N²` XP, capped at 100 million XP and level 1,000
+
+Profiles store account XP and survive rejoining. Leveling stores no message bodies, names or avatars. Duplicate content is detected with an HMAC digest keyed by the bot API secret, keeping up to 64 recent digests per account for ten minutes. Events older than ten minutes or before the current membership earn nothing. Chat commands take no revision numbers
+
+Owner and administrator corrections set absolute XP and apply in source command order. Resets need explicit confirmation, and a server reset hides old scores immediately. Correction audits expire after 180 days, and profiles, credited receipts and audits are each capped at 50,000 per server. Leaderboards return 20 profiles per page, with exact rank limited to the top 1,000. Up to 20 reward roles are applied through the shared role ledger. Awards, corrections, resets and mapping changes mark accounts, and the worker clears a mark only after a fully settled pass
+
+| Route | Body limit | Purpose |
+| --- | --- | --- |
+| `/levels/manage` | 262,144 | Settings, reward mappings, corrections and resets |
+| `/levels/query` | 262,144 | Settings, rank, leaderboard and audits |
+| `/levels/preflight`, `/levels/award` | 262,144 | Candidate admission and atomic award |
+| `/levels/work` | 262,144 | Reward role work |

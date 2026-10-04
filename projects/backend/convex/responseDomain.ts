@@ -10,7 +10,7 @@ export const RECEIPT_RETENTION = 24 * 60 * 60 * 1000
 export const MAX_DEFINITIONS = 100
 export const CLEANUP_BATCH = 256
 export const PAGE_SIZE = 10
-const reservedNames = new Set(["prefix", "ping", "afk", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeal", "appeals", "publish", "roles", "verify", "autorole", "welcome", "goodbye", "ticket"])
+const reservedNames = new Set(["prefix", "ping", "afk", "custom", "auto", "mod", "case", "logs", "automod", "security", "defcon", "appeal", "appeals", "publish", "roles", "verify", "autorole", "welcome", "goodbye", "ticket", "level", "rank", "leaderboard"])
 const placeholders = new Set(["user.name", "user.id", "user.mention", "channel.id", "server.id", "args"])
 
 function nonempty(value: string): boolean {

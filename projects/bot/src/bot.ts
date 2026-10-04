@@ -29,6 +29,11 @@ import { createTicketStore, type TicketStore } from "./ticket-store.ts"
 import { parseTicketCommand } from "./ticket-command.ts"
 import { handleTicketCommand } from "./ticket-management.ts"
 import { verifyTicketPrivateAuthor } from "./ticket-permissions.ts"
+import { createLevelingStore, type LevelingStore } from "./level-store.ts"
+import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./level-command.ts"
+import { handleLevelCommand } from "./level-management.ts"
+import { levelCandidate, startLevelCreditWorker } from "./leveling.ts"
+import { startLevelRoleWorker } from "./level-worker.ts"
 import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -44,6 +49,7 @@ export interface BotStores {
     readonly roles?: RolesStore | undefined
     readonly greetings?: GreetingsStore | undefined
     readonly tickets?: TicketStore | undefined
+    readonly leveling?: LevelingStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -52,9 +58,11 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const backend = config.backend
     const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation = backend && createModerationStore(backend),
         publishing = backend && createPublishingStore(backend), greetings = backend && createGreetingsStore(backend), tickets = backend && createTicketStore(backend),
-        schedules = backend && createSchedulesStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
+        leveling: levels = backend && createLevelingStore(backend), schedules = backend && createSchedulesStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    let levelCredits: Effect.Success<ReturnType<typeof startLevelCreditWorker>> | undefined
+    let levelRewards: Effect.Success<ReturnType<typeof startLevelRoleWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
     const roleBackend = stores.roles ?? (backend ? createRolesStore(backend) : undefined)
     const wake = (userId?: string) => greetingWorker?.notify(userId) ?? Effect.void
@@ -85,6 +93,10 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             }
             if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
             if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
+            if (levels) {
+                if (roles) levelRewards = yield* startLevelRoleWorker(levels, roles, config.serverId, client)
+                levelCredits = yield* startLevelCreditWorker(levels, config.serverId, client, Effect.suspend(() => levelRewards?.notify() ?? Effect.void))
+            }
         }),
         events: {
             messageCreate: {
@@ -113,6 +125,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const greetingName = name === "welcome" || name === "goodbye" ? name : undefined
                     const parsedGreeting = greetingName ? command ? usage(parseGreetingsCommand(greetingName, command.args)) : quotingError(`${greetingName} help for examples`) : undefined
                     const parsedTicket = name === "ticket" ? command ? usage(parseTicketCommand(command.args)) : quotingError("ticket help for examples") : undefined
+                    const levelName = name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
                         if (message.guildId !== undefined || !(name === "ticket" && tickets || safetyName && moderation)) return
@@ -128,10 +141,14 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         const roleCritical = parsedRoles && !("error" in parsedRoles) && (parsedRoles.type === "status" || parsedRoles.type === "jobs" || parsedRoles.type === "resume"
                             || parsedRoles.type === "module" && !parsedRoles.enabled || parsedRoles.type === "member")
                         const rolePublic = parsedRoles && !("error" in parsedRoles) && (parsedRoles.type === "verify" || parsedRoles.type === "choose")
+                        const parsedLevel = levelName === "level" && command ? parseLevelCommand(command.args) : undefined
+                        const levelCritical = parsedLevel && !("error" in parsedLevel) && (parsedLevel.type === "config" || parsedLevel.type === "status" || parsedLevel.type === "audit"
+                            || parsedLevel.type === "reconcile" || parsedLevel.type === "reset-member" || parsedLevel.type === "reset-server" || parsedLevel.type === "clear"
+                            || parsedLevel.type === "module" && !parsedLevel.enabled || parsedLevel.type === "correct")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = name === "ticket" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || parsedGreeting && greetingsCritical(parsedGreeting) ? "critical"
-                            : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" ? "staff" : "public"
+                        const gateClass = name === "ticket" ? "critical" : safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical || levelCritical || parsedGreeting && greetingsCritical(parsedGreeting) ? "critical"
+                            : greetingName || roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" || levelName === "level" ? "staff" : "public"
                         const actor = name === "ticket" || gateClass === "public" || gateClass === "appeal" ? unprivilegedActor(message.author.id)
                             : moderationActor(yield* readSafetyAuthority(context.client, config.serverId, message.author.id))
                         const gate = yield* moderation.gate({ serverId: config.serverId, actor, command: gateClass })
@@ -142,12 +159,17 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                             if (!privateInvocation && store) yield* handleAfk(store, config.serverId, context, false, prefix)
                             return
                         }
-                        // A message protection could not judge gets no public command or reply
+                        // A message protection could not judge gets no public command or reply. Leveling collection still runs
                         protectionUnknown = blocked === "unknown" && gateClass === "public"
                     } else if (privateInvocation && name !== "ticket") return
+                    // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                     if (!privateInvocation && name === "prefix" && !protectionUnknown) {
                         yield* handlePrefixCommand(general, config.serverId, command?.args ?? ["invalid quoting"], context)
                         return
+                    }
+                    if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
+                        const candidate = levelCandidate(message, config.serverId, config.backend.secret)
+                        if (candidate) yield* levelCredits.offer(candidate)
                     }
                     if (protectionUnknown) {
                         if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
@@ -160,6 +182,14 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     if (Exit.isFailure(afkExit) && Cause.hasInterrupts(afkExit.cause)) return yield* Effect.failCause(afkExit.cause)
                     const responseExit: Exit.Exit<void, unknown> = yield* Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (levelName) {
+                            if (!levels) yield* reply({ content: "Leveling persistence is not configured", allowedMentions: noMentions })
+                            else if (!command) yield* reply({ content: `Check quoting and syntax. Use ${invocationPrefix}${levelName === "level" ? "level help" : levelName} for examples`, allowedMentions: noMentions })
+                            else if (levelName === "level") yield* handleLevelCommand(levels, config, { name: "level", command: usage(parseLevelCommand(command.args)) }, context, levelRewards)
+                            else if (levelName === "rank") yield* handleLevelCommand(levels, config, { name: "rank", command: usage(parseRankCommand(command.args)) }, context)
+                            else yield* handleLevelCommand(levels, config, { name: "leaderboard", command: usage(parseLeaderboardCommand(command.args)) }, context)
+                            return
+                        }
                         if (name === "ticket") {
                             if (!tickets) yield* reply({ content: "Ticket persistence is not configured", allowedMentions: noMentions })
                             else yield* handleTicketCommand(tickets, publishing, config, parsedTicket!, context)

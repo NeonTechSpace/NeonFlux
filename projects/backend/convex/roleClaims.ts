@@ -2,7 +2,9 @@ import type { RolesMemberContext } from "../contracts.js"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc, Id } from "./_generated/dataModel.js"
 import { autoroleIds, defaultRolesSettings, eligible, ROLES_BATCH, ROLES_DISPATCH_WINDOW, safeRole } from "./rolesDomain.ts"
-import { ownerReferences, publicRoleGrant, readRolesSettings, type RolesRead } from "./rolesStore.ts"
+import { ownerReferences, publicRoleGrant, readRolesSettings, rolesAcknowledgment, type RolesRead } from "./rolesStore.ts"
+import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
+import { levelForXp } from "./levelingDomain.ts"
 import { fail } from "./validation.ts"
 
 export async function rolePolicy(ctx: RolesRead, serverId: string) {
@@ -38,6 +40,15 @@ export async function grantEligibility(ctx: RolesRead, serverId: string, member:
     }
     if (consumerKey.startsWith("autorole:")) {
         if (!policy.settings.autoroleEnabled || policy.settings.humansOnly && member.isBot || !autoroleIds(policy.settings, member.userId).includes(roleId) || consumerKey !== `autorole:${policy.settings.revision}`) fail(403, "Autorole unavailable")
+    } else if (consumerKey === "level") {
+        if (member.isBot) fail(403, "Bot leveling rewards unavailable")
+        const state = await readLeveling(ctx, serverId), profile = await readProfile(ctx, serverId, member.userId)
+        const mapping = state?.config.mappings.find(x => x.roleId === roleId)
+        if (!state?.config.enabled || !mapping || levelForXp(currentXp(state.config, profile)) < mapping.level) fail(403, "Leveling reward unavailable")
+        if (verifyPanel && (verifyPanel.published || verifyPanel.mappings.length)) {
+            const acknowledgment = await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds)
+            if (!policy.settings.verificationEnabled || !verifyPanel.enabled || verifyPanel.withdrawing || !acknowledgment.accessConfirmed) fail(403, "Verified access required for leveling rewards")
+        }
     } else {
         if (member.isBot) fail(403, "Bot participation unavailable")
         const panel = await ctx.db.query("rolePanels").withIndex("by_server_name", q => q.eq("serverId", serverId).eq("name", consumerKey.split(":")[1]!)).unique()
@@ -76,7 +87,7 @@ export async function desiredReference(ctx: MutationCtx, serverId: string, owner
     if (old) { await ctx.db.patch(old._id, { desired }); return }
     if (!desired) return
     if (refs.length >= 100) fail(429, "Member role reference capacity reached")
-    await ctx.db.insert("roleReferences", { serverId, consumerKey, roleId: owner.roleId, configuration: false, desired, ownershipId: owner._id, createdAt: now })
+    await ctx.db.insert("roleReferences", { serverId, consumerKey, roleId: owner.roleId, configuration: false, desired, ownershipId: owner._id, createdAt: now, ...(consumerKey === "level" ? { userId: owner.userId, joinedAt: owner.joinedAt } : {}) })
 }
 export async function dropUndesiredReferences(ctx: MutationCtx, ownerId: Id<"roleOwnership">) {
     const refs = await ownerReferences(ctx, ownerId)

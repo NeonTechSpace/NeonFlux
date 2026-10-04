@@ -9,6 +9,7 @@ export const rolesOwnershipStatus = v.union(v.literal("idle"), v.literal("pendin
 export const rolesAction = v.union(v.literal("add"), v.literal("remove"))
 export const rolesWithdrawalStatus = v.union(v.literal("pending"), v.literal("blocked"), v.literal("complete"))
 export const rolesParticipationOperation = v.union(
+    v.object({ type: v.literal("level-sync"), roleId: v.string() }),
     v.object({ type: v.literal("choose"), name: v.string(), revision: v.number(), roleId: v.string(), selected: v.boolean() }),
     v.object({ type: v.literal("reaction"), name: v.string(), revision: v.number(), messageId: v.string(), presentEmojis: v.array(v.string()), panelVerified: v.boolean() }),
     v.object({ type: v.literal("verify"), name: v.string(), revision: v.number(), messageId: v.optional(v.string()), panelVerified: v.optional(v.boolean()), reactionPresent: v.optional(v.boolean()) }),

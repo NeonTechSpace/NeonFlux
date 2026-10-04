@@ -133,4 +133,10 @@ mutation("/tickets/dispatch", 262144, internal.ticketLifecycle.dispatch)
 mutation("/tickets/outcome", 262144, internal.ticketLifecycle.outcome)
 mutation("/tickets/reconcile", 262144, internal.ticketLifecycle.reconcile)
 
+query("/levels/query", 262144, internal.leveling.query)
+query("/levels/preflight", 262144, internal.leveling.preflight)
+mutation("/levels/manage", 262144, internal.leveling.manage)
+mutation("/levels/award", 262144, internal.leveling.award)
+mutation("/levels/work", 262144, internal.levelingWork.work)
+
 export default http
