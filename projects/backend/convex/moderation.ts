@@ -11,6 +11,7 @@ import { actor, administrator, authorize, BATCH, gateFor, DAY, rule, rulePatch, 
 import { ownedOverwriteEqual, reserveAction } from "./moderationActions.ts"
 import { caseByNo, config, paged, publicCase, publicRecovery, publicRule, readSettings, receipt, retireRecovery, state } from "./moderationStore.ts"
 import { decode, fail, requireReadMember, requireServer, fresh, name, source } from "./validation.ts"
+import { protectedStaffRoles } from "./rolesStore.ts"
 
 function criticalOperation(op: ModerationManageOperation) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(op.action.type)
@@ -282,6 +283,10 @@ export async function applyModerationConfiguration(ctx: MutationCtx, serverId: s
     const identity = { serverId }, current = await state(ctx, serverId), settings = config(current)
     if (op.type === "settings") {
         const next = settingsPatch(settings, op.patch)
+        const staffRoleIds = op.patch.staffRoleIds
+        if (staffRoleIds !== undefined) {
+            await protectedStaffRoles(ctx, identity.serverId, [...new Set(Object.values(staffRoleIds).flat())])
+        }
         await ctx.db.patch(current._id, { config: next })
         return { duplicate: false, type: "settings", settings: next }
     }

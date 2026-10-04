@@ -1,9 +1,8 @@
-import { IsoTime } from "@neonflux/contracts/common"
 import { SchedulesContext, SchedulesMemberContext } from "@neonflux/contracts/schedules"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { actor, administrator } from "./moderationDomain.ts"
+import { epoch } from "./rolesDomain.ts"
 import { decode, fail, ids, integer } from "./validation.ts"
-const epoch = (value: unknown): string => decode(IsoTime, value, "Invalid membership epoch")
 // Fresh actor, channel and member observations shared by publishing consumers
 export function eventContext(value: unknown, now = Date.now()): SchedulesContext {
     const r = decode(SchedulesContext, value), observedAt = integer(r.observedAt, Math.max(0, now - 60000), now + 1000)

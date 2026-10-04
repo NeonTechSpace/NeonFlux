@@ -11,10 +11,17 @@ import { handleSafetyCommand, initializeModeration, moderationActor, applyDefcon
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
+import { moderationGate } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { createPublishingStore, type PublishingStore } from "./publishing-store.ts"
 import { parsePublishingCommand } from "./publishing-command.ts"
 import { handlePublishing } from "./publishing.ts"
+import { createRolesStore, type RolesStore } from "./roles-store.ts"
+import type { RolesSettings } from "@neonflux/contracts/roles"
+import { parseRoleCommand, type RoleCommandName } from "./role-command.ts"
+import { handleRoleCommand } from "./role-management.ts"
+import { handleRoleReaction, handleRoleJoin, RoleHandlingError } from "./roles.ts"
+import { startRoleReactionWorker } from "./role-reconciliation.ts"
 import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -27,6 +34,7 @@ export interface BotStores {
     readonly responses?: ResponseStore | undefined
     readonly moderation?: ModerationStore | undefined
     readonly publishing?: PublishingStore | undefined
+    readonly roles?: RolesStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
@@ -39,6 +47,23 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const tracked = moderationStore && trackModerationHints(moderationStore), moderation = tracked?.store, moderationHints = tracked?.hints
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    const roleBackend = stores.roles ?? (backend ? createRolesStore(backend) : undefined)
+    // Whether the last policy or member answer had autorole or rules verification on. Only an answer sets it, so a stale value costs reads, never a skipped join
+    let joinWork = false
+    const learnJoin = (settings: RolesSettings) => Effect.sync(() => { joinWork = settings.autoroleEnabled || settings.verificationEnabled })
+    const roles: RolesStore | undefined = roleBackend ? {
+        manage: (input) => roleBackend.manage(input),
+        query: (input) => roleBackend.query(input),
+        memberQuery: (input) => roleBackend.memberQuery(input).pipe(Effect.tap(result => learnJoin(result.settings))),
+        policy: (input) => roleBackend.policy(input).pipe(Effect.tap(result => learnJoin(result.settings))),
+        reactionJobs: (input) => roleBackend.reactionJobs(input),
+        evaluate: (input) => roleBackend.evaluate(input),
+        dispatch: (input) => roleBackend.dispatch(input),
+        outcome: (input) => roleBackend.outcome(input),
+        reconcile: (input) => roleBackend.reconcile(input),
+        observe: (input) => roleBackend.observe(input),
+    } : undefined
+    let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     const unprivilegedActor = (userId: string): ModerationActor => ({ userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
     return {
         token: Redacted.value(config.token),
@@ -47,6 +72,10 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
             if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+            if (roles) {
+                yield* roles.observe({ serverId: config.serverId, mode: "restart" })
+                roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
+            }
             if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
         }),
         events: {
@@ -71,6 +100,8 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const safetyName = safetyNames.includes(name as SafetyName) ? name as SafetyName : undefined
                     const parsedSafety = safetyName ? command ? usage(parseSafetyCommand(safetyName, command.args)) : quotingError(`${safetyName} help for examples`) : undefined
                     const parsedPublishing = name === "publish" ? command ? usage(parsePublishingCommand(command.args)) : quotingError("publish help for examples") : undefined
+                    const roleName = ["roles", "verify", "autorole"].includes(name ?? "") ? name as RoleCommandName : undefined
+                    const parsedRoles = roleName ? command ? usage(parseRoleCommand(roleName, command.args)) : quotingError(`${roleName} help for examples`) : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
                         if (message.guildId !== undefined || !(safetyName && moderation)) return
@@ -82,10 +113,13 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                         const publishingCritical = parsedPublishing && !("error" in parsedPublishing) && (parsedPublishing.type === "settings" && parsedPublishing.patch.enabled === false
                             || parsedPublishing.type === "reconcile" || parsedPublishing.type === "query" && ["settings", "post-show", "post-list"].includes(parsedPublishing.operation.type)
                             || parsedPublishing.type === "schedule" && scheduleCritical(parsedPublishing.command))
+                        const roleCritical = parsedRoles && !("error" in parsedRoles) && (parsedRoles.type === "status" || parsedRoles.type === "jobs" || parsedRoles.type === "resume"
+                            || parsedRoles.type === "module" && !parsedRoles.enabled || parsedRoles.type === "member")
+                        const rolePublic = parsedRoles && !("error" in parsedRoles) && (parsedRoles.type === "verify" || parsedRoles.type === "choose")
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical ? "critical"
-                            : name === "custom" || name === "auto" || name === "publish" ? "staff" : "public"
+                        const gateClass = safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical || roleCritical ? "critical"
+                            : roleName && !rolePublic || name === "custom" || name === "auto" || name === "publish" ? "staff" : "public"
                         // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
                         // answer reported a raised DEFCON, and after a refusal the hint did not expect
                         const privileged = !(gateClass === "public" || gateClass === "appeal")
@@ -118,6 +152,11 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const afk: Effect.Effect<void, unknown> = store && !privateInvocation ? handleAfk(store, config.serverId, context, true, prefix) : Effect.void
                     const [afkExit, responseExit] = yield* Effect.all([Effect.exit(afk), Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (roleName) {
+                            if (!roles) yield* reply({ content: "Role persistence is not configured", allowedMentions: noMentions })
+                            else yield* handleRoleCommand(roles, publishing, config, roleName, parsedRoles!, context, roleWorker)
+                            return
+                        }
                         if (name === "publish") {
                             if (!publishing) yield* reply({ content: "Publishing persistence is not configured", allowedMentions: noMentions })
                             else yield* handlePublishing(publishing, config, parsedPublishing!, context, schedules, scheduleWorker)
@@ -163,15 +202,53 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                 handler: (context) => Effect.gen(function* () {
                     if (context.event.guildId !== config.serverId) return
                     // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
+                    let allowed = true
                     if (moderation) {
                         const tried = moderationHints!.joinProtection()
                         const checked = tried ? yield* containProtection(handleProtectionJoin(moderation, config, context), undefined) : undefined
-                        if (!checked) {
+                        if (checked) allowed = moderationGate(checked, "public").allowed
+                        else {
                             const gate = yield* moderation.gate({ serverId: config.serverId, actor: unprivilegedActor(context.event.userId), command: "public" })
+                            allowed = gate.allowed
                             if (gate.joinProtectionEnabled && !tried) yield* containProtection(handleProtectionJoin(moderation, config, context), undefined)
                         }
                     }
+                    if (roles && allowed) {
+                        yield* handleRoleJoin(roles, config.serverId, context.client, context.event.userId, context.event.joinedAt, () => joinWork)
+                            .pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })))
+                    }
                 }),
+            },
+            messageReactionAdd: {
+                concurrency: 1,
+                handler: ({ event, client }) => Effect.gen(function* () {
+                    if (!roles) return
+                    yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
+                }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+            },
+            messageReactionAddMany: {
+                concurrency: 1,
+                handler: ({ event, client }) => Effect.gen(function* () {
+                    if (!roles) return
+                    for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
+                        yield* handleRoleReaction(roles, config.serverId, client, event, userId)
+                    }
+                }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+            },
+            messageReactionRemove: {
+                concurrency: 1,
+                handler: ({ event, client }) => roles ? handleRoleReaction(roles, config.serverId, client, event, event.userId)
+                    .pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))) : Effect.void,
+            },
+            messageReactionRemoveAll: {
+                concurrency: 1,
+                handler: ({ event }) => event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker
+                    ? Effect.void : roleWorker.enqueue(event.id),
+            },
+            messageReactionRemoveEmoji: {
+                concurrency: 1,
+                handler: ({ event }) => event.guildId !== undefined && event.guildId !== config.serverId || !roleWorker
+                    ? Effect.void : roleWorker.enqueue(event.id),
             },
         },
     } satisfies BotOptions<unknown>

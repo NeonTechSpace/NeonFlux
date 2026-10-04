@@ -7,7 +7,7 @@ const MAX_ID = 9223372036854775807n
 
 /** Whether a value is a Fluxer ID: a positive 64-bit integer in decimal */
 export const isId = (value: unknown): value is string => typeof value === "string" && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= MAX_ID
-/** Whether a value is a stored item name: 1 to 32 lowercase letters, digits, _ or -, starting with a letter or digit */
+/** Whether a value is a stored name of a rule, panel, template or other named item: 1 to 32 lowercase letters, digits, _ or -, starting with a letter or digit */
 export const isName = (value: unknown): value is string => typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value)
 /** Whether a value is a bot-generated token, such as a moderation action ID */
 export const isToken = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
@@ -26,12 +26,16 @@ export const Ids = (max: number) => List(Id, max)
 export const Str = (max: number) => Schema.String.check(Schema.isMaxLength(max))
 /** 1 to max characters with something besides space and invisible formatting */
 export const Text = (max: number) => Schema.String.check(Schema.isMaxLength(max), Schema.makeFilter(hasText))
+/** An opaque page cursor. Convex cursors can be several hundred characters long */
+export const Cursor = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(16384))
 /** A bot-generated token, see isToken */
 export const Token = Schema.String.check(Schema.makeFilter(isToken))
 /** A stored name, see isName */
 export const Name = Schema.String.check(Schema.makeFilter(isName))
 /** A name as a member types it. The backend stores it trimmed and in lowercase */
 export const NameInput = Schema.String.check(Schema.makeFilter((value: string) => isName(value.trim().toLowerCase())))
+/** A permission bitfield in decimal, at most 64 bits */
+export const PermissionBits = Schema.String.check(Schema.makeFilter((value: string) => /^(0|[1-9]\d{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n))
 /** An ISO 8601 timestamp with a zone, as Fluxer reports join and timeout times */
 export const IsoTime = Schema.String.check(Schema.makeFilter((value: string) => value.length <= 64
     && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value))))

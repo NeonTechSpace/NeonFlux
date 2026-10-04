@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, Millis } from "./common.ts"
+import { Id, Ids, IsoTime, List, Millis, PermissionBits } from "./common.ts"
 
 // Native reads that many features send with their requests
 
@@ -9,3 +9,9 @@ export type ModerationActor = typeof ModerationActor.Type
 /** The chat message that asked for a change */
 export const ModerationSource = Schema.Struct({ messageId: Id, createdAt: Millis })
 export type ModerationSource = typeof ModerationSource.Type
+
+export const RolesRoleSnapshot = Schema.Struct({ roleId: Id, permissions: PermissionBits, botCanManage: Schema.Boolean, actorCanManage: Schema.Boolean })
+export type RolesRoleSnapshot = typeof RolesRoleSnapshot.Type
+export const RolesMemberContext = Schema.Struct({ userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime),
+    botId: Id, botAuthorized: Schema.Boolean, roles: List(RolesRoleSnapshot, 1000) })
+export type RolesMemberContext = typeof RolesMemberContext.Type

@@ -41,15 +41,16 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns fresh native permission checks, `-store.ts` decodes backend HTTP responses with the feature's shared schemas and `-worker.ts` runs scoped background work.
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns fresh native permission checks, `-store.ts` decodes backend HTTP responses with the feature's shared schemas and `-worker.ts` runs background work.
 In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes.
 The requests and answers between them live in the feature's module of the [contracts package](#contracts-package)
 
 | Feature | Bot `src/` prefix | Backend `convex/` prefix | Contracts `src/` module |
 | --- | --- | --- | --- |
-| Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
+| Bot foundation, AFK, responses and prefix | `bot`, `main`, `config`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses`, `general-settings` | `schema`, `http`, `crons`, `validation`, `protection`, `afk`, `response`, `responses`, `generalSettings` | `common`, `shared`, `afk`, `responses`, `general` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
 | Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
+| Role panels, rules and autorole | `role`, `roles` | `role`, `roles` | `roles` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

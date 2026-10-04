@@ -16,7 +16,7 @@ const timestamp = Schema.String.check(Schema.makeFilter((value: string) => {
     return month >= 1 && month <= 12 && day >= 1 && day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!
 }))
 const optional = Schema.optionalKey
-/** A lowercase draft or template name */
+/** A lowercase draft, template or panel name */
 export const PublishingName = Name
 
 export const PublishingEmbedField = Schema.Struct({ name: text(256), value: text(1024, true), inline: optional(Schema.Boolean) })

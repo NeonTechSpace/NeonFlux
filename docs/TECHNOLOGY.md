@@ -36,7 +36,7 @@ Node does not strip types in files under `node_modules`, so the planned bot imag
 
 ## Backend
 
-Convex owns the bot's durable state, separately from the bot image.
+Convex owns durable bot state, separately from the bot image.
 One deployment serves the bot's authenticated HTTP actions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.
