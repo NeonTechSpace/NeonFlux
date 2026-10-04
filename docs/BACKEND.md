@@ -64,11 +64,12 @@ the request. A `REFUSED` message is already a sentence for members with its next
 
 | Code | Meaning |
 | --- | --- |
-| `BOT_PERMISSION` | The bot lacks the native permission for a moderation action |
+| `BOT_PERMISSION` | The bot lacks the native permission for a moderation action or a role change |
 | `BOT_BELOW_TARGET` | The bot's highest role does not rank above the target member's |
 | `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's |
 | `ACTOR_PERMISSION` | The actor lacks the native permission for the action |
 | `TARGET_PROTECTED` | The target is the bot, the server owner, an Administrator or the actor |
+| `ROLE_NOT_ELIGIBLE` | A role is not below the bot and the actor, carries more than ordinary member permissions or is a staff role |
 | `REFUSED` | A refusal a member can act on, such as a name already taken or a feature that is off. The `error` message is the sentence the bot shows |
 
 ### Checks
@@ -83,7 +84,7 @@ pnpm run deploy:dev
 
 Codegen uses the existing deployment and writes `convex/_generated/` without publishing functions. Keep those generated files in version control and regenerate them when the schema or function interface changes. `pnpm run check` checks formatting, then runs the contracts, backend and bot checks. `pnpm --filter @neonflux/backend run check` runs only the backend typecheck and its Node tests, which call the bot's public functions through `convex-test` with synthetic credentials and need no deployment credentials. `pnpm run deploy:dev` runs `convex dev --once --typecheck disable`, which publishes one development update and exits. Use `pnpm --filter @neonflux/backend run dev --typecheck disable` to keep watching files
 
-Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
+Retention cleanup runs as one chain that a Convex cron starts every ten minutes, so an idle deployment runs it 144 times a day. Each run visits every feature's cleanup in bounded batches and repeats a feature while its batch is full. A run stops after about 2,048 documents or 4 MiB and schedules the next run at once, so a backlog drains in back-to-back runs. A feature whose full batch changed nothing waits for the next run instead of repeating. While a run is scheduled, the cron leaves it alone. Expired rows wait at most ten minutes, and nothing depends on an earlier run. A timeout or ban recovery whose known end has passed stops restricting its member at once, because role participation ignores it before retention deletes it. A feature whose cleanup fails runs in its own sub-transaction on later runs until it succeeds, so other features keep their retention
 
 ### Opt-in live smoke runner
 
@@ -147,7 +148,7 @@ Content is up to 2,000 UTF-16 code units of text and one rich embed with title, 
 
 A send or edit grant expires after 180 seconds and needs a one-time dispatch claim, followed by a native request bounded to five seconds. Only an explicit SDK `notDispatched` result proves a request was not sent. Other failures stay uncertain and are never replayed. Staff can resolve a post with an unknown outcome by stating that it was sent with a given message ID or that it failed
 
-Drafts, templates and tracked posts persist until deleted or forgotten. Schedule posts are forgotten with their history once it expires, unless their outcome is unresolved. Lists hold 10 rows: Drafts and templates in name order, where `afterName` continues after the last name of a page, and posts newest first, where `beforePostNo` continues before the last post of a page. Terminal attempt history is retained for a fixed 180 days, and management receipts for 24 hours
+Drafts, templates and tracked posts persist until deleted or forgotten. Schedule posts are forgotten with their history once it expires, unless their outcome is unresolved or a role panel uses them. Lists hold 10 rows: Drafts and templates in name order, where `afterName` continues after the last name of a page, and posts newest first, where `beforePostNo` continues before the last post of a page. Terminal attempt history is retained for a fixed 180 days, and management receipts for 24 hours
 
 ### Scheduled publishing
 
@@ -156,6 +157,28 @@ Schedules copy the exact revision of a named draft or template and store a finit
 Automatic sends act as the bot. They need the bot's channel permissions, the schedule, scheduling module and publishing switches, and an allowing DEFCON level. Administrators are checked when configuring. A late occurrence still sends until local midnight after its due time. While DEFCON is below 3, or while the schedule, the scheduling module or publishing is off, `list` holds a due occurrence instead of returning it, so the bot reads nothing from Fluxer for it and nothing checks it every minute. The occurrence is checked again at that midnight, when it is skipped as late. Turning a switch back on cannot make a held occurrence sendable, since the activation skips occurrences due before it, so turning it on wakes nothing and the occurrence is skipped as before the activation at that check. An occurrence with an open reservation is checked again earlier, when the reservation's grant ends, so `list` can close the reservation. Setting DEFCON to 3 schedules a wake that makes the held occurrences due again. It reads 20 due active occurrences per transaction through `scheduleDeliveries.by_server_due`, schedules the next page and stops if DEFCON falls below 3 again. Delivery reuses the publishing claim, outcome and reconciliation routes with `scheduleContext`
 
 Limits are 50 schedules, 200 retained occurrence rows and 1,000 management receipts per server. Terminal history is kept for 180 days. A content, time or destination update deletes the future occurrences it replaces that have no attempt or claim, and keeps the others as superseded
+
+## Role panels, reaction verification, autorole and reservations
+
+Role panels, rules verification and autorole start disabled, and configuration requires the server owner or an administrator. Enabling a module does not scan the roster or assign roles retroactively
+
+- `roleSettings`: Module switches, humans-only autorole, default autoroles and up to 100 per-user autorole reservations, applied with default autoroles when that user joins
+- `rolePanels`: At most 50 reaction panels and one verification panel per server, each bound to an exact published message with up to 20 mappings that may list prerequisite and exclusion roles
+- `roleAcknowledgments`: Rules acknowledgment, kept separate from delivery of the access role
+- `roleOwnership` and `roleReferences`: Which roles the bot added for each member and membership epoch and which features still need them
+- `roleAttempts`, `roleWithdrawals`, `roleParticipationReceipts` and `roleReactionJobs`: Grants and outcomes, explicit withdrawals, source deduplication and bulk reaction-removal progress
+
+Each command, reaction or join is evaluated as its own source, and a participation receipt only records that the source was applied, so a redelivered event grants nothing twice. The bot rechecks membership, role permissions and hierarchy before every assignment and never assigns the everyone role, privileged roles or roles above its own. Removal needs confirmed bot ownership in the same membership epoch and no other feature reference, so pre-existing roles are never removed. Grants use a one-time claim within 180 seconds and a five-second native request, and uncertain writes are not replayed
+
+A reaction on the current verification panel acknowledges the rules. Configured verification gates autorole and
+self-service roles, while native timeouts and unresolved quarantine block participation. Changing mappings or rules
+requires a new published message. Withdrawal and history are available through chat commands only. Each revision of a
+panel keeps its own configuration references and its own withdrawal, a `withdraw` or `autorole-withdraw` operation is
+deduplicated by its message and revision so one command can withdraw several, no autorole revision is withdrawn while
+the current autoroles or reservations still name a role, and an exclusive choice treats the grants of every revision of
+the panel as its own. Settled role history is retained for a fixed 180 days, while active and unresolved ownership
+stays. When a later membership epoch records its first acknowledgment or ownership, settled rows from the member's
+earlier epochs are released, and unresolved ownership stays until it is reconciled, which also finds it after the member rejoined
 
 ## Server scope
 

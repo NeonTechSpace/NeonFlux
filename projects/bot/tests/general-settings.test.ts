@@ -9,6 +9,7 @@ import type { AfkStore } from "../src/afk-store.ts"
 import { BackendRequestError } from "../src/backend-http.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
+import { rolesBoundary } from "./roles-fixture.ts"
 import { schedulesBoundary } from "./schedule-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
@@ -17,6 +18,7 @@ function offlineWorkers() {
     const publishing = publishingBoundary().store
     return {
         publishing,
+        roles: rolesBoundary(publishing).store,
         schedules: schedulesBoundary().store,
         moderation: boundary().store,
         afk: {

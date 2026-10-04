@@ -5,6 +5,7 @@ import { cleanupModeration } from "./moderation.ts"
 import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
+import { cleanupRoles } from "./roleLifecycle.ts"
 import { cleanupSchedules } from "./schedulesCleanup.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
@@ -23,6 +24,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["responses", cleanupResponses],
     ["moderation", cleanupModeration],
     ["publishing", cleanupPublishing],
+    ["roles", cleanupRoles],
     ["schedules", cleanupSchedules],
 ]
 

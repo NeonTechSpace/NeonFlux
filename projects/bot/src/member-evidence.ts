@@ -4,7 +4,7 @@ import { Data, Effect } from "effect"
 
 export class MemberEvidenceError extends Data.TaggedError("MemberEvidenceError")<{ readonly stage: "identity" }> {}
 
-/** A member read from Fluxer. Evaluation passes cached to use the SDK's member cache, which member events and the member Fluxer attaches to messages keep current, and reads only on a miss */
+/** A member read from Fluxer. Evaluation passes cached to use the SDK's member cache, which member events and the member Fluxer attaches to messages and reactions keep current, and reads only on a miss */
 export function readNativeMember(
     client: Client,
     serverId: string,

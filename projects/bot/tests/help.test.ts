@@ -8,6 +8,7 @@ import { helpAllRequest } from "../src/help.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
+import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -64,6 +65,9 @@ function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
 const commandHelps: Record<string, string> = {
     publish: publishingHelp,
     "publish schedule": scheduleHelp,
+    roles: roleHelp("roles"),
+    verify: roleHelp("verify"),
+    autorole: roleHelp("autorole"),
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
@@ -72,6 +76,8 @@ const commandHelps: Record<string, string> = {
 const helpAlls: Record<string, readonly string[]> = {
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    roles: roleHelpAll.roles,
+    autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     ...safetyHelpAll,

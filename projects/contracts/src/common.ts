@@ -42,6 +42,10 @@ export const Token = Schema.String.check(Schema.makeFilter(isToken))
 export const Name = Schema.String.check(Schema.makeFilter(isName))
 /** A name as a member types it. The backend stores it trimmed and in lowercase */
 export const NameInput = Schema.String.check(Schema.makeFilter((value: string) => isName(value.trim().toLowerCase())))
+/** A permission bitfield in decimal, at most 64 bits */
+export const PermissionBits = Schema.String.check(
+    Schema.makeFilter((value: string) => /^(0|[1-9]\d{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n),
+)
 /** An ISO 8601 timestamp with a zone, as Fluxer reports join and timeout times */
 export const IsoTime = Schema.String.check(
     Schema.makeFilter(

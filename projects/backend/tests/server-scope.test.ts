@@ -122,7 +122,7 @@ test("Every bot route rejects other servers before domain work", async () => {
     configureServer("10")
     const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
-    assert.ok(routes.length > 23)
+    assert.ok(routes.length > 33)
     const rejectAll = async (serverId: string) => {
         const before = await tableCounts(t)
         for (const path of routes) {
@@ -153,6 +153,7 @@ test("Every feature family rejects absent, foreign and mismatched server binding
         "/moderation/manage",
         "/appeals/member",
         "/publishing/manage",
+        "/roles/manage",
         "/schedules/manage",
     ]
     for (const path of paths) {

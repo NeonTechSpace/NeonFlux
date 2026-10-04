@@ -6,6 +6,7 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { publishingHelpAll } from "./publishing-command.ts"
 import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
+import { roleHelpAll } from "./role-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
 
 /**
@@ -15,6 +16,8 @@ import { scheduleHelpAll } from "./schedule-command.ts"
 const moreForms: Readonly<Record<string, readonly string[]>> = {
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    roles: roleHelpAll.roles,
+    autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     mod: safetyHelpAll.mod,

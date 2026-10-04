@@ -10,6 +10,16 @@ import {
 import { responseKind, responseReply, responseTrigger } from "./responseValidators.ts"
 import { publishingContent, publishingKind, publishingObservation, publishingOutcome } from "./publishingValidators.ts"
 import {
+    rolesAction,
+    rolesKind,
+    rolesMapping,
+    rolesOutcome,
+    rolesOwnershipStatus,
+    rolesPanelSnapshot,
+    rolesSettings,
+    rolesWithdrawalStatus,
+} from "./rolesValidators.ts"
+import {
     moderationSettings,
     automodRule,
     permissionOverwrite,
@@ -116,6 +126,153 @@ export default defineSchema({
         expiresAt: v.number(),
     })
         .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    roleSettings: defineTable({
+        serverId: v.string(),
+        config: rolesSettings,
+        nextPanelRevision: v.number(),
+    }).index("by_server", ["serverId"]),
+    rolePanels: defineTable({
+        serverId: v.string(),
+        name: v.string(),
+        kind: rolesKind,
+        revision: v.number(),
+        enabled: v.boolean(),
+        exclusive: v.boolean(),
+        mappings: v.array(rolesMapping),
+        published: v.optional(rolesPanelSnapshot),
+        withdrawing: v.boolean(),
+    })
+        .index("by_server_name", ["serverId", "name"])
+        .index("by_server_kind", ["serverId", "kind"])
+        .index("by_server_message", ["serverId", "published.messageId"]),
+    roleAcknowledgments: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        rulesRevision: v.number(),
+        panelName: v.string(),
+        acknowledgedAt: v.number(),
+    })
+        .index("by_server_member", ["serverId", "userId", "joinedAt"])
+        .index("by_panel", ["serverId", "panelName", "rulesRevision"]),
+    roleOwnership: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        roleId: v.string(),
+        generation: v.number(),
+        intentSourceId: v.optional(v.string()),
+        owned: v.boolean(),
+        protected: v.boolean(),
+        status: rolesOwnershipStatus,
+        attemptId: v.optional(v.id("roleAttempts")),
+        updatedAt: v.number(),
+    })
+        .index("by_server_member_role", ["serverId", "userId", "joinedAt", "roleId"])
+        .index("by_server_role", ["serverId", "roleId", "protected"]),
+    roleReferences: defineTable({
+        serverId: v.string(),
+        consumerKey: v.string(),
+        roleId: v.string(),
+        configuration: v.boolean(),
+        desired: v.boolean(),
+        ownershipId: v.optional(v.id("roleOwnership")),
+        postNo: v.optional(v.number()),
+        createdAt: v.number(),
+    })
+        .index("by_configuration_key", ["serverId", "configuration", "consumerKey", "roleId"])
+        .index("by_server_role", ["serverId", "roleId"])
+        .index("by_consumer", ["serverId", "consumerKey", "configuration"])
+        .index("by_owner", ["ownershipId", "consumerKey"])
+        .index("by_server_post", ["serverId", "postNo"]),
+    roleAttempts: defineTable({
+        serverId: v.string(),
+        ownershipId: v.id("roleOwnership"),
+        generation: v.number(),
+        sourceId: v.string(),
+        operationKey: v.string(),
+        action: rolesAction,
+        userId: v.string(),
+        joinedAt: v.string(),
+        roleId: v.string(),
+        botId: v.string(),
+        expectedPresent: v.boolean(),
+        consumerKey: v.string(),
+        dispatchExpiresAt: v.number(),
+        nativeDeadlineMs: v.literal(5000),
+        outcome: rolesOutcome,
+        createdAt: v.number(),
+        finishedAt: v.optional(v.number()),
+        noDispatch: v.optional(v.literal(true)),
+        dispatchedAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        continued: v.optional(v.boolean()),
+        reactionJob: v.optional(
+            v.object({
+                jobId: v.id("roleReactionJobs"),
+                generation: v.number(),
+                claimToken: v.string(),
+                pageStep: v.number(),
+                index: v.number(),
+            }),
+        ),
+        expiresAt: v.optional(v.number()),
+        observationAt: v.optional(v.number()),
+    })
+        .index("by_source", ["serverId", "sourceId", "createdAt"])
+        .index("by_pending", ["outcome", "dispatchExpiresAt"])
+        .index("by_server_pending", ["serverId", "outcome", "dispatchExpiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    roleReceipts: defineTable({ serverId: v.string(), messageId: v.string(), expiresAt: v.number() })
+        .index("by_server_message", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    roleParticipationReceipts: defineTable({ serverId: v.string(), sourceId: v.string(), expiresAt: v.number() })
+        .index("by_source", ["serverId", "sourceId"])
+        .index("by_expiry", ["expiresAt"]),
+    roleWithdrawals: defineTable({
+        serverId: v.string(),
+        consumerKey: v.string(),
+        step: v.number(),
+        status: rolesWithdrawalStatus,
+        deletePanel: v.boolean(),
+        createdAt: v.number(),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_consumer", ["serverId", "consumerKey"])
+        .index("by_expiry", ["expiresAt"]),
+    roleReactionJobs: defineTable({
+        serverId: v.string(),
+        name: v.string(),
+        revision: v.number(),
+        messageId: v.string(),
+        channelId: v.string(),
+        generation: v.number(),
+        pageStep: v.number(),
+        status: v.union(
+            v.literal("queued"),
+            v.literal("running"),
+            v.literal("blocked"),
+            v.literal("complete"),
+            v.literal("cancelled"),
+        ),
+        active: v.boolean(),
+        rerun: v.boolean(),
+        blockedWork: v.boolean(),
+        cursor: v.optional(v.string()),
+        pageEnd: v.optional(v.string()),
+        pageHasMore: v.optional(v.boolean()),
+        targets: v.array(v.object({ userId: v.string(), joinedAt: v.string() })),
+        pageDone: v.array(v.number()),
+        leaseToken: v.optional(v.string()),
+        leaseExpiresAt: v.optional(v.number()),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_server_name", ["serverId", "name"])
+        .index("by_server_active", ["serverId", "active"])
+        .index("by_server", ["serverId"])
         .index("by_expiry", ["expiresAt"]),
     publishingSettings: defineTable({
         serverId: v.string(),

@@ -118,7 +118,10 @@ test("a feature without its storage says it is not set up", async () => {
                     body: bot.fixtures.message({ content: "Synthetic reply" }),
                 })
                 yield* bot.ready()
-                for (const [content, feature] of [["!auto list", "Autoresponders"]] as const) {
+                for (const [content, feature] of [
+                    ["!verify status", "Rules verification"],
+                    ["!auto list", "Autoresponders"],
+                ] as const) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                     yield* bot.idle()
                     assert.equal(
@@ -126,7 +129,7 @@ test("a feature without its storage says it is not set up", async () => {
                         `${feature} isn't available on this NeonFlux yet. The bot operator needs to finish setting it up`,
                     )
                 }
-                assert.equal(replies.requests().length, 1)
+                assert.equal(replies.requests().length, 2)
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -160,6 +163,10 @@ const handledDispatches = [
     "CHANNEL_UPDATE_BULK",
     "GUILD_CREATE",
     "GUILD_DELETE",
+    "MESSAGE_REACTION_ADD",
+    "MESSAGE_REACTION_REMOVE",
+    "MESSAGE_REACTION_REMOVE_ALL",
+    "MESSAGE_REACTION_REMOVE_EMOJI",
     "THREAD_CREATE",
     "THREAD_UPDATE",
     "THREAD_DELETE",

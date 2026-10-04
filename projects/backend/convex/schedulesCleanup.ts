@@ -1,5 +1,6 @@
 import type { MutationCtx } from "./_generated/server.js"
 import { age, releaseConsumerPublication } from "./publishing.ts"
+import { panelPost } from "./rolesStore.ts"
 import { SCHEDULES_BATCH, SCHEDULES_DAY } from "./schedulesDomain.ts"
 import { closeScheduleDelivery, scheduleCount, scheduleRow } from "./schedulesStore.ts"
 
@@ -30,8 +31,13 @@ export async function cleanupSchedules(ctx: MutationCtx, now: number) {
             await age(ctx, attempt, now)
             attempt = await ctx.db.get(attempt._id)
         }
-        // A pending or unresolved post keeps a minimal ownership anchor. Settled posts are released
-        if (attempt && (attempt.outcome === "pending" || attempt.unresolved)) {
+        // A pending, unresolved or panel-bound post keeps a minimal ownership anchor. Settled posts are released
+        if (
+            attempt &&
+            (attempt.outcome === "pending" ||
+                attempt.unresolved ||
+                (await panelPost(ctx, row.serverId, attempt.postNo)))
+        ) {
             await ctx.db.patch(row._id, {
                 content: { content: "" },
                 canonicalContent: { content: "" },

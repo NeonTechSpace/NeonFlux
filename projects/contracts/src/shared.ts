@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Ids, IsoTime, Millis, origin } from "./common.ts"
+import { Id, Ids, IsoTime, List, Millis, PermissionBits, origin } from "./common.ts"
 
 // Native reads that many features send with their requests
 
@@ -26,3 +26,24 @@ export const ChannelMemberContext = Schema.Struct({
     timeoutUntil: Schema.NullOr(IsoTime),
 })
 export type ChannelMemberContext = typeof ChannelMemberContext.Type
+
+export const RolesRoleSnapshot = Schema.Struct({
+    ...origin,
+    roleId: Id,
+    permissions: PermissionBits,
+    botCanManage: Schema.Boolean,
+    actorCanManage: Schema.Boolean,
+})
+export type RolesRoleSnapshot = typeof RolesRoleSnapshot.Type
+export const RolesMemberContext = Schema.Struct({
+    ...origin,
+    userId: Id,
+    joinedAt: IsoTime,
+    roleIds: Ids(1000),
+    isBot: Schema.Boolean,
+    timeoutUntil: Schema.NullOr(IsoTime),
+    botId: Id,
+    botAuthorized: Schema.Boolean,
+    roles: List(RolesRoleSnapshot, 1000),
+})
+export type RolesMemberContext = typeof RolesMemberContext.Type

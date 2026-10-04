@@ -744,14 +744,29 @@ test("History cleanup releases a schedule cancelled before its date once its las
     assert.equal((await f.totals()).deliveries, 0)
     assert.equal((await f.totals()).definitions, 0)
 })
-test("History cleanup releases a sent post and its ended schedule after 180 days", async (t) => {
+test("History cleanup releases a sent post and its ended schedule after 180 days unless a role panel uses the post", async (t) => {
     const f = await fixture(t)
     await f.open()
     f.advance(120000)
     const grant = (await read(await f.reserve((await f.deliveries()).deliveries[0]!))).grant
     await read(await f.dispatch(grant))
     await read(await f.outcome(grant))
+    const panel = await f.db.run((ctx) =>
+        ctx.db.insert("roleReferences", {
+            serverId: "1",
+            consumerKey: "panel:synthetic",
+            roleId: "40",
+            configuration: true,
+            desired: true,
+            postNo: grant.postNo,
+            createdAt: f.now(),
+        }),
+    )
     f.advance(181 * 86400000)
+    await f.cleanup()
+    assert.equal((await f.totals()).deliveries, 1)
+    await f.db.run((ctx) => ctx.db.delete(panel))
+    f.advance(86400000)
     await f.cleanup()
     assert.equal((await f.totals()).deliveries, 0)
     assert.equal((await f.totals()).definitions, 0)

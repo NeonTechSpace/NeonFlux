@@ -55,7 +55,7 @@ Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and 
 
 Before connecting, the bot adopts the backend's scope. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a server that differs from the bot's own `NEONFLUX_SERVER_ID` each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
-A failed publishing recovery call at startup stops the bot
+A failed publishing recovery call or role recovery call at startup stops the bot. A failed first read of the role reaction jobs is logged, the reaction checks still run, and the jobs left from before a restart resume at the next restart
 
 ### Shared behavior
 
@@ -67,8 +67,8 @@ A failed publishing recovery call at startup stops the bot
 - A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
 - A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
-- Commands and actions, such as moderation, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
-- Evaluating everyday activity, such as message protection, automod and custom responses, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
+- Commands and actions, such as moderation, role changes, channel permission changes and purges, read current server, role, member and channel data from Fluxer right before they act. A failed read denies the request
+- Evaluating everyday activity, such as message protection, automod, custom responses and role panel reactions, uses copies of server, role, member and channel data that the bot keeps in memory, and reads Fluxer only for what it lacks. Gateway events keep the copies current
 - A message in a thread or forum post counts as in its parent channel for channel rules: automod channels and exemptions, honeypot channels and custom response channels. A rule that lists the thread itself also matches. The bot learns a thread's parent from thread events and the channels it keeps, or otherwise from one channel read
 - The bot never automatically repeats a native action whose outcome is unknown. Such work stays visible as uncertain, and status or reconcile commands read the exact known message or member without resending
 - Durable worker state, such as schedule queues, lives in the backend. Workers resume it after a restart
@@ -85,7 +85,7 @@ A failed publishing recovery call at startup stops the bot
 
 Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`
 
-When a moderation action fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
+When a moderation action or a role panel, autorole or verification change fails because of NeonFlux's permissions or role position, the reply names the fix, such as granting a permission to the NeonFlux role or moving that role above another. A moderation action against a member whose highest role is not below yours says so too
 
 ## Ping, AFK, prefix and custom responses
 
@@ -324,3 +324,73 @@ Owners and Administrators plan finite announcements with `!publish schedule`. Sc
 Each schedule has a unique name. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
 
 Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. A post that comes due at DEFCON 1 or 2 waits without requests and sends once DEFCON is set to 3, until local midnight after its due time. A post that comes due while its schedule, the scheduling module or publishing is off also waits without requests, and is skipped at local midnight or, if you turned the switch back on first, as before that activation, because enabling never catches up on missed dates. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days. An update removes the future dates it replaces that never started sending, so updates do not use up schedule capacity
+
+## Role panels, reaction verification, autorole and reservations
+
+Reaction panels, rules verification and autorole each start disabled. The owner or an Administrator configures them. The bot needs Manage roles and a role above every role it assigns. It only assigns roles with ordinary permissions, never everyone, privileged roles or staff roles, and it does not create roles
+
+The bot adds and removes roles one at a time and keeps unrelated roles. It removes a role only if it added it during the member's current stay and no other panel, verification or autorole still needs it
+
+### Reaction role panels
+
+Compose the panel message with `!publish`, then publish it through `!roles` so the bot tracks that exact message
+
+```text
+!publish create colors
+!publish set colors content "Choose your color"
+!roles create colors exclusive
+!roles map colors 🔵 @Blue
+!roles map colors 🟢 @Green
+!roles publish colors #roles colors
+!roles module on
+```
+
+Toggle panels allow any combination, and exclusive panels allow one choice. Members react or use `!roles choose colors 🔵`, or `!roles choose colors none` to clear. Changing mappings, rules or mode requires publishing a fresh panel message, and publishing again before any of them changed is refused. Old reactions keep their original meaning
+
+Reactions on messages that are not role or verification panels usually cost no Fluxer or backend requests
+
+| Task | Command |
+| --- | --- |
+| Show or list panels | `!roles show <name>`, `!roles list [next]` |
+| Require or exclude roles | `!roles requires\|excludes <name> <emoji> @roles...\|none` |
+| Change a mapping or mode | `!roles unmap <name> <emoji>`, `!roles mode <name> toggle\|exclusive` |
+| Enable, disable or delete | `!roles enable\|disable\|delete <name>` |
+| Retire a published panel | `!roles retire <name>`, then `!roles next <name>` if it stopped |
+| Inspect history | `!roles history <name> [next]` |
+| Process a cleared reaction set | `!roles reactions <name>`, `!roles jobs`, `!roles resume <name>` |
+| Check or withdraw a member's roles | `!roles reconcile\|withdraw <name> [@user] [next]` |
+| Status and module | `!roles status`, `!roles module on\|off`, `!roles help` |
+
+Retire and delete withdraw the roles a panel granted, within the same command. That covers every revision of the panel,
+because editing and republishing it leaves the grants of the earlier revision behind, and a choice on the current panel
+replaces those grants too. The panel stops taking choices as soon as its first revision starts to withdraw. If a role
+change has an unknown outcome, `!roles reconcile` checks that member once the attempt window closes, also when the member rejoined since, and
+`!roles next <name>` runs the panel's withdrawal again through every revision, so it continues from the revision that
+stopped, and a stopped deletion is finished by sending `!roles delete <name>` again. `!roles jobs` counts the reaction
+checks that run, wait or stopped and names the stopped panels. Withdraw and reconcile are Administrator recovery
+commands. Settled role history is kept for 180 days
+
+### Rules verification
+
+```text
+!publish create rules
+!publish set rules content "Read and accept the current server rules"
+!verify configure @Member ✅
+!verify publish #rules rules
+!verify module on
+```
+
+A member reacts to the rules panel or sends `!verify`. Chat verification uses the server's verification panel whatever
+its name, and `!verify configure` creates it as `rules` and explains a name clash.
+`!verify status` shows whether the acknowledgement was saved and the role granted. Administrators use
+`!verify reconcile|withdraw [@user] [next]`, `retire` and `next` for recovery
+
+Reaction verification is an acknowledgement of the rules. It does not prove that a member is human
+
+A rules panel that has a role or a published message holds back member features such as role grants until a member accepts the rules, even while verification is off
+
+### Autorole and reservations
+
+Use `!autorole add|remove @role`, `!autorole list` and `!autorole module on|off`. Autorole applies to future joins only and to humans by default. `!autorole humans off` includes bots. When verification is configured, autorole waits for it
+
+A reservation gives an exact user ID extra roles when that user joins or rejoins, even before they are a member. Use `!autorole reserve <user-id> @roles...`, `!autorole unreserve <user-id>` and `!autorole reservations [next]`, which counts them and lists 10 at a time. Up to 100 users can have one to 20 reserved roles. Saving does not grant roles to current members, and removing a reservation does not take roles away. Recovery uses `!autorole retire` once the list and reservations are empty, which withdraws every earlier revision of the list that granted roles first, `next`, `history [next]` and `reconcile|withdraw @user [next]`

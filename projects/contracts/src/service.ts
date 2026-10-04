@@ -108,5 +108,15 @@ export const BOT_FUNCTIONS = {
     schedulesQuery: "query",
     schedulesManage: "mutation",
     schedulesDelivery: "mutation",
+    rolesQuery: "query",
+    rolesMemberQuery: "query",
+    rolesPolicy: "query",
+    rolesManage: "mutation",
+    rolesReactionJobs: "mutation",
+    rolesEvaluate: "mutation",
+    rolesDispatch: "mutation",
+    rolesOutcome: "mutation",
+    rolesReconcile: "mutation",
+    rolesObserve: "mutation",
 } as const satisfies Record<string, "query" | "mutation">
 export type BotFunction = keyof typeof BOT_FUNCTIONS

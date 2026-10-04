@@ -53,6 +53,7 @@ import {
     state,
 } from "./moderationStore.ts"
 import { decode, fail, requireReadMember, requireServer, fresh, name, source } from "./validation.ts"
+import { protectedStaffRoles } from "./rolesStore.ts"
 
 function criticalOperation(op: ModerationManageOperation) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(op.action.type)
@@ -605,6 +606,7 @@ export const gate = serviceQuery({
 export async function cleanupModeration(ctx: MutationCtx, now: number) {
     let removed = 0
     let continuation = false
+    // Readers already ignore these through recoveryElapsed, so deleting them can wait for the next run
     const elapsed = await ctx.db
         .query("securityRecoveries")
         .withIndex("by_status_deadline", (q) =>
@@ -682,6 +684,10 @@ async function applyConfiguration(
         settings = config(current)
     if (op.type === "settings") {
         const next = settingsPatch(settings, op.patch)
+        const staffRoleIds = op.patch.staffRoleIds
+        if (staffRoleIds !== undefined) {
+            await protectedStaffRoles(ctx, identity.serverId, [...new Set(Object.values(staffRoleIds).flat())])
+        }
         await ctx.db.patch(current._id, { config: next })
         // Returning to DEFCON 3 makes the scheduled posts due again. The wakes run as scheduled batches, so a large
         // backlog can never make the DEFCON change itself fail

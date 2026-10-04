@@ -6,6 +6,7 @@ import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
 import { fixSentence, labelList, permissionNames } from "../src/permission-fix.ts"
 import { createModerationStore, ModerationStoreError } from "../src/moderation-store.ts"
+import { createRolesStore, rolesErrorMessage } from "../src/roles-store.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 import { fakeClient } from "./backend-fake.ts"
 
@@ -52,6 +53,12 @@ test("backend reason codes reach the stores, so a refusal can name its fix", asy
         ),
     )
     assert.equal(moderation.code, "BOT_BELOW_TARGET")
+    const roles = await Effect.runPromise(
+        Effect.flip(
+            createRolesStore(backend("BOT_PERMISSION")).query({ serverId, operation: { type: "settings" } } as never),
+        ),
+    )
+    assert.equal(rolesErrorMessage(roles), "Grant Manage roles to the NeonFlux role")
 })
 
 test("a moderation action refused for the bot's permission or rank replies with what to change", async () => {

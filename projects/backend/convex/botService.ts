@@ -18,6 +18,10 @@ import * as appeals from "./appeals.ts"
 import * as publishing from "./publishing.ts"
 import * as schedules from "./schedules.ts"
 import * as schedulesDeliveryModule from "./schedulesDelivery.ts"
+import * as roles from "./roles.ts"
+import * as roleReactions from "./roleReactions.ts"
+import * as roleParticipation from "./roleParticipation.ts"
+import * as roleLifecycle from "./roleLifecycle.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -208,3 +212,14 @@ export const publishingObserve = botMutation(65536, publishing.observe)
 export const schedulesQuery = botQuery(65536, schedules.query)
 export const schedulesManage = botMutation(65536, schedules.manage)
 export const schedulesDelivery = botMutation(65536, schedulesDeliveryModule.delivery)
+
+export const rolesQuery = botQuery(262144, roles.query)
+export const rolesMemberQuery = botQuery(262144, roles.memberQuery)
+export const rolesPolicy = botQuery(262144, roles.policy)
+export const rolesManage = botMutation(262144, roles.manage)
+export const rolesReactionJobs = botMutation(262144, roleReactions.manage)
+export const rolesEvaluate = botMutation(262144, roleParticipation.evaluate)
+export const rolesDispatch = botMutation(262144, roleLifecycle.dispatch)
+export const rolesOutcome = botMutation(262144, roleLifecycle.outcome)
+export const rolesReconcile = botMutation(262144, roleLifecycle.reconcile)
+export const rolesObserve = botMutation(262144, roleLifecycle.observe)

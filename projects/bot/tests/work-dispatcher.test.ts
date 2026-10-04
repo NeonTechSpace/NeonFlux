@@ -331,7 +331,8 @@ function dispatchBackend(firstPass: Promise<ServiceWork>) {
         seen.push({ path, server, body })
         waiters.get(`${path} ${server}`)?.()
         if (path === "/service/work") return passes++ === 0 ? await firstPass : work({})
-        if (path === "/publishing/observe") return { uncertainAttempts: 0 }
+        if (path === "/publishing/observe" || path === "/roles/observe") return { uncertainAttempts: 0 }
+        if (path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
         if (path === "/moderation/gate")
             return {
                 allowed: true,

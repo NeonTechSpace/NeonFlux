@@ -4,6 +4,8 @@ import { format, permissionBits, Permissions, type PermissionName } from "@neont
 export const permissionNames = (mask: bigint) => [...permissionBits.inspect(mask).names]
 const list = (items: readonly string[]) =>
     items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`
+/** Items joined for a sentence, such as Autorole and Reaction roles */
+export const sentenceList = list
 
 /**
  * Readable permission names joined for a sentence, such as Kick members and Ban members. Keys travel as strings through contracts

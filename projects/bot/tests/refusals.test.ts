@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { moderationErrorMessage, ModerationStoreError } from "../src/moderation-store.ts"
 import { publishingErrorMessage, PublishingStoreError } from "../src/publishing-store.ts"
+import { rolesErrorMessage, RolesStoreError } from "../src/roles-store.ts"
 import { schedulesErrorMessage, SchedulesStoreError } from "../src/schedule-store.ts"
 
 const reason = "Synthetic sentence for members. Do the next step"
@@ -12,6 +13,7 @@ test("each store shows the sentence of a REFUSED refusal, and the fixed reply on
             (extra: object) => new ModerationStoreError({ operation: "x", status: 403, ...extra }),
             moderationErrorMessage,
         ],
+        ["roles", (extra: object) => new RolesStoreError({ operation: "x", status: 409, ...extra }), rolesErrorMessage],
         [
             "publishing",
             (extra: object) => new PublishingStoreError({ operation: "x", status: 409, ...extra }),

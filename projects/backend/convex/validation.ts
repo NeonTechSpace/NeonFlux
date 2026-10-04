@@ -15,6 +15,7 @@ export const REASON_CODES = [
     "ACTOR_BELOW_TARGET",
     "ACTOR_PERMISSION",
     "TARGET_PROTECTED",
+    "ROLE_NOT_ELIGIBLE",
     "REFUSED",
 ] as const
 type ReasonCode = (typeof REASON_CODES)[number]
@@ -83,6 +84,14 @@ export function name(value: unknown): string {
     if (!isName(result)) fail(400, "Invalid request")
     return result
 }
+
+// A value as JSON with its object keys sorted, so a replayed request compares equal whatever order its keys arrived in
+export const canonicalJson = (value: unknown): string | undefined =>
+    JSON.stringify(value, (_, item: unknown) =>
+        item && typeof item === "object" && !Array.isArray(item)
+            ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+            : item,
+    )
 
 export function fresh(timestamp: number, now: number) {
     if (timestamp < now - 15 * 60000 || timestamp > now + 60000) fail(400, "Invalid source event")

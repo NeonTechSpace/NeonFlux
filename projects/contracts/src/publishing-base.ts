@@ -38,7 +38,7 @@ const timestamp = Schema.String.check(
     }),
 )
 const optional = Schema.optionalKey
-/** A lowercase draft or template name */
+/** A lowercase draft, template or panel name */
 export const PublishingName = Name
 
 export const PublishingEmbedField = Schema.Struct({

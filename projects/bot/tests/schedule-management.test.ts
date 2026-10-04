@@ -534,6 +534,28 @@ test("DEFCON recovery keeps status/disable/cancel/forget while future activation
         ),
     )
 })
+test("a refusal without a member sentence names only the checks schedules make", async () => {
+    const remote = schedulesBoundary({
+        manage: () => Effect.fail(new SchedulesStoreError({ operation: "manage", status: 403 })),
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(options(remote, publishingBoundary(), boundary())),
+                    p = platform(bot)
+                yield* bot.ready()
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!publish schedule disable news" }))
+                const reply = yield* p.replies.next()
+                yield* bot.idle()
+                // Schedules check only the member's permissions and the DEFCON level, never verification
+                assert.equal(
+                    text(reply),
+                    "You can't do that with schedules right now. Your permissions or the DEFCON level don't allow it",
+                )
+            }),
+        ),
+    )
+})
 test("exact known post reconciliation checks schedule ownership and unknown IDs cannot trigger a native search or write", async () => {
     const remote = schedulesBoundary(),
         publishing = publishingBoundary(),

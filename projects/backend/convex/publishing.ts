@@ -41,6 +41,7 @@ import {
     publishingName,
 } from "./publishingDomain.ts"
 import { decode, fail, requireId, requireServer, fresh, integer, source } from "./validation.ts"
+import { protectedPanelPost } from "./rolesStore.ts"
 import { requireAdministrator } from "./moderationStore.ts"
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
 
@@ -274,6 +275,7 @@ export async function releaseConsumerPublication(
         row.consumer.deliveryId !== delivery._id
     )
         fail(503, `${type[0]!.toUpperCase()}${type.slice(1)} publication unavailable`)
+    await protectedPanelPost(ctx, delivery.serverId, row.postNo)
     if (
         await ctx.db
             .query("publishingAttempts")
@@ -309,6 +311,7 @@ export const manage = serviceMutation({
         if (op.type === "forget") {
             const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
             if (row.consumer) fail(409, "Tracked post retained by publishing consumer")
+            await protectedPanelPost(ctx, identity.serverId, row.postNo)
             if (
                 await ctx.db
                     .query("publishingAttempts")
@@ -323,6 +326,7 @@ export const manage = serviceMutation({
         }
         if (op.type === "resolve") {
             const row = await post(ctx, identity.serverId, op.postNo, op.expectedGeneration)
+            await protectedPanelPost(ctx, identity.serverId, row.postNo)
             const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
             if (!attempt || attempt.outcome !== "uncertain" || !attempt.unresolved)
                 fail(409, "That post has no unknown outcome to resolve, because it is already known", "REFUSED")
@@ -348,6 +352,7 @@ export const manage = serviceMutation({
         if (!botAuthorized || !actorAuthorized) fail(403, "Publishing channel permission required")
         const existing =
             op.type === "edit" ? await post(ctx, identity.serverId, op.postNo, op.expectedGeneration) : null
+        if (existing) await protectedPanelPost(ctx, identity.serverId, existing.postNo)
         if (existing?.consumer) fail(409, "Tracked post retained by publishing consumer")
         const previousAttempt = existing?.attemptId ? await ctx.db.get(existing.attemptId) : null
         if (

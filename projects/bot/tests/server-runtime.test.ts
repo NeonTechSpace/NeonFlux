@@ -112,7 +112,8 @@ for (const [failing, title] of [
         respond = (call) => {
             if (call.path === "/publishing/observe" && failing)
                 return Response.json({ error: "Backend unavailable" }, { status: 503 })
-            if (call.path === "/publishing/observe") return { uncertainAttempts: 0 }
+            if (call.path === "/publishing/observe" || call.path === "/roles/observe") return { uncertainAttempts: 0 }
+            if (call.path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
             return Response.json({ error: "Backend unavailable" }, { status: 503 })
         }
         const options = createBotOptions({
@@ -143,7 +144,8 @@ test(
             direct = "1200000000000000001",
             refused = "1200000000000000002"
         respond = (call) => {
-            if (call.path === "/publishing/observe") return { uncertainAttempts: 0 }
+            if (call.path === "/publishing/observe" || call.path === "/roles/observe") return { uncertainAttempts: 0 }
+            if (call.path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
             if (call.path === "/moderation/gate")
                 return { allowed: true, defcon: 3, messageProtectionEnabled: false, joinProtectionEnabled: false }
             return Response.json({ error: "Backend unavailable" }, { status: 503 })

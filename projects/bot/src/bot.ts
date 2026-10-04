@@ -19,11 +19,18 @@ import { handleSafetyCommand, initializeModeration, moderationActor, applyDefcon
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "./moderation-command.ts"
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
+import { moderationGate } from "@neonflux/contracts/moderation"
 import type { ServiceWorkKind } from "@neonflux/contracts/service"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { PublishingStore } from "./publishing-store.ts"
 import { parsePublishingCommand } from "./publishing-command.ts"
 import { handlePublishing } from "./publishing.ts"
+import type { RolesStore } from "./roles-store.ts"
+import type { RolesSettings } from "@neonflux/contracts/roles"
+import { parseRoleCommand, type RoleCommandName } from "./role-command.ts"
+import { handleRoleCommand } from "./role-management.ts"
+import { handleRoleReaction, handleRoleJoin, RoleHandlingError } from "./roles.ts"
+import { startRoleReactionWorker } from "./role-reconciliation.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
@@ -36,6 +43,7 @@ import {
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
+import { createPanelIndex } from "./role-panel-index.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import { createMessageRevisions } from "./message-revisions.ts"
 import { handleHelpAll, helpAllRequest } from "./help.ts"
@@ -46,12 +54,22 @@ interface BotStores {
     readonly responses?: ResponseStore | undefined
     readonly moderation?: ModerationStore | undefined
     readonly publishing?: PublishingStore | undefined
+    readonly roles?: RolesStore | undefined
     readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
 // Every gateway event a server runtime handles. Each is routed to exactly one runtime and never broadcast
-const routedEvents = ["messageCreate", "messageUpdate", "guildMemberAdd"] as const satisfies readonly EventName[]
+const routedEvents = [
+    "messageCreate",
+    "messageUpdate",
+    "guildMemberAdd",
+    "messageReactionAdd",
+    "messageReactionAddMany",
+    "messageReactionRemove",
+    "messageReactionRemoveAll",
+    "messageReactionRemoveEmoji",
+] as const satisfies readonly EventName[]
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 // Compilation fails when a runtime handler is added without routing it, or the reverse
@@ -256,6 +274,33 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const { afk: store, responses, publishing, schedules, general } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    const roleBackend = stores.roles
+    // Panel reads and changes keep the panel index current
+    const panelIndex = createPanelIndex()
+    // Whether the last policy or member answer had autorole or rules verification on. Only an answer sets it, so a stale value costs reads, never a skipped join
+    let joinWork = false
+    const learnJoin = (settings: RolesSettings) =>
+        Effect.sync(() => {
+            joinWork = settings.autoroleEnabled || settings.verificationEnabled
+        })
+    const roles: RolesStore | undefined = roleBackend
+        ? {
+              manage: (input) => panelIndex.change(roleBackend.manage(input)),
+              query: (input) => roleBackend.query(input),
+              memberQuery: (input) =>
+                  panelIndex
+                      .learn(roleBackend.memberQuery(input))
+                      .pipe(Effect.tap((result) => learnJoin(result.settings))),
+              policy: (input) => roleBackend.policy(input).pipe(Effect.tap((result) => learnJoin(result.settings))),
+              reactionJobs: (input) => roleBackend.reactionJobs(input),
+              dispatch: (input) => roleBackend.dispatch(input),
+              observe: (input) => roleBackend.observe(input),
+              evaluate: (input) => roleBackend.evaluate(input),
+              outcome: (input) => roleBackend.outcome(input),
+              reconcile: (input) => roleBackend.reconcile(input),
+          }
+        : undefined
+    let roleWorker: Effect.Success<ReturnType<typeof startRoleReactionWorker>> | undefined
     // Each started worker's wake, for the process's work dispatcher
     const wakers: Partial<Record<ServiceWorkKind, () => Effect.Effect<void>>> = {}
     const unprivilegedActor = (userId: string): ModerationActor => ({
@@ -274,6 +319,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
                 if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+                if (roles) {
+                    yield* roles.observe({ serverId: config.serverId, mode: "restart" })
+                    roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
+                }
                 if (schedules && publishing)
                     wakers.schedules = (scheduleWorker = yield* startSchedulesWorker(
                         schedules,
@@ -343,6 +392,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     ? usage(parsePublishingCommand(command.args))
                                     : quotingError("publish help for examples")
                                 : undefined
+                        const roleName = ["roles", "verify", "autorole"].includes(name ?? "")
+                            ? (name as RoleCommandName)
+                            : undefined
+                        const parsedRoles = roleName
+                            ? command
+                                ? usage(parseRoleCommand(roleName, command.args))
+                                : quotingError(`${roleName} help for examples`)
+                            : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
                             if (message.guildId !== undefined || !(safetyName && moderation)) return
@@ -369,13 +426,29 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         )) ||
                                     (parsedPublishing.type === "schedule" &&
                                         scheduleCritical(parsedPublishing.command)))
+                            const roleCritical =
+                                parsedRoles &&
+                                !("error" in parsedRoles) &&
+                                (parsedRoles.type === "status" ||
+                                    parsedRoles.type === "jobs" ||
+                                    parsedRoles.type === "resume" ||
+                                    (parsedRoles.type === "module" && !parsedRoles.enabled) ||
+                                    parsedRoles.type === "member")
+                            const rolePublic =
+                                parsedRoles &&
+                                !("error" in parsedRoles) &&
+                                (parsedRoles.type === "verify" || parsedRoles.type === "choose")
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass = safetyName
                                 ? safetyGateClass(safetyName, parsedSafety!)
-                                : publishingCritical
+                                : publishingCritical || roleCritical
                                   ? "critical"
-                                  : name === "prefix" || name === "custom" || name === "auto" || name === "publish"
+                                  : (roleName && !rolePublic) ||
+                                      name === "prefix" ||
+                                      name === "custom" ||
+                                      name === "auto" ||
+                                      name === "publish"
                                     ? "staff"
                                     : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
@@ -450,6 +523,29 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (roleName) {
+                                            if (!roles)
+                                                yield* reply({
+                                                    content: notSetUp(
+                                                        {
+                                                            roles: "Reaction roles",
+                                                            verify: "Rules verification",
+                                                            autorole: "Autorole",
+                                                        }[roleName],
+                                                    ),
+                                                })
+                                            else
+                                                yield* handleRoleCommand(
+                                                    roles,
+                                                    publishing,
+                                                    config,
+                                                    roleName,
+                                                    parsedRoles!,
+                                                    context,
+                                                    roleWorker,
+                                                )
                                             return
                                         }
                                         if (name === "publish") {
@@ -548,17 +644,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     Effect.gen(function* () {
                         if (context.event.guildId !== config.serverId) return
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
+                        let allowed = true
                         if (moderation) {
                             const tried = moderationHints!.joinProtection()
                             const checked = tried
                                 ? yield* containProtection(handleProtectionJoin(moderation, config, context), undefined)
                                 : undefined
-                            if (!checked) {
+                            if (checked) allowed = moderationGate(checked, "public").allowed
+                            else {
                                 const gate = yield* moderation.gate({
                                     serverId: config.serverId,
                                     actor: unprivilegedActor(context.event.userId),
                                     command: "public",
                                 })
+                                allowed = gate.allowed
                                 if (gate.joinProtectionEnabled && !tried)
                                     yield* containProtection(
                                         handleProtectionJoin(moderation, config, context),
@@ -566,6 +665,64 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     )
                             }
                         }
+                        if (roles && allowed) {
+                            yield* handleRoleJoin(
+                                roles,
+                                config.serverId,
+                                context.client,
+                                context.event.userId,
+                                context.event.joinedAt,
+                                () => joinWork,
+                            ).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })))
+                        }
+                    }),
+            },
+            messageReactionAdd: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        // A reaction on a message that is no panel needs no member or backend read
+                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                        yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
+                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+            },
+            messageReactionAddMany: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                        for (const userId of new Set(event.reactions.map((reaction) => reaction.userId))) {
+                            yield* handleRoleReaction(roles, config.serverId, client, event, userId)
+                        }
+                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+            },
+            messageReactionRemove: {
+                handler: ({ event, client }) =>
+                    Effect.gen(function* () {
+                        if (!roles || !(yield* panelIndex.mayBePanel(event.id))) return
+                        yield* handleRoleReaction(roles, config.serverId, client, event, event.userId)
+                    }).pipe(Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" }))),
+            },
+            messageReactionRemoveAll: {
+                handler: ({ event }) =>
+                    Effect.gen(function* () {
+                        if (
+                            (event.guildId !== undefined && event.guildId !== config.serverId) ||
+                            !roleWorker ||
+                            !(yield* panelIndex.mayBePanel(event.id))
+                        )
+                            return
+                        yield* roleWorker.enqueue(event.id)
+                    }),
+            },
+            messageReactionRemoveEmoji: {
+                handler: ({ event }) =>
+                    Effect.gen(function* () {
+                        if (
+                            (event.guildId !== undefined && event.guildId !== config.serverId) ||
+                            !roleWorker ||
+                            !(yield* panelIndex.mayBePanel(event.id))
+                        )
+                            return
+                        yield* roleWorker.enqueue(event.id)
                     }),
             },
         },

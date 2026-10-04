@@ -7,6 +7,7 @@ import { createAfkStore } from "./afk-store.ts"
 import { createResponseStore } from "./responses-store.ts"
 import { createModerationStore } from "./moderation-store.ts"
 import { createPublishingStore } from "./publishing-store.ts"
+import { createRolesStore } from "./roles-store.ts"
 import { createSchedulesStore } from "./schedule-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
@@ -72,6 +73,7 @@ function createServerAdapters(config: BotConfig) {
         responses: createResponseStore(backend),
         moderation: createModerationStore(backend),
         publishing: createPublishingStore(backend),
+        roles: createRolesStore(backend),
         schedules: createSchedulesStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }
