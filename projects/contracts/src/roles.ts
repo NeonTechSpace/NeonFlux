@@ -116,6 +116,7 @@ export const RolesQueryResult = Schema.Union([
 export type RolesQueryResult = typeof RolesQueryResult.Type
 export const RolesEvaluateOperation = Schema.Union([
     Schema.Struct({ type: Schema.Literal("choose"), name: panelName, revision: Int(1), roleId: Id, selected: Schema.Boolean }),
+    Schema.Struct({ type: Schema.Literal("level-sync"), roleId: Id }),
     Schema.Struct({ type: Schema.Literal("reaction"), name: panelName, revision: Int(1), messageId: Id, presentEmojis: List(RolesEmoji, 20), panelVerified: Schema.Boolean }),
     Schema.Struct({ type: Schema.Literal("verify"), name: panelName, revision: Int(1), messageId: optional(Id), panelVerified: flag, reactionPresent: flag }),
     Schema.Struct({ type: Schema.Literal("join") }),
@@ -126,8 +127,10 @@ export type RolesEvaluateOperation = typeof RolesEvaluateOperation.Type
 /** Where one member of a claimed reaction page sits. The backend compares generation and page step with the job */
 export const RolesReactionJobBinding = Schema.Struct({ jobId: Schema.String, generation: Schema.Number, claimToken: RolesClaimToken, pageStep: Schema.Number, index: Int(0, 9) })
 export type RolesReactionJobBinding = typeof RolesReactionJobBinding.Type
+/** Level rewards take no continuation, actor or reaction page */
 export const RolesEvaluateRequest = Schema.Struct({ ...RolesSource.fields, serverId: Id, context: RolesMemberContext, operation: RolesEvaluateOperation, continuationAttemptId: optional(Schema.String),
-    actor: optional(ModerationActor), reactionJob: optional(RolesReactionJobBinding) })
+    actor: optional(ModerationActor), reactionJob: optional(RolesReactionJobBinding) }).check(Schema.makeFilter(value => value.operation.type !== "level-sync"
+        || value.continuationAttemptId === undefined && value.actor === undefined && value.reactionJob === undefined))
 export type RolesEvaluateRequest = typeof RolesEvaluateRequest.Type
 export const RolesEvaluateResult = Schema.Struct({ duplicate: Schema.Boolean, status: Schema.Literals(["unchanged", "acknowledged", "reserved", "partial", "ambiguous", "blocked"]),
     acknowledgment: RolesAcknowledgment, grant: optional(RolesGrant) })
