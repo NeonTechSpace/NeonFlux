@@ -3,7 +3,7 @@ import { Schema } from "effect"
 import { Millis } from "@neonflux/contracts/common"
 import { ModerationDispatchRequest, ModerationGateRequest, ModerationLogOutcomeRequest, ModerationManageOperation, ModerationManageRequest, ModerationNoticeOutcomeRequest, ModerationObserveRequest,
     ModerationOutcomeRequest, ModerationQueryRequest, ModerationReconcileRequest, type ModerationGateResult, type ModerationLogOutcomeResult, type ModerationManageResult, type ModerationObserveResult,
-    type ModerationOutcomeResult, type ModerationQueryResult, type ModerationReconcileResult, type StaffClass, type StaffLogGrant, type WarningNoticeGrant } from "@neonflux/contracts/moderation"
+    type ModerationOutcomeResult, type ModerationQueryResult, type ModerationReconcileResult, type ModerationSettings, type StaffClass, type StaffLogGrant, type WarningNoticeGrant } from "@neonflux/contracts/moderation"
 import { internalMutation, internalQuery } from "./_generated/server.js"
 import type { MutationCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
@@ -12,6 +12,8 @@ import { ownedOverwriteEqual, reserveAction } from "./moderationActions.ts"
 import { caseByNo, config, paged, publicCase, publicRecovery, publicRule, readSettings, receipt, retireRecovery, state } from "./moderationStore.ts"
 import { decode, fail, requireReadMember, requireServer, fresh, name, source } from "./validation.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
+import { metadataCoreReceipt, metadataSettingsEvent } from "./metadataLogsStore.ts"
+import { metadataChangedFields } from "./metadataLogsDomain.ts"
 
 function criticalOperation(op: ModerationManageOperation) {
     if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(op.action.type)
@@ -33,9 +35,16 @@ export const manage = internalMutation({ args: { request: v.any() }, handler: as
     else authorize(who, settings, op.type === "action" && ["quarantine", "release", "lock", "unlock"].includes(op.action.type) ? "security" : scopeFor(type), critical)
     if (type === "erase" && !who.isOwner) fail(403, "Owner permission required")
     const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
+    if (op.type === "settings") await metadataCoreReceipt(ctx, identity, who.userId, op.patch, claim.duplicate)
     if (claim.duplicate) return { duplicate: true }
     if (type === "settings" || type.startsWith("rule-") || type === "watchlist-add" || type === "watchlist-remove") {
         const result = await applyModerationConfiguration(ctx, identity.serverId, op, now)
+        if (op.type === "settings" && !result.duplicate && result.type === "settings") {
+            const tracked = metadataChangedFields.settings as readonly string[]
+            const changed = Object.keys(op.patch).filter(key => tracked.includes(key)
+                && JSON.stringify(settings[key as keyof ModerationSettings]) !== JSON.stringify(result.settings[key as keyof ModerationSettings]))
+            if (changed.length) await metadataSettingsEvent(ctx, identity, who.userId, "moderation", changed)
+        }
         return result
     }
     if (op.type === "action") {

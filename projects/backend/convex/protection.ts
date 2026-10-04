@@ -5,6 +5,7 @@ import { reserveAction } from "./moderationActions.ts"
 import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
 import { config, receipt, state } from "./moderationStore.ts"
 import { decode, fresh, requireServer } from "./validation.ts"
+import { metadataSettingsEvent } from "./metadataLogsStore.ts"
 
 export const evaluate = internalMutation({ args: { request: v.any() }, handler: async (ctx, { request }): Promise<ModerationEvaluateResult> => {
     const input = decode(ModerationEvaluateRequest, request); const now = Date.now(); requireServer(input.serverId)
@@ -96,6 +97,7 @@ export const join = internalMutation({ args: { request: v.any() }, handler: asyn
     if (burst && settings.joinDefcon2 && settings.securityMode === "enforce" && settings.defcon === 3) {
         settings = { ...settings, defcon: 2 }
         await ctx.db.patch((await state(ctx, serverId))._id, { config: settings })
+        await metadataSettingsEvent(ctx, { serverId, messageId: String(result.case.caseNo) }, null, "security", ["defcon"])
     }
     return { duplicate: false, settings, ...result }
 } })

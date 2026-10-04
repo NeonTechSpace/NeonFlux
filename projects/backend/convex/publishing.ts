@@ -18,6 +18,12 @@ import { claimMilestonePublishing, milestonePublishingFence, syncMilestonePublis
 
 import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestionsStore.ts"
 
+// Retained posts and attempts protect exact native IDs even for disabled consumers
+export async function publishingProtectsMessage(ctx: QueryCtx | MutationCtx, serverId: string, channelId: string, messageId: string) {
+    return !!await ctx.db.query("publishingPosts").withIndex("by_native_message", q => q.eq("serverId", serverId).eq("channelId", channelId).eq("messageId", messageId)).first()
+        || !!await ctx.db.query("publishingAttempts").withIndex("by_native_message", q => q.eq("serverId", serverId).eq("channelId", channelId).eq("messageId", messageId)).first()
+}
+
 type Read = MutationCtx | QueryCtx
 const policy = { windowMs: 180000, nativeDeadlineMs: 5000, marginMs: 5000 } satisfies PublishingDispatchPolicy
 const DISPATCH_WINDOW = policy.windowMs, NATIVE_DEADLINE = policy.nativeDeadlineMs, DISPATCH_MARGIN = policy.marginMs
