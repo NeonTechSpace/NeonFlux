@@ -34,6 +34,11 @@ export function integer(value: unknown, min: number, max: number): number {
     return value
 }
 
+export function ids(value: unknown, maximum = 20): string[] {
+    if (!Array.isArray(value) || value.length > maximum) fail(400, "Invalid request")
+    return [...new Set(value.map(requireId))]
+}
+
 export function name(value: unknown): string {
     if (typeof value !== "string") fail(400, "Invalid request")
     const result = value.trim().toLowerCase()

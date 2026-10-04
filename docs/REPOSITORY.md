@@ -29,19 +29,19 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [http.ts](../projects/backend/convex/http.ts) owns the bot's authenticated HTTP entry points and [crons.ts](../projects/backend/convex/crons.ts) starts bounded retention cleanup
 - `convex/_generated/` is created by the Convex CLI and kept in version control
-- `tests/` holds `convex-test` tests
+- `tests/` holds `convex-test` tests and `*-contract.test.ts` files that run the bot's HTTP adapters against an isolated backend fixture
 
 ## Contracts package
 
 - `src/` holds one module per feature with an Effect Schema, and a type of the same name, for every request and answer between the bot and the backend. The bot imports them as `@neonflux/contracts/<module>`
-- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, and [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send
+- [common.ts](../projects/contracts/src/common.ts) holds IDs, limits and other building blocks, [shared.ts](../projects/contracts/src/shared.ts) the member and actor reads that many features send, and [publishing-base.ts](../projects/contracts/src/publishing-base.ts) message content and the publishing grants, attempts and posts every posting feature shares
 - A module imports only these base modules and the modules of the features it builds on, never in a cycle
 - The backend decodes requests with `decode` from [validation.ts](../projects/backend/convex/validation.ts), and each bot `-store.ts` decodes the answers
 
 ## Find a feature
 
 Each feature uses the same file prefix in both packages.
-In the bot, `<prefix>-command.ts` owns command grammar, `-permissions.ts` owns fresh native permission checks and `-store.ts` decodes backend HTTP responses with the feature's shared schemas.
+In the bot, `<prefix>-command.ts` owns command grammar, `-management.ts` owns management replies, `-permissions.ts` owns fresh native permission checks, `-store.ts` decodes backend HTTP responses with the feature's shared schemas and `-worker.ts` runs scoped background work.
 In the backend, `<prefix>.ts` owns queries and mutations, `Domain.ts` owns domain rules, `Store.ts` owns state helpers and `Validators.ts` owns persisted shapes.
 The requests and answers between them live in the feature's module of the [contracts package](#contracts-package)
 
@@ -49,6 +49,7 @@ The requests and answers between them live in the feature's module of the [contr
 | --- | --- | --- | --- |
 | Bot foundation, AFK and responses | `bot`, `main`, `config`, `general-settings`, `backend-http`, `protections`, `member-evidence`, `afk`, `response`, `responses` | `schema`, `http`, `crons`, `validation`, `generalSettings`, `protection`, `afk`, `response`, `responses` | `common`, `shared`, `afk`, `responses`, `general` |
 | Moderation, automod, security and appeals | `moderation`, `safety-permissions`, `action-executor` | `moderation`, `appeals` | `moderation`, `appeal` |
+| Publishing and scheduled publishing | `publishing`, `schedule`, `civil-calendar` | `publishing`, `schedules`, `civilDomain` | `publishing-base`, `publishing`, `schedules`, `civil` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

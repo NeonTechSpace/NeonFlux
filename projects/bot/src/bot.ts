@@ -12,6 +12,12 @@ import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } fro
 import { readSafetyAuthority, verifyPrivateAuthor } from "./safety-permissions.ts"
 import { admitMemberMessage, containProtection, handleProtectionJoin, trackModerationHints } from "./protections.ts"
 import type { ModerationActor } from "@neonflux/contracts/shared"
+import { createPublishingStore, type PublishingStore } from "./publishing-store.ts"
+import { parsePublishingCommand } from "./publishing-command.ts"
+import { handlePublishing } from "./publishing.ts"
+import { createSchedulesStore, type SchedulesStore } from "./schedule-store.ts"
+import { scheduleCritical } from "./schedule-command.ts"
+import { startSchedulesWorker } from "./schedule-worker.ts"
 import { createGeneralSettingsStore, createPrefixReader, handlePrefixCommand, withPrefix, type GeneralSettingsStore } from "./general-settings.ts"
 
 
@@ -20,15 +26,19 @@ export interface BotStores {
     readonly afk?: AfkStore | undefined
     readonly responses?: ResponseStore | undefined
     readonly moderation?: ModerationStore | undefined
+    readonly publishing?: PublishingStore | undefined
+    readonly schedules?: SchedulesStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
 export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
     const backend = config.backend
     const { afk: store = backend && createAfkStore(backend, config.serverId), responses = backend && createResponseStore(backend), moderation: moderationStore = backend && createModerationStore(backend),
-        general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
+        publishing = backend && createPublishingStore(backend),
+        schedules = backend && createSchedulesStore(backend), general = backend && createGeneralSettingsStore(backend, config.serverId) } = stores
     const tracked = moderationStore && trackModerationHints(moderationStore), moderation = tracked?.store, moderationHints = tracked?.hints
     const readPrefix = createPrefixReader(general, config.serverId)
+    let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
     const unprivilegedActor = (userId: string): ModerationActor => ({ userId, roleIds: [], isOwner: false, isAdministrator: false, nativePermissionAuthorized: false })
     return {
         token: Redacted.value(config.token),
@@ -36,6 +46,8 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
         setup: (client) => Effect.gen(function* () {
             if (moderation) yield* initializeModeration(moderation, config, client)
             else yield* applyDefconPresence(client, config, 3)
+            if (publishing) yield* publishing.observe({ serverId: config.serverId, mode: "restart" })
+            if (schedules && publishing) scheduleWorker = yield* startSchedulesWorker(schedules, publishing, config.serverId, client)
         }),
         events: {
             messageCreate: {
@@ -58,6 +70,7 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const quotingError = (hint: string) => ({ error: `Check quoting and syntax. Use ${invocationPrefix}${hint}` })
                     const safetyName = safetyNames.includes(name as SafetyName) ? name as SafetyName : undefined
                     const parsedSafety = safetyName ? command ? usage(parseSafetyCommand(safetyName, command.args)) : quotingError(`${safetyName} help for examples`) : undefined
+                    const parsedPublishing = name === "publish" ? command ? usage(parsePublishingCommand(command.args)) : quotingError("publish help for examples") : undefined
                     const privateInvocation = message.guildId !== config.serverId
                     if (privateInvocation) {
                         if (message.guildId !== undefined || !(safetyName && moderation)) return
@@ -66,10 +79,13 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     }
                     let protectionUnknown = false
                     if (moderation) {
+                        const publishingCritical = parsedPublishing && !("error" in parsedPublishing) && (parsedPublishing.type === "settings" && parsedPublishing.patch.enabled === false
+                            || parsedPublishing.type === "reconcile" || parsedPublishing.type === "query" && ["settings", "post-show", "post-list"].includes(parsedPublishing.operation.type)
+                            || parsedPublishing.type === "schedule" && scheduleCritical(parsedPublishing.command))
                         // Independent feature handlers apply their own backend authorization and DEFCON policy.
                         // The moderation read still supplies presence and native message protection.
-                        const gateClass = safetyName ? safetyGateClass(safetyName, parsedSafety!)
-                            : name === "custom" || name === "auto" ? "staff" : "public"
+                        const gateClass = safetyName ? safetyGateClass(safetyName, parsedSafety!) : publishingCritical ? "critical"
+                            : name === "custom" || name === "auto" || name === "publish" ? "staff" : "public"
                         // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
                         // answer reported a raised DEFCON, and after a refusal the hint did not expect
                         const privileged = !(gateClass === "public" || gateClass === "appeal")
@@ -102,6 +118,11 @@ export function createBotOptions(config: BotConfig, stores: BotStores = {}) {
                     const afk: Effect.Effect<void, unknown> = store && !privateInvocation ? handleAfk(store, config.serverId, context, true, prefix) : Effect.void
                     const [afkExit, responseExit] = yield* Effect.all([Effect.exit(afk), Effect.exit(Effect.gen(function* () {
                         if (name === "afk" || name === "ping") return
+                        if (name === "publish") {
+                            if (!publishing) yield* reply({ content: "Publishing persistence is not configured", allowedMentions: noMentions })
+                            else yield* handlePublishing(publishing, config, parsedPublishing!, context, schedules, scheduleWorker)
+                            return
+                        }
                         if (safetyName) {
                             if (!moderation) yield* reply({ content: "Moderation persistence is not configured", allowedMentions: noMentions })
                             else if (parsedSafety && "error" in parsedSafety) yield* reply({ content: parsedSafety.error, allowedMentions: noMentions })
