@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Configured for TypeScript 7 and Fluxerly's native Effect API. Docker distribution through GHCR and public documentation pages are planned
+  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state. Docker distribution through GHCR and public documentation pages are planned
 </p>
 
 <p align="center">
@@ -22,6 +22,8 @@
 
 ## Documentation
 
+- [Run and develop the bot](BOT.md): Setup, commands and limits for each feature
+- [Configure the backend](BACKEND.md): Convex setup, stored data, retention and HTTP routes
 - [Technology choices](TECHNOLOGY.md): Selected stack, version ownership and planned delivery
 - [Repository guide](REPOSITORY.md): File ownership and workspace setup
 - [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js): The selected bot SDK

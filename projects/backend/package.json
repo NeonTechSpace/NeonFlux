@@ -1,0 +1,24 @@
+{
+    "name": "@neonflux/backend",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0",
+    "exports": {
+        "./contracts": { "types": "./contracts.d.ts" }
+    },
+    "scripts": {
+        "codegen": "node ../scripts/heavy.mjs convex codegen",
+        "typecheck": "node ../scripts/heavy.mjs tsc --project tsconfig.json --singleThreaded",
+        "test": "node ../scripts/heavy.mjs node --test --test-concurrency=1 tests/*.test.ts",
+        "check": "pnpm run typecheck && pnpm run test",
+        "dev": "convex dev"
+    },
+    "dependencies": {
+        "convex": "1.46.0"
+    },
+    "devDependencies": {
+        "@types/node": "24.19.1",
+        "convex-test": "0.0.60",
+        "typescript": "7.0.2"
+    }
+}

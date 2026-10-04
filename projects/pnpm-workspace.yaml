@@ -1,2 +1,9 @@
 packages:
     - bot
+    - backend
+
+allowBuilds:
+    esbuild@0.27.0: true
+
+minimumReleaseAgeExclude:
+    - '@neontechspace/fluxerly@1000.0.0-rc.6'

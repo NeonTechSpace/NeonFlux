@@ -2,5 +2,21 @@
     "name": "@neonflux/bot",
     "private": true,
     "type": "module",
-    "license": "Apache-2.0"
+    "license": "Apache-2.0",
+    "scripts": {
+        "build": "node ../scripts/heavy.mjs tsc --project tsconfig.json --singleThreaded",
+        "typecheck": "node ../scripts/heavy.mjs tsc --project tsconfig.test.json --singleThreaded",
+        "test": "node ../scripts/heavy.mjs \"pnpm run build && node --test --test-concurrency=1 tests/*.test.ts\"",
+        "check": "pnpm run typecheck && pnpm run test",
+        "start": "node --env-file-if-exists=.env dist/main.js"
+    },
+    "devDependencies": {
+        "@neonflux/backend": "workspace:*",
+        "@types/node": "24.19.1",
+        "typescript": "7.0.2"
+    },
+    "dependencies": {
+        "@neontechspace/fluxerly": "1000.0.0-rc.6",
+        "effect": "4.0.0"
+    }
 }
