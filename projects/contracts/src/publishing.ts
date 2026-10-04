@@ -3,7 +3,10 @@ import { Id, Int, List, Millis, Token } from "./common.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 import { PublishingContent, PublishingEmbed, PublishingEmbedField, PublishingGrant, PublishingKind, PublishingName, PublishingObservation, PublishingOutcome, PublishingPost,
     canonicalPublishingContent, equalPublishingContent } from "./publishing-base.ts"
+import { EventsAutomationContext, EventsContext } from "./events.ts"
 import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
+import { MilestonesDeliveryContext } from "./milestones.ts"
+import { SuggestionsCardContext } from "./suggestions.ts"
 
 // Drafts, templates and the posts NeonFlux tracks, see docs/BOT.md#publishing-and-scheduled-publishing
 
@@ -23,7 +26,8 @@ export const PublishingDispatchPolicy = Schema.Struct({ windowMs: Schema.Literal
 export type PublishingDispatchPolicy = typeof PublishingDispatchPolicy.Type
 /** A claim carries the fresh native read of the consumer that owns the attempt, under that consumer's field */
 export const PublishingDispatchRequest = Schema.Struct({ serverId: Id, postNo: Int(1), attemptId: Token, generation: Int(1), sourceId: Token, claimToken: ClaimToken,
-    scheduleContext: optional(SchedulesAutomationContext) })
+    eventContext: optional(Schema.Union([EventsContext, EventsAutomationContext])), scheduleContext: optional(SchedulesAutomationContext), milestoneContext: optional(MilestonesDeliveryContext),
+    suggestionContext: optional(SuggestionsCardContext) })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({ claimed: Schema.Boolean, dispatchExpiresAt: Int(1), nativeDeadlineMs: Schema.Literal(5000) })
 export type PublishingDispatchResult = typeof PublishingDispatchResult.Type

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Id, Int, List, Millis, Name, Token, isId } from "./common.ts"
+import { Id, Int, IsoTime, List, Millis, Name, Token, isId } from "./common.ts"
 
 // Message content and the publishing grants, attempts and posts that every posting feature shares
 
@@ -68,22 +68,47 @@ export const PublishingResolution = Schema.Struct({ attemptId: Token, generation
 export type PublishingResolution = typeof PublishingResolution.Type
 
 // Bindings of the features that post through publishing
+export const SuggestionsCardBinding = Schema.Struct({ suggestionNo: Int(1), cardGeneration: Int(1), desiredRevision: Int(1) })
+export type SuggestionsCardBinding = typeof SuggestionsCardBinding.Type
+export const MilestonesKind = Schema.Literals(["birthday", "anniversary"])
+export type MilestonesKind = typeof MilestonesKind.Type
+export const MilestonesTemplateSource = Schema.Struct({ name: PublishingName, revision: Int(1) })
+export type MilestonesTemplateSource = typeof MilestonesTemplateSource.Type
 export const SchedulesContentSource = Schema.Struct({ kind: PublishingKind, name: PublishingName, revision: Int(1) })
 export type SchedulesContentSource = typeof SchedulesContentSource.Type
+export const MilestonesDeliveryBinding = Schema.Struct({ deliveryId: Token, kind: MilestonesKind, intentRevision: Int(1), userId: Id, joinedAt: IsoTime, consentRevision: Int(1),
+    audienceGeneration: Int(1), celebrationYear: Int(100, 9999), completedYears: Int(0, 9999), generation: Int(1) })
+export type MilestonesDeliveryBinding = typeof MilestonesDeliveryBinding.Type
 
+export const PublishingSuggestionConsumer = Schema.Struct({ type: Schema.Literal("suggestion-card"), ...SuggestionsCardBinding.fields })
+export type PublishingSuggestionConsumer = typeof PublishingSuggestionConsumer.Type
+export const PublishingMilestoneConsumer = Schema.Struct({ type: Schema.Literal("milestone"), ...MilestonesDeliveryBinding.fields })
+    .check(Schema.makeFilter(v => v.kind === "birthday" ? v.completedYears === 0 : v.completedYears >= 1))
+export type PublishingMilestoneConsumer = typeof PublishingMilestoneConsumer.Type
+export const PublishingEventConsumer = Schema.Struct({ type: Schema.Literal("event"), eventNo: Int(1), revision: Int(1), purpose: Schema.Literals(["card", "reminder"]),
+    occurrenceNo: optional(Int(1)), offsetMinutes: optional(Int(1, 10080)), deliveryId: optional(Token) }).check(Schema.makeFilter(v => v.purpose === "card"
+        ? v.occurrenceNo === undefined && v.offsetMinutes === undefined && v.deliveryId === undefined
+        : v.occurrenceNo !== undefined && v.offsetMinutes !== undefined && v.deliveryId !== undefined))
+export type PublishingEventConsumer = typeof PublishingEventConsumer.Type
 export const PublishingScheduleConsumer = Schema.Struct({ type: Schema.Literal("schedule"), scheduleNo: Int(1), planRevision: Int(1), occurrenceNo: Int(1), deliveryId: Token })
 export type PublishingScheduleConsumer = typeof PublishingScheduleConsumer.Type
-export const PublishingConsumer = Schema.Union([PublishingScheduleConsumer])
+export const PublishingConsumer = Schema.Union([PublishingEventConsumer, PublishingScheduleConsumer, PublishingMilestoneConsumer, PublishingSuggestionConsumer])
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
+    PublishingSuggestionConsumer,
     Schema.Struct({ type: Schema.Literal("human"), messageId: Id, createdAt: Millis }),
+    Schema.Struct({ type: Schema.Literal("event-timer"), deliveryId: Token, dueAt: Millis }),
     Schema.Struct({ type: Schema.Literal("schedule-timer"), deliveryId: Token, dueAt: Millis }),
+    Schema.Struct({ type: Schema.Literal("milestone-timer"), deliveryId: Token, dueAt: Millis }),
 ])
 export type PublishingSource = typeof PublishingSource.Type
 export const PublishingProvenance = Schema.Union([
+    PublishingSuggestionConsumer,
     Schema.Struct({ type: Schema.Literal("draft"), kind: PublishingKind, name: PublishingName, revision: Int(1) }),
+    Schema.Struct({ type: Schema.Literal("event"), eventNo: Int(1), revision: Int(1), template: optional(Schema.Struct({ name: PublishingName, revision: Int(1) })) }),
     Schema.Struct({ type: Schema.Literal("schedule"), scheduleNo: Int(1), planRevision: Int(1), source: SchedulesContentSource }),
+    Schema.Struct({ type: Schema.Literal("milestone"), kind: MilestonesKind, intentRevision: Int(1), template: MilestonesTemplateSource }),
 ])
 export type PublishingProvenance = typeof PublishingProvenance.Type
 
@@ -100,9 +125,21 @@ type GrantFields = Schema.Struct<typeof publishingGrantFields>["Type"]
 const canonical = (value: { content: PublishingContent, canonicalContent: PublishingContent }) => equalPublishingContent(value.canonicalContent, canonicalPublishingContent(value.content))
 // The provenance of a grant must match its source, consumer and source ID
 function boundProvenance(v: GrantFields) {
+    if (v.provenance?.type === "suggestion-card") return v.source?.type === "suggestion-card" && v.consumer?.type === "suggestion-card"
+        && v.source.suggestionNo === v.consumer.suggestionNo && v.source.cardGeneration === v.consumer.cardGeneration && v.source.desiredRevision === v.consumer.desiredRevision
+        && v.provenance.suggestionNo === v.consumer.suggestionNo && v.provenance.cardGeneration === v.consumer.cardGeneration && v.provenance.desiredRevision === v.consumer.desiredRevision
+        && v.sourceId === `suggestion_${v.consumer.suggestionNo}_${v.consumer.cardGeneration}_${v.consumer.desiredRevision}_${v.generation}`
+        && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
+    if (v.provenance?.type === "milestone") return v.action === "send" && v.source?.type === "milestone-timer" && v.consumer?.type === "milestone"
+        && v.consumer.kind === v.provenance.kind && v.consumer.intentRevision === v.provenance.intentRevision && v.consumer.deliveryId === v.source.deliveryId
+        && v.sourceId === `milestone_timer_${v.source.deliveryId}` && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
     if (v.provenance?.type === "schedule") return v.action === "send" && v.source?.type === "schedule-timer" && v.consumer?.type === "schedule"
         && v.consumer.scheduleNo === v.provenance.scheduleNo && v.consumer.planRevision === v.provenance.planRevision && v.consumer.deliveryId === v.source.deliveryId
         && v.sourceId === `schedule_timer_${v.source.deliveryId}` && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
+    if (v.provenance?.type === "event") return v.source !== undefined && v.consumer?.type === "event" && v.consumer.eventNo === v.provenance.eventNo && v.consumer.revision === v.provenance.revision
+        && v.draftKind === undefined && v.draftName === undefined && v.draftRevision === undefined
+        && (v.source.type === "human" ? v.source.messageId === v.sourceId && v.consumer.purpose === "card"
+            : v.source.type === "event-timer" && v.consumer.purpose === "reminder" && v.consumer.deliveryId === v.source.deliveryId && v.sourceId === `event_timer_${v.source.deliveryId}`)
     return !v.consumer && (!v.source || v.source.type === "human") && isId(v.sourceId)
         && v.draftKind !== undefined && v.draftName !== undefined && v.draftRevision !== undefined
         && (!v.source || v.source.messageId === v.sourceId)
@@ -113,7 +150,9 @@ export const PublishingGrant = Schema.Struct(publishingGrantFields).check(Schema
 export type PublishingGrant = typeof PublishingGrant.Type
 export const PublishingAttempt = Schema.Struct({ ...publishingGrantFields, outcome: PublishingOutcome, createdAt: Millis, dispatchedAt: optional(Millis), noDispatch: optional(Schema.Literal(true)),
     finishedAt: optional(Millis), observation: optional(PublishingObservation), resolution: optional(PublishingResolution) }).check(Schema.makeFilter((value) => canonical(value) && boundProvenance(value)
-    && value.dispatchExpiresAt === value.createdAt + 180000
+    && (value.source?.type === "schedule-timer" || value.source?.type === "milestone-timer" ? value.dispatchExpiresAt === value.createdAt + 180000
+        : value.source?.type === "event-timer" ? value.consumer?.type === "event" && value.dispatchExpiresAt > value.createdAt && value.dispatchExpiresAt === Math.min(value.createdAt + 180000, value.source.dueAt + 300000, value.source.dueAt + value.consumer.offsetMinutes! * 60000)
+        : value.dispatchExpiresAt === value.createdAt + 180000)
     && (value.dispatchedAt === undefined || value.dispatchedAt >= value.createdAt && value.dispatchedAt < value.dispatchExpiresAt)
     && (value.noDispatch !== true || value.outcome === "failed" && value.dispatchedAt === undefined)
     && (value.finishedAt === undefined || value.finishedAt >= value.createdAt)

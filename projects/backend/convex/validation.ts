@@ -24,6 +24,8 @@ export function requireServer(serverId: string) {
     }
 }
 
+export type ConfigurationIdentity = { serverId: string, actorId: string, createdAt: number, source: { kind: "chat", messageId: string } }
+
 export function requireId(value: unknown): string {
     if (!isId(value)) fail(400, "Invalid request")
     return value
@@ -31,6 +33,11 @@ export function requireId(value: unknown): string {
 
 export function integer(value: unknown, min: number, max: number): number {
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) fail(400, "Invalid request")
+    return value
+}
+
+export function text(value: unknown, maximum = 512): string {
+    if (typeof value !== "string" || value.length > maximum || !value.replace(/[\u000c\u202e]/g, "").trim()) fail(400, "Invalid request")
     return value
 }
 

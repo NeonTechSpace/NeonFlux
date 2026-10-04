@@ -54,6 +54,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
 | Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
 | Message leveling | `level`, `leveling` | `leveling` | `leveling` |
+| Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
 
 Keep one-consumer code in its owning package, and introduce a shared package only for a demonstrated shared responsibility.
 Update this guide when ownership or navigation changes

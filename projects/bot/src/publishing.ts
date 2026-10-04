@@ -1,6 +1,9 @@
+import type { EventsContext } from "@neonflux/contracts/events"
+import type { MilestonesDeliveryContext } from "@neonflux/contracts/milestones"
 import type { PublishingDraft, PublishingManageOperation, PublishingManageResult, PublishingQueryRequest } from "@neonflux/contracts/publishing"
 import { canonicalPublishingContent, equalPublishingContent, type PublishingAttempt, type PublishingContent, type PublishingGrant, type PublishingPost } from "@neonflux/contracts/publishing-base"
 import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
+import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
 import { MessageError, MessageOperationError, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -54,10 +57,10 @@ export function publishingDiagnostic(stage: PublishingStage, error: unknown): Pu
     } catch { return { stage, failureClass: "Unknown" } }
 }
 
-const consumerContextField = { schedule: "scheduleContext" } as const
+const consumerContextField = { event: "eventContext", schedule: "scheduleContext", milestone: "milestoneContext", "suggestion-card": "suggestionContext" } as const
 
 export function performPublishingGrant(store: PublishingStore, serverId: string, actorId: string, client: Client, grant: PublishingGrant,
-    consumerContext?: () => Effect.Effect<SchedulesAutomationContext, unknown>) {
+    consumerContext?: () => Effect.Effect<EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext, unknown>) {
     return Effect.gen(function* () {
         let dispatched = false
         let ownsClaim = false
@@ -90,8 +93,9 @@ export function performPublishingGrant(store: PublishingStore, serverId: string,
             }
             progress.stage = "claim"
             const freshContext = grant.consumer ? consumerContext ? yield* consumerContext() : undefined : undefined
-            if (grant.consumer && (!freshContext || freshContext.botId !== actorId || freshContext.channelId !== grant.channelId
-                || freshContext.botId !== grant.botId)) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
+            const actorContext = freshContext && ("automation" in freshContext ? freshContext.automation : freshContext)
+            if (grant.consumer && (!actorContext || ("actor" in actorContext ? actorContext.actor.userId : actorContext.botId) !== actorId || actorContext.channelId !== grant.channelId
+                || actorContext.botId !== grant.botId || (grant.consumer.type === "milestone") !== (freshContext !== undefined && "automation" in freshContext))) return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             claimRequested = true
             const claim = yield* store.dispatch({ serverId, postNo: grant.postNo, attemptId: grant.attemptId, generation: grant.generation, sourceId: grant.sourceId, claimToken,
                 ...(freshContext && grant.consumer ? { [consumerContextField[grant.consumer.type]]: freshContext } : {}) })
@@ -149,7 +153,9 @@ export function publishingDraftMessage(draft: PublishingDraft) {
 }
 function postSource(attempt: PublishingAttempt) {
     const p = attempt.provenance
+    if (p?.type === "event") return `event ${p.eventNo} revision ${p.revision}`
     if (p?.type === "schedule") return `schedule ${p.scheduleNo} plan ${p.planRevision}, frozen ${p.source.kind} ${p.source.name} revision ${p.source.revision}`
+    if (p?.type === "milestone") return `${p.kind} milestone intent ${p.intentRevision}, frozen template ${p.template.name} revision ${p.template.revision}`
     return `${attempt.draftKind} ${attempt.draftName} revision ${attempt.draftRevision}`
 }
 const postMessage = (post: PublishingPost) => `Post ${post.postNo}, generation ${post.generation}: ${post.outcome}`
@@ -210,7 +216,10 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             const found = yield* query({ type: "post-show", postNo: command.postNo })
             if (found.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             const post = found.post
-            if (post.consumer) { yield* reply(`Post ${post.postNo} belongs to schedule ${post.consumer.scheduleNo}. Use ${prefix}publish schedule ${command.type} with its current management revision${command.type === "reconcile" ? ` and post ${post.postNo}` : " after the selected occurrences are settled"}`); return }
+            if (post.consumer?.type === "suggestion-card") { yield* reply(`Post ${post.postNo} belongs to suggestion ${post.consumer.suggestionNo}. Use ${prefix}suggest publication ${post.consumer.suggestionNo} for exact recovery and cleanup`); return }
+            if (post.consumer) { yield* reply(post.consumer.type === "schedule" ? `Post ${post.postNo} belongs to schedule ${post.consumer.scheduleNo}. Use ${prefix}publish schedule ${command.type} with its current management revision${command.type === "reconcile" ? ` and post ${post.postNo}` : " after the selected occurrences are settled"}`
+                : post.consumer.type === "milestone" ? `Post ${post.postNo} belongs to ${post.consumer.kind} milestones. Use ${prefix}milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""} in private`
+                : `Post ${post.postNo} belongs to event ${post.consumer.eventNo}. Use ${prefix}event ${command.type === "forget" ? "forget" : "reconcile"} with the current event revision${command.type === "reconcile" ? ` and post ${post.postNo}` : " after its ownership is settled"}`); return }
             if (command.type === "forget") result = yield* manage({ type: "forget", postNo: post.postNo, expectedGeneration: post.generation })
             else {
                 if (!post.messageId) { yield* reply("This attempt has no known provider message identity. Reconciliation cannot search for or resend it"); return }
@@ -234,7 +243,10 @@ export function handlePublishing(store: PublishingStore, config: BotConfig, comm
             if (command.type === "edit") {
                 const tracked = yield* query({ type: "post-show", postNo: command.postNo })
                 if (tracked.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
-                if (tracked.post.consumer) { yield* reply(`Post ${tracked.post.postNo} belongs to schedule ${tracked.post.consumer.scheduleNo}. Update future delivery intent through ${prefix}publish schedule`); return }
+                if (tracked.post.consumer?.type === "suggestion-card") { yield* reply(`Post ${tracked.post.postNo} belongs to suggestion ${tracked.post.consumer.suggestionNo}. Use ${prefix}suggest for its lifecycle`); return }
+                if (tracked.post.consumer) { yield* reply(tracked.post.consumer.type === "schedule" ? `Post ${tracked.post.postNo} belongs to schedule ${tracked.post.consumer.scheduleNo}. Update future delivery intent through ${prefix}publish schedule`
+                    : tracked.post.consumer.type === "milestone" ? `Post ${tracked.post.postNo} belongs to ${tracked.post.consumer.kind} milestones. Update future intent through ${prefix}milestone`
+                    : `Post ${tracked.post.postNo} belongs to event ${tracked.post.consumer.eventNo}. Update that event through ${prefix}event`); return }
                 const fresh = yield* readPublishingAuthority(client, config.serverId, actor.userId, tracked.post.channelId, !!found.draft.content.embed)
                 result = yield* manage({ ...base, type: "edit", postNo: command.postNo, expectedGeneration: tracked.post.generation,
                     context: { botId: fresh.botId, channelId: tracked.post.channelId, botAuthorized: fresh.botPermissionAuthorized, actorAuthorized: fresh.nativePermissionAuthorized } })

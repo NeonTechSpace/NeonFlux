@@ -10,6 +10,10 @@ export type ModerationActor = typeof ModerationActor.Type
 export const ModerationSource = Schema.Struct({ messageId: Id, createdAt: Millis })
 export type ModerationSource = typeof ModerationSource.Type
 
+export const EventsMemberContext = Schema.Struct({ userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime),
+    canView: Schema.Boolean, canReadHistory: Schema.Boolean })
+export type EventsMemberContext = typeof EventsMemberContext.Type
+
 export const RolesRoleSnapshot = Schema.Struct({ roleId: Id, permissions: PermissionBits, botCanManage: Schema.Boolean, actorCanManage: Schema.Boolean })
 export type RolesRoleSnapshot = typeof RolesRoleSnapshot.Type
 export const RolesMemberContext = Schema.Struct({ userId: Id, joinedAt: IsoTime, roleIds: Ids(1000), isBot: Schema.Boolean, timeoutUntil: Schema.NullOr(IsoTime),
