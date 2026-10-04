@@ -11,7 +11,9 @@ import { fakeClient, quietSignal } from "./backend-fake.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { rolesBoundary } from "./roles-fixture.ts"
 import { greetingsBoundary } from "./welcome-fixture.ts"
+import { eventsBoundary } from "./event-fixture.ts"
 import { schedulesBoundary } from "./schedule-fixture.ts"
+import { milestonesBoundary } from "./milestone-fixture.ts"
 import { levelsBoundary } from "./level-fixture.ts"
 import { boundary } from "./moderation-fixture.ts"
 
@@ -22,7 +24,9 @@ function offlineWorkers() {
         publishing,
         roles: rolesBoundary(publishing).store,
         greetings: greetingsBoundary().store,
+        events: eventsBoundary().store,
         schedules: schedulesBoundary().store,
+        milestones: milestonesBoundary().store,
         leveling: levelsBoundary().store,
         moderation: boundary().store,
         afk: {

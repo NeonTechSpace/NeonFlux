@@ -43,7 +43,11 @@ import {
 import { decode, fail, requireId, requireServer, fresh, integer, source } from "./validation.ts"
 import { protectedPanelPost } from "./rolesStore.ts"
 import { requireAdministrator } from "./moderationStore.ts"
+import { claimEventPublishing, eventPublishingFence, syncEventPublishing } from "./eventsStore.ts"
 import { claimSchedulePublishing, schedulePublishingFence, syncSchedulePublishing } from "./schedulesStore.ts"
+import { claimMilestonePublishing, milestonePublishingFence, syncMilestonePublishing } from "./milestonesStore.ts"
+import { suggestionPublishingFence, syncSuggestionPublishing } from "./suggestionsStore.ts"
+import { ringWork } from "./workSignal.ts"
 
 type Read = MutationCtx | QueryCtx
 const policy = { windowMs: 180000, nativeDeadlineMs: 5000, marginMs: 5000 } satisfies PublishingDispatchPolicy
@@ -138,7 +142,7 @@ export function publicAttempt(row: Doc<"publishingAttempts">): PublishingAttempt
         ...(row.resolution ? { resolution: row.resolution } : {}),
     }
 }
-async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promise<PublishingPost> {
+export async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promise<PublishingPost> {
     const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
     if (!attempt || attempt.serverId !== row.serverId || attempt.postNo !== row.postNo)
         fail(503, "Tracked post unavailable")
@@ -182,10 +186,34 @@ export async function reservePublishing(
     if (!current.enabled) fail(403, "Publishing disabled")
     if (existing) {
         const prior = existing.attemptId ? await ctx.db.get(existing.attemptId) : null
-        if (prior?.unresolved !== false || !existing.messageId || !existing.confirmedCanonicalContent)
+        const retryUnclaimedCard =
+            ((input.consumer?.type === "event" && input.consumer.purpose === "card") ||
+                input.consumer?.type === "suggestion-card") &&
+            !existing.messageId &&
+            prior?.outcome === "failed" &&
+            prior.noDispatch === true
+        if (
+            prior?.unresolved !== false ||
+            (!retryUnclaimedCard && (!existing.messageId || !existing.confirmedCanonicalContent))
+        )
             fail(409, "Tracked post cannot be edited")
         if (existing.channelId !== input.channelId || existing.botId !== input.botId)
             fail(409, "Publishing destination changed")
+        if (existing.consumer?.type === "suggestion-card") {
+            if (
+                input.consumer?.type !== "suggestion-card" ||
+                existing.consumer.suggestionNo !== input.consumer.suggestionNo ||
+                existing.consumer.cardGeneration !== input.consumer.cardGeneration
+            )
+                fail(409, "Publishing suggestion consumer changed")
+        } else if (
+            existing.consumer &&
+            (existing.consumer.type !== "event" ||
+                input.consumer?.type !== "event" ||
+                existing.consumer.eventNo !== input.consumer.eventNo ||
+                existing.consumer.purpose !== input.consumer.purpose)
+        )
+            fail(409, "Publishing consumer changed")
     }
     const postNo = existing?.postNo ?? current.nextPostNo,
         generation = integer((existing?.generation ?? 0) + 1, 1, Number.MAX_SAFE_INTEGER)
@@ -242,17 +270,76 @@ export async function reservePublishing(
         publicAttempt((await ctx.db.get(attemptId))!)
     return { post: await publicPost(ctx, (await ctx.db.get(id))!), grant: grant as PublishingGrant }
 }
+export async function forgetConsumerPost(ctx: MutationCtx, row: Doc<"publishingPosts">) {
+    if (
+        await ctx.db
+            .query("publishingAttempts")
+            .withIndex("by_server_post_unresolved", (q) =>
+                q.eq("serverId", row.serverId).eq("postNo", row.postNo).eq("unresolved", true),
+            )
+            .first()
+    )
+        fail(409, "Unresolved event publication preserved")
+    await ctx.db.delete(row._id)
+}
+export async function retireSuggestionPost(
+    ctx: MutationCtx,
+    row: Doc<"publishingPosts">,
+    limit: number,
+): Promise<{ complete: boolean; removed: number }> {
+    if (row.consumer?.type !== "suggestion-card") fail(409, "Suggestion post required")
+    if (
+        await ctx.db
+            .query("publishingAttempts")
+            .withIndex("by_server_post_unresolved", (q) =>
+                q.eq("serverId", row.serverId).eq("postNo", row.postNo).eq("unresolved", true),
+            )
+            .first()
+    )
+        fail(409, "Unresolved suggestion publication preserved")
+    const attempts = await ctx.db
+        .query("publishingAttempts")
+        .withIndex("by_server_post", (q) => q.eq("serverId", row.serverId).eq("postNo", row.postNo))
+        .take(limit + 1)
+    let removed = 0
+    for (const attempt of attempts.filter((a) => a._id !== row.attemptId).slice(0, Math.max(0, limit - 2))) {
+        if (
+            attempt.outcome === "pending" ||
+            attempt.unresolved ||
+            attempt.consumer?.type !== "suggestion-card" ||
+            attempt.consumer.suggestionNo !== row.consumer.suggestionNo
+        )
+            fail(409, "Suggestion publication evidence preserved")
+        await ctx.db.delete(attempt._id)
+        removed++
+    }
+    const remaining = await ctx.db
+        .query("publishingAttempts")
+        .withIndex("by_server_post", (q) => q.eq("serverId", row.serverId).eq("postNo", row.postNo))
+        .take(2)
+    if (remaining.some((a) => a._id !== row.attemptId) || limit - removed < remaining.length + 1)
+        return { complete: false, removed }
+    for (const attempt of remaining) {
+        await ctx.db.delete(attempt._id)
+        removed++
+    }
+    await ctx.db.delete(row._id)
+    return { complete: true, removed: removed + 1 }
+}
 async function syncPublishing(
     ctx: MutationCtx,
     attempt: Doc<"publishingAttempts">,
     outcome: "sent" | "failed" | "uncertain",
 ) {
-    if (attempt.consumer?.type === "schedule") await syncSchedulePublishing(ctx, attempt, outcome)
+    if (attempt.consumer?.type === "event") await syncEventPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "schedule") await syncSchedulePublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "milestone") await syncMilestonePublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
 }
 export async function releaseConsumerPublication(
     ctx: MutationCtx,
-    delivery: Doc<"scheduleDeliveries">,
-    type: "schedule",
+    delivery: Doc<"milestoneDeliveries"> | Doc<"scheduleDeliveries">,
+    type: "milestone" | "schedule",
 ) {
     if (!delivery.attemptId) return
     const attempt = await ctx.db.get(delivery.attemptId)
@@ -461,16 +548,46 @@ export const dispatch = serviceMutation({
         if (attempt.sourceId !== claimedSourceId(attempt, input.sourceId)) fail(409, "Publishing source changed")
         const response = { dispatchExpiresAt: attempt.dispatchExpiresAt, nativeDeadlineMs: attempt.nativeDeadlineMs }
         if (attempt.dispatchedAt !== undefined) return { claimed: false, ...response }
-        if (attempt.consumer?.type === "schedule") {
+        if (attempt.consumer?.type === "suggestion-card") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (
+                attempt.outcome !== "pending" ||
+                !(await suggestionPublishingFence(ctx, attempt, input.suggestionContext))
+            )
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "milestone") {
+            if (input.suggestionContext !== undefined) fail(400, "Unexpected suggestion context")
+            if (input.eventContext !== undefined || input.scheduleContext !== undefined)
+                fail(400, "Unexpected publishing context")
+            if (
+                attempt.outcome !== "pending" ||
+                !(await milestonePublishingFence(ctx, attempt, input.milestoneContext))
+            )
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "schedule") {
+            if (input.suggestionContext !== undefined) fail(400, "Unexpected suggestion context")
+            if (input.milestoneContext !== undefined) fail(400, "Unexpected milestone context")
+            if (input.eventContext !== undefined) fail(400, "Unexpected event context")
             if (attempt.outcome !== "pending" || !(await schedulePublishingFence(ctx, attempt, input.scheduleContext)))
                 return { claimed: false, ...response }
         } else {
+            if (input.suggestionContext !== undefined) fail(400, "Unexpected suggestion context")
+            if (input.milestoneContext !== undefined) fail(400, "Unexpected milestone context")
             if (input.scheduleContext !== undefined) fail(400, "Unexpected schedule context")
             if (attempt.outcome !== "pending" || now >= attempt.dispatchExpiresAt)
                 fail(409, "Publishing dispatch expired")
+            if (attempt.consumer?.type === "event") await eventPublishingFence(ctx, attempt, input.eventContext)
+            else if (input.eventContext !== undefined) fail(400, "Unexpected event context")
         }
         await ctx.db.patch(attempt._id, { dispatchedAt: now, claimToken: input.claimToken })
+        await claimEventPublishing(ctx, attempt, now)
         await claimSchedulePublishing(ctx, attempt, now)
+        await claimMilestonePublishing(ctx, attempt, now)
         return { claimed: true, ...response }
     },
 })
@@ -571,6 +688,8 @@ export const reconcile = serviceMutation({
             input.attemptId,
             input.expectedGeneration,
         )
+        if (row.consumer?.type === "suggestion-card")
+            fail(409, "Suggestion publication recovery uses its owning consumer")
         if (!(await reserveSource(ctx, identity.serverId, identity.messageId, now)))
             return { recorded: false, post: await publicPost(ctx, row) }
         return reconcilePublishing(ctx, row, attempt, input.observation)
@@ -603,7 +722,14 @@ export async function reconcilePublishing(
         content: canonicalPublishingContent(value.content),
     }
     await ctx.db.patch(attempt._id, { observation })
-    if (attempt.outcome === "uncertain" && dispatchClosed(attempt, now) && dispatchClosed(attempt, observedAt)) {
+    if (
+        (attempt.outcome === "uncertain" ||
+            (attempt.consumer?.type === "suggestion-card" &&
+                attempt.outcome === "failed" &&
+                attempt.dispatchedAt !== undefined)) &&
+        dispatchClosed(attempt, now) &&
+        dispatchClosed(attempt, observedAt)
+    ) {
         const intended = equalPublishingContent(observation.content, attempt.canonicalContent)
         const previous =
             row.confirmedCanonicalContent && equalPublishingContent(observation.content, row.confirmedCanonicalContent)
@@ -719,6 +845,8 @@ async function applyPublishingConfiguration(
             ...(enabled !== undefined ? { enabled } : {}),
             ...(enabled === true && !current.enabled ? { activatedAt: now } : {}),
         })
+        // Event reminders that came due while publishing was off are listed again only from now on, so the bot hears of them at once
+        if (enabled === true && !current.enabled) await ringWork(ctx)
         const next = (await ctx.db.get(current._id))!
         return { duplicate: false, type: "settings", settings: { enabled: next.enabled } }
     }

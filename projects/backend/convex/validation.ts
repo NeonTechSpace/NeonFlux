@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
 import { Exit, Schema } from "effect"
-import { IsoTime, isId, isName } from "@neonflux/contracts/common"
+import { IsoTime, hasText, isId, isName } from "@neonflux/contracts/common"
 import { configuredServerScope, scopeDenied } from "./serverScope.ts"
 
 export { isId }
@@ -78,6 +78,11 @@ export function integer(value: unknown, min: number, max: number): number {
     return value
 }
 
+export function text(value: unknown, maximum = 512): string {
+    if (typeof value !== "string" || value.length > maximum || !hasText(value)) fail(400, "Invalid request")
+    return value
+}
+
 export function ids(value: unknown, maximum = 20): string[] {
     if (!Array.isArray(value) || value.length > maximum) fail(400, "Invalid request")
     return [...new Set(value.map(requireId))]
@@ -124,4 +129,6 @@ export function requireReadMember(row: Record<string, unknown>, userId: string) 
 export type ConfigurationIdentity = {
     serverId: string
     actorId: string
+    createdAt: number
+    messageId: string
 }

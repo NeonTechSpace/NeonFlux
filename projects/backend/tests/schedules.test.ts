@@ -34,6 +34,7 @@ const modules = {
     "../convex/schedules.ts": () => import("../convex/schedules.ts"),
     "../convex/schedulesDelivery.ts": () => import("../convex/schedulesDelivery.ts"),
     "../convex/schedulesCleanup.ts": () => import("../convex/schedulesCleanup.ts"),
+    "../convex/milestonesDelivery.ts": () => import("../convex/milestonesDelivery.ts"),
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/publishing.ts": () => import("../convex/publishing.ts"),
     "../convex/moderation.ts": () => import("../convex/moderation.ts"),
@@ -75,6 +76,8 @@ async function fixture(t: TestContext) {
             roleIds: [],
             isBot: false,
             timeoutUntil: null,
+            canView: true,
+            canReadHistory: true,
         },
     })
     const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })

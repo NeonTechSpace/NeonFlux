@@ -14,7 +14,10 @@ import {
     canonicalPublishingContent,
     equalPublishingContent,
 } from "./publishing-base.ts"
+import { EventsAutomationContext, EventsContext } from "./events.ts"
 import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
+import { MilestonesDeliveryContext } from "./milestones.ts"
+import { SuggestionsCardContext } from "./suggestions.ts"
 
 // Drafts, templates and the posts NeonFlux tracks, see docs/BOT.md#publishing-and-scheduled-publishing
 
@@ -52,7 +55,10 @@ export const PublishingDispatchRequest = Schema.Struct({
     generation: Int(1),
     sourceId: Token,
     claimToken: ClaimToken,
+    eventContext: optional(Schema.Union([EventsContext, EventsAutomationContext])),
     scheduleContext: optional(SchedulesAutomationContext),
+    milestoneContext: optional(MilestonesDeliveryContext),
+    suggestionContext: optional(SuggestionsCardContext),
 })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type
 export const PublishingDispatchResult = Schema.Struct({

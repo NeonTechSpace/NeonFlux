@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import type { EventsQueryRequest } from "@neonflux/contracts/events"
 import type {
     PublishingDispatchRequest,
     PublishingManageRequest,
@@ -18,12 +19,19 @@ import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/te
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
-import { performPublishingGrant, publishingDiagnostic, publishingDraftCard } from "../src/publishing.ts"
+import {
+    handlePublishing,
+    performPublishingGrant,
+    publishingDiagnostic,
+    publishingDraftCard,
+} from "../src/publishing.ts"
 import { publishingMessageContent } from "../src/publishing-content.ts"
 import { PublishingStoreError } from "../src/publishing-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
 import { scheduleGrant, schedulesBoundary } from "./schedule-fixture.ts"
+import { milestoneGrant } from "./milestone-fixture.ts"
+import { eventsBoundary } from "./event-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 type Embed = {
@@ -1306,10 +1314,60 @@ test("draft, template and post lists page with next, each from its own place", a
     )
 })
 
-test("a scheduled post's recovery and edit replies name its schedule", async () => {
+test("a milestone post's recovery reply names the DM command", async () => {
+    const f = createFixtures(),
+        remote = publishingBoundary(),
+        grant = milestoneGrant()
+    remote.posts.set(grant.postNo, {
+        postNo: grant.postNo,
+        generation: grant.generation,
+        channelId: grant.channelId,
+        botId: grant.botId,
+        outcome: "uncertain",
+        createdAt: 0,
+        updatedAt: 0,
+        consumer: grant.consumer,
+        attempt: { ...grant, outcome: "uncertain", createdAt: 0 },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const config = { token, serverId: f.ids.guild }
+                const bot = yield* createTestBot({
+                    token: "synthetic-milestone-hint-token",
+                    events: {
+                        messageCreate: (context) =>
+                            handlePublishing(
+                                remote.store,
+                                config,
+                                { type: "reconcile", postNo: grant.postNo },
+                                context,
+                            ),
+                    },
+                })
+                const p = platform(bot)
+                yield* bot.ready()
+                yield* bot.emit("MESSAGE_CREATE", f.message({ content: "!publish reconcile 1" }))
+                yield* bot.idle()
+                assert.deepEqual(bot.failures(), [])
+                assert.deepEqual(
+                    p.replies.requests().map((request) => (request.body as { content: string }).content),
+                    [
+                        `Post #${grant.postNo} is a ${grant.consumer.kind} celebration. Use ` +
+                            `\`!milestone reconcile ${grant.consumer.kind} ${grant.postNo}\` ` +
+                            "in a DM with NeonFlux",
+                    ],
+                )
+            }),
+        ),
+    )
+})
+
+test("a scheduled or event post's recovery and edit replies name its schedule or event", async () => {
     const f = createFixtures(),
         remote = publishingBoundary(),
         schedules = schedulesBoundary(),
+        events = eventsBoundary(),
         scheduled = scheduleGrant()
     remote.posts.set(scheduled.postNo, {
         postNo: scheduled.postNo,
@@ -1341,6 +1399,7 @@ test("a scheduled post's recovery and edit replies name its schedule", async () 
                                 moderation: boundary().store,
                                 publishing: remote.store,
                                 schedules: schedules.store,
+                                events: events.store,
                             },
                         ),
                     ),
@@ -1369,10 +1428,24 @@ test("a scheduled post's recovery and edit replies name its schedule", async () 
                     schedules.calls.map((c) => (c.input as SchedulesQueryRequest).operation),
                     Array.from({ length: 3 }, () => ({ type: "show", scheduleNo: 1 })),
                 )
+                // An event's post points at the event commands, which take the event's name rather than its number
                 remote.posts.set(2, {
                     ...structuredClone(remote.posts.get(1)!),
                     postNo: 2,
+                    consumer: { type: "event", eventNo: 3, revision: 1, purpose: "card" },
                 })
+                assert.equal(
+                    yield* say("!publish reconcile 2"),
+                    "Post #2 belongs to event study. Use `!event reconcile study 2`",
+                )
+                assert.equal(
+                    yield* say("!publish forget 2"),
+                    "Post #2 belongs to event study. Use `!event forget study` once its posts are settled",
+                )
+                assert.equal(
+                    yield* say("!publish edit 2 notice"),
+                    "Post #2 belongs to event study. Change the event with `!event`, and its card follows",
+                )
                 // An unconfirmed post names the command that checks it, with its real number
                 const shown = yield* send("!publish status 1")
                 assert.deepEqual(shown.embeds![0]!.fields, [
@@ -1388,6 +1461,12 @@ test("a scheduled post's recovery and edit replies name its schedule", async () 
                 assert.deepEqual(listed.slice(2), [
                     "Check a post that is not confirmed with `!publish reconcile <post>`, or record it with `!publish resolve <post> sent <message-id>|failed` when NeonFlux does not know its message",
                 ])
+                assert.deepEqual(
+                    events.calls
+                        .filter((c) => c.method === "query")
+                        .map((c) => (c.input as EventsQueryRequest).operation),
+                    Array.from({ length: 3 }, () => ({ type: "show", eventNo: 3 })),
+                )
                 assert.equal(remote.calls.filter((c) => c.method !== "query" && c.method !== "observe").length, 0)
             }),
         ),

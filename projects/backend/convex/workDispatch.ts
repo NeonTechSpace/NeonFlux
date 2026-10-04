@@ -2,11 +2,14 @@ import type { QueryCtx } from "./_generated/server.js"
 import type { Doc, TableNames } from "./_generated/dataModel.js"
 import { type ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import { isServed } from "./serviceGuard.ts"
+import { eventSettings, lifecycle } from "./eventsStore.ts"
+import { suggestionSettings } from "./suggestionsStore.ts"
+import { publisherSettings } from "./schedulesStore.ts"
 import { fail } from "./validation.ts"
 
 export const WORK_KINDS = ServiceWorkKind.literals
 export const WORK_ROWS_PER_SOURCE = 100
-// A dispatch reads at most this many document bytes across all sources, below Convex's 16 MiB read limit with room for the work
+// A dispatch reads at most this many document bytes across all sources, below Convex's 16 MiB read limit with room for the gate
 // reads and next due times. Reads come in chunks no larger than what the remaining budget holds at Convex's 1 MiB document limit,
 // so a source of large rows continues on the next page instead of failing the whole dispatch
 const WORK_READ_BYTES = 12 * 1048576
@@ -17,6 +20,7 @@ const encoder = new TextEncoder()
 
 type Row = { _creationTime: number; serverId: string } & Record<string, unknown>
 type Position = [value: number, creationTime: number]
+type Settings = ReturnType<typeof serverSettings>
 interface Source {
     readonly kind: ServiceWorkKind
     readonly key: string
@@ -27,38 +31,104 @@ interface Source {
     /** The index field after the prefix that orders rows by due time. Without it rows follow creation order */
     readonly order?: string
     readonly min?: number
+    /** Whether the server's settings let its worker act */
+    readonly gate?: (settings: Settings, serverId: string) => Promise<boolean>
     /** Whether the worker's endpoint would act on this row. Each check mirrors that endpoint's selection */
-    readonly work?: (ctx: QueryCtx, row: never, now: number) => boolean | Promise<boolean>
+    readonly work?: (ctx: QueryCtx, row: never, now: number, settings: Settings) => boolean | Promise<boolean>
 }
 function source<T extends TableNames>(
     spec: Omit<Source, "table" | "work"> & {
         table: T
-        work?: (ctx: QueryCtx, row: Doc<T>, now: number) => boolean | Promise<boolean>
+        work?: (ctx: QueryCtx, row: Doc<T>, now: number, settings: Settings) => boolean | Promise<boolean>
     },
 ): Source {
     return spec as Source
 }
 
-// Checks shared by the rows of one dispatch
-function dispatchChecks() {
+// Settings reads shared by every gate in one dispatch
+function serverSettings(ctx: QueryCtx) {
     const cache = new Map<string, Promise<unknown>>()
     const once = <A>(key: string, read: () => Promise<A>) => {
         if (!cache.has(key)) cache.set(key, read())
         return cache.get(key) as Promise<A>
     }
     return {
+        defcon: (serverId: string) =>
+            once(
+                `moderation:${serverId}`,
+                async () =>
+                    (
+                        await ctx.db
+                            .query("moderationSettings")
+                            .withIndex("by_server", (q) => q.eq("serverId", serverId))
+                            .unique()
+                    )?.config.defcon ?? 3,
+            ),
+        events: (serverId: string) => once(`events:${serverId}`, () => eventSettings(ctx, serverId)),
+        suggestions: (serverId: string) => once(`suggestions:${serverId}`, () => suggestionSettings(ctx, serverId)),
+        publishing: (serverId: string) => once(`publishing:${serverId}`, () => publisherSettings(ctx, serverId)),
         once,
     }
 }
 
+// Mirrors eventsDelivery list: claimed or dispatched attempts wait, expired attempts age and late reminders close. A due reminder
+// is listed only while events and publishing are on at DEFCON 3
+async function eventDeliveryWork(ctx: QueryCtx, row: Doc<"eventDeliveries">, now: number, settings: Settings) {
+    const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
+    if (attempt && (attempt.outcome !== "pending" || attempt.dispatchedAt !== undefined)) return false
+    if (attempt && now >= attempt.dispatchExpiresAt) return true
+    if (now >= Math.min(row.dueAt + 300000, row.startsAt)) return true
+    return (
+        row.dueAt <= now &&
+        (await settings.events(row.serverId))?.enabled === true &&
+        (await settings.publishing(row.serverId))?.enabled !== false &&
+        (await settings.defcon(row.serverId)) === 3
+    )
+}
+// Mirrors eventsWork list: closed occurrences end their work, and open ones wait for their lease and a live event
+async function eventPromotionWork(ctx: QueryCtx, row: Doc<"eventOccurrences">, now: number) {
+    if (lifecycle({ ...row.date, state: row.state }, now) !== "open") return true
+    if ((row.leaseExpiresAt ?? 0) > now) return false
+    const event = await ctx.db
+        .query("events")
+        .withIndex("by_number", (q) => q.eq("serverId", row.serverId).eq("eventNo", row.eventNo))
+        .unique()
+    return event?.revision === row.revision && !event.forgetting && event.state !== "cancelled"
+}
 // Mirrors schedulesDelivery list for due deliveries. Deliveries due later need no visit before their time
 async function scheduleWork(ctx: QueryCtx, row: Doc<"scheduleDeliveries">, now: number) {
     if (row.dueAt > now || row.nextCheckAt > now || row.claimedAt !== undefined) return false
     const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
     return !attempt || (attempt.outcome === "pending" && attempt.dispatchedAt === undefined)
 }
+const eventsEnabled = async (settings: Settings, serverId: string) =>
+    (await settings.events(serverId))?.enabled === true && (await settings.defcon(serverId)) === 3
 
 const WORK_SOURCES: readonly Source[] = [
+    ...(["queued", "blocked", "reserved"] as const).map((state) =>
+        source({
+            kind: "events",
+            key: `eventDeliveries.${state}`,
+            table: "eventDeliveries",
+            index: "by_global_due",
+            prefix: [
+                ["state", state],
+                ["claimedAt", undefined],
+            ],
+            order: "nextCheckAt",
+            work: eventDeliveryWork,
+        }),
+    ),
+    source({
+        kind: "events",
+        key: "eventOccurrences",
+        table: "eventOccurrences",
+        index: "by_global_work",
+        prefix: [["workActive", true]],
+        order: "nextCheckAt",
+        gate: eventsEnabled,
+        work: eventPromotionWork,
+    }),
     source({
         kind: "schedules",
         key: "scheduleDeliveries",
@@ -67,6 +137,27 @@ const WORK_SOURCES: readonly Source[] = [
         prefix: [["active", true]],
         order: "nextCheckAt",
         work: scheduleWork,
+    }),
+    source({
+        kind: "milestones",
+        key: "milestoneEnrollments",
+        table: "milestoneEnrollments",
+        index: "by_global_discovery",
+        prefix: [],
+        order: "nextCheckAt",
+    }),
+    source({
+        kind: "suggestions",
+        key: "suggestions",
+        table: "suggestions",
+        index: "by_global_work",
+        prefix: [["dirty", true]],
+        order: "nextCheckAt",
+        gate: async (settings, serverId) =>
+            (await settings.suggestions(serverId))?.enabled === true &&
+            (await settings.publishing(serverId))?.enabled !== false &&
+            (await settings.defcon(serverId)) === 3,
+        work: (_ctx, row, now) => !row.forgetting && (row.historyExpiresAt === undefined || now < row.historyExpiresAt),
     }),
     source({
         kind: "levels",
@@ -89,7 +180,7 @@ const WORK_SOURCES: readonly Source[] = [
 /** The tables the dispatcher reads, so bot mutations can report the due work their writes create */
 export const WORK_TABLES: ReadonlySet<TableNames> = new Set(WORK_SOURCES.map((source) => source.table))
 // When a row as written makes its worker due, by the same prefix and order its sources read. A source without a due order
-// lists its rows at once. Work checks are left to the dispatch, so a reported time can only be early
+// lists its rows at once. Gates and work checks are left to the dispatch, so a reported time can only be early
 export function rowDueAt(table: TableNames, row: Record<string, unknown>, now: number): number | undefined {
     let earliest: number | undefined
     for (const source of WORK_SOURCES) {
@@ -174,8 +265,8 @@ export async function dueWork(
 ): Promise<ServiceWork> {
     const after = positions(cursor),
         older = positions(held),
-        checks = dispatchChecks()
-    const served = (serverId: string) => checks.once(`served:${serverId}`, () => isServed(serverId))
+        settings = serverSettings(ctx)
+    const served = (serverId: string) => settings.once(`served:${serverId}`, () => isServed(serverId))
     const kinds = Object.fromEntries(WORK_KINDS.map((kind) => [kind, [] as string[]])) as Record<
         ServiceWorkKind,
         string[]
@@ -200,7 +291,15 @@ export async function dueWork(
             for (const row of rows) {
                 budget -= encoder.encode(JSON.stringify(row)).length
                 if (!found.includes(row.serverId)) {
-                    if ((await served(row.serverId)) && (!source.work || (await source.work(ctx, row as never, now)))) {
+                    const gate = source.gate
+                    if (
+                        (await served(row.serverId)) &&
+                        (!gate ||
+                            (await settings.once(`${source.key}:${row.serverId}`, () =>
+                                gate(settings, row.serverId),
+                            ))) &&
+                        (!source.work || (await source.work(ctx, row as never, now, settings)))
+                    ) {
                         found.push(row.serverId)
                     }
                 }

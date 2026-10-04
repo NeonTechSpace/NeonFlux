@@ -4,13 +4,16 @@ import { BUILT_IN_COMMANDS } from "@neonflux/contracts/responses"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Redacted } from "effect"
 import { createBotOptions } from "../src/bot.ts"
+import { eventHelp, eventHelpAll } from "../src/event-command.ts"
 import { helpAllRequest } from "../src/help.ts"
 import { levelHelp, levelHelpAll } from "../src/level-command.ts"
+import { milestoneHelp, milestoneHelpAll } from "../src/milestone-command.ts"
 import { safetyHelp, safetyHelpAll, safetyNames } from "../src/moderation-command.ts"
 import { publishingHelp, publishingHelpAll } from "../src/publishing-command.ts"
 import { managementHelp, managementHelpAll, parseManagement } from "../src/response-command.ts"
 import { roleHelp, roleHelpAll } from "../src/role-command.ts"
 import { scheduleHelp, scheduleHelpAll } from "../src/schedule-command.ts"
+import { suggestionHelp, suggestionHelpAll } from "../src/suggestion-command.ts"
 import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
@@ -67,8 +70,10 @@ function helpBot(options: { actorOwner?: boolean; actorPermissions?: bigint }) {
 // Every command's own help text, as !<command> help answers it
 const commandHelps: Record<string, string> = {
     ticket: ticketHelp,
+    event: eventHelp(),
     publish: publishingHelp,
     "publish schedule": scheduleHelp,
+    milestone: milestoneHelp,
     level: levelHelp(),
     roles: roleHelp("roles"),
     verify: roleHelp("verify"),
@@ -76,6 +81,7 @@ const commandHelps: Record<string, string> = {
     custom: managementHelp("custom"),
     auto: managementHelp("auto"),
     ...Object.fromEntries(safetyNames.map((name) => [name, safetyHelp(name)])),
+    suggest: suggestionHelp,
     welcome: greetingsHelp("welcome"),
     "welcome dm": greetingsHelp("dm"),
     goodbye: greetingsHelp("goodbye"),
@@ -83,14 +89,17 @@ const commandHelps: Record<string, string> = {
 // The forms each help leaves out, which !<command> help all lists
 const helpAlls: Record<string, readonly string[]> = {
     ticket: ticketHelpAll,
+    event: eventHelpAll,
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    milestone: milestoneHelpAll,
     level: levelHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
     custom: managementHelpAll("custom"),
     auto: managementHelpAll("auto"),
     ...safetyHelpAll,
+    suggest: suggestionHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),
     goodbye: greetingsHelpAll("goodbye"),

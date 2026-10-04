@@ -11,7 +11,7 @@ export const SCHEDULES_DAY = 86400000
 export const SCHEDULES_PAGE = 10
 export const advanceSchedule = (value: number) => integer(value + 1, 1, Number.MAX_SAFE_INTEGER)
 /** Native reads are fresh for a minute */
-const recentObservation = (observedAt: number, now = Date.now()) =>
+export const recentObservation = (observedAt: number, now = Date.now()) =>
     integer(observedAt, Math.max(0, now - 60000), now + 1000)
 export function automationContext(value: unknown, now = Date.now()): SchedulesAutomationContext {
     const context = decode(SchedulesAutomationContext, value)

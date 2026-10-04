@@ -94,6 +94,7 @@ test("schedule timer acts as the bot with an immutable plan, concrete SDK and sc
             assert(result && typeof result === "object" && result.outcome === "sent", JSON.stringify(result))
             assert.equal(p.send.requests().length, 1)
             const claim = publishing.calls.find((c) => c.method === "dispatch")!.input as PublishingDispatchRequest
+            assert.equal(claim.eventContext, undefined)
             assert.equal(claim.scheduleContext!.botId, grant.botId)
             assert.equal(claim.scheduleContext!.botAuthorized, true)
             assert.equal(claim.sourceId, `schedule_timer_${delivery.deliveryId}`)

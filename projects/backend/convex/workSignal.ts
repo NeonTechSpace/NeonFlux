@@ -4,7 +4,9 @@ import type { ServiceWorkSignal } from "@neonflux/contracts/service"
 // The bot subscribes to this one row through botService:serviceWorkSignal and dispatches its work whenever version changes.
 // Writers outside the bot ring it when they create work the bot should start at once, such as scheduled
 // wake batches. The bot learns of the work its own mutations create from their answers,
-// and of later due times from each dispatch, so those writes never touch this row. The row carries no server data
+// and of later due times from each dispatch, so those writes do not touch this row, except a DEFCON change back to 3, which
+// rings it for the suggestion cards and event reminders DEFCON held, and turning events or publishing on, which rings it for the
+// event reminders they held. The row carries no server data
 export async function readWorkSignal(ctx: Pick<QueryCtx, "db">): Promise<ServiceWorkSignal> {
     return { version: (await ctx.db.query("workSignal").first())?.version ?? 0 }
 }

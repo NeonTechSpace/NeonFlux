@@ -103,6 +103,20 @@ test("every concrete adapter is immutable and scope denial retires only its runt
     })
 })
 
+test("a runtime accepts the event work cursor the backend answers, which names no server", async () => {
+    const runtime = createServerRuntime(config, "20", () => {})
+    respond = (call) => {
+        assert.equal(call.serverId, "20")
+        return { type: "jobs", jobs: [], nextCursor: { eventNo: 1, occurrenceNo: 2 } }
+    }
+    assert.deepEqual(
+        await Effect.runPromise(
+            runtime.adapters!.events.work({ serverId: "20", operation: { type: "list", limit: 1 } }),
+        ),
+        { type: "jobs", jobs: [], nextCursor: { eventNo: 1, occurrenceNo: 2 } },
+    )
+})
+
 for (const [failing, title] of [
     [false, "a working /publishing/observe call keeps a single-server bot running"],
     [true, "a failed /publishing/observe call stops a single-server bot"],

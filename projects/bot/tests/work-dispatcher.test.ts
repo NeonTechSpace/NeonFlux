@@ -66,7 +66,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
     run(
         Effect.gen(function* () {
             const backend = yield* scripted([
-                work({ schedules: ["10"], levels: ["20", "10"] }, "synthetic_cursor"),
+                work({ schedules: ["10"], levels: ["20", "10"], events: ["30"] }, "synthetic_cursor"),
                 work({}),
             ])
             const wakes: string[] = []
@@ -84,7 +84,7 @@ test("a pass starts at once, binds no server, wakes every reported server and ki
             assert.deepEqual(backend.subscriptions, [{ key: Redacted.value(deriveServiceKey(secret)) }])
             const second = yield* backend.next
             assert.deepEqual([sentCursor(second), sentAt(second)], ["synthetic_cursor", 0])
-            assert.deepEqual(wakes, ["schedules 10", "levels 20", "levels 10"])
+            assert.deepEqual(wakes, ["events 30", "schedules 10", "levels 20", "levels 10"])
         }),
     ))
 
@@ -134,7 +134,7 @@ test("a changed signal after pages of rows no worker acts on reads every source 
     run(
         Effect.gen(function* () {
             const unserved = Array.from({ length: workPagesPerPass }, (_, page) => work({}, `cursor_${page}`))
-            const backend = yield* scripted([...unserved, work({ schedules: ["30"] })])
+            const backend = yield* scripted([...unserved, work({ events: ["30"] })])
             const wakes: string[] = []
             yield* startWorkDispatcher(backend.backend, (serverId, kind) =>
                 Effect.sync(() => {
@@ -147,7 +147,7 @@ test("a changed signal after pages of rows no worker acts on reads every source 
             yield* TestClock.adjust(workMinGapMs)
             const next = yield* backend.next
             assert.deepEqual([sentAt(next), sentCursor(next)], [workMinGapMs, null])
-            assert.deepEqual(wakes, ["schedules 30"])
+            assert.deepEqual(wakes, ["events 30"])
         }),
     ))
 
@@ -315,7 +315,10 @@ test("a failing wake neither stops the dispatcher nor skips the other wakes, and
 // The test clock keeps request timeouts and later passes from running, so the first pass waits for the test
 const serverA = "1100000000000000001"
 const workerPaths: Record<ServiceWorkKind, string> = {
+    events: "/events/delivery",
     schedules: "/schedules/delivery",
+    milestones: "/milestones/delivery",
+    suggestions: "/suggestions/work",
     levels: "/levels/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
@@ -376,8 +379,8 @@ test("the bot's one dispatcher wakes only the reported workers of its server", a
             release = resolve
         }),
     )
-    // Schedules are not reported. Levels is woken last, so a wrong wake of the schedules worker would run before it
-    const reported = workKinds.filter((kind) => kind !== "schedules"),
+    // Suggestions are not reported. Levels is woken last, so a wrong wake of the suggestions worker would run before it
+    const reported = workKinds.filter((kind) => kind !== "suggestions"),
         paths = reported.map((kind) => workerPaths[kind])
     await Effect.runPromise(
         Effect.scoped(

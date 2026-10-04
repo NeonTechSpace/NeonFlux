@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Int, List, Millis } from "./common.ts"
 
-// Exact local minutes in an IANA zone, resolved once to the instants they name, as scheduled publishing plans its posts
+// Exact local minutes in an IANA zone, resolved once to the instants they name. Scheduled publishing, milestones and events share these rules
 
 const DAY = 86400000
 /** An exact local minute, YYYY-MM-DDTHH:mm, that exists on the calendar, from the year 100 */
@@ -12,8 +12,8 @@ export const CivilLocalMinute = Schema.String.check(
         return new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!)).toISOString().slice(0, 16) === value
     }),
 )
-/** The spelling of an IANA zone name */
-const CivilZoneName = Schema.String.check(
+/** The spelling of an IANA zone name. A milestone route may keep its stored zone without asking the zone database again */
+export const CivilZoneName = Schema.String.check(
     Schema.makeFilter((value: string) => value.length <= 128 && /^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*$/.test(value)),
 )
 /** An IANA zone that the zone database of this runtime knows */

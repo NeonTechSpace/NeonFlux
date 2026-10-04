@@ -34,8 +34,8 @@ export async function defconHoldsAutomation(ctx: SchedulesRead, serverId: string
         .unique()
     return (moderation?.config.defcon ?? 3) !== 3
 }
-async function automationGate(ctx: SchedulesRead, serverId: string) {
-    if (await defconHoldsAutomation(ctx, serverId)) fail(403, "DEFCON restriction")
+export async function automationGate(ctx: SchedulesRead, serverId: string, critical = false) {
+    if ((await defconHoldsAutomation(ctx, serverId)) && !critical) fail(403, "DEFCON restriction")
 }
 export async function scheduleState(ctx: MutationCtx, serverId: string) {
     const old = await scheduleSettings(ctx, serverId)

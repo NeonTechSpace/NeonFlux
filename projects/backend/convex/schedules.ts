@@ -166,7 +166,12 @@ export const manage = serviceMutation({
         if (!(await scheduleReceipt(ctx, identity, context.actor.userId, op))) return { duplicate: true }
         return applySchedulesManagement(
             ctx,
-            { serverId: identity.serverId, actorId: context.actor.userId },
+            {
+                serverId: identity.serverId,
+                actorId: context.actor.userId,
+                createdAt: identity.createdAt,
+                messageId: identity.messageId,
+            },
             context,
             op,
             now,

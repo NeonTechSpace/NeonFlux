@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { eventsErrorMessage, EventsStoreError } from "../src/event-store.ts"
+import { milestonesErrorMessage, MilestonesStoreError } from "../src/milestone-store.ts"
 import { moderationErrorMessage, ModerationStoreError } from "../src/moderation-store.ts"
 import { publishingErrorMessage, PublishingStoreError } from "../src/publishing-store.ts"
 import { rolesErrorMessage, RolesStoreError } from "../src/roles-store.ts"
@@ -23,6 +25,16 @@ test("each store shows the sentence of a REFUSED refusal, and the fixed reply on
             "schedules",
             (extra: object) => new SchedulesStoreError({ operation: "x", status: 409, ...extra }),
             schedulesErrorMessage,
+        ],
+        [
+            "events",
+            (extra: object) => new EventsStoreError({ operation: "x", status: 409, ...extra }),
+            eventsErrorMessage,
+        ],
+        [
+            "milestones",
+            (extra: object) => new MilestonesStoreError({ operation: "x", status: 409, ...extra }),
+            milestonesErrorMessage,
         ],
     ] as const) {
         // The unions of the error classes accept the same fields, so one signature covers them all

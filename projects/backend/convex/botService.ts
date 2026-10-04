@@ -28,6 +28,13 @@ import * as tickets from "./tickets.ts"
 import * as ticketLifecycle from "./ticketLifecycle.ts"
 import * as leveling from "./leveling.ts"
 import * as levelingWork from "./levelingWork.ts"
+import * as events from "./events.ts"
+import * as eventsWorkModule from "./eventsWork.ts"
+import * as eventsDeliveryModule from "./eventsDelivery.ts"
+import * as milestones from "./milestones.ts"
+import * as milestonesDeliveryModule from "./milestonesDelivery.ts"
+import * as suggestions from "./suggestions.ts"
+import * as suggestionsWorkModule from "./suggestionsWork.ts"
 
 // The bot's entry points. Each is a public function that checks the key derived from the bot secret before it reads
 // anything, binds the request to one server and then runs the service function's own
@@ -254,3 +261,19 @@ export const levelsPreflight = botQuery(262144, leveling.preflight)
 export const levelsManage = botMutation(262144, leveling.manage)
 export const levelsAward = botMutation(262144, leveling.award)
 export const levelsWork = botMutation(262144, levelingWork.work)
+
+export const eventsQuery = botQuery(65536, events.query)
+export const eventsManage = botMutation(65536, events.manage)
+export const eventsRsvp = botMutation(65536, events.rsvp)
+export const eventsWork = botMutation(65536, eventsWorkModule.work)
+export const eventsDelivery = botMutation(65536, eventsDeliveryModule.delivery)
+
+export const milestonesQuery = botQuery(65536, milestones.query)
+export const milestonesManage = botMutation(65536, milestones.manage)
+export const milestonesPersonal = botMutation(65536, milestones.personal)
+export const milestonesDelivery = botMutation(65536, milestonesDeliveryModule.delivery)
+
+export const suggestionsQuery = botQuery(65536, suggestions.query)
+export const suggestionsManage = botMutation(65536, suggestions.manage)
+export const suggestionsMember = botMutation(65536, suggestions.member)
+export const suggestionsWork = botMutation(65536, suggestionsWorkModule.work)

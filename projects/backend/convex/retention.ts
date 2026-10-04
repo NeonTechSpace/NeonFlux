@@ -1,14 +1,17 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api.js"
 import { internalMutation, type MutationCtx } from "./_generated/server.js"
+import { cleanupEvents } from "./eventsCleanup.ts"
 import { cleanupGreetings } from "./greetingLifecycle.ts"
 import { cleanupLeveling } from "./levelingCleanup.ts"
+import { cleanupMilestones } from "./milestonesCleanup.ts"
 import { cleanupModeration } from "./moderation.ts"
 import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
 import { cleanupRoles } from "./roleLifecycle.ts"
 import { cleanupSchedules } from "./schedulesCleanup.ts"
+import { cleanupSuggestions } from "./suggestionsCleanup.ts"
 import { cleanupTickets, scheduleTicketPurges } from "./ticketLifecycle.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
@@ -31,7 +34,10 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["greetings", cleanupGreetings],
     ["tickets", cleanupTickets],
     ["leveling", cleanupLeveling],
+    ["events", cleanupEvents],
     ["schedules", cleanupSchedules],
+    ["milestones", cleanupMilestones],
+    ["suggestions", cleanupSuggestions],
 ]
 // Passes that only schedule other work run once when a chain starts, not in its continuations
 const RETENTION_START_PASSES: readonly RetentionPass[] = [scheduleTicketPurges]

@@ -266,7 +266,20 @@ test("Response management cannot create definitions using leveling built-in name
 
 test("Domain validation rejects reserved names, scripts, unknown templates and oversized values", async (ctx) => {
     const f = fixture(ctx)
-    for (const name of ["ping", "afk", "custom", "auto", "welcome", "goodbye", "With Space", "x".repeat(33), "-bad"]) {
+    for (const name of [
+        "ping",
+        "afk",
+        "custom",
+        "auto",
+        "welcome",
+        "goodbye",
+        "event",
+        "milestone",
+        "suggest",
+        "With Space",
+        "x".repeat(33),
+        "-bad",
+    ]) {
         await error(
             await f.post(
                 "/responses/manage",

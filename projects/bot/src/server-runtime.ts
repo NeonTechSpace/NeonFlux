@@ -11,7 +11,10 @@ import { createRolesStore } from "./roles-store.ts"
 import { createGreetingsStore } from "./welcome-store.ts"
 import { createTicketStore } from "./ticket-store.ts"
 import { createLevelingStore } from "./level-store.ts"
+import { createEventsStore } from "./event-store.ts"
 import { createSchedulesStore } from "./schedule-store.ts"
+import { createMilestonesStore } from "./milestone-store.ts"
+import { createSuggestionsStore } from "./suggestion-store.ts"
 import { createGeneralSettingsStore } from "./general-settings.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
@@ -80,7 +83,10 @@ function createServerAdapters(config: BotConfig) {
         greetings: createGreetingsStore(backend),
         tickets: createTicketStore(backend),
         leveling: createLevelingStore(backend),
+        events: createEventsStore(backend),
         schedules: createSchedulesStore(backend),
+        milestones: createMilestonesStore(backend),
+        suggestions: createSuggestionsStore(backend),
         general: createGeneralSettingsStore(backend, config.serverId),
     }
 }

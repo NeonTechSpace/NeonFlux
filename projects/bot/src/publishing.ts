@@ -1,3 +1,5 @@
+import type { EventsContext } from "@neonflux/contracts/events"
+import type { MilestonesDeliveryContext } from "@neonflux/contracts/milestones"
 import type {
     PublishingDraft,
     PublishingManageOperation,
@@ -12,6 +14,7 @@ import {
     type PublishingPost,
 } from "@neonflux/contracts/publishing-base"
 import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
+import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
 import { errors, format, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -22,10 +25,12 @@ import { publishingHelp, type PublishingCommand } from "./publishing-command.ts"
 import { publishingMessageContent } from "./publishing-content.ts"
 import {
     PublishingPermissionError,
+    readEventsContext,
     readPublishingAuthority,
     verifyPublishingMessage,
 } from "./publishing-permissions.ts"
 import { publishingErrorMessage, PublishingStoreError, type PublishingStore } from "./publishing-store.ts"
+import type { EventsStore } from "./event-store.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { handleScheduleCommand } from "./schedule-management.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
@@ -105,7 +110,10 @@ const permissionRefused = (error: unknown) =>
     errors.apiCode(error) === "missingAccess"
 
 const consumerContextField = {
+    event: "eventContext",
     schedule: "scheduleContext",
+    milestone: "milestoneContext",
+    "suggestion-card": "suggestionContext",
 } as const
 
 export function performPublishingGrant(
@@ -114,7 +122,10 @@ export function performPublishingGrant(
     actorId: string,
     client: Client,
     grant: PublishingGrant,
-    consumerContext?: () => Effect.Effect<SchedulesAutomationContext, unknown>,
+    consumerContext?: () => Effect.Effect<
+        EventsContext | SchedulesAutomationContext | MilestonesDeliveryContext | SuggestionsCardContext,
+        unknown
+    >,
 ) {
     return Effect.gen(function* () {
         let dispatched = false
@@ -172,12 +183,15 @@ export function performPublishingGrant(
                     return yield* Effect.fail(new PublishingHandlingError({ stage: "snapshot" }))
             }
             const freshContext = grant.consumer ? (consumerContext ? yield* consumerContext() : undefined) : undefined
+            const actorContext = freshContext && ("automation" in freshContext ? freshContext.automation : freshContext)
             if (
                 grant.consumer &&
-                (!freshContext ||
-                    freshContext.botId !== actorId ||
-                    freshContext.channelId !== grant.channelId ||
-                    freshContext.botId !== grant.botId)
+                (!actorContext ||
+                    ("actor" in actorContext ? actorContext.actor.userId : actorContext.botId) !== actorId ||
+                    actorContext.channelId !== grant.channelId ||
+                    actorContext.botId !== grant.botId ||
+                    (grant.consumer.type === "milestone") !==
+                        (freshContext !== undefined && "automation" in freshContext))
             )
                 return yield* Effect.fail(new PublishingHandlingError({ stage: "grant" }))
             claimRequested = true
@@ -305,8 +319,13 @@ export function publishingDraftCard(draft: Pick<PublishingDraft, "kind" | "name"
     }
 }
 function postSource(post: PublishingPost, prefix: string) {
-    const p = post.attempt.provenance
+    const p = post.attempt.provenance,
+        c = post.consumer
+    if (c?.type === "suggestion-card") return `The card of suggestion #${c.suggestionNo}`
+    if (p?.type === "event")
+        return c?.type === "event" && c.purpose === "reminder" ? "An event reminder" : "An event card"
     if (p?.type === "schedule") return `Schedule post from ${p.source.kind} ${p.source.name}`
+    if (p?.type === "milestone") return `${p.kind === "birthday" ? "Birthday" : "Anniversary"} celebration`
     return post.attempt.draftName
         ? `${post.attempt.draftKind === "template" ? "Template" : "Draft"} ${post.attempt.draftName}`
         : `Sent with ${prefix}publish`
@@ -323,7 +342,7 @@ export const postState = (post: Pick<PublishingPost, "outcome" | "channelId">, c
             : `Not confirmed yet, run ${check}`
 }
 /** The reply once NeonFlux sent or edited a post, or could not say whether it did */
-const grantOutcome = (
+export const grantOutcome = (
     outcome: { outcome: string; acknowledged: boolean },
     label: string,
     grant: Pick<PublishingGrant, "channelId" | "action">,
@@ -361,6 +380,7 @@ export function handlePublishing(
     context: BotEventContext<"messageCreate">,
     schedules?: SchedulesStore,
     scheduleWorker?: { notify: () => Effect.Effect<void> },
+    events?: EventsStore,
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId)
     const reply = (content: string) => replyText(context, content),
@@ -408,6 +428,17 @@ export function handlePublishing(
                           }),
                       ),
                       Effect.map((result) => (result.type === "schedule" ? result.schedule.name : String(scheduleNo))),
+                  )
+        // Event commands name the event too. Without a readable name the reply shows a placeholder, since a number would be read as a name
+        const eventName = (eventNo: number) =>
+            !events
+                ? Effect.succeed(undefined)
+                : readEventsContext(client, config.serverId, actor.userId, message.channelId, { staff: true }).pipe(
+                      Effect.flatMap((context) =>
+                          events.query({ serverId: config.serverId, context, operation: { type: "show", eventNo } }),
+                      ),
+                      Effect.map((result) => (result.type === "event" ? result.event.name : undefined)),
+                      Effect.catch(() => Effect.succeed(undefined)),
                   )
         if (command.type === "query") {
             // Draft, template and post lists page with next, which continues where this member's last page of that list ended
@@ -526,11 +557,22 @@ export function handlePublishing(
             const found = yield* query({ type: "post-show", postNo: command.postNo })
             if (found.type !== "post") return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
             const post = found.post
+            if (post.consumer?.type === "suggestion-card") {
+                yield* reply(
+                    `Post #${post.postNo} is the card of suggestion #${post.consumer.suggestionNo}. Use ${code(`${prefix}suggest publication ${post.consumer.suggestionNo}`)}`,
+                )
+                return
+            }
             const schedule =
                 post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
+            const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
             if (post.consumer) {
                 yield* reply(
-                    `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`,
+                    post.consumer.type === "schedule"
+                        ? `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`
+                        : post.consumer.type === "milestone"
+                          ? `Post #${post.postNo} is a ${post.consumer.kind} celebration. Use ${code(`!milestone ${command.type} ${post.consumer.kind} ${post.postNo}${command.type === "forget" ? " confirm" : ""}`)} in a DM with NeonFlux`
+                          : `Post #${post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Use ${code(`${prefix}event ${command.type} ${event ?? "<name>"}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`,
                 )
                 return
             }
@@ -595,13 +637,27 @@ export function handlePublishing(
                 const tracked = yield* query({ type: "post-show", postNo: command.postNo })
                 if (tracked.type !== "post")
                     return yield* Effect.fail(new PublishingHandlingError({ stage: "identity" }))
+                if (tracked.post.consumer?.type === "suggestion-card") {
+                    yield* reply(
+                        `Post #${tracked.post.postNo} is the card of suggestion #${tracked.post.consumer.suggestionNo}, which changes with the suggestion`,
+                    )
+                    return
+                }
                 const schedule =
                     tracked.post.consumer?.type === "schedule"
                         ? yield* scheduleName(tracked.post.consumer.scheduleNo)
                         : undefined
+                const event =
+                    tracked.post.consumer?.type === "event"
+                        ? yield* eventName(tracked.post.consumer.eventNo)
+                        : undefined
                 if (tracked.post.consumer) {
                     yield* reply(
-                        `Post #${tracked.post.postNo} belongs to schedule ${schedule}. Change its later posts with ${code(`${prefix}publish schedule update ${schedule} content …`)}`,
+                        tracked.post.consumer.type === "schedule"
+                            ? `Post #${tracked.post.postNo} belongs to schedule ${schedule}. Change its later posts with ${code(`${prefix}publish schedule update ${schedule} content …`)}`
+                            : tracked.post.consumer.type === "milestone"
+                              ? `Post #${tracked.post.postNo} is a ${tracked.post.consumer.kind} celebration. Change later ones with ${code(`${prefix}milestone configure`)}`
+                              : `Post #${tracked.post.postNo} belongs to ${event ? `event ${event}` : "an event"}. Change the event with ${code(`${prefix}event`)}, and its card follows`,
                     )
                     return
                 }

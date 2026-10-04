@@ -1,5 +1,5 @@
 import type { SchedulesContext } from "@neonflux/contracts/schedules"
-import { ChannelType, Permissions, type Client, type Message } from "@neontechspace/fluxerly/effect"
+import { permissionBits, ChannelType, Permissions, type Client, type Message } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { channelPermissionInput, memberTimeout, readSafetyAuthority } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
@@ -72,16 +72,23 @@ export function verifyPublishingMessage(
 }
 
 // Fresh actor, member and destination observations for features that publish through the composer
-class ComposerPermissionError extends Data.TaggedError("ComposerPermissionError")<{
+export class ComposerPermissionError extends Data.TaggedError("ComposerPermissionError")<{
     readonly stage: "administrator" | "member" | "destination"
 }> {}
-export function readComposerAuthority(client: Client, serverId: string, userId: string, channelId: string) {
+type ComposerReadOptions = { staff?: boolean; write?: boolean; hasEmbed?: boolean }
+export function readComposerAuthority(
+    client: Client,
+    serverId: string,
+    userId: string,
+    channelId: string,
+    options: ComposerReadOptions = {},
+) {
     return Effect.gen(function* () {
         const authority = yield* readSafetyAuthority(client, serverId, userId, {
             channelId,
             permission: Permissions.ViewChannel,
         })
-        if (!authority.isOwner && !authority.isAdmin)
+        if (options.staff && !authority.isOwner && !authority.isAdmin)
             return yield* Effect.fail(new ComposerPermissionError({ stage: "administrator" }))
         const member = memberFacts(authority.actor, serverId, userId)
         if (
@@ -100,6 +107,8 @@ export function readComposerAuthority(client: Client, serverId: string, userId: 
         const observedAt = yield* Clock.currentTimeMillis
         if (Date.parse(member.joinedAt) > observedAt)
             return yield* Effect.fail(new ComposerPermissionError({ stage: "member" }))
+        if (options.write && memberTimeout(client, authority.actor, observedAt) !== "none")
+            return yield* Effect.fail(new ComposerPermissionError({ stage: "member" }))
         const bits = yield* Effect.try({
             try: () => ({
                 actor: client.permissions.calculate({
@@ -117,7 +126,9 @@ export function readComposerAuthority(client: Client, serverId: string, userId: 
             }),
             catch: () => new ComposerPermissionError({ stage: "destination" }),
         })
-        const required = Permissions.ViewChannel
+        const required =
+            Permissions.ViewChannel |
+            (options.write ? Permissions.SendMessages | (options.hasEmbed ? Permissions.EmbedLinks : 0n) : 0n)
         const botTimeout = authority.bot.communicationDisabledUntil
         const context: SchedulesContext = {
             originServerId: authority.guild.id,
@@ -131,8 +142,21 @@ export function readComposerAuthority(client: Client, serverId: string, userId: 
                 (botTimeout === null ||
                     (Number.isFinite(Date.parse(botTimeout)) && Date.parse(botTimeout) <= observedAt)),
             actorAuthorized: (bits.actor & required) === required,
-            member,
+            member: {
+                ...member,
+                canView: permissionBits.has(bits.actor, "ViewChannel"),
+                canReadHistory: permissionBits.has(bits.actor, "ReadMessageHistory"),
+            },
         }
+        if (options.write && (!context.botAuthorized || !context.actorAuthorized))
+            return yield* Effect.fail(new ComposerPermissionError({ stage: "destination" }))
         return { context, authority }
     })
 }
+export const readEventsContext = (
+    client: Client,
+    serverId: string,
+    userId: string,
+    channelId: string,
+    options: ComposerReadOptions = {},
+) => readComposerAuthority(client, serverId, userId, channelId, options).pipe(Effect.map((v) => v.context))

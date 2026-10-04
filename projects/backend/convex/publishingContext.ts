@@ -2,6 +2,8 @@ import { SchedulesContext } from "@neonflux/contracts/schedules"
 import { ChannelMemberContext } from "@neonflux/contracts/shared"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { actor, administrator } from "./moderationDomain.ts"
+import { participationProtection } from "./roleClaims.ts"
+import { readRolesSettings, rolesAcknowledgment } from "./rolesStore.ts"
 import { decode, fail, ids, integer, epoch } from "./validation.ts"
 // Fresh actor, channel and member observations shared by publishing consumers
 export function composerContext(value: unknown, now = Date.now()): SchedulesContext {
@@ -17,7 +19,7 @@ export function composerContext(value: unknown, now = Date.now()): SchedulesCont
         ...(r.member !== undefined ? { member: composerMember(r.member, observedAt) } : {}),
     }
 }
-function composerMember(value: unknown, observedAt: number): ChannelMemberContext {
+export function composerMember(value: unknown, observedAt: number): ChannelMemberContext {
     const r = decode(ChannelMemberContext, value)
     const joinedAt = epoch(r.joinedAt)
     if (Date.parse(joinedAt) > observedAt) fail(400, "Membership observation predates join")
@@ -27,6 +29,8 @@ function composerMember(value: unknown, observedAt: number): ChannelMemberContex
         roleIds: ids(r.roleIds, 1000),
         isBot: r.isBot,
         timeoutUntil: r.timeoutUntil === null ? null : epoch(r.timeoutUntil),
+        canView: r.canView,
+        canReadHistory: r.canReadHistory,
     }
 }
 export async function composerAdmin(
@@ -42,4 +46,44 @@ export async function composerAdmin(
         .withIndex("by_server", (q) => q.eq("serverId", serverId))
         .unique()
     if (moderation?.config.defcon === 1 && !critical) fail(403, "DEFCON restriction")
+}
+export async function eventEligible(
+    ctx: MutationCtx | QueryCtx,
+    serverId: string,
+    context: SchedulesContext,
+    channelId: string,
+    userId?: string,
+) {
+    const member = context.member
+    if (
+        context.channelId !== channelId ||
+        !context.botAuthorized ||
+        !member ||
+        member.isBot ||
+        member.userId === context.botId ||
+        !member.canView ||
+        !member.canReadHistory ||
+        (userId !== undefined && member.userId !== userId)
+    )
+        fail(403, "Current visible membership required")
+    await participationProtection(ctx, serverId, member.userId, member.timeoutUntil)
+    const panel = await ctx.db
+        .query("rolePanels")
+        .withIndex("by_server_kind", (q) => q.eq("serverId", serverId).eq("kind", "verification"))
+        .unique()
+    if (panel && (panel.published || panel.mappings.length)) {
+        const settings = await readRolesSettings(ctx, serverId),
+            ack = await rolesAcknowledgment(ctx, serverId, member.userId, member.joinedAt, member.roleIds)
+        if (
+            !settings?.config.verificationEnabled ||
+            !panel.enabled ||
+            panel.withdrawing ||
+            !panel.published ||
+            panel.published.revision !== panel.revision ||
+            !ack.accessConfirmed ||
+            !ack.accessRolePresent
+        )
+            fail(403, "Verified membership required")
+    }
+    return member
 }

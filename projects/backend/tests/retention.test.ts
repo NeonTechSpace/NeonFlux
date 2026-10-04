@@ -55,7 +55,7 @@ const scheduled = (t: Backend) =>
         const job = jobs.at(-1)
         return job ? { args: job.args[0] as RunArgs, at: job.scheduledTime, count: jobs.length } : null
     })
-const count = (t: Backend, table: "responseReceipts" | "moderationReceipts" | "securityRecoveries") =>
+const count = (t: Backend, table: "responseReceipts" | "moderationReceipts" | "securityRecoveries" | "suggestions") =>
     t.run(async (ctx) => (await ctx.db.query(table).collect()).length)
 
 test("An idle run visits every module once, reads no rows and schedules nothing", async () => {
@@ -201,4 +201,22 @@ test("A pending leveling sweep advances when it belongs to a server after the fi
             .unique(),
     )
     assert.equal(done!.sweepPending, false)
+})
+
+test("One run forgets every due suggestion, not only the first", async () => {
+    const t = backend()
+    await t.run(async (ctx) => {
+        await insertDocument(ctx, "suggestionSettings", "10", { suggestions: 2 })
+        for (const suggestionNo of [1, 2])
+            await insertDocument(ctx, "suggestions", "10", {
+                suggestionNo,
+                state: "withdrawn",
+                cleanupAt: now - 1,
+                voters: 0,
+                up: 0,
+                down: 0,
+            })
+    })
+    assert.deepEqual((await step(t)).result.next, "idle")
+    assert.equal(await count(t, "suggestions"), 0)
 })

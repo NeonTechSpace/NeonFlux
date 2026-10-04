@@ -111,6 +111,8 @@ test("Bot mutations report when the work their writes create becomes due, by the
                 roleIds: [],
                 isBot: false,
                 timeoutUntil: null,
+                canView: true,
+                canReadHistory: true,
             },
         },
         operation: {
@@ -193,14 +195,20 @@ test("The next due time is the earliest future row of any timed source and ignor
             dueAt: start + 10000,
             nextCheckAt: start + 10000,
         })
-        await insertDocument(ctx, "levelingProfiles", "10", { rewardDueAt: start + 30000 })
+        await insertDocument(ctx, "eventSettings", "10", { enabled: true })
+        await insertDocument(ctx, "eventDeliveries", "10", {
+            state: "queued",
+            dueAt: start + 30000,
+            nextCheckAt: start + 30000,
+            startsAt: start + 3600000,
+        })
     })
     const work = async () =>
         (await (await botCall(t, "/service/work", { cursor: null, requestedAt: 1 })).json()) as ServiceWork
     assert.equal((await work()).nextDueIn, 30000)
     advance(30000)
     const due = await work()
-    assert.deepEqual([due.kinds.levels, due.nextDueIn], [["10"], 60000])
+    assert.deepEqual([due.kinds.events, due.nextDueIn], [["10"], 60000])
     // The same rules decide which written rows a mutation reports
     assert.equal(rowDueAt("scheduleDeliveries", { active: true, nextCheckAt: 7 }, 1), 7)
     assert.equal(rowDueAt("scheduleDeliveries", { active: false, nextCheckAt: 7 }, 1), undefined)

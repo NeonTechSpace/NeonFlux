@@ -27,8 +27,11 @@ export const BUILT_IN_COMMANDS = [
     "custom",
     "auto",
     "ticket",
+    "suggest",
     "rank",
     "leaderboard",
+    "event",
+    "milestone",
     "level",
 ] as const
 /** Whether a lowercase name can name a custom command or autoresponder: a stored name that no built-in command already uses */

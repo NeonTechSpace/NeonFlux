@@ -24,6 +24,8 @@ export const ChannelMemberContext = Schema.Struct({
     roleIds: Ids(1000),
     isBot: Schema.Boolean,
     timeoutUntil: Schema.NullOr(IsoTime),
+    canView: Schema.Boolean,
+    canReadHistory: Schema.Boolean,
 })
 export type ChannelMemberContext = typeof ChannelMemberContext.Type
 

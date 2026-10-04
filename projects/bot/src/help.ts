@@ -1,7 +1,9 @@
 import type { BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { eventHelpAll } from "./event-command.ts"
 import { withPrefix } from "./general-settings.ts"
 import { levelHelpAll } from "./level-command.ts"
+import { milestoneHelpAll } from "./milestone-command.ts"
 import { safetyHelpAll } from "./moderation-command.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { publishingHelpAll } from "./publishing-command.ts"
@@ -9,6 +11,7 @@ import { replyText } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
+import { suggestionHelpAll } from "./suggestion-command.ts"
 import { ticketHelpAll } from "./ticket-command.ts"
 import { greetingsHelpAll } from "./welcome-command.ts"
 
@@ -18,8 +21,10 @@ import { greetingsHelpAll } from "./welcome-command.ts"
  */
 const moreForms: Readonly<Record<string, readonly string[]>> = {
     ticket: ticketHelpAll,
+    event: eventHelpAll,
     publish: publishingHelpAll,
     "publish schedule": scheduleHelpAll,
+    milestone: milestoneHelpAll,
     level: levelHelpAll,
     roles: roleHelpAll.roles,
     autorole: roleHelpAll.autorole,
@@ -28,6 +33,7 @@ const moreForms: Readonly<Record<string, readonly string[]>> = {
     mod: safetyHelpAll.mod,
     automod: safetyHelpAll.automod,
     security: safetyHelpAll.security,
+    suggest: suggestionHelpAll,
     welcome: greetingsHelpAll("welcome"),
     "welcome dm": greetingsHelpAll("dm"),
     goodbye: greetingsHelpAll("goodbye"),

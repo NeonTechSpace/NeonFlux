@@ -1,14 +1,39 @@
-import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
-import { ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
+import type { SchedulesAutomationContext, SchedulesContext } from "@neonflux/contracts/schedules"
+import { permissionBits, ChannelType, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Clock, Data, Effect } from "effect"
 import { readComposerAuthority } from "./publishing-permissions.ts"
-import { memberTimeout, readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
+import {
+    channelPermissionInput,
+    memberTimeout,
+    readAuthenticatedBotId,
+    readSafetyAuthority,
+} from "./safety-permissions.ts"
 
 export class SchedulesPermissionError extends Data.TaggedError("SchedulesPermissionError")<{
     readonly stage: "destination"
 }> {}
-export function readSchedulesContext(client: Client, serverId: string, userId: string, channelId: string) {
-    return readComposerAuthority(client, serverId, userId, channelId).pipe(Effect.map(({ context }) => context))
+export function readSchedulesContext(
+    client: Client,
+    serverId: string,
+    userId: string,
+    channelId: string,
+    write = false,
+    hasEmbed = false,
+) {
+    return readComposerAuthority(client, serverId, userId, channelId, { staff: true, write, hasEmbed }).pipe(
+        Effect.flatMap(({ context, authority }) => {
+            if (!write) return Effect.succeed<SchedulesContext>(context)
+            const botBits = client.permissions.calculate({
+                guild: authority.guild,
+                member: authority.bot,
+                roles: authority.roles,
+                ...channelPermissionInput(authority),
+            })
+            return context.member?.canReadHistory && permissionBits.has(botBits, "ReadMessageHistory")
+                ? Effect.succeed<SchedulesContext>(context)
+                : Effect.fail(new SchedulesPermissionError({ stage: "destination" }))
+        }),
+    )
 }
 // Automatic deliveries act as the bot with its fresh destination permission
 export function readAutomationContext(client: Client, serverId: string, channelId: string, hasEmbed: boolean) {

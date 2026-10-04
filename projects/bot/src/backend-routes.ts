@@ -67,6 +67,19 @@ export const backendRoutes = {
     "/levels/manage": "levelsManage",
     "/levels/award": "levelsAward",
     "/levels/work": "levelsWork",
+    "/events/query": "eventsQuery",
+    "/events/manage": "eventsManage",
+    "/events/rsvp": "eventsRsvp",
+    "/events/work": "eventsWork",
+    "/events/delivery": "eventsDelivery",
+    "/milestones/query": "milestonesQuery",
+    "/milestones/manage": "milestonesManage",
+    "/milestones/personal": "milestonesPersonal",
+    "/milestones/delivery": "milestonesDelivery",
+    "/suggestions/query": "suggestionsQuery",
+    "/suggestions/manage": "suggestionsManage",
+    "/suggestions/member": "suggestionsMember",
+    "/suggestions/work": "suggestionsWork",
 } as const satisfies Record<string, BotFunction>
 
 export type BackendPath = keyof typeof backendRoutes

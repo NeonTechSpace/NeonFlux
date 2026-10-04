@@ -1,5 +1,14 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
+import {
+    eventsAllocation,
+    eventsCalendar,
+    eventsChoice,
+    eventsDate,
+    eventsDeliveryState,
+    eventsState,
+    eventsTemplate,
+} from "./eventsValidators.ts"
 import { publishingConsumer, publishingProvenance, publishingSource } from "./publishingConsumers.ts"
 import {
     scheduleCalendar,
@@ -7,6 +16,14 @@ import {
     scheduleDeliveryState,
     scheduleSource,
 } from "./schedulesValidators.ts"
+import {
+    milestoneBindingFields,
+    milestoneFold,
+    milestoneKind,
+    milestoneReason,
+    milestoneState,
+    milestoneTemplate,
+} from "./milestonesValidators.ts"
 import { levelingSettings } from "./levelingValidators.ts"
 import {
     greetingsSettings,
@@ -54,6 +71,8 @@ import {
     moderationGrant,
 } from "./moderationValidators.ts"
 
+import { suggestionState, suggestionChoice, suggestionCardState } from "./suggestionsValidators.ts"
+
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
     retentionState: defineTable({
@@ -71,6 +90,197 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
+    suggestionSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        channelId: v.optional(v.string()),
+        nextSuggestionNo: v.number(),
+        suggestions: v.number(),
+        voters: v.number(),
+        staffReceipts: v.number(),
+        memberReceipts: v.number(),
+        dirty: v.number(),
+        blocked: v.number(),
+        acceptedCreatedAt: v.optional(v.number()),
+        acceptedMessageId: v.optional(v.string()),
+    }).index("by_server", ["serverId"]),
+    suggestions: defineTable({
+        serverId: v.string(),
+        suggestionNo: v.number(),
+        revision: v.number(),
+        authorId: v.string(),
+        channelId: v.string(),
+        text: v.string(),
+        state: suggestionState,
+        up: v.number(),
+        down: v.number(),
+        voters: v.number(),
+        desiredRevision: v.number(),
+        publishedRevision: v.number(),
+        cardGeneration: v.number(),
+        cardState: suggestionCardState,
+        dirty: v.boolean(),
+        dueAt: v.number(),
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        sourceId: v.string(),
+        sourceCreatedAt: v.number(),
+        sourceKey: v.string(),
+        acceptedCreatedAt: v.number(),
+        acceptedMessageId: v.string(),
+        reason: v.optional(v.string()),
+        statusBy: v.optional(v.string()),
+        statusAt: v.optional(v.number()),
+        historyExpiresAt: v.optional(v.number()),
+        cleanupAt: v.optional(v.number()),
+        forgetting: v.boolean(),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+    })
+        .index("by_number", ["serverId", "suggestionNo"])
+        .index("by_source", ["serverId", "sourceId"])
+        .index("by_channel", ["serverId", "channelId", "suggestionNo"])
+        .index("by_channel_state", ["serverId", "channelId", "state", "suggestionNo"])
+        .index("by_work", ["serverId", "dirty", "nextCheckAt"])
+        .index("by_history", ["cleanupAt"])
+        .index("by_global_work", ["dirty", "nextCheckAt"]),
+    suggestionVotes: defineTable({
+        serverId: v.string(),
+        suggestionNo: v.number(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        choice: suggestionChoice,
+        acceptedSourceKey: v.string(),
+        acceptedCreatedAt: v.number(),
+        acceptedMessageId: v.string(),
+        observedAt: v.number(),
+    }).index("by_suggestion_user", ["serverId", "suggestionNo", "userId"]),
+    suggestionReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        category: v.union(v.literal("staff"), v.literal("member")),
+        operationKey: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    milestoneSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        activatedAt: v.number(),
+        accounts: v.number(),
+        enrollments: v.number(),
+        deliveries: v.number(),
+        staffReceipts: v.number(),
+        memberReceipts: v.number(),
+        discoveryCursor: v.optional(v.string()),
+        discoveryThroughAt: v.optional(v.number()),
+    }).index("by_server", ["serverId"]),
+    milestoneRoutes: defineTable({
+        serverId: v.string(),
+        kind: milestoneKind,
+        revision: v.number(),
+        intentRevision: v.number(),
+        audienceGeneration: v.number(),
+        createdBy: v.string(),
+        channelId: v.string(),
+        zone: v.string(),
+        time: v.string(),
+        fold: milestoneFold,
+        template: milestoneTemplate,
+        content: publishingContent,
+        canonicalContent: publishingContent,
+        configured: v.boolean(),
+        enabled: v.boolean(),
+        activatedAt: v.number(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+    }).index("by_kind", ["serverId", "kind"]),
+    milestoneMembers: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        revision: v.number(),
+        acceptedCreatedAt: v.number(),
+        acceptedMessageId: v.string(),
+        expiresAt: v.number(),
+    })
+        .index("by_user", ["serverId", "userId"])
+        .index("by_expiry", ["expiresAt"]),
+    milestoneEnrollments: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        kind: milestoneKind,
+        revision: v.number(),
+        joinedAt: v.string(),
+        audienceGeneration: v.number(),
+        channelId: v.string(),
+        consentedAt: v.number(),
+        observedAt: v.number(),
+        monthDay: v.optional(v.string()),
+        nextCheckAt: v.number(),
+        nextYear: v.number(),
+        generation: v.number(),
+        deliveryId: v.optional(v.id("milestoneDeliveries")),
+    })
+        .index("by_user_kind", ["serverId", "userId", "kind"])
+        .index("by_discovery", ["serverId", "nextCheckAt"])
+        .index("by_member_epoch", ["serverId", "userId", "joinedAt"])
+        .index("by_global_discovery", ["nextCheckAt"]),
+    milestoneDeliveries: defineTable({
+        serverId: v.string(),
+        ...milestoneBindingFields,
+        channelId: v.string(),
+        zone: v.string(),
+        time: v.string(),
+        fold: milestoneFold,
+        dueAt: v.number(),
+        offsetMinutes: v.number(),
+        template: milestoneTemplate,
+        content: publishingContent,
+        active: v.boolean(),
+        state: milestoneState,
+        reason: v.optional(milestoneReason),
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        claimedAt: v.optional(v.number()),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+        historyExpiresAt: v.optional(v.number()),
+    })
+        .index("by_route", ["serverId", "kind", "createdAt"])
+        .index("by_history", ["historyExpiresAt"])
+        .index("by_server_due", ["serverId", "active", "dueAt"])
+        .index("by_global_due", ["active", "dueAt"]),
+    milestoneReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        actorId: v.string(),
+        channelId: v.optional(v.string()),
+        category: v.union(v.literal("staff"), v.literal("member")),
+        operationKey: v.string(),
+        createdAt: v.number(),
+        receiptExpiresAt: v.optional(v.number()),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_receipt_expiry", ["receiptExpiresAt"])
+        .index("by_expiry", ["expiresAt"]),
+    milestoneConsumed: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        kind: milestoneKind,
+        epoch: v.string(),
+        year: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_binding", ["serverId", "userId", "kind", "epoch", "year"])
+        .index("by_expiry", ["expiresAt"]),
     scheduleSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -144,6 +354,128 @@ export default defineSchema({
     })
         .index("by_source", ["serverId", "messageId"])
         .index("by_expiry", ["expiresAt"]),
+    eventSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        revision: v.number(),
+        nextEventNo: v.number(),
+        nextOccurrenceNo: v.number(),
+        definitions: v.number(),
+        occurrences: v.number(),
+        rsvps: v.number(),
+        receipts: v.number(),
+    }).index("by_server", ["serverId"]),
+    events: defineTable({
+        serverId: v.string(),
+        eventNo: v.number(),
+        name: v.string(),
+        revision: v.number(),
+        channelId: v.string(),
+        title: v.string(),
+        description: v.string(),
+        capacity: v.union(v.null(), v.number()),
+        reminderOffsets: v.array(v.number()),
+        state: eventsState,
+        participationStarted: v.boolean(),
+        calendar: v.optional(eventsCalendar),
+        template: v.optional(eventsTemplate),
+        cardPostNo: v.optional(v.number()),
+        endsAt: v.optional(v.number()),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        activatedAt: v.optional(v.number()),
+        terminalAt: v.optional(v.number()),
+        historyExpiresAt: v.optional(v.number()),
+        forgetting: v.optional(v.boolean()),
+    })
+        .index("by_number", ["serverId", "eventNo"])
+        .index("by_name", ["serverId", "name"])
+        .index("by_channel", ["serverId", "channelId", "eventNo"])
+        .index("by_history", ["historyExpiresAt"])
+        .index("by_state_end", ["state", "endsAt"]),
+    eventOccurrences: defineTable({
+        serverId: v.string(),
+        eventNo: v.number(),
+        occurrenceNo: v.number(),
+        revision: v.number(),
+        date: eventsDate,
+        state: eventsState,
+        participationStarted: v.boolean(),
+        capacity: v.union(v.null(), v.number()),
+        going: v.number(),
+        waitlisted: v.number(),
+        rsvps: v.number(),
+        nextQueueOrder: v.number(),
+        workGeneration: v.number(),
+        workActive: v.boolean(),
+        nextCheckAt: v.number(),
+        workAfterQueue: v.optional(v.number()),
+        workResetAt: v.optional(v.number()),
+        claimToken: v.optional(v.string()),
+        leaseExpiresAt: v.optional(v.number()),
+        headId: v.optional(v.id("eventRsvps")),
+        terminalAt: v.optional(v.number()),
+        participationExpiresAt: v.optional(v.number()),
+    })
+        .index("by_number", ["serverId", "eventNo", "occurrenceNo"])
+        .index("by_event", ["serverId", "eventNo"])
+        .index("by_state_start", ["state", "date.startsAt"])
+        .index("by_state_end", ["state", "date.endsAt"])
+        .index("by_participation_expiry", ["participationExpiresAt"])
+        .index("by_global_work", ["workActive", "nextCheckAt"]),
+    eventRsvps: defineTable({
+        serverId: v.string(),
+        eventNo: v.number(),
+        occurrenceNo: v.number(),
+        userId: v.string(),
+        joinedAt: v.string(),
+        membershipGeneration: v.number(),
+        revision: v.number(),
+        choice: eventsChoice,
+        allocation: eventsAllocation,
+        queueOrder: v.optional(v.number()),
+        deferredUntil: v.optional(v.number()),
+        acceptedCreatedAt: v.number(),
+        acceptedMessageId: v.string(),
+        observedAt: v.number(),
+        createdAt: v.number(),
+    })
+        .index("by_member", ["serverId", "userId", "eventNo", "occurrenceNo"])
+        .index("by_queue", ["serverId", "eventNo", "occurrenceNo", "allocation", "queueOrder"])
+        .index("by_occurrence", ["serverId", "eventNo", "occurrenceNo", "userId"]),
+    eventReceipts: defineTable({
+        serverId: v.string(),
+        messageId: v.string(),
+        operationKey: v.string(),
+        actorId: v.string(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_source", ["serverId", "messageId"])
+        .index("by_expiry", ["expiresAt"]),
+    eventDeliveries: defineTable({
+        serverId: v.string(),
+        eventNo: v.number(),
+        occurrenceNo: v.number(),
+        revision: v.number(),
+        channelId: v.string(),
+        offsetMinutes: v.number(),
+        dueAt: v.number(),
+        startsAt: v.number(),
+        state: eventsDeliveryState,
+        nextCheckAt: v.number(),
+        claimedAt: v.optional(v.number()),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+        createdAt: v.number(),
+    })
+        .index("by_event", ["serverId", "eventNo"])
+        .index("by_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_binding", ["serverId", "eventNo", "occurrenceNo", "revision", "offsetMinutes"])
+        .index("by_event_active", ["serverId", "eventNo", "state", "claimedAt"])
+        .index("by_event_unattempted", ["serverId", "eventNo", "attemptId", "revision"])
+        .index("by_due_unclaimed", ["serverId", "state", "claimedAt", "nextCheckAt"])
+        .index("by_global_due", ["state", "claimedAt", "nextCheckAt"]),
     levelingSettings: defineTable({
         serverId: v.string(),
         config: levelingSettings,
@@ -616,7 +948,9 @@ export default defineSchema({
         consumer: v.optional(publishingConsumer),
     })
         .index("by_server_post", ["serverId", "postNo"])
-        .index("by_schedule", ["serverId", "consumer.scheduleNo", "postNo"]),
+        .index("by_event", ["serverId", "consumer.eventNo", "postNo"])
+        .index("by_schedule", ["serverId", "consumer.scheduleNo", "postNo"])
+        .index("by_suggestion", ["serverId", "consumer.suggestionNo", "postNo"]),
     publishingAttempts: defineTable({
         serverId: v.string(),
         postNo: v.number(),
@@ -659,7 +993,9 @@ export default defineSchema({
     })
         .index("by_server_post", ["serverId", "postNo"])
         .index("by_server_post_unresolved", ["serverId", "postNo", "unresolved"])
+        .index("by_event_unresolved", ["serverId", "consumer.eventNo", "unresolved"])
         .index("by_schedule_unresolved", ["serverId", "consumer.scheduleNo", "unresolved"])
+        .index("by_suggestion_unresolved", ["serverId", "consumer.suggestionNo", "unresolved"])
         .index("by_expiry", ["expiresAt"])
         .index("by_pending_deadline", ["serverId", "outcome", "dispatchExpiresAt"])
         .index("by_global_pending_deadline", ["outcome", "dispatchExpiresAt"]),

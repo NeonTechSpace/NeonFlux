@@ -35,7 +35,11 @@ export function readNativeMember(
     )
 }
 
-export function memberFacts(member: GuildMember, serverId: string, userId: string): ChannelMemberContext | undefined {
+export function memberFacts(
+    member: GuildMember,
+    serverId: string,
+    userId: string,
+): Omit<ChannelMemberContext, "canView" | "canReadHistory"> | undefined {
     if (
         member.guildId !== serverId ||
         member.userId !== userId ||

@@ -60,10 +60,10 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications
-- Status, detail and list replies, such as `!ticket show 1` or `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
+- Status, detail and list replies, such as `!suggest show 1` or `!appeal status`, are embeds with a title and labelled fields. Short confirmations and errors are one plain sentence. A change to a single setting answers with one line that names the setting and its new value, and creating something shows its card. Members, channels and roles show as mentions that never notify anyone, and times show in each reader's own timezone
 - Management replies appear in the channel where the command was sent. Use a staff channel for configuration
 - Commands never ask for revision numbers. A chat change applies to the current state, which the bot reads right before it writes, so when two staff members change the same thing, the later change wins
-- Scheduled posts are named by their name, such as `!publish schedule show news`. Records that have no name, such as cases, tickets and posts, keep their numbers
+- Events and scheduled posts are named by their name, such as `!event show study`. Records that have no name, such as cases, tickets, suggestions and posts, keep their numbers
 - A reason at the end of a command needs no quotes, such as `!mod warn @user Spamming links`. An apostrophe inside a word, as in don't, counts as text and needs no escape
 - A member, role or channel is given by its ID or by a mention of its own kind. A role mention where a member is expected is refused, and the same holds for each other pairing. Plain whole numbers such as case numbers and counts are written without leading zeros. The number inside a duration may keep them, as in `07d`
 - A list with more pages ends with a `Next` line. Send the same command with `next` at the end, such as `!mod list next`, for the following page. The bot remembers each member's place in each list in memory, so after a restart a list starts again from its first page
@@ -74,7 +74,7 @@ A failed publishing recovery call or role recovery call at startup stops the bot
 - Durable worker state, such as greeting and schedule queues, lives in the backend. Workers resume it after a restart
 - Each gateway session asks Fluxer not to send event types the bot does not handle, such as typing notices and presence updates, so they cost no bandwidth or decoding
 - A message update that only adds or changes link previews or other embeds is ignored. The bot remembers the edit time, pin status and flags of the last 10,000 messages it saw, and an update that changes any of them, or concerns an older message, still reaches automod and security
-- Background workers for scheduled posts and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
+- Background workers for events, scheduled posts, birthdays and anniversaries, suggestion cards and level rewards run only when the backend reports due work for their server, so a server without due work causes no backend requests. One dispatcher for the whole bot asks the backend at startup, at once when the backend signals new work, when work the bot's own requests created becomes due and at the next due time the backend names. Without any of these it still asks every two minutes. It asks at most once every three seconds, so new work usually starts within a few seconds. If the backend cannot answer, the dispatcher waits 10 seconds and then twice as long after each failure, up to five minutes. When new work is signalled during such a wait, it tries once early, three seconds after its last try, at most once per wait
 
 ## Command help and permission fixes
 
@@ -387,7 +387,7 @@ its name, and `!verify configure` creates it as `rules` and explains a name clas
 
 Reaction verification is an acknowledgement of the rules. It does not prove that a member is human
 
-A rules panel that has a role or a published message holds back member features such as role grants until a member accepts the rules, even while verification is off
+A rules panel that has a role or a published message holds back member features such as role grants, events and birthday and anniversary consent until a member accepts the rules, even while verification is off
 
 ### Autorole and reservations
 
@@ -540,3 +540,123 @@ XP comes only from human ordinary or reply messages in the configured server tha
 Leveling never stores message text, display names or avatars. It keeps account and message IDs, timestamps and a keyed digest for duplicate detection, retained for ten minutes. Correction and reset audits keep actor, target, XP before and after, reason and time for 180 days
 
 Reward roles are cumulative and use the shared safe-role checks, so NeonFlux needs Manage roles and a role above each reward. Collection itself does not need Manage roles. Awards, corrections, resets and mapping changes mark an account for a reward pass, and a failed role change keeps the account marked for a later pass without blocking other roles. While DEFCON is below 3, which refuses new reward grants, an account that is left unsettled only because the backend refused its role changes, which DEFCON does for additions, is tried again after an hour instead of a minute, and setting DEFCON to 3 makes it due at once or within a minute. A removal refused for another reason while DEFCON is below 3 also waits the hour. Any other failure is tried again after a minute. Turning leveling off keeps existing rewards, while clearing mappings, resets and demotions still remove rewards NeonFlux granted. A server reset hides old scores at once. A rejoining member keeps XP but must earn role ownership again through a new message or `!level reconcile @user`. NeonFlux removes only roles it granted and confirmed, and preserves roles granted any other way
+
+## Events and RSVPs
+
+Events start disabled and use `!event`. Owners and Administrators manage definitions. Current members read published events and RSVP in the event's destination channel, and `!event list` lists them. Attendee lists show members as mentions, and replies never notify anyone. DMs cannot run event commands
+
+Commands name an event by its name, in any letter case. A new event follows this flow, with your own channel, date and zone
+
+```text
+!event create study #channel "Study group" "Bring your questions"
+!event time study 2026-11-01T18:00 Europe/Berlin 60 reject
+!event repeat study weekly 1 4
+!event dates study
+!event module on
+!event publish study
+```
+
+| Command | Behavior |
+| --- | --- |
+| `!event list [next]` | List events in this destination |
+| `!event show <name>` | Read one event |
+| `!event dates <name> [next]` | List the dates with their numbers, 10 per page, shown in each reader's own timezone |
+| `!event attendees <name> <date> [next]` | List attendees and the waitlist, 10 per page |
+| `!event rsvp <name> <date> going\|maybe\|not-going\|none` | Set or clear your RSVP |
+| `!event create <name> #channel "title" ["description"]` | Create a draft event with a name of up to 32 lowercase letters, numbers, underscores or hyphens that no other event of the server uses. The title has up to 256 characters and the description up to 1000, each on one line |
+| `!event time <name> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
+| `!event repeat <name> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
+| `!event title <name> "title" ["description"]` | Change the text |
+| `!event template <name> <template>\|off` | Use a snapshot of the publishing template as it is now |
+| `!event capacity <name> off\|1-500` | Limit Going seats |
+| `!event reminders <name> off\|<minutes> [minutes]` | Set up to two reminder offsets, 1 to 10080 minutes |
+| `!event publish\|cancel <name>` | Publish the card or cancel the event |
+| `!event status [<name> [next]]` | Show the module, or one event's card and reminder outcomes |
+| `!event reconcile <name> [post-number]` | Recheck a known card or reminder message |
+| `!event forget <name> [confirm]` | Remove settled event data in pages |
+| `!event module on\|off` | Turn the module on or off |
+
+Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
+
+Times use an exact local minute and an IANA zone. Repeats allow at most 26 occurrences within 180 days, and wall-clock
+times hold across offset changes. Nonexistent local minutes are rejected, and repeated minutes are rejected unless you
+choose `earlier` or `later`. Once anyone has RSVPed, the calendar cannot change. Cancel the event and create a new one
+instead. Capacity cannot drop below the Going attendance of a date that has not started
+
+Each event has one protected publishing card that follows publishing limits. The card shows the event's first date and
+its number of dates, and `!event show` names the next date that has not ended, or says none are left. Event changes edit
+the card, and RSVPs do not. `!publish` cannot edit or forget event cards. Reminders default to 1440 and 60 minutes
+before start, are skipped if already past due on activation and must send before the event starts. Automatic cards and
+reminders send as NeonFlux and need its channel permissions, the module and publishing switches and a DEFCON level that
+allows them. DEFCON 2 pauses automatic sends and public RSVPs. A reminder that comes due while events or publishing are
+off or DEFCON is below 3 waits without requests and goes out when they allow it again, if its five minutes have not
+passed. Cancellation and disable never delete or edit posted messages, so a cancelled event's card keeps its text, and
+the event's status shows it as cancelled. A send with an unknown result is never repeated, so use `!event status` and
+`!event reconcile` to recover it
+
+A server keeps at most 50 events, 200 occurrences, 1000 RSVPs per occurrence and 50000 RSVPs overall. RSVPs expire 30 days after an occurrence ends or is cancelled, and ended event history after 180 days. No message bodies, member names or avatars are stored
+
+## Birthdays and membership anniversaries
+
+Members opt into public birthday and membership-anniversary posts with `!milestone` in a verified one-to-one DM with NeonFlux. Birthdays take only `MM-DD`, including `02-29`, with no year or age. Anniversaries use the member's actual join time, never a supplied date. The module and both routes start disabled, and shared publishing must also be enabled
+
+```text
+!milestone help
+!milestone me
+!milestone birthday set 02-29 confirm #celebrations
+!milestone anniversary on confirm #celebrations
+!milestone remove [birthday|anniversary]
+```
+
+Consent names the configured public channel as a mention, ID or name. A personal command sent in a server channel gets private instructions and is not stored, but the message itself stays visible. `me` and `remove` work after leaving the server. Staff cannot enroll members or list birthday dates. If the destination changes, members must opt in again
+
+Owners and Administrators configure each route from a publishing template. Configuring in chat uses the template's latest saved version, and later template edits change the route only when it is configured again. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions. `!milestone status` sent in a server channel answers there with `Details sent by DM`
+
+| Command | Behavior |
+| --- | --- |
+| `!milestone status [birthday\|anniversary [next]]` | Show configuration and limits, with the stored post records counted against their limit, or delivery history for one route. Birthday history leaves out due times and why a post skipped a clock change, so it never shows a date. `next` shows the following page |
+| `!milestone configure birthday\|anniversary #channel <IANA zone> HH:mm earlier\|later\|reject template <name>` | Set a route |
+| `!milestone preview birthday\|anniversary` | Preview the post privately |
+| `!milestone enable\|disable\|clear birthday\|anniversary` | Control one route |
+| `!milestone module on\|off` | Turn the module on or off |
+| `!milestone reconcile birthday\|anniversary <post>` | Recheck one known post |
+| `!milestone forget birthday\|anniversary <settled-post> [confirm]` | Drop settled tracking without deleting the post |
+
+Posts go out at the configured local time in the route's zone. February 29 celebrates on February 28 in other years.
+Anniversaries count completed years from one. A late delivery still sends until local midnight, and a missed day does
+not use up that year's birthday. Enrolling skips a celebration already due. Automatic posts send as NeonFlux and need
+its channel permissions, the module and publishing switches and DEFCON 3. A post that comes due at DEFCON 1 or 2 waits
+without requests and sends once DEFCON is set to 3 on its local day. A post that comes due while its route, the module
+or publishing is off also waits without requests, and is skipped at local midnight or, if you turned the switch back on
+first, as before that activation. Leaving the server ends consent. The bot checks consent when a member leaves or
+rejoins, one member after the other without waiting. A check that failed is tried again at the next minute, and the
+members behind it wait until then. It checks again before each post, not on other member updates such as role or
+nickname changes
+
+Removal deletes the enrollment and stored date. Posts already sent stay. A server allows at most 1000 enrolled accounts and 4000 retained deliveries. Settled tracking expires after 30 days, and a body-free record of each delivered year lasts 400 days so re-enrolling cannot repeat it
+
+## Suggestions and voting
+
+Owners and Administrators set up the disabled module with `!suggest configure #channel`, enable it with
+`!suggest enable` and inspect it with `!suggest settings`. `!suggest configure none` clears the channel and turns
+suggestions off. Members use the other commands in the configured destination
+
+| Command | Who | Behavior |
+| --- | --- | --- |
+| `!suggest submit "text"` | Member | Post a suggestion of at most 2000 characters |
+| `!suggest show <number>` | Member | Read text, author, state, counts and card status |
+| `!suggest list [state] [next]` | Member | List up to ten suggestions. `next` shows the following page |
+| `!suggest vote <number> up\|down\|clear` | Member | Set, change or clear your vote |
+| `!suggest mine <number>` | Member | See your own vote |
+| `!suggest withdraw <number> [confirm]` | Author | Withdraw permanently. Without `confirm` it asks first |
+| `!suggest status <number> under-review\|planned\|completed\|declined <reason>` | Staff | Change state with a public reason of at most 500 characters. The reason runs to the end of the command and needs no quotes |
+| `!suggest publication <number>` | Staff | Show card delivery state |
+| `!suggest reconcile\|replace <number> [confirm]` | Staff | Recheck a known card, or replace one confirmed missing |
+| `!suggest forget <number> [confirm]` | Staff | Remove settled closed suggestion data in pages |
+| `!suggest disable` | Staff | Stop submissions, votes and cards and keep data |
+
+Voting uses commands only, and reactions change nothing. Under-review and planned suggestions accept votes. Completed and declined ones close voting and can be reopened with a reason until they expire. Withdrawn suggestions stay closed. Only the latest status reason, actor and time are kept. Self-votes count, and votes stay after the voter leaves. Editing or deleting a command message does not change the recorded text or vote
+
+Cards show author, state, vote totals and the latest reason with mentions suppressed. There is no public voter list, but database administrators can see voter IDs. Card updates are grouped for about five seconds and sent as NeonFlux, under its channel permissions, the module and publishing switches and DEFCON 3. At DEFCON 1 or 2 updates wait without requests and go out after DEFCON is set to 3. A card can lag behind the recorded state. Check `!suggest publication` before recovery. A missing card needs explicit replacement, and `!publish` cannot edit or forget suggestion cards. Forgetting data never deletes posted cards
+
+Limits are 1000 suggestions per server, 1000 voters per suggestion, 10000 vote records per server, 1000 cards waiting for an update or unable to update, and 1000 staff and 10000 member commands a day. Closed suggestions expire after 180 days

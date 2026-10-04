@@ -31,6 +31,8 @@ const context: SchedulesContext = {
         joinedAt: "2026-01-01T00:00:00Z",
         isBot: false,
         timeoutUntil: null,
+        canView: true,
+        canReadHistory: true,
     },
 }
 test("actual schedule adapter sends exact authenticated shared DTOs and rejects another schedule, inconsistent content and storage leaks", async (t) => {

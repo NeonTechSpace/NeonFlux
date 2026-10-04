@@ -45,9 +45,22 @@ import { parseLevelCommand, parseRankCommand, parseLeaderboardCommand } from "./
 import { handleLevelCommand } from "./level-management.ts"
 import { levelCandidate, startLevelCreditWorker } from "./leveling.ts"
 import { startLevelRoleWorker } from "./level-worker.ts"
+import type { EventsStore } from "./event-store.ts"
+import { parseEventCommand, eventCritical, eventPublic } from "./event-command.ts"
+import { handleEventCommand } from "./event-management.ts"
+import { startEventsWorker } from "./event-worker.ts"
 import type { SchedulesStore } from "./schedule-store.ts"
 import { scheduleCritical } from "./schedule-command.ts"
 import { startSchedulesWorker } from "./schedule-worker.ts"
+import type { MilestonesStore } from "./milestone-store.ts"
+import { parseMilestoneCommand } from "./milestone-command.ts"
+import { handleMilestoneCommand } from "./milestone-management.ts"
+import { verifyMilestonePrivateAuthor } from "./milestone-permissions.ts"
+import { startMilestonesWorker } from "./milestone-worker.ts"
+import type { SuggestionsStore } from "./suggestion-store.ts"
+import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./suggestion-command.ts"
+import { handleSuggestionCommand } from "./suggestion-management.ts"
+import { startSuggestionsWorker } from "./suggestion-worker.ts"
 import { configScope, createServerRuntime, type ServerRuntime } from "./server-runtime.ts"
 import { selectServerCommand, validServerId, type DeploymentScope } from "./server-scope.ts"
 import {
@@ -72,7 +85,10 @@ interface BotStores {
     readonly greetings?: GreetingsStore | undefined
     readonly tickets?: TicketStore | undefined
     readonly leveling?: LevelingStore | undefined
+    readonly events?: EventsStore | undefined
     readonly schedules?: SchedulesStore | undefined
+    readonly milestones?: MilestonesStore | undefined
+    readonly suggestions?: SuggestionsStore | undefined
     readonly general?: GeneralSettingsStore | undefined
 }
 
@@ -290,9 +306,24 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
     const tracked = stores.moderation && trackModerationHints(stores.moderation),
         moderation = tracked?.store,
         moderationHints = tracked?.hints
-    const { afk: store, responses, publishing, greetings, tickets, leveling: levels, schedules, general } = stores
+    const {
+        afk: store,
+        responses,
+        publishing,
+        greetings,
+        tickets,
+        leveling: levels,
+        events,
+        schedules,
+        milestones,
+        suggestions,
+        general,
+    } = stores
     const readPrefix = createPrefixReader(general, config.serverId)
+    let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
+    let milestoneWorker: Effect.Success<ReturnType<typeof startMilestonesWorker>> | undefined
     let scheduleWorker: Effect.Success<ReturnType<typeof startSchedulesWorker>> | undefined
+    let eventWorker: Effect.Success<ReturnType<typeof startEventsWorker>> | undefined
     let levelCredits: Effect.Success<ReturnType<typeof startLevelCreditWorker>> | undefined
     let levelRewards: Effect.Success<ReturnType<typeof startLevelRoleWorker>> | undefined
     let greetingWorker: Effect.Success<ReturnType<typeof startGreetingsWorker>> | undefined
@@ -352,6 +383,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                     roleWorker = yield* startRoleReactionWorker(roles, config.serverId, client)
                 }
                 if (greetings) greetingWorker = yield* startGreetingsWorker(greetings, config.serverId, client)
+                if (events && publishing)
+                    wakers.events = (eventWorker = yield* startEventsWorker(
+                        events,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).notify
                 if (schedules && publishing)
                     wakers.schedules = (scheduleWorker = yield* startSchedulesWorker(
                         schedules,
@@ -359,6 +397,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                         config.serverId,
                         client,
                     )).notify
+                if (milestones && publishing)
+                    wakers.milestones = (milestoneWorker = yield* startMilestonesWorker(
+                        milestones,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).notify
+                if (suggestions && publishing)
+                    wakers.suggestions = (suggestionWorker = yield* startSuggestionsWorker(
+                        suggestions,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).wake
                 if (levels) {
                     if (roles)
                         wakers.levels = (levelRewards = yield* startLevelRoleWorker(
@@ -456,24 +508,59 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     ? usage(parseTicketCommand(command.args))
                                     : quotingError("ticket help for examples")
                                 : undefined
+                        const parsedMilestone =
+                            name === "milestone"
+                                ? command
+                                    ? usage(parseMilestoneCommand(command.args))
+                                    : quotingError("milestone help in private")
+                                : undefined
+                        const parsedSuggestion =
+                            name === "suggest"
+                                ? command
+                                    ? usage(parseSuggestionCommand(command.args))
+                                    : quotingError("suggest help")
+                                : undefined
                         const levelName =
                             name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
+                        const eventName = name === "event" ? name : undefined
+                        const parsedEvent = eventName
+                            ? command
+                                ? usage(parseEventCommand(command.args))
+                                : quotingError("event help for examples")
+                            : undefined
                         const privateInvocation = message.guildId !== config.serverId
                         if (privateInvocation) {
                             if (
                                 message.guildId !== undefined ||
-                                !((name === "ticket" && tickets) || (safetyName && moderation))
+                                !(
+                                    (name === "milestone" && milestones) ||
+                                    (name === "ticket" && tickets) ||
+                                    (safetyName && moderation)
+                                )
                             )
                                 return
-                            const verified = yield* name === "ticket"
-                                ? verifyTicketPrivateAuthor(context.client, message.channelId, message.author.id).pipe(
+                            const verified = yield* name === "milestone"
+                                ? verifyMilestonePrivateAuthor(
+                                      context.client,
+                                      message.channelId,
+                                      message.author.id,
+                                  ).pipe(
                                       Effect.as(true),
                                       Effect.catch(() => Effect.succeed(false)),
                                   )
-                                : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(
-                                      Effect.as(true),
-                                      Effect.catch(() => Effect.succeed(false)),
-                                  )
+                                : name === "ticket"
+                                  ? verifyTicketPrivateAuthor(
+                                        context.client,
+                                        message.channelId,
+                                        message.author.id,
+                                    ).pipe(
+                                        Effect.as(true),
+                                        Effect.catch(() => Effect.succeed(false)),
+                                    )
+                                  : verifyPrivateAuthor(context.client, message.channelId, message.author.id).pipe(
+                                        Effect.as(true),
+                                        Effect.catch(() => Effect.succeed(false)),
+                                    )
                             if (!verified) return
                         }
                         let protectionUnknown = false
@@ -518,14 +605,16 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                             // Independent feature handlers apply their own backend authorization and DEFCON policy.
                             // The moderation read still supplies presence and native message protection.
                             const gateClass =
-                                name === "ticket"
+                                name === "ticket" || name === "milestone"
                                     ? "critical"
                                     : safetyName
                                       ? safetyGateClass(safetyName, parsedSafety!)
                                       : publishingCritical ||
                                           roleCritical ||
                                           levelCritical ||
-                                          (parsedGreeting && greetingsCritical(parsedGreeting))
+                                          (parsedGreeting && greetingsCritical(parsedGreeting)) ||
+                                          (parsedEvent && eventCritical(parsedEvent)) ||
+                                          (parsedSuggestion && suggestionCritical(parsedSuggestion))
                                         ? "critical"
                                         : greetingName ||
                                             (roleName && !rolePublic) ||
@@ -533,12 +622,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                             name === "custom" ||
                                             name === "auto" ||
                                             name === "publish" ||
-                                            levelName === "level"
+                                            levelName === "level" ||
+                                            (parsedEvent && !eventPublic(parsedEvent)) ||
+                                            (parsedSuggestion &&
+                                                !("error" in parsedSuggestion) &&
+                                                !suggestionPublic(parsedSuggestion))
                                           ? "staff"
                                           : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
                             // answer reported a raised DEFCON, and after a refusal the hint did not expect
-                            const privileged = !(name === "ticket" || gateClass === "public" || gateClass === "appeal")
+                            const privileged = !(
+                                name === "ticket" ||
+                                name === "milestone" ||
+                                gateClass === "public" ||
+                                gateClass === "appeal"
+                            )
                             const authority = readSafetyAuthority(
                                 context.client,
                                 config.serverId,
@@ -568,14 +666,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                     : admitted.gate
                             const blocked = admitted.blocked
                             yield* applyDefconPresence(context.client, config, gate.defcon)
-                            if ((name !== "ticket" && !gate.allowed) || blocked === true) {
+                            if ((name !== "ticket" && name !== "milestone" && !gate.allowed) || blocked === true) {
                                 if (!privateInvocation && store)
                                     yield* handleAfk(store, config.serverId, context, false, prefix)
                                 return
                             }
                             // A message protection could not judge gets no public command or reply. Leveling collection still runs
                             protectionUnknown = blocked === "unknown" && gateClass === "public"
-                        } else if (privateInvocation && name !== "ticket") return
+                        } else if (privateInvocation && name !== "ticket" && name !== "milestone") return
                         // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                         if (!privateInvocation && levelCredits && config.backend && commandBody === undefined) {
                             const candidate = levelCandidate(message, config.serverId, config.backend.secret)
@@ -613,6 +711,49 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                         }
                                         if (helpAll) {
                                             yield* handleHelpAll(config, prefix, helpAll, context)
+                                            return
+                                        }
+                                        if (name === "suggest") {
+                                            if (suggestions)
+                                                yield* handleSuggestionCommand(
+                                                    suggestions,
+                                                    config,
+                                                    parsedSuggestion!,
+                                                    context,
+                                                    suggestionWorker,
+                                                )
+                                            else
+                                                yield* reply({
+                                                    content: notSetUp("Suggestions"),
+                                                })
+                                            return
+                                        }
+                                        if (name === "milestone") {
+                                            if (milestones)
+                                                yield* handleMilestoneCommand(
+                                                    milestones,
+                                                    publishing,
+                                                    config,
+                                                    parsedMilestone!,
+                                                    context,
+                                                    milestoneWorker,
+                                                )
+                                            return
+                                        }
+                                        if (eventName) {
+                                            if (!events)
+                                                yield* reply({
+                                                    content: notSetUp("Events"),
+                                                })
+                                            else
+                                                yield* handleEventCommand(
+                                                    events,
+                                                    publishing,
+                                                    config,
+                                                    parsedEvent!,
+                                                    context,
+                                                    eventWorker,
+                                                )
                                             return
                                         }
                                         if (levelName) {
@@ -719,6 +860,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                                                     context,
                                                     schedules,
                                                     scheduleWorker,
+                                                    events,
                                                 )
                                             return
                                         }
@@ -801,6 +943,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: (context) =>
                     Effect.gen(function* () {
                         if (context.event.guildId !== config.serverId) return
+                        if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
                         let allowed = true
                         if (moderation) {
@@ -856,6 +999,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
                         if (event.guildId !== config.serverId) return
+                        if (eventWorker) yield* eventWorker.notifyMember(event.userId)
+                        if (milestoneWorker) yield* milestoneWorker.notifyMember(event.userId)
                         if (greetings)
                             yield* observeGreetingMembership(
                                 greetings,
@@ -870,6 +1015,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores) {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
                         if (event.guildId !== config.serverId) return
+                        // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
                         if (greetings)
                             yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(
                                 Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)),

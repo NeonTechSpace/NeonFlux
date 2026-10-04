@@ -61,6 +61,8 @@ const member = (userId: string): SchedulesMemberContext => ({
     roleIds: [],
     isBot: false,
     timeoutUntil: null,
+    canView: true,
+    canReadHistory: true,
 })
 
 // Use the production civil expander, retaining the exact resolved instants in the API request

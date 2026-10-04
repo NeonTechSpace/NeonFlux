@@ -66,6 +66,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Welcome and goodbye | `welcome` | `greeting`, `greetings` | `greetings` |
 | Tickets | `ticket`, `tickets` | `ticket`, `tickets` | `tickets` |
 | Message leveling | `level`, `leveling` | `leveling` | `leveling` |
+| Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
 | Command help and permission fixes | `help`, `permission-fix` | None | None |
 | Server scope | `server-scope`, `server-runtime` | `serverScope`, `serviceGuard` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
